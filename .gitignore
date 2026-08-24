@@ -48,7 +48,7 @@ prisma/*.db
 prisma/*.db-journal
 prisma/*.db-*
 data/
-!.data/.gitkeep
+!data/.gitkeep
 .pgdata/
 
 # exports / dumps locaux
