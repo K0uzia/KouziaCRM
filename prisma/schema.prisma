@@ -1,0 +1,250 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+enum ClientType {
+  B2B
+  B2C
+}
+
+enum InvoiceStatus {
+  DRAFT
+  ISSUED
+  PAID
+  CANCELLED
+}
+
+enum InvoiceDocumentType {
+  INVOICE
+  CREDIT_NOTE
+}
+
+enum PaymentMethod {
+  BANK_TRANSFER
+  CARD
+  CHECK
+  CASH
+  OTHER
+}
+
+enum EmailDirection {
+  INBOUND
+  OUTBOUND
+}
+
+enum UrssafPeriodicity {
+  MONTHLY
+  QUARTERLY
+}
+
+enum UrssafDeclarationStatus {
+  DUE
+  PAID
+  LATE
+}
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  name         String?
+  passwordHash String
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+/// Identité émetteur (seedée depuis l'attestation INPI)
+model CompanySettings {
+  id            String   @id @default(cuid())
+  legalName     String
+  tradeName     String?
+  siren         String
+  siret         String
+  apeCode       String
+  addressLine1  String
+  addressLine2  String?
+  postalCode    String
+  city          String
+  country       String   @default("FRANCE")
+  email         String?
+  phone         String?
+  website       String?
+  vatRegime     String   @default("FRANCHISE_BASE_293B")
+  vatMention    String   @default("TVA non applicable, art. 293 B du CGI")
+  /// Enveloppe cotisations (budget) — 2130 = 21,30 %
+  urssafRateBps Int      @default(2130)
+  /// Enveloppe trésorerie / frais (budget perso, pas légal)
+  treasuryRateBps Int    @default(1420)
+  /// Enveloppe placements / épargne (budget perso)
+  placementRateBps Int   @default(1000)
+  urssafPeriodicity UrssafPeriodicity @default(MONTHLY)
+  /// Jour limite de déclaration dans le mois d'échéance
+  urssafDeadlineDay Int  @default(5)
+  publicodesRegime String @default("AE_BNC_LIBERAL")
+  invoicePrefix String   @default("")
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+/// Historique des déclarations / virements URSSAF (période M ou trimestre)
+model UrssafDeclaration {
+  id              String                   @id @default(cuid())
+  /// Clé unique période : "2026-07" (mensuel) ou "2026-Q2" (trimestriel)
+  periodKey       String                   @unique
+  periodicity     UrssafPeriodicity
+  periodStart     DateTime
+  periodEnd       DateTime
+  deadline        DateTime
+  /// CA encaissé de la période (centimes)
+  encaisseCents   Int
+  /// Montant dû calculé Publicodes (centimes)
+  amountDueCents  Int
+  status          UrssafDeclarationStatus  @default(DUE)
+  paidAt          DateTime?
+  paymentRef      String?
+  notes           String?
+  createdAt       DateTime                 @default(now())
+  updatedAt       DateTime                 @updatedAt
+
+  @@index([status])
+  @@index([deadline])
+}
+
+model Client {
+  id             String        @id @default(cuid())
+  type           ClientType
+  displayName    String
+  firstName      String?
+  lastName       String?
+  companyName    String?
+  emailEncrypted String?
+  phoneEncrypted String?
+  siretEncrypted String?
+  addressLine1   String?
+  addressLine2   String?
+  postalCode     String?
+  city           String?
+  country        String        @default("FRANCE")
+  notes          String?
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+  invoices       Invoice[]
+  emailThreads   EmailThread[]
+
+  @@index([displayName])
+  @@index([type])
+}
+
+model Invoice {
+  id                String              @id @default(cuid())
+  number            String?             @unique
+  documentType      InvoiceDocumentType @default(INVOICE)
+  status            InvoiceStatus       @default(DRAFT)
+  clientId          String
+  client            Client              @relation(fields: [clientId], references: [id])
+  clientSnapshot    Json?
+  issueDate         DateTime?
+  dueDate           DateTime?
+  sequenceYear      Int?
+  sequenceNumber    Int?
+  currency          String              @default("EUR")
+  subtotalCents     Int                 @default(0)
+  totalCents        Int                 @default(0)
+  notes             String?
+  paymentTerms      String?             @default("Paiement à réception")
+  creditedInvoiceId String?
+  creditedInvoice   Invoice?            @relation("CreditNotes", fields: [creditedInvoiceId], references: [id])
+  creditNotes       Invoice[]           @relation("CreditNotes")
+  lines             InvoiceLine[]
+  payments          Payment[]
+  issuedAt          DateTime?
+  createdAt         DateTime            @default(now())
+  updatedAt         DateTime            @updatedAt
+
+  @@unique([sequenceYear, sequenceNumber])
+  @@index([status])
+  @@index([clientId])
+  @@index([issueDate])
+}
+
+model InvoiceLine {
+  id             String  @id @default(cuid())
+  invoiceId      String
+  invoice        Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  position       Int
+  description    String
+  quantity       Decimal
+  unitPriceCents Int
+  lineTotalCents Int
+
+  @@index([invoiceId])
+}
+
+model Payment {
+  id          String        @id @default(cuid())
+  invoiceId   String
+  invoice     Invoice       @relation(fields: [invoiceId], references: [id])
+  amountCents Int
+  paidAt      DateTime
+  method      PaymentMethod @default(BANK_TRANSFER)
+  reference   String?
+  notes       String?
+  createdAt   DateTime      @default(now())
+
+  @@index([invoiceId])
+  @@index([paidAt])
+}
+
+/// Compteur atomique par année — source de vérité de la séquence
+model InvoiceSequence {
+  year       Int @id
+  lastNumber Int @default(0)
+}
+
+model EmailThread {
+  id            String         @id @default(cuid())
+  clientId      String?
+  client        Client?        @relation(fields: [clientId], references: [id])
+  subject       String
+  participants  String         // JSON string[]
+  lastMessageAt DateTime
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+  messages      EmailMessage[]
+
+  @@index([clientId])
+  @@index([lastMessageAt])
+}
+
+model EmailMessage {
+  id          String         @id @default(cuid())
+  threadId    String
+  thread      EmailThread    @relation(fields: [threadId], references: [id], onDelete: Cascade)
+  direction   EmailDirection
+  messageId   String         @unique
+  inReplyTo   String?
+  fromAddress String
+  toAddresses String         // JSON string[]
+  subject     String
+  bodyText    String?
+  bodyHtml    String?
+  receivedAt  DateTime
+  rawHeaders  String?
+  createdAt   DateTime       @default(now())
+
+  @@index([threadId, receivedAt])
+  @@index([fromAddress])
+}
+
+/// Curseur IMAP (UID) par boîte
+model EmailSyncState {
+  id           String   @id @default(cuid())
+  mailbox      String   @unique
+  lastUid      Int      @default(0)
+  lastSyncedAt DateTime?
+  updatedAt    DateTime @updatedAt
+}

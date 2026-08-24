@@ -1,0 +1,9 @@
+node_modules
+.next
+.git
+.pgdata
+data/*.db
+data/*.db-journal
+*.md
+.env
+Export_Portail_Data_Kouziaeff_Du_24-08-2026.pdf
