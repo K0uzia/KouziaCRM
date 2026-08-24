@@ -1,6 +1,6 @@
 # dependencies
-/node_modules
-/.pnp
+node_modules/
+.pnp
 .pnp.*
 .yarn/*
 !.yarn/patches
@@ -9,18 +9,21 @@
 !.yarn/versions
 
 # testing
-/coverage
+coverage/
 
 # next.js
-/.next/
-/out/
+.next/
+out/
+.turbo/
 
 # production
-/build
+build/
+dist/
 
 # misc
 .DS_Store
 *.pem
+*.log
 
 # debug
 npm-debug.log*
@@ -28,9 +31,10 @@ yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
 
-# env files
+# env / secrets
 .env
 .env*.local
+!.env.example
 
 # vercel
 .vercel
@@ -39,9 +43,14 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 
-# prisma / sqlite
+# prisma / sqlite / local data
 prisma/*.db
 prisma/*.db-journal
-data/*.db
-data/*.db-journal
-.pgdata
+prisma/*.db-*
+data/
+!.data/.gitkeep
+.pgdata/
+
+# exports / dumps locaux
+*.pdf
+Export_*.pdf
