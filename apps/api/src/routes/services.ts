@@ -1,0 +1,75 @@
+import type { FastifyPluginAsync } from "fastify";
+import { z } from "zod";
+import { ServiceUnit } from "@prisma/client";
+import { requireAuth } from "@/lib/auth.js";
+import { prisma } from "@/lib/prisma.js";
+import { eurosToCents } from "@/lib/money.js";
+
+const serviceSchema = z.object({
+  name: z.string().min(1),
+  description: z.string().optional().nullable(),
+  unitPriceEuros: z.coerce.number().min(0),
+  unit: z.nativeEnum(ServiceUnit).default(ServiceUnit.FORFAIT),
+  active: z.boolean().optional().default(true),
+});
+
+export const servicesRoutes: FastifyPluginAsync = async (app) => {
+  app.get("/api/services", async (request, reply) => {
+    await requireAuth(request, reply);
+    if (reply.sent) return;
+    const q = request.query as { active?: string };
+    return prisma.service.findMany({
+      where: q.active === "1" ? { active: true } : undefined,
+      orderBy: { name: "asc" },
+    });
+  });
+
+  app.post("/api/services", async (request, reply) => {
+    await requireAuth(request, reply);
+    if (reply.sent) return;
+    const parsed = serviceSchema.safeParse(request.body);
+    if (!parsed.success) {
+      return reply.code(400).send({ error: "Données invalides", details: parsed.error.flatten() });
+    }
+    const created = await prisma.service.create({
+      data: {
+        name: parsed.data.name,
+        description: parsed.data.description ?? null,
+        unitPriceCents: eurosToCents(parsed.data.unitPriceEuros),
+        unit: parsed.data.unit,
+        active: parsed.data.active,
+      },
+    });
+    return reply.code(201).send(created);
+  });
+
+  app.put<{ Params: { id: string } }>("/api/services/:id", async (request, reply) => {
+    await requireAuth(request, reply);
+    if (reply.sent) return;
+    const parsed = serviceSchema.safeParse(request.body);
+    if (!parsed.success) {
+      return reply.code(400).send({ error: "Données invalides", details: parsed.error.flatten() });
+    }
+    const updated = await prisma.service.update({
+      where: { id: request.params.id },
+      data: {
+        name: parsed.data.name,
+        description: parsed.data.description ?? null,
+        unitPriceCents: eurosToCents(parsed.data.unitPriceEuros),
+        unit: parsed.data.unit,
+        active: parsed.data.active,
+      },
+    });
+    return updated;
+  });
+
+  app.delete<{ Params: { id: string } }>("/api/services/:id", async (request, reply) => {
+    await requireAuth(request, reply);
+    if (reply.sent) return;
+    await prisma.service.update({
+      where: { id: request.params.id },
+      data: { active: false },
+    });
+    return { ok: true };
+  });
+};

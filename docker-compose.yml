@@ -8,6 +8,11 @@ services:
     env_file: .env
     environment:
       DATABASE_URL: file:/app/data/kouziacrm.db
+      API_PORT: "3000"
+      WEB_DIST: /app/apps/web/dist
+      WEB_ORIGIN: ${WEB_ORIGIN:-http://localhost:3000}
+      COOKIE_SECURE: ${COOKIE_SECURE:-false}
+      NODE_ENV: production
     volumes:
       - ./data:/app/data
       - ./.env:/app/.env:ro
@@ -16,7 +21,7 @@ services:
     build: .
     container_name: kouziacrm-worker
     restart: unless-stopped
-    command: ["npx", "tsx", "--env-file=.env", "scripts/worker.ts"]
+    command: ["npx", "tsx", "--env-file=.env", "--tsconfig", "apps/api/tsconfig.json", "scripts/worker.ts"]
     env_file: .env
     environment:
       DATABASE_URL: file:/app/data/kouziacrm.db

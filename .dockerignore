@@ -1,9 +1,11 @@
 node_modules
-.next
 .git
 .pgdata
 data/*.db
 data/*.db-journal
+data/*.db-wal
+data/*.db-shm
 *.md
 .env
-Export_Portail_Data_Kouziaeff_Du_24-08-2026.pdf
+apps/web/dist
+.cursor

@@ -22,6 +22,22 @@ enum InvoiceStatus {
 enum InvoiceDocumentType {
   INVOICE
   CREDIT_NOTE
+  QUOTE
+}
+
+/// Nature métier de la facture (autonome légalement ; le devis est le pivot marché)
+enum InvoiceType {
+  SIMPLE
+  ACOMPTE
+  SOLDE
+}
+
+enum QuoteStatus {
+  DRAFT
+  SENT
+  ACCEPTED
+  REJECTED
+  EXPIRED
 }
 
 enum PaymentMethod {
@@ -48,13 +64,53 @@ enum UrssafDeclarationStatus {
   LATE
 }
 
+enum ObligationType {
+  URSSAF_DECLARATION
+  CFE_PAYMENT
+  CFE_INITIAL_DECLARATION
+  INCOME_TAX_DECLARATION
+  ACTIVITY_QUESTIONNAIRE
+  ANNUAL_MISC
+}
+
+enum ObligationStatus {
+  PENDING
+  DONE
+  LATE
+}
+
+enum ServiceUnit {
+  HEURE
+  JOUR
+  FORFAIT
+}
+
+enum MilestoneStatus {
+  PENDING
+  INVOICED
+  PAID
+}
+
 model User {
-  id           String   @id @default(cuid())
-  email        String   @unique
+  id           String    @id @default(cuid())
+  email        String    @unique
   name         String?
   passwordHash String
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  sessions     Session[]
+}
+
+/// Session serveur (cookie httpOnly opaque)
+model Session {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@index([expiresAt])
 }
 
 /// Identité émetteur (seedée depuis l'attestation INPI)
@@ -75,19 +131,144 @@ model CompanySettings {
   website       String?
   vatRegime     String   @default("FRANCHISE_BASE_293B")
   vatMention    String   @default("TVA non applicable, art. 293 B du CGI")
-  /// Enveloppe cotisations (budget) — 2130 = 21,30 %
+  /// Enveloppe cotisations (budget) - 2130 = 21,30 %
   urssafRateBps Int      @default(2130)
   /// Enveloppe trésorerie / frais (budget perso, pas légal)
   treasuryRateBps Int    @default(1420)
   /// Enveloppe placements / épargne (budget perso)
   placementRateBps Int   @default(1000)
   urssafPeriodicity UrssafPeriodicity @default(MONTHLY)
-  /// Jour limite de déclaration dans le mois d'échéance
-  urssafDeadlineDay Int  @default(5)
+  /// Jour limite URSSAF (légal AE : 15 du mois suivant) - conservé pour compat
+  urssafDeadlineDay Int  @default(15)
   publicodesRegime String @default("AE_BNC_LIBERAL")
   invoicePrefix String   @default("")
+  /// Templates de numérotation : {prefix}, {year}, {counter}
+  invoiceNumberTemplate    String @default("F-{year}-{counter}")
+  quoteNumberTemplate      String @default("D-{year}-{counter}")
+  creditNoteNumberTemplate String @default("A-{year}-{counter}")
+  /// Largeur du compteur (padding), défaut 4 → 0001
+  numberCounterWidth       Int    @default(4)
+  /// Reprise legacy : JSON { "FACTURE:2026": 7 } = lastValue initial avant incrément
+  numberingLegacyStarts    Json?
+  /// @deprecated préférer LegalClause - conservé en fallback
+  paymentConditions String @default("Paiement à réception")
+  /// @deprecated préférer LegalClause
+  latePenaltiesText String @default("En cas de retard de paiement, une pénalité égale à 3 fois le taux d'intérêt légal sera due, ainsi qu'une indemnité forfaitaire de 40 € pour frais de recouvrement.")
+  /// @deprecated préférer LegalClause
+  legalMentions String?
+  /// @deprecated préférer LegalClause
+  suspensionClause String @default("En cas de non-paiement d'une échéance, les prestations peuvent être suspendues jusqu'à régularisation.")
+  /// Jours après émission avant 1re relance devis
+  reminderQuoteDays Int @default(7)
+  /// Jours après échéance avant 1re relance facture
+  reminderInvoiceDays Int @default(7)
+  /// Afficher les montants sur le suivi public client
+  publicTrackingShowAmounts Boolean @default(false)
+  /// Date de création de l'entreprise (INPI) pour délais initiaux
+  businessStartDate DateTime?
+  /// Montant CFE par défaut (centimes), saisi à réception de l'avis
+  cfeAmountCents Int @default(25000)
+  /// Facture des particuliers (médiation conso)
+  b2cActivity Boolean @default(false)
+  /// Rappel déclaration revenus : mois (1-12), défaut avril
+  incomeTaxReminderMonth Int @default(4)
+  /// Rappel déclaration revenus : jour, défaut 15
+  incomeTaxReminderDay Int @default(15)
+  /// Liens officiels (JSON) : urssafDeclaration, impotsPro, impotsParticulier
+  officialLinks Json?
+  /// Lien fiche entreprise data.inpi.fr
+  inpiUrl String?
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
+}
+
+enum LegalClauseKind {
+  VAT
+  PAYMENT
+  PENALTY
+  SUSPENSION
+  CUSTOM
+}
+
+/// Conditions / mentions légales gérables (comme le catalogue prestations)
+model LegalClause {
+  id        String          @id @default(cuid())
+  kind      LegalClauseKind @default(CUSTOM)
+  title     String
+  body      String
+  /// Clause légale obligatoire (non supprimable)
+  required  Boolean         @default(false)
+  active    Boolean         @default(true)
+  position  Int             @default(0)
+  createdAt DateTime        @default(now())
+  updatedAt DateTime        @updatedAt
+
+  @@index([active, position])
+}
+
+/// Obligation administrative générique (URSSAF, CFE, impôts, etc.)
+model Obligation {
+  id             String           @id @default(cuid())
+  type           ObligationType
+  /// Clé période : "2026-07", "2026-Q2", "2026", "ONCE"
+  period         String
+  dueDate        DateTime
+  status         ObligationStatus @default(PENDING)
+  completedAt    DateTime?
+  /// Montant dû en centimes (nullable si inconnu)
+  amountCents    Int?
+  notes          String?
+  label          String
+  /// Justificatif PDF téléversé (chemin relatif data/uploads/…)
+  attachmentPath String?
+  attachmentName String?
+  attachmentMime String?
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+
+  @@unique([type, period])
+  @@index([status])
+  @@index([dueDate])
+  @@index([type])
+  @@index([completedAt])
+}
+
+/// Checklist démarches post-création (une seule ligne)
+model StartupChecklist {
+  id                    String   @id @default(cuid())
+  urssafAccount         Boolean  @default(false)
+  impotsProAccount      Boolean  @default(false)
+  activityQuestionnaire Boolean  @default(false)
+  cfeInitialDeclaration Boolean  @default(false)
+  rcpInsurance          Boolean  @default(false)
+  mediationChecked      Boolean  @default(false)
+  dedicatedBankAccount  Boolean  @default(false)
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+}
+
+/// Compteur nommé (ex. name=client pour CLI-0001) - hors séries documents
+model NamedCounter {
+  name      String @id
+  lastValue Int    @default(0)
+}
+
+/// Séries légales de numérotation documents (art. 242 nonies CGI)
+enum NumberingDocumentType {
+  FACTURE
+  DEVIS
+  AVOIR
+}
+
+/// Compteur atomique par (type document, exercice)
+model Counter {
+  id           String                @id @default(cuid())
+  documentType NumberingDocumentType
+  year         Int
+  lastValue    Int                   @default(0)
+
+  @@unique([documentType, year])
+  @@index([documentType])
 }
 
 /// Historique des déclarations / virements URSSAF (période M ou trimestre)
@@ -116,6 +297,10 @@ model UrssafDeclaration {
 
 model Client {
   id             String        @id @default(cuid())
+  /// Numéro public CLI-0001
+  clientNumber   String?       @unique
+  /// Hash argon2id du code d'accès suivi public
+  accessCodeHash String?
   type           ClientType
   displayName    String
   firstName      String?
@@ -139,36 +324,101 @@ model Client {
   @@index([type])
 }
 
+model Service {
+  id              String      @id @default(cuid())
+  name            String
+  description     String?
+  unitPriceCents  Int
+  unit            ServiceUnit @default(FORFAIT)
+  active          Boolean     @default(true)
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+
+  @@index([active])
+  @@index([name])
+}
+
 model Invoice {
   id                String              @id @default(cuid())
+  /// Numéro légal (documentNumber) : null en brouillon, unique et immuable une fois émis
   number            String?             @unique
   documentType      InvoiceDocumentType @default(INVOICE)
+  /// SIMPLE | ACOMPTE | SOLDE (chaque facture reste autonome)
+  invoiceType       InvoiceType         @default(SIMPLE)
   status            InvoiceStatus       @default(DRAFT)
+  /// Statut métier devis (null pour factures / avoirs)
+  quoteStatus       QuoteStatus?
   clientId          String
   client            Client              @relation(fields: [clientId], references: [id])
   clientSnapshot    Json?
   issueDate         DateTime?
   dueDate           DateTime?
+  validUntil        DateTime?
   sequenceYear      Int?
   sequenceNumber    Int?
   currency          String              @default("EUR")
   subtotalCents     Int                 @default(0)
   totalCents        Int                 @default(0)
+  /// Total du marché (devis) figé à l'émission d'un acompte/solde
+  marketTotalCents  Int?
   notes             String?
   paymentTerms      String?             @default("Paiement à réception")
+  /// Facture d'origine pour un avoir (originalInvoiceId)
   creditedInvoiceId String?
   creditedInvoice   Invoice?            @relation("CreditNotes", fields: [creditedInvoiceId], references: [id])
   creditNotes       Invoice[]           @relation("CreditNotes")
+  /// Pivot marché : devis commun (nullable si facture hors marché)
+  quoteId           String?
+  quote             Invoice?            @relation("MarketInvoices", fields: [quoteId], references: [id])
+  marketInvoices    Invoice[]           @relation("MarketInvoices")
+  /// @deprecated préférer quoteId - conservé pour compat conversions
+  sourceQuoteId     String?
+  sourceQuote       Invoice?            @relation("QuoteConversions", fields: [sourceQuoteId], references: [id])
+  convertedInvoices Invoice[]           @relation("QuoteConversions")
+  /// Jalon d'origine (FK côté facture, sync avec PaymentMilestone.invoiceId)
+  milestoneId       String?             @unique
+  sourceMilestone   PaymentMilestone?   @relation("MilestoneInvoice", fields: [milestoneId], references: [id])
   lines             InvoiceLine[]
   payments          Payment[]
+  milestones        PaymentMilestone[]  @relation("QuoteMilestones")
+  lastReminderAt    DateTime?
+  reminderCount     Int                 @default(0)
+  nextReminderAt    DateTime?
   issuedAt          DateTime?
   createdAt         DateTime            @default(now())
   updatedAt         DateTime            @updatedAt
 
-  @@unique([sequenceYear, sequenceNumber])
+  @@unique([sequenceYear, sequenceNumber, documentType])
   @@index([status])
   @@index([clientId])
   @@index([issueDate])
+  @@index([documentType])
+  @@index([invoiceType])
+  @@index([quoteId])
+  @@index([quoteStatus])
+  @@index([nextReminderAt])
+}
+
+model PaymentMilestone {
+  id              String          @id @default(cuid())
+  quoteId         String
+  quote           Invoice         @relation("QuoteMilestones", fields: [quoteId], references: [id], onDelete: Cascade)
+  position        Int
+  label           String
+  percentBps      Int
+  amountCents     Int
+  triggerText     String
+  status          MilestoneStatus @default(PENDING)
+  /// Facture générée pour ce jalon (dénormalisé, sync avec Invoice.milestoneId)
+  invoiceId       String?
+  /// Facture d'acompte/solde générée (lien 1-1 via Invoice.milestoneId)
+  generatedInvoice Invoice?       @relation("MilestoneInvoice")
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+
+  @@index([quoteId])
+  @@index([status])
+  @@index([invoiceId])
 }
 
 model InvoiceLine {
@@ -197,12 +447,6 @@ model Payment {
 
   @@index([invoiceId])
   @@index([paidAt])
-}
-
-/// Compteur atomique par année — source de vérité de la séquence
-model InvoiceSequence {
-  year       Int @id
-  lastNumber Int @default(0)
 }
 
 model EmailThread {
