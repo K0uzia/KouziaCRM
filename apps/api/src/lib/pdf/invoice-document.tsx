@@ -72,6 +72,8 @@ export type InvoicePdfData = {
     notes: string | null;
     subtotalCents: number;
     totalCents: number;
+    discountType?: "NONE" | "PERCENT" | "FIXED";
+    discountValue?: number;
     creditedInvoiceNumber: string | null;
     creditedInvoiceIssueDate?: Date | null;
     refundMethod?: "BANK_TRANSFER" | "DEDUCT_FROM_BALANCE" | "OTHER" | null;
@@ -103,6 +105,8 @@ export type InvoicePdfData = {
       quantity: number;
       unitPriceCents: number;
       lineTotalCents: number;
+      isSubscription?: boolean;
+      billingDay?: number | null;
     }>;
     legalClauses?: Array<{ title: string; body: string }>;
   };
@@ -224,7 +228,17 @@ export function InvoiceDocument({ company, client, invoice }: InvoicePdfData) {
           </View>
           {invoice.lines.map((line, i) => (
             <View key={i} style={styles.tr}>
-              <Text style={styles.colDesc}>{line.description}</Text>
+              <View style={styles.colDesc}>
+                <Text>{line.description}</Text>
+                {line.isSubscription ? (
+                  <Text style={{ marginTop: 2, fontSize: 8, color: "#5a6f65" }}>
+                    Abonnement mensuel, facturé chaque mois
+                    {line.billingDay ? ` le ${line.billingDay}` : ""}
+                    {" : "}
+                    {fmtMoney(line.unitPriceCents)} HT. Ce document inclut la 1re échéance.
+                  </Text>
+                ) : null}
+              </View>
               <Text style={styles.colQty}>{line.quantity}</Text>
               <Text style={styles.colPrice}>{fmtMoney(line.unitPriceCents)}</Text>
               <Text style={styles.colTotal}>{fmtMoney(line.lineTotalCents)}</Text>
@@ -233,11 +247,60 @@ export function InvoiceDocument({ company, client, invoice }: InvoicePdfData) {
         </View>
 
         <View style={styles.totals}>
+          {invoice.discountType &&
+          invoice.discountType !== "NONE" &&
+          invoice.subtotalCents !== invoice.totalCents ? (
+            <>
+              <View style={styles.totalLine}>
+                <Text>Sous-total HT</Text>
+                <Text>{fmtMoney(invoice.subtotalCents)}</Text>
+              </View>
+              <View style={styles.totalLine}>
+                <Text>
+                  Remise
+                  {invoice.discountType === "PERCENT"
+                    ? ` (${((invoice.discountValue ?? 0) / 100).toFixed(2)} %)`
+                    : ""}
+                </Text>
+                <Text>
+                  −
+                  {fmtMoney(
+                    Math.max(0, invoice.subtotalCents - invoice.totalCents),
+                  )}
+                </Text>
+              </View>
+            </>
+          ) : null}
           <View style={styles.totalLine}>
             <Text>Total TTC (= HT, franchise TVA)</Text>
             <Text style={{ fontFamily: "Helvetica-Bold" }}>{fmtMoney(invoice.totalCents)}</Text>
           </View>
         </View>
+
+        {invoice.lines.some((l) => l.isSubscription) ? (
+          <View
+            style={{
+              marginTop: 14,
+              padding: 8,
+              borderWidth: 1,
+              borderColor: "#cfdad3",
+              backgroundColor: "#f4f7f5",
+            }}
+          >
+            <Text style={styles.h2}>Engagement d&apos;abonnement mensuel</Text>
+            {invoice.lines
+              .filter((l) => l.isSubscription)
+              .map((l, i) => (
+                <Text key={i} style={{ marginTop: 4, lineHeight: 1.4 }}>
+                  {l.description} : {fmtMoney(l.unitPriceCents)} HT facturés automatiquement
+                  chaque mois
+                  {l.billingDay ? ` le ${l.billingDay}` : ""}
+                  . Le total de ce document inclut la 1re échéance ; les échéances suivantes
+                  feront l&apos;objet de factures séparées.
+                </Text>
+              ))}
+          </View>
+        ) : null}
 
         {isQuote && invoice.milestones && invoice.milestones.length > 0 ? (
           <View style={{ marginTop: 20 }}>

@@ -272,6 +272,17 @@ export const invoicesRoutes: FastifyPluginAsync = async (app) => {
         lines: { orderBy: { position: "asc" } },
         client: true,
         payments: { orderBy: { paidAt: "desc" } },
+        bankTransactions: {
+          orderBy: { bookedAt: "desc" },
+          select: {
+            id: true,
+            bookedAt: true,
+            amountCents: true,
+            counterpartyName: true,
+            reference: true,
+            status: true,
+          },
+        },
         creditedInvoice: true,
         creditNotes: true,
         quote: { select: { id: true, number: true, issueDate: true } },
@@ -282,6 +293,10 @@ export const invoicesRoutes: FastifyPluginAsync = async (app) => {
     return {
       ...serializeInvoice(invoice),
       client: serializeClient(invoice.client),
+      bankTransactions: invoice.bankTransactions.map((t) => ({
+        ...t,
+        bookedAt: t.bookedAt.toISOString(),
+      })),
     };
   });
 

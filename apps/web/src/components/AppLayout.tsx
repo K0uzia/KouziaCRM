@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import { NavLink, Outlet } from "react-router-dom";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import {
@@ -14,8 +15,11 @@ import {
   faBook,
   faClipboardCheck,
   faRepeat,
+  faMagnifyingGlass,
+  faLandmark,
 } from "@fortawesome/free-solid-svg-icons";
 import { useAuth } from "@/lib/auth";
+import { CommandPalette } from "@/components/CommandPalette";
 
 const links = [
   { to: "/", label: "Tableau de bord", icon: faChartLine, end: true },
@@ -27,13 +31,26 @@ const links = [
   { to: "/payments", label: "Paiements", icon: faMoneyBillWave },
   { to: "/receipts", label: "Recettes", icon: faBook },
   { to: "/obligations", label: "Obligations", icon: faClipboardCheck },
-  { to: "/banque", label: "URSSAF", icon: faBuildingColumns },
+  { to: "/banque", label: "Banque", icon: faBuildingColumns },
+  { to: "/urssaf", label: "URSSAF", icon: faLandmark },
   { to: "/inbox", label: "Emails", icon: faInbox },
   { to: "/settings", label: "Paramètres", icon: faGear },
 ];
 
 export function AppLayout() {
   const { logout, user } = useAuth();
+  const [paletteOpen, setPaletteOpen] = useState(false);
+
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        setPaletteOpen((v) => !v);
+      }
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
 
   return (
     <div className="flex min-h-screen bg-[var(--bg)]">
@@ -42,7 +59,7 @@ export function AppLayout() {
           <p className="text-lg font-semibold tracking-tight text-white">Kouzia</p>
           <p className="mt-0.5 text-xs text-white/45">CRM & facturation</p>
         </div>
-        <nav className="flex flex-1 flex-col gap-0.5 overflow-y-auto p-3">
+        <nav className="no-scrollbar flex flex-1 flex-col gap-0.5 overflow-y-auto p-3">
           {links.map(({ to, label, icon, end }) => (
             <NavLink
               key={to}
@@ -62,6 +79,19 @@ export function AppLayout() {
           ))}
         </nav>
         <div className="border-t border-white/10 p-3">
+          <button
+            type="button"
+            onClick={() => setPaletteOpen(true)}
+            className="mb-2 flex w-full items-center justify-between gap-2 rounded-lg bg-white/5 px-3 py-2 text-xs text-white/55 hover:bg-white/10 hover:text-white/80"
+          >
+            <span className="flex items-center gap-2">
+              <FontAwesomeIcon icon={faMagnifyingGlass} className="h-3.5 w-3.5" />
+              Rechercher
+            </span>
+            <kbd className="rounded bg-white/10 px-1.5 py-0.5 font-mono text-[10px] text-white/60">
+              ⌘K
+            </kbd>
+          </button>
           <p className="mb-2 truncate px-3 text-xs text-white/40">{user?.email}</p>
           <button
             type="button"
@@ -78,6 +108,7 @@ export function AppLayout() {
           <Outlet />
         </div>
       </main>
+      <CommandPalette open={paletteOpen} onOpenChange={setPaletteOpen} />
     </div>
   );
 }

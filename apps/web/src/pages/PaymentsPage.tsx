@@ -3,9 +3,10 @@ import { Link } from "react-router-dom";
 import { toast } from "sonner";
 import { api, formatEUR } from "@/lib/api";
 import { formatDate, paymentMethodLabel } from "@/lib/format";
-import { Badge, Card, EmptyState, PageHeader } from "@/components/ui/Card";
+import { Badge, Card, PageHeader } from "@/components/ui/Card";
 import { Modal } from "@/components/ui/Modal";
 import { Button } from "@/components/ui/Button";
+import { DataTable, type TableColumn } from "@/components/ui/DataTable";
 import { PaymentForm } from "@/components/payments/PaymentForm";
 import { Select } from "@/components/ui/Field";
 
@@ -69,6 +70,59 @@ export function PaymentsPage() {
     })
     .reduce((s, p) => s + p.amountCents, 0);
 
+  const columns: TableColumn<Payment>[] = [
+    {
+      name: "Date",
+      selector: (p) => p.paidAt,
+      sortable: true,
+      width: "130px",
+      cell: (p) => formatDate(p.paidAt),
+    },
+    {
+      name: "Facture",
+      selector: (p) => p.invoice.number ?? "",
+      sortable: true,
+      width: "150px",
+      cell: (p) => (
+        <Link
+          to={`/invoices/${p.invoice.id}`}
+          className="font-medium text-[var(--primary)] hover:underline"
+        >
+          {p.invoice.number ?? "-"}
+        </Link>
+      ),
+    },
+    {
+      name: "Client",
+      selector: (p) => p.invoice.client.displayName,
+      sortable: true,
+      grow: 2,
+      minWidth: "180px",
+      cell: (p) => (
+        <span className="block truncate" title={p.invoice.client.displayName}>
+          {p.invoice.client.displayName}
+        </span>
+      ),
+    },
+    {
+      name: "Mode",
+      selector: (p) => p.method,
+      sortable: true,
+      width: "150px",
+      cell: (p) => <Badge>{paymentMethodLabel[p.method] ?? p.method}</Badge>,
+    },
+    {
+      name: "Montant",
+      selector: (p) => p.amountCents,
+      sortable: true,
+      width: "140px",
+      right: true,
+      cell: (p) => (
+        <span className="tabular-nums font-medium">{formatEUR(p.amountCents)}</span>
+      ),
+    },
+  ];
+
   return (
     <div>
       <PageHeader
@@ -102,48 +156,16 @@ export function PaymentsPage() {
         </Card>
       </div>
 
-      <Card>
-        {payments.length === 0 ? (
-          <EmptyState
-            title="Aucun paiement"
-            hint="Enregistrez un encaissement depuis une facture émise."
-          />
-        ) : (
-          <table className="w-full text-left text-sm">
-            <thead className="border-b border-[var(--border)] bg-[var(--bg)]/80 text-[var(--muted)]">
-              <tr>
-                <th className="px-4 py-3 font-medium">Date</th>
-                <th className="px-4 py-3 font-medium">Facture</th>
-                <th className="px-4 py-3 font-medium">Client</th>
-                <th className="px-4 py-3 font-medium">Mode</th>
-                <th className="px-4 py-3 text-right font-medium">Montant</th>
-              </tr>
-            </thead>
-            <tbody>
-              {payments.map((p) => (
-                <tr key={p.id} className="border-t border-[var(--border)]">
-                  <td className="px-4 py-3">{formatDate(p.paidAt)}</td>
-                  <td className="px-4 py-3">
-                    <Link
-                      to={`/invoices/${p.invoice.id}`}
-                      className="font-medium text-[var(--primary)] hover:underline"
-                    >
-                      {p.invoice.number ?? " - "}
-                    </Link>
-                  </td>
-                  <td className="px-4 py-3">{p.invoice.client.displayName}</td>
-                  <td className="px-4 py-3">
-                    <Badge>{paymentMethodLabel[p.method] ?? p.method}</Badge>
-                  </td>
-                  <td className="px-4 py-3 text-right tabular-nums font-medium">
-                    {formatEUR(p.amountCents)}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-      </Card>
+      <DataTable
+        columns={columns}
+        data={payments}
+        pagination
+        perPage={25}
+        searchable={["invoice.number", "invoice.client.displayName", "method"]}
+        searchPlaceholder="Rechercher un paiement…"
+        emptyTitle="Aucun paiement"
+        emptyHint="Enregistrez un encaissement depuis une facture émise."
+      />
 
       <Modal
         open={open}
@@ -156,7 +178,7 @@ export function PaymentsPage() {
           <Select value={invoiceId} onChange={(e) => setInvoiceId(e.target.value)}>
             {openInvoices.map((i) => (
               <option key={i.id} value={i.id}>
-                {i.number ?? "Sans n°"}  -  {i.client.displayName} (reste{" "}
+                {i.number ?? "Sans n°"} : {i.client.displayName} (reste{" "}
                 {formatEUR(i.remaining)})
               </option>
             ))}

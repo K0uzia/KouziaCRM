@@ -1,10 +1,7 @@
 import { InvoiceDocumentType, InvoiceStatus, InvoiceType, SubscriptionStatus } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
-import { decryptOptional } from "@/lib/crypto";
 import { issueInvoice } from "@/lib/invoices/transitions";
-import { isSmtpConfigured, sendEmail } from "@/lib/email/smtp";
-import { renderInvoicePdf, type InvoicePdfData } from "@/lib/pdf/render";
-import { getCompanySettings } from "@/lib/company";
+import { sendDocumentPdf } from "@/lib/email/send-document-pdf";
 
 export type CreateSubscriptionInput = {
   clientId: string;
@@ -14,6 +11,8 @@ export type CreateSubscriptionInput = {
   billingDay: number;
   startDate: Date;
   endDate?: Date | null;
+  /** Si true : 1ʳᵉ échéance déjà facturée (devis) → nextInvoiceAt = mois suivant */
+  skipCurrentPeriod?: boolean;
 };
 
 export class SubscriptionError extends Error {}
@@ -59,7 +58,19 @@ export async function createSubscription(data: CreateSubscriptionInput) {
   if (!service) throw new SubscriptionError("Service introuvable");
 
   const startDate = data.startDate ?? new Date();
-  const nextInvoiceAt = computeNextInvoiceAt(data.billingDay, startDate);
+  let nextInvoiceAt = computeNextInvoiceAt(data.billingDay, startDate);
+  if (data.skipCurrentPeriod) {
+    // Mois suivant au billingDay (1ʳᵉ échéance déjà dans le devis/facture)
+    nextInvoiceAt = new Date(
+      startDate.getFullYear(),
+      startDate.getMonth() + 1,
+      data.billingDay,
+      0,
+      0,
+      0,
+      0,
+    );
+  }
 
   return prisma.subscription.create({
     data: {
@@ -218,7 +229,7 @@ export async function generateDueSubscriptionInvoices(now: Date = new Date()): P
         status: InvoiceStatus.DRAFT,
         clientId: sub.clientId,
         subscriptionId: sub.id,
-        paymentTerms: "Prélèvement mensuel — paiement à réception",
+        paymentTerms: "Prélèvement mensuel : paiement à réception",
         subtotalCents: sub.amountCents,
         totalCents: sub.amountCents,
         lines: {
@@ -244,69 +255,12 @@ export async function generateDueSubscriptionInvoices(now: Date = new Date()): P
       },
     });
 
-    // Envoi PDF au client si SMTP configuré et email connu.
-    await trySendInvoicePdf(issued.id);
+    await sendDocumentPdf(issued.id);
 
     generated += 1;
   }
 
   return generated;
-}
-
-async function trySendInvoicePdf(invoiceId: string): Promise<void> {
-  if (!isSmtpConfigured()) return;
-  try {
-    const [company, invoice] = await Promise.all([
-      getCompanySettings(),
-      prisma.invoice.findUnique({
-        where: { id: invoiceId },
-        include: {
-          client: true,
-          lines: { orderBy: { position: "asc" } },
-          legalClauses: true,
-        },
-      }),
-    ]);
-    if (!invoice) return;
-    const email = decryptOptional(invoice.client.emailEncrypted);
-    if (!email) return;
-
-    const snapshot = (invoice.clientSnapshot ?? {}) as InvoicePdfData["client"];
-    const data: InvoicePdfData = {
-      company,
-      client: snapshot,
-      invoice: {
-        number: invoice.number ?? "",
-        documentType: invoice.documentType,
-        invoiceType: invoice.invoiceType,
-        issueDate: invoice.issueDate ?? new Date(),
-        dueDate: invoice.dueDate,
-        paymentTerms: invoice.paymentTerms,
-        notes: invoice.notes,
-        subtotalCents: invoice.subtotalCents,
-        totalCents: invoice.totalCents,
-        creditedInvoiceNumber: null,
-        lines: invoice.lines.map((l: { description: string; quantity: number; unitPriceCents: number; lineTotalCents: number }) => ({
-          description: l.description,
-          quantity: l.quantity,
-          unitPriceCents: l.unitPriceCents,
-          lineTotalCents: l.lineTotalCents,
-        })),
-        legalClauses: invoice.legalClauses.map((c: { title: string; body: string }) => ({ title: c.title, body: c.body })),
-      },
-    };
-    const pdf = await renderInvoicePdf(data);
-    await sendEmail({
-      to: email,
-      subject: `Facture ${invoice.number} — ${company.tradeName ?? company.legalName}`,
-      text: `Bonjour,\n\nVeuillez trouver ci-joint votre facture ${invoice.number}.\n\n${company.legalName}`,
-      attachments: [
-        { filename: `${invoice.number ?? "facture"}.pdf`, content: pdf, contentType: "application/pdf" },
-      ],
-    });
-  } catch (err) {
-    console.error(`[subscriptions] envoi PDF échoué pour ${invoiceId}`, err);
-  }
 }
 
 export type MrrSnapshot = {

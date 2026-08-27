@@ -1,4 +1,5 @@
 import type { FastifyPluginAsync } from "fastify";
+import { z } from "zod";
 import { prisma } from "@/lib/prisma.js";
 import {
   clientInputSchema,
@@ -8,7 +9,8 @@ import {
   toPrismaClientData,
 } from "@/lib/clients.js";
 import { requireAuth } from "@/lib/auth.js";
-import { generateAccessCode } from "@/lib/clients/numbering.js";
+import { issueAndSendAccessCode } from "@/lib/clients/access-email.js";
+import { sendOnboardingInvite } from "@/lib/clients/onboarding.js";
 
 export const clientsRoutes: FastifyPluginAsync = async (app) => {
   app.get("/api/clients", async (request, reply) => {
@@ -24,8 +26,9 @@ export const clientsRoutes: FastifyPluginAsync = async (app) => {
     if (!parsed.success) {
       return reply.code(400).send({ error: parsed.error.flatten() });
     }
-    const { client, accessCode } = await createClientWithAccess(parsed.data);
-    return reply.code(201).send({ ...client, accessCode });
+    const { client } = await createClientWithAccess(parsed.data);
+    // Pas de code d'accès ici : onboarding auto ou bouton « Générer et envoyer » sur la fiche
+    return reply.code(201).send(client);
   });
 
   app.get<{ Params: { id: string } }>("/api/clients/:id", async (request, reply) => {
@@ -55,14 +58,61 @@ export const clientsRoutes: FastifyPluginAsync = async (app) => {
     async (request, reply) => {
       await requireAuth(request, reply);
       if (reply.sent) return;
-      const access = await generateAccessCode();
-      await prisma.client.update({
+      const existing = await prisma.client.findUnique({
         where: { id: request.params.id },
-        data: { accessCodeHash: access.hash },
       });
-      return { accessCode: access.code };
+      if (!existing) return reply.code(404).send({ error: "Introuvable" });
+
+      try {
+        const result = await issueAndSendAccessCode(existing.id);
+        return result;
+      } catch (e) {
+        return reply
+          .code(400)
+          .send({ error: e instanceof Error ? e.message : "Impossible de générer le code" });
+      }
     },
   );
+
+  app.post<{ Params: { id: string } }>(
+    "/api/clients/:id/onboarding/invite",
+    async (request, reply) => {
+      await requireAuth(request, reply);
+      if (reply.sent) return;
+      const existing = await prisma.client.findUnique({
+        where: { id: request.params.id },
+      });
+      if (!existing) return reply.code(404).send({ error: "Introuvable" });
+      const body = (request.body ?? {}) as { email?: string };
+      const email = (body.email ?? "").trim();
+      if (!email) return reply.code(400).send({ error: "Email requis" });
+      try {
+        const result = await sendOnboardingInvite({ email, existingClientId: existing.id });
+        return result;
+      } catch (err) {
+        return reply
+          .code(400)
+          .send({ error: err instanceof Error ? err.message : "Erreur" });
+      }
+    },
+  );
+
+  // Inviter un nouveau prospect par email (sans pré-créer de client).
+  app.post("/api/onboarding/invite", async (request, reply) => {
+    await requireAuth(request, reply);
+    if (reply.sent) return;
+    const body = (request.body ?? {}) as { email?: string };
+    const email = (body.email ?? "").trim();
+    if (!email) return reply.code(400).send({ error: "Email requis" });
+    try {
+      const result = await sendOnboardingInvite({ email, existingClientId: null });
+      return result;
+    } catch (err) {
+      return reply
+        .code(400)
+        .send({ error: err instanceof Error ? err.message : "Erreur" });
+    }
+  });
 
   app.delete<{ Params: { id: string } }>("/api/clients/:id", async (request, reply) => {
     await requireAuth(request, reply);

@@ -147,7 +147,8 @@ export function OnboardingPage() {
       <Shell>
         <h1 className="text-xl font-semibold">Merci, c&apos;est enregistré !</h1>
         <p className="mt-2 text-sm text-[var(--muted)]">
-          Vos informations ont bien été transmises. Votre prestataire reviendra vers vous si besoin.
+          Vos informations ont bien été transmises. Vous allez recevoir un email avec votre code de
+          suivi et votre code d&apos;accès pour consulter vos documents en ligne.
         </p>
       </Shell>
     );

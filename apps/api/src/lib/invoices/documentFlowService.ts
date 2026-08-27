@@ -3,6 +3,7 @@ import {
   InvoiceStatus,
   InvoiceType,
   MilestoneStatus,
+  QuoteStatus,
   type Prisma,
 } from "@prisma/client";
 import { prisma } from "@/lib/prisma.js";
@@ -273,7 +274,7 @@ export async function generateMilestoneInvoice(
   milestoneId: string,
   issueDate = new Date(),
 ) {
-  return prisma.$transaction(async (tx) => {
+  const invoice = await prisma.$transaction(async (tx) => {
     const milestone = await tx.paymentMilestone.findUniqueOrThrow({
       where: { id: milestoneId },
       include: { quote: true, generatedInvoice: true },
@@ -321,7 +322,7 @@ export async function generateMilestoneInvoice(
       milestone.triggerText ? ` - ${milestone.triggerText}` : ""
     }`;
 
-    const invoice = await tx.invoice.create({
+    const created = await tx.invoice.create({
       data: {
         documentType: InvoiceDocumentType.INVOICE,
         invoiceType: InvoiceType.ACOMPTE,
@@ -361,12 +362,27 @@ export async function generateMilestoneInvoice(
       where: { id: milestone.id },
       data: {
         status: MilestoneStatus.INVOICED,
-        invoiceId: invoice.id,
+        invoiceId: created.id,
       },
     });
 
-    return invoice;
+    // Première facture d'acompte = acceptation commerciale du devis
+    if (milestone.quote.quoteStatus !== QuoteStatus.ACCEPTED) {
+      await tx.invoice.update({
+        where: { id: milestone.quoteId },
+        data: { quoteStatus: QuoteStatus.ACCEPTED },
+      });
+    }
+
+    return { invoice: created, quoteId: milestone.quoteId };
   });
+
+  const { activateSubscriptionsFromDocument } = await import(
+    "@/lib/subscriptions/activate-from-document"
+  );
+  await activateSubscriptionsFromDocument(invoice.quoteId);
+
+  return invoice.invoice;
 }
 
 /**

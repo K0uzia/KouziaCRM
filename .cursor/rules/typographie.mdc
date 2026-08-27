@@ -1,0 +1,31 @@
+---
+description: Interdiction totale du tiret cadratin (em dash) "—" partout dans le projet
+globs: "**/*"
+alwaysApply: true
+---
+
+# Interdiction du tiret cadratin "—"
+
+Le caractère tiret cadratin (em dash) `—` (U+2014) est **interdit** partout dans le projet, sans exception :
+
+- Code source (TS, TSX, JS, JSON, SQL, Prisma)
+- Libellés UI (texte affiché, placeholders, labels, boutons)
+- PDF générés (invoice-document.tsx, build-payload)
+- Seeds (prisma/seed.ts)
+- Commentaires (// et /* */ et #)
+- Templates d'emails (sujet, corps, signatures)
+- Documentation (README, .env.example, scripts shell)
+- Migrations SQL
+
+## Remplacements autorisés
+
+Utiliser à la place, selon le contexte :
+
+- `:` pour une explication ou introduction (ex. "Prélèvement mensuel : paiement à réception")
+- `-` (tiret simple, U+002D) pour une incise ou alternative (ex. "Maintenance site web - mensuel")
+- `,` pour une énumération
+- `()` pour une précision entre parenthèses
+
+## Vérification
+
+Avant de terminer une tâche, vérifier qu'aucun `—` n'a été introduit. Une recherche `rg "—"` doit retourner zéro résultat.

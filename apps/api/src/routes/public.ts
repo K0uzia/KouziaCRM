@@ -10,6 +10,7 @@ import { buildInvoicePdfPayload } from "@/lib/pdf/build-payload.js";
 import { listActiveLegalClauses } from "@/lib/company/legal-clauses.js";
 import type { ClientSnapshot } from "@/lib/invoices/transitions.js";
 import { getOnboardingView, submitOnboarding } from "@/lib/clients/onboarding.js";
+import { signDocumentToken } from "@/lib/documents/public-token.js";
 
 const trackingSchema = z.object({
   clientNumber: z.string().min(3),
@@ -43,7 +44,9 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
     {
       config: {
         rateLimit: {
-          max: 5,
+          // Le code d'accès (8 hex = 4 octets) reste impossible à brute-forcer
+          // même avec une limite large ; on tolère les refreshs légitimes.
+          max: 60,
           timeWindow: "15 minutes",
         },
       },
@@ -68,6 +71,7 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
       }
 
       const settings = await getCompanySettings();
+      const showAmounts = settings.publicTrackingShowAmounts;
 
       const documents = await prisma.invoice.findMany({
         where: {
@@ -77,8 +81,14 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
         orderBy: [{ issueDate: "desc" }, { createdAt: "desc" }],
         include: {
           milestones: { orderBy: { position: "asc" } },
+          payments: { orderBy: { paidAt: "asc" } },
         },
-        take: 40,
+        take: 60,
+      });
+
+      const subscriptions = await prisma.subscription.findMany({
+        where: { clientId: client.id, status: "ACTIVE" },
+        orderBy: { nextInvoiceAt: "asc" },
       });
 
       const firstName =
@@ -86,32 +96,73 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
         client.displayName.trim().split(/\s+/)[0] ||
         "Client";
 
+      const paidCentsOf = (d: { payments: { amountCents: number }[] }) =>
+        d.payments.reduce((s, p) => s + p.amountCents, 0);
+
       return {
         clientFirstName: firstName,
+        clientNumber: client.clientNumber,
+        displayName: client.displayName,
         brand: {
           tradeName: settings.tradeName ?? settings.legalName,
           accentColor: "#0f766e",
           logoUrl: null as string | null,
           contactUrl: settings.website ?? null,
         },
-        documents: documents.map((d) => ({
-          id: d.id,
-          number: d.number,
-          documentType: d.documentType,
-          status: d.status,
-          quoteStatus: d.quoteStatus,
-          issueDate: d.issueDate,
-          validUntil: d.validUntil,
-          dueDate: d.dueDate,
-          milestones:
-            d.documentType === InvoiceDocumentType.QUOTE
-              ? d.milestones.map((m) => ({
-                  label: m.label,
-                  percentBps: m.percentBps,
-                  status: m.status,
-                  triggerText: m.triggerText,
-                }))
-              : undefined,
+        company: {
+          tradeName: settings.tradeName ?? settings.legalName,
+          legalName: settings.legalName,
+          email: settings.email ?? null,
+          phone: settings.phone ?? null,
+          website: settings.website ?? null,
+          addressLine1: settings.addressLine1,
+          addressLine2: settings.addressLine2 ?? null,
+          postalCode: settings.postalCode,
+          city: settings.city,
+          country: settings.country,
+        },
+        documents: documents.map((d) => {
+          const paid = paidCentsOf(d);
+          return {
+            id: d.id,
+            number: d.number,
+            documentType: d.documentType,
+            status: d.status,
+            quoteStatus: d.quoteStatus,
+            issueDate: d.issueDate,
+            validUntil: d.validUntil,
+            dueDate: d.dueDate,
+            downloadToken: d.number ? signDocumentToken(d.id) : null,
+            ...(showAmounts
+              ? {
+                  totalCents: d.totalCents,
+                  subtotalCents: d.subtotalCents,
+                  paidCents: paid,
+                  remainingCents: d.totalCents - paid,
+                }
+              : {}),
+            payments: d.payments.map((p) => ({
+              paidAt: p.paidAt,
+              method: p.method,
+              ...(showAmounts ? { amountCents: p.amountCents } : {}),
+            })),
+            milestones:
+              d.documentType === InvoiceDocumentType.QUOTE
+                ? d.milestones.map((m) => ({
+                    label: m.label,
+                    percentBps: m.percentBps,
+                    status: m.status,
+                    triggerText: m.triggerText,
+                    ...(showAmounts ? { amountCents: m.amountCents } : {}),
+                  }))
+                : undefined,
+          };
+        }),
+        subscriptions: subscriptions.map((s) => ({
+          label: s.label,
+          billingDay: s.billingDay,
+          nextInvoiceAt: s.nextInvoiceAt,
+          ...(showAmounts ? { amountCents: s.amountCents } : {}),
         })),
       };
     },

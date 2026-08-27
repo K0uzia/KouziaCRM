@@ -3,7 +3,8 @@ import { prisma } from "@/lib/prisma.js";
 import { getCompanySettings } from "@/lib/company.js";
 import { encryptOptional } from "@/lib/crypto.js";
 import { isSmtpConfigured, sendEmail } from "@/lib/email/smtp.js";
-import { allocateClientNumber, generateAccessCode } from "@/lib/clients/numbering.js";
+import { allocateClientNumber } from "@/lib/clients/numbering.js";
+import { issueAndSendAccessCode } from "@/lib/clients/access-email.js";
 
 const ONBOARDING_TTL_DAYS = 30;
 
@@ -219,23 +220,30 @@ export async function submitOnboarding(
       where: { id: invitation.id },
       data: { usedAt: now },
     });
+    // Identifiants de suivi : générés + email auto (récupérables uniquement via le mail)
+    await issueAndSendAccessCode(invitation.existingClientId).catch((err) => {
+      console.error(`[email] code suivi après onboarding (existant) échoué`, err);
+    });
     return { ok: true };
   }
 
-  // Création d'un nouveau client (numéro + code d'accès générés)
+  // Création d'un nouveau client (numéro CLI uniquement; code d'accès + email ensuite)
   const clientNumber = await allocateClientNumber();
-  const access = await generateAccessCode();
   const created = await prisma.client.create({
     data: {
       ...toPrismaData(locked),
       clientNumber,
-      accessCodeHash: access.hash,
+      accessCodeHash: null,
       onboardingCompletedAt: now,
     },
   });
   await prisma.onboardingInvitation.update({
     where: { id: invitation.id },
     data: { usedAt: now, createdClientId: created.id },
+  });
+
+  await issueAndSendAccessCode(created.id).catch((err) => {
+    console.error(`[email] code suivi après onboarding (nouveau) échoué`, err);
   });
 
   return { ok: true };

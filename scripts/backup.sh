@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Backup SQLite KouziaCRM — à lancer via cron de l'hôte Proxmox.
+# Backup SQLite KouziaCRM : à lancer via cron de l'hôte Proxmox.
 #
 # Cron recommandé (crontab -e sur l'hôte) :
 #   0 2 * * * /opt/kouziacrm/scripts/backup.sh
@@ -78,4 +78,4 @@ find "$BACKUP_DIR" -name 'kouziacrm-*.db.gpg' -mtime "+${RETENTION_DAYS}" -delet
 # Résumé.
 SIZE="$(stat -c %s "$ENC_FILE" 2>/dev/null || stat -f %z "$ENC_FILE")"
 COUNT="$(find "$BACKUP_DIR" -name 'kouziacrm-*.db.gpg' | wc -l | tr -d ' ')"
-log "OK: $ENC_FILE ($(( SIZE / 1024 )) Ko) — $COUNT backup(s) conservé(s)"
+log "OK: $ENC_FILE ($(( SIZE / 1024 )) Ko) : $COUNT backup(s) conservé(s)"

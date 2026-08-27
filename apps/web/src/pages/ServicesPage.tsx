@@ -4,7 +4,7 @@ import { faPlus } from "@fortawesome/free-solid-svg-icons";
 import { toast } from "sonner";
 import { api, formatEUR } from "@/lib/api";
 import { Button } from "@/components/ui/Button";
-import { Card, EmptyState, PageHeader } from "@/components/ui/Card";
+import { Badge, Card, EmptyState, PageHeader } from "@/components/ui/Card";
 import { Modal } from "@/components/ui/Modal";
 import { Field, Input, Select, Textarea } from "@/components/ui/Field";
 
@@ -15,6 +15,8 @@ type Service = {
   unitPriceCents: number;
   unit: "HEURE" | "JOUR" | "FORFAIT";
   active: boolean;
+  isSubscription: boolean;
+  defaultBillingDay: number;
 };
 
 const unitLabel: Record<string, string> = {
@@ -23,18 +25,22 @@ const unitLabel: Record<string, string> = {
   FORFAIT: "Forfait",
 };
 
+const emptyForm = {
+  name: "",
+  description: "",
+  unitPriceEuros: "",
+  unit: "FORFAIT" as Service["unit"],
+  active: true,
+  isSubscription: false,
+  defaultBillingDay: "1",
+};
+
 export function ServicesPage() {
   const [rows, setRows] = useState<Service[]>([]);
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<Service | null>(null);
   const [busy, setBusy] = useState(false);
-  const [form, setForm] = useState({
-    name: "",
-    description: "",
-    unitPriceEuros: "",
-    unit: "FORFAIT" as Service["unit"],
-    active: true,
-  });
+  const [form, setForm] = useState(emptyForm);
 
   async function load() {
     setRows(await api<Service[]>("/api/services"));
@@ -46,13 +52,7 @@ export function ServicesPage() {
 
   function openCreate() {
     setEditing(null);
-    setForm({
-      name: "",
-      description: "",
-      unitPriceEuros: "",
-      unit: "FORFAIT",
-      active: true,
-    });
+    setForm(emptyForm);
     setOpen(true);
   }
 
@@ -64,6 +64,8 @@ export function ServicesPage() {
       unitPriceEuros: (s.unitPriceCents / 100).toFixed(2),
       unit: s.unit,
       active: s.active,
+      isSubscription: Boolean(s.isSubscription),
+      defaultBillingDay: String(s.defaultBillingDay ?? 1),
     });
     setOpen(true);
   }
@@ -78,6 +80,8 @@ export function ServicesPage() {
         unitPriceEuros: Number(form.unitPriceEuros),
         unit: form.unit,
         active: form.active,
+        isSubscription: form.isSubscription,
+        defaultBillingDay: Number(form.defaultBillingDay) || 1,
       };
       if (editing) {
         await api(`/api/services/${editing.id}`, {
@@ -102,7 +106,7 @@ export function ServicesPage() {
     <div>
       <PageHeader
         title="Prestations"
-        subtitle="Catalogue pour préremplir devis et factures"
+        subtitle="Catalogue pour devis et factures (ponctuel ou abonnement mensuel)"
         actions={
           <Button onClick={openCreate}>
             <FontAwesomeIcon icon={faPlus} className="h-3.5 w-3.5" />
@@ -119,7 +123,7 @@ export function ServicesPage() {
             <thead className="border-b border-[var(--border)] bg-[var(--bg)]/80 text-[var(--muted)]">
               <tr>
                 <th className="px-4 py-3 font-medium">Nom</th>
-                <th className="px-4 py-3 font-medium">Unité</th>
+                <th className="px-4 py-3 font-medium">Type</th>
                 <th className="px-4 py-3 text-right font-medium">Prix HT</th>
                 <th className="px-4 py-3 font-medium">Statut</th>
                 <th className="px-4 py-3" />
@@ -134,9 +138,23 @@ export function ServicesPage() {
                       <p className="text-xs text-[var(--muted)]">{s.description}</p>
                     ) : null}
                   </td>
-                  <td className="px-4 py-3">{unitLabel[s.unit] ?? s.unit}</td>
+                  <td className="px-4 py-3">
+                    {s.isSubscription ? (
+                      <span className="inline-flex flex-col gap-0.5">
+                        <Badge tone="amber">Abonnement mensuel</Badge>
+                        <span className="text-xs text-[var(--muted)]">
+                          Facturation le {s.defaultBillingDay}
+                        </span>
+                      </span>
+                    ) : (
+                      unitLabel[s.unit] ?? s.unit
+                    )}
+                  </td>
                   <td className="px-4 py-3 text-right tabular-nums">
                     {formatEUR(s.unitPriceCents)}
+                    {s.isSubscription ? (
+                      <span className="block text-xs text-[var(--muted)]">par mois</span>
+                    ) : null}
                   </td>
                   <td className="px-4 py-3">{s.active ? "Active" : "Inactive"}</td>
                   <td className="px-4 py-3 text-right">
@@ -186,19 +204,50 @@ export function ServicesPage() {
                 onChange={(e) => setForm({ ...form, unitPriceEuros: e.target.value })}
               />
             </Field>
-            <Field label="Unité">
-              <Select
-                value={form.unit}
-                onChange={(e) =>
-                  setForm({ ...form, unit: e.target.value as Service["unit"] })
-                }
-              >
-                <option value="HEURE">Heure</option>
-                <option value="JOUR">Jour</option>
-                <option value="FORFAIT">Forfait</option>
-              </Select>
-            </Field>
+            {!form.isSubscription ? (
+              <Field label="Unité">
+                <Select
+                  value={form.unit}
+                  onChange={(e) =>
+                    setForm({ ...form, unit: e.target.value as Service["unit"] })
+                  }
+                >
+                  <option value="HEURE">Heure</option>
+                  <option value="JOUR">Jour</option>
+                  <option value="FORFAIT">Forfait</option>
+                </Select>
+              </Field>
+            ) : (
+              <Field label="Jour de facturation">
+                <Select
+                  value={form.defaultBillingDay}
+                  onChange={(e) =>
+                    setForm({ ...form, defaultBillingDay: e.target.value })
+                  }
+                >
+                  {Array.from({ length: 28 }, (_, d) => d + 1).map((d) => (
+                    <option key={d} value={String(d)}>
+                      Le {d} de chaque mois
+                    </option>
+                  ))}
+                </Select>
+              </Field>
+            )}
           </div>
+          <label className="flex items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              checked={form.isSubscription}
+              onChange={(e) =>
+                setForm({
+                  ...form,
+                  isSubscription: e.target.checked,
+                  unit: e.target.checked ? "FORFAIT" : form.unit,
+                })
+              }
+            />
+            Abonnement mensuel (prestation récurrente)
+          </label>
           <label className="flex items-center gap-2 text-sm">
             <input
               type="checkbox"

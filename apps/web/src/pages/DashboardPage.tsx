@@ -16,6 +16,7 @@ import { Button } from "@/components/ui/Button";
 import { Card, PageHeader } from "@/components/ui/Card";
 import { Select } from "@/components/ui/Field";
 import { ObligationsReminder } from "@/components/obligations/ObligationsReminder";
+import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 
 type DashboardData = {
   company: { legalName: string; tradeName: string | null };
@@ -67,6 +68,9 @@ export function DashboardPage() {
   const [mrr, setMrr] = useState<MrrData | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [payoutEnabled, setPayoutEnabled] = useState(false);
+  const [payoutConfirm, setPayoutConfirm] = useState(false);
+  const [payoutBusy, setPayoutBusy] = useState(false);
 
   const url = useMemo(() => `/api/dashboard?scope=${scope}`, [scope]);
 
@@ -77,12 +81,14 @@ export function DashboardPage() {
       api<DashboardData>(url),
       api<ReminderRow[]>("/api/reminders/pending").catch(() => [] as ReminderRow[]),
       api<MrrData>("/api/subscriptions/mrr").catch(() => null as MrrData | null),
+      api<{ enabled: boolean }>("/api/payouts/status").catch(() => ({ enabled: false })),
     ])
-      .then(([d, r, m]) => {
+      .then(([d, r, m, p]) => {
         if (!cancelled) {
           setData(d);
           setReminders(r);
           if (m) setMrr(m);
+          setPayoutEnabled(p.enabled);
           setError(null);
         }
       })
@@ -161,11 +167,26 @@ export function DashboardPage() {
           Encaisser
         </Link>
         <Link
+          to="/banque"
+          className="inline-flex h-9 items-center rounded-[var(--radius)] border border-[var(--border-strong)] bg-white px-3 text-xs font-medium hover:bg-[var(--bg)]"
+        >
+          Banque
+        </Link>
+        <Link
           to="/obligations"
           className="inline-flex h-9 items-center rounded-[var(--radius)] border border-[var(--border-strong)] bg-white px-3 text-xs font-medium hover:bg-[var(--bg)]"
         >
           Obligations / URSSAF
         </Link>
+        {payoutEnabled ? (
+          <button
+            type="button"
+            onClick={() => setPayoutConfirm(true)}
+            className="inline-flex h-9 items-center rounded-[var(--radius)] border border-[var(--border-strong)] bg-white px-3 text-xs font-medium hover:bg-[var(--bg)]"
+          >
+            Virer mon salaire
+          </button>
+        ) : null}
       </div>
 
       <ObligationsReminder />
@@ -184,7 +205,7 @@ export function DashboardPage() {
             {data.echeance.status}
           </p>
           <Link
-            to="/banque"
+            to="/urssaf"
             className="mt-2 inline-block text-xs font-medium text-[var(--primary)] hover:underline"
           >
             Voir déclarations
@@ -300,6 +321,32 @@ export function DashboardPage() {
           </ul>
         )}
       </Card>
+
+      <ConfirmDialog
+        open={payoutConfirm}
+        onClose={() => !payoutBusy && setPayoutConfirm(false)}
+        title="Virer mon salaire"
+        message={`Créer un brouillon Revolut de ${formatEUR(cf.resteNetCents)} (reste net du mois) vers le compte personnel ? Le virement restera à confirmer dans l'app Revolut Business.`}
+        confirmLabel="Créer le brouillon"
+        busy={payoutBusy}
+        onConfirm={() => {
+          void (async () => {
+            setPayoutBusy(true);
+            try {
+              await api("/api/payouts/salary", {
+                method: "POST",
+                body: JSON.stringify({ amountCents: cf.resteNetCents }),
+              });
+              toast.success("Brouillon créé : confirmez dans Revolut");
+              setPayoutConfirm(false);
+            } catch (e) {
+              toast.error(e instanceof Error ? e.message : "Échec");
+            } finally {
+              setPayoutBusy(false);
+            }
+          })();
+        }}
+      />
     </div>
   );
 }

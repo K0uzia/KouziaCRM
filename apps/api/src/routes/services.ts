@@ -11,6 +11,8 @@ const serviceSchema = z.object({
   unitPriceEuros: z.coerce.number().min(0),
   unit: z.nativeEnum(ServiceUnit).default(ServiceUnit.FORFAIT),
   active: z.boolean().optional().default(true),
+  isSubscription: z.boolean().optional().default(false),
+  defaultBillingDay: z.coerce.number().int().min(1).max(28).optional().default(1),
 });
 
 export const servicesRoutes: FastifyPluginAsync = async (app) => {
@@ -38,6 +40,10 @@ export const servicesRoutes: FastifyPluginAsync = async (app) => {
         unitPriceCents: eurosToCents(parsed.data.unitPriceEuros),
         unit: parsed.data.unit,
         active: parsed.data.active,
+        isSubscription: parsed.data.isSubscription,
+        defaultBillingDay: parsed.data.isSubscription
+          ? parsed.data.defaultBillingDay
+          : 1,
       },
     });
     return reply.code(201).send(created);
@@ -58,6 +64,10 @@ export const servicesRoutes: FastifyPluginAsync = async (app) => {
         unitPriceCents: eurosToCents(parsed.data.unitPriceEuros),
         unit: parsed.data.unit,
         active: parsed.data.active,
+        isSubscription: parsed.data.isSubscription,
+        defaultBillingDay: parsed.data.isSubscription
+          ? parsed.data.defaultBillingDay
+          : 1,
       },
     });
     return updated;

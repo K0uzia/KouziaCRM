@@ -22,6 +22,9 @@ export type Client = {
   city: string | null;
   country: string;
   notes: string | null;
+  hasAccessCode?: boolean;
+  onboardingCompletedAt?: string | null;
+  accessEmailSentAt?: string | null;
   createdAt: string;
   updatedAt: string;
 };
@@ -108,20 +111,16 @@ export function ClientFormEditor({
         phone: form.phone || null,
         siret: form.siret || null,
       };
-      const client = await api<Client & { accessCode?: string }>(
-        clientId ? `/api/clients/${clientId}` : "/api/clients",
-        {
-          method: clientId ? "PUT" : "POST",
-          body: JSON.stringify(payload),
-        },
-      );
-      if (!clientId && client.accessCode) {
+      const client = await api<Client>(clientId ? `/api/clients/${clientId}` : "/api/clients", {
+        method: clientId ? "PUT" : "POST",
+        body: JSON.stringify(payload),
+      });
+      if (!clientId) {
         toast.success(
-          `Client créé (${client.clientNumber}). Code suivi : ${client.accessCode}`,
-          { duration: 12000 },
+          `Client créé (${client.clientNumber}). Le code d'accès se génère depuis la fiche client ou après le formulaire d'onboarding.`,
         );
       } else {
-        toast.success(clientId ? "Client mis à jour" : "Client créé");
+        toast.success("Client mis à jour");
       }
       onSuccess(client);
     } catch (err) {

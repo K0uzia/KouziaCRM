@@ -22,7 +22,7 @@ type Decl = {
   paidAt: string | null;
 };
 
-export function BanquePage() {
+export function UrssafPage() {
   const [rows, setRows] = useState<Decl[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -84,6 +84,9 @@ export function BanquePage() {
     </div>
   );
 }
+
+/** @deprecated utiliser UrssafPage */
+export const BanquePage = UrssafPage;
 
 type Thread = {
   id: string;

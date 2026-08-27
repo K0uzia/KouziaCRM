@@ -32,6 +32,8 @@ type CreatedCreditNote = {
   number: string | null;
   totalCents: number;
   issueDate: string | null;
+  emailed?: boolean;
+  emailReason?: string | null;
 };
 
 const REASONS = [
@@ -168,10 +170,15 @@ export function CreditNoteWizard({
       setCreated(cn);
       setChecklist((c) => ({
         ...c,
+        sentToClient: Boolean(cn.emailed),
         receiptsLineAdded:
           refundMethod === "BANK_TRANSFER" ? registerRefund : false,
       }));
-      toast.success(`Avoir ${cn.number} créé`);
+      toast.success(
+        cn.emailed
+          ? `Avoir ${cn.number} créé et envoyé au client`
+          : `Avoir ${cn.number} créé${cn.emailReason === "no_email" ? " (pas d'email client)" : cn.emailReason === "smtp_off" ? " (SMTP non configuré)" : ""}`,
+      );
       setStep(5);
       onCreated();
     } catch (e) {

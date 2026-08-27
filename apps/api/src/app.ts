@@ -20,6 +20,8 @@ import { miscRoutes } from "@/routes/misc.js";
 import { numberingRoutes } from "@/routes/numbering.js";
 import { quotesMarketRoutes } from "@/routes/quotes-market.js";
 import { subscriptionsRoutes } from "@/routes/subscriptions.js";
+import { bankRoutes } from "@/routes/bank.js";
+import { payoutsRoutes } from "@/routes/payouts.js";
 import { registerErrorHandler, setJsonSerializer } from "@/lib/http.js";
 import { ensureDefaultLegalClauses } from "@/lib/company/legal-clauses.js";
 
@@ -36,6 +38,8 @@ export async function buildApp(opts: BuildAppOptions = {}): Promise<FastifyInsta
   const app = Fastify({
     logger: opts.silent ? false : true,
     trustProxy: getTrustProxy(),
+    // Les tokens PDF publics (base64url(payload).base64url(sig)) dépassent le défaut 100.
+    maxParamLength: 256,
   });
 
   setJsonSerializer(app);
@@ -99,6 +103,8 @@ export async function buildApp(opts: BuildAppOptions = {}): Promise<FastifyInsta
   await app.register(numberingRoutes);
   await app.register(quotesMarketRoutes);
   await app.register(subscriptionsRoutes);
+  await app.register(bankRoutes);
+  await app.register(payoutsRoutes);
 
   app.get("/api/health", async () => ({ ok: true }));
 

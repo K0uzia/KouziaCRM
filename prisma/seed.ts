@@ -74,12 +74,12 @@ async function main() {
         paymentConditions: "Paiement à réception",
         reminderQuoteDays: 7,
         reminderInvoiceDays: 7,
-        publicTrackingShowAmounts: false,
+        publicTrackingShowAmounts: true,
         businessStartDate: new Date("2025-01-15"),
         cfeAmountCents: 25000,
         b2cActivity: true,
         mediationClause:
-          "En cas de litige non résolu, le client peut recourir gratuitement à un médiateur de la consommation — voir medic.conso.fr",
+          "En cas de litige non résolu, le client peut recourir gratuitement à un médiateur de la consommation : voir medic.conso.fr",
         incomeTaxReminderMonth: 4,
         incomeTaxReminderDay: 15,
       },
@@ -94,6 +94,7 @@ async function main() {
         urssafDeadlineDay: existing.urssafDeadlineDay || 5,
         publicodesRegime: existing.publicodesRegime || "AE_BNC_LIBERAL",
         businessStartDate: existing.businessStartDate ?? new Date("2025-01-15"),
+        publicTrackingShowAmounts: true,
       },
     });
   }

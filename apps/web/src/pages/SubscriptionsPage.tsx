@@ -212,7 +212,7 @@ export function SubscriptionsPage() {
               value={form.clientId}
               onChange={(e) => setForm({ ...form, clientId: e.target.value })}
             >
-              <option value="">—</option>
+              <option value="">-</option>
               {clients.map((c) => (
                 <option key={c.id} value={c.id}>
                   {c.displayName}
@@ -226,7 +226,7 @@ export function SubscriptionsPage() {
               value={form.serviceId}
               onChange={(e) => setForm({ ...form, serviceId: e.target.value })}
             >
-              <option value="">—</option>
+              <option value="">-</option>
               {services.map((s) => (
                 <option key={s.id} value={s.id}>
                   {s.name}
@@ -237,7 +237,7 @@ export function SubscriptionsPage() {
           <Field label="Libellé de la facture">
             <Input
               required
-              placeholder="Maintenance site web — mensuel"
+              placeholder="Maintenance site web : mensuel"
               value={form.label}
               onChange={(e) => setForm({ ...form, label: e.target.value })}
             />

@@ -3,6 +3,7 @@ import { syncImapInbox } from "../apps/api/src/lib/email/imap-sync";
 import { expireQuotes, scheduleReminders } from "../apps/api/src/lib/reminders";
 import { generateDueSubscriptionInvoices } from "../apps/api/src/lib/subscriptions/subscription-service";
 import { sendDueReminders } from "../apps/api/src/lib/reminders/send";
+import { importTransactions } from "../apps/api/src/lib/revolut/importTransactions";
 
 async function runMaintenance() {
   try {
@@ -18,6 +19,15 @@ async function runMaintenance() {
   }
 }
 
+async function runBankSync() {
+  try {
+    const result = await importTransactions({ force: false });
+    console.log(`[worker] bank sync`, result);
+  } catch (err) {
+    console.error(`[worker] bank sync error`, err);
+  }
+}
+
 async function runSync() {
   const started = new Date().toISOString();
   console.log(`[worker] IMAP sync start ${started}`);
@@ -27,10 +37,11 @@ async function runSync() {
   } catch (err) {
     console.error(`[worker] IMAP sync error`, err);
   }
+  await runBankSync();
   await runMaintenance();
 }
 
-console.log("[worker] KouziaCRM worker démarré - IMAP toutes les heures");
+console.log("[worker] KouziaCRM worker démarré - IMAP + banque toutes les heures");
 void runSync();
 cron.schedule("0 * * * *", () => {
   void runSync();

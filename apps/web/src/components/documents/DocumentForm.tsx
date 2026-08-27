@@ -9,6 +9,9 @@ export type DocLine = {
   description: string;
   quantity: string;
   unitPriceEuros: string;
+  isSubscription: boolean;
+  billingDay: string;
+  serviceId: string;
 };
 
 export type DocumentFormValues = {
@@ -17,6 +20,9 @@ export type DocumentFormValues = {
   paymentTerms: string;
   validUntil: string;
   lines: DocLine[];
+  discountType: "NONE" | "PERCENT" | "FIXED";
+  discountPercent: string;
+  discountEuros: string;
 };
 
 type ServiceOpt = {
@@ -24,12 +30,17 @@ type ServiceOpt = {
   name: string;
   description: string | null;
   unitPriceCents: number;
+  isSubscription?: boolean;
+  defaultBillingDay?: number;
 };
 
 const emptyLine = (): DocLine => ({
   description: "",
   quantity: "1",
   unitPriceEuros: "",
+  isSubscription: false,
+  billingDay: "1",
+  serviceId: "",
 });
 
 export function DocumentFormEditor({
@@ -56,7 +67,12 @@ export function DocumentFormEditor({
       initial?.paymentTerms ??
       (documentType === "QUOTE" ? "Devis valable 30 jours" : "Paiement à réception"),
     validUntil: initial?.validUntil ?? "",
-    lines: initial?.lines?.length ? initial.lines : [emptyLine()],
+    lines: initial?.lines?.length
+      ? initial.lines.map((l) => ({ ...emptyLine(), ...l }))
+      : [emptyLine()],
+    discountType: initial?.discountType ?? "NONE",
+    discountPercent: initial?.discountPercent ?? "",
+    discountEuros: initial?.discountEuros ?? "",
   });
   const [busy, setBusy] = useState(false);
   const [services, setServices] = useState<ServiceOpt[]>([]);
@@ -83,9 +99,14 @@ export function DocumentFormEditor({
   function applyService(index: number, serviceId: string) {
     const s = services.find((x) => x.id === serviceId);
     if (!s) return;
+    const isSub = Boolean(s.isSubscription);
     updateLine(index, {
+      serviceId,
       description: s.description ? `${s.name} - ${s.description}` : s.name,
       unitPriceEuros: (s.unitPriceCents / 100).toFixed(2),
+      isSubscription: isSub,
+      billingDay: String(s.defaultBillingDay ?? 1),
+      quantity: isSub ? "1" : form.lines[index]?.quantity || "1",
     });
   }
 
@@ -100,14 +121,29 @@ export function DocumentFormEditor({
     }));
   }
 
-  const totalPreview = form.lines.reduce((sum, l) => {
-    const q = Number(l.quantity) || 0;
+  const subtotalPreview = form.lines.reduce((sum, l) => {
+    const q = l.isSubscription ? 1 : Number(l.quantity) || 0;
     const p = Number(l.unitPriceEuros) || 0;
     return sum + q * p;
   }, 0);
 
+  const discountPreview =
+    form.discountType === "PERCENT"
+      ? Math.min(subtotalPreview, (subtotalPreview * (Number(form.discountPercent) || 0)) / 100)
+      : form.discountType === "FIXED"
+        ? Math.min(subtotalPreview, Number(form.discountEuros) || 0)
+        : 0;
+
+  const totalPreview = Math.max(0, subtotalPreview - discountPreview);
+
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
+    for (const l of form.lines) {
+      if (l.isSubscription && !l.serviceId) {
+        toast.error("Chaque ligne abonnement doit être liée à une prestation");
+        return;
+      }
+    }
     setBusy(true);
     try {
       const body = {
@@ -116,10 +152,18 @@ export function DocumentFormEditor({
         notes: form.notes || null,
         paymentTerms: form.paymentTerms || null,
         validUntil: form.validUntil || null,
+        discountType: form.discountType,
+        discountPercent:
+          form.discountType === "PERCENT" ? Number(form.discountPercent) || 0 : undefined,
+        discountEuros:
+          form.discountType === "FIXED" ? Number(form.discountEuros) || 0 : undefined,
         lines: form.lines.map((l) => ({
           description: l.description,
-          quantity: Number(l.quantity),
+          quantity: l.isSubscription ? 1 : Number(l.quantity),
           unitPriceEuros: Number(l.unitPriceEuros),
+          isSubscription: l.isSubscription,
+          billingDay: l.isSubscription ? Number(l.billingDay) || 1 : null,
+          serviceId: l.isSubscription ? l.serviceId : null,
         })),
       };
       const doc = await api<{ id: string }>(
@@ -177,7 +221,69 @@ export function DocumentFormEditor({
             key={i}
             className="space-y-2 rounded-[var(--radius)] border border-[var(--border)] p-3"
           >
-            {services.length > 0 ? (
+            <label className="flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={line.isSubscription}
+                onChange={(e) =>
+                  updateLine(i, {
+                    isSubscription: e.target.checked,
+                    quantity: e.target.checked ? "1" : line.quantity,
+                  })
+                }
+              />
+              Prestation d&apos;abonnement mensuel
+              {line.isSubscription ? (
+                <span className="text-xs text-[var(--muted)]">
+                  Inclus dans le total (1re échéance), puis facturé chaque mois le{" "}
+                  {line.billingDay || "…"}
+                </span>
+              ) : null}
+            </label>
+
+            {line.isSubscription ? (
+              <div className="grid gap-2 sm:grid-cols-2">
+                <Field label="Prestation catalogue">
+                  <Select
+                    required
+                    value={line.serviceId}
+                    onChange={(e) => applyService(i, e.target.value)}
+                  >
+                    <option value="">Choisir…</option>
+                    {services
+                      .filter((s) => s.isSubscription)
+                      .map((s) => (
+                        <option key={s.id} value={s.id}>
+                          {s.name} ({(s.unitPriceCents / 100).toFixed(2)} € / mois)
+                        </option>
+                      ))}
+                    {services.some((s) => !s.isSubscription) ? (
+                      <optgroup label="Autres prestations">
+                        {services
+                          .filter((s) => !s.isSubscription)
+                          .map((s) => (
+                            <option key={s.id} value={s.id}>
+                              {s.name} ({(s.unitPriceCents / 100).toFixed(2)} €)
+                            </option>
+                          ))}
+                      </optgroup>
+                    ) : null}
+                  </Select>
+                </Field>
+                <Field label="Jour de facturation">
+                  <Select
+                    value={line.billingDay}
+                    onChange={(e) => updateLine(i, { billingDay: e.target.value })}
+                  >
+                    {Array.from({ length: 28 }, (_, d) => d + 1).map((d) => (
+                      <option key={d} value={String(d)}>
+                        Le {d}
+                      </option>
+                    ))}
+                  </Select>
+                </Field>
+              </div>
+            ) : services.length > 0 ? (
               <Select
                 value=""
                 onChange={(e) => {
@@ -187,11 +293,14 @@ export function DocumentFormEditor({
                 <option value="">Prestation du catalogue…</option>
                 {services.map((s) => (
                   <option key={s.id} value={s.id}>
-                    {s.name} ({(s.unitPriceCents / 100).toFixed(2)} €)
+                    {s.isSubscription ? "[Abo] " : ""}
+                    {s.name} ({(s.unitPriceCents / 100).toFixed(2)} €
+                    {s.isSubscription ? " / mois" : ""})
                   </option>
                 ))}
               </Select>
             ) : null}
+
             <div className="grid gap-2 sm:grid-cols-[1fr_88px_110px_36px]">
               <Input
                 required
@@ -205,14 +314,15 @@ export function DocumentFormEditor({
                 step="0.01"
                 min="0.01"
                 placeholder="Qté"
-                value={line.quantity}
+                value={line.isSubscription ? "1" : line.quantity}
+                disabled={line.isSubscription}
                 onChange={(e) => updateLine(i, { quantity: e.target.value })}
               />
               <Input
                 required
                 type="number"
                 step="0.01"
-                placeholder="Prix HT €"
+                placeholder={line.isSubscription ? "€ / mois" : "Prix HT €"}
                 value={line.unitPriceEuros}
                 onChange={(e) => updateLine(i, { unitPriceEuros: e.target.value })}
               />
@@ -227,12 +337,66 @@ export function DocumentFormEditor({
             </div>
           </div>
         ))}
-        <p className="text-right text-sm text-[var(--muted)]">
-          Total HT estimé :{" "}
-          <span className="font-semibold text-[var(--text)]">
-            {totalPreview.toLocaleString("fr-FR", { style: "currency", currency: "EUR" })}
-          </span>
-        </p>
+        <div className="space-y-2 rounded-[var(--radius)] border border-[var(--border)] p-3">
+          <p className="text-sm font-medium">Remise globale</p>
+          <div className="grid gap-2 sm:grid-cols-[160px_1fr]">
+            <Select
+              value={form.discountType}
+              onChange={(e) =>
+                setForm((f) => ({
+                  ...f,
+                  discountType: e.target.value as DocumentFormValues["discountType"],
+                }))
+              }
+            >
+              <option value="NONE">Aucune</option>
+              <option value="PERCENT">Pourcentage (%)</option>
+              <option value="FIXED">Montant fixe (€ HT)</option>
+            </Select>
+            {form.discountType === "PERCENT" ? (
+              <Input
+                type="number"
+                step="0.01"
+                min="0"
+                max="100"
+                placeholder="Ex. 10"
+                value={form.discountPercent}
+                onChange={(e) => setForm((f) => ({ ...f, discountPercent: e.target.value }))}
+              />
+            ) : form.discountType === "FIXED" ? (
+              <Input
+                type="number"
+                step="0.01"
+                min="0"
+                placeholder="Ex. 50.00"
+                value={form.discountEuros}
+                onChange={(e) => setForm((f) => ({ ...f, discountEuros: e.target.value }))}
+              />
+            ) : (
+              <p className="self-center text-xs text-[var(--muted)]">Pas de remise</p>
+            )}
+          </div>
+        </div>
+        <div className="space-y-1 text-right text-sm text-[var(--muted)]">
+          {discountPreview > 0 ? (
+            <>
+              <p>
+                Sous-total :{" "}
+                {subtotalPreview.toLocaleString("fr-FR", { style: "currency", currency: "EUR" })}
+              </p>
+              <p>
+                Remise : −
+                {discountPreview.toLocaleString("fr-FR", { style: "currency", currency: "EUR" })}
+              </p>
+            </>
+          ) : null}
+          <p>
+            Total HT estimé :{" "}
+            <span className="font-semibold text-[var(--text)]">
+              {totalPreview.toLocaleString("fr-FR", { style: "currency", currency: "EUR" })}
+            </span>
+          </p>
+        </div>
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2">

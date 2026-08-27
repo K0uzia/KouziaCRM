@@ -1,0 +1,3 @@
+-- AlterTable
+ALTER TABLE "Invoice" ADD COLUMN "discountType" TEXT NOT NULL DEFAULT 'NONE';
+ALTER TABLE "Invoice" ADD COLUMN "discountValue" INTEGER NOT NULL DEFAULT 0;

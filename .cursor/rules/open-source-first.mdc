@@ -1,0 +1,42 @@
+---
+description: Privilégier une lib open source viable avant de créer une fonction de zéro
+globs: "**/*"
+alwaysApply: true
+---
+
+# Open source d'abord
+
+Avant d'écrire une nouvelle fonctionnalité, un composant, un utilitaire ou un service de zéro, **vérifier s'il existe une librairie open source viable** qui couvre le besoin.
+
+## Critères de viabilité
+
+Une lib est considérée viable si elle remplit ces conditions :
+
+- **Licence permissive** : MIT, Apache-2.0, BSD, ISC (éviter GPL/AGPL pour un projet propriétaire)
+- **Maintenance active** : commit dans les 12 derniers mois, ou version stable sans bug critique
+- **Téléchargements** : > 10k/week sur npm (indicateur de communauté)
+- **TypeScript** : types bundled ou @types disponibles
+- **Pas de dépendances lourdes** : éviter les libs qui tirent un framework entier
+
+## Démarche
+
+1. **Rechercher** : npm, GitHub, "best X library 2026", comparer 2-3 candidats
+2. **Évaluer** : bundle size, API surface, compatibilité avec la stack (Fastify/React/Vite/Tailwind/Prisma)
+3. **Décider** :
+   - Si la lib couvre 80%+ du cas d'usage → l'utiliser (wrapper si besoin pour matcher le design system)
+   - Sinon → écrire le code maison ET documenter pourquoi dans un commentaire (ex. "Aucune lib viable : X nécessite React 18, Y n'a pas le tri serveur")
+
+## Exemples validés dans ce projet
+
+- `react-data-table-component` : tables (tri, pagination, filtre) - pre-built, themeable
+- `cmdk` : palette Cmd+K - headless, standard de l'industrie
+- `vitest` : tests - rapide, compatible Vite
+- `@react-pdf/renderer` : génération PDF - déjà utilisé
+- `argon2` : hash mots de passe - déjà utilisé
+- `node-cron` : cron worker - déjà utilisé
+
+## Contre-exemples (ne pas introduire)
+
+- AG Grid (licence enterprise pour les features clés)
+- MUI / Material (poids, opinion de design contraire au design system maison)
+- TanStack Table pour un simple CRM solo (headless = trop de code à écrire)

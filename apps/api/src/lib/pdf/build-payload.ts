@@ -39,6 +39,8 @@ export function buildInvoicePdfPayload({
     notes: invoice.notes,
     subtotalCents: invoice.subtotalCents,
     totalCents: invoice.totalCents,
+    discountType: (invoice.discountType as "NONE" | "PERCENT" | "FIXED") ?? "NONE",
+    discountValue: invoice.discountValue ?? 0,
     creditedInvoiceNumber: invoice.creditedInvoice?.number ?? null,
     creditedInvoiceIssueDate: invoice.creditedInvoice?.issueDate ?? null,
     refundMethod:
@@ -64,6 +66,8 @@ export function buildInvoicePdfPayload({
       quantity: Number(l.quantity),
       unitPriceCents: l.unitPriceCents,
       lineTotalCents: l.lineTotalCents,
+      isSubscription: l.isSubscription,
+      billingDay: l.billingDay,
     })),
     legalClauses: (legalClauses ?? []).map((c) => ({ title: c.title, body: c.body })),
   };

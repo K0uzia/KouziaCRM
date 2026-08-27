@@ -11,15 +11,18 @@ import {
   statusTone,
 } from "@/lib/format";
 import { Button } from "@/components/ui/Button";
-import { Badge, Card, EmptyState, PageHeader } from "@/components/ui/Card";
+import { Badge, Card, PageHeader } from "@/components/ui/Card";
 import { Modal } from "@/components/ui/Modal";
+import { DataTable, type TableColumn } from "@/components/ui/DataTable";
 import { DocumentFormEditor } from "@/components/documents/DocumentForm";
 import { DocumentNumberBadge } from "@/components/documents/DocumentNumberBadge";
 import { InvoiceTypeBadge } from "@/components/documents/InvoiceTypeBadge";
 import { MarketTimeline, type MarketView } from "@/components/documents/MarketTimeline";
 import { PaymentForm } from "@/components/payments/PaymentForm";
+import { Field, Input, Textarea } from "@/components/ui/Field";
 import { ClientEmailLink } from "@/components/clients/ClientEmailLink";
 import { CreditNoteWizard } from "@/components/documents/CreditNoteWizard";
+import { buildIssueEmailDraft } from "@/lib/issue-email";
 
 type Milestone = {
   id: string;
@@ -41,7 +44,10 @@ type Doc = {
   invoiceType?: string;
   quoteId?: string | null;
   quote?: { id: string; number: string | null } | null;
+  subtotalCents?: number;
   totalCents: number;
+  discountType?: string;
+  discountValue?: number;
   issueDate: string | null;
   validUntil: string | null;
   notes: string | null;
@@ -53,11 +59,22 @@ type Doc = {
     email?: string | null;
   };
   payments?: Array<{ id: string; amountCents: number; paidAt: string; method: string }>;
+  bankTransactions?: Array<{
+    id: string;
+    bookedAt: string;
+    amountCents: number;
+    counterpartyName: string | null;
+    reference: string | null;
+    status: string;
+  }>;
   lines?: Array<{
     description: string;
     quantity: number | string;
     unitPriceCents: number;
     lineTotalCents: number;
+    isSubscription?: boolean;
+    billingDay?: number | null;
+    serviceId?: string | null;
   }>;
   milestones?: Milestone[];
 };
@@ -107,13 +124,97 @@ function DocumentsListPage({
     ? ["ALL", "DRAFT", "SENT", "ACCEPTED", "REJECTED", "EXPIRED"]
     : ["ALL", "DRAFT", "ISSUED", "PAID", "CANCELLED"];
 
+  const docColumns: TableColumn<Doc>[] = [
+    {
+      name: "Numéro",
+      selector: (d) => d.number ?? "",
+      sortable: true,
+      grow: 2,
+      minWidth: "220px",
+      cell: (d) => (
+        <div className="flex flex-wrap items-center gap-2">
+          <DocumentNumberBadge
+            number={d.number}
+            documentType={d.documentType}
+            invoiceType={d.invoiceType}
+          />
+          <InvoiceTypeBadge type={d.invoiceType} />
+          {!isQuote && (d.quote?.number || d.quoteId) ? (
+            <Link
+              to={`/quotes/${d.quoteId ?? d.quote?.id}`}
+              className="text-xs text-[var(--muted)] hover:text-[var(--primary)]"
+              onClick={(e) => e.stopPropagation()}
+            >
+              Marché {d.quote?.number ?? ""}
+            </Link>
+          ) : null}
+        </div>
+      ),
+    },
+    {
+      name: "Client",
+      selector: (d) => d.client.displayName,
+      sortable: true,
+      grow: 2,
+      minWidth: "180px",
+      cell: (d) => (
+        <span className="block truncate" title={d.client.displayName}>
+          {d.client.displayName}
+        </span>
+      ),
+    },
+    {
+      name: "Statut",
+      selector: (d) => displayStatus(d, isQuote),
+      sortable: true,
+      width: "130px",
+      cell: (d) => {
+        const st = displayStatus(d, isQuote);
+        return <Badge tone={statusTone(st)}>{labels[st] ?? st}</Badge>;
+      },
+    },
+    {
+      name: "Date",
+      selector: (d) => d.issueDate ?? "",
+      sortable: true,
+      width: "130px",
+      cell: (d) => (
+        <span className="text-[var(--muted)]">{formatDate(d.issueDate)}</span>
+      ),
+    },
+    {
+      name: "Total HT",
+      selector: (d) => d.totalCents,
+      sortable: true,
+      width: "140px",
+      right: true,
+      cell: (d) => (
+        <span className="tabular-nums">{formatEUR(d.totalCents)}</span>
+      ),
+    },
+    {
+      name: "",
+      width: "110px",
+      right: true,
+      cell: (d) => (
+        <Button
+          variant="ghost"
+          className="h-8 px-2 text-xs"
+          onClick={() => navigate(isQuote ? `/quotes/${d.id}` : `/invoices/${d.id}`)}
+        >
+          Ouvrir
+        </Button>
+      ),
+    },
+  ];
+
   return (
     <div>
       <PageHeader
         title={isQuote ? "Devis" : "Factures"}
         subtitle={
           isQuote
-            ? "Propositions commerciales - émission puis conversion en facture"
+            ? "Propositions commerciales : émission puis conversion en facture"
             : "Documents émis, encaissements et avoirs"
         }
         actions={
@@ -141,74 +242,22 @@ function DocumentsListPage({
         ))}
       </div>
 
-      <Card className="overflow-x-auto">
-        {loading ? (
+      {loading ? (
+        <Card>
           <p className="p-8 text-sm text-[var(--muted)]">Chargement…</p>
-        ) : filtered.length === 0 ? (
-          <EmptyState
-            title={isQuote ? "Aucun devis" : "Aucune facture"}
-            hint="Créez un document pour démarrer le suivi."
-          />
-        ) : (
-          <table className="w-full min-w-[36rem] text-left text-sm">
-            <thead className="border-b border-[var(--border)] text-[var(--muted)]">
-              <tr>
-                <th className="px-4 py-3 font-medium">Numéro</th>
-                <th className="px-4 py-3 font-medium">Client</th>
-                <th className="px-4 py-3 font-medium">Statut</th>
-                <th className="hidden px-4 py-3 font-medium md:table-cell">Date</th>
-                <th className="px-4 py-3 text-right font-medium">Total HT</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filtered.map((d) => {
-                const st = displayStatus(d, isQuote);
-                return (
-                  <tr
-                    key={d.id}
-                    className="cursor-pointer border-t border-[var(--border)] hover:bg-[var(--bg)]/60"
-                    onClick={() =>
-                      navigate(isQuote ? `/quotes/${d.id}` : `/invoices/${d.id}`)
-                    }
-                  >
-                    <td className="px-4 py-3">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <DocumentNumberBadge
-                          number={d.number}
-                          documentType={d.documentType}
-                          invoiceType={d.invoiceType}
-                        />
-                        <InvoiceTypeBadge type={d.invoiceType} />
-                      </div>
-                      {!isQuote && (d.quote?.number || d.quoteId) ? (
-                        <Link
-                          to={`/quotes/${d.quoteId ?? d.quote?.id}`}
-                          className="mt-0.5 block text-xs text-[var(--muted)] hover:text-[var(--primary)]"
-                          onClick={(e) => e.stopPropagation()}
-                        >
-                          Marché {d.quote?.number ?? ""}
-                        </Link>
-                      ) : null}
-                    </td>
-                    <td className="max-w-[12rem] truncate px-4 py-3">
-                      {d.client.displayName}
-                    </td>
-                    <td className="px-4 py-3">
-                      <Badge tone={statusTone(st)}>{labels[st] ?? st}</Badge>
-                    </td>
-                    <td className="hidden px-4 py-3 text-[var(--muted)] md:table-cell">
-                      {formatDate(d.issueDate)}
-                    </td>
-                    <td className="px-4 py-3 text-right tabular-nums">
-                      {formatEUR(d.totalCents)}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        )}
-      </Card>
+        </Card>
+      ) : (
+        <DataTable
+          columns={docColumns}
+          data={filtered}
+          pagination
+          perPage={25}
+          searchable={["number", "client.displayName", "client.clientNumber"]}
+          searchPlaceholder={isQuote ? "Rechercher un devis…" : "Rechercher une facture…"}
+          emptyTitle={isQuote ? "Aucun devis" : "Aucune facture"}
+          emptyHint="Créez un document pour démarrer le suivi."
+        />
+      )}
 
       <Modal
         open={createOpen}
@@ -252,6 +301,12 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
   const [market, setMarket] = useState<MarketView | null>(null);
   const [linked, setLinked] = useState<Doc[]>([]);
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [issueOpen, setIssueOpen] = useState(false);
+  const [issueBusy, setIssueBusy] = useState(false);
+  const [sendEmailOnIssue, setSendEmailOnIssue] = useState(true);
+  const [emailSubject, setEmailSubject] = useState("");
+  const [emailBody, setEmailBody] = useState("");
+  const [companyName, setCompanyName] = useState("Alexandre Kouziaeff");
 
   async function load() {
     if (!id) return;
@@ -285,6 +340,9 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
 
   useEffect(() => {
     load().catch((e: Error) => toast.error(e.message));
+    api<{ legalName?: string; tradeName?: string | null }>("/api/settings")
+      .then((s) => setCompanyName(s.tradeName || s.legalName || "Alexandre Kouziaeff"))
+      .catch(() => undefined);
   }, [id]);
 
   if (!doc) return <p className="text-sm text-[var(--muted)]">Chargement…</p>;
@@ -294,23 +352,74 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
   const paid = (doc.payments ?? []).reduce((s, p) => s + p.amountCents, 0);
   const remaining = Math.max(0, doc.totalCents - paid);
 
-  async function issue() {
+  function openIssueModal() {
+    const draft = buildIssueEmailDraft(doc!, kind, companyName);
+    setEmailSubject(draft.subject);
+    setEmailBody(draft.body);
+    setSendEmailOnIssue(Boolean(doc!.client.email));
+    setIssueOpen(true);
+  }
+
+  async function confirmIssue() {
+    setIssueBusy(true);
     try {
-      await api(`/api/invoices/${id}/issue`, { method: "POST", body: "{}" });
-      toast.success(isQuote ? "Devis émis" : "Facture émise");
+      const res = await api<{
+        emailed?: boolean;
+        emailReason?: string | null;
+        subscriptionsCreated?: number;
+      }>(`/api/invoices/${id}/issue`, {
+        method: "POST",
+        body: JSON.stringify({
+          email: {
+            send: sendEmailOnIssue,
+            subject: emailSubject,
+            body: emailBody,
+          },
+        }),
+      });
+      setIssueOpen(false);
+      const kindLabel = isQuote ? "Devis" : "Facture";
+      if (sendEmailOnIssue && res.emailed) {
+        toast.success(`${kindLabel} émis et envoyé par email`);
+      } else if (sendEmailOnIssue && !res.emailed) {
+        const why =
+          res.emailReason === "smtp_off"
+            ? "SMTP non configuré"
+            : res.emailReason === "no_email"
+              ? "adresse client manquante"
+              : "envoi impossible";
+        toast.success(`${kindLabel} émis (email non envoyé : ${why})`);
+      } else {
+        toast.success(`${kindLabel} émis`);
+      }
+      if (res.subscriptionsCreated && res.subscriptionsCreated > 0) {
+        toast.success(
+          `${res.subscriptionsCreated} abonnement(s) créé(s) (prochaine facture le mois suivant)`,
+        );
+      }
       await load();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Erreur");
+    } finally {
+      setIssueBusy(false);
     }
   }
 
   async function convert() {
     try {
-      const inv = await api<{ id: string }>(`/api/invoices/${id}/convert`, {
-        method: "POST",
-        body: "{}",
-      });
+      const inv = await api<{ id: string; subscriptionsCreated?: number }>(
+        `/api/invoices/${id}/convert`,
+        {
+          method: "POST",
+          body: "{}",
+        },
+      );
       toast.success("Facture créée depuis le devis");
+      if (inv.subscriptionsCreated && inv.subscriptionsCreated > 0) {
+        toast.success(
+          `${inv.subscriptionsCreated} abonnement(s) créé(s) (prochaine facture le mois suivant)`,
+        );
+      }
       navigate(`/invoices/${inv.id}`);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Erreur");
@@ -398,7 +507,7 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
                 <Button variant="secondary" onClick={() => setEditOpen(true)}>
                   Modifier
                 </Button>
-                <Button onClick={() => void issue()}>
+                <Button onClick={() => openIssueModal()}>
                   {isQuote ? "Émettre" : "Émettre"}
                 </Button>
               </>
@@ -426,7 +535,7 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
               doc.status === "ISSUED" ||
               doc.status === "DRAFT") ? (
               <Button variant="secondary" onClick={() => void convert()}>
-                Convertir
+                Valider et facturer
               </Button>
             ) : null}
             {doc.number ? (
@@ -462,18 +571,76 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
             <tbody>
               {(doc.lines ?? []).map((l, i) => (
                 <tr key={i} className="border-t border-[var(--border)]">
-                  <td className="py-2.5">{l.description}</td>
-                  <td className="py-2.5 text-right tabular-nums">{String(l.quantity)}</td>
-                  <td className="py-2.5 text-right tabular-nums">{formatEUR(l.unitPriceCents)}</td>
-                  <td className="py-2.5 text-right tabular-nums font-medium">
+                  <td className="py-2.5 pr-4">
+                    <div className="space-y-1.5">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="font-medium">{l.description}</span>
+                        {l.isSubscription ? (
+                          <Badge tone="amber">Abonnement mensuel</Badge>
+                        ) : null}
+                      </div>
+                      {l.isSubscription ? (
+                        <p className="max-w-xl text-xs leading-relaxed text-[var(--muted)]">
+                          Facturation le {l.billingDay ?? "…"} de chaque mois
+                          {" : "}
+                          {formatEUR(l.unitPriceCents)} HT.
+                          {" "}
+                          Ce document inclut la 1re échéance.
+                        </p>
+                      ) : null}
+                    </div>
+                  </td>
+                  <td className="w-16 py-2.5 text-right tabular-nums">{String(l.quantity)}</td>
+                  <td className="w-28 py-2.5 text-right tabular-nums">
+                    {formatEUR(l.unitPriceCents)}
+                  </td>
+                  <td className="w-28 py-2.5 text-right tabular-nums font-medium">
                     {formatEUR(l.lineTotalCents)}
                   </td>
                 </tr>
               ))}
             </tbody>
           </table>
+          {(doc.lines ?? []).some((l) => l.isSubscription) ? (
+            <div className="rounded-[var(--radius)] border border-[var(--border)] bg-[var(--bg)] p-3 text-sm">
+              <p className="font-medium">Récurrence mensuelle</p>
+              <ul className="mt-2 list-disc space-y-1.5 pl-5 text-[var(--muted)]">
+                {(doc.lines ?? [])
+                  .filter((l) => l.isSubscription)
+                  .map((l, i) => (
+                    <li key={i}>
+                      <span className="text-[var(--text)]">{l.description}</span>
+                      {" : "}
+                      {formatEUR(l.unitPriceCents)} HT facturés chaque mois
+                      {l.billingDay ? ` le ${l.billingDay}` : ""}.
+                      {" "}
+                      Les mois suivants seront facturés automatiquement.
+                    </li>
+                  ))}
+              </ul>
+            </div>
+          ) : null}
           <div className="flex justify-end border-t border-[var(--border)] pt-3 text-sm">
-            <div className="text-right">
+            <div className="space-y-1 text-right">
+              {doc.discountType &&
+              doc.discountType !== "NONE" &&
+              (doc.subtotalCents ?? doc.totalCents) !== doc.totalCents ? (
+                <>
+                  <p className="text-[var(--muted)]">
+                    Sous-total : {formatEUR(doc.subtotalCents ?? doc.totalCents)}
+                  </p>
+                  <p className="text-[var(--muted)]">
+                    Remise
+                    {doc.discountType === "PERCENT"
+                      ? ` (${((doc.discountValue ?? 0) / 100).toFixed(2)} %)`
+                      : ""}
+                    : −
+                    {formatEUR(
+                      Math.max(0, (doc.subtotalCents ?? doc.totalCents) - doc.totalCents),
+                    )}
+                  </p>
+                </>
+              ) : null}
               <p className="text-[var(--muted)]">Total HT</p>
               <p className="text-xl font-semibold tabular-nums">{formatEUR(doc.totalCents)}</p>
             </div>
@@ -502,7 +669,9 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
                 <ClientEmailLink
                   email={doc.client.email}
                   name={doc.client.displayName}
+                  clientId={doc.client.id}
                   defaultSubject={`${isQuote ? "Devis" : "Facture"} ${doc.number ?? ""}`}
+                  defaultTemplate={isQuote ? "quote_followup" : "invoice_reminder"}
                 />
               </div>
             ) : null}
@@ -583,10 +752,109 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
                   ))}
                 </ul>
               )}
+              {(doc.bankTransactions ?? []).length > 0 ? (
+                <div className="border-t border-[var(--border)] pt-3">
+                  <p className="mb-2 text-xs font-medium text-[var(--muted)]">
+                    Transaction(s) bancaire(s)
+                  </p>
+                  <ul className="space-y-2">
+                    {(doc.bankTransactions ?? []).map((t) => (
+                      <li key={t.id} className="text-xs">
+                        <span className="font-medium">{formatDate(t.bookedAt)}</span>
+                        {" · "}
+                        {formatEUR(t.amountCents)}
+                        {t.counterpartyName ? ` · ${t.counterpartyName}` : ""}
+                        {t.reference ? (
+                          <span className="text-[var(--muted)]"> · {t.reference}</span>
+                        ) : null}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
             </Card>
           ) : null}
         </div>
       </div>
+
+      <Modal
+        open={issueOpen}
+        onClose={() => !issueBusy && setIssueOpen(false)}
+        title={isQuote ? "Émettre le devis" : "Émettre la facture"}
+        description="Prévisualisez et modifiez l'email avant envoi. {{numero}} sera remplacé par le numéro définitif."
+        wide
+      >
+        <div className="space-y-4">
+          <label className="flex items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              checked={sendEmailOnIssue}
+              disabled={!doc.client.email}
+              onChange={(e) => setSendEmailOnIssue(e.target.checked)}
+            />
+            Envoyer par email au client
+            {!doc.client.email ? (
+              <span className="text-xs text-[var(--muted)]">(pas d&apos;adresse)</span>
+            ) : (
+              <span className="text-xs text-[var(--muted)]">({doc.client.email})</span>
+            )}
+          </label>
+
+          {sendEmailOnIssue ? (
+            <>
+              <Field label="Objet">
+                <Input
+                  value={emailSubject}
+                  onChange={(e) => setEmailSubject(e.target.value)}
+                  required
+                />
+              </Field>
+              <Field label="Message">
+                <Textarea
+                  rows={14}
+                  value={emailBody}
+                  onChange={(e) => setEmailBody(e.target.value)}
+                  required
+                />
+              </Field>
+              <div className="rounded-[var(--radius)] border border-[var(--border)] bg-[var(--bg)] p-4">
+                <p className="mb-2 text-xs font-medium text-[var(--muted)]">Aperçu</p>
+                <p className="mb-3 text-sm font-semibold">
+                  {emailSubject.replaceAll("{{numero}}", "…")}
+                </p>
+                <div className="whitespace-pre-wrap text-sm leading-relaxed text-[var(--text)]">
+                  {emailBody.replaceAll("{{numero}}", "…")}
+                </div>
+                <p className="mt-3 text-xs text-[var(--muted)]">
+                  Pièce jointe : PDF du document
+                </p>
+              </div>
+            </>
+          ) : (
+            <p className="text-sm text-[var(--muted)]">
+              Le document sera émis sans envoi d&apos;email.
+            </p>
+          )}
+
+          <div className="flex justify-end gap-2 border-t border-[var(--border)] pt-4">
+            <Button
+              type="button"
+              variant="secondary"
+              disabled={issueBusy}
+              onClick={() => setIssueOpen(false)}
+            >
+              Annuler
+            </Button>
+            <Button type="button" disabled={issueBusy} onClick={() => void confirmIssue()}>
+              {issueBusy
+                ? "Émission…"
+                : sendEmailOnIssue
+                  ? "Émettre et envoyer"
+                  : "Émettre sans email"}
+            </Button>
+          </div>
+        </div>
+      </Modal>
 
       <Modal open={editOpen} onClose={() => setEditOpen(false)} title="Modifier le document" wide>
         <DocumentFormEditor
@@ -599,10 +867,25 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
             notes: doc.notes ?? "",
             paymentTerms: doc.paymentTerms ?? "",
             validUntil: doc.validUntil ? doc.validUntil.slice(0, 10) : "",
+            discountType:
+              doc.discountType === "PERCENT" || doc.discountType === "FIXED"
+                ? doc.discountType
+                : "NONE",
+            discountPercent:
+              doc.discountType === "PERCENT"
+                ? String((doc.discountValue ?? 0) / 100)
+                : "",
+            discountEuros:
+              doc.discountType === "FIXED"
+                ? String((doc.discountValue ?? 0) / 100)
+                : "",
             lines: (doc.lines ?? []).map((l) => ({
               description: l.description,
               quantity: String(l.quantity),
               unitPriceEuros: String(l.unitPriceCents / 100),
+              isSubscription: Boolean(l.isSubscription),
+              billingDay: String(l.billingDay ?? 1),
+              serviceId: l.serviceId ?? "",
             })),
           }}
           onCancel={() => setEditOpen(false)}

@@ -2,7 +2,7 @@ import { z } from "zod";
 import { ClientType } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { decryptOptional, encryptOptional } from "@/lib/crypto";
-import { allocateClientNumber, generateAccessCode } from "@/lib/clients/numbering";
+import { allocateClientNumber } from "@/lib/clients/numbering";
 
 export const clientInputSchema = z
   .object({
@@ -61,6 +61,10 @@ export function serializeClient(client: {
   city: string | null;
   country: string;
   notes: string | null;
+  accessCodeHash: string | null;
+  accessCodeEncrypted?: string | null;
+  onboardingCompletedAt: Date | null;
+  accessEmailSentAt: Date | null;
   createdAt: Date;
   updatedAt: Date;
 }) {
@@ -81,6 +85,11 @@ export function serializeClient(client: {
     city: client.city,
     country: client.country,
     notes: client.notes,
+    hasAccessCode: Boolean(client.accessCodeHash),
+    /** Clair pour l'admin authentifié (chiffré au repos). Null si legacy hash-only. */
+    accessCode: decryptOptional(client.accessCodeEncrypted ?? null),
+    onboardingCompletedAt: client.onboardingCompletedAt,
+    accessEmailSentAt: client.accessEmailSentAt,
     createdAt: client.createdAt,
     updatedAt: client.updatedAt,
   };
@@ -108,15 +117,15 @@ export function toPrismaClientData(data: ClientInput) {
 
 export async function createClientWithAccess(data: ClientInput) {
   const clientNumber = await allocateClientNumber();
-  const access = await generateAccessCode();
   const client = await prisma.client.create({
     data: {
       ...toPrismaClientData(data),
       clientNumber,
-      accessCodeHash: access.hash,
+      // Pas de code d'accès à la création : généré via onboarding ou bouton fiche client
+      accessCodeHash: null,
     },
   });
-  return { client: serializeClient(client), accessCode: access.code };
+  return { client: serializeClient(client), accessCode: null as string | null };
 }
 
 export async function listClients() {

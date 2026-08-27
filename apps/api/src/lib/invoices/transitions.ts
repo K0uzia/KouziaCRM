@@ -18,6 +18,7 @@ import {
   assertQuoteEditable,
   DocumentFlowError,
 } from "@/lib/invoices/documentFlowService";
+import { activateSubscriptionsFromDocument } from "@/lib/subscriptions/activate-from-document";
 
 export type { ClientSnapshot };
 export {
@@ -42,7 +43,7 @@ function addDays(d: Date, days: number): Date {
 
 export async function issueInvoice(invoiceId: string, issueDate = new Date(), dueDate?: Date) {
   const settings = await getCompanySettings();
-  return prisma.$transaction(async (tx) => {
+  const updated = await prisma.$transaction(async (tx) => {
     const invoice = await tx.invoice.findUniqueOrThrow({
       where: { id: invoiceId },
       include: { lines: true },
@@ -77,6 +78,9 @@ export async function issueInvoice(invoiceId: string, issueDate = new Date(), du
       include: { lines: true, client: true, payments: true },
     });
   });
+
+  const subs = await activateSubscriptionsFromDocument(invoiceId);
+  return { ...updated, subscriptionsCreated: subs.created };
 }
 
 /** Émet un devis (numéro D-YYYY-NNN, QuoteStatus SENT) et crée les jalons 30/40/30. */
@@ -133,7 +137,7 @@ export async function issueQuote(
 
 /** Transforme un devis émis en brouillon de facture. */
 export async function convertQuoteToInvoice(quoteId: string) {
-  return prisma.$transaction(async (tx) => {
+  const invoice = await prisma.$transaction(async (tx) => {
     const quote = await tx.invoice.findUniqueOrThrow({
       where: { id: quoteId },
       include: { lines: { orderBy: { position: "asc" } } },
@@ -177,7 +181,7 @@ export async function convertQuoteToInvoice(quoteId: string) {
       throw new Error("Ce devis a déjà été converti en facture");
     }
 
-    const invoice = await tx.invoice.create({
+    const created = await tx.invoice.create({
       data: {
         documentType: InvoiceDocumentType.INVOICE,
         invoiceType: InvoiceType.SIMPLE,
@@ -187,6 +191,8 @@ export async function convertQuoteToInvoice(quoteId: string) {
         paymentTerms: quote.paymentTerms ?? "Paiement à réception",
         subtotalCents: quote.subtotalCents,
         totalCents: quote.totalCents,
+        discountType: quote.discountType,
+        discountValue: quote.discountValue,
         quoteId: quote.id,
         sourceQuoteId: quote.id,
         marketTotalCents: quote.totalCents,
@@ -197,6 +203,10 @@ export async function convertQuoteToInvoice(quoteId: string) {
             quantity: line.quantity,
             unitPriceCents: line.unitPriceCents,
             lineTotalCents: line.lineTotalCents,
+            isSubscription: line.isSubscription,
+            billingDay: line.billingDay,
+            serviceId: line.serviceId,
+            subscriptionId: line.subscriptionId,
           })),
         },
       },
@@ -213,6 +223,32 @@ export async function convertQuoteToInvoice(quoteId: string) {
 
     await ensureQuoteMilestones(quoteId, quote.totalCents, tx);
 
-    return invoice;
+    return created;
   });
+
+  const subs = await activateSubscriptionsFromDocument(quoteId);
+
+  // Propager subscriptionId des lignes devis → facture (même position)
+  if (subs.created > 0 || subs.subscriptionIds.length > 0) {
+    const quoteLines = await prisma.invoiceLine.findMany({
+      where: { invoiceId: quoteId, isSubscription: true },
+      orderBy: { position: "asc" },
+    });
+    const invLines = await prisma.invoiceLine.findMany({
+      where: { invoiceId: invoice.id, isSubscription: true },
+      orderBy: { position: "asc" },
+    });
+    for (const qLine of quoteLines) {
+      if (!qLine.subscriptionId) continue;
+      const match = invLines.find((l) => l.position === qLine.position);
+      if (match && !match.subscriptionId) {
+        await prisma.invoiceLine.update({
+          where: { id: match.id },
+          data: { subscriptionId: qLine.subscriptionId },
+        });
+      }
+    }
+  }
+
+  return { ...invoice, subscriptionsCreated: subs.created };
 }

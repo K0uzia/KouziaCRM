@@ -47,7 +47,10 @@ const ObligationsPage = lazy(() =>
   import("@/pages/ObligationsPage").then((m) => ({ default: m.ObligationsPage })),
 );
 const BanquePage = lazy(() =>
-  import("@/pages/OtherPages").then((m) => ({ default: m.BanquePage })),
+  import("@/pages/BankPage").then((m) => ({ default: m.BankPage })),
+);
+const UrssafPage = lazy(() =>
+  import("@/pages/OtherPages").then((m) => ({ default: m.UrssafPage })),
 );
 const InboxPage = lazy(() =>
   import("@/pages/OtherPages").then((m) => ({ default: m.InboxPage })),
@@ -115,6 +118,7 @@ export default function App() {
           <Route path="receipts" element={<ReceiptsBookPage />} />
           <Route path="obligations" element={<ObligationsPage />} />
           <Route path="banque" element={<BanquePage />} />
+          <Route path="urssaf" element={<UrssafPage />} />
           <Route path="inbox" element={<InboxPage />} />
           <Route path="inbox/compose" element={<ComposePage />} />
           <Route path="inbox/:threadId" element={<InboxThreadPage />} />

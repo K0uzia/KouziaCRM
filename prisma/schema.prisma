@@ -315,6 +315,8 @@ model Client {
   clientNumber   String?       @unique
   /// Hash argon2id du code d'accès suivi public
   accessCodeHash String?
+  /// Code d'accès chiffré AES-GCM (affichage admin / renvoi email)
+  accessCodeEncrypted String?
   type           ClientType
   displayName    String
   firstName      String?
@@ -395,6 +397,11 @@ enum SubscriptionStatus {
   ENDED
 }
 
+enum SubscriptionCollectionMethod {
+  MANUAL_TRANSFER
+  SEPA_DEBIT
+}
+
 model Subscription {
   id              String             @id @default(cuid())
   clientId        String
@@ -411,6 +418,7 @@ model Subscription {
   /// null = actif indéfiniment
   endDate         DateTime?
   status          SubscriptionStatus @default(ACTIVE)
+  collectionMethod SubscriptionCollectionMethod @default(MANUAL_TRANSFER)
   /// Prochaine date d'émission de facture
   nextInvoiceAt   DateTime
   /// Dernière facture générée par cet abonnement
@@ -481,6 +489,7 @@ model Invoice {
   subscription      Subscription?       @relation(fields: [subscriptionId], references: [id])
   lines             InvoiceLine[]
   payments          Payment[]
+  bankTransactions  BankTransaction[]
   milestones        PaymentMilestone[]  @relation("QuoteMilestones")
   lastReminderAt    DateTime?
   reminderCount     Int                 @default(0)
@@ -551,17 +560,111 @@ model InvoiceLine {
 
 model Payment {
   id          String        @id @default(cuid())
-  invoiceId   String
-  invoice     Invoice       @relation(fields: [invoiceId], references: [id])
+  invoiceId   String?
+  invoice     Invoice?      @relation(fields: [invoiceId], references: [id])
   amountCents Int
   paidAt      DateTime
   method      PaymentMethod @default(BANK_TRANSFER)
   reference   String?
   notes       String?
   createdAt   DateTime      @default(now())
+  bankTransaction BankTransaction?
 
   @@index([invoiceId])
   @@index([paidAt])
+}
+
+enum BankTxStatus {
+  PENDING
+  MATCHED
+  UNMATCHED
+  IGNORED
+}
+
+enum BankIgnoreCategory {
+  FRAIS_BANCAIRES
+  AUTRE
+}
+
+enum SalaryPayoutStatus {
+  DRAFT
+  PENDING_CONFIRMATION
+  COMPLETED
+  FAILED
+  CANCELLED
+}
+
+/// Transaction importée depuis Revolut Business (crédits / débits).
+model BankTransaction {
+  id                 String              @id @default(cuid())
+  /// ID unique Revolut (idempotence)
+  revolutId          String              @unique
+  bookedAt           DateTime
+  /// Positif = crédit entrant (encaissement), négatif = débit
+  amountCents        Int
+  currency           String              @default("EUR")
+  counterpartyName   String?
+  counterpartyIban   String?
+  reference          String?
+  /// État brut Revolut (pending, completed, ...)
+  revolutState       String?
+  status             BankTxStatus        @default(UNMATCHED)
+  ignoreCategory     BankIgnoreCategory?
+  matchedInvoiceId   String?
+  matchedInvoice     Invoice?            @relation(fields: [matchedInvoiceId], references: [id])
+  paymentId          String?             @unique
+  payment            Payment?            @relation(fields: [paymentId], references: [id])
+  /// Suggestion JSON (ids factures + écarts) pour revue manuelle
+  suggestionsJson    String?
+  createdAt          DateTime            @default(now())
+  updatedAt          DateTime            @updatedAt
+
+  @@index([status])
+  @@index([bookedAt])
+  @@index([amountCents])
+  @@index([matchedInvoiceId])
+}
+
+model BankSyncLog {
+  id            String   @id @default(cuid())
+  startedAt     DateTime
+  finishedAt    DateTime?
+  imported      Int      @default(0)
+  updated       Int      @default(0)
+  matchedAuto   Int      @default(0)
+  unmatched     Int      @default(0)
+  errorMessage  String?
+  createdAt     DateTime @default(now())
+
+  @@index([startedAt])
+}
+
+/// Bénéficiaire virement (ex. compte perso) : PII chiffrées AES-GCM.
+model RevolutBeneficiary {
+  id             String   @id @default(cuid())
+  label          String
+  nameEncrypted  String
+  ibanEncrypted  String
+  active         Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  payouts        SalaryPayout[]
+}
+
+model SalaryPayout {
+  id              String             @id @default(cuid())
+  amountCents     Int
+  currency        String             @default("EUR")
+  status          SalaryPayoutStatus @default(DRAFT)
+  revolutDraftId  String?
+  beneficiaryId   String?
+  beneficiary     RevolutBeneficiary? @relation(fields: [beneficiaryId], references: [id])
+  notes           String?
+  createdAt       DateTime           @default(now())
+  updatedAt       DateTime           @updatedAt
+
+  @@index([status])
+  @@index([createdAt])
 }
 
 model EmailThread {
