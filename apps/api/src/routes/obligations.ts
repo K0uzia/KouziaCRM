@@ -101,12 +101,13 @@ export const obligationsRoutes: FastifyPluginAsync = async (app) => {
         obl.attachmentPath,
       );
       const buf = await fs.readFile(full);
+      const safeName = (obl.attachmentName ?? "justificatif.pdf").replace(
+        /["\r\n\\]/g,
+        "_",
+      );
       return reply
         .header("Content-Type", obl.attachmentMime ?? "application/pdf")
-        .header(
-          "Content-Disposition",
-          `inline; filename="${obl.attachmentName ?? "justificatif.pdf"}"`,
-        )
+        .header("Content-Disposition", `inline; filename="${safeName}"`)
         .send(buf);
     },
   );

@@ -19,8 +19,8 @@
     "db:seed": "tsx --env-file=.env prisma/seed.ts",
     "db:studio": "prisma studio",
     "worker": "tsx --env-file=.env --tsconfig apps/api/tsconfig.json scripts/worker.ts",
-    "test": "vitest run",
-    "test:watch": "vitest"
+    "test": "npm run test -w @kouziacrm/api",
+    "test:watch": "npm run test:watch -w @kouziacrm/api"
   },
   "prisma": {
     "seed": "tsx --env-file=.env prisma/seed.ts"

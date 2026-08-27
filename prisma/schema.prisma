@@ -329,26 +329,61 @@ model Client {
   city           String?
   country        String        @default("FRANCE")
   notes          String?
+  /// Date à laquelle le client a complété son onboarding (via invitation)
+  onboardingCompletedAt  DateTime?
+  /// Date du dernier envoi d'identifiants de suivi par email
+  accessEmailSentAt      DateTime?
   createdAt      DateTime      @default(now())
   updatedAt      DateTime      @updatedAt
   invoices       Invoice[]
   emailThreads   EmailThread[]
   subscriptions  Subscription[]
+  onboardingAsExisting OnboardingInvitation[] @relation("OnboardingExisting")
+  onboardingAsCreated  OnboardingInvitation[] @relation("OnboardingCreated")
 
   @@index([displayName])
   @@index([type])
 }
 
+/// Invitation envoyée à un prospect/client pour qu'il remplisse sa fiche lui-même.
+/// existingClientId null = création d'un nouveau client à la soumission ;
+/// existingClientId renseigné = mise à jour du client existant.
+model OnboardingInvitation {
+  id              String    @id @default(cuid())
+  /// Email de destination de l'invitation
+  email           String
+  /// Token secret du lien /onboarding/:token
+  token           String    @unique
+  /// Date d'expiration du token
+  expiresAt       DateTime
+  /// Date de soumission du formulaire (null = pas encore rempli)
+  usedAt          DateTime?
+  /// Client existant à mettre à jour (null = nouveau client à créer)
+  existingClient  Client?   @relation("OnboardingExisting", fields: [existingClientId], references: [id], onDelete: SetNull)
+  existingClientId String?
+  /// Client créé à la soumission (quand existingClient est null)
+  createdClient   Client?   @relation("OnboardingCreated", fields: [createdClientId], references: [id], onDelete: SetNull)
+  createdClientId  String?
+  createdAt       DateTime  @default(now())
+
+  @@index([email])
+}
+
 model Service {
-  id              String      @id @default(cuid())
-  name            String
-  description     String?
-  unitPriceCents  Int
-  unit            ServiceUnit @default(FORFAIT)
-  active          Boolean     @default(true)
-  createdAt       DateTime    @default(now())
-  updatedAt       DateTime    @updatedAt
-  subscriptions   Subscription[]
+  id                  String      @id @default(cuid())
+  name                String
+  description         String?
+  unitPriceCents      Int
+  unit                ServiceUnit @default(FORFAIT)
+  active              Boolean     @default(true)
+  /// Prestation d'abonnement mensuel (utilisable sur devis/facture)
+  isSubscription      Boolean     @default(false)
+  /// Jour de facturation par défaut (1-28) si isSubscription
+  defaultBillingDay   Int         @default(1)
+  createdAt           DateTime    @default(now())
+  updatedAt           DateTime    @updatedAt
+  subscriptions       Subscription[]
+  invoiceLines        InvoiceLine[]
 
   @@index([active])
   @@index([name])
@@ -366,7 +401,7 @@ model Subscription {
   client          Client             @relation(fields: [clientId], references: [id])
   serviceId       String
   service         Service            @relation(fields: [serviceId], references: [id])
-  /// Libellé de la facture récurrente (ex. "Maintenance site web — mensuel")
+  /// Libellé de la facture récurrente (ex. "Maintenance site web : mensuel")
   label           String
   /// Montant HT par échéance (centimes). Franchise TVA → HT = TTC.
   amountCents     Int
@@ -381,6 +416,7 @@ model Subscription {
   /// Dernière facture générée par cet abonnement
   lastInvoiceId   String?
   invoices        Invoice[]
+  sourceLines     InvoiceLine[]
   createdAt       DateTime           @default(now())
   updatedAt       DateTime           @updatedAt
 
@@ -410,6 +446,9 @@ model Invoice {
   currency          String              @default("EUR")
   subtotalCents     Int                 @default(0)
   totalCents        Int                 @default(0)
+  /// NONE | PERCENT (discountValue en bps, 1000 = 10 %) | FIXED (discountValue en centimes)
+  discountType      String              @default("NONE")
+  discountValue     Int                 @default(0)
   /// Total du marché (devis) figé à l'émission d'un acompte/solde
   marketTotalCents  Int?
   notes             String?
@@ -460,6 +499,9 @@ model Invoice {
   @@index([quoteStatus])
   @@index([nextReminderAt])
   @@index([subscriptionId])
+  @@index([documentType, status])
+  @@index([documentType, quoteStatus])
+  @@index([clientId, documentType])
 }
 
 model PaymentMilestone {
@@ -485,16 +527,26 @@ model PaymentMilestone {
 }
 
 model InvoiceLine {
-  id             String  @id @default(cuid())
-  invoiceId      String
-  invoice        Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
-  position       Int
-  description    String
-  quantity       Decimal
-  unitPriceCents Int
-  lineTotalCents Int
+  id               String         @id @default(cuid())
+  invoiceId        String
+  invoice          Invoice        @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  position         Int
+  description      String
+  quantity         Decimal
+  unitPriceCents   Int
+  lineTotalCents   Int
+  /// Ligne d'abonnement mensuel (1ʳᵉ échéance dans le total du document)
+  isSubscription   Boolean        @default(false)
+  billingDay       Int?
+  serviceId        String?
+  service          Service?       @relation(fields: [serviceId], references: [id])
+  /// Rempli quand le Subscription a été créé (idempotence)
+  subscriptionId   String?
+  subscription     Subscription?  @relation(fields: [subscriptionId], references: [id])
 
   @@index([invoiceId])
+  @@index([serviceId])
+  @@index([subscriptionId])
 }
 
 model Payment {

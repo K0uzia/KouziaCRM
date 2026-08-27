@@ -11,6 +11,7 @@ import { markUrssafPaid } from "@/lib/finance/dashboard-service.js";
 import { isSmtpConfigured, sendEmail } from "@/lib/email/smtp.js";
 import { findClientIdByEmail } from "@/lib/email/match-client.js";
 import { isImapConfigured, syncImapInbox } from "@/lib/email/imap-sync.js";
+import { decryptOptional } from "@/lib/crypto.js";
 
 export const miscRoutes: FastifyPluginAsync = async (app) => {
   app.get("/api/dashboard", async (request, reply) => {
@@ -132,8 +133,13 @@ export const miscRoutes: FastifyPluginAsync = async (app) => {
   app.get("/api/payments", async (request, reply) => {
     await requireAuth(request, reply);
     if (reply.sent) return;
+    const q = request.query as { page?: string; pageSize?: string };
+    const page = Math.max(1, Number(q.page) || 1);
+    const pageSize = Math.min(100, Math.max(1, Number(q.pageSize) || 50));
     return prisma.payment.findMany({
       orderBy: { paidAt: "desc" },
+      skip: (page - 1) * pageSize,
+      take: pageSize,
       include: {
         invoice: {
           select: { id: true, number: true, client: { select: { displayName: true } } },
@@ -231,7 +237,8 @@ export const miscRoutes: FastifyPluginAsync = async (app) => {
         .send({ error: "SMTP non configuré (SMTP_HOST / SMTP_USER / SMTP_FROM)" });
     }
     const schema = z.object({
-      to: z.string().email(),
+      to: z.string().email().optional(),
+      clientId: z.string().optional(),
       subject: z.string().min(1),
       body: z.string().min(1),
       threadId: z.string().optional(),
@@ -242,8 +249,27 @@ export const miscRoutes: FastifyPluginAsync = async (app) => {
       return reply.code(400).send({ error: parsed.error.flatten() });
     }
 
-    const { to, subject, body, threadId, inReplyTo } = parsed.data;
-    const clientId = await findClientIdByEmail(to);
+    const { subject, body, threadId, inReplyTo } = parsed.data;
+    let to = parsed.data.to?.trim().toLowerCase();
+    let clientId = parsed.data.clientId ?? null;
+
+    if (clientId) {
+      const client = await prisma.client.findUnique({ where: { id: clientId } });
+      if (!client) {
+        return reply.code(404).send({ error: "Client introuvable" });
+      }
+      if (!to) {
+        to = decryptOptional(client.emailEncrypted)?.trim().toLowerCase() || undefined;
+        if (!to) {
+          return reply.code(400).send({ error: "Ce client n'a pas d'adresse email" });
+        }
+      }
+    } else if (to) {
+      clientId = await findClientIdByEmail(to);
+    } else {
+      return reply.code(400).send({ error: "Destinataire (to) ou clientId requis" });
+    }
+
     let resolvedThreadId = threadId;
     if (!resolvedThreadId) {
       const thread = await prisma.emailThread.create({
@@ -276,7 +302,7 @@ export const miscRoutes: FastifyPluginAsync = async (app) => {
         messageId: sent.messageId || `outbound-${Date.now()}@kouzia.local`,
         inReplyTo: inReplyTo || null,
         fromAddress: (process.env.SMTP_FROM || "").toLowerCase(),
-        toAddresses: JSON.stringify([to.toLowerCase()]),
+        toAddresses: JSON.stringify([to]),
         subject,
         bodyText: body,
         receivedAt: new Date(),

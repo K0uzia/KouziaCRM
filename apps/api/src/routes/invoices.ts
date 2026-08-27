@@ -8,7 +8,7 @@ import {
 } from "@prisma/client";
 import { requireAuth } from "@/lib/auth.js";
 import { prisma } from "@/lib/prisma.js";
-import { computeLineTotals } from "@/lib/invoices/totals.js";
+import { computeLineTotals, assertSubscriptionLinesValid } from "@/lib/invoices/totals.js";
 import { eurosToCents } from "@/lib/money.js";
 import {
   issueInvoice,
@@ -36,6 +36,7 @@ import {
   markReminderSent,
 } from "@/lib/reminders.js";
 import { isSmtpConfigured, sendEmail } from "@/lib/email/smtp.js";
+import { sendDocumentPdf } from "@/lib/email/send-document-pdf.js";
 import { signDocumentToken } from "@/lib/documents/public-token.js";
 import { listActiveLegalClauses } from "@/lib/company/legal-clauses.js";
 
@@ -43,6 +44,9 @@ const lineSchema = z.object({
   description: z.string().min(1),
   quantity: z.coerce.number().positive(),
   unitPriceEuros: z.coerce.number(),
+  isSubscription: z.boolean().optional().default(false),
+  billingDay: z.coerce.number().int().min(1).max(28).optional().nullable(),
+  serviceId: z.string().optional().nullable(),
 });
 
 const createSchema = z.object({
@@ -52,6 +56,9 @@ const createSchema = z.object({
   paymentTerms: z.string().optional().nullable(),
   validUntil: z.string().optional().nullable(),
   lines: z.array(lineSchema).min(1),
+  discountType: z.enum(["NONE", "PERCENT", "FIXED"]).optional().default("NONE"),
+  discountPercent: z.coerce.number().min(0).max(100).optional(),
+  discountEuros: z.coerce.number().min(0).optional(),
 });
 
 const updateSchema = z.object({
@@ -60,7 +67,29 @@ const updateSchema = z.object({
   paymentTerms: z.string().optional().nullable(),
   validUntil: z.string().optional().nullable(),
   lines: z.array(lineSchema).min(1).optional(),
+  discountType: z.enum(["NONE", "PERCENT", "FIXED"]).optional(),
+  discountPercent: z.coerce.number().min(0).max(100).optional(),
+  discountEuros: z.coerce.number().min(0).optional(),
 });
+
+function discountFromBody(data: {
+  discountType?: "NONE" | "PERCENT" | "FIXED";
+  discountPercent?: number;
+  discountEuros?: number;
+}): { discountType: "NONE" | "PERCENT" | "FIXED"; discountValue: number } {
+  const type = data.discountType ?? "NONE";
+  if (type === "PERCENT") {
+    const pct = data.discountPercent ?? 0;
+    return { discountType: "PERCENT", discountValue: Math.round(pct * 100) };
+  }
+  if (type === "FIXED") {
+    return {
+      discountType: "FIXED",
+      discountValue: eurosToCents(data.discountEuros ?? 0),
+    };
+  }
+  return { discountType: "NONE", discountValue: 0 };
+}
 
 const paySchema = z.object({
   amountEuros: z.coerce.number().positive(),
@@ -80,7 +109,13 @@ export const invoicesRoutes: FastifyPluginAsync = async (app) => {
   app.get("/api/invoices", async (request, reply) => {
     await requireAuth(request, reply);
     if (reply.sent) return;
-    const q = request.query as { type?: string; market?: string };
+    const q = request.query as {
+      type?: string;
+      market?: string;
+      clientId?: string;
+      page?: string;
+      pageSize?: string;
+    };
     const where: Record<string, unknown> =
       q.type === "QUOTE"
         ? { documentType: InvoiceDocumentType.QUOTE }
@@ -94,13 +129,22 @@ export const invoicesRoutes: FastifyPluginAsync = async (app) => {
     if (q.market) {
       where.quoteId = q.market;
     }
+    if (q.clientId) {
+      where.clientId = q.clientId;
+    }
+
+    const page = Math.max(1, Number(q.page) || 1);
+    const pageSize = Math.min(100, Math.max(1, Number(q.pageSize) || 50));
+    const skip = (page - 1) * pageSize;
 
     const rows = await prisma.invoice.findMany({
       where,
       orderBy: [{ issueDate: "desc" }, { createdAt: "desc" }],
+      skip,
+      take: pageSize,
       include: {
         client: { select: { id: true, displayName: true, clientNumber: true } },
-        payments: true,
+        payments: { select: { id: true, amountCents: true, paidAt: true, method: true } },
         quote: { select: { id: true, number: true } },
       },
     });
@@ -118,12 +162,23 @@ export const invoicesRoutes: FastifyPluginAsync = async (app) => {
       const client = await prisma.client.findUnique({ where: { id: parsed.data.clientId } });
       if (!client) return reply.code(404).send({ error: "Client introuvable" });
 
-      const { lines, subtotalCents, totalCents } = computeLineTotals(
-        parsed.data.lines.map((l) => ({
-          description: l.description,
-          quantity: l.quantity,
-          unitPriceCents: eurosToCents(l.unitPriceEuros),
-        })),
+      const discount = discountFromBody(parsed.data);
+      const lineInputs = parsed.data.lines.map((l) => ({
+        description: l.description,
+        quantity: l.quantity,
+        unitPriceCents: eurosToCents(l.unitPriceEuros),
+        isSubscription: l.isSubscription,
+        billingDay: l.billingDay,
+        serviceId: l.serviceId,
+      }));
+      try {
+        assertSubscriptionLinesValid(lineInputs);
+      } catch (e) {
+        return reply.code(400).send({ error: e instanceof Error ? e.message : "Lignes invalides" });
+      }
+      const { lines, subtotalCents, totalCents, discountType, discountValue } = computeLineTotals(
+        lineInputs,
+        discount,
       );
 
       const documentType =
@@ -154,6 +209,8 @@ export const invoicesRoutes: FastifyPluginAsync = async (app) => {
           validUntil,
           subtotalCents,
           totalCents,
+          discountType,
+          discountValue,
           lines: { create: lines },
         },
         include: {
@@ -270,6 +327,8 @@ export const invoicesRoutes: FastifyPluginAsync = async (app) => {
       paymentTerms?: string | null;
       subtotalCents?: number;
       totalCents?: number;
+      discountType?: string;
+      discountValue?: number;
       validUntil?: Date | null;
     } = {};
 
@@ -280,24 +339,87 @@ export const invoicesRoutes: FastifyPluginAsync = async (app) => {
       data.validUntil = parsed.data.validUntil ? new Date(parsed.data.validUntil) : null;
     }
 
-    if (parsed.data.lines) {
-      const computed = computeLineTotals(
-        parsed.data.lines.map((l) => ({
-          description: l.description,
-          quantity: l.quantity,
-          unitPriceCents: eurosToCents(l.unitPriceEuros),
-        })),
-      );
+    const discountTouched =
+      parsed.data.discountType !== undefined ||
+      parsed.data.discountPercent !== undefined ||
+      parsed.data.discountEuros !== undefined;
+
+    if (parsed.data.lines || discountTouched) {
+      const linesSource = parsed.data.lines
+        ? await (async () => {
+            const existingLines = await prisma.invoiceLine.findMany({
+              where: { invoiceId: id },
+              orderBy: { position: "asc" },
+            });
+            return parsed.data.lines!.map((l, idx) => ({
+              description: l.description,
+              quantity: l.quantity,
+              unitPriceCents: eurosToCents(l.unitPriceEuros),
+              isSubscription: l.isSubscription,
+              billingDay: l.billingDay,
+              serviceId: l.serviceId,
+              subscriptionId:
+                existingLines.find((e) => e.position === idx + 1)?.subscriptionId ?? null,
+            }));
+          })()
+        : (
+            await prisma.invoiceLine.findMany({
+              where: { invoiceId: id },
+              orderBy: { position: "asc" },
+            })
+          ).map((l) => ({
+            description: l.description,
+            quantity: Number(l.quantity),
+            unitPriceCents: l.unitPriceCents,
+            position: l.position,
+            isSubscription: l.isSubscription,
+            billingDay: l.billingDay,
+            serviceId: l.serviceId,
+            subscriptionId: l.subscriptionId,
+          }));
+
+      if (parsed.data.lines) {
+        try {
+          assertSubscriptionLinesValid(linesSource);
+        } catch (e) {
+          return reply
+            .code(400)
+            .send({ error: e instanceof Error ? e.message : "Lignes invalides" });
+        }
+      }
+
+      const discount = discountTouched
+        ? discountFromBody({
+            discountType: parsed.data.discountType ?? (existing.discountType as "NONE" | "PERCENT" | "FIXED"),
+            discountPercent:
+              parsed.data.discountPercent ??
+              (existing.discountType === "PERCENT" ? existing.discountValue / 100 : undefined),
+            discountEuros:
+              parsed.data.discountEuros ??
+              (existing.discountType === "FIXED" ? existing.discountValue / 100 : undefined),
+          })
+        : {
+            discountType: existing.discountType as "NONE" | "PERCENT" | "FIXED",
+            discountValue: existing.discountValue,
+          };
+
+      const computed = computeLineTotals(linesSource, discount);
       data.subtotalCents = computed.subtotalCents;
       data.totalCents = computed.totalCents;
+      data.discountType = computed.discountType;
+      data.discountValue = computed.discountValue;
 
-      await prisma.$transaction([
-        prisma.invoiceLine.deleteMany({ where: { invoiceId: id } }),
-        prisma.invoice.update({
-          where: { id },
-          data: { ...data, lines: { create: computed.lines } },
-        }),
-      ]);
+      if (parsed.data.lines) {
+        await prisma.$transaction([
+          prisma.invoiceLine.deleteMany({ where: { invoiceId: id } }),
+          prisma.invoice.update({
+            where: { id },
+            data: { ...data, lines: { create: computed.lines } },
+          }),
+        ]);
+      } else {
+        await prisma.invoice.update({ where: { id }, data });
+      }
     } else {
       await prisma.invoice.update({ where: { id }, data });
     }
@@ -323,6 +445,11 @@ export const invoicesRoutes: FastifyPluginAsync = async (app) => {
       issueDate?: string;
       dueDate?: string;
       validUntil?: string;
+      email?: {
+        send?: boolean;
+        subject?: string;
+        body?: string;
+      };
     };
     let issueDate = new Date();
     let dueDate: Date | undefined;
@@ -333,12 +460,26 @@ export const invoicesRoutes: FastifyPluginAsync = async (app) => {
     try {
       const doc = await prisma.invoice.findUnique({ where: { id: request.params.id } });
       if (!doc) return reply.code(404).send({ error: "Introuvable" });
-      if (doc.documentType === InvoiceDocumentType.QUOTE) {
-        const q = await issueQuote(request.params.id, issueDate, validUntil ?? dueDate);
-        return serializeInvoice(q);
-      }
-      const inv = await issueInvoice(request.params.id, issueDate, dueDate);
-      return serializeInvoice(inv);
+      const issued =
+        doc.documentType === InvoiceDocumentType.QUOTE
+          ? await issueQuote(request.params.id, issueDate, validUntil ?? dueDate)
+          : await issueInvoice(request.params.id, issueDate, dueDate);
+      const wantEmail = body.email?.send !== false;
+      const mail = await sendDocumentPdf(issued.id, {
+        send: wantEmail,
+        subject: body.email?.subject,
+        text: body.email?.body,
+      });
+      const subscriptionsCreated =
+        "subscriptionsCreated" in issued && typeof issued.subscriptionsCreated === "number"
+          ? issued.subscriptionsCreated
+          : 0;
+      return {
+        ...serializeInvoice(issued),
+        emailed: mail.sent,
+        emailReason: mail.reason ?? null,
+        subscriptionsCreated,
+      };
     } catch (e) {
       request.log.error({ err: e }, "[issue]");
       return reply
@@ -352,7 +493,13 @@ export const invoicesRoutes: FastifyPluginAsync = async (app) => {
     if (reply.sent) return;
     try {
       const invoice = await convertQuoteToInvoice(request.params.id);
-      return reply.code(201).send(serializeInvoice(invoice));
+      return reply.code(201).send({
+        ...serializeInvoice(invoice),
+        subscriptionsCreated:
+          "subscriptionsCreated" in invoice && typeof invoice.subscriptionsCreated === "number"
+            ? invoice.subscriptionsCreated
+            : 0,
+      });
     } catch (e) {
       return reply
         .code(400)
@@ -509,7 +656,12 @@ export const invoicesRoutes: FastifyPluginAsync = async (app) => {
             ? new Date(parsed.data.refundPaidAt)
             : undefined,
         });
-        return reply.code(201).send(serializeInvoice(creditNote));
+        const mail = await sendDocumentPdf(creditNote.id);
+        return reply.code(201).send({
+          ...serializeInvoice(creditNote),
+          emailed: mail.sent,
+          emailReason: mail.reason ?? null,
+        });
       } catch (e) {
         if (e instanceof CreditNoteError) {
           return reply.code(400).send({ error: e.message, code: e.code });

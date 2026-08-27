@@ -116,11 +116,11 @@ function isoWeekNumber(d: Date): number {
 
 /** Somme des paiements encaissés sur [start, end]. */
 export async function sumEncaisseCents(start: Date, end: Date): Promise<number> {
-  const rows = await prisma.payment.findMany({
+  const agg = await prisma.payment.aggregate({
     where: { paidAt: { gte: start, lte: end } },
-    select: { amountCents: true },
+    _sum: { amountCents: true },
   });
-  return rows.reduce((s, p) => s + p.amountCents, 0);
+  return agg._sum.amountCents ?? 0;
 }
 
 export type ScopedCashflow = {

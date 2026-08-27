@@ -23,9 +23,9 @@ export async function allocateClientNumber(
   return `CLI-${pad(updated.lastValue)}`;
 }
 
-/** Génère un code d'accès clair (une fois) + hash argon2id */
+/** Génère un code d'accès clair (une fois) + hash argon2id. 64 bits d'entropie. */
 export async function generateAccessCode(): Promise<{ code: string; hash: string }> {
-  const code = randomBytes(4).toString("hex").toUpperCase();
+  const code = randomBytes(8).toString("hex").toUpperCase();
   const hash = await argon2.hash(code, { type: argon2.argon2id });
   return { code, hash };
 }

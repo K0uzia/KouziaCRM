@@ -9,10 +9,32 @@ import { renderInvoicePdf } from "@/lib/pdf/render.js";
 import { buildInvoicePdfPayload } from "@/lib/pdf/build-payload.js";
 import { listActiveLegalClauses } from "@/lib/company/legal-clauses.js";
 import type { ClientSnapshot } from "@/lib/invoices/transitions.js";
+import { getOnboardingView, submitOnboarding } from "@/lib/clients/onboarding.js";
 
 const trackingSchema = z.object({
   clientNumber: z.string().min(3),
   accessCode: z.string().min(4),
+});
+
+const onboardingSubmitSchema = z.object({
+  type: z.enum(["B2B", "B2C"]),
+  firstName: z.string().optional().nullable(),
+  lastName: z.string().optional().nullable(),
+  companyName: z.string().optional().nullable(),
+  email: z.string().email().optional().nullable().or(z.literal("")),
+  phone: z.string().optional().nullable(),
+  siret: z
+    .string()
+    .optional()
+    .nullable()
+    .refine((v) => !v || /^\d{14}$/.test(v.replace(/\s/g, "")), {
+      message: "SIRET invalide (14 chiffres)",
+    }),
+  addressLine1: z.string().optional().nullable(),
+  addressLine2: z.string().optional().nullable(),
+  postalCode: z.string().optional().nullable(),
+  city: z.string().optional().nullable(),
+  country: z.string().optional().nullable(),
 });
 
 export const publicRoutes: FastifyPluginAsync = async (app) => {
@@ -92,6 +114,14 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
 
   app.get<{ Params: { token: string } }>(
     "/api/public/documents/:token",
+    {
+      config: {
+        rateLimit: {
+          max: 30,
+          timeWindow: "15 minutes",
+        },
+      },
+    },
     async (request, reply) => {
       const invoiceId = verifyDocumentToken(request.params.token);
       if (!invoiceId) return reply.code(404).send({ error: "Lien invalide" });
@@ -136,6 +166,47 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
         .header("Content-Type", "application/pdf")
         .header("Content-Disposition", `inline; filename="${invoice.number}.pdf"`)
         .send(buffer);
+    },
+  );
+
+  app.get<{ Params: { token: string } }>(
+    "/api/public/onboarding/:token",
+    {
+      config: {
+        rateLimit: {
+          max: 20,
+          timeWindow: "15 minutes",
+        },
+      },
+    },
+    async (request, reply) => {
+      const view = await getOnboardingView(request.params.token);
+      if (!view) return reply.code(404).send({ error: "Lien invalide ou expiré" });
+      return view;
+    },
+  );
+
+  // Soumet le formulaire d'onboarding public (validé côté serveur).
+  app.post<{ Params: { token: string } }>(
+    "/api/public/onboarding/:token",
+    {
+      config: {
+        rateLimit: {
+          max: 10,
+          timeWindow: "15 minutes",
+        },
+      },
+    },
+    async (request, reply) => {
+      const parsed = onboardingSubmitSchema.safeParse(request.body);
+      if (!parsed.success) {
+        return reply.code(400).send({ error: parsed.error.flatten() });
+      }
+      const result = await submitOnboarding(request.params.token, parsed.data);
+      if (!result.ok) {
+        return reply.code(400).send({ error: result.error ?? "Erreur" });
+      }
+      return { ok: true };
     },
   );
 };

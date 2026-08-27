@@ -9,6 +9,10 @@ function requireEnv(name: string): string {
   return v;
 }
 
+/** Clé d'exemple documentée dans .env.example : interdite hors test. */
+const EXAMPLE_ENCRYPTION_KEY =
+  "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+
 export function assertSecurityEnv(): void {
   if (!process.env.SESSION_SECRET && process.env.AUTH_SECRET) {
     process.env.SESSION_SECRET = process.env.AUTH_SECRET;
@@ -18,6 +22,14 @@ export function assertSecurityEnv(): void {
   const key = process.env.ENCRYPTION_KEY!;
   if (!/^[0-9a-fA-F]{64}$/.test(key)) {
     throw new Error("ENCRYPTION_KEY doit être 64 caractères hex (32 bytes)");
+  }
+  if (
+    process.env.NODE_ENV === "production" &&
+    key.toLowerCase() === EXAMPLE_ENCRYPTION_KEY
+  ) {
+    throw new Error(
+      "ENCRYPTION_KEY d'exemple interdite en production (openssl rand -hex 32)",
+    );
   }
 }
 
@@ -56,4 +68,12 @@ export function getAllowedOrigins(): string[] {
 
 export function getApiPort(): number {
   return Number(process.env.API_PORT ?? 3001);
+}
+
+/** true seulement derrière un reverse-proxy de confiance (Tunnel, nginx). */
+export function getTrustProxy(): boolean {
+  const v = process.env.TRUST_PROXY?.trim().toLowerCase();
+  if (v === "true" || v === "1") return true;
+  if (v === "false" || v === "0") return false;
+  return process.env.NODE_ENV === "production";
 }

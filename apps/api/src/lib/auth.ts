@@ -113,6 +113,9 @@ export async function attachUser(request: FastifyRequest): Promise<void> {
 export async function requireAuth(request: FastifyRequest, reply: FastifyReply): Promise<void> {
   await attachUser(request);
   if (!request.user) {
-    await reply.code(401).send({ error: "Non authentifié" });
+    const err = new Error("Non authentifié") as Error & { statusCode: number };
+    err.statusCode = 401;
+    throw err;
   }
+  void reply;
 }
