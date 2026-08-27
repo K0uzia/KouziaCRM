@@ -1,42 +1,50 @@
 import { InvoiceDocumentType } from "@prisma/client";
-import { prisma } from "@/lib/prisma";
 import { decryptOptional } from "@/lib/crypto";
 import { isSmtpConfigured, sendEmail } from "@/lib/email/smtp";
+import {
+  brandFromSettings,
+  buildEmailContent,
+  type EmailTemplateKind,
+} from "@/lib/email/templates";
 import { listPendingReminders, markReminderSent } from "@/lib/reminders";
 
 type PendingInvoice = Awaited<ReturnType<typeof listPendingReminders>>[number];
 
-function buildReminderMessage(invoice: PendingInvoice): {
-  subject: string;
-  body: string;
-} {
-  const label = invoice.documentType === InvoiceDocumentType.QUOTE ? "devis" : "facture";
-  const subject = `Relance - ${label} ${invoice.number ?? "brouillon"}`;
-  const body = `Bonjour,\n\nSauf erreur de notre part, le ${label} ${invoice.number ?? ""} est en attente de règlement.\n\nCordialement,\nKouzia`;
-  return { subject, body };
+function reminderKind(invoice: PendingInvoice): EmailTemplateKind {
+  const count = invoice.reminderCount ?? 0;
+  if (count >= 2) return "reminder_formal";
+  if (count >= 1) return "reminder_firm";
+  return "reminder_soft";
 }
 
-/**
- * Envoie automatiquement les relances dues via SMTP (si configuré).
- * @returns nombre de relances envoyées.
- */
+/** Envoie automatiquement les relances dues via SMTP (si configuré). */
 export async function sendDueReminders(now: Date = new Date()): Promise<number> {
   if (!isSmtpConfigured()) return 0;
 
   const pending = await listPendingReminders(now);
+  const brand = await brandFromSettings();
   let sent = 0;
 
   for (const invoice of pending) {
-    const client = await prisma.client.findUnique({
-      where: { id: invoice.client.id },
-      select: { emailEncrypted: true },
-    });
-    const email = client ? decryptOptional(client.emailEncrypted) : null;
-    if (!email) continue;
+    const to = decryptOptional(invoice.client.emailEncrypted);
+    if (!to) continue;
 
     try {
-      const { subject, body } = buildReminderMessage(invoice);
-      await sendEmail({ to: email, subject, text: body });
+      const isQuote = invoice.documentType === InvoiceDocumentType.QUOTE;
+      const built = buildEmailContent({
+        kind: reminderKind(invoice),
+        clientName: invoice.client.displayName,
+        clientFirstName: invoice.client.displayName.split(/\s+/)[0],
+        docNumber: invoice.number,
+        docLabel: isQuote ? "devis" : "facture",
+        brand,
+      });
+      await sendEmail({
+        to,
+        subject: built.subject,
+        text: built.text,
+        html: built.html,
+      });
       await markReminderSent(invoice.id, now);
       sent += 1;
     } catch (err) {

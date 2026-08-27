@@ -124,7 +124,14 @@ export async function listPendingReminders(now = new Date()) {
       ],
     },
     include: {
-      client: { select: { id: true, displayName: true, clientNumber: true } },
+      client: {
+        select: {
+          id: true,
+          displayName: true,
+          clientNumber: true,
+          emailEncrypted: true,
+        },
+      },
     },
     orderBy: { nextReminderAt: "asc" },
     take: 50,

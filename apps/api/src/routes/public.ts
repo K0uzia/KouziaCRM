@@ -68,7 +68,6 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
       }
 
       const settings = await getCompanySettings();
-      const showAmounts = settings.publicTrackingShowAmounts;
 
       const documents = await prisma.invoice.findMany({
         where: {
@@ -82,9 +81,19 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
         take: 40,
       });
 
+      const firstName =
+        client.firstName?.trim() ||
+        client.displayName.trim().split(/\s+/)[0] ||
+        "Client";
+
       return {
-        clientNumber: client.clientNumber,
-        displayName: client.displayName,
+        clientFirstName: firstName,
+        brand: {
+          tradeName: settings.tradeName ?? settings.legalName,
+          accentColor: "#0f766e",
+          logoUrl: null as string | null,
+          contactUrl: settings.website ?? null,
+        },
         documents: documents.map((d) => ({
           id: d.id,
           number: d.number,
@@ -94,9 +103,6 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
           issueDate: d.issueDate,
           validUntil: d.validUntil,
           dueDate: d.dueDate,
-          ...(showAmounts
-            ? { totalCents: d.totalCents, subtotalCents: d.subtotalCents }
-            : {}),
           milestones:
             d.documentType === InvoiceDocumentType.QUOTE
               ? d.milestones.map((m) => ({
@@ -104,7 +110,6 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
                   percentBps: m.percentBps,
                   status: m.status,
                   triggerText: m.triggerText,
-                  ...(showAmounts ? { amountCents: m.amountCents } : {}),
                 }))
               : undefined,
         })),
