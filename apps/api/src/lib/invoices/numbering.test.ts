@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formatInvoiceNumber } from "@/lib/invoices/numbering";
+import { formatInvoiceNumber } from "@/lib/invoices/numberingService";
 import { estimateUrssafCents, bpsToRate, formatPercentFromBps } from "@/lib/urssaf";
 import { eurosToCents, lineTotalCents, formatEUR } from "@/lib/money";
 import { computeLineTotals } from "@/lib/invoices/totals";

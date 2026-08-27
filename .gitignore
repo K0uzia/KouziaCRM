@@ -54,3 +54,6 @@ data/
 # exports / dumps locaux
 *.pdf
 Export_*.pdf
+
+# outils locaux (Mailpit binaire, etc.)
+.tools/

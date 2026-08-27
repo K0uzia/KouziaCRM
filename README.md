@@ -25,8 +25,11 @@ make dev
 
 - Front : [http://localhost:5173](http://localhost:5173) (HMR Vite, proxy `/api` → API)
 - API : [http://localhost:3001](http://localhost:3001)
+- Mailpit (SMTP local) : [http://localhost:8025](http://localhost:8025) : démarré automatiquement par `make dev` (binaire local dans `.tools/`, pas de Docker)
 
 Connexion : `ADMIN_EMAIL` / `ADMIN_PASSWORD` du `.env`.
+
+SMTP local : le `.env` pointe vers Mailpit (`127.0.0.1:1025`). Les mails envoyés depuis l’UI apparaissent dans Mailpit. Arrêt : `make mailpit-stop`.
 
 ### Mode « outil » (build + servir SPA + API)
 
@@ -130,7 +133,8 @@ docker compose start app worker
 | Commande | Description |
 |----------|-------------|
 | `make setup` | `.env`, install, migrations, seed |
-| `make dev` | API + Vite en parallèle |
+| `make dev` | Mailpit + API + Vite en parallèle |
+| `make mailpit` / `make mailpit-stop` | SMTP catcher local (UI :8025) |
 | `make app` | Build web + API qui sert la SPA |
 | `make worker` | Sync IMAP horaire |
 | `make db-deploy` / `make db-seed` | Base |
