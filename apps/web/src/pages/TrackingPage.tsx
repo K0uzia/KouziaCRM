@@ -1,7 +1,4 @@
-import { useState, type FormEvent } from "react";
-import { Button } from "@/components/ui/Button";
-import { Field, Input } from "@/components/ui/Field";
-import { formatDate } from "@/lib/format";
+import { useState, type CSSProperties, type FormEvent } from "react";
 
 type TrackingDoc = {
   id: string;
@@ -12,22 +9,40 @@ type TrackingDoc = {
   issueDate: string | null;
   validUntil: string | null;
   dueDate: string | null;
-  totalCents?: number;
   milestones?: Array<{
     label: string;
     percentBps: number;
     status: string;
     triggerText: string;
-    amountCents?: number;
   }>;
 };
 
+type TrackingBrand = {
+  tradeName: string;
+  accentColor: string;
+  logoUrl: string | null;
+  contactUrl: string | null;
+};
+
 type TrackingResult = {
-  clientNumber: string | null;
-  displayName: string;
+  clientFirstName: string;
+  brand: TrackingBrand;
   documents: TrackingDoc[];
 };
 
+const shell: CSSProperties = {
+  minHeight: "100vh",
+  margin: 0,
+  padding: "48px 16px",
+  fontFamily:
+    'ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif',
+  background: "#f8fafc",
+  color: "#0f172a",
+};
+
+/**
+ * Page de suivi publique: isolée du design system admin (pas de Card/Button partagés).
+ */
 export function TrackingPage() {
   const [clientNumber, setClientNumber] = useState("");
   const [accessCode, setAccessCode] = useState("");
@@ -58,91 +73,145 @@ export function TrackingPage() {
     }
   }
 
+  const accent = data?.brand.accentColor || "#0f766e";
+
   return (
-    <div className="min-h-screen bg-[var(--bg)] px-4 py-12">
-      <div className="mx-auto max-w-lg">
-        <p className="text-2xl font-semibold tracking-tight text-[var(--primary)]">Kouzia</p>
-        <h1 className="mt-2 text-xl font-semibold">Suivi de projet</h1>
-        <p className="mt-1 text-sm text-[var(--muted)]">
-          Identifiez-vous avec votre code de suivi client et votre code d&apos;accès.
+    <div style={shell}>
+      <div style={{ maxWidth: 520, margin: "0 auto" }}>
+        {data?.brand.logoUrl ? (
+          <img
+            src={data.brand.logoUrl}
+            alt=""
+            style={{ height: 40, marginBottom: 12, objectFit: "contain" }}
+          />
+        ) : (
+          <p style={{ margin: 0, fontSize: 22, fontWeight: 600, color: accent }}>
+            {data?.brand.tradeName || "Suivi de projet"}
+          </p>
+        )}
+        <h1 style={{ margin: "8px 0 0", fontSize: 20, fontWeight: 600 }}>Suivi de projet</h1>
+        <p style={{ margin: "6px 0 0", fontSize: 14, color: "#64748b" }}>
+          Identifiez-vous avec votre code de suivi et votre code d&apos;accès.
         </p>
 
         <form
           onSubmit={onSubmit}
-          className="mt-8 space-y-4 rounded-[var(--radius)] border border-[var(--border)] bg-white p-5 shadow-[var(--shadow)]"
+          style={{
+            marginTop: 28,
+            padding: 20,
+            background: "#fff",
+            border: "1px solid #e2e8f0",
+            borderRadius: 8,
+          }}
         >
-          <Field label="Code de suivi" hint="Votre identifiant unique CLI-xxxx">
-            <Input
+          <label style={{ display: "block", fontSize: 13, fontWeight: 500 }}>
+            Code de suivi
+            <input
               required
-              placeholder="CLI-0001"
               value={clientNumber}
+              placeholder="CLI-0001"
               onChange={(e) => setClientNumber(e.target.value.toUpperCase())}
+              style={{
+                display: "block",
+                width: "100%",
+                marginTop: 6,
+                marginBottom: 14,
+                padding: "10px 12px",
+                border: "1px solid #cbd5e1",
+                borderRadius: 6,
+                fontSize: 14,
+              }}
             />
-          </Field>
-          <Field label="Code d'accès" hint="Code secret fourni à la création du dossier">
-            <Input
+          </label>
+          <label style={{ display: "block", fontSize: 13, fontWeight: 500 }}>
+            Code d&apos;accès
+            <input
               required
               type="password"
               autoComplete="off"
               value={accessCode}
               onChange={(e) => setAccessCode(e.target.value)}
+              style={{
+                display: "block",
+                width: "100%",
+                marginTop: 6,
+                marginBottom: 14,
+                padding: "10px 12px",
+                border: "1px solid #cbd5e1",
+                borderRadius: 6,
+                fontSize: 14,
+              }}
             />
-          </Field>
-          {error ? <p className="text-sm text-[var(--danger)]">{error}</p> : null}
-          <Button type="submit" disabled={busy} className="w-full">
+          </label>
+          {error ? (
+            <p style={{ margin: "0 0 12px", fontSize: 13, color: "#dc2626" }}>{error}</p>
+          ) : null}
+          <button
+            type="submit"
+            disabled={busy}
+            style={{
+              width: "100%",
+              padding: "10px 14px",
+              border: "none",
+              borderRadius: 6,
+              background: accent,
+              color: "#fff",
+              fontSize: 14,
+              fontWeight: 600,
+              cursor: busy ? "wait" : "pointer",
+              opacity: busy ? 0.7 : 1,
+            }}
+          >
             {busy ? "Vérification…" : "Accéder"}
-          </Button>
+          </button>
         </form>
 
         {data ? (
-          <div className="mt-8 space-y-4">
-            <p className="text-sm">
-              <span className="font-mono font-semibold text-[var(--primary)]">
-                {data.clientNumber}
-              </span>
-              <span className="text-[var(--muted)]"> · {data.displayName}</span>
+          <div style={{ marginTop: 28 }}>
+            <p style={{ fontSize: 14 }}>
+              Bonjour <strong>{data.clientFirstName}</strong>
             </p>
             {data.documents.length === 0 ? (
-              <p className="text-sm text-[var(--muted)]">Aucun document pour le moment.</p>
+              <p style={{ fontSize: 14, color: "#64748b" }}>Aucun document disponible.</p>
             ) : (
-              data.documents.map((d) => (
-                <div
-                  key={d.id}
-                  className="rounded-[var(--radius)] border border-[var(--border)] bg-white p-4 text-sm"
-                >
-                  <p className="font-medium">
-                    {d.documentType === "QUOTE" ? "Devis" : "Facture"}{" "}
-                    {d.number ?? ""}
-                  </p>
-                  <p className="text-[var(--muted)]">
-                    Statut : {d.quoteStatus ?? d.status} · {formatDate(d.issueDate)}
-                  </p>
-                  {typeof d.totalCents === "number" ? (
-                    <p className="mt-1 tabular-nums">
-                      {(d.totalCents / 100).toLocaleString("fr-FR", {
-                        style: "currency",
-                        currency: "EUR",
-                      })}
+              <ul style={{ listStyle: "none", padding: 0, margin: "16px 0 0" }}>
+                {data.documents.map((d) => (
+                  <li
+                    key={d.id}
+                    style={{
+                      marginBottom: 12,
+                      padding: 16,
+                      background: "#fff",
+                      border: "1px solid #e2e8f0",
+                      borderRadius: 8,
+                    }}
+                  >
+                    <p style={{ margin: 0, fontWeight: 600, fontSize: 14 }}>
+                      {d.number ?? "Document"} · {d.documentType}
                     </p>
-                  ) : null}
-                  {d.milestones && d.milestones.length > 0 ? (
-                    <ul className="mt-3 space-y-1 border-t border-[var(--border)] pt-3 text-xs">
-                      {d.milestones.map((m, i) => (
-                        <li key={i}>
-                          {m.label} ({(m.percentBps / 100).toFixed(0)} %) - {m.status}
-                          {typeof m.amountCents === "number"
-                            ? ` - ${(m.amountCents / 100).toLocaleString("fr-FR", {
-                                style: "currency",
-                                currency: "EUR",
-                              })}`
-                            : ""}
-                        </li>
-                      ))}
-                    </ul>
-                  ) : null}
-                </div>
-              ))
+                    <p style={{ margin: "4px 0 0", fontSize: 12, color: "#64748b" }}>
+                      Statut {d.quoteStatus ?? d.status}
+                    </p>
+                    {d.milestones && d.milestones.length > 0 ? (
+                      <ul style={{ margin: "10px 0 0", paddingLeft: 18, fontSize: 13 }}>
+                        {d.milestones.map((m, i) => (
+                          <li key={`${d.id}-${i}`}>
+                            {m.label} ({Math.round(m.percentBps / 100)}%) : {m.status}
+                          </li>
+                        ))}
+                      </ul>
+                    ) : null}
+                  </li>
+                ))}
+              </ul>
             )}
+            {data.brand.contactUrl ? (
+              <p style={{ marginTop: 20, fontSize: 13 }}>
+                <a href={data.brand.contactUrl} style={{ color: accent }}>
+                  Contacter
+                </a>
+              </p>
+            ) : null}
           </div>
         ) : null}
       </div>
