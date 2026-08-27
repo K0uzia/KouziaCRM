@@ -118,6 +118,10 @@ export function DashboardPage() {
   if (error || !data) return <p className="text-sm text-[var(--danger)]">{error ?? "Erreur"}</p>;
 
   const cf = data.cashflow;
+  const echeanceDue =
+    data.echeance &&
+    data.echeance.status !== "PAID" &&
+    data.echeance.amountDueCents > 0;
 
   return (
     <div className="space-y-6">
@@ -137,7 +141,56 @@ export function DashboardPage() {
         }
       />
 
+      <div className="flex flex-wrap gap-2">
+        <Link
+          to="/quotes"
+          className="inline-flex h-9 items-center rounded-[var(--radius)] border border-[var(--border-strong)] bg-white px-3 text-xs font-medium hover:bg-[var(--bg)]"
+        >
+          Nouveau devis
+        </Link>
+        <Link
+          to="/invoices"
+          className="inline-flex h-9 items-center rounded-[var(--radius)] border border-[var(--border-strong)] bg-white px-3 text-xs font-medium hover:bg-[var(--bg)]"
+        >
+          Factures
+        </Link>
+        <Link
+          to="/payments"
+          className="inline-flex h-9 items-center rounded-[var(--radius)] bg-[var(--primary)] px-3 text-xs font-medium text-white hover:bg-[var(--primary-hover)]"
+        >
+          Encaisser
+        </Link>
+        <Link
+          to="/obligations"
+          className="inline-flex h-9 items-center rounded-[var(--radius)] border border-[var(--border-strong)] bg-white px-3 text-xs font-medium hover:bg-[var(--bg)]"
+        >
+          Obligations / URSSAF
+        </Link>
+      </div>
+
       <ObligationsReminder />
+
+      {echeanceDue ? (
+        <Card className="border-[var(--warning)]/40 p-4">
+          <p className="text-xs font-medium text-[var(--warning)]">Échéance URSSAF</p>
+          <p className="mt-1 text-sm">
+            {data.echeance.periodLabel} :{" "}
+            <span className="font-semibold tabular-nums">
+              {formatEUR(data.echeance.amountDueCents)}
+            </span>
+            {" · "}
+            échéance {formatDate(data.echeance.deadline)}
+            {" · "}
+            {data.echeance.status}
+          </p>
+          <Link
+            to="/banque"
+            className="mt-2 inline-block text-xs font-medium text-[var(--primary)] hover:underline"
+          >
+            Voir déclarations
+          </Link>
+        </Card>
+      ) : null}
 
       {mrr && mrr.activeCount > 0 ? (
         <div className="grid gap-3 sm:grid-cols-3">
@@ -218,16 +271,23 @@ export function DashboardPage() {
         </ResponsiveContainer>
       </Card>
 
-      {data.pendingWithBalance.length > 0 ? (
-        <Card className="p-5">
-          <h2 className="mb-3 text-sm font-semibold">
-            Factures à encaisser
-            {data.drafts > 0 ? (
-              <span className="ml-2 font-normal text-[var(--muted)]">
-                · {data.drafts} brouillon(s)
-              </span>
-            ) : null}
-          </h2>
+      <Card className="p-5">
+        <h2 className="mb-3 text-sm font-semibold">
+          Factures à encaisser
+          {data.drafts > 0 ? (
+            <span className="ml-2 font-normal text-[var(--muted)]">
+              · {data.drafts} brouillon(s)
+            </span>
+          ) : null}
+        </h2>
+        {data.pendingWithBalance.length === 0 ? (
+          <p className="text-sm text-[var(--muted)]">
+            Aucune facture en attente.{" "}
+            <Link to="/invoices" className="text-[var(--primary)] hover:underline">
+              Voir les factures
+            </Link>
+          </p>
+        ) : (
           <ul className="divide-y divide-[var(--border)] text-sm">
             {data.pendingWithBalance.map((inv) => (
               <li key={inv.id} className="flex justify-between gap-4 py-3">
@@ -238,8 +298,8 @@ export function DashboardPage() {
               </li>
             ))}
           </ul>
-        </Card>
-      ) : null}
+        )}
+      </Card>
     </div>
   );
 }

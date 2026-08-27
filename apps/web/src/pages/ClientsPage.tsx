@@ -16,6 +16,7 @@ import {
   type Client,
 } from "@/components/clients/ClientForm";
 import { ClientEmailLink } from "@/components/clients/ClientEmailLink";
+import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 
 export function ClientsPage() {
   const navigate = useNavigate();
@@ -242,6 +243,7 @@ export function ClientDetailPage() {
   const [client, setClient] = useState<Client | null>(null);
   const [editOpen, setEditOpen] = useState(false);
   const [busyAccess, setBusyAccess] = useState(false);
+  const [confirmRegen, setConfirmRegen] = useState(false);
   const [busyOnboarding, setBusyOnboarding] = useState(false);
   const [docs, setDocs] = useState<
     Array<{
@@ -333,13 +335,19 @@ export function ClientDetailPage() {
           <Button
             variant="secondary"
             disabled={busyAccess || !client.email}
-            onClick={() => {
-              if (
-                !window.confirm(
-                  "Régénérer le code d'accès ? L'ancien code sera invalidé et un email sera envoyé au client avec le nouveau code.",
-                )
-              )
-                return;
+            onClick={() => setConfirmRegen(true)}
+          >
+            {busyAccess ? "Régénération..." : "Régénérer et envoyer par email"}
+          </Button>
+          <ConfirmDialog
+            open={confirmRegen}
+            title="Régénérer le code d'accès ?"
+            message="L'ancien code sera invalidé et un email sera envoyé au client avec le nouveau code."
+            confirmLabel="Régénérer"
+            danger
+            busy={busyAccess}
+            onClose={() => setConfirmRegen(false)}
+            onConfirm={() => {
               setBusyAccess(true);
               void api<{
                 accessCode: string;
@@ -350,6 +358,7 @@ export function ClientDetailPage() {
                 body: JSON.stringify({ sendEmail: true }),
               })
                 .then((r) => {
+                  setConfirmRegen(false);
                   if (r.accessEmailSent) {
                     toast.success(
                       `Nouveau code d'accès généré et envoyé par email : ${r.accessCode}`,
@@ -370,9 +379,7 @@ export function ClientDetailPage() {
                 .catch((e: Error) => toast.error(e.message))
                 .finally(() => setBusyAccess(false));
             }}
-          >
-            {busyAccess ? "Régénération..." : "Régénérer et envoyer par email"}
-          </Button>
+          />
 
           <Button
             variant="secondary"
