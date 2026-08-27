@@ -18,6 +18,7 @@ import { legalClausesRoutes } from "@/routes/legal-clauses.js";
 import { miscRoutes } from "@/routes/misc.js";
 import { numberingRoutes } from "@/routes/numbering.js";
 import { quotesMarketRoutes } from "@/routes/quotes-market.js";
+import { subscriptionsRoutes } from "@/routes/subscriptions.js";
 import { enableWal } from "@/lib/prisma.js";
 import { registerErrorHandler, setJsonSerializer } from "@/lib/http.js";
 import multipart from "@fastify/multipart";
@@ -86,6 +87,7 @@ async function main() {
   await app.register(miscRoutes);
   await app.register(numberingRoutes);
   await app.register(quotesMarketRoutes);
+  await app.register(subscriptionsRoutes);
 
   app.get("/api/health", async () => ({ ok: true }));
 

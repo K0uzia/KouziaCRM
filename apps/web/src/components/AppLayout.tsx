@@ -13,6 +13,7 @@ import {
   faBriefcase,
   faBook,
   faClipboardCheck,
+  faRepeat,
 } from "@fortawesome/free-solid-svg-icons";
 import { useAuth } from "@/lib/auth";
 
@@ -20,6 +21,7 @@ const links = [
   { to: "/", label: "Tableau de bord", icon: faChartLine, end: true },
   { to: "/clients", label: "Clients", icon: faUsers },
   { to: "/services", label: "Prestations", icon: faBriefcase },
+  { to: "/abonnements", label: "Abonnements", icon: faRepeat },
   { to: "/quotes", label: "Devis", icon: faFileSignature },
   { to: "/invoices", label: "Factures", icon: faFileInvoice },
   { to: "/payments", label: "Paiements", icon: faMoneyBillWave },

@@ -12,10 +12,32 @@ async function main() {
   const email = (process.env.ADMIN_EMAIL ?? "admin@kouzia.com").toLowerCase().trim();
   const password = process.env.ADMIN_PASSWORD ?? "change-me-on-first-login";
   const name = process.env.ADMIN_NAME ?? "Alexandre Kouziaeff";
+  const isProd = process.env.NODE_ENV === "production";
+
+  const WEAK_PASSWORDS = new Set([
+    "change-me-on-first-login",
+    "1234",
+    "admin",
+    "password",
+    "change-me",
+  ]);
+
+  function isWeakPassword(p: string): boolean {
+    return WEAK_PASSWORDS.has(p) || p.length < 12;
+  }
 
   if (!process.env.ADMIN_PASSWORD) {
+    if (isProd) {
+      throw new Error(
+        "ADMIN_PASSWORD absent du .env en production. Définissez un mot de passe d'au moins 12 caractères.",
+      );
+    }
     console.warn(
       "ADMIN_PASSWORD absent du .env - mot de passe par défaut utilisé. Définissez-le puis relancez npm run db:seed.",
+    );
+  } else if (isWeakPassword(password) && isProd) {
+    throw new Error(
+      "ADMIN_PASSWORD trop faible en production (doit faire >= 12 caractères et ne pas être une valeur connue).",
     );
   }
 
@@ -56,6 +78,8 @@ async function main() {
         businessStartDate: new Date("2025-01-15"),
         cfeAmountCents: 25000,
         b2cActivity: true,
+        mediationClause:
+          "En cas de litige non résolu, le client peut recourir gratuitement à un médiateur de la consommation — voir medic.conso.fr",
         incomeTaxReminderMonth: 4,
         incomeTaxReminderDay: 15,
       },
@@ -150,6 +174,41 @@ async function main() {
         },
       ],
     });
+  }
+
+  // Abonnement d'exemple (dev only) pour faciliter les tests du MRR/worker.
+  if (process.env.NODE_ENV !== "production") {
+    const subCount = await prisma.subscription.count();
+    if (subCount === 0) {
+      const sampleClient = await prisma.client.findFirst({ orderBy: { createdAt: "asc" } });
+      const sampleService = await prisma.service.findFirst({ orderBy: { name: "asc" } });
+      if (sampleClient && sampleService) {
+        const start = new Date();
+        const nextInvoiceAt = new Date(
+          start.getFullYear(),
+          start.getMonth(),
+          5,
+          0,
+          0,
+          0,
+          0,
+        );
+        if (nextInvoiceAt < start) nextInvoiceAt.setMonth(nextInvoiceAt.getMonth() + 1);
+        await prisma.subscription.create({
+          data: {
+            clientId: sampleClient.id,
+            serviceId: sampleService.id,
+            label: "Maintenance mensuelle",
+            amountCents: 30000,
+            billingDay: 5,
+            startDate: start,
+            status: "ACTIVE",
+            nextInvoiceAt,
+          },
+        });
+        console.log("Seed: abonnement d'exemple créé (dev only)");
+      }
+    }
   }
 
   console.log("Seed OK:", { admin: email, company: "Kouzia / Alexandre Kouziaeff" });

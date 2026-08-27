@@ -54,10 +54,17 @@ type ReminderRow = {
   client: { id: string; displayName: string; clientNumber?: string | null };
 };
 
+type MrrData = {
+  mrrCents: number;
+  arrCents: number;
+  activeCount: number;
+};
+
 export function DashboardPage() {
   const [scope, setScope] = useState("month");
   const [data, setData] = useState<DashboardData | null>(null);
   const [reminders, setReminders] = useState<ReminderRow[]>([]);
+  const [mrr, setMrr] = useState<MrrData | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -69,11 +76,13 @@ export function DashboardPage() {
     Promise.all([
       api<DashboardData>(url),
       api<ReminderRow[]>("/api/reminders/pending").catch(() => [] as ReminderRow[]),
+      api<MrrData>("/api/subscriptions/mrr").catch(() => null as MrrData | null),
     ])
-      .then(([d, r]) => {
+      .then(([d, r, m]) => {
         if (!cancelled) {
           setData(d);
           setReminders(r);
+          if (m) setMrr(m);
           setError(null);
         }
       })
@@ -129,6 +138,23 @@ export function DashboardPage() {
       />
 
       <ObligationsReminder />
+
+      {mrr && mrr.activeCount > 0 ? (
+        <div className="grid gap-3 sm:grid-cols-3">
+          <Card className="p-4">
+            <p className="text-xs text-[var(--muted)]">CA récurrent (MRR)</p>
+            <p className="mt-1 text-lg font-semibold tabular-nums">{formatEUR(mrr.mrrCents)}</p>
+          </Card>
+          <Card className="p-4">
+            <p className="text-xs text-[var(--muted)]">CA récurrent (ARR)</p>
+            <p className="mt-1 text-lg font-semibold tabular-nums">{formatEUR(mrr.arrCents)}</p>
+          </Card>
+          <Card className="p-4">
+            <p className="text-xs text-[var(--muted)]">Abonnements actifs</p>
+            <p className="mt-1 text-lg font-semibold tabular-nums">{mrr.activeCount}</p>
+          </Card>
+        </div>
+      ) : null}
 
       {reminders.length > 0 ? (
         <Card className="p-5">

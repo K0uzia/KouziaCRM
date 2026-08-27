@@ -91,6 +91,18 @@ enum MilestoneStatus {
   PAID
 }
 
+enum CreditNoteReason {
+  REFUND_DEPOSIT
+  COMMERCIAL_GESTURE
+  AMOUNT_CORRECTION
+}
+
+enum RefundMethod {
+  BANK_TRANSFER
+  DEDUCT_FROM_BALANCE
+  OTHER
+}
+
 model User {
   id           String    @id @default(cuid())
   email        String    @unique
@@ -170,6 +182,8 @@ model CompanySettings {
   cfeAmountCents Int @default(25000)
   /// Facture des particuliers (médiation conso)
   b2cActivity Boolean @default(false)
+  /// Mention médiation consommation (affichée sur le PDF si b2cActivity=true)
+  mediationClause String?
   /// Rappel déclaration revenus : mois (1-12), défaut avril
   incomeTaxReminderMonth Int @default(4)
   /// Rappel déclaration revenus : jour, défaut 15
@@ -319,6 +333,7 @@ model Client {
   updatedAt      DateTime      @updatedAt
   invoices       Invoice[]
   emailThreads   EmailThread[]
+  subscriptions  Subscription[]
 
   @@index([displayName])
   @@index([type])
@@ -333,9 +348,45 @@ model Service {
   active          Boolean     @default(true)
   createdAt       DateTime    @default(now())
   updatedAt       DateTime    @updatedAt
+  subscriptions   Subscription[]
 
   @@index([active])
   @@index([name])
+}
+
+enum SubscriptionStatus {
+  ACTIVE
+  PAUSED
+  ENDED
+}
+
+model Subscription {
+  id              String             @id @default(cuid())
+  clientId        String
+  client          Client             @relation(fields: [clientId], references: [id])
+  serviceId       String
+  service         Service            @relation(fields: [serviceId], references: [id])
+  /// Libellé de la facture récurrente (ex. "Maintenance site web — mensuel")
+  label           String
+  /// Montant HT par échéance (centimes). Franchise TVA → HT = TTC.
+  amountCents     Int
+  /// Jour du mois de facturation (1-28 pour éviter débordement)
+  billingDay      Int
+  startDate       DateTime
+  /// null = actif indéfiniment
+  endDate         DateTime?
+  status          SubscriptionStatus @default(ACTIVE)
+  /// Prochaine date d'émission de facture
+  nextInvoiceAt   DateTime
+  /// Dernière facture générée par cet abonnement
+  lastInvoiceId   String?
+  invoices        Invoice[]
+  createdAt       DateTime           @default(now())
+  updatedAt       DateTime           @updatedAt
+
+  @@index([status])
+  @@index([nextInvoiceAt])
+  @@index([clientId])
 }
 
 model Invoice {
@@ -367,6 +418,14 @@ model Invoice {
   creditedInvoiceId String?
   creditedInvoice   Invoice?            @relation("CreditNotes", fields: [creditedInvoiceId], references: [id])
   creditNotes       Invoice[]           @relation("CreditNotes")
+  /// Motif métier de l'avoir (uniquement CREDIT_NOTE)
+  creditReason         CreditNoteReason?
+  creditReasonDetail   String?
+  refundMethod         RefundMethod?
+  /// Confirmation CGV : acompte remboursable (null si non applicable)
+  cgvDepositRefundable Boolean?
+  /// Checklist suivi post-avoir (JSON)
+  creditFollowUp       Json?
   /// Pivot marché : devis commun (nullable si facture hors marché)
   quoteId           String?
   quote             Invoice?            @relation("MarketInvoices", fields: [quoteId], references: [id])
@@ -378,6 +437,9 @@ model Invoice {
   /// Jalon d'origine (FK côté facture, sync avec PaymentMilestone.invoiceId)
   milestoneId       String?             @unique
   sourceMilestone   PaymentMilestone?   @relation("MilestoneInvoice", fields: [milestoneId], references: [id])
+  /// Abonnement d'origine (null pour les factures ponctuelles)
+  subscriptionId    String?
+  subscription      Subscription?       @relation(fields: [subscriptionId], references: [id])
   lines             InvoiceLine[]
   payments          Payment[]
   milestones        PaymentMilestone[]  @relation("QuoteMilestones")
@@ -397,6 +459,7 @@ model Invoice {
   @@index([quoteId])
   @@index([quoteStatus])
   @@index([nextReminderAt])
+  @@index([subscriptionId])
 }
 
 model PaymentMilestone {

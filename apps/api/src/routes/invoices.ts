@@ -15,13 +15,17 @@ import {
   issueQuote,
   convertQuoteToInvoice,
   cancelInvoiceWithCreditNote,
-  generateMilestoneInvoice,
+  assessCreditNoteEligibility,
+  createCreditNote,
+  CreditNoteError,
   DocumentFlowError,
   assertQuoteEditable,
   syncMilestoneOnInvoicePaid,
 } from "@/lib/invoices/transitions.js";
+import { CreditNoteReason, RefundMethod } from "@prisma/client";
 import { getCompanySettings } from "@/lib/company.js";
 import { renderInvoicePdf } from "@/lib/pdf/render.js";
+import { buildInvoicePdfPayload } from "@/lib/pdf/build-payload.js";
 import { decryptOptional } from "@/lib/crypto.js";
 import type { ClientSnapshot } from "@/lib/invoices/transitions.js";
 import { serializeInvoice } from "@/lib/invoices/serialize.js";
@@ -376,29 +380,6 @@ export const invoicesRoutes: FastifyPluginAsync = async (app) => {
     },
   );
 
-  app.post<{ Params: { id: string; milestoneId: string } }>(
-    "/api/invoices/:id/milestones/:milestoneId/generate-invoice",
-    async (request, reply) => {
-      await requireAuth(request, reply);
-      if (reply.sent) return;
-      try {
-        const milestone = await prisma.paymentMilestone.findFirst({
-          where: { id: request.params.milestoneId, quoteId: request.params.id },
-        });
-        if (!milestone) return reply.code(404).send({ error: "Jalon introuvable" });
-        const invoice = await generateMilestoneInvoice(milestone.id);
-        return reply.code(201).send(serializeInvoice(invoice));
-      } catch (e) {
-        if (e instanceof DocumentFlowError) {
-          return reply.code(e.statusCode).send({ error: e.message });
-        }
-        return reply
-          .code(400)
-          .send({ error: e instanceof Error ? e.message : "Génération impossible" });
-      }
-    },
-  );
-
   app.post<{ Params: { id: string } }>(
     "/api/invoices/:id/reminders/send",
     async (request, reply) => {
@@ -475,6 +456,106 @@ export const invoicesRoutes: FastifyPluginAsync = async (app) => {
     return reply.code(201).send(payment);
   });
 
+  app.get<{ Params: { id: string } }>(
+    "/api/invoices/:id/credit-note/eligibility",
+    async (request, reply) => {
+      await requireAuth(request, reply);
+      if (reply.sent) return;
+      try {
+        return await assessCreditNoteEligibility(request.params.id);
+      } catch (e) {
+        if (e instanceof CreditNoteError) {
+          return reply.code(e.code === "NOT_FOUND" ? 404 : 400).send({
+            error: e.message,
+            code: e.code,
+          });
+        }
+        throw e;
+      }
+    },
+  );
+
+  app.post<{ Params: { id: string } }>(
+    "/api/invoices/:id/credit-note",
+    async (request, reply) => {
+      await requireAuth(request, reply);
+      if (reply.sent) return;
+      const schema = z.object({
+        amountEuros: z.coerce.number().positive(),
+        reason: z.nativeEnum(CreditNoteReason),
+        reasonDetail: z.string().optional().nullable(),
+        refundMethod: z.nativeEnum(RefundMethod),
+        cgvDepositRefundable: z.boolean().optional().nullable(),
+        issueDate: z.string().optional(),
+        registerRefundPayment: z.boolean().optional(),
+        refundPaidAt: z.string().optional(),
+      });
+      const parsed = schema.safeParse(request.body);
+      if (!parsed.success) {
+        return reply.code(400).send({ error: "Données invalides" });
+      }
+      try {
+        const creditNote = await createCreditNote(request.params.id, {
+          amountCents: eurosToCents(parsed.data.amountEuros),
+          reason: parsed.data.reason,
+          reasonDetail: parsed.data.reasonDetail,
+          refundMethod: parsed.data.refundMethod,
+          cgvDepositRefundable: parsed.data.cgvDepositRefundable,
+          issueDate: parsed.data.issueDate
+            ? new Date(parsed.data.issueDate)
+            : new Date(),
+          registerRefundPayment: parsed.data.registerRefundPayment,
+          refundPaidAt: parsed.data.refundPaidAt
+            ? new Date(parsed.data.refundPaidAt)
+            : undefined,
+        });
+        return reply.code(201).send(serializeInvoice(creditNote));
+      } catch (e) {
+        if (e instanceof CreditNoteError) {
+          return reply.code(400).send({ error: e.message, code: e.code });
+        }
+        return reply
+          .code(400)
+          .send({ error: e instanceof Error ? e.message : "Erreur avoir" });
+      }
+    },
+  );
+
+  app.patch<{ Params: { id: string } }>(
+    "/api/invoices/:id/credit-note/follow-up",
+    async (request, reply) => {
+      await requireAuth(request, reply);
+      if (reply.sent) return;
+      const schema = z.object({
+        sentToClient: z.boolean().optional(),
+        bankTransferDone: z.boolean().optional(),
+        receiptsLineAdded: z.boolean().optional(),
+        archivedWithOriginal: z.boolean().optional(),
+        urssafImpactNoted: z.boolean().optional(),
+        negativeCarryoverReminder: z.boolean().optional(),
+      });
+      const parsed = schema.safeParse(request.body);
+      if (!parsed.success) {
+        return reply.code(400).send({ error: "Données invalides" });
+      }
+      const inv = await prisma.invoice.findUnique({
+        where: { id: request.params.id },
+      });
+      if (!inv || inv.documentType !== InvoiceDocumentType.CREDIT_NOTE) {
+        return reply.code(404).send({ error: "Avoir introuvable" });
+      }
+      const prev =
+        (inv.creditFollowUp as Record<string, boolean> | null) ?? {};
+      const updated = await prisma.invoice.update({
+        where: { id: inv.id },
+        data: {
+          creditFollowUp: { ...prev, ...parsed.data },
+        },
+      });
+      return { creditFollowUp: updated.creditFollowUp };
+    },
+  );
+
   app.post<{ Params: { id: string } }>("/api/invoices/:id/cancel", async (request, reply) => {
     await requireAuth(request, reply);
     if (reply.sent) return;
@@ -484,6 +565,18 @@ export const invoicesRoutes: FastifyPluginAsync = async (app) => {
       const creditNote = await cancelInvoiceWithCreditNote(request.params.id, issueDate);
       return reply.code(201).send(serializeInvoice(creditNote));
     } catch (e) {
+      if (e instanceof CreditNoteError) {
+        return reply.code(400).send({
+          error: e.message,
+          code: e.code,
+          ...(e.code === "UNPAID"
+            ? {
+                alternative:
+                  "Conservez la facture, émettez une facture corrigée si besoin. Ne déclarez que les encaissements réels.",
+              }
+            : {}),
+        });
+      }
       return reply
         .code(400)
         .send({ error: e instanceof Error ? e.message : "Erreur d'annulation" });
@@ -548,37 +641,7 @@ export const invoicesRoutes: FastifyPluginAsync = async (app) => {
 
     const buffer = await renderInvoicePdf({
       company,
-      invoice: {
-        number: invoice.number,
-        documentType: invoice.documentType as "INVOICE" | "CREDIT_NOTE" | "QUOTE",
-        invoiceType: invoice.invoiceType as "SIMPLE" | "ACOMPTE" | "SOLDE",
-        issueDate: invoice.issueDate!,
-        dueDate: invoice.dueDate,
-        validUntil: invoice.validUntil,
-        paymentTerms: invoice.paymentTerms,
-        notes: invoice.notes,
-        totalCents: invoice.totalCents,
-        subtotalCents: invoice.subtotalCents,
-        creditedInvoiceNumber: invoice.creditedInvoice?.number ?? null,
-        quoteNumber: invoice.quote?.number ?? null,
-        quoteIssueDate: invoice.quote?.issueDate ?? null,
-        marketTotalCents: invoice.marketTotalCents,
-        milestoneTrigger: invoice.sourceMilestone?.triggerText ?? null,
-        balanceSummary,
-        milestones: invoice.milestones.map((m) => ({
-          label: m.label,
-          percentBps: m.percentBps,
-          amountCents: m.amountCents,
-          triggerText: m.triggerText,
-        })),
-        lines: invoice.lines.map((l) => ({
-          description: l.description,
-          quantity: Number(l.quantity),
-          unitPriceCents: l.unitPriceCents,
-          lineTotalCents: l.lineTotalCents,
-        })),
-        legalClauses: legalClauses.map((c) => ({ title: c.title, body: c.body })),
-      },
+      invoice: buildInvoicePdfPayload({ invoice, legalClauses, balanceSummary }),
       client: snapshot,
     });
 

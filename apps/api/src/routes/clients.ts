@@ -76,4 +76,86 @@ export const clientsRoutes: FastifyPluginAsync = async (app) => {
     await prisma.client.delete({ where: { id: request.params.id } });
     return { ok: true };
   });
+
+  // Export RGPD (droit d'accès / portabilité) : toutes les données d'un client.
+  app.get<{ Params: { id: string } }>(
+    "/api/clients/:id/export",
+    async (request, reply) => {
+      await requireAuth(request, reply);
+      if (reply.sent) return;
+      const client = await prisma.client.findUnique({
+        where: { id: request.params.id },
+        include: {
+          invoices: {
+            include: {
+              lines: true,
+              payments: true,
+            },
+            orderBy: { createdAt: "asc" },
+          },
+          emailThreads: {
+            include: { messages: true },
+            orderBy: { lastMessageAt: "asc" },
+          },
+          subscriptions: {
+            include: { service: { select: { name: true } } },
+            orderBy: { createdAt: "asc" },
+          },
+        },
+      });
+      if (!client) return reply.code(404).send({ error: "Introuvable" });
+
+      const exportedAt = new Date().toISOString();
+      reply.header("Content-Type", "application/json");
+      reply.header(
+        "Content-Disposition",
+        `attachment; filename="client-${client.clientNumber ?? client.id}-${exportedAt.slice(0, 10)}.json"`,
+      );
+      return {
+        exportedAt,
+        client: serializeClient(client),
+        invoices: client.invoices.map((inv) => ({
+          id: inv.id,
+          number: inv.number,
+          documentType: inv.documentType,
+          invoiceType: inv.invoiceType,
+          status: inv.status,
+          issueDate: inv.issueDate?.toISOString() ?? null,
+          dueDate: inv.dueDate?.toISOString() ?? null,
+          totalCents: inv.totalCents,
+          lines: inv.lines.map((l) => ({
+            description: l.description,
+            quantity: l.quantity,
+            unitPriceCents: l.unitPriceCents,
+            lineTotalCents: l.lineTotalCents,
+          })),
+          payments: inv.payments.map((p) => ({
+            amountCents: p.amountCents,
+            paidAt: p.paidAt.toISOString(),
+            method: p.method,
+            reference: p.reference,
+          })),
+        })),
+        subscriptions: client.subscriptions.map((s) => ({
+          label: s.label,
+          amountCents: s.amountCents,
+          billingDay: s.billingDay,
+          status: s.status,
+          startDate: s.startDate.toISOString(),
+          endDate: s.endDate?.toISOString() ?? null,
+          serviceName: s.service.name,
+        })),
+        emailThreads: client.emailThreads.map((t) => ({
+          subject: t.subject,
+          lastMessageAt: t.lastMessageAt.toISOString(),
+          messages: t.messages.map((m) => ({
+            direction: m.direction,
+            receivedAt: m.receivedAt.toISOString(),
+            subject: m.subject,
+            bodyText: m.bodyText,
+          })),
+        })),
+      };
+    },
+  );
 };

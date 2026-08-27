@@ -7,7 +7,7 @@ import {
 } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { getCompanySettings } from "@/lib/company";
-import { allocateInvoiceNumber, allocateQuoteNumber, allocateCreditNoteNumber } from "@/lib/invoices/numberingService";
+import { allocateInvoiceNumber, allocateQuoteNumber } from "@/lib/invoices/numberingService";
 import { ensureQuoteMilestones } from "@/lib/quotes/milestones";
 import {
   buildClientSnapshot,
@@ -27,6 +27,12 @@ export {
   assertQuoteEditable,
   DocumentFlowError,
 };
+export {
+  assessCreditNoteEligibility,
+  createCreditNote,
+  cancelInvoiceWithCreditNote,
+  CreditNoteError,
+} from "@/lib/invoices/credit-note-service";
 
 function addDays(d: Date, days: number): Date {
   const out = new Date(d);
@@ -208,69 +214,5 @@ export async function convertQuoteToInvoice(quoteId: string) {
     await ensureQuoteMilestones(quoteId, quote.totalCents, tx);
 
     return invoice;
-  });
-}
-
-/** Annule une facture émise via un avoir (série AVOIR distincte). */
-export async function cancelInvoiceWithCreditNote(invoiceId: string, issueDate = new Date()) {
-  return prisma.$transaction(async (tx) => {
-    const original = await tx.invoice.findUniqueOrThrow({
-      where: { id: invoiceId },
-      include: { lines: { orderBy: { position: "asc" } }, creditNotes: true },
-    });
-
-    if (original.status !== InvoiceStatus.ISSUED && original.status !== InvoiceStatus.PAID) {
-      throw new Error("Seules les factures émises ou payées peuvent être annulées par avoir");
-    }
-    if (original.documentType !== InvoiceDocumentType.INVOICE) {
-      throw new Error("Impossible d'annuler un avoir");
-    }
-    if (original.creditNotes.length > 0) {
-      throw new Error("Un avoir existe déjà pour cette facture");
-    }
-
-    const settings = await getCompanySettings();
-    const allocated = await allocateCreditNoteNumber(issueDate, tx, settings);
-    const snapshot =
-      (original.clientSnapshot as ClientSnapshot | null) ??
-      (await buildClientSnapshot(original.clientId, tx));
-
-    const creditNote = await tx.invoice.create({
-      data: {
-        documentType: InvoiceDocumentType.CREDIT_NOTE,
-        status: InvoiceStatus.ISSUED,
-        clientId: original.clientId,
-        clientSnapshot: snapshot as unknown as Prisma.InputJsonValue,
-        number: allocated.number,
-        sequenceYear: allocated.sequenceYear,
-        sequenceNumber: allocated.sequenceNumber,
-        issueDate,
-        dueDate: issueDate,
-        issuedAt: new Date(),
-        currency: original.currency,
-        subtotalCents: -Math.abs(original.subtotalCents),
-        totalCents: -Math.abs(original.totalCents),
-        notes: `Avoir sur facture ${original.number}`,
-        paymentTerms: original.paymentTerms,
-        creditedInvoiceId: original.id,
-        lines: {
-          create: original.lines.map((line) => ({
-            position: line.position,
-            description: line.description,
-            quantity: line.quantity,
-            unitPriceCents: -Math.abs(line.unitPriceCents),
-            lineTotalCents: -Math.abs(line.lineTotalCents),
-          })),
-        },
-      },
-      include: { lines: true },
-    });
-
-    await tx.invoice.update({
-      where: { id: original.id },
-      data: { status: InvoiceStatus.CANCELLED },
-    });
-
-    return creditNote;
   });
 }

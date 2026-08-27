@@ -6,6 +6,8 @@ import { getCompanySettings } from "@/lib/company.js";
 import { verifyAccessCode } from "@/lib/clients/numbering.js";
 import { verifyDocumentToken } from "@/lib/documents/public-token.js";
 import { renderInvoicePdf } from "@/lib/pdf/render.js";
+import { buildInvoicePdfPayload } from "@/lib/pdf/build-payload.js";
+import { listActiveLegalClauses } from "@/lib/company/legal-clauses.js";
 import type { ClientSnapshot } from "@/lib/invoices/transitions.js";
 
 const trackingSchema = z.object({
@@ -100,6 +102,8 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
           lines: { orderBy: { position: "asc" } },
           client: true,
           creditedInvoice: true,
+          quote: true,
+          sourceMilestone: true,
           milestones: { orderBy: { position: "asc" } },
         },
       });
@@ -108,6 +112,7 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
       }
 
       const company = await getCompanySettings();
+      const legalClauses = await listActiveLegalClauses();
       const snapshot = (invoice.clientSnapshot as ClientSnapshot | null) ?? {
         displayName: invoice.client.displayName,
         type: invoice.client.type,
@@ -124,30 +129,7 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
       const buffer = await renderInvoicePdf({
         company,
         client: snapshot,
-        invoice: {
-          number: invoice.number,
-          documentType: invoice.documentType as "INVOICE" | "CREDIT_NOTE" | "QUOTE",
-          issueDate: invoice.issueDate!,
-          dueDate: invoice.dueDate,
-          validUntil: invoice.validUntil,
-          paymentTerms: invoice.paymentTerms,
-          notes: invoice.notes,
-          totalCents: invoice.totalCents,
-          subtotalCents: invoice.subtotalCents,
-          creditedInvoiceNumber: invoice.creditedInvoice?.number ?? null,
-          milestones: invoice.milestones.map((m) => ({
-            label: m.label,
-            percentBps: m.percentBps,
-            amountCents: m.amountCents,
-            triggerText: m.triggerText,
-          })),
-          lines: invoice.lines.map((l) => ({
-            description: l.description,
-            quantity: Number(l.quantity),
-            unitPriceCents: l.unitPriceCents,
-            lineTotalCents: l.lineTotalCents,
-          })),
-        },
+        invoice: buildInvoicePdfPayload({ invoice, legalClauses }),
       });
 
       return reply

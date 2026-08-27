@@ -58,6 +58,7 @@ export const miscRoutes: FastifyPluginAsync = async (app) => {
       cfeAmountCents: z.number().int().min(0).optional(),
       cfeAmountEuros: z.coerce.number().min(0).optional(),
       b2cActivity: z.boolean().optional(),
+      mediationClause: z.string().optional().nullable(),
       incomeTaxReminderMonth: z.number().int().min(1).max(12).optional(),
       incomeTaxReminderDay: z.number().int().min(1).max(28).optional(),
       inpiUrl: z.string().optional().nullable(),

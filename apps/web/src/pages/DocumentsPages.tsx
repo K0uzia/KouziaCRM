@@ -19,6 +19,7 @@ import { InvoiceTypeBadge } from "@/components/documents/InvoiceTypeBadge";
 import { MarketTimeline, type MarketView } from "@/components/documents/MarketTimeline";
 import { PaymentForm } from "@/components/payments/PaymentForm";
 import { ClientEmailLink } from "@/components/clients/ClientEmailLink";
+import { CreditNoteWizard } from "@/components/documents/CreditNoteWizard";
 
 type Milestone = {
   id: string;
@@ -247,6 +248,7 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
   const [clients, setClients] = useState<ClientOpt[]>([]);
   const [editOpen, setEditOpen] = useState(false);
   const [payOpen, setPayOpen] = useState(false);
+  const [avoirOpen, setAvoirOpen] = useState(false);
   const [market, setMarket] = useState<MarketView | null>(null);
   const [linked, setLinked] = useState<Doc[]>([]);
   const [busyId, setBusyId] = useState<string | null>(null);
@@ -310,17 +312,6 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
       });
       toast.success("Facture créée depuis le devis");
       navigate(`/invoices/${inv.id}`);
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Erreur");
-    }
-  }
-
-  async function cancel() {
-    if (!confirm("Créer un avoir et annuler cette facture ?")) return;
-    try {
-      await api(`/api/invoices/${id}/cancel`, { method: "POST", body: "{}" });
-      toast.success("Avoir créé");
-      await load();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Erreur");
     }
@@ -426,7 +417,7 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
             {!isQuote &&
             doc.documentType === "INVOICE" &&
             (doc.status === "ISSUED" || doc.status === "PAID") ? (
-              <Button variant="danger" onClick={() => void cancel()}>
+              <Button variant="danger" onClick={() => setAvoirOpen(true)}>
                 Avoir
               </Button>
             ) : null}
@@ -638,6 +629,13 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
           }}
         />
       </Modal>
+
+      <CreditNoteWizard
+        open={avoirOpen}
+        invoiceId={doc.id}
+        onClose={() => setAvoirOpen(false)}
+        onCreated={() => void load()}
+      />
     </div>
   );
 }

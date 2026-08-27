@@ -194,10 +194,14 @@ export const obligationsRoutes: FastifyPluginAsync = async (app) => {
     return {
       period: { start: start.toISOString(), end: end.toISOString(), year },
       rows: payments.map((p) => {
-        const nature =
+        const baseNature =
           p.invoice.lines.map((l) => l.description).join(" · ") ||
           p.invoice.notes ||
           "Prestation de services";
+        const nature =
+          p.invoice.documentType === "CREDIT_NOTE" || p.amountCents < 0
+            ? `Avoir · ${baseNature}`
+            : baseNature;
         return {
           id: p.id,
           paidAt: p.paidAt.toISOString(),
@@ -238,18 +242,24 @@ export const obligationsRoutes: FastifyPluginAsync = async (app) => {
     });
 
     const csv = receiptsToCsv(
-      payments.map((p) => ({
-        paidAt: p.paidAt.toISOString(),
-        invoiceNumber: p.invoice.number,
-        amountCents: p.amountCents,
-        clientName: p.invoice.client.displayName,
-        clientNumber: p.invoice.client.clientNumber,
-        nature:
+      payments.map((p) => {
+        const baseNature =
           p.invoice.lines.map((l) => l.description).join(" · ") ||
           p.invoice.notes ||
-          "Prestation de services",
-        paymentMethodLabel: paymentMethodLabel(p.method),
-      })),
+          "Prestation de services";
+        return {
+          paidAt: p.paidAt.toISOString(),
+          invoiceNumber: p.invoice.number,
+          amountCents: p.amountCents,
+          clientName: p.invoice.client.displayName,
+          clientNumber: p.invoice.client.clientNumber,
+          nature:
+            p.invoice.documentType === "CREDIT_NOTE" || p.amountCents < 0
+              ? `Avoir · ${baseNature}`
+              : baseNature,
+          paymentMethodLabel: paymentMethodLabel(p.method),
+        };
+      }),
     );
 
     return reply
@@ -283,18 +293,24 @@ export const obligationsRoutes: FastifyPluginAsync = async (app) => {
       }),
     ]);
 
-    const rows = payments.map((p) => ({
-      paidAt: p.paidAt.toISOString(),
-      invoiceNumber: p.invoice.number,
-      clientNumber: p.invoice.client.clientNumber,
-      clientName: p.invoice.client.displayName,
-      nature:
+    const rows = payments.map((p) => {
+      const baseNature =
         p.invoice.lines.map((l) => l.description).join(" · ") ||
         p.invoice.notes ||
-        "Prestation de services",
-      paymentMethodLabel: paymentMethodLabel(p.method),
-      amountCents: p.amountCents,
-    }));
+        "Prestation de services";
+      return {
+        paidAt: p.paidAt.toISOString(),
+        invoiceNumber: p.invoice.number,
+        clientNumber: p.invoice.client.clientNumber,
+        clientName: p.invoice.client.displayName,
+        nature:
+          p.invoice.documentType === "CREDIT_NOTE" || p.amountCents < 0
+            ? `Avoir · ${baseNature}`
+            : baseNature,
+        paymentMethodLabel: paymentMethodLabel(p.method),
+        amountCents: p.amountCents,
+      };
+    });
 
     const pdf = await renderReceiptsPdf({
       year,

@@ -73,6 +73,9 @@ export type InvoicePdfData = {
     subtotalCents: number;
     totalCents: number;
     creditedInvoiceNumber: string | null;
+    creditedInvoiceIssueDate?: Date | null;
+    refundMethod?: "BANK_TRANSFER" | "DEDUCT_FROM_BALANCE" | "OTHER" | null;
+    nothingToPay?: boolean;
     quoteNumber?: string | null;
     quoteIssueDate?: Date | null;
     marketTotalCents?: number | null;
@@ -164,8 +167,18 @@ export function InvoiceDocument({ company, client, invoice }: InvoicePdfData) {
               <Text>Échéance : {fmtDate(invoice.dueDate)}</Text>
             ) : null}
             {invoice.creditedInvoiceNumber && (
-              <Text>Réf. facture d&apos;origine : {invoice.creditedInvoiceNumber}</Text>
+              <Text>
+                Réf. facture d&apos;origine : {invoice.creditedInvoiceNumber}
+                {invoice.creditedInvoiceIssueDate
+                  ? ` du ${fmtDate(invoice.creditedInvoiceIssueDate)}`
+                  : ""}
+              </Text>
             )}
+            {isCredit && invoice.nothingToPay ? (
+              <Text style={{ marginTop: 4, fontFamily: "Helvetica-Bold" }}>
+                Vous n&apos;avez rien à payer.
+              </Text>
+            ) : null}
             {invoice.quoteNumber ? (
               <Text>
                 Réf. devis : {invoice.quoteNumber}
@@ -273,6 +286,9 @@ export function InvoiceDocument({ company, client, invoice }: InvoicePdfData) {
           ) : null}
           {!(invoice.legalClauses?.length) && company.legalMentions ? (
             <Text>{company.legalMentions}</Text>
+          ) : null}
+          {company.b2cActivity && company.mediationClause ? (
+            <Text style={{ marginTop: 4 }}>{company.mediationClause}</Text>
           ) : null}
         </View>
       </Page>

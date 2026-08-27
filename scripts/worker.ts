@@ -1,12 +1,18 @@
 import cron from "node-cron";
 import { syncImapInbox } from "../apps/api/src/lib/email/imap-sync";
 import { expireQuotes, scheduleReminders } from "../apps/api/src/lib/reminders";
+import { generateDueSubscriptionInvoices } from "../apps/api/src/lib/subscriptions/subscription-service";
+import { sendDueReminders } from "../apps/api/src/lib/reminders/send";
 
 async function runMaintenance() {
   try {
     const expired = await expireQuotes();
     const scheduled = await scheduleReminders();
-    console.log(`[worker] maintenance: expired=${expired} remindersScheduled=${scheduled}`);
+    const subscriptions = await generateDueSubscriptionInvoices();
+    const remindersSent = await sendDueReminders();
+    console.log(
+      `[worker] maintenance: expired=${expired} remindersScheduled=${scheduled} subscriptionsInvoices=${subscriptions} remindersSent=${remindersSent}`,
+    );
   } catch (err) {
     console.error(`[worker] maintenance error`, err);
   }

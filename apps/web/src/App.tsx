@@ -13,6 +13,7 @@ import {
 import { PaymentsPage } from "@/pages/PaymentsPage";
 import { SettingsPage } from "@/pages/SettingsPage";
 import { ServicesPage } from "@/pages/ServicesPage";
+import { SubscriptionsPage } from "@/pages/SubscriptionsPage";
 import { TrackingPage } from "@/pages/TrackingPage";
 import { ReceiptsBookPage } from "@/pages/ReceiptsBookPage";
 import { ObligationsPage } from "@/pages/ObligationsPage";
@@ -52,6 +53,7 @@ export default function App() {
         <Route path="clients" element={<ClientsPage />} />
         <Route path="clients/:id" element={<ClientDetailPage />} />
         <Route path="services" element={<ServicesPage />} />
+        <Route path="abonnements" element={<SubscriptionsPage />} />
         <Route path="quotes" element={<QuotesPage />} />
         <Route path="quotes/:id" element={<DocumentDetailPage kind="QUOTE" />} />
         <Route path="invoices" element={<InvoicesPage />} />

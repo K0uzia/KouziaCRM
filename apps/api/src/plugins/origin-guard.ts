@@ -5,9 +5,13 @@ const SAFE = new Set(["GET", "HEAD", "OPTIONS"]);
 
 /**
  * Refuse les mutations cross-origin (Origin / Referer hors allowlist).
+ * En production, une mutation sans header Origin ni Referer est aussi rejetée
+ * (protection CSRF : un navigateur envoie toujours l'un des deux sur POST/PUT/...).
+ * En dev, on tolère l'absence pour faciliter les appels curl/Insomnia.
  */
 export async function originGuardPlugin(app: FastifyInstance): Promise<void> {
   const allowed = new Set(getAllowedOrigins());
+  const isProd = process.env.NODE_ENV === "production";
 
   app.addHook("onRequest", async (request: FastifyRequest, reply: FastifyReply) => {
     if (SAFE.has(request.method)) return;
@@ -29,6 +33,12 @@ export async function originGuardPlugin(app: FastifyInstance): Promise<void> {
       } catch {
         await reply.code(403).send({ error: "Referer invalide" });
       }
+      return;
+    }
+
+    // Ni Origin ni Referer : en prod, on rejette (CSRF). En dev, on laisse passer.
+    if (isProd) {
+      await reply.code(403).send({ error: "Header Origin ou Referer requis" });
     }
   });
 }
