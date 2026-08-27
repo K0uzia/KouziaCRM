@@ -173,6 +173,15 @@ async function main() {
           unit: "FORFAIT",
           active: true,
         },
+        {
+          name: "Maintenance site web",
+          description: "Maintenance mensuelle de site web (abonnement récurrent)",
+          unitPriceCents: 15000,
+          unit: "MENSUEL",
+          active: true,
+          isSubscription: true,
+          defaultBillingDay: 1,
+        },
       ],
     });
   }

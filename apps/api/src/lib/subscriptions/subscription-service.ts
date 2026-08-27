@@ -1,6 +1,12 @@
-import { InvoiceDocumentType, InvoiceStatus, InvoiceType, SubscriptionStatus } from "@prisma/client";
+import {
+  InvoiceDocumentType,
+  InvoiceStatus,
+  InvoiceType,
+  QuoteStatus,
+  SubscriptionStatus,
+} from "@prisma/client";
 import { prisma } from "@/lib/prisma";
-import { issueInvoice } from "@/lib/invoices/transitions";
+import { issueInvoice, issueQuote } from "@/lib/invoices/transitions";
 import { sendDocumentPdf } from "@/lib/email/send-document-pdf";
 
 export type CreateSubscriptionInput = {
@@ -56,6 +62,17 @@ export async function createSubscription(data: CreateSubscriptionInput) {
 
   const service = await prisma.service.findUnique({ where: { id: data.serviceId } });
   if (!service) throw new SubscriptionError("Service introuvable");
+
+  // Un seul abonnement actif par client : on bloque la création doublon.
+  const existingActive = await prisma.subscription.findFirst({
+    where: { clientId: data.clientId, status: SubscriptionStatus.ACTIVE },
+    select: { id: true, label: true },
+  });
+  if (existingActive) {
+    throw new SubscriptionError(
+      "Ce client a déjà un abonnement actif. Modifiez-le ou clôturez-le d'abord.",
+    );
+  }
 
   const startDate = data.startDate ?? new Date();
   let nextInvoiceAt = computeNextInvoiceAt(data.billingDay, startDate);
@@ -306,5 +323,77 @@ export async function computeMrrCents(now: Date = new Date()): Promise<MrrSnapsh
       clientDisplayName: sub.client.displayName,
       nextInvoiceAt: sub.nextInvoiceAt,
     })),
+  };
+}
+
+export type RevisionResult = {
+  quoteId: string;
+  quoteNumber: string | null;
+  emailed: boolean;
+};
+
+/**
+ * Révision légale d'un abonnement : crée un devis d'avenant au nouveau montant,
+ * l'émet (numéro D-YYYY-NNNN) et envoie le PDF au client. L'abonnement n'est
+ * mis à jour qu'à l'acceptation du devis (conversion en facture), ce qui
+ * émet alors la facture correspondante.
+ */
+export async function createSubscriptionRevision(opts: {
+  subscriptionId: string;
+  amountCents: number;
+  label?: string;
+  billingDay?: number;
+}): Promise<RevisionResult> {
+  validateAmount(opts.amountCents);
+  if (opts.billingDay !== undefined) validateBillingDay(opts.billingDay);
+
+  const sub = await prisma.subscription.findUnique({
+    where: { id: opts.subscriptionId },
+    include: { client: true, service: true },
+  });
+  if (!sub) throw new SubscriptionError("Abonnement introuvable");
+  if (sub.status !== SubscriptionStatus.ACTIVE) {
+    throw new SubscriptionError("Seul un abonnement actif peut être révisé");
+  }
+
+  const label = opts.label?.trim() || sub.label;
+  const billingDay = opts.billingDay ?? sub.billingDay;
+  const amountCents = opts.amountCents;
+
+  // Création du devis d'avenant (brouillon) avec une ligne abonnement.
+  const draft = await prisma.invoice.create({
+    data: {
+      documentType: InvoiceDocumentType.QUOTE,
+      quoteStatus: QuoteStatus.DRAFT,
+      clientId: sub.clientId,
+      paymentTerms: "Devis valable 30 jours",
+      subtotalCents: amountCents,
+      totalCents: amountCents,
+      lines: {
+        create: {
+          position: 1,
+          description: label,
+          quantity: 1,
+          unitPriceCents: amountCents,
+          lineTotalCents: amountCents,
+          isSubscription: true,
+          billingDay,
+          serviceId: sub.serviceId,
+        },
+      },
+    },
+    include: { lines: true },
+  });
+
+  // Émission : alloue le numéro légal, fige le snapshot, passe en SENT.
+  const issued = await issueQuote(draft.id);
+
+  // Envoi du PDF au client.
+  const mail = await sendDocumentPdf(issued.id, { send: true });
+
+  return {
+    quoteId: issued.id,
+    quoteNumber: issued.number,
+    emailed: mail.sent,
   };
 }

@@ -12,6 +12,7 @@ import {
   endSubscription,
   computeMrrCents,
   generateDueSubscriptionInvoices,
+  createSubscriptionRevision,
   SubscriptionError,
 } from "@/lib/subscriptions/subscription-service.js";
 
@@ -27,7 +28,6 @@ const createSchema = z.object({
 
 const patchSchema = z.object({
   label: z.string().min(1).max(200).optional(),
-  amountEuros: z.coerce.number().min(0.01).optional(),
   billingDay: z.number().int().min(1).max(28).optional(),
   endDate: z.string().optional().nullable(),
 });
@@ -103,7 +103,7 @@ export const subscriptionsRoutes: FastifyPluginAsync = async (app) => {
     try {
       const sub = await updateSubscription(request.params.id, {
         label: parsed.data.label,
-        amountCents: parsed.data.amountEuros !== undefined ? toCents(parsed.data.amountEuros) : undefined,
+        amountCents: undefined,
         billingDay: parsed.data.billingDay,
         endDate: parseDate(parsed.data.endDate),
       });
@@ -143,6 +143,36 @@ export const subscriptionsRoutes: FastifyPluginAsync = async (app) => {
     const body = request.body as { endDate?: string } | null;
     const sub = await endSubscription(request.params.id, body?.endDate ? new Date(body.endDate) : undefined);
     return sub;
+  });
+
+  // Révision légale : émet un devis d'avenant au nouveau montant (envoyé au client).
+  // L'abonnement est mis à jour + facture émise à l'acceptation du devis.
+  app.post<{ Params: { id: string } }>("/api/subscriptions/:id/revise", async (request, reply) => {
+    await requireAuth(request, reply);
+    if (reply.sent) return;
+    const schema = z.object({
+      amountEuros: z.coerce.number().min(0.01),
+      label: z.string().min(1).max(200).optional(),
+      billingDay: z.number().int().min(1).max(28).optional(),
+    });
+    const parsed = schema.safeParse(request.body);
+    if (!parsed.success) {
+      return reply.code(400).send({ error: parsed.error.flatten() });
+    }
+    try {
+      const result = await createSubscriptionRevision({
+        subscriptionId: request.params.id,
+        amountCents: toCents(parsed.data.amountEuros),
+        label: parsed.data.label,
+        billingDay: parsed.data.billingDay,
+      });
+      return reply.code(201).send(result);
+    } catch (err) {
+      if (err instanceof SubscriptionError) {
+        return reply.code(400).send({ error: err.message });
+      }
+      throw err;
+    }
   });
 
   // Déclenchement manuel de la génération (utile pour tester sans attendre le cron).

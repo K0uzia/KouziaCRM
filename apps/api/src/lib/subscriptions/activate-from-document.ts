@@ -1,16 +1,21 @@
+import { SubscriptionStatus } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import {
   createSubscription,
+  updateSubscription,
   SubscriptionError,
 } from "@/lib/subscriptions/subscription-service";
 
 export type ActivateSubscriptionsResult = {
   created: number;
+  updated: number;
   subscriptionIds: string[];
 };
 
 /**
- * Crée les Subscription manquants pour les lignes `isSubscription` d'un document.
+ * Crée ou met à jour l'abonnement des lignes `isSubscription` d'un document.
+ * Règle : un seul abonnement actif par client. Si un abonnement actif existe
+ * déjà, on le met à jour (montant/libellé/jour) au lieu d'en créer un second.
  * Idempotent via InvoiceLine.subscriptionId.
  * skipCurrentPeriod : la 1ʳᵉ échéance est déjà dans le total du document.
  */
@@ -27,11 +32,18 @@ export async function activateSubscriptionsFromDocument(
     throw new SubscriptionError("Document introuvable");
   }
 
+  const subscriptionLines = doc.lines.filter((l) => l.isSubscription);
+  if (subscriptionLines.length > 1) {
+    throw new SubscriptionError(
+      "Un seul abonnement actif par client : une seule ligne abonnement autorisée par document",
+    );
+  }
+
   const subscriptionIds: string[] = [];
   let created = 0;
+  let updated = 0;
 
-  for (const line of doc.lines) {
-    if (!line.isSubscription) continue;
+  for (const line of subscriptionLines) {
     if (line.subscriptionId) {
       subscriptionIds.push(line.subscriptionId);
       continue;
@@ -42,24 +54,42 @@ export async function activateSubscriptionsFromDocument(
       );
     }
 
-    const sub = await createSubscription({
-      clientId: doc.clientId,
-      serviceId: line.serviceId,
-      label: line.description,
-      amountCents: line.unitPriceCents,
-      billingDay: line.billingDay,
-      startDate: new Date(),
-      skipCurrentPeriod: true,
+    // Un abonnement actif existe déjà pour ce client ? On le met à jour.
+    const existing = await prisma.subscription.findFirst({
+      where: { clientId: doc.clientId, status: SubscriptionStatus.ACTIVE },
+      select: { id: true },
     });
+
+    let subId: string;
+    if (existing) {
+      await updateSubscription(existing.id, {
+        label: line.description,
+        amountCents: line.unitPriceCents,
+        billingDay: line.billingDay,
+      });
+      subId = existing.id;
+      updated += 1;
+    } else {
+      const sub = await createSubscription({
+        clientId: doc.clientId,
+        serviceId: line.serviceId,
+        label: line.description,
+        amountCents: line.unitPriceCents,
+        billingDay: line.billingDay,
+        startDate: new Date(),
+        skipCurrentPeriod: true,
+      });
+      subId = sub.id;
+      created += 1;
+    }
 
     await prisma.invoiceLine.update({
       where: { id: line.id },
-      data: { subscriptionId: sub.id },
+      data: { subscriptionId: subId },
     });
 
-    subscriptionIds.push(sub.id);
-    created += 1;
+    subscriptionIds.push(subId);
   }
 
-  return { created, subscriptionIds };
+  return { created, updated, subscriptionIds };
 }

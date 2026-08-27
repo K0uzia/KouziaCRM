@@ -153,11 +153,12 @@ describe("computeMrrCents", () => {
   });
 
   it("somme les abonnements actifs et calcule l'ARR", async () => {
-    const c = await createClient();
+    const c1 = await createClient();
+    const c2 = await createClient();
     const s1 = await createService({ unitPriceCents: 30000 });
     const s2 = await createService({ unitPriceCents: 50000 });
     await createSubscription({
-      clientId: c.id,
+      clientId: c1.id,
       serviceId: s1.id,
       label: "A",
       amountCents: 30000,
@@ -165,7 +166,7 @@ describe("computeMrrCents", () => {
       startDate: new Date(2026, 0, 1),
     });
     await createSubscription({
-      clientId: c.id,
+      clientId: c2.id,
       serviceId: s2.id,
       label: "B",
       amountCents: 50000,
@@ -194,6 +195,30 @@ describe("computeMrrCents", () => {
     const snap = await computeMrrCents(new Date(2026, 5, 1)); // juin
     expect(snap.activeCount).toBe(0);
     expect(snap.mrrCents).toBe(0);
+  });
+
+  it("rejette un second abonnement actif pour le même client", async () => {
+    const c = await createClient();
+    const s1 = await createService();
+    const s2 = await createService();
+    await createSubscription({
+      clientId: c.id,
+      serviceId: s1.id,
+      label: "A",
+      amountCents: 30000,
+      billingDay: 1,
+      startDate: new Date(2026, 0, 1),
+    });
+    await expect(
+      createSubscription({
+        clientId: c.id,
+        serviceId: s2.id,
+        label: "B",
+        amountCents: 50000,
+        billingDay: 15,
+        startDate: new Date(2026, 0, 1),
+      }),
+    ).rejects.toThrow(SubscriptionError);
   });
 });
 
