@@ -5,11 +5,19 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 TOOLS="$ROOT/.tools"
-BIN="$TOOLS/mailpit"
 PIDFILE="$TOOLS/mailpit.pid"
 LOG="$TOOLS/mailpit.log"
 SMTP_PORT="${MAILPIT_SMTP_PORT:-1025}"
 UI_PORT="${MAILPIT_UI_PORT:-8025}"
+
+os_family() {
+  case "$(uname -s)" in
+    Linux*) echo "linux" ;;
+    Darwin*) echo "darwin" ;;
+    MINGW*|MSYS*|CYGWIN*) echo "windows" ;;
+    *) echo "linux" ;;
+  esac
+}
 
 arch() {
   case "$(uname -m)" in
@@ -19,18 +27,52 @@ arch() {
   esac
 }
 
+bin_path() {
+  if [[ "$(os_family)" == "windows" ]]; then
+    echo "$TOOLS/mailpit.exe"
+  else
+    echo "$TOOLS/mailpit"
+  fi
+}
+
+BIN="$(bin_path)"
+
 ensure_binary() {
-  if [[ -x "$BIN" ]]; then
+  if [[ -f "$BIN" ]]; then
     return 0
   fi
   mkdir -p "$TOOLS"
-  local archive="mailpit-linux-$(arch).tar.gz"
-  local url="https://github.com/axllent/mailpit/releases/latest/download/${archive}"
-  echo "Téléchargement de Mailpit…"
-  curl -fsSL -o "$TOOLS/$archive" "$url"
-  tar -xzf "$TOOLS/$archive" -C "$TOOLS" mailpit
-  rm -f "$TOOLS/$archive"
-  chmod +x "$BIN"
+  # Ancien binaire Linux incompatible sous Git Bash / Windows
+  rm -f "$TOOLS/mailpit" "$TOOLS/mailpit.exe" "$TOOLS/mailpit.pid"
+
+  local family archive url
+  family="$(os_family)"
+  if [[ "$family" == "windows" ]]; then
+    archive="mailpit-windows-$(arch).zip"
+    url="https://github.com/axllent/mailpit/releases/latest/download/${archive}"
+    echo "Téléchargement de Mailpit (Windows)…"
+    curl -fsSL -o "$TOOLS/$archive" "$url"
+    if command -v unzip >/dev/null 2>&1; then
+      unzip -o -q "$TOOLS/$archive" mailpit.exe -d "$TOOLS"
+    else
+      powershell.exe -NoProfile -Command \
+        "Expand-Archive -Force -Path '$TOOLS/$archive' -DestinationPath '$TOOLS'"
+    fi
+    rm -f "$TOOLS/$archive"
+  else
+    archive="mailpit-${family}-$(arch).tar.gz"
+    url="https://github.com/axllent/mailpit/releases/latest/download/${archive}"
+    echo "Téléchargement de Mailpit…"
+    curl -fsSL -o "$TOOLS/$archive" "$url"
+    tar -xzf "$TOOLS/$archive" -C "$TOOLS" mailpit
+    rm -f "$TOOLS/$archive"
+    chmod +x "$BIN"
+  fi
+
+  if [[ ! -f "$BIN" ]]; then
+    echo "Échec extraction Mailpit ($BIN introuvable)" >&2
+    exit 1
+  fi
 }
 
 is_running() {
@@ -43,6 +85,10 @@ is_running() {
   fi
   # déjà un process qui écoute le port SMTP
   if command -v ss >/dev/null 2>&1 && ss -lnt | grep -q ":${SMTP_PORT} "; then
+    return 0
+  fi
+  # Windows / Git Bash : netstat
+  if command -v netstat >/dev/null 2>&1 && netstat -an 2>/dev/null | grep -Eq "[:.]${SMTP_PORT}[[:space:]].*LISTEN"; then
     return 0
   fi
   return 1
@@ -64,7 +110,7 @@ start() {
     --smtp-auth-allow-insecure \
     >"$LOG" 2>&1 &
   echo $! >"$PIDFILE"
-  sleep 0.4
+  sleep 0.8
   if ! is_running; then
     echo "Échec démarrage Mailpit : voir $LOG" >&2
     exit 1
@@ -84,8 +130,12 @@ stop() {
     rm -f "$PIDFILE"
   fi
   # fallback : tuer le binaire local s'il tourne encore
-  if [[ -x "$BIN" ]]; then
+  if [[ -f "$BIN" ]]; then
     pkill -f "$BIN" 2>/dev/null || true
+  fi
+  # Windows : taskkill si besoin
+  if [[ "$(os_family)" == "windows" ]]; then
+    taskkill //F //IM mailpit.exe >/dev/null 2>&1 || true
   fi
   echo "Mailpit arrêté"
 }
