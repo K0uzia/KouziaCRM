@@ -171,7 +171,7 @@ export function OnboardingPage() {
               onClick={() => set("type", t)}
               className={`flex-1 rounded-lg px-3 py-2 text-sm font-medium transition ${
                 form.type === t
-                  ? "bg-white text-[var(--text)] shadow-sm"
+                  ? "bg-[var(--surface)] text-[var(--text)] shadow-sm"
                   : "text-[var(--muted)] hover:text-[var(--text)]"
               }`}
             >

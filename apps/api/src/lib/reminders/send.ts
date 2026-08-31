@@ -19,7 +19,7 @@ function reminderKind(invoice: PendingInvoice): EmailTemplateKind {
 
 /** Envoie automatiquement les relances dues via SMTP (si configuré). */
 export async function sendDueReminders(now: Date = new Date()): Promise<number> {
-  if (!isSmtpConfigured()) return 0;
+  if (!(await isSmtpConfigured())) return 0;
 
   const pending = await listPendingReminders(now);
   const brand = await brandFromSettings();
@@ -31,8 +31,9 @@ export async function sendDueReminders(now: Date = new Date()): Promise<number> 
 
     try {
       const isQuote = invoice.documentType === InvoiceDocumentType.QUOTE;
+      const kind = reminderKind(invoice);
       const built = buildEmailContent({
-        kind: reminderKind(invoice),
+        kind,
         clientName: invoice.client.displayName,
         clientFirstName: invoice.client.displayName.split(/\s+/)[0],
         docNumber: invoice.number,
@@ -44,6 +45,16 @@ export async function sendDueReminders(now: Date = new Date()): Promise<number> 
         subject: built.subject,
         text: built.text,
         html: built.html,
+      });
+      const { logClientEmailEvent } = await import("@/lib/email/log-event.js");
+      await logClientEmailEvent({
+        clientId: invoice.clientId,
+        kind,
+        subject: built.subject,
+        toAddress: to,
+        documentId: invoice.id,
+        documentNumber: invoice.number,
+        success: true,
       });
       await markReminderSent(invoice.id, now);
       sent += 1;

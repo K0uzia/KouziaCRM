@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faPlus } from "@fortawesome/free-solid-svg-icons";
@@ -23,6 +23,8 @@ import { Field, Input, Textarea } from "@/components/ui/Field";
 import { ClientEmailLink } from "@/components/clients/ClientEmailLink";
 import { CreditNoteWizard } from "@/components/documents/CreditNoteWizard";
 import { buildIssueEmailDraft } from "@/lib/issue-email";
+import { useCreateParam } from "@/lib/use-create-param";
+import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 
 type Milestone = {
   id: string;
@@ -40,6 +42,9 @@ type Doc = {
   number: string | null;
   status: string;
   quoteStatus?: string | null;
+  quoteDecidedAt?: string | null;
+  quoteSignerName?: string | null;
+  quoteRejectReason?: string | null;
   documentType: string;
   invoiceType?: string;
   quoteId?: string | null;
@@ -49,6 +54,8 @@ type Doc = {
   discountType?: string;
   discountValue?: number;
   issueDate: string | null;
+  serviceDate?: string | null;
+  purchaseOrderRef?: string | null;
   validUntil: string | null;
   notes: string | null;
   paymentTerms: string | null;
@@ -98,6 +105,9 @@ function DocumentsListPage({
   const [loading, setLoading] = useState(true);
   const [createOpen, setCreateOpen] = useState(false);
   const [statusFilter, setStatusFilter] = useState("ALL");
+  const openCreate = useCallback(() => setCreateOpen(true), []);
+
+  useCreateParam(openCreate);
 
   async function load() {
     const [docs, cls] = await Promise.all([
@@ -130,9 +140,8 @@ function DocumentsListPage({
       selector: (d) => d.number ?? "",
       sortable: true,
       grow: 2,
-      minWidth: "220px",
       cell: (d) => (
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex min-w-0 flex-wrap items-center gap-2">
           <DocumentNumberBadge
             number={d.number}
             documentType={d.documentType}
@@ -145,7 +154,7 @@ function DocumentsListPage({
               className="text-xs text-[var(--muted)] hover:text-[var(--primary)]"
               onClick={(e) => e.stopPropagation()}
             >
-              Marché {d.quote?.number ?? ""}
+              Projet {d.quote?.number ?? ""}
             </Link>
           ) : null}
         </div>
@@ -156,7 +165,6 @@ function DocumentsListPage({
       selector: (d) => d.client.displayName,
       sortable: true,
       grow: 2,
-      minWidth: "180px",
       cell: (d) => (
         <span className="block truncate" title={d.client.displayName}>
           {d.client.displayName}
@@ -194,12 +202,14 @@ function DocumentsListPage({
     },
     {
       name: "",
-      width: "110px",
+      grow: 0,
+      width: "5.5rem",
       right: true,
+      style: { whiteSpace: "nowrap" },
       cell: (d) => (
         <Button
           variant="ghost"
-          className="h-8 px-2 text-xs"
+          className="h-8 px-3 text-xs"
           onClick={() => navigate(isQuote ? `/quotes/${d.id}` : `/invoices/${d.id}`)}
         >
           Ouvrir
@@ -214,11 +224,11 @@ function DocumentsListPage({
         title={isQuote ? "Devis" : "Factures"}
         subtitle={
           isQuote
-            ? "Propositions commerciales : émission puis conversion en facture"
-            : "Documents émis, encaissements et avoirs"
+            ? "Ce que j'ai proposé, et ce qui a été accepté"
+            : "Ce que j'ai facturé, et ce qui a été payé"
         }
         actions={
-          <Button onClick={() => setCreateOpen(true)}>
+          <Button onClick={openCreate}>
             <FontAwesomeIcon icon={faPlus} className="h-3.5 w-3.5" />
             {isQuote ? "Nouveau devis" : "Nouvelle facture"}
           </Button>
@@ -234,7 +244,7 @@ function DocumentsListPage({
             className={`rounded-md px-2.5 py-1 text-xs font-medium transition ${
               statusFilter === s
                 ? "bg-[var(--primary)] text-white"
-                : "bg-white text-[var(--muted)] ring-1 ring-[var(--border)] hover:text-[var(--text)]"
+                : "bg-[var(--surface)] text-[var(--muted)] ring-1 ring-[var(--border)] hover:text-[var(--text)]"
             }`}
           >
             {s === "ALL" ? "Tous" : labels[s] ?? s}
@@ -307,6 +317,10 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
   const [emailSubject, setEmailSubject] = useState("");
   const [emailBody, setEmailBody] = useState("");
   const [companyName, setCompanyName] = useState("Alexandre Kouziaeff");
+  const [forceSoldeMessage, setForceSoldeMessage] = useState<string | null>(null);
+  const [rejectOpen, setRejectOpen] = useState(false);
+  const [rejectReason, setRejectReason] = useState("");
+  const [rejectBusy, setRejectBusy] = useState(false);
 
   async function load() {
     if (!id) return;
@@ -426,6 +440,24 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
     }
   }
 
+  async function reject() {
+    setRejectBusy(true);
+    try {
+      await api(`/api/invoices/${id}/reject`, {
+        method: "POST",
+        body: JSON.stringify({ reason: rejectReason.trim() || undefined }),
+      });
+      toast.success("Devis marqué comme refusé");
+      setRejectOpen(false);
+      setRejectReason("");
+      await load();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Erreur");
+    } finally {
+      setRejectBusy(false);
+    }
+  }
+
   async function generateDeposit(milestoneId: string) {
     setBusyId(milestoneId);
     try {
@@ -454,10 +486,8 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Erreur";
       if (!force && msg.includes("force=true")) {
-        if (confirm(`${msg}\n\nForcer la génération du solde ?`)) {
-          await generateSolde(true);
-          return;
-        }
+        setForceSoldeMessage(msg);
+        return;
       }
       toast.error(msg);
     } finally {
@@ -515,7 +545,7 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
             {doc.number ? (
               <a
                 href={`/api/invoices/${doc.id}/pdf`}
-                className="inline-flex h-10 items-center rounded-[var(--radius)] border border-[var(--border-strong)] bg-white px-4 text-sm font-medium"
+                className="inline-flex h-10 shrink-0 items-center whitespace-nowrap rounded-[var(--radius)] border border-[var(--border-strong)] bg-[var(--surface)] px-4 text-sm font-medium hover:bg-[var(--surface-raised)]"
               >
                 PDF
               </a>
@@ -536,6 +566,11 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
               doc.status === "DRAFT") ? (
               <Button variant="secondary" onClick={() => void convert()}>
                 Valider et facturer
+              </Button>
+            ) : null}
+            {isQuote && doc.quoteStatus === "SENT" ? (
+              <Button variant="ghost" onClick={() => setRejectOpen(true)}>
+                Refusé par le client
               </Button>
             ) : null}
             {doc.number ? (
@@ -656,10 +691,7 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
             </div>
             <div className="flex justify-between gap-2">
               <span className="text-[var(--muted)]">Client</span>
-              <Link
-                to={`/clients/${doc.client.id}`}
-                className="truncate text-[var(--primary)] hover:underline"
-              >
+              <Link to={`/clients/${doc.client.id}`} className="link truncate">
                 {doc.client.displayName}
               </Link>
             </div>
@@ -685,13 +717,24 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
                 <span>{formatDate(doc.validUntil)}</span>
               </div>
             ) : null}
+            {isQuote && doc.quoteDecidedAt ? (
+              <div className="border-t border-[var(--border)] pt-3">
+                <p className="text-[var(--muted)]">
+                  {doc.quoteStatus === "REJECTED" ? "Refusé le" : "Accepté le"}{" "}
+                  {formatDate(doc.quoteDecidedAt)}
+                </p>
+                {doc.quoteSignerName ? (
+                  <p className="mt-0.5">Bon pour accord : {doc.quoteSignerName}</p>
+                ) : null}
+                {doc.quoteRejectReason ? (
+                  <p className="mt-0.5 whitespace-pre-wrap">{doc.quoteRejectReason}</p>
+                ) : null}
+              </div>
+            ) : null}
             {!isQuote && doc.quoteId ? (
               <div className="flex justify-between gap-2 border-t border-[var(--border)] pt-3">
-                <span className="text-[var(--muted)]">Marché</span>
-                <Link
-                  to={`/quotes/${doc.quoteId}`}
-                  className="text-[var(--primary)] hover:underline"
-                >
+                <span className="text-[var(--muted)]">Projet</span>
+                <Link to={`/quotes/${doc.quoteId}`} className="link">
                   {doc.quote?.number ?? "Devis"}
                 </Link>
               </div>
@@ -700,13 +743,9 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
               <div className="space-y-1.5 border-t border-[var(--border)] pt-3">
                 <p className="text-[var(--muted)]">Autres factures</p>
                 {linked.map((s) => (
-                  <Link
-                    key={s.id}
-                    to={`/invoices/${s.id}`}
-                    className="flex justify-between gap-2 hover:text-[var(--primary)]"
-                  >
-                    <span className="font-mono text-xs">{s.number ?? "…"}</span>
-                    <span className="tabular-nums text-xs text-[var(--muted)]">
+                  <Link key={s.id} to={`/invoices/${s.id}`} className="link-row text-xs">
+                    <span className="font-mono">{s.number ?? "…"}</span>
+                    <span className="link-row-muted tabular-nums">
                       {formatEUR(s.totalCents)}
                     </span>
                   </Link>
@@ -866,6 +905,8 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
             clientId: doc.client.id,
             notes: doc.notes ?? "",
             paymentTerms: doc.paymentTerms ?? "",
+            serviceDate: doc.serviceDate ? doc.serviceDate.slice(0, 10) : "",
+            purchaseOrderRef: doc.purchaseOrderRef ?? "",
             validUntil: doc.validUntil ? doc.validUntil.slice(0, 10) : "",
             discountType:
               doc.discountType === "PERCENT" || doc.discountType === "FIXED"
@@ -918,6 +959,56 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
         invoiceId={doc.id}
         onClose={() => setAvoirOpen(false)}
         onCreated={() => void load()}
+      />
+
+      <Modal
+        open={rejectOpen}
+        onClose={() => !rejectBusy && setRejectOpen(false)}
+        title="Refus du devis"
+        description="Le devis sera clos et ne pourra plus être facturé."
+      >
+        <div className="space-y-4">
+          <Field label="Motif (facultatif)">
+            <Textarea
+              rows={3}
+              value={rejectReason}
+              onChange={(e) => setRejectReason(e.target.value)}
+              placeholder="Budget trop élevé, projet reporté, concurrent retenu…"
+            />
+          </Field>
+          <div className="flex justify-end gap-2">
+            <Button
+              type="button"
+              variant="secondary"
+              disabled={rejectBusy}
+              onClick={() => setRejectOpen(false)}
+            >
+              Annuler
+            </Button>
+            <Button
+              type="button"
+              variant="danger"
+              disabled={rejectBusy}
+              onClick={() => void reject()}
+            >
+              {rejectBusy ? "…" : "Enregistrer le refus"}
+            </Button>
+          </div>
+        </div>
+      </Modal>
+
+      <ConfirmDialog
+        open={forceSoldeMessage !== null}
+        title="Générer le solde quand même ?"
+        message={`${forceSoldeMessage ?? ""} Vous pouvez passer outre et émettre la facture de solde.`}
+        confirmLabel="Émettre le solde"
+        danger
+        busy={busyId === "solde"}
+        onConfirm={() => {
+          setForceSoldeMessage(null);
+          void generateSolde(true);
+        }}
+        onClose={() => setForceSoldeMessage(null)}
       />
     </div>
   );

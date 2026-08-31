@@ -368,19 +368,21 @@ export async function generateMilestoneInvoice(
 
     // Première facture d'acompte = acceptation commerciale du devis
     if (milestone.quote.quoteStatus !== QuoteStatus.ACCEPTED) {
+      const { ensureQuoteHasOfficialNumber } = await import("@/lib/invoices/transitions");
+      await ensureQuoteHasOfficialNumber(tx, milestone.quoteId);
       await tx.invoice.update({
         where: { id: milestone.quoteId },
         data: { quoteStatus: QuoteStatus.ACCEPTED },
       });
     }
 
+    const { activateSubscriptionsFromDocument } = await import(
+      "@/lib/subscriptions/activate-from-document"
+    );
+    await activateSubscriptionsFromDocument(milestone.quoteId, tx);
+
     return { invoice: created, quoteId: milestone.quoteId };
   });
-
-  const { activateSubscriptionsFromDocument } = await import(
-    "@/lib/subscriptions/activate-from-document"
-  );
-  await activateSubscriptionsFromDocument(invoice.quoteId);
 
   return invoice.invoice;
 }

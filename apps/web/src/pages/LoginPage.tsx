@@ -8,7 +8,7 @@ import { Field, Input } from "@/components/ui/Field";
 export function LoginPage() {
   const { user, loading, login } = useAuth();
   const navigate = useNavigate();
-  const [email, setEmail] = useState("");
+  const [email, setEmail] = useState(import.meta.env.DEV ? "admin@kouzia.com" : "");
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
 
@@ -29,14 +29,21 @@ export function LoginPage() {
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-[var(--bg)] px-4">
+    <div className="flex min-h-screen items-center justify-center px-4">
       <form
         onSubmit={onSubmit}
-        className="w-full max-w-sm space-y-5 rounded-2xl border border-[var(--border)] bg-white p-8 shadow-[var(--shadow)]"
+        className="w-full max-w-sm space-y-5 rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--surface)] p-8 shadow-[var(--shadow-card)]"
       >
         <div>
           <p className="text-2xl font-semibold tracking-tight">Kouzia</p>
-          <p className="mt-1 text-sm text-[var(--muted)]">Connexion à votre espace</p>
+          <p className="mt-1 text-sm text-[var(--muted)]">Connexion</p>
+          {import.meta.env.DEV ? (
+            <p className="mt-2 rounded-[var(--radius-sm)] bg-[var(--bg)] px-3 py-2 text-xs text-[var(--muted)]">
+              Dev : email prérempli. Mot de passe = <code className="font-mono">ADMIN_PASSWORD</code>{" "}
+              dans <code className="font-mono">.env</code> (puis{" "}
+              <code className="font-mono">npm run db:seed</code> si vous venez de le modifier).
+            </p>
+          ) : null}
         </div>
         <Field label="Email">
           <Input

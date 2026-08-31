@@ -21,13 +21,16 @@ export type ObligationItem = {
   type: string;
   period: string;
   dueDate: string;
-  displayStatus: "LATE" | "PENDING" | "URGENT" | "DONE";
+  windowStart: string;
+  windowEnd: string;
+  displayStatus: "UPCOMING" | "OPEN" | "LATE" | "URGENT" | "DONE";
   completedAt: string | null;
   amountCents: number | null;
   notes: string | null;
   label: string;
   daysLate: number | null;
   daysRemaining: number | null;
+  daysUntilOpen: number | null;
   officialUrl: string;
   confirmLabel: string;
   attachmentName: string | null;
@@ -41,6 +44,8 @@ type ObligationsPayload = {
   summary: {
     late: number;
     urgent: number;
+    open: number;
+    upcoming: number;
     pending: number;
   };
 };
@@ -62,11 +67,13 @@ function iconFor(type: string): IconDefinition {
 function statusClass(status: ObligationItem["displayStatus"]): string {
   switch (status) {
     case "LATE":
-      return "text-red-600";
+      return "text-[var(--danger)]";
     case "URGENT":
-      return "text-amber-500";
+      return "text-[var(--warning)]";
+    case "OPEN":
+      return "text-[var(--primary)]";
     case "DONE":
-      return "text-green-600";
+      return "text-[var(--success)]";
     default:
       return "text-[var(--muted)]";
   }
@@ -75,13 +82,17 @@ function statusClass(status: ObligationItem["displayStatus"]): string {
 function statusLabel(item: ObligationItem): string {
   switch (item.displayStatus) {
     case "LATE":
-      return `En retard (${item.daysLate ?? 0} j)`;
+      return `En retard (${item.daysLate ?? 0} j après clôture)`;
     case "URGENT":
-      return `Plus que ${item.daysRemaining ?? 0} j`;
+      return `Clôture dans ${item.daysRemaining ?? 0} j`;
+    case "OPEN":
+      return `Ouvert · clôture dans ${item.daysRemaining ?? 0} j`;
+    case "UPCOMING":
+      return `Ouverture dans ${item.daysUntilOpen ?? 0} j`;
     case "DONE":
       return `Confirmé le ${formatDate(item.completedAt)}`;
     default:
-      return item.daysRemaining != null ? `Dans ${item.daysRemaining} j` : "À venir";
+      return "À venir";
   }
 }
 
@@ -100,6 +111,7 @@ function ObligationRow({
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
   const tone = statusClass(item.displayStatus);
+  const alertActive = item.displayStatus === "OPEN" || item.displayStatus === "URGENT" || item.displayStatus === "LATE";
 
   async function upload(file: File) {
     const fd = new FormData();
@@ -117,7 +129,7 @@ function ObligationRow({
   }
 
   return (
-    <div className="flex flex-wrap items-start gap-3 border-b border-gray-200 py-4 last:border-0">
+    <div className="flex flex-wrap items-start gap-3 border-b border-[var(--border)] py-4 last:border-0">
       <div
         className={`mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-[var(--bg)] ${tone}`}
       >
@@ -126,7 +138,7 @@ function ObligationRow({
       <div className="min-w-0 flex-1">
         <p className="text-sm font-medium">{item.label}</p>
         <p className="text-xs text-[var(--muted)]">
-          Échéance {formatDate(item.dueDate)}
+          Du {formatDate(item.windowStart)} au {formatDate(item.windowEnd)}
           {item.amountCents != null ? ` · ${formatEUR(item.amountCents)}` : ""}
           {item.period ? ` · ${item.period}` : ""}
         </p>
@@ -139,7 +151,7 @@ function ObligationRow({
             href={`/api/obligations/${item.id}/attachment`}
             target="_blank"
             rel="noreferrer"
-            className="mt-1 inline-flex items-center gap-1.5 text-xs text-[var(--primary)] hover:underline"
+            className="link mt-1 inline-flex items-center gap-1.5 text-xs"
           >
             <FontAwesomeIcon icon={faFilePdf} className="h-3 w-3" />
             {item.attachmentName ?? "Justificatif PDF"}
@@ -147,15 +159,15 @@ function ObligationRow({
         ) : null}
       </div>
       <div className="flex flex-wrap gap-2">
-        {showConfirm ? (
+        {showConfirm && item.officialUrl ? (
           <a
             href={item.officialUrl}
             target="_blank"
             rel="noreferrer"
-            className="inline-flex h-8 items-center gap-1.5 rounded-[var(--radius)] border border-gray-200 bg-white px-3 text-xs font-medium hover:bg-[var(--bg)]"
+            className="inline-flex h-8 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-[var(--radius)] border border-[var(--border)] bg-[var(--surface)] px-3 text-xs font-medium text-[var(--text)] transition-colors hover:border-[var(--primary)]/40 hover:bg-[var(--primary-soft)] hover:text-[var(--primary)]"
           >
             Site officiel
-            <FontAwesomeIcon icon={faArrowUpRightFromSquare} className="h-3 w-3" />
+            <FontAwesomeIcon icon={faArrowUpRightFromSquare} className="h-3 w-3 opacity-70" />
           </a>
         ) : null}
         <input
@@ -178,7 +190,7 @@ function ObligationRow({
           <FontAwesomeIcon icon={faPaperclip} className="h-3 w-3" />
           {item.hasAttachment ? "Remplacer PDF" : "Joindre PDF"}
         </Button>
-        {showConfirm ? (
+        {showConfirm && alertActive ? (
           <Button
             className="h-8 px-3 text-xs"
             disabled={busy}
@@ -225,8 +237,8 @@ export function ObligationsPage() {
   return (
     <div className="space-y-6">
       <PageHeader
-        title="Obligations administratives"
-        subtitle="URSSAF, CFE, impôts - historique et justificatifs PDF"
+        title="Démarches à faire"
+        subtitle="Fenêtres de déclaration : alerte dès l'ouverture, clôture au dernier délai"
       />
 
       {data.alerts.length > 0 ? (
@@ -234,7 +246,7 @@ export function ObligationsPage() {
           {data.alerts.map((a) => (
             <li
               key={a.kind}
-              className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900"
+              className="rounded-md border border-[var(--warning)]/30 bg-[var(--warning-soft)] px-3 py-2 text-xs text-[var(--warning)]"
             >
               {a.message}
             </li>
@@ -242,30 +254,35 @@ export function ObligationsPage() {
         </ul>
       ) : null}
 
-      <div className="grid gap-3 sm:grid-cols-3">
+      <div className="grid gap-3 sm:grid-cols-4">
         <Card className="p-4">
           <p className="text-xs text-[var(--muted)]">En retard</p>
-          <p className="mt-1 text-xl font-semibold tabular-nums text-red-600">
+          <p className="mt-1 text-xl font-semibold tabular-nums text-[var(--danger)]">
             {data.summary.late}
           </p>
         </Card>
         <Card className="p-4">
           <p className="text-xs text-[var(--muted)]">Urgentes</p>
-          <p className="mt-1 text-xl font-semibold tabular-nums text-amber-500">
+          <p className="mt-1 text-xl font-semibold tabular-nums text-[var(--warning)]">
             {data.summary.urgent}
           </p>
         </Card>
         <Card className="p-4">
-          <p className="text-xs text-[var(--muted)]">À venir</p>
-          <p className="mt-1 text-xl font-semibold tabular-nums">{data.summary.pending}</p>
+          <p className="text-xs text-[var(--muted)]">Ouvertes</p>
+          <p className="mt-1 text-xl font-semibold tabular-nums text-[var(--primary)]">
+            {data.summary.open}
+          </p>
+        </Card>
+        <Card className="p-4">
+          <p className="text-xs text-[var(--muted)]">Pas encore ouvertes</p>
+          <p className="mt-1 text-xl font-semibold tabular-nums">{data.summary.upcoming}</p>
         </Card>
       </div>
 
-      <Card className="border border-gray-200 p-5">
+      <Card className="p-5">
         <h2 className="mb-1 text-sm font-semibold">À traiter</h2>
         <p className="mb-3 text-xs text-[var(--muted)]">
-          Un seul geste : confirmer après déclaration/paiement. La prochaine échéance est créée
-          automatiquement.
+          L&apos;alerte démarre à la date d&apos;ouverture. Confirmez après déclaration ou paiement.
         </p>
         {data.items.length === 0 ? (
           <p className="text-sm text-[var(--muted)]">Rien en cours.</p>
@@ -283,7 +300,7 @@ export function ObligationsPage() {
         )}
       </Card>
 
-      <Card className="border border-gray-200 p-5">
+      <Card className="p-5">
         <h2 className="mb-1 text-sm font-semibold">Historique</h2>
         <p className="mb-3 text-xs text-[var(--muted)]">
           Confirmations passées - joignez le PDF de déclaration pour archivage.

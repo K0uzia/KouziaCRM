@@ -3,12 +3,13 @@ import type { ButtonHTMLAttributes, ReactNode } from "react";
 type Variant = "primary" | "secondary" | "ghost" | "danger";
 
 const styles: Record<Variant, string> = {
-  primary:
-    "bg-[var(--primary)] text-white hover:bg-[var(--primary-hover)] border-transparent",
+  primary: "btn-gradient border-transparent shadow-[var(--shadow-sm)]",
   secondary:
-    "bg-white text-[var(--text)] border-[var(--border-strong)] hover:bg-[var(--bg)]",
-  ghost: "bg-transparent text-[var(--muted)] border-transparent hover:bg-[var(--bg)] hover:text-[var(--text)]",
-  danger: "bg-[var(--danger-soft)] text-[var(--danger)] border-transparent hover:bg-red-100",
+    "bg-[var(--surface-raised)] text-[var(--text)] border-[var(--border)] hover:bg-[var(--surface-hover)]",
+  ghost:
+    "bg-transparent text-[var(--muted)] border-transparent hover:bg-[var(--surface-hover)] hover:text-[var(--text)]",
+  danger:
+    "bg-[var(--danger-soft)] text-[var(--danger)] border border-[var(--danger)]/20 hover:brightness-110",
 };
 
 export function Button({
@@ -23,7 +24,7 @@ export function Button({
   return (
     <button
       type="button"
-      className={`inline-flex h-10 items-center justify-center gap-2 rounded-[var(--radius)] border px-4 text-sm font-medium transition disabled:cursor-not-allowed disabled:opacity-50 ${styles[variant]} ${className}`}
+      className={`inline-flex h-10 shrink-0 items-center justify-center gap-2 whitespace-nowrap rounded-[var(--radius)] border px-4 text-sm font-medium transition disabled:cursor-not-allowed disabled:opacity-50 ${styles[variant]} ${className}`}
       {...props}
     >
       {children}

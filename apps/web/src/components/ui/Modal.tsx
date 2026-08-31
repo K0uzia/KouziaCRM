@@ -37,13 +37,13 @@ export function Modal({
       <button
         type="button"
         aria-label="Fermer"
-        className="absolute inset-0 bg-black/40 backdrop-blur-[1px]"
+        className="absolute inset-0 bg-[var(--text)]/30 backdrop-blur-[2px]"
         onClick={onClose}
       />
       <div
         role="dialog"
         aria-modal="true"
-        className={`relative z-10 flex max-h-[92vh] w-full flex-col overflow-hidden rounded-t-2xl bg-white shadow-xl sm:rounded-2xl ${
+        className={`relative z-10 flex max-h-[92vh] w-full flex-col overflow-hidden rounded-t-[var(--radius-lg)] border border-[var(--border)] bg-[var(--surface)] shadow-[var(--shadow)] sm:rounded-[var(--radius-lg)] ${
           wide ? "sm:max-w-3xl" : "sm:max-w-lg"
         }`}
       >
@@ -57,7 +57,7 @@ export function Modal({
           <button
             type="button"
             onClick={onClose}
-            className="rounded-lg p-2 text-[var(--muted)] hover:bg-[var(--bg)] hover:text-[var(--text)]"
+            className="rounded-[var(--radius-sm)] p-2 text-[var(--muted)] hover:bg-[var(--bg)] hover:text-[var(--text)]"
           >
             <FontAwesomeIcon icon={faXmark} />
           </button>

@@ -22,7 +22,7 @@ import {
   type CashflowScope,
   type ScopedCashflow,
 } from "@/lib/finance/cashflow-service";
-import { formatPercentFromBps } from "@/lib/urssaf";
+import { clipPeriodToActivity } from "@/lib/company/business-start";
 
 export type PriorPeriodStatus = {
   periodKey: string;
@@ -141,6 +141,12 @@ export async function getDashboardSnapshot(
   const upcoming = resolveUpcomingDeclarationPeriod(periodicity, deadlineDay, now);
   const prevQ = previousQuarter(now);
 
+  const clippedDecl = clipPeriodToActivity(
+    declPeriod.periodStart,
+    declPeriod.periodEnd,
+    company.businessStartDate,
+  );
+
   const [
     periodCashflow,
     invoiceCashflow,
@@ -155,7 +161,9 @@ export async function getDashboardSnapshot(
     getScopedCashflow(scope, now),
     invoiceId ? getInvoiceCashflow(invoiceId, now) : Promise.resolve(null),
     getCashflowChartSeries(scope, now),
-    sumEncaisseCents(declPeriod.periodStart, declPeriod.periodEnd),
+    clippedDecl
+      ? sumEncaisseCents(clippedDecl.start, clippedDecl.end)
+      : Promise.resolve(0),
     prisma.urssafDeclaration.findUnique({ where: { periodKey: declPeriod.periodKey } }),
     loadPeriodPaidStatus(priorDecl.periodKey, priorDecl.label),
     loadQuarterPaidStatus(prevQ.year, prevQ.quarter),
@@ -269,5 +277,4 @@ export async function markUrssafPaid(opts: {
   });
 }
 
-export { formatPercentFromBps };
 export type { CashflowScope, CashflowChartPoint, ScopedCashflow };

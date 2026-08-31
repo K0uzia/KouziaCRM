@@ -31,7 +31,7 @@ export async function sendDocumentPdf(
   if (opts.send === false) {
     return { sent: false };
   }
-  if (!isSmtpConfigured()) {
+  if (!(await isSmtpConfigured())) {
     return { sent: false, reason: "smtp_off" };
   }
 
@@ -149,6 +149,17 @@ export async function sendDocumentPdf(
           contentType: "application/pdf",
         },
       ],
+    });
+
+    const { logClientEmailEvent } = await import("@/lib/email/log-event.js");
+    await logClientEmailEvent({
+      clientId: invoice.clientId,
+      kind,
+      subject,
+      toAddress: email,
+      documentId: invoice.id,
+      documentNumber: invoice.number,
+      success: true,
     });
 
     return { sent: true };

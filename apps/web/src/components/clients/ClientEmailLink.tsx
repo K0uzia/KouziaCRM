@@ -68,11 +68,7 @@ export function ClientEmailLink({
 
   return (
     <>
-      <button
-        type="button"
-        className="text-[var(--primary)] hover:underline"
-        onClick={() => setOpen(true)}
-      >
+      <button type="button" className="link" onClick={() => setOpen(true)}>
         {email}
       </button>
       <Modal open={open} onClose={() => setOpen(false)} title="Composer un email">
@@ -108,11 +104,7 @@ export function ClientEmailLink({
             />
           </Field>
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <Link
-              to={composeHref}
-              className="text-xs text-[var(--primary)] hover:underline"
-              onClick={() => setOpen(false)}
-            >
+            <Link to={composeHref} className="link text-xs" onClick={() => setOpen(false)}>
               Ouvrir dans Emails
             </Link>
             <div className="flex gap-2">

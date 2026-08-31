@@ -1,54 +1,63 @@
 @import "tailwindcss";
 
 :root {
-  /* Surfaces */
-  --bg: #f6f7f8;
-  --surface: #ffffff;
-  --text: #111827;
-  --muted: #6b7280;
-  --border: #e5e7eb;
-  --border-strong: #d1d5db;
-  /* Brand / status */
-  --primary: #0f766e;
-  --primary-hover: #0d9488;
-  --primary-soft: #ccfbf1;
-  --danger: #dc2626;
-  --danger-soft: #fef2f2;
-  --success: #059669;
-  --success-soft: #ecfdf5;
-  --warning: #d97706;
-  --warning-soft: #fffbeb;
-  --info: #2563eb;
-  --info-soft: #eff6ff;
-  --sidebar: #111827;
-  --sidebar-text: #e5e7eb;
+  color-scheme: dark;
+  /* Fond navy profond (shot Dribbble) */
+  --bg: #080b10;
+  --bg-subtle: #0d1017;
+  --surface: #12161f;
+  --surface-glass: rgb(18 22 31 / 0.75);
+  --surface-raised: #161b26;
+  --surface-hover: #1c2230;
+  --text: #f4f6fb;
+  --muted: #8b95a8;
+  --border: rgb(255 255 255 / 0.06);
+  --border-strong: rgb(255 255 255 / 0.1);
+  /* Accent violet / indigo */
+  --primary: #8b5cf6;
+  --primary-fg: #ffffff;
+  --primary-hover: #a78bfa;
+  --primary-soft: rgb(139 92 246 / 0.14);
+  --gradient-from: #7c3aed;
+  --gradient-to: #6366f1;
+  --gradient-bar-top: #a5b4fc;
+  --danger: #fb7185;
+  --danger-soft: rgb(251 113 133 / 0.12);
+  --success: #34d399;
+  --success-soft: rgb(52 211 153 / 0.12);
+  --warning: #fbbf24;
+  --warning-soft: rgb(251 191 36 / 0.12);
+  --info: #60a5fa;
+  --info-soft: rgb(96 165 250 / 0.12);
+  --orange: #fb923c;
+  --orange-soft: rgb(251 146 60 / 0.12);
+  /* Sidebar */
+  --sidebar: #0a0d14;
+  --sidebar-border: rgb(255 255 255 / 0.05);
+  --sidebar-muted: #6b7280;
+  --sidebar-text: #9ca3af;
+  --sidebar-active-bg: rgb(139 92 246 / 0.14);
+  --sidebar-active-text: #c4b5fd;
   /* Radius / shadow */
-  --radius: 8px;
-  --radius-sm: 4px;
-  --radius-lg: 12px;
-  --shadow: 0 1px 2px rgb(0 0 0 / 0.04);
-  /* Typography scale */
-  --text-xs: 12px;
-  --text-sm: 14px;
-  --text-md: 16px;
-  --text-lg: 20px;
-  --text-xl: 24px;
-  --text-2xl: 30px;
-  /* Spacing scale */
-  --space-1: 4px;
-  --space-2: 8px;
-  --space-3: 12px;
-  --space-4: 16px;
-  --space-5: 24px;
-  --space-6: 32px;
-  --font: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
-    Roboto, "Helvetica Neue", Arial, sans-serif;
+  --radius: 14px;
+  --radius-sm: 10px;
+  --radius-lg: 20px;
+  --shadow: 0 16px 48px rgb(0 0 0 / 0.4);
+  --shadow-sm: 0 2px 8px rgb(0 0 0 / 0.2);
+  --shadow-card: 0 4px 24px rgb(0 0 0 / 0.25);
+  /* Typography */
+  --font: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu,
+    Cantarell, "Open Sans", "Helvetica Neue", sans-serif;
 }
 
 *,
 *::before,
 *::after {
   box-sizing: border-box;
+}
+
+html {
+  overflow-x: hidden;
 }
 
 html,
@@ -60,10 +69,12 @@ body,
 body {
   margin: 0;
   font-family: var(--font);
-  background: var(--bg);
+  background-color: var(--bg);
+  background-image:
+    radial-gradient(ellipse 90% 55% at 50% -8%, rgb(124 58 237 / 0.2), transparent 58%),
+    radial-gradient(ellipse 50% 40% at 100% 30%, rgb(99 102 241 / 0.08), transparent 50%);
   color: var(--text);
   -webkit-font-smoothing: antialiased;
-  font-feature-settings: "kern";
 }
 
 button,
@@ -78,16 +89,200 @@ a {
   text-decoration: none;
 }
 
+/* Liens texte (profils, tableaux) */
+.link {
+  color: var(--primary);
+  text-decoration: none;
+  border-radius: 4px;
+  box-shadow: inset 0 -1px 0 rgb(139 92 246 / 0.35);
+  transition:
+    color 0.15s ease,
+    box-shadow 0.15s ease,
+    background-color 0.15s ease;
+}
+.link:hover {
+  color: var(--primary-hover);
+  box-shadow: inset 0 -2px 0 var(--primary-hover);
+}
+
+/* Liens ligne (listes documents, factures liées) */
+.link-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.5rem 0.625rem;
+  margin: 0 -0.625rem;
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  text-decoration: none;
+  transition:
+    background-color 0.15s ease,
+    color 0.15s ease;
+}
+.link-row:hover {
+  background-color: var(--primary-soft);
+  color: var(--primary-hover);
+}
+.link-row-muted {
+  color: var(--muted);
+  transition: color 0.15s ease;
+}
+.link-row:hover .link-row-muted {
+  color: var(--text);
+}
+
 :focus-visible {
   outline: 2px solid var(--primary);
   outline-offset: 2px;
 }
 
-/* Masque la scrollbar tout en gardant le scroll (molette/trackpad/touch). */
+/* Cartes glassmorphism */
+.glass-card {
+  background: var(--surface-glass);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-card);
+}
+
+.btn-gradient {
+  background: linear-gradient(135deg, var(--gradient-from), var(--gradient-to));
+  color: var(--primary-fg);
+  border: none;
+}
+.btn-gradient:hover {
+  background: linear-gradient(135deg, var(--primary-hover), #818cf8);
+}
+
+/* Tableaux */
+.ui-table-wrap {
+  width: 100%;
+  max-width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.ui-table {
+  width: 100%;
+  table-layout: auto;
+  border-collapse: collapse;
+  font-size: 0.875rem;
+  text-align: left;
+}
+
+.ui-table thead {
+  background: var(--surface-raised);
+  border-bottom: 1px solid var(--border);
+  color: var(--muted);
+}
+
+.ui-table th {
+  padding: 0.75rem 1rem;
+  font-weight: 500;
+  font-size: 0.8125rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ui-table td {
+  padding: 0.75rem 1rem;
+  border-top: 1px solid var(--border);
+  vertical-align: middle;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  background: transparent;
+}
+
+.ui-table tbody tr:hover td {
+  background: var(--surface-hover);
+}
+
+.ui-table td.nowrap,
+.ui-table th.nowrap,
+.ui-table .col-actions {
+  white-space: nowrap;
+  width: 1%;
+}
+
+.ui-table td.wrap {
+  white-space: normal;
+  word-break: break-word;
+  overflow: visible;
+  text-overflow: unset;
+}
+
 .no-scrollbar {
   scrollbar-width: none;
   -ms-overflow-style: none;
 }
 .no-scrollbar::-webkit-scrollbar {
   display: none;
+}
+
+/* react-data-table-component : forcer le thème sombre (évite les lignes blanches) */
+.rdt_Table {
+  background-color: transparent !important;
+  color: var(--text);
+}
+.rdt_TableHeadRow {
+  background-color: var(--surface-raised) !important;
+  border-bottom: 1px solid var(--border);
+}
+.rdt_TableHeadRow .rdt_TableCol {
+  color: var(--muted) !important;
+}
+.rdt_TableRow {
+  background-color: var(--surface-raised) !important;
+  color: var(--text) !important;
+}
+.rdt_TableRow:hover {
+  background-color: var(--surface-hover) !important;
+}
+.rdt_TableCell {
+  background-color: inherit !important;
+  color: var(--text) !important;
+}
+.rdt_Pagination {
+  background-color: var(--surface-raised) !important;
+  color: var(--text) !important;
+  border-top: 1px solid var(--border) !important;
+}
+.rdt_Pagination select,
+.rdt_Pagination option {
+  background-color: var(--surface-hover) !important;
+  color: var(--text) !important;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+.rdt_Pagination button svg {
+  fill: var(--primary) !important;
+}
+
+/* Selects / options / hovers restés blancs par défaut navigateur */
+select,
+select option {
+  background-color: var(--surface-raised);
+  color: var(--text);
+}
+select:hover,
+select:focus {
+  background-color: var(--surface-hover);
+}
+option:checked,
+option:hover {
+  background-color: var(--primary-soft);
+  color: var(--primary);
+}
+
+.btn-gradient:hover {
+  filter: brightness(1.08);
+}
+
+/* Cursor blanc RDT */
+.rdt_TableRow:hover .rdt_TableCell {
+  background-color: var(--surface-hover) !important;
+  color: var(--text) !important;
 }

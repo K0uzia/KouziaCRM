@@ -20,10 +20,11 @@ type ReceiptRow = {
   id: string;
   paidAt: string;
   invoiceNumber: string | null;
-  invoiceId: string;
-  invoiceType?: string;
-  documentType?: string;
+  invoiceId: string | null;
+  invoiceType?: string | null;
+  documentType?: string | null;
   amountCents: number;
+  invoiceTotalCents?: number | null;
   clientName: string;
   clientNumber: string | null;
   nature: string;
@@ -228,50 +229,55 @@ export function ReceiptsBookPage() {
           />
         ) : (
           <>
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[44rem] text-left text-sm">
-                <thead className="border-b border-[var(--border)] text-[var(--muted)]">
+            <div className="ui-table-wrap">
+              <table className="ui-table">
+                <thead>
                   <tr>
-                    <th className="px-4 py-3 font-medium">Date</th>
-                    <th className="px-4 py-3 font-medium">Facture</th>
-                    <th className="px-4 py-3 font-medium">Code client</th>
-                    <th className="px-4 py-3 font-medium">Client</th>
-                    <th className="px-4 py-3 font-medium">Nature</th>
-                    <th className="px-4 py-3 font-medium">Règlement</th>
-                    <th className="px-4 py-3 text-right font-medium">Montant</th>
+                    <th className="nowrap">Date</th>
+                    <th>Facture</th>
+                    <th className="nowrap">Code client</th>
+                    <th>Client</th>
+                    <th>Nature</th>
+                    <th className="nowrap">Règlement</th>
+                    <th className="nowrap text-right">Encaissé</th>
+                    <th className="nowrap text-right">Total facture</th>
                   </tr>
                 </thead>
                 <tbody>
                   {data.rows.map((r) => (
-                    <tr key={r.id} className="border-t border-[var(--border)]">
-                      <td className="whitespace-nowrap px-4 py-3 text-[var(--muted)]">
+                    <tr key={r.id}>
+                      <td className="nowrap text-[var(--muted)]">
                         {formatDate(r.paidAt)}
                       </td>
-                      <td className="px-4 py-3">
-                        <div className="flex flex-wrap items-center gap-1.5">
-                          <Link to={`/invoices/${r.invoiceId}`}>
-                            <DocumentNumberBadge
-                              number={r.invoiceNumber}
-                              documentType={r.documentType ?? "INVOICE"}
-                              invoiceType={r.invoiceType}
-                            />
-                          </Link>
-                          <InvoiceTypeBadge type={r.invoiceType} />
-                        </div>
+                      <td className="wrap">
+                        {r.invoiceId ? (
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            <Link to={`/invoices/${r.invoiceId}`}>
+                              <DocumentNumberBadge
+                                number={r.invoiceNumber}
+                                documentType={r.documentType ?? "INVOICE"}
+                                invoiceType={r.invoiceType ?? undefined}
+                              />
+                            </Link>
+                            <InvoiceTypeBadge type={r.invoiceType ?? undefined} />
+                          </div>
+                        ) : (
+                          <span className="text-xs text-[var(--muted)]">Sans facture</span>
+                        )}
                       </td>
-                      <td className="px-4 py-3 font-mono text-xs text-[var(--muted)]">
+                      <td className="nowrap font-mono text-xs text-[var(--muted)]">
                         {r.clientNumber ?? "-"}
                       </td>
-                      <td className="px-4 py-3 font-medium">{r.clientName}</td>
-                      <td
-                        className="max-w-[14rem] truncate px-4 py-3 text-[var(--muted)]"
-                        title={r.nature}
-                      >
+                      <td className="truncate font-medium">{r.clientName}</td>
+                      <td className="wrap text-[var(--muted)]" title={r.nature}>
                         {r.nature}
                       </td>
-                      <td className="px-4 py-3">{r.paymentMethodLabel}</td>
-                      <td className="px-4 py-3 text-right tabular-nums font-medium">
+                      <td className="nowrap">{r.paymentMethodLabel}</td>
+                      <td className="nowrap text-right tabular-nums font-medium">
                         {formatEUR(r.amountCents)}
+                      </td>
+                      <td className="nowrap text-right tabular-nums text-[var(--muted)]">
+                        {r.invoiceTotalCents != null ? formatEUR(r.invoiceTotalCents) : "-"}
                       </td>
                     </tr>
                   ))}

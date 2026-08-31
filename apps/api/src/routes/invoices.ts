@@ -9,7 +9,7 @@ import {
 import { requireAuth } from "@/lib/auth.js";
 import { prisma } from "@/lib/prisma.js";
 import { computeLineTotals, assertSubscriptionLinesValid } from "@/lib/invoices/totals.js";
-import { eurosToCents } from "@/lib/money.js";
+import { eurosToCents, formatEUR } from "@/lib/money.js";
 import {
   issueInvoice,
   issueQuote,
@@ -21,6 +21,8 @@ import {
   DocumentFlowError,
   assertQuoteEditable,
   syncMilestoneOnInvoicePaid,
+  rejectQuote,
+  QuoteDecisionError,
 } from "@/lib/invoices/transitions.js";
 import { CreditNoteReason, RefundMethod } from "@prisma/client";
 import { getCompanySettings } from "@/lib/company.js";
@@ -54,6 +56,8 @@ const createSchema = z.object({
   documentType: z.enum(["INVOICE", "QUOTE"]).default("INVOICE"),
   notes: z.string().optional().nullable(),
   paymentTerms: z.string().optional().nullable(),
+  serviceDate: z.string().optional().nullable(),
+  purchaseOrderRef: z.string().max(80).optional().nullable(),
   validUntil: z.string().optional().nullable(),
   lines: z.array(lineSchema).min(1),
   discountType: z.enum(["NONE", "PERCENT", "FIXED"]).optional().default("NONE"),
@@ -65,6 +69,8 @@ const updateSchema = z.object({
   clientId: z.string().min(1).optional(),
   notes: z.string().optional().nullable(),
   paymentTerms: z.string().optional().nullable(),
+  serviceDate: z.string().optional().nullable(),
+  purchaseOrderRef: z.string().max(80).optional().nullable(),
   validUntil: z.string().optional().nullable(),
   lines: z.array(lineSchema).min(1).optional(),
   discountType: z.enum(["NONE", "PERCENT", "FIXED"]).optional(),
@@ -206,6 +212,8 @@ export const invoicesRoutes: FastifyPluginAsync = async (app) => {
             (documentType === InvoiceDocumentType.QUOTE
               ? "Devis valable 30 jours"
               : "Paiement à réception"),
+          serviceDate: parsed.data.serviceDate ? new Date(parsed.data.serviceDate) : null,
+          purchaseOrderRef: parsed.data.purchaseOrderRef ?? null,
           validUntil,
           subtotalCents,
           totalCents,
@@ -345,11 +353,19 @@ export const invoicesRoutes: FastifyPluginAsync = async (app) => {
       discountType?: string;
       discountValue?: number;
       validUntil?: Date | null;
+      serviceDate?: Date | null;
+      purchaseOrderRef?: string | null;
     } = {};
 
     if (parsed.data.clientId) data.clientId = parsed.data.clientId;
     if (parsed.data.notes !== undefined) data.notes = parsed.data.notes;
     if (parsed.data.paymentTerms !== undefined) data.paymentTerms = parsed.data.paymentTerms;
+    if (parsed.data.serviceDate !== undefined) {
+      data.serviceDate = parsed.data.serviceDate ? new Date(parsed.data.serviceDate) : null;
+    }
+    if (parsed.data.purchaseOrderRef !== undefined) {
+      data.purchaseOrderRef = parsed.data.purchaseOrderRef || null;
+    }
     if (parsed.data.validUntil !== undefined) {
       data.validUntil = parsed.data.validUntil ? new Date(parsed.data.validUntil) : null;
     }
@@ -522,6 +538,28 @@ export const invoicesRoutes: FastifyPluginAsync = async (app) => {
     }
   });
 
+  app.post<{ Params: { id: string } }>("/api/invoices/:id/reject", async (request, reply) => {
+    await requireAuth(request, reply);
+    if (reply.sent) return;
+    const parsed = z
+      .object({ reason: z.string().max(500).optional() })
+      .safeParse(request.body ?? {});
+    if (!parsed.success) {
+      return reply.code(400).send({ error: "Motif invalide" });
+    }
+    try {
+      const quote = await rejectQuote(request.params.id, parsed.data.reason);
+      return serializeInvoice(quote);
+    } catch (e) {
+      if (e instanceof QuoteDecisionError) {
+        return reply.code(400).send({ error: e.message, code: e.code });
+      }
+      return reply
+        .code(400)
+        .send({ error: e instanceof Error ? e.message : "Refus impossible" });
+    }
+  });
+
   app.get<{ Params: { id: string } }>(
     "/api/invoices/:id/milestones",
     async (request, reply) => {
@@ -558,14 +596,25 @@ export const invoicesRoutes: FastifyPluginAsync = async (app) => {
       const subject = `Relance - ${label} ${invoice.number ?? "brouillon"}`;
       const body = `Bonjour,\n\nSauf erreur de notre part, le ${label} ${invoice.number ?? ""} est en attente.\n\nCordialement,\nKouzia`;
 
-      if (email && isSmtpConfigured()) {
+      const smtpOk = await isSmtpConfigured();
+      if (email && smtpOk) {
         await sendEmail({ to: email, subject, text: body });
+        const { logClientEmailEvent } = await import("@/lib/email/log-event.js");
+        await logClientEmailEvent({
+          clientId: invoice.clientId,
+          kind: "reminder_soft",
+          subject,
+          toAddress: email,
+          documentId: invoice.id,
+          documentNumber: invoice.number,
+          success: true,
+        });
       }
 
       const updated = await markReminderSent(invoice.id);
       return {
         ...serializeInvoice(updated),
-        emailed: Boolean(email && isSmtpConfigured()),
+        emailed: Boolean(email && smtpOk),
         mailto: email
           ? `mailto:${encodeURIComponent(email)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`
           : null,
@@ -596,6 +645,19 @@ export const invoicesRoutes: FastifyPluginAsync = async (app) => {
 
     const amountCents = eurosToCents(parsed.data.amountEuros);
     const paidSoFar = invoice.payments.reduce((s, p) => s + p.amountCents, 0);
+    const remainingCents = invoice.totalCents - paidSoFar;
+
+    if (remainingCents <= 0) {
+      return reply.code(400).send({
+        error:
+          "Facture déjà soldée. Pour rembourser ou corriger le montant, établissez un avoir.",
+      });
+    }
+    if (amountCents > remainingCents) {
+      return reply.code(400).send({
+        error: `Montant supérieur au reste dû (${formatEUR(remainingCents)}).`,
+      });
+    }
 
     const payment = await prisma.$transaction(async (tx) => {
       const created = await tx.payment.create({

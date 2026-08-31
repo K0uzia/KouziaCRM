@@ -3,6 +3,7 @@ import { z } from "zod";
 import { prisma } from "@/lib/prisma.js";
 import {
   clearSessionCookie,
+  attachUser,
   createSession,
   destroySession,
   requireAuth,
@@ -70,9 +71,8 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
     return { ok: true };
   });
 
-  app.get("/api/auth/me", async (request, reply) => {
-    await requireAuth(request, reply);
-    if (reply.sent) return;
-    return { user: request.user };
+  app.get("/api/auth/me", async (request) => {
+    await attachUser(request);
+    return { user: request.user ?? null };
   });
 };

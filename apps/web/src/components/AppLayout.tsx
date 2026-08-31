@@ -1,45 +1,21 @@
 import { useEffect, useState } from "react";
-import { NavLink, Outlet } from "react-router-dom";
+import { Link, NavLink, Outlet, useLocation } from "react-router-dom";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import {
-  faChartLine,
-  faUsers,
-  faFileInvoice,
-  faFileSignature,
-  faBuildingColumns,
-  faGear,
-  faInbox,
-  faRightFromBracket,
-  faMoneyBillWave,
-  faBriefcase,
-  faBook,
-  faClipboardCheck,
-  faRepeat,
   faMagnifyingGlass,
-  faLandmark,
+  faGear,
+  faRightFromBracket,
 } from "@fortawesome/free-solid-svg-icons";
 import { useAuth } from "@/lib/auth";
 import { CommandPalette } from "@/components/CommandPalette";
-
-const links = [
-  { to: "/", label: "Tableau de bord", icon: faChartLine, end: true },
-  { to: "/clients", label: "Clients", icon: faUsers },
-  { to: "/services", label: "Prestations", icon: faBriefcase },
-  { to: "/abonnements", label: "Abonnements", icon: faRepeat },
-  { to: "/quotes", label: "Devis", icon: faFileSignature },
-  { to: "/invoices", label: "Factures", icon: faFileInvoice },
-  { to: "/payments", label: "Paiements", icon: faMoneyBillWave },
-  { to: "/receipts", label: "Recettes", icon: faBook },
-  { to: "/obligations", label: "Obligations", icon: faClipboardCheck },
-  { to: "/banque", label: "Banque", icon: faBuildingColumns },
-  { to: "/urssaf", label: "URSSAF", icon: faLandmark },
-  { to: "/inbox", label: "Emails", icon: faInbox },
-  { to: "/settings", label: "Paramètres", icon: faGear },
-];
+import { getHubFromPath, HUBS, SUB_NAV } from "@/lib/navigation";
 
 export function AppLayout() {
-  const { logout, user } = useAuth();
+  const { logout } = useAuth();
   const [paletteOpen, setPaletteOpen] = useState(false);
+  const { pathname } = useLocation();
+  const hub = getHubFromPath(pathname);
+  const subNav = hub && hub !== "home" ? SUB_NAV[hub] : null;
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
@@ -53,61 +29,100 @@ export function AppLayout() {
   }, []);
 
   return (
-    <div className="flex min-h-screen bg-[var(--bg)]">
-      <aside className="sticky top-0 flex h-screen w-[240px] shrink-0 flex-col bg-[var(--sidebar)] text-[var(--sidebar-text)]">
-        <div className="border-b border-white/10 px-5 py-5">
-          <p className="text-lg font-semibold tracking-tight text-white">Kouzia</p>
-          <p className="mt-0.5 text-xs text-white/45">CRM & facturation</p>
-        </div>
-        <nav className="no-scrollbar flex flex-1 flex-col gap-0.5 overflow-y-auto p-3">
-          {links.map(({ to, label, icon, end }) => (
+    <div className="flex min-h-screen flex-col bg-[var(--bg)]">
+      <header className="sticky top-0 z-40 border-b border-[var(--border)] bg-[var(--bg)]/90 backdrop-blur-md">
+        <div className="mx-auto flex h-14 max-w-7xl items-center gap-3 px-4 sm:px-6">
+          <Link to="/" className="flex shrink-0 items-center gap-2.5">
+            <div className="flex h-9 w-9 items-center justify-center rounded-[var(--radius-sm)] bg-gradient-to-br from-[var(--gradient-from)] to-[var(--gradient-to)] text-sm font-bold text-white">
+              K
+            </div>
+            <span className="hidden font-bold tracking-tight text-[var(--text)] sm:inline">
+              Kouzia
+            </span>
+          </Link>
+
+          <nav className="flex min-w-0 flex-1 items-center gap-0.5 overflow-x-auto no-scrollbar">
+            {HUBS.map((item) => (
+              <NavLink
+                key={item.id}
+                to={item.to}
+                end={item.id === "home"}
+                className={({ isActive }) =>
+                  `shrink-0 whitespace-nowrap rounded-[var(--radius-sm)] px-3 py-2 text-sm font-medium transition ${
+                    isActive || hub === item.id
+                      ? "bg-[var(--primary-soft)] text-[var(--primary)]"
+                      : "text-[var(--muted)] hover:bg-[var(--surface-hover)] hover:text-[var(--text)]"
+                  }`
+                }
+              >
+                {item.label}
+              </NavLink>
+            ))}
+          </nav>
+
+          <div className="flex shrink-0 items-center gap-0.5">
+            <button
+              type="button"
+              onClick={() => setPaletteOpen(true)}
+              className="rounded-[var(--radius-sm)] p-2 text-[var(--muted)] transition hover:bg-[var(--surface-hover)] hover:text-[var(--text)]"
+              aria-label="Rechercher"
+              title="Rechercher (⌘K)"
+            >
+              <FontAwesomeIcon icon={faMagnifyingGlass} className="h-4 w-4" />
+            </button>
             <NavLink
-              key={to}
-              to={to}
-              end={end}
+              to="/settings"
               className={({ isActive }) =>
-                `flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm transition ${
+                `rounded-[var(--radius-sm)] p-2 transition ${
                   isActive
-                    ? "bg-white/10 font-medium text-white"
-                    : "text-white/65 hover:bg-white/5 hover:text-white"
+                    ? "text-[var(--primary)]"
+                    : "text-[var(--muted)] hover:bg-[var(--surface-hover)] hover:text-[var(--text)]"
                 }`
               }
+              aria-label="Réglages"
             >
-              <FontAwesomeIcon icon={icon} className="h-4 w-4 opacity-80" />
-              {label}
+              <FontAwesomeIcon icon={faGear} className="h-4 w-4" />
             </NavLink>
-          ))}
-        </nav>
-        <div className="border-t border-white/10 p-3">
-          <button
-            type="button"
-            onClick={() => setPaletteOpen(true)}
-            className="mb-2 flex w-full items-center justify-between gap-2 rounded-lg bg-white/5 px-3 py-2 text-xs text-white/55 hover:bg-white/10 hover:text-white/80"
-          >
-            <span className="flex items-center gap-2">
-              <FontAwesomeIcon icon={faMagnifyingGlass} className="h-3.5 w-3.5" />
-              Rechercher
-            </span>
-            <kbd className="rounded bg-white/10 px-1.5 py-0.5 font-mono text-[10px] text-white/60">
-              ⌘K
-            </kbd>
-          </button>
-          <p className="mb-2 truncate px-3 text-xs text-white/40">{user?.email}</p>
-          <button
-            type="button"
-            onClick={() => void logout()}
-            className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm text-white/65 hover:bg-white/5 hover:text-white"
-          >
-            <FontAwesomeIcon icon={faRightFromBracket} className="h-4 w-4" />
-            Déconnexion
-          </button>
+            <button
+              type="button"
+              onClick={() => void logout()}
+              className="rounded-[var(--radius-sm)] p-2 text-[var(--muted)] transition hover:bg-[var(--surface-hover)] hover:text-[var(--text)]"
+              aria-label="Sortir"
+            >
+              <FontAwesomeIcon icon={faRightFromBracket} className="h-4 w-4" />
+            </button>
+          </div>
         </div>
-      </aside>
-      <main className="min-w-0 flex-1 overflow-auto">
-        <div className="mx-auto max-w-5xl px-4 py-6 sm:px-6 md:px-8 md:py-8">
+
+        {subNav ? (
+          <div className="border-t border-[var(--border)]">
+            <div className="mx-auto flex max-w-7xl gap-1 overflow-x-auto px-4 py-2 no-scrollbar sm:px-6">
+              {subNav.map((item) => (
+                <NavLink
+                  key={item.to}
+                  to={item.to}
+                  className={() =>
+                    `shrink-0 whitespace-nowrap rounded-full px-3.5 py-1.5 text-xs font-medium transition ${
+                      item.match(pathname)
+                        ? "bg-[var(--surface-hover)] text-[var(--text)] ring-1 ring-[var(--border-strong)]"
+                        : "text-[var(--muted)] hover:bg-[var(--surface-hover)] hover:text-[var(--text)]"
+                    }`
+                  }
+                >
+                  {item.label}
+                </NavLink>
+              ))}
+            </div>
+          </div>
+        ) : null}
+      </header>
+
+      <main className="min-w-0 flex-1 overflow-x-hidden">
+        <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6 sm:py-8">
           <Outlet />
         </div>
       </main>
+
       <CommandPalette open={paletteOpen} onOpenChange={setPaletteOpen} />
     </div>
   );

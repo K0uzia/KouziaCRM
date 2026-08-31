@@ -18,6 +18,8 @@ export type DocumentFormValues = {
   clientId: string;
   notes: string;
   paymentTerms: string;
+  serviceDate: string;
+  purchaseOrderRef: string;
   validUntil: string;
   lines: DocLine[];
   discountType: "NONE" | "PERCENT" | "FIXED";
@@ -66,6 +68,8 @@ export function DocumentFormEditor({
     paymentTerms:
       initial?.paymentTerms ??
       (documentType === "QUOTE" ? "Devis valable 30 jours" : "Paiement à réception"),
+    serviceDate: initial?.serviceDate ?? "",
+    purchaseOrderRef: initial?.purchaseOrderRef ?? "",
     validUntil: initial?.validUntil ?? "",
     lines: initial?.lines?.length
       ? initial.lines.map((l) => ({ ...emptyLine(), ...l }))
@@ -151,6 +155,8 @@ export function DocumentFormEditor({
         documentType,
         notes: form.notes || null,
         paymentTerms: form.paymentTerms || null,
+        serviceDate: documentType === "INVOICE" ? form.serviceDate || null : null,
+        purchaseOrderRef: form.purchaseOrderRef || null,
         validUntil: form.validUntil || null,
         discountType: form.discountType,
         discountPercent:
@@ -417,9 +423,23 @@ export function DocumentFormEditor({
             />
           </Field>
         ) : (
-          <div />
+          <Field label="Date de la prestation" hint="Obligatoire si différente de l’émission">
+            <Input
+              type="date"
+              value={form.serviceDate}
+              onChange={(e) => setForm((f) => ({ ...f, serviceDate: e.target.value }))}
+            />
+          </Field>
         )}
       </div>
+
+      <Field label="Bon de commande du client" hint="Sa référence, s’il en a fourni un">
+        <Input
+          value={form.purchaseOrderRef}
+          onChange={(e) => setForm((f) => ({ ...f, purchaseOrderRef: e.target.value }))}
+          placeholder="Facultatif"
+        />
+      </Field>
 
       <Field label="Notes" hint="Apparaissent sur le PDF">
         <Textarea

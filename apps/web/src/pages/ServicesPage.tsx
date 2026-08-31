@@ -31,8 +31,6 @@ const emptyForm = {
   unitPriceEuros: "",
   unit: "FORFAIT" as Service["unit"],
   active: true,
-  isSubscription: false,
-  defaultBillingDay: "1",
 };
 
 export function ServicesPage() {
@@ -43,7 +41,7 @@ export function ServicesPage() {
   const [form, setForm] = useState(emptyForm);
 
   async function load() {
-    setRows(await api<Service[]>("/api/services"));
+    setRows(await api<Service[]>("/api/services?subscription=0"));
   }
 
   useEffect(() => {
@@ -64,8 +62,6 @@ export function ServicesPage() {
       unitPriceEuros: (s.unitPriceCents / 100).toFixed(2),
       unit: s.unit,
       active: s.active,
-      isSubscription: Boolean(s.isSubscription),
-      defaultBillingDay: String(s.defaultBillingDay ?? 1),
     });
     setOpen(true);
   }
@@ -80,8 +76,7 @@ export function ServicesPage() {
         unitPriceEuros: Number(form.unitPriceEuros),
         unit: form.unit,
         active: form.active,
-        isSubscription: form.isSubscription,
-        defaultBillingDay: Number(form.defaultBillingDay) || 1,
+        isSubscription: false,
       };
       if (editing) {
         await api(`/api/services/${editing.id}`, {
@@ -106,7 +101,7 @@ export function ServicesPage() {
     <div>
       <PageHeader
         title="Prestations"
-        subtitle="Catalogue pour devis et factures (ponctuel ou abonnement mensuel)"
+        subtitle="Tarifs ponctuels pour devis et factures (heure, jour, forfait)"
         actions={
           <Button onClick={openCreate}>
             <FontAwesomeIcon icon={faPlus} className="h-3.5 w-3.5" />
@@ -119,57 +114,42 @@ export function ServicesPage() {
         {rows.length === 0 ? (
           <EmptyState title="Aucune prestation" hint="Ajoutez vos tarifs types." />
         ) : (
-          <table className="w-full text-left text-sm">
-            <thead className="border-b border-[var(--border)] bg-[var(--bg)]/80 text-[var(--muted)]">
-              <tr>
-                <th className="px-4 py-3 font-medium">Nom</th>
-                <th className="px-4 py-3 font-medium">Type</th>
-                <th className="px-4 py-3 text-right font-medium">Prix HT</th>
-                <th className="px-4 py-3 font-medium">Statut</th>
-                <th className="px-4 py-3" />
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((s) => (
-                <tr key={s.id} className="border-t border-[var(--border)]">
-                  <td className="px-4 py-3">
-                    <p className="font-medium">{s.name}</p>
-                    {s.description ? (
-                      <p className="text-xs text-[var(--muted)]">{s.description}</p>
-                    ) : null}
-                  </td>
-                  <td className="px-4 py-3">
-                    {s.isSubscription ? (
-                      <span className="inline-flex flex-col gap-0.5">
-                        <Badge tone="amber">Abonnement mensuel</Badge>
-                        <span className="text-xs text-[var(--muted)]">
-                          Facturation le {s.defaultBillingDay}
-                        </span>
-                      </span>
-                    ) : (
-                      unitLabel[s.unit] ?? s.unit
-                    )}
-                  </td>
-                  <td className="px-4 py-3 text-right tabular-nums">
-                    {formatEUR(s.unitPriceCents)}
-                    {s.isSubscription ? (
-                      <span className="block text-xs text-[var(--muted)]">par mois</span>
-                    ) : null}
-                  </td>
-                  <td className="px-4 py-3">{s.active ? "Active" : "Inactive"}</td>
-                  <td className="px-4 py-3 text-right">
-                    <Button
-                      variant="ghost"
-                      className="h-8 px-2 text-xs"
-                      onClick={() => openEdit(s)}
-                    >
-                      Modifier
-                    </Button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <div className="divide-y divide-[var(--border)]">
+            {rows.map((s) => (
+              <div
+                key={s.id}
+                className="flex flex-wrap items-start justify-between gap-4 px-5 py-4 hover:bg-[var(--surface-hover)]"
+              >
+                <div className="min-w-0 flex-1">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <p className="font-medium text-[var(--text)]">{s.name}</p>
+                    <Badge tone="neutral">{unitLabel[s.unit] ?? s.unit}</Badge>
+                    {!s.active ? <Badge tone="red">Inactive</Badge> : null}
+                  </div>
+                  {s.description ? (
+                    <p className="mt-1 text-sm text-[var(--muted)]">{s.description}</p>
+                  ) : null}
+                </div>
+                <div className="flex shrink-0 items-center gap-4">
+                  <div className="text-right">
+                    <p className="text-lg font-semibold tabular-nums text-[var(--text)]">
+                      {formatEUR(s.unitPriceCents)}
+                    </p>
+                    <p className="text-xs text-[var(--muted)]">
+                      HT / {(unitLabel[s.unit] ?? s.unit).toLowerCase()}
+                    </p>
+                  </div>
+                  <Button
+                    variant="ghost"
+                    className="h-8 px-3 text-xs"
+                    onClick={() => openEdit(s)}
+                  >
+                    Modifier
+                  </Button>
+                </div>
+              </div>
+            ))}
+          </div>
         )}
       </Card>
 
@@ -204,50 +184,19 @@ export function ServicesPage() {
                 onChange={(e) => setForm({ ...form, unitPriceEuros: e.target.value })}
               />
             </Field>
-            {!form.isSubscription ? (
-              <Field label="Unité">
-                <Select
-                  value={form.unit}
-                  onChange={(e) =>
-                    setForm({ ...form, unit: e.target.value as Service["unit"] })
-                  }
-                >
-                  <option value="HEURE">Heure</option>
-                  <option value="JOUR">Jour</option>
-                  <option value="FORFAIT">Forfait</option>
-                </Select>
-              </Field>
-            ) : (
-              <Field label="Jour de facturation">
-                <Select
-                  value={form.defaultBillingDay}
-                  onChange={(e) =>
-                    setForm({ ...form, defaultBillingDay: e.target.value })
-                  }
-                >
-                  {Array.from({ length: 28 }, (_, d) => d + 1).map((d) => (
-                    <option key={d} value={String(d)}>
-                      Le {d} de chaque mois
-                    </option>
-                  ))}
-                </Select>
-              </Field>
-            )}
+            <Field label="Unité">
+              <Select
+                value={form.unit}
+                onChange={(e) =>
+                  setForm({ ...form, unit: e.target.value as Service["unit"] })
+                }
+              >
+                <option value="HEURE">Heure</option>
+                <option value="JOUR">Jour</option>
+                <option value="FORFAIT">Forfait</option>
+              </Select>
+            </Field>
           </div>
-          <label className="flex items-center gap-2 text-sm">
-            <input
-              type="checkbox"
-              checked={form.isSubscription}
-              onChange={(e) =>
-                setForm({
-                  ...form,
-                  isSubscription: e.target.checked,
-                  unit: e.target.checked ? "FORFAIT" : form.unit,
-                })
-              }
-            />
-            Abonnement mensuel (prestation récurrente)
-          </label>
           <label className="flex items-center gap-2 text-sm">
             <input
               type="checkbox"

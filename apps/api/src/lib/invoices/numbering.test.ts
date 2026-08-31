@@ -1,10 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { formatInvoiceNumber } from "@/lib/invoices/numberingService";
-import { estimateUrssafCents, bpsToRate, formatPercentFromBps } from "@/lib/urssaf";
 import { eurosToCents, lineTotalCents, formatEUR } from "@/lib/money";
 import { computeLineTotals } from "@/lib/invoices/totals";
-import { splitEnvelopes } from "@/lib/finance/envelopes";
-import { computeMonthlyCashflow } from "@/lib/finance/cashflow";
 import { monthBounds, previousMonth, currentMonth } from "@/lib/finance/dates";
 import {
   resolveDeclarationPeriod,
@@ -33,34 +30,6 @@ describe("formatInvoiceNumber", () => {
       "F-2026-0004",
       "F-2026-0005",
     ]);
-  });
-});
-
-describe("urssaf BNC", () => {
-  it("estimates 21.30% on encaissements", () => {
-    expect(bpsToRate(2130)).toBeCloseTo(0.213);
-    expect(estimateUrssafCents(100_00, 2130)).toBe(2130);
-    expect(formatPercentFromBps(2130)).toContain("21,30");
-  });
-});
-
-describe("splitEnvelopes", () => {
-  it("splits CA into 21.30% / 14.20% / 10% / remainder", () => {
-    const e = splitEnvelopes(10_000_00);
-    expect(e.urssafCents).toBe(213_000);
-    expect(e.treasuryCents).toBe(142_000);
-    expect(e.salaryNetCents).toBe(10_000_00 - 213_000 - 142_000 - 100_000);
-    expect(e.salaryRateBps).toBe(5450);
-    expect(e.urssafCents + e.treasuryCents + 100_000 + e.salaryNetCents).toBe(e.caCents);
-  });
-});
-
-describe("computeMonthlyCashflow", () => {
-  it("builds waterfall without double-counting", () => {
-    const c = computeMonthlyCashflow(1_500_00, 2026, 8);
-    expect(c.totalEncaisseCents).toBe(1_500_00);
-    expect(c.urssafCents + c.fraisCents + c.placementsCents).toBe(c.reservedCents);
-    expect(c.totalEncaisseCents - c.reservedCents).toBe(c.resteNetCents);
   });
 });
 
@@ -110,6 +79,18 @@ describe("publicodes URSSAF", () => {
     // taux effectif AE BNC ~25% dans modele-social actuel (pas hardcodé 21.3)
     expect(due).toBeGreaterThan(300_00);
     expect(due).toBeLessThan(500_00);
+  });
+
+  /**
+   * Le CA de la période est injecté en "€/mois" quelle que soit la périodicité
+   * (voir publicodes.ts). C'est exact tant que le taux reste proportionnel.
+   * Si modele-social introduit un seuil, ce test casse et signale que le mode
+   * trimestriel doit être recalculé mois par mois.
+   */
+  it("stays proportional so quarterly equals three months", () => {
+    const monthly = computeUrssafDueCents(2_000_00);
+    const quarterly = computeUrssafDueCents(6_000_00);
+    expect(quarterly).toBe(monthly * 3);
   });
 });
 

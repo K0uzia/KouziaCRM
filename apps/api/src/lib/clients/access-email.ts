@@ -71,7 +71,7 @@ export async function sendClientAccessEmail(opts: {
   email: string;
   accessCode: string;
 }): Promise<SendAccessEmailResult> {
-  if (!isSmtpConfigured()) return { sent: false, reason: "smtp_off" };
+  if (!(await isSmtpConfigured())) return { sent: false, reason: "smtp_off" };
   if (!opts.email) return { sent: false, reason: "no_email" };
 
   try {
@@ -105,10 +105,20 @@ export async function sendClientAccessEmail(opts: {
       brand,
     ].join("\n");
 
+    const subject = `Vos identifiants de suivi - ${brand}`;
     await sendEmail({
       to: opts.email,
-      subject: `Vos identifiants de suivi - ${brand}`,
+      subject,
       text: body,
+    });
+
+    const { logClientEmailEvent } = await import("@/lib/email/log-event.js");
+    await logClientEmailEvent({
+      clientId: opts.clientId,
+      kind: "access",
+      subject,
+      toAddress: opts.email,
+      success: true,
     });
 
     return { sent: true };

@@ -33,6 +33,8 @@ export function buildInvoicePdfPayload({
     documentType: invoice.documentType as "INVOICE" | "CREDIT_NOTE" | "QUOTE",
     invoiceType: invoice.invoiceType as "SIMPLE" | "ACOMPTE" | "SOLDE",
     issueDate: invoice.issueDate ?? new Date(),
+    serviceDate: invoice.serviceDate,
+    purchaseOrderRef: invoice.purchaseOrderRef,
     dueDate: invoice.dueDate,
     validUntil: invoice.validUntil,
     paymentTerms: invoice.paymentTerms,

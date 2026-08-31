@@ -4,10 +4,12 @@ import {
   InvoiceType,
   QuoteStatus,
   SubscriptionStatus,
+  type Prisma,
 } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
-import { issueInvoice, issueQuote } from "@/lib/invoices/transitions";
+import { issueInvoiceWithin, issueQuote } from "@/lib/invoices/transitions";
 import { sendDocumentPdf } from "@/lib/email/send-document-pdf";
+import { getCompanySettings } from "@/lib/company";
 
 export type CreateSubscriptionInput = {
   clientId: string;
@@ -22,6 +24,9 @@ export type CreateSubscriptionInput = {
 };
 
 export class SubscriptionError extends Error {}
+
+/** Client Prisma ou client de transaction : permet d'activer un abonnement dans la transaction d'émission. */
+export type Db = Prisma.TransactionClient;
 
 function validateBillingDay(day: number): void {
   if (!Number.isInteger(day) || day < 1 || day > 28) {
@@ -53,18 +58,21 @@ function addMonths(d: Date, months: number): Date {
   return out;
 }
 
-export async function createSubscription(data: CreateSubscriptionInput) {
+export async function createSubscription(
+  data: CreateSubscriptionInput,
+  db: Db = prisma,
+) {
   validateBillingDay(data.billingDay);
   validateAmount(data.amountCents);
 
-  const client = await prisma.client.findUnique({ where: { id: data.clientId } });
+  const client = await db.client.findUnique({ where: { id: data.clientId } });
   if (!client) throw new SubscriptionError("Client introuvable");
 
-  const service = await prisma.service.findUnique({ where: { id: data.serviceId } });
+  const service = await db.service.findUnique({ where: { id: data.serviceId } });
   if (!service) throw new SubscriptionError("Service introuvable");
 
   // Un seul abonnement actif par client : on bloque la création doublon.
-  const existingActive = await prisma.subscription.findFirst({
+  const existingActive = await db.subscription.findFirst({
     where: { clientId: data.clientId, status: SubscriptionStatus.ACTIVE },
     select: { id: true, label: true },
   });
@@ -89,7 +97,7 @@ export async function createSubscription(data: CreateSubscriptionInput) {
     );
   }
 
-  return prisma.subscription.create({
+  return db.subscription.create({
     data: {
       clientId: data.clientId,
       serviceId: data.serviceId,
@@ -134,11 +142,12 @@ export async function getSubscription(id: string) {
 export async function updateSubscription(
   id: string,
   patch: Partial<Pick<CreateSubscriptionInput, "label" | "amountCents" | "billingDay" | "endDate">>,
+  db: Db = prisma,
 ) {
   if (patch.billingDay !== undefined) validateBillingDay(patch.billingDay);
   if (patch.amountCents !== undefined) validateAmount(patch.amountCents);
 
-  const current = await prisma.subscription.findUnique({ where: { id } });
+  const current = await db.subscription.findUnique({ where: { id } });
   if (!current) throw new SubscriptionError("Abonnement introuvable");
   if (current.status === SubscriptionStatus.ENDED) {
     throw new SubscriptionError("Un abonnement clôturé n'est plus modifiable");
@@ -151,7 +160,7 @@ export async function updateSubscription(
     nextInvoiceAt = computeNextInvoiceAt(patch.billingDay, new Date());
   }
 
-  return prisma.subscription.update({
+  return db.subscription.update({
     where: { id },
     data: {
       label: patch.label,
@@ -238,40 +247,47 @@ export async function generateDueSubscriptionInvoices(now: Date = new Date()): P
       continue;
     }
 
-    // Création de la facture DRAFT avec une ligne.
-    const invoice = await prisma.invoice.create({
-      data: {
-        documentType: InvoiceDocumentType.INVOICE,
-        invoiceType: InvoiceType.SIMPLE,
-        status: InvoiceStatus.DRAFT,
-        clientId: sub.clientId,
-        subscriptionId: sub.id,
-        paymentTerms: "Prélèvement mensuel : paiement à réception",
-        subtotalCents: sub.amountCents,
-        totalCents: sub.amountCents,
-        lines: {
-          create: {
-            position: 1,
-            description: sub.label,
-            quantity: 1,
-            unitPriceCents: sub.amountCents,
-            lineTotalCents: sub.amountCents,
+    // Création, émission et avance de l'échéance dans une seule transaction :
+    // une facture émise dont nextInvoiceAt n'aurait pas avancé serait rejouée
+    // au cycle suivant, et un brouillon sans numéro resterait orphelin.
+    const settings = await getCompanySettings();
+    const issued = await prisma.$transaction(async (tx) => {
+      const invoice = await tx.invoice.create({
+        data: {
+          documentType: InvoiceDocumentType.INVOICE,
+          invoiceType: InvoiceType.SIMPLE,
+          status: InvoiceStatus.DRAFT,
+          clientId: sub.clientId,
+          subscriptionId: sub.id,
+          paymentTerms: "Prélèvement mensuel : paiement à réception",
+          subtotalCents: sub.amountCents,
+          totalCents: sub.amountCents,
+          lines: {
+            create: {
+              position: 1,
+              description: sub.label,
+              quantity: 1,
+              unitPriceCents: sub.amountCents,
+              lineTotalCents: sub.amountCents,
+            },
           },
         },
-      },
+      });
+
+      const emitted = await issueInvoiceWithin(tx, invoice.id, issueDate, issueDate, settings);
+
+      await tx.subscription.update({
+        where: { id: sub.id },
+        data: {
+          lastInvoiceId: emitted.id,
+          nextInvoiceAt: addMonths(issueDate, 1),
+        },
+      });
+
+      return emitted;
     });
 
-    // Émission (alloue numéro légal, fige snapshot, passe en ISSUED).
-    const issued = await issueInvoice(invoice.id, issueDate, issueDate);
-
-    await prisma.subscription.update({
-      where: { id: sub.id },
-      data: {
-        lastInvoiceId: issued.id,
-        nextInvoiceAt: addMonths(issueDate, 1),
-      },
-    });
-
+    // Hors transaction : un envoi d'email raté ne doit pas défaire la facture.
     await sendDocumentPdf(issued.id);
 
     generated += 1;

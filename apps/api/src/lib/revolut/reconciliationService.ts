@@ -69,7 +69,7 @@ export function extractDocumentNumbers(text: string | null | undefined): string[
   return [...found];
 }
 
-type OpenInvoice = {
+export type OpenInvoiceForMatch = {
   id: string;
   number: string | null;
   totalCents: number;
@@ -77,9 +77,18 @@ type OpenInvoice = {
   remainingCents: number;
   clientId: string;
   clientName: string;
+};
+
+type OpenInvoice = OpenInvoiceForMatch & {
   clientAliases: string[];
   subscriptionId: string | null;
 };
+
+/** Factures émises avec un reste à encaisser (rapprochement manuel ou auto). */
+export async function listOpenInvoicesForMatch(): Promise<OpenInvoiceForMatch[]> {
+  const rows = await loadOpenInvoices();
+  return rows.map(({ clientAliases: _a, subscriptionId: _s, ...rest }) => rest);
+}
 
 async function loadOpenInvoices(): Promise<OpenInvoice[]> {
   const rows = await prisma.invoice.findMany({

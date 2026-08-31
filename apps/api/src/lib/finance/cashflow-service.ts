@@ -2,6 +2,11 @@ import { prisma } from "@/lib/prisma";
 import { getCompanySettings } from "@/lib/company";
 import { computeSocialChargesForEncaisse } from "@/lib/publicodes";
 import { monthBounds, monthLabelFr } from "@/lib/finance/dates";
+import {
+  getBusinessStartLocal,
+  monthsElapsedSinceActivityStart,
+  resolveActivityStartForYear,
+} from "@/lib/company/business-start";
 
 export type CashflowScope = "week" | "month" | "quarter" | "year";
 
@@ -123,6 +128,130 @@ export async function sumEncaisseCents(start: Date, end: Date): Promise<number> 
   return agg._sum.amountCents ?? 0;
 }
 
+/** CFE annuelle proratisée sur la durée de la période [start, end]. */
+export function computeCfeProrataCents(
+  cfeAmountCents: number,
+  start: Date,
+  end: Date,
+): number {
+  const days = Math.max(1, Math.round((end.getTime() - start.getTime()) / 86_400_000) + 1);
+  return Math.round((cfeAmountCents * days) / 365);
+}
+
+/**
+ * Début d'activité pour la réserve CFE : uniquement si renseignée dans les paramètres.
+ */
+function resolveCfeActivityStart(
+  businessStartDate: Date | null | undefined,
+  year: number,
+  periodEnd: Date,
+): Date | null {
+  return resolveActivityStartForYear(businessStartDate, year, periodEnd);
+}
+
+/**
+ * Réserve CFE intelligente :
+ * - 0 € si aucun encaissement sur la période (mois creux)
+ * - sinon, rattrapage YTD : objectif cumulé (CFE × mois écoulés / 12)
+ *   moins ce qui a déjà été provisionné sur les mois actifs précédents.
+ * Ainsi un mois d'activité après des mois creux met de côté assez pour payer en fin d'année.
+ */
+export function computeCfeReserveForWindows(
+  cfeAmountCents: number,
+  windows: Array<{ start: Date; end: Date; encaisseCents: number }>,
+  year: number,
+  businessStartDate?: Date | null,
+): number[] {
+  if (cfeAmountCents <= 0 || windows.length === 0) {
+    return windows.map(() => 0);
+  }
+
+  const lastEnd = windows[windows.length - 1]!.end;
+  const activityStart = resolveCfeActivityStart(businessStartDate, year, lastEnd);
+  if (!activityStart) return windows.map(() => 0);
+
+  let reservedYtd = 0;
+  return windows.map(({ end, encaisseCents }) => {
+    if (encaisseCents <= 0) return 0;
+    if (end.getTime() < activityStart.getTime()) return 0;
+
+    const monthsElapsed = monthsElapsedSinceActivityStart(businessStartDate, end);
+    if (monthsElapsed <= 0) return 0;
+
+    const targetYtd = Math.round((cfeAmountCents * monthsElapsed) / 12);
+    const provision = Math.max(0, targetYtd - reservedYtd);
+    reservedYtd += provision;
+    return provision;
+  });
+}
+
+/** Réserve CFE pour une seule période (avec historique YTD des encaissements mensuels). */
+export async function computeCfeReserveCents(opts: {
+  cfeAmountCents: number;
+  encaisseCents: number;
+  periodStart: Date;
+  periodEnd: Date;
+  now?: Date;
+  businessStartDate?: Date | null;
+}): Promise<number> {
+  if (opts.encaisseCents <= 0 || opts.cfeAmountCents <= 0) return 0;
+  if (!getBusinessStartLocal(opts.businessStartDate)) return 0;
+
+  const now = opts.now ?? new Date();
+  const year = opts.periodEnd.getFullYear();
+  const activityStart = resolveCfeActivityStart(
+    opts.businessStartDate,
+    year,
+    opts.periodEnd,
+  );
+  if (!activityStart) return 0;
+
+  const payments = await prisma.payment.findMany({
+    where: {
+      paidAt: {
+        gte: activityStart,
+        lte: opts.periodEnd,
+      },
+    },
+    select: { amountCents: true, paidAt: true },
+  });
+
+  const monthKeys: string[] = [];
+  const cursor = new Date(activityStart.getFullYear(), activityStart.getMonth(), 1);
+  const last = new Date(opts.periodEnd.getFullYear(), opts.periodEnd.getMonth(), 1);
+  while (cursor.getTime() <= last.getTime()) {
+    monthKeys.push(`${cursor.getFullYear()}-${cursor.getMonth()}`);
+    cursor.setMonth(cursor.getMonth() + 1);
+  }
+
+  const byMonth = new Map<string, number>();
+  for (const key of monthKeys) byMonth.set(key, 0);
+  for (const p of payments) {
+    const key = `${p.paidAt.getFullYear()}-${p.paidAt.getMonth()}`;
+    if (byMonth.has(key)) {
+      byMonth.set(key, (byMonth.get(key) ?? 0) + p.amountCents);
+    }
+  }
+
+  const windows = monthKeys.map((key) => {
+    const [y, m] = key.split("-").map(Number) as [number, number];
+    const b = monthBounds(y, m + 1);
+    return {
+      start: b.start,
+      end: b.end,
+      encaisseCents: byMonth.get(key) ?? 0,
+    };
+  });
+
+  const reserves = computeCfeReserveForWindows(
+    opts.cfeAmountCents,
+    windows,
+    year,
+    opts.businessStartDate,
+  );
+  return reserves[reserves.length - 1] ?? 0;
+}
+
 export type ScopedCashflow = {
   scope: CashflowScope;
   periodLabel: string;
@@ -132,10 +261,17 @@ export type ScopedCashflow = {
   totalEncaisseCents: number;
   urssafCents: number;
   urssafEffectiveBps: number;
+  /** Enveloppe trésorerie entreprise (% encaissements, réglages). */
   fraisCents: number;
   fraisBps: number;
   placementsCents: number;
   placementsBps: number;
+  /** CFE prorata sur la période. */
+  cfeCents: number;
+  /** Trésorerie = enveloppe entreprise + placements. */
+  tresorerieCents: number;
+  /** Trésorerie + CFE (réserves hors URSSAF). */
+  tresorerieEtCfeCents: number;
   reservedCents: number;
   resteNetCents: number;
   social: ReturnType<typeof computeSocialChargesForEncaisse>;
@@ -151,6 +287,7 @@ export function buildCashflowFromEncaisse(
     now?: Date;
     treasuryRateBps: number;
     placementRateBps: number;
+    cfeCents?: number;
   },
 ): ScopedCashflow {
   const now = meta.now ?? new Date();
@@ -158,8 +295,11 @@ export function buildCashflowFromEncaisse(
   const social = computeSocialChargesForEncaisse(encaisse);
   const fraisCents = Math.round((encaisse * meta.treasuryRateBps) / 10_000);
   const placementsCents = Math.round((encaisse * meta.placementRateBps) / 10_000);
+  const cfeCents = Math.max(0, meta.cfeCents ?? 0);
+  const tresorerieCents = fraisCents + placementsCents;
+  const tresorerieEtCfeCents = tresorerieCents + cfeCents;
   const urssafCents = social.totalCents;
-  const reservedCents = urssafCents + fraisCents + placementsCents;
+  const reservedCents = urssafCents + tresorerieEtCfeCents;
 
   return {
     scope: meta.scope,
@@ -174,6 +314,9 @@ export function buildCashflowFromEncaisse(
     fraisBps: meta.treasuryRateBps,
     placementsCents,
     placementsBps: meta.placementRateBps,
+    cfeCents,
+    tresorerieCents,
+    tresorerieEtCfeCents,
     reservedCents,
     resteNetCents: encaisse - reservedCents,
     social,
@@ -188,6 +331,14 @@ export async function getScopedCashflow(
   const company = await getCompanySettings();
   const period = resolveCashflowPeriod(scope, now);
   const encaisse = await sumEncaisseCents(period.start, period.end);
+  const cfeCents = await computeCfeReserveCents({
+    cfeAmountCents: company.cfeAmountCents,
+    encaisseCents: encaisse,
+    periodStart: period.start,
+    periodEnd: period.end,
+    now,
+    businessStartDate: company.businessStartDate,
+  });
   return buildCashflowFromEncaisse(encaisse, {
     scope,
     periodLabel: period.label,
@@ -195,6 +346,7 @@ export async function getScopedCashflow(
     now,
     treasuryRateBps: company.treasuryRateBps,
     placementRateBps: company.placementRateBps,
+    cfeCents,
   });
 }
 
@@ -219,6 +371,15 @@ export async function getInvoiceCashflow(
   const label = invoice.number
     ? `Facture ${invoice.number}`
     : `Facture · ${invoice.client.displayName}`;
+  const month = monthBounds(now.getFullYear(), now.getMonth() + 1);
+  const cfeCents = await computeCfeReserveCents({
+    cfeAmountCents: company.cfeAmountCents,
+    encaisseCents: paidCents,
+    periodStart: month.start,
+    periodEnd: month.end,
+    now,
+    businessStartDate: company.businessStartDate,
+  });
 
   return buildCashflowFromEncaisse(paidCents, {
     scope: "month",
@@ -227,6 +388,7 @@ export async function getInvoiceCashflow(
     now,
     treasuryRateBps: company.treasuryRateBps,
     placementRateBps: company.placementRateBps,
+    cfeCents,
   });
 }
 
@@ -237,6 +399,7 @@ export type CashflowChartPoint = {
   charges: number;
   tresorerie: number;
   salaire: number;
+  cfe: number;
 };
 
 function shiftMonth(year: number, month: number, delta: number): { year: number; month: number } {
@@ -319,10 +482,76 @@ export async function getCashflowChartSeries(
   const [company, payments] = await Promise.all([
     getCompanySettings(),
     prisma.payment.findMany({
-      where: { paidAt: { gte: rangeStart, lte: rangeEnd } },
+      where: {
+        paidAt: {
+          gte: new Date(Math.min(rangeStart.getTime(), new Date(now.getFullYear(), 0, 1).getTime())),
+          lte: rangeEnd,
+        },
+      },
       select: { amountCents: true, paidAt: true },
     }),
   ]);
+
+  const year = now.getFullYear();
+  const activityStart = resolveCfeActivityStart(
+    company.businessStartDate,
+    year,
+    rangeEnd,
+  );
+  if (!activityStart) {
+    return windows.map(({ start, end, label }) => {
+      const startMs = start.getTime();
+      const endMs = end.getTime();
+      const encaisse = payments.reduce((s, p) => {
+        const t = p.paidAt.getTime();
+        return t >= startMs && t <= endMs ? s + p.amountCents : s;
+      }, 0);
+      const cf = buildCashflowFromEncaisse(encaisse, {
+        scope,
+        periodLabel: label,
+        periodKey: label,
+        now,
+        treasuryRateBps: company.treasuryRateBps,
+        placementRateBps: company.placementRateBps,
+        cfeCents: 0,
+      });
+      return {
+        label,
+        ca: cf.totalEncaisseCents / 100,
+        urssaf: cf.urssafCents / 100,
+        charges: cf.fraisCents / 100,
+        tresorerie: cf.tresorerieCents / 100,
+        salaire: cf.resteNetCents / 100,
+        cfe: 0,
+      };
+    });
+  }
+
+  // Fenêtres mensuelles YTD pour le rattrapage CFE (hors mois creux = 0).
+  const cfeMonthWindows: Array<{ start: Date; end: Date; encaisseCents: number }> = [];
+  {
+    const cursor = new Date(activityStart.getFullYear(), activityStart.getMonth(), 1);
+    const last = new Date(rangeEnd.getFullYear(), rangeEnd.getMonth(), 1);
+    while (cursor.getTime() <= last.getTime()) {
+      const b = monthBounds(cursor.getFullYear(), cursor.getMonth() + 1);
+      const encaisse = payments.reduce((s, p) => {
+        const t = p.paidAt.getTime();
+        return t >= b.start.getTime() && t <= b.end.getTime() ? s + p.amountCents : s;
+      }, 0);
+      cfeMonthWindows.push({ start: b.start, end: b.end, encaisseCents: encaisse });
+      cursor.setMonth(cursor.getMonth() + 1);
+    }
+  }
+  const monthlyCfe = computeCfeReserveForWindows(
+    company.cfeAmountCents,
+    cfeMonthWindows,
+    year,
+    company.businessStartDate,
+  );
+  const cfeByMonthKey = new Map<string, number>();
+  cfeMonthWindows.forEach((w, i) => {
+    cfeByMonthKey.set(`${w.start.getFullYear()}-${w.start.getMonth()}`, monthlyCfe[i] ?? 0);
+  });
 
   return windows.map(({ start, end, label }) => {
     const startMs = start.getTime();
@@ -331,6 +560,32 @@ export async function getCashflowChartSeries(
       const t = p.paidAt.getTime();
       return t >= startMs && t <= endMs ? s + p.amountCents : s;
     }, 0);
+
+    let cfeCents = 0;
+    if (encaisse > 0) {
+      if (scope === "month") {
+        cfeCents = cfeByMonthKey.get(`${start.getFullYear()}-${start.getMonth()}`) ?? 0;
+      } else if (scope === "year") {
+        cfeCents = company.cfeAmountCents;
+      } else {
+        // Semaine / trimestre : somme des réserves mensuelles touchées par la fenêtre.
+        for (const [key, value] of cfeByMonthKey) {
+          const [y, m] = key.split("-").map(Number) as [number, number];
+          const b = monthBounds(y, m + 1);
+          if (b.end.getTime() >= startMs && b.start.getTime() <= endMs) {
+            const overlapEncaisse = payments.reduce((s, p) => {
+              const t = p.paidAt.getTime();
+              return t >= Math.max(startMs, b.start.getTime()) &&
+                t <= Math.min(endMs, b.end.getTime())
+                ? s + p.amountCents
+                : s;
+            }, 0);
+            if (overlapEncaisse > 0) cfeCents += value;
+          }
+        }
+      }
+    }
+
     const cf = buildCashflowFromEncaisse(encaisse, {
       scope,
       periodLabel: label,
@@ -338,14 +593,16 @@ export async function getCashflowChartSeries(
       now,
       treasuryRateBps: company.treasuryRateBps,
       placementRateBps: company.placementRateBps,
+      cfeCents,
     });
     return {
       label,
       ca: cf.totalEncaisseCents / 100,
       urssaf: cf.urssafCents / 100,
       charges: cf.fraisCents / 100,
-      tresorerie: cf.placementsCents / 100,
+      tresorerie: cf.tresorerieCents / 100,
       salaire: cf.resteNetCents / 100,
+      cfe: cf.cfeCents / 100,
     };
   });
 }

@@ -9,14 +9,19 @@ type SummaryPayload = {
   summary: {
     late: number;
     urgent: number;
+    open: number;
+    upcoming: number;
     pending: number;
   };
   nextDue: {
     label: string;
     dueDate: string;
+    windowStart: string;
+    windowEnd: string;
     displayStatus: string;
     daysLate: number | null;
     daysRemaining: number | null;
+    daysUntilOpen: number | null;
   } | null;
 };
 
@@ -32,13 +37,17 @@ export function ObligationsReminder() {
   if (!data) return null;
 
   const { summary, nextDue } = data;
-  const open = summary.pending + summary.late + summary.urgent;
+  const alertCount = summary.late + summary.urgent + summary.open;
   const hint = nextDue
     ? nextDue.displayStatus === "LATE"
       ? `en retard (${nextDue.daysLate ?? 0} j)`
       : nextDue.displayStatus === "URGENT"
-        ? `dans ${nextDue.daysRemaining ?? 0} j`
-        : formatDate(nextDue.dueDate)
+        ? `clôture dans ${nextDue.daysRemaining ?? 0} j`
+        : nextDue.displayStatus === "OPEN"
+          ? `ouvert · clôture ${formatDate(nextDue.windowEnd)}`
+          : nextDue.displayStatus === "UPCOMING"
+            ? `ouverture ${formatDate(nextDue.windowStart)}`
+            : formatDate(nextDue.windowEnd)
     : null;
 
   return (
@@ -49,20 +58,26 @@ export function ObligationsReminder() {
             <span
               className={
                 summary.late > 0
-                  ? "font-medium text-red-700"
+                  ? "font-medium text-[var(--danger)]"
                   : summary.urgent > 0
-                    ? "font-medium text-amber-700"
-                    : "font-medium text-green-700"
+                    ? "font-medium text-[var(--warning)]"
+                    : summary.open > 0
+                      ? "font-medium text-[var(--primary)]"
+                      : "font-medium text-[var(--success)]"
               }
             >
               {summary.late > 0
-                ? `${summary.late} obligation(s) en retard`
+                ? `${summary.late} démarche(s) en retard`
                 : summary.urgent > 0
                   ? `${summary.urgent} urgente(s)`
-                  : "Obligations à jour"}
+                  : summary.open > 0
+                    ? `${summary.open} démarche(s) ouverte(s)`
+                    : summary.upcoming > 0
+                      ? `${summary.upcoming} à venir`
+                      : "Rien à faire pour l'instant"}
             </span>
-            {open > 0 ? (
-              <span className="text-[var(--muted)]"> · {open} ouverte(s)</span>
+            {alertCount > 0 ? (
+              <span className="text-[var(--muted)]"> · {alertCount} à traiter</span>
             ) : null}
           </p>
           {nextDue ? (
@@ -74,7 +89,7 @@ export function ObligationsReminder() {
         </div>
         <Link
           to="/obligations"
-          className="inline-flex shrink-0 items-center gap-1.5 text-xs font-medium text-[var(--primary)] hover:underline"
+          className="link inline-flex shrink-0 items-center gap-1.5 text-xs font-medium"
         >
           Voir
           <FontAwesomeIcon icon={faArrowRight} className="h-3 w-3" />

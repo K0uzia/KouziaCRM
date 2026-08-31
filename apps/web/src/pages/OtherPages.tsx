@@ -6,6 +6,7 @@ import { formatDate } from "@/lib/format";
 import { Button } from "@/components/ui/Button";
 import { Badge, Card, EmptyState, PageHeader } from "@/components/ui/Card";
 import { Field, Input, Select, Textarea } from "@/components/ui/Field";
+import { Modal } from "@/components/ui/Modal";
 import {
   EMAIL_TEMPLATES,
   applyTemplate,
@@ -20,30 +21,118 @@ type Decl = {
   status: string;
   deadline: string;
   paidAt: string | null;
+  paymentRef: string | null;
+};
+
+type Echeance = {
+  status: "paid" | "due" | "late" | "clear";
+  periodKey: string;
+  periodLabel: string;
+  deadline: string;
+  encaisseCents: number;
+  amountDueCents: number;
+  paidAt: string | null;
+};
+
+const declStatusLabel: Record<string, string> = {
+  DUE: "À payer",
+  PAID: "Payée",
+  LATE: "En retard",
 };
 
 export function UrssafPage() {
   const [rows, setRows] = useState<Decl[]>([]);
+  const [echeance, setEcheance] = useState<Echeance | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [markOpen, setMarkOpen] = useState(false);
+  const [paymentRef, setPaymentRef] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  async function load() {
+    const [decls, dashboard] = await Promise.all([
+      api<Decl[]>("/api/urssaf/declarations"),
+      api<{ echeance: Echeance }>("/api/dashboard"),
+    ]);
+    setRows(decls);
+    setEcheance(dashboard.echeance);
+    setError(null);
+  }
 
   useEffect(() => {
-    setLoading(true);
-    api<Decl[]>("/api/urssaf/declarations")
-      .then((r) => {
-        setRows(r);
-        setError(null);
-      })
+    load()
       .catch((e: Error) => setError(e.message))
       .finally(() => setLoading(false));
   }, []);
 
+  async function markPaid() {
+    setBusy(true);
+    try {
+      await api("/api/urssaf/mark-paid", {
+        method: "POST",
+        body: JSON.stringify({
+          periodKey: echeance?.periodKey,
+          paymentRef: paymentRef.trim() || undefined,
+        }),
+      });
+      toast.success("Échéance enregistrée comme payée");
+      setMarkOpen(false);
+      setPaymentRef("");
+      await load();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Erreur");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const settled = echeance?.status === "paid" || echeance?.status === "clear";
+
   return (
-    <div>
+    <div className="space-y-5">
       <PageHeader
-        title="URSSAF"
-        subtitle="Historique des déclarations et virements marqués payés"
+        title="Historique URSSAF"
+        subtitle="Ce que vous avez déclaré, et ce qui reste à régler"
       />
+
+      {echeance ? (
+        <Card
+          className={`p-5 ${
+            echeance.status === "late" ? "border-[var(--danger)]/40" : ""
+          }`}
+        >
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <p className="text-xs text-[var(--muted)]">Échéance en cours</p>
+              <p className="mt-1 text-base font-semibold">{echeance.periodLabel}</p>
+              <p className="mt-1 text-sm text-[var(--muted)]">
+                {formatEUR(echeance.encaisseCents)} encaissés · à déclarer avant le{" "}
+                {formatDate(echeance.deadline)}
+              </p>
+              {echeance.paidAt ? (
+                <p className="mt-1 text-xs text-[var(--success)]">
+                  Réglée le {formatDate(echeance.paidAt)}
+                </p>
+              ) : null}
+            </div>
+            <div className="text-right">
+              <p className="tabular-nums text-lg font-semibold">
+                {formatEUR(echeance.amountDueCents)}
+              </p>
+              {!settled ? (
+                <Button className="mt-2" onClick={() => setMarkOpen(true)}>
+                  Marquer comme payée
+                </Button>
+              ) : (
+                <Badge tone="green">
+                  {echeance.status === "paid" ? "Réglée" : "Rien à payer"}
+                </Badge>
+              )}
+            </div>
+          </div>
+        </Card>
+      ) : null}
+
       <Card>
         {loading ? (
           <p className="p-4 text-sm text-[var(--muted)]">Chargement…</p>
@@ -51,36 +140,76 @@ export function UrssafPage() {
           <p className="p-4 text-sm text-[var(--danger)]">{error}</p>
         ) : rows.length === 0 ? (
           <EmptyState
-            title="Aucune déclaration"
-            hint="Elles apparaissent quand vous marquez une échéance comme payée."
+            title="Aucune déclaration enregistrée"
+            hint="Elles apparaissent ici dès que vous marquez une échéance comme payée."
           />
         ) : (
-          <table className="w-full text-left text-sm">
-            <thead className="border-b border-[var(--border)] bg-[var(--bg)]/80 text-[var(--muted)]">
-              <tr>
-                <th className="px-4 py-3 font-medium">Période</th>
-                <th className="px-4 py-3 font-medium">Encaissé</th>
-                <th className="px-4 py-3 font-medium">Dû</th>
-                <th className="px-4 py-3 font-medium">Statut</th>
-                <th className="px-4 py-3 font-medium">Échéance</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((r) => (
-                <tr key={r.id} className="border-t border-[var(--border)]">
-                  <td className="px-4 py-3 font-medium">{r.periodKey}</td>
-                  <td className="px-4 py-3 tabular-nums">{formatEUR(r.encaisseCents)}</td>
-                  <td className="px-4 py-3 tabular-nums">{formatEUR(r.amountDueCents)}</td>
-                  <td className="px-4 py-3">
-                    <Badge tone={r.status === "PAID" ? "green" : "amber"}>{r.status}</Badge>
-                  </td>
-                  <td className="px-4 py-3">{formatDate(r.deadline)}</td>
+          <div className="ui-table-wrap">
+            <table className="ui-table">
+              <thead>
+                <tr>
+                  <th className="nowrap">Période</th>
+                  <th className="nowrap">Encaissé</th>
+                  <th className="nowrap">Dû</th>
+                  <th className="nowrap">Statut</th>
+                  <th className="nowrap">Échéance</th>
+                  <th className="nowrap">Référence</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {rows.map((r) => (
+                  <tr key={r.id}>
+                    <td className="nowrap font-medium">{r.periodKey}</td>
+                    <td className="nowrap tabular-nums">{formatEUR(r.encaisseCents)}</td>
+                    <td className="nowrap tabular-nums">{formatEUR(r.amountDueCents)}</td>
+                    <td className="nowrap">
+                      <Badge tone={r.status === "PAID" ? "green" : "amber"}>
+                        {declStatusLabel[r.status] ?? r.status}
+                      </Badge>
+                    </td>
+                    <td className="nowrap">{formatDate(r.deadline)}</td>
+                    <td className="nowrap text-[var(--muted)]">{r.paymentRef ?? "-"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         )}
       </Card>
+
+      <Modal
+        open={markOpen}
+        onClose={() => !busy && setMarkOpen(false)}
+        title="Marquer l'échéance comme payée"
+        description={
+          echeance
+            ? `${echeance.periodLabel} : ${formatEUR(echeance.amountDueCents)}`
+            : undefined
+        }
+      >
+        <div className="space-y-4">
+          <Field label="Référence de paiement (facultative)">
+            <Input
+              value={paymentRef}
+              onChange={(e) => setPaymentRef(e.target.value)}
+              placeholder="Numéro de télépaiement, référence de virement…"
+            />
+          </Field>
+          <div className="flex justify-end gap-2">
+            <Button
+              type="button"
+              variant="secondary"
+              disabled={busy}
+              onClick={() => setMarkOpen(false)}
+            >
+              Annuler
+            </Button>
+            <Button type="button" disabled={busy} onClick={() => void markPaid()}>
+              {busy ? "…" : "Enregistrer"}
+            </Button>
+          </div>
+        </div>
+      </Modal>
     </div>
   );
 }
@@ -416,7 +545,7 @@ export function ComposePage() {
                 value={mode}
                 onChange={(e) => setMode(e.target.value as "client" | "other")}
               >
-                <option value="client">Client du CRM</option>
+                <option value="client">Un de mes clients</option>
                 <option value="other">Autre adresse</option>
               </Select>
             </Field>

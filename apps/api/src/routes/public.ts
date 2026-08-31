@@ -9,6 +9,11 @@ import { renderInvoicePdf } from "@/lib/pdf/render.js";
 import { buildInvoicePdfPayload } from "@/lib/pdf/build-payload.js";
 import { listActiveLegalClauses } from "@/lib/company/legal-clauses.js";
 import type { ClientSnapshot } from "@/lib/invoices/transitions.js";
+import {
+  acceptQuoteByClient,
+  rejectQuote,
+  QuoteDecisionError,
+} from "@/lib/invoices/transitions.js";
 import { getOnboardingView, submitOnboarding } from "@/lib/clients/onboarding.js";
 import { signDocumentToken } from "@/lib/documents/public-token.js";
 
@@ -38,6 +43,22 @@ const onboardingSubmitSchema = z.object({
   country: z.string().optional().nullable(),
 });
 
+const quoteDecisionSchema = trackingSchema.extend({
+  decision: z.enum(["ACCEPT", "REJECT"]),
+  signerName: z.string().min(2).max(120).optional(),
+  reason: z.string().max(500).optional(),
+});
+
+/** Rejoue l'authentification du portail : le client n'a pas de session serveur. */
+async function authenticateClient(clientNumber: string, accessCode: string) {
+  const client = await prisma.client.findUnique({
+    where: { clientNumber: clientNumber.trim().toUpperCase() },
+  });
+  if (!client?.accessCodeHash) return null;
+  const ok = await verifyAccessCode(client.accessCodeHash, accessCode);
+  return ok ? client : null;
+}
+
 export const publicRoutes: FastifyPluginAsync = async (app) => {
   app.post(
     "/api/public/tracking",
@@ -57,16 +78,11 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
         return reply.code(400).send({ error: "Données invalides" });
       }
 
-      const clientNumber = parsed.data.clientNumber.trim().toUpperCase();
-      const client = await prisma.client.findUnique({
-        where: { clientNumber },
-      });
-      if (!client?.accessCodeHash) {
-        return reply.code(401).send({ error: "Identifiants invalides" });
-      }
-
-      const ok = await verifyAccessCode(client.accessCodeHash, parsed.data.accessCode);
-      if (!ok) {
+      const client = await authenticateClient(
+        parsed.data.clientNumber,
+        parsed.data.accessCode,
+      );
+      if (!client) {
         return reply.code(401).send({ error: "Identifiants invalides" });
       }
 
@@ -89,6 +105,12 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
       const subscriptions = await prisma.subscription.findMany({
         where: { clientId: client.id, status: "ACTIVE" },
         orderBy: { nextInvoiceAt: "asc" },
+      });
+
+      const emailEvents = await prisma.clientEmailEvent.findMany({
+        where: { clientId: client.id, success: true },
+        orderBy: { sentAt: "desc" },
+        take: 40,
       });
 
       const firstName =
@@ -120,6 +142,10 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
           postalCode: settings.postalCode,
           city: settings.city,
           country: settings.country,
+          bankIban: settings.bankIban ?? null,
+          bankBic: settings.bankBic ?? null,
+          bankAccountHolder: settings.bankAccountHolder ?? null,
+          bankName: settings.bankName ?? null,
         },
         documents: documents.map((d) => {
           const paid = paidCentsOf(d);
@@ -129,6 +155,9 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
             documentType: d.documentType,
             status: d.status,
             quoteStatus: d.quoteStatus,
+            quoteDecidedAt: d.quoteDecidedAt,
+            quoteSignerName: d.quoteSignerName,
+            quoteRejectReason: d.quoteRejectReason,
             issueDate: d.issueDate,
             validUntil: d.validUntil,
             dueDate: d.dueDate,
@@ -164,7 +193,68 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
           nextInvoiceAt: s.nextInvoiceAt,
           ...(showAmounts ? { amountCents: s.amountCents } : {}),
         })),
+        emails: emailEvents.map((e) => ({
+          id: e.id,
+          kind: e.kind,
+          subject: e.subject,
+          documentNumber: e.documentNumber,
+          sentAt: e.sentAt.toISOString(),
+        })),
       };
+    },
+  );
+
+  // Acceptation ou refus d'un devis par le client depuis le portail de suivi.
+  app.post<{ Params: { id: string } }>(
+    "/api/public/quotes/:id/decision",
+    {
+      config: {
+        rateLimit: {
+          max: 20,
+          timeWindow: "15 minutes",
+        },
+      },
+    },
+    async (request, reply) => {
+      const parsed = quoteDecisionSchema.safeParse(request.body);
+      if (!parsed.success) {
+        return reply.code(400).send({ error: "Données invalides" });
+      }
+      if (parsed.data.decision === "ACCEPT" && !parsed.data.signerName) {
+        return reply
+          .code(400)
+          .send({ error: "Indiquez votre nom pour valider le devis" });
+      }
+
+      const client = await authenticateClient(
+        parsed.data.clientNumber,
+        parsed.data.accessCode,
+      );
+      if (!client) {
+        return reply.code(401).send({ error: "Identifiants invalides" });
+      }
+
+      const quote = await prisma.invoice.findUnique({
+        where: { id: request.params.id },
+        select: { id: true, clientId: true },
+      });
+      // Même réponse qu'un devis inexistant : le portail ne révèle pas les documents d'autrui.
+      if (!quote || quote.clientId !== client.id) {
+        return reply.code(404).send({ error: "Devis introuvable" });
+      }
+
+      try {
+        const updated =
+          parsed.data.decision === "ACCEPT"
+            ? await acceptQuoteByClient(quote.id, parsed.data.signerName as string)
+            : await rejectQuote(quote.id, parsed.data.reason);
+        return { quoteStatus: updated.quoteStatus };
+      } catch (e) {
+        if (e instanceof QuoteDecisionError) {
+          return reply.code(409).send({ error: e.message, code: e.code });
+        }
+        return reply.code(400).send({ error: "Décision impossible" });
+      }
     },
   );
 

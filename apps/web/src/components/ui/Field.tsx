@@ -24,7 +24,7 @@ export function Field({
 }
 
 const control =
-  "w-full rounded-[var(--radius)] border border-[var(--border-strong)] bg-white px-3 py-2.5 text-sm text-[var(--text)] placeholder:text-[var(--muted)] transition focus:border-[var(--primary)] focus:outline-none focus:ring-2 focus:ring-[var(--primary)]/20 disabled:bg-[var(--bg)]";
+  "w-full rounded-[var(--radius)] border border-[var(--border)] bg-[var(--surface-raised)] px-3 py-2.5 text-sm text-[var(--text)] placeholder:text-[var(--muted)] transition focus:border-[var(--primary)] focus:outline-none focus:ring-2 focus:ring-[var(--primary)]/20 disabled:bg-[var(--bg-subtle)] disabled:opacity-70";
 
 export function Input(props: InputHTMLAttributes<HTMLInputElement>) {
   return <input className={`${control} ${props.className ?? ""}`} {...props} />;

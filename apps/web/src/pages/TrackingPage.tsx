@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { Button } from "@/components/ui/Button";
-import { Field, Input } from "@/components/ui/Field";
+import { Field, Input, Textarea } from "@/components/ui/Field";
 import { Badge, Card } from "@/components/ui/Card";
 import { formatDate, formatEUR, statusLabel, quoteStatusLabel, invoiceStatusLabel, statusTone, paymentMethodLabel } from "@/lib/format";
 
@@ -16,6 +16,9 @@ type TrackingDoc = {
   documentType: string;
   status: string;
   quoteStatus?: string | null;
+  quoteDecidedAt?: string | null;
+  quoteSignerName?: string | null;
+  quoteRejectReason?: string | null;
   issueDate: string | null;
   validUntil: string | null;
   dueDate: string | null;
@@ -41,6 +44,14 @@ type TrackingSub = {
   amountCents?: number;
 };
 
+type TrackingEmail = {
+  id: string;
+  kind: string;
+  subject: string;
+  documentNumber: string | null;
+  sentAt: string;
+};
+
 type CompanyContact = {
   tradeName: string;
   legalName?: string;
@@ -52,6 +63,10 @@ type CompanyContact = {
   postalCode: string;
   city: string;
   country: string;
+  bankIban?: string | null;
+  bankBic?: string | null;
+  bankAccountHolder?: string | null;
+  bankName?: string | null;
 };
 
 type TrackingResult = {
@@ -61,6 +76,7 @@ type TrackingResult = {
   company?: CompanyContact;
   documents: TrackingDoc[];
   subscriptions?: TrackingSub[];
+  emails?: TrackingEmail[];
 };
 
 type Tab = "paid" | "ongoing" | "upcoming";
@@ -180,7 +196,7 @@ export function TrackingPage() {
 
         <form
           onSubmit={onSubmit}
-          className="mt-8 space-y-4 rounded-[var(--radius)] border border-[var(--border)] bg-white p-5 shadow-[var(--shadow)]"
+          className="mt-8 space-y-4 rounded-[var(--radius)] border border-[var(--border)] bg-[var(--surface)] p-5"
         >
           <Field label="Code de suivi" hint="Votre identifiant unique CLI-xxxx">
             <Input
@@ -208,13 +224,44 @@ export function TrackingPage() {
     );
   }
 
-  return <TrackingDashboard data={data} onLogout={handleLogout} />;
+  function refresh() {
+    const saved = readCreds();
+    if (saved) void authenticate(saved.clientNumber, saved.accessCode);
+  }
+
+  return <TrackingDashboard data={data} onLogout={handleLogout} onRefresh={refresh} />;
 }
 
-function TrackingDashboard({ data, onLogout }: { data: TrackingResult; onLogout: () => void }) {
+function TrackingDashboard({
+  data,
+  onLogout,
+  onRefresh,
+}: {
+  data: TrackingResult;
+  onLogout: () => void;
+  onRefresh: () => void;
+}) {
   const company = data.company;
   const docs = data.documents ?? [];
   const subs = data.subscriptions ?? [];
+  const emails = data.emails ?? [];
+
+  const emailKindLabel = (kind: string) => {
+    const map: Record<string, string> = {
+      quote: "Devis",
+      invoice: "Facture",
+      invoice_acompte: "Acompte",
+      invoice_solde: "Solde",
+      credit_note: "Avoir",
+      reminder_soft: "Relance",
+      reminder_firm: "Relance",
+      reminder_formal: "Mise en demeure",
+      access: "Identifiants",
+      onboarding: "Invitation",
+      custom: "Message",
+    };
+    return map[kind] ?? kind;
+  };
 
   // "Réglés" : encaissements réglés + avoirs + devis refusés/expirés (décisions closes).
   const paid = useMemo(
@@ -304,7 +351,7 @@ function TrackingDashboard({ data, onLogout }: { data: TrackingResult; onLogout:
               <Empty>Aucun devis ni échéance à venir.</Empty>
             ) : null}
             {upcomingQuotes.map((d) => (
-              <DocCard key={d.id} doc={d} kind="quote" />
+              <DocCard key={d.id} doc={d} kind="quote" onDecision={onRefresh} />
             ))}
             {subs.map((s, i) => (
               <SubCard key={i} sub={s} />
@@ -312,6 +359,35 @@ function TrackingDashboard({ data, onLogout }: { data: TrackingResult; onLogout:
           </>
         ) : null}
       </div>
+
+      {emails.length > 0 ? (
+        <Card className="mt-6 p-4">
+          <h2 className="text-sm font-semibold">Emails reçus</h2>
+          <p className="mt-0.5 text-xs text-[var(--muted)]">
+            Historique des messages envoyés par Kouzia à votre adresse.
+          </p>
+          <ul className="mt-3 divide-y divide-[var(--border)] text-sm">
+            {emails.map((e) => (
+              <li key={e.id} className="flex flex-wrap items-start justify-between gap-2 py-2.5">
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Badge tone="blue">{emailKindLabel(e.kind)}</Badge>
+                    <span className="truncate font-medium">{e.subject}</span>
+                  </div>
+                  {e.documentNumber ? (
+                    <p className="mt-0.5 font-mono text-xs text-[var(--muted)]">
+                      {e.documentNumber}
+                    </p>
+                  ) : null}
+                </div>
+                <span className="shrink-0 text-xs text-[var(--muted)]">
+                  {formatDate(e.sentAt)}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </Card>
+      ) : null}
     </Shell>
   );
 }
@@ -326,11 +402,13 @@ function ContactCard({ company }: { company: CompanyContact }) {
     .filter(Boolean)
     .join(", ");
 
+  const iban = company.bankIban
+    ? company.bankIban.replace(/\s+/g, "").replace(/(.{4})/g, "$1 ").trim()
+    : null;
+
   return (
     <Card className="mt-5 p-4">
-      <p className="text-xs font-medium uppercase tracking-wide text-[var(--muted)]">
-        Votre prestataire
-      </p>
+      <p className="text-xs font-medium text-[var(--muted)]">Votre prestataire</p>
       <p className="mt-1 text-base font-semibold">{company.tradeName}</p>
       <div className="mt-2 grid gap-1 text-sm text-[var(--muted)] sm:grid-cols-2">
         {company.email ? (
@@ -351,11 +429,37 @@ function ContactCard({ company }: { company: CompanyContact }) {
         ) : null}
         <span>{address}</span>
       </div>
+      {iban ? (
+        <div className="mt-4 rounded-[var(--radius)] border border-[var(--border)] bg-[var(--surface-raised)] p-3 text-sm">
+          <p className="font-medium text-[var(--text)]">Paiement par virement</p>
+          {company.bankAccountHolder ? (
+            <p className="mt-1 text-[var(--muted)]">Titulaire : {company.bankAccountHolder}</p>
+          ) : null}
+          {company.bankName ? (
+            <p className="text-[var(--muted)]">Banque : {company.bankName}</p>
+          ) : null}
+          <p className="mt-1 font-mono text-[var(--text)]">IBAN : {iban}</p>
+          {company.bankBic ? (
+            <p className="font-mono text-[var(--muted)]">BIC : {company.bankBic}</p>
+          ) : null}
+          <p className="mt-2 text-xs text-[var(--muted)]">
+            Indiquez le numéro de facture en libellé du virement.
+          </p>
+        </div>
+      ) : null}
     </Card>
   );
 }
 
-function DocCard({ doc, kind }: { doc: TrackingDoc; kind: "paid" | "ongoing" | "quote" }) {
+function DocCard({
+  doc,
+  kind,
+  onDecision,
+}: {
+  doc: TrackingDoc;
+  kind: "paid" | "ongoing" | "quote";
+  onDecision?: () => void;
+}) {
   const isQuote = doc.documentType === "QUOTE";
   const isCredit = doc.documentType === "CREDIT_NOTE";
   const label = isQuote ? "Devis" : isCredit ? "Avoir" : "Facture";
@@ -447,7 +551,124 @@ function DocCard({ doc, kind }: { doc: TrackingDoc; kind: "paid" | "ongoing" | "
           </a>
         </div>
       ) : null}
+
+      {isQuote && doc.quoteSignerName ? (
+        <p className="mt-3 border-t border-[var(--border)] pt-3 text-xs text-[var(--muted)]">
+          Accepté par {doc.quoteSignerName}
+          {doc.quoteDecidedAt ? ` le ${formatDate(doc.quoteDecidedAt)}` : ""}
+        </p>
+      ) : null}
+
+      {isQuote && doc.quoteStatus === "REJECTED" && doc.quoteRejectReason ? (
+        <p className="mt-3 whitespace-pre-wrap border-t border-[var(--border)] pt-3 text-xs text-[var(--muted)]">
+          Motif indiqué : {doc.quoteRejectReason}
+        </p>
+      ) : null}
+
+      {isQuote && doc.quoteStatus === "SENT" && onDecision ? (
+        <QuoteDecision doc={doc} onDone={onDecision} />
+      ) : null}
     </Card>
+  );
+}
+
+/** Acceptation ou refus d'un devis directement depuis le portail. */
+function QuoteDecision({ doc, onDone }: { doc: TrackingDoc; onDone: () => void }) {
+  const [mode, setMode] = useState<"idle" | "accept" | "reject">("idle");
+  const [signerName, setSignerName] = useState("");
+  const [reason, setReason] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function submit(decision: "ACCEPT" | "REJECT") {
+    const creds = readCreds();
+    if (!creds) {
+      setError("Votre session a expiré, reconnectez-vous.");
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/public/quotes/${doc.id}/decision`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ...creds,
+          decision,
+          signerName: signerName.trim() || undefined,
+          reason: reason.trim() || undefined,
+        }),
+      });
+      const body = (await res.json().catch(() => ({}))) as { error?: string };
+      if (!res.ok) {
+        throw new Error(typeof body.error === "string" ? body.error : "Erreur");
+      }
+      onDone();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Erreur");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="mt-3 space-y-3 border-t border-[var(--border)] pt-3">
+      {error ? <p className="text-sm text-[var(--danger)]">{error}</p> : null}
+
+      {mode === "idle" ? (
+        <div className="flex flex-wrap gap-2">
+          <Button onClick={() => setMode("accept")}>Accepter ce devis</Button>
+          <Button variant="ghost" onClick={() => setMode("reject")}>
+            Le refuser
+          </Button>
+        </div>
+      ) : null}
+
+      {mode === "accept" ? (
+        <div className="space-y-3">
+          <Field label="Vos nom et prénom">
+            <Input
+              value={signerName}
+              onChange={(e) => setSignerName(e.target.value)}
+              placeholder="Camille Dupont"
+              autoFocus
+            />
+          </Field>
+          <p className="text-xs text-[var(--muted)]">
+            Votre nom vaut bon pour accord sur ce devis.
+          </p>
+          <div className="flex flex-wrap gap-2">
+            <Button disabled={busy || signerName.trim().length < 2} onClick={() => void submit("ACCEPT")}>
+              {busy ? "…" : "Je valide le devis"}
+            </Button>
+            <Button variant="secondary" disabled={busy} onClick={() => setMode("idle")}>
+              Annuler
+            </Button>
+          </div>
+        </div>
+      ) : null}
+
+      {mode === "reject" ? (
+        <div className="space-y-3">
+          <Field label="Motif (facultatif)">
+            <Textarea
+              rows={3}
+              value={reason}
+              onChange={(e) => setReason(e.target.value)}
+              placeholder="Dites-nous ce qui ne convient pas."
+            />
+          </Field>
+          <div className="flex flex-wrap gap-2">
+            <Button variant="danger" disabled={busy} onClick={() => void submit("REJECT")}>
+              {busy ? "…" : "Confirmer le refus"}
+            </Button>
+            <Button variant="secondary" disabled={busy} onClick={() => setMode("idle")}>
+              Annuler
+            </Button>
+          </div>
+        </div>
+      ) : null}
+    </div>
   );
 }
 
@@ -489,7 +710,7 @@ function TabButton({
       type="button"
       onClick={onClick}
       className={`flex flex-1 items-center justify-center gap-2 rounded-lg px-3 py-2 text-sm font-medium transition ${
-        active ? "bg-white text-[var(--text)] shadow-sm" : "text-[var(--muted)] hover:text-[var(--text)]"
+        active ? "bg-[var(--surface)] text-[var(--text)] shadow-sm" : "text-[var(--muted)] hover:text-[var(--text)]"
       }`}
     >
       {children}

@@ -9,16 +9,18 @@ const customStyles: TableProps<never>["customStyles"] = {
   table: {
     style: {
       width: "100%",
-      borderCollapse: "collapse",
-      whiteSpace: "normal",
+      tableLayout: "fixed",
     },
   },
   tableWrapper: {
-    style: { overflowX: "auto" },
+    style: {
+      width: "100%",
+      overflowX: "hidden",
+    },
   },
   headRow: {
     style: {
-      backgroundColor: "var(--bg)",
+      backgroundColor: "var(--surface-raised)",
       borderBottomColor: "var(--border)",
       borderBottomStyle: "solid",
       borderBottomWidth: "1px",
@@ -28,8 +30,8 @@ const customStyles: TableProps<never>["customStyles"] = {
   headCells: {
     style: {
       padding: "0.75rem 1rem",
-      fontSize: "0.75rem",
-      fontWeight: 600,
+      fontSize: "0.8125rem",
+      fontWeight: 500,
       color: "var(--muted)",
       whiteSpace: "nowrap",
     },
@@ -39,16 +41,22 @@ const customStyles: TableProps<never>["customStyles"] = {
       borderBottomColor: "var(--border)",
       borderBottomStyle: "solid",
       borderBottomWidth: "1px",
-      minHeight: "3.5rem",
+      minHeight: "3.25rem",
+      backgroundColor: "var(--surface-raised)",
     },
-    stripedStyle: { backgroundColor: "var(--bg)" },
+    stripedStyle: { backgroundColor: "var(--surface-hover)" },
+    highlightOnHoverStyle: { backgroundColor: "var(--surface-hover)" },
   },
   cells: {
     style: {
-      padding: "0.75rem 1rem",
+      padding: "0.625rem 0.875rem",
       fontSize: "0.875rem",
       color: "var(--text)",
-      lineHeight: 1.4,
+      lineHeight: 1.5,
+      overflow: "hidden",
+      textOverflow: "ellipsis",
+      wordBreak: "break-word",
+      backgroundColor: "inherit",
     },
   },
   pagination: {
@@ -56,6 +64,7 @@ const customStyles: TableProps<never>["customStyles"] = {
       borderTopColor: "var(--border)",
       borderTopStyle: "solid",
       borderTopWidth: "1px",
+      backgroundColor: "var(--surface-raised)",
       color: "var(--text)",
       fontSize: "0.8125rem",
       padding: "0.625rem 1rem",
@@ -78,23 +87,15 @@ const customStyles: TableProps<never>["customStyles"] = {
 export type DataTableProps<T> = {
   columns: TableColumn<T>[];
   data: T[];
-  /** Active la pagination client (défaut 10 lignes/page). */
   pagination?: boolean;
   perPage?: number;
-  /** Active le tri par colonne (défaut true, géré au niveau colonne). */
   sortable?: boolean;
-  /** Active la recherche texte intégrée au-dessus de la table. */
   searchable?: boolean | string[];
-  /** Placeholder de l'input de recherche. */
   searchPlaceholder?: string;
-  /** Contenu du EmptyState quand data vide. */
   emptyTitle?: string;
   emptyHint?: string;
-  /** Clé de comparaison pour striping. */
   striped?: boolean;
-  /** Désactive l'enveloppe Card (défaut true). */
   card?: boolean;
-  /** Hauteur max avant scroll vertical. */
   maxHeight?: string;
 };
 
@@ -117,23 +118,33 @@ export function DataTable<T>({
     if (!searchable) return data;
     const q = query.trim().toLowerCase();
     if (!q) return data;
+
+    function readPath(row: unknown, path: string): unknown {
+      return path.split(".").reduce<unknown>((acc, key) => {
+        if (acc == null || typeof acc !== "object") return undefined;
+        return (acc as Record<string, unknown>)[key];
+      }, row);
+    }
+
     const fields = Array.isArray(searchable) ? searchable : null;
     return data.filter((row) => {
       if (fields) {
-        return fields.some((f) => {
-          const v = (row as Record<string, unknown>)?.[f];
-          return String(v ?? "").toLowerCase().includes(q);
-        });
+        return fields.some((f) => String(readPath(row, f) ?? "").toLowerCase().includes(q));
       }
-      return Object.values(row as Record<string, unknown>).some((v) =>
-        String(v ?? "").toLowerCase().includes(q),
-      );
+      return Object.values(row as Record<string, unknown>).some((v) => {
+        if (v != null && typeof v === "object") {
+          return Object.values(v as Record<string, unknown>).some((nested) =>
+            String(nested ?? "").toLowerCase().includes(q),
+          );
+        }
+        return String(v ?? "").toLowerCase().includes(q);
+      });
     });
   }, [data, query, searchable]);
 
   const wrapper = (children: React.ReactNode) =>
     card ? (
-      <div className="rounded-[var(--radius)] border border-[var(--border)] bg-[var(--surface)] shadow-[var(--shadow)] overflow-hidden">
+      <div className="overflow-hidden rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--surface-glass)] shadow-[var(--shadow-card)] backdrop-blur-md">
         {children}
       </div>
     ) : (
@@ -143,7 +154,7 @@ export function DataTable<T>({
   return (
     <div className="space-y-3">
       {searchable ? (
-        <div className="flex items-center gap-2 rounded-[var(--radius)] border border-[var(--border)] bg-[var(--surface)] px-3 py-2 shadow-[var(--shadow)]">
+        <div className="flex items-center gap-2 rounded-[var(--radius)] border border-[var(--border)] bg-[var(--surface-raised)] px-3 py-2">
           <svg
             xmlns="http://www.w3.org/2000/svg"
             viewBox="0 0 20 20"
@@ -182,9 +193,7 @@ export function DataTable<T>({
           }}
           fixedHeader={Boolean(maxHeight)}
           fixedHeaderScrollHeight={maxHeight ?? "100%"}
-          noDataComponent={
-            <EmptyState title={emptyTitle} hint={emptyHint} />
-          }
+          noDataComponent={<EmptyState title={emptyTitle} hint={emptyHint} />}
           highlightOnHover
           pointerOnHover
         />,

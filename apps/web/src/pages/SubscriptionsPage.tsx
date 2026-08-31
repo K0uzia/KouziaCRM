@@ -24,7 +24,23 @@ type Subscription = {
 };
 
 type Client = { id: string; displayName: string };
-type Service = { id: string; name: string };
+type Service = {
+  id: string;
+  name: string;
+  description?: string | null;
+  unitPriceCents: number;
+  isSubscription?: boolean;
+  defaultBillingDay?: number;
+  active?: boolean;
+};
+
+const emptyOfferForm = {
+  name: "",
+  description: "",
+  unitPriceEuros: "",
+  defaultBillingDay: "1",
+  active: true,
+};
 
 const statusBadge: Record<SubscriptionStatus, { tone: "green" | "amber" | "neutral"; label: string }> = {
   ACTIVE: { tone: "green", label: "Actif" },
@@ -45,6 +61,11 @@ export function SubscriptionsPage() {
   const [rows, setRows] = useState<Subscription[]>([]);
   const [clients, setClients] = useState<Client[]>([]);
   const [services, setServices] = useState<Service[]>([]);
+  const [offers, setOffers] = useState<Service[]>([]);
+  const [offerOpen, setOfferOpen] = useState(false);
+  const [editingOffer, setEditingOffer] = useState<Service | null>(null);
+  const [offerBusy, setOfferBusy] = useState(false);
+  const [offerForm, setOfferForm] = useState(emptyOfferForm);
   const [open, setOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -56,19 +77,71 @@ export function SubscriptionsPage() {
   const [reviseBusy, setReviseBusy] = useState(false);
 
   async function load() {
-    const [subs, cls, svcs] = await Promise.all([
+    const [subs, cls, svcs, catalog] = await Promise.all([
       api<Subscription[]>("/api/subscriptions"),
       api<Client[]>("/api/clients").catch(() => [] as Client[]),
-      api<Service[]>("/api/services?active=1").catch(() => [] as Service[]),
+      api<Service[]>("/api/services?active=1&subscription=1").catch(() => [] as Service[]),
+      api<Service[]>("/api/services?subscription=1").catch(() => [] as Service[]),
     ]);
     setRows(subs);
     setClients(cls);
     setServices(svcs);
+    setOffers(catalog);
   }
 
   useEffect(() => {
     load().catch((e: Error) => toast.error(e.message));
   }, []);
+
+  function openCreateOffer() {
+    setEditingOffer(null);
+    setOfferForm(emptyOfferForm);
+    setOfferOpen(true);
+  }
+
+  function openEditOffer(s: Service) {
+    setEditingOffer(s);
+    setOfferForm({
+      name: s.name,
+      description: s.description ?? "",
+      unitPriceEuros: (s.unitPriceCents / 100).toFixed(2),
+      defaultBillingDay: String(s.defaultBillingDay ?? 1),
+      active: s.active !== false,
+    });
+    setOfferOpen(true);
+  }
+
+  async function onOfferSubmit(e: FormEvent) {
+    e.preventDefault();
+    setOfferBusy(true);
+    try {
+      const body = {
+        name: offerForm.name,
+        description: offerForm.description || null,
+        unitPriceEuros: Number(offerForm.unitPriceEuros),
+        unit: "FORFAIT" as const,
+        active: offerForm.active,
+        isSubscription: true,
+        defaultBillingDay: Number(offerForm.defaultBillingDay) || 1,
+      };
+      if (editingOffer) {
+        await api(`/api/services/${editingOffer.id}`, {
+          method: "PUT",
+          body: JSON.stringify(body),
+        });
+        toast.success("Offre abonnement mise à jour");
+      } else {
+        await api("/api/services", { method: "POST", body: JSON.stringify(body) });
+        toast.success("Offre abonnement créée");
+      }
+      setOfferOpen(false);
+      await load();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Erreur");
+    } finally {
+      setOfferBusy(false);
+    }
+  }
 
   function openCreate() {
     setEditingId(null);
@@ -186,6 +259,60 @@ export function SubscriptionsPage() {
         }
       />
 
+      <Card className="mb-6">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[var(--border)] px-5 py-4">
+          <div>
+            <h2 className="text-base font-semibold text-[var(--text)]">Offres abonnement</h2>
+            <p className="text-xs text-[var(--muted)]">
+              Tarifs mensuels réutilisables pour créer un contrat client
+            </p>
+          </div>
+          <Button variant="secondary" onClick={openCreateOffer}>
+            <FontAwesomeIcon icon={faPlus} className="h-3.5 w-3.5" />
+            Nouvelle offre
+          </Button>
+        </div>
+        {offers.length === 0 ? (
+          <EmptyState
+            title="Aucune offre abonnement"
+            hint="Définissez vos forfaits mensuels (maintenance, hébergement, etc.) avant de créer un contrat."
+          />
+        ) : (
+          <div className="divide-y divide-[var(--border)]">
+            {offers.map((o) => (
+              <div
+                key={o.id}
+                className="flex flex-wrap items-center justify-between gap-4 px-5 py-4 hover:bg-[var(--surface-hover)]"
+              >
+                <div className="min-w-0">
+                  <p className="font-medium text-[var(--text)]">{o.name}</p>
+                  {o.description ? (
+                    <p className="mt-1 text-sm text-[var(--muted)]">{o.description}</p>
+                  ) : null}
+                  <p className="mt-1 text-xs text-[var(--muted)]">
+                    Facturation le {o.defaultBillingDay ?? 1} de chaque mois
+                  </p>
+                </div>
+                <div className="flex items-center gap-4">
+                  <div className="text-right">
+                    <p className="text-lg font-semibold tabular-nums">{formatEUR(o.unitPriceCents)}</p>
+                    <p className="text-xs text-[var(--muted)]">HT / mois</p>
+                  </div>
+                  {!o.active ? <Badge tone="red">Inactive</Badge> : null}
+                  <Button
+                    variant="ghost"
+                    className="h-8 px-3 text-xs"
+                    onClick={() => openEditOffer(o)}
+                  >
+                    Modifier
+                  </Button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </Card>
+
       <Card>
         {rows.length === 0 ? (
           <EmptyState
@@ -193,40 +320,41 @@ export function SubscriptionsPage() {
             hint="Créez un contrat de maintenance mensuel : une facture sera émise automatiquement chaque mois."
           />
         ) : (
-          <table className="w-full text-left text-sm">
-            <thead className="border-b border-[var(--border)] bg-[var(--bg)]/80 text-[var(--muted)]">
-              <tr>
-                <th className="px-4 py-3 font-medium">Client</th>
-                <th className="px-4 py-3 font-medium">Libellé</th>
-                <th className="px-4 py-3 text-right font-medium">Montant/mois</th>
-                <th className="px-4 py-3 font-medium">Jour</th>
-                <th className="px-4 py-3 font-medium">Prochaine facture</th>
-                <th className="px-4 py-3 font-medium">Statut</th>
-                <th className="px-4 py-3" />
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((s) => {
-                const badge = statusBadge[s.status];
-                return (
-                  <tr key={s.id} className="border-t border-[var(--border)]">
-                    <td className="px-4 py-3">
-                      <p className="font-medium">{s.client.displayName}</p>
-                      <p className="text-xs text-[var(--muted)]">{s.service.name}</p>
-                    </td>
-                    <td className="px-4 py-3">{s.label}</td>
-                    <td className="px-4 py-3 text-right tabular-nums font-medium">
-                      {formatEUR(s.amountCents)}
-                    </td>
-                    <td className="px-4 py-3">{s.billingDay}</td>
-                    <td className="px-4 py-3 text-[var(--muted)]">
-                      {formatDate(s.nextInvoiceAt)}
-                    </td>
-                    <td className="px-4 py-3">
-                      <Badge tone={badge.tone}>{badge.label}</Badge>
-                    </td>
-                    <td className="px-4 py-3 text-right">
-                      <div className="flex justify-end gap-1">
+          <div className="ui-table-wrap">
+            <table className="ui-table">
+              <thead>
+                <tr>
+                  <th className="nowrap">Client</th>
+                  <th className="wrap">Libellé</th>
+                  <th className="nowrap text-right">Montant/mois</th>
+                  <th className="nowrap">Jour</th>
+                  <th className="nowrap">Prochaine facture</th>
+                  <th className="nowrap">Statut</th>
+                  <th className="col-actions" />
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((s) => {
+                  const badge = statusBadge[s.status];
+                  return (
+                    <tr key={s.id}>
+                      <td className="nowrap">
+                        <p className="font-medium">{s.client.displayName}</p>
+                        <p className="text-xs text-[var(--muted)]">{s.service.name}</p>
+                      </td>
+                      <td className="wrap">{s.label}</td>
+                      <td className="nowrap text-right tabular-nums font-medium">
+                        {formatEUR(s.amountCents)}
+                      </td>
+                      <td className="nowrap">{s.billingDay}</td>
+                      <td className="nowrap text-[var(--muted)]">
+                        {formatDate(s.nextInvoiceAt)}
+                      </td>
+                      <td className="nowrap">
+                        <Badge tone={badge.tone}>{badge.label}</Badge>
+                      </td>
+                      <td className="col-actions">
+                        <div className="flex justify-end gap-1">
                         {s.status !== "ENDED" ? (
                           <Button
                             variant="ghost"
@@ -284,6 +412,7 @@ export function SubscriptionsPage() {
               })}
             </tbody>
           </table>
+          </div>
         )}
       </Card>
 
@@ -308,17 +437,31 @@ export function SubscriptionsPage() {
               ))}
             </Select>
           </Field>
-          <Field label="Prestation">
+          <Field label="Offre abonnement">
             <Select
               required
               value={form.serviceId}
-              onChange={(e) => setForm({ ...form, serviceId: e.target.value })}
+              onChange={(e) => {
+                const id = e.target.value;
+                const svc = services.find((s) => s.id === id);
+                setForm({
+                  ...form,
+                  serviceId: id,
+                  amountEuros: svc
+                    ? (svc.unitPriceCents / 100).toFixed(2)
+                    : form.amountEuros,
+                  label: form.label || (svc ? `${svc.name} : mensuel` : ""),
+                  billingDay: svc?.defaultBillingDay
+                    ? String(svc.defaultBillingDay)
+                    : form.billingDay,
+                });
+              }}
               disabled={!!editingId}
             >
-              <option value="">-</option>
+              <option value="">Choisir une offre…</option>
               {services.map((s) => (
                 <option key={s.id} value={s.id}>
-                  {s.name}
+                  {s.name} - {(s.unitPriceCents / 100).toFixed(2)} € / mois
                 </option>
               ))}
             </Select>
@@ -419,6 +562,72 @@ export function SubscriptionsPage() {
             </Button>
             <Button type="submit" disabled={reviseBusy}>
               {reviseBusy ? "Émission…" : "Émettre le devis au client"}
+            </Button>
+          </div>
+        </form>
+      </Modal>
+
+      <Modal
+        open={offerOpen}
+        onClose={() => setOfferOpen(false)}
+        title={editingOffer ? "Modifier l'offre abonnement" : "Nouvelle offre abonnement"}
+      >
+        <form onSubmit={onOfferSubmit} className="space-y-4">
+          <Field label="Nom">
+            <Input
+              required
+              value={offerForm.name}
+              onChange={(e) => setOfferForm({ ...offerForm, name: e.target.value })}
+            />
+          </Field>
+          <Field label="Description">
+            <Input
+              value={offerForm.description}
+              onChange={(e) => setOfferForm({ ...offerForm, description: e.target.value })}
+            />
+          </Field>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <Field label="Prix HT / mois (€)">
+              <Input
+                required
+                type="number"
+                step="0.01"
+                min="0"
+                value={offerForm.unitPriceEuros}
+                onChange={(e) =>
+                  setOfferForm({ ...offerForm, unitPriceEuros: e.target.value })
+                }
+              />
+            </Field>
+            <Field label="Jour de facturation">
+              <Select
+                value={offerForm.defaultBillingDay}
+                onChange={(e) =>
+                  setOfferForm({ ...offerForm, defaultBillingDay: e.target.value })
+                }
+              >
+                {Array.from({ length: 28 }, (_, d) => d + 1).map((d) => (
+                  <option key={d} value={String(d)}>
+                    Le {d} de chaque mois
+                  </option>
+                ))}
+              </Select>
+            </Field>
+          </div>
+          <label className="flex items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              checked={offerForm.active}
+              onChange={(e) => setOfferForm({ ...offerForm, active: e.target.checked })}
+            />
+            Active (proposée à la création d'un contrat)
+          </label>
+          <div className="flex justify-end gap-2 pt-2">
+            <Button type="button" variant="secondary" onClick={() => setOfferOpen(false)}>
+              Annuler
+            </Button>
+            <Button type="submit" disabled={offerBusy}>
+              {offerBusy ? "…" : "Enregistrer"}
             </Button>
           </div>
         </form>

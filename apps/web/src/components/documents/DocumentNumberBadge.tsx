@@ -2,11 +2,11 @@ type DocKind = "INVOICE" | "CREDIT_NOTE" | "QUOTE" | string;
 
 /** Couleurs par nature de document / facture marché. */
 function colorClass(documentType: DocKind, invoiceType?: string | null): string {
-  if (documentType === "QUOTE") return "text-violet-700";
-  if (documentType === "CREDIT_NOTE") return "text-red-700";
-  if (invoiceType === "ACOMPTE") return "text-sky-700";
-  if (invoiceType === "SOLDE") return "text-indigo-700";
-  return "text-teal-800"; // facture simple
+  if (documentType === "QUOTE") return "text-[var(--info)]";
+  if (documentType === "CREDIT_NOTE") return "text-[var(--danger)]";
+  if (invoiceType === "ACOMPTE") return "text-[var(--warning)]";
+  if (invoiceType === "SOLDE") return "text-[var(--info)]";
+  return "text-[var(--primary)]";
 }
 
 /** Numéro compact coloré selon le type. */

@@ -143,8 +143,6 @@ model CompanySettings {
   website       String?
   vatRegime     String   @default("FRANCHISE_BASE_293B")
   vatMention    String   @default("TVA non applicable, art. 293 B du CGI")
-  /// Enveloppe cotisations (budget) - 2130 = 21,30 %
-  urssafRateBps Int      @default(2130)
   /// Enveloppe trésorerie / frais (budget perso, pas légal)
   treasuryRateBps Int    @default(1420)
   /// Enveloppe placements / épargne (budget perso)
@@ -166,6 +164,8 @@ model CompanySettings {
   paymentConditions String @default("Paiement à réception")
   /// @deprecated préférer LegalClause
   latePenaltiesText String @default("En cas de retard de paiement, une pénalité égale à 3 fois le taux d'intérêt légal sera due, ainsi qu'une indemnité forfaitaire de 40 € pour frais de recouvrement.")
+  /// Mention obligatoire : conditions d'escompte en cas de paiement anticipé
+  earlyPaymentDiscountText String @default("Escompte pour paiement anticipé : néant")
   /// @deprecated préférer LegalClause
   legalMentions String?
   /// @deprecated préférer LegalClause
@@ -178,8 +178,20 @@ model CompanySettings {
   publicTrackingShowAmounts Boolean @default(false)
   /// Date de création de l'entreprise (INPI) pour délais initiaux
   businessStartDate DateTime?
+  /// Date d'immatriculation au RNE (INPI / open data)
+  rneRegistrationDate DateTime?
+  /// Dernière année de revenus déclarée (ex. 2025 = revenus 2025 déclarés en 2026)
+  lastIncomeTaxDeclaredYear Int?
   /// Montant CFE par défaut (centimes), saisi à réception de l'avis
   cfeAmountCents Int @default(25000)
+  /// IBAN du compte pro (affiché sur factures pour virement client)
+  bankIban String?
+  /// BIC / SWIFT
+  bankBic String?
+  /// Titulaire du compte pro
+  bankAccountHolder String?
+  /// Nom de la banque (ex. Revolut)
+  bankName String?
   /// Facture des particuliers (médiation conso)
   b2cActivity Boolean @default(false)
   /// Mention médiation consommation (affichée sur le PDF si b2cActivity=true)
@@ -192,6 +204,13 @@ model CompanySettings {
   officialLinks Json?
   /// Lien fiche entreprise data.inpi.fr
   inpiUrl String?
+  /// SMTP optionnel (prioritaire sur les variables d'environnement si renseigné)
+  smtpHost          String?
+  smtpPort          Int?
+  smtpSecure        Boolean @default(false)
+  smtpUser          String?
+  smtpPassEncrypted String?
+  smtpFrom          String?
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 }
@@ -339,12 +358,31 @@ model Client {
   updatedAt      DateTime      @updatedAt
   invoices       Invoice[]
   emailThreads   EmailThread[]
+  emailEvents    ClientEmailEvent[]
   subscriptions  Subscription[]
   onboardingAsExisting OnboardingInvitation[] @relation("OnboardingExisting")
   onboardingAsCreated  OnboardingInvitation[] @relation("OnboardingCreated")
 
   @@index([displayName])
   @@index([type])
+}
+
+/// Journal des emails sortants vers un client (suivi portail /admin)
+model ClientEmailEvent {
+  id             String   @id @default(cuid())
+  clientId       String
+  client         Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  kind           String
+  subject        String
+  toAddress      String
+  documentId     String?
+  documentNumber String?
+  success        Boolean  @default(true)
+  errorMessage   String?
+  sentAt         DateTime @default(now())
+
+  @@index([clientId, sentAt])
+  @@index([documentId])
 }
 
 /// Invitation envoyée à un prospect/client pour qu'il remplisse sa fiche lui-même.
@@ -443,10 +481,19 @@ model Invoice {
   status            InvoiceStatus       @default(DRAFT)
   /// Statut métier devis (null pour factures / avoirs)
   quoteStatus       QuoteStatus?
+  /// Décision du client sur un devis : horodatage, motif de refus, nom du signataire
+  quoteDecidedAt    DateTime?
+  quoteRejectReason String?
+  /// Nom saisi lors d'une acceptation en ligne (vaut bon pour accord)
+  quoteSignerName   String?
   clientId          String
   client            Client              @relation(fields: [clientId], references: [id])
   clientSnapshot    Json?
   issueDate         DateTime?
+  /// Date de réalisation de la prestation (mention obligatoire, distincte de l'émission)
+  serviceDate       DateTime?
+  /// Référence du bon de commande de l'acheteur, quand il en fournit un
+  purchaseOrderRef  String?
   dueDate           DateTime?
   validUntil        DateTime?
   sequenceYear      Int?

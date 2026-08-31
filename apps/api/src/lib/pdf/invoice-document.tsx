@@ -6,46 +6,67 @@ import { centsToEuros } from "@/lib/money";
 
 const styles = StyleSheet.create({
   page: {
-    padding: 40,
+    paddingTop: 36,
+    paddingBottom: 40,
+    paddingHorizontal: 40,
     fontSize: 10,
     fontFamily: "Helvetica",
-    color: "#14201b",
+    color: "#0f172a",
   },
-  header: { marginBottom: 24 },
-  brand: { fontSize: 20, fontFamily: "Helvetica-Bold", color: "#1f5c45" },
-  muted: { color: "#5a6f65", marginTop: 2 },
+  header: {
+    marginBottom: 22,
+    paddingBottom: 14,
+    borderBottomWidth: 2,
+    borderBottomColor: "#4f46e5",
+  },
+  brand: { fontSize: 22, fontFamily: "Helvetica-Bold", color: "#4f46e5" },
+  muted: { color: "#64748b", marginTop: 2 },
   row: { flexDirection: "row", justifyContent: "space-between", gap: 24 },
   block: { flex: 1 },
-  h2: { fontSize: 12, fontFamily: "Helvetica-Bold", marginBottom: 6 },
-  table: { marginTop: 24, borderTopWidth: 1, borderColor: "#cfdad3" },
+  h2: { fontSize: 11, fontFamily: "Helvetica-Bold", marginBottom: 6, color: "#312e81" },
+  table: { marginTop: 22, borderTopWidth: 1, borderColor: "#e2e8f0" },
   tr: {
     flexDirection: "row",
     borderBottomWidth: 1,
-    borderColor: "#cfdad3",
-    paddingVertical: 6,
+    borderColor: "#e2e8f0",
+    paddingVertical: 7,
   },
-  th: { fontFamily: "Helvetica-Bold" },
+  th: { fontFamily: "Helvetica-Bold", color: "#475569", backgroundColor: "#f8fafc" },
   colDesc: { flex: 3 },
   colQty: { flex: 1, textAlign: "right" },
   colPrice: { flex: 1.2, textAlign: "right" },
   colTotal: { flex: 1.2, textAlign: "right" },
   totals: { marginTop: 16, alignItems: "flex-end" },
   totalLine: { flexDirection: "row", justifyContent: "flex-end", gap: 24, marginTop: 4 },
+  paymentBox: {
+    marginTop: 18,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: "#c7d2fe",
+    backgroundColor: "#eef2ff",
+    borderRadius: 4,
+  },
   legal: {
     marginTop: 28,
     paddingTop: 12,
     borderTopWidth: 1,
-    borderColor: "#cfdad3",
+    borderColor: "#e2e8f0",
     fontSize: 8,
-    color: "#5a6f65",
+    color: "#64748b",
     lineHeight: 1.4,
   },
   badge: {
-    marginTop: 8,
-    fontSize: 11,
+    marginTop: 4,
+    fontSize: 13,
     fontFamily: "Helvetica-Bold",
+    color: "#312e81",
   },
 });
+
+function formatIban(iban: string): string {
+  const clean = iban.replace(/\s+/g, "").toUpperCase();
+  return clean.replace(/(.{4})/g, "$1 ").trim();
+}
 
 function fmtDate(d: Date) {
   return new Intl.DateTimeFormat("fr-FR").format(d);
@@ -66,6 +87,8 @@ export type InvoicePdfData = {
     documentType: "INVOICE" | "CREDIT_NOTE" | "QUOTE";
     invoiceType?: "SIMPLE" | "ACOMPTE" | "SOLDE";
     issueDate: Date;
+    serviceDate?: Date | null;
+    purchaseOrderRef?: string | null;
     dueDate: Date | null;
     validUntil?: Date | null;
     paymentTerms: string | null;
@@ -164,6 +187,12 @@ export function InvoiceDocument({ company, client, invoice }: InvoicePdfData) {
               {title} n° {invoice.number}
             </Text>
             <Text>Date d&apos;émission : {fmtDate(invoice.issueDate)}</Text>
+            {!isQuote && invoice.serviceDate ? (
+              <Text>Date de la prestation : {fmtDate(invoice.serviceDate)}</Text>
+            ) : null}
+            {invoice.purchaseOrderRef ? (
+              <Text>Bon de commande : {invoice.purchaseOrderRef}</Text>
+            ) : null}
             {isQuote && invoice.validUntil ? (
               <Text>Valable jusqu&apos;au : {fmtDate(invoice.validUntil)}</Text>
             ) : null}
@@ -272,7 +301,7 @@ export function InvoiceDocument({ company, client, invoice }: InvoicePdfData) {
             </>
           ) : null}
           <View style={styles.totalLine}>
-            <Text>Total TTC (= HT, franchise TVA)</Text>
+            <Text>Total TTC (= HT{company.vatMention ? ", franchise TVA" : ""})</Text>
             <Text style={{ fontFamily: "Helvetica-Bold" }}>{fmtMoney(invoice.totalCents)}</Text>
           </View>
         </View>
@@ -321,6 +350,24 @@ export function InvoiceDocument({ company, client, invoice }: InvoicePdfData) {
           </View>
         )}
 
+        {!isQuote && !isCredit && company.bankIban ? (
+          <View style={styles.paymentBox}>
+            <Text style={styles.h2}>Réglement par virement</Text>
+            <Text style={{ marginTop: 4 }}>
+              Merci de régler {fmtMoney(invoice.totalCents)} par virement en indiquant la référence{" "}
+              <Text style={{ fontFamily: "Helvetica-Bold" }}>{invoice.number}</Text>.
+            </Text>
+            {company.bankAccountHolder ? (
+              <Text style={{ marginTop: 6 }}>Titulaire : {company.bankAccountHolder}</Text>
+            ) : null}
+            {company.bankName ? <Text>Banque : {company.bankName}</Text> : null}
+            <Text style={{ marginTop: 4, fontFamily: "Helvetica-Bold" }}>
+              IBAN : {formatIban(company.bankIban)}
+            </Text>
+            {company.bankBic ? <Text>BIC : {company.bankBic}</Text> : null}
+          </View>
+        ) : null}
+
         <View style={styles.legal}>
           <Text>
             {company.legalName}, Entrepreneur individuel, SIREN {company.siren}, SIRET{" "}
@@ -330,20 +377,23 @@ export function InvoiceDocument({ company, client, invoice }: InvoicePdfData) {
             Document émis dans le cadre de la micro-entreprise - activité libérale non réglementée
             (BNC).
           </Text>
+          {/* Mentions imposées par la loi : affichées quoi qu'il arrive, les
+              clauses personnalisées viennent s'y ajouter et non s'y substituer. */}
+          {company.vatMention ? <Text>{company.vatMention}</Text> : null}
+          {!isQuote && company.paymentConditions ? (
+            <Text>Conditions de paiement : {company.paymentConditions}</Text>
+          ) : null}
+          {!isQuote && company.latePenaltiesText ? (
+            <Text>{company.latePenaltiesText}</Text>
+          ) : null}
+          {!isQuote && company.earlyPaymentDiscountText ? (
+            <Text>{company.earlyPaymentDiscountText}</Text>
+          ) : null}
           {(invoice.legalClauses ?? []).map((c, i) => (
               <Text key={i} style={{ marginTop: 4 }}>
                 {c.title} : {c.body}
               </Text>
             ))}
-          {!(invoice.legalClauses?.length) && company.vatMention ? (
-            <Text>{company.vatMention}</Text>
-          ) : null}
-          {!(invoice.legalClauses?.length) && company.paymentConditions ? (
-            <Text>Conditions de paiement : {company.paymentConditions}</Text>
-          ) : null}
-          {!(invoice.legalClauses?.length) && company.latePenaltiesText ? (
-            <Text>{company.latePenaltiesText}</Text>
-          ) : null}
           {!(invoice.legalClauses?.length) && company.suspensionClause ? (
             <Text>{company.suspensionClause}</Text>
           ) : null}

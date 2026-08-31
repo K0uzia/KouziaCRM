@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faPlus, faPaperPlane } from "@fortawesome/free-solid-svg-icons";
@@ -17,6 +17,7 @@ import {
 } from "@/components/clients/ClientForm";
 import { ClientEmailLink } from "@/components/clients/ClientEmailLink";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
+import { useCreateParam } from "@/lib/use-create-param";
 
 export function ClientsPage() {
   const navigate = useNavigate();
@@ -27,6 +28,12 @@ export function ClientsPage() {
   const [inviteOpen, setInviteOpen] = useState(false);
   const [inviteEmail, setInviteEmail] = useState("");
   const [inviteBusy, setInviteBusy] = useState(false);
+  const openCreate = useCallback(() => {
+    setEditing(null);
+    setModal("create");
+  }, []);
+
+  useCreateParam(openCreate);
 
   async function load() {
     const rows = await api<Client[]>("/api/clients");
@@ -59,7 +66,7 @@ export function ClientsPage() {
       cell: (c) => (
         <button
           type="button"
-          className="text-left font-medium text-[var(--primary)] hover:underline"
+          className="link text-left font-medium"
           onClick={() => navigate(`/clients/${c.id}`)}
         >
           {c.displayName}
@@ -80,7 +87,6 @@ export function ClientsPage() {
     {
       name: "Contact",
       grow: 2,
-      minWidth: "200px",
       cell: (c) => (
         <div className="text-[var(--muted)]">
           <div className="truncate">{c.email ?? "-"}</div>
@@ -97,12 +103,14 @@ export function ClientsPage() {
     },
     {
       name: "",
-      width: "110px",
+      grow: 0,
+      width: "5.5rem",
       right: true,
+      style: { whiteSpace: "nowrap" },
       cell: (c) => (
         <Button
           variant="ghost"
-          className="h-8 px-2 text-xs"
+          className="h-8 px-3 text-xs"
           onClick={() => {
             setEditing(c);
             setModal("edit");
@@ -125,12 +133,7 @@ export function ClientsPage() {
               <FontAwesomeIcon icon={faPaperPlane} className="h-3.5 w-3.5" />
               Inviter par email
             </Button>
-            <Button
-              onClick={() => {
-                setEditing(null);
-                setModal("create");
-              }}
-            >
+            <Button onClick={openCreate}>
               <FontAwesomeIcon icon={faPlus} className="h-3.5 w-3.5" />
               Nouveau client
             </Button>
@@ -294,7 +297,7 @@ export function ClientDetailPage() {
 
       <Card className="space-y-4 px-5 py-4">
         <div>
-          <p className="text-xs font-medium uppercase tracking-wide text-[var(--muted)]">
+          <p className="text-xs font-medium text-[var(--muted)]">
             Code de suivi (identifiant public)
           </p>
           <p className="mt-1 font-mono text-xl font-semibold text-[var(--primary)]">
@@ -306,7 +309,7 @@ export function ClientDetailPage() {
         </div>
 
         <div className="border-t border-[var(--border)] pt-3">
-          <p className="text-xs font-medium uppercase tracking-wide text-[var(--muted)]">
+          <p className="text-xs font-medium text-[var(--muted)]">
             Code d&apos;accès secret
           </p>
           <p className="mt-1 text-sm">
@@ -517,13 +520,13 @@ export function ClientDetailPage() {
                 <li key={d.id}>
                   <Link
                     to={d.documentType === "QUOTE" ? `/quotes/${d.id}` : `/invoices/${d.id}`}
-                    className="flex justify-between gap-2 hover:text-[var(--primary)]"
+                    className="link-row"
                   >
                     <span>
                       {d.number ?? "Brouillon"} ·{" "}
                       {d.documentType === "QUOTE" ? "Devis" : "Facture"}
                     </span>
-                    <span className="tabular-nums text-[var(--muted)]">
+                    <span className="link-row-muted tabular-nums">
                       {formatEUR(d.totalCents)}
                     </span>
                   </Link>

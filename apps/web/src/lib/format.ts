@@ -64,6 +64,14 @@ export function statusTone(status: string): "neutral" | "teal" | "green" | "ambe
   }
 }
 
+/** Statuts d'un virement bancaire importé depuis Revolut. */
+export const bankStatusLabel: Record<string, string> = {
+  PENDING: "En attente",
+  MATCHED: "Associé",
+  UNMATCHED: "À associer",
+  IGNORED: "Ignoré",
+};
+
 export const paymentMethodLabel: Record<string, string> = {
   BANK_TRANSFER: "Virement",
   CARD: "Carte",

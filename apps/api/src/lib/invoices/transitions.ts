@@ -41,46 +41,62 @@ function addDays(d: Date, days: number): Date {
   return out;
 }
 
-export async function issueInvoice(invoiceId: string, issueDate = new Date(), dueDate?: Date) {
-  const settings = await getCompanySettings();
-  const updated = await prisma.$transaction(async (tx) => {
-    const invoice = await tx.invoice.findUniqueOrThrow({
-      where: { id: invoiceId },
-      include: { lines: true },
-    });
-
-    if (invoice.status !== InvoiceStatus.DRAFT) {
-      throw new Error("Seuls les brouillons peuvent être émis");
-    }
-    if (invoice.lines.length === 0) {
-      throw new Error("Impossible d'émettre une facture sans lignes");
-    }
-    if (invoice.documentType !== InvoiceDocumentType.INVOICE) {
-      throw new Error("Document invalide pour émission de facture");
-    }
-
-    const allocated = await allocateInvoiceNumber(issueDate, tx);
-    const snapshot = await buildClientSnapshot(invoice.clientId, tx);
-
-    return tx.invoice.update({
-      where: { id: invoiceId },
-      data: {
-        status: InvoiceStatus.ISSUED,
-        number: allocated.number,
-        sequenceYear: allocated.sequenceYear,
-        sequenceNumber: allocated.sequenceNumber,
-        issueDate,
-        dueDate: dueDate ?? issueDate,
-        issuedAt: new Date(),
-        clientSnapshot: snapshot as unknown as Prisma.InputJsonValue,
-        nextReminderAt: addDays(dueDate ?? issueDate, settings.reminderInvoiceDays),
-      },
-      include: { lines: true, client: true, payments: true },
-    });
+/**
+ * Émission d'une facture dans une transaction fournie.
+ * L'activation des abonnements en fait partie : une facture émise dont
+ * l'abonnement n'a pas pu être créé laisserait un numéro légal consommé
+ * pour rien.
+ */
+export async function issueInvoiceWithin(
+  tx: Prisma.TransactionClient,
+  invoiceId: string,
+  issueDate: Date,
+  dueDate: Date | undefined,
+  settings: Awaited<ReturnType<typeof getCompanySettings>>,
+) {
+  const invoice = await tx.invoice.findUniqueOrThrow({
+    where: { id: invoiceId },
+    include: { lines: true },
   });
 
-  const subs = await activateSubscriptionsFromDocument(invoiceId);
+  if (invoice.status !== InvoiceStatus.DRAFT) {
+    throw new Error("Seuls les brouillons peuvent être émis");
+  }
+  if (invoice.lines.length === 0) {
+    throw new Error("Impossible d'émettre une facture sans lignes");
+  }
+  if (invoice.documentType !== InvoiceDocumentType.INVOICE) {
+    throw new Error("Document invalide pour émission de facture");
+  }
+
+  const allocated = await allocateInvoiceNumber(issueDate, tx);
+  const snapshot = await buildClientSnapshot(invoice.clientId, tx);
+
+  const updated = await tx.invoice.update({
+    where: { id: invoiceId },
+    data: {
+      status: InvoiceStatus.ISSUED,
+      number: allocated.number,
+      sequenceYear: allocated.sequenceYear,
+      sequenceNumber: allocated.sequenceNumber,
+      issueDate,
+      dueDate: dueDate ?? issueDate,
+      issuedAt: new Date(),
+      clientSnapshot: snapshot as unknown as Prisma.InputJsonValue,
+      nextReminderAt: addDays(dueDate ?? issueDate, settings.reminderInvoiceDays),
+    },
+    include: { lines: true, client: true, payments: true },
+  });
+
+  const subs = await activateSubscriptionsFromDocument(invoiceId, tx);
   return { ...updated, subscriptionsCreated: subs.created };
+}
+
+export async function issueInvoice(invoiceId: string, issueDate = new Date(), dueDate?: Date) {
+  const settings = await getCompanySettings();
+  return prisma.$transaction((tx) =>
+    issueInvoiceWithin(tx, invoiceId, issueDate, dueDate, settings),
+  );
 }
 
 /** Émet un devis (numéro D-YYYY-NNN, QuoteStatus SENT) et crée les jalons 30/40/30. */
@@ -132,6 +148,142 @@ export async function issueQuote(
 
     await ensureQuoteMilestones(quoteId, quote.totalCents, tx);
     return updated;
+  });
+}
+
+/**
+ * Attribue un numéro officiel D-YYYY-NNN à un devis qui n'en a pas encore
+ * (acceptation ou conversion sans émission préalable).
+ */
+export async function ensureQuoteHasOfficialNumber(
+  tx: Prisma.TransactionClient,
+  quoteId: string,
+  issueDate = new Date(),
+) {
+  const quote = await tx.invoice.findUniqueOrThrow({ where: { id: quoteId } });
+  if (quote.documentType !== InvoiceDocumentType.QUOTE || quote.number) {
+    return quote;
+  }
+
+  const allocated = await allocateQuoteNumber(issueDate, tx);
+  const snapshot = await buildClientSnapshot(quote.clientId, tx);
+  const patch: Prisma.InvoiceUpdateInput = {
+    number: allocated.number,
+    sequenceYear: allocated.sequenceYear,
+    sequenceNumber: allocated.sequenceNumber,
+    issueDate: quote.issueDate ?? issueDate,
+    issuedAt: quote.issuedAt ?? new Date(),
+    clientSnapshot: snapshot as unknown as Prisma.InputJsonValue,
+  };
+  if (quote.status === InvoiceStatus.DRAFT) {
+    patch.status = InvoiceStatus.ISSUED;
+  }
+  if (quote.quoteStatus === QuoteStatus.DRAFT) {
+    patch.quoteStatus = QuoteStatus.SENT;
+  }
+
+  return tx.invoice.update({
+    where: { id: quoteId },
+    data: patch,
+    include: { lines: true, client: true },
+  });
+}
+
+/** Répare les devis sans numéro (données antérieures à la correction). */
+export async function repairQuotesMissingNumbers(): Promise<number> {
+  const quotes = await prisma.invoice.findMany({
+    where: {
+      documentType: InvoiceDocumentType.QUOTE,
+      number: null,
+      status: { not: InvoiceStatus.CANCELLED },
+    },
+    select: { id: true },
+  });
+  for (const q of quotes) {
+    await prisma.$transaction((tx) => ensureQuoteHasOfficialNumber(tx, q.id));
+  }
+  return quotes.length;
+}
+
+/** Erreur métier sur une décision de devis (refus, acceptation en ligne). */
+export class QuoteDecisionError extends Error {
+  constructor(
+    message: string,
+    readonly code: "NOT_A_QUOTE" | "NOT_PENDING" | "ALREADY_INVOICED",
+  ) {
+    super(message);
+    this.name = "QuoteDecisionError";
+  }
+}
+
+/**
+ * Charge un devis en attente de décision client.
+ * Un devis déjà facturé n'est plus décidable : la décision commerciale est actée.
+ */
+async function loadPendingQuote(tx: Prisma.TransactionClient, quoteId: string) {
+  const quote = await tx.invoice.findUniqueOrThrow({ where: { id: quoteId } });
+
+  if (quote.documentType !== InvoiceDocumentType.QUOTE) {
+    throw new QuoteDecisionError("Ce document n'est pas un devis", "NOT_A_QUOTE");
+  }
+  if (quote.quoteStatus !== QuoteStatus.SENT) {
+    throw new QuoteDecisionError(
+      "Seul un devis envoyé et encore en attente peut être accepté ou refusé",
+      "NOT_PENDING",
+    );
+  }
+
+  const invoiced = await tx.invoice.count({
+    where: {
+      quoteId,
+      documentType: InvoiceDocumentType.INVOICE,
+      status: { not: InvoiceStatus.CANCELLED },
+    },
+  });
+  if (invoiced > 0) {
+    throw new QuoteDecisionError(
+      "Ce devis a déjà donné lieu à une facture",
+      "ALREADY_INVOICED",
+    );
+  }
+
+  return quote;
+}
+
+/** Refuse un devis envoyé : le document est clos, aucune facture ne pourra en découler. */
+export async function rejectQuote(quoteId: string, reason?: string) {
+  return prisma.$transaction(async (tx) => {
+    await loadPendingQuote(tx, quoteId);
+    return tx.invoice.update({
+      where: { id: quoteId },
+      data: {
+        quoteStatus: QuoteStatus.REJECTED,
+        status: InvoiceStatus.CANCELLED,
+        quoteDecidedAt: new Date(),
+        quoteRejectReason: reason?.trim() || null,
+      },
+      include: { lines: true, client: true },
+    });
+  });
+}
+
+/**
+ * Acceptation d'un devis par le client depuis le portail de suivi.
+ * Le nom saisi vaut bon pour accord. La facture reste à émettre par le dirigeant.
+ */
+export async function acceptQuoteByClient(quoteId: string, signerName: string) {
+  return prisma.$transaction(async (tx) => {
+    await loadPendingQuote(tx, quoteId);
+    await ensureQuoteHasOfficialNumber(tx, quoteId);
+    return tx.invoice.update({
+      where: { id: quoteId },
+      data: {
+        quoteStatus: QuoteStatus.ACCEPTED,
+        quoteDecidedAt: new Date(),
+        quoteSignerName: signerName.trim(),
+      },
+      include: { lines: true, client: true },
+    });
   });
 }
 
@@ -213,42 +365,44 @@ export async function convertQuoteToInvoice(quoteId: string) {
       include: { lines: true, client: true },
     });
 
+    await ensureQuoteHasOfficialNumber(tx, quote.id);
     await tx.invoice.update({
       where: { id: quote.id },
       data: {
         status: InvoiceStatus.PAID,
         quoteStatus: QuoteStatus.ACCEPTED,
+        quoteDecidedAt: quote.quoteDecidedAt ?? new Date(),
       },
     });
 
     await ensureQuoteMilestones(quoteId, quote.totalCents, tx);
 
-    return created;
-  });
+    const subs = await activateSubscriptionsFromDocument(quoteId, tx);
 
-  const subs = await activateSubscriptionsFromDocument(quoteId);
-
-  // Propager subscriptionId des lignes devis → facture (même position)
-  if (subs.created > 0 || subs.subscriptionIds.length > 0) {
-    const quoteLines = await prisma.invoiceLine.findMany({
-      where: { invoiceId: quoteId, isSubscription: true },
-      orderBy: { position: "asc" },
-    });
-    const invLines = await prisma.invoiceLine.findMany({
-      where: { invoiceId: invoice.id, isSubscription: true },
-      orderBy: { position: "asc" },
-    });
-    for (const qLine of quoteLines) {
-      if (!qLine.subscriptionId) continue;
-      const match = invLines.find((l) => l.position === qLine.position);
-      if (match && !match.subscriptionId) {
-        await prisma.invoiceLine.update({
-          where: { id: match.id },
-          data: { subscriptionId: qLine.subscriptionId },
-        });
+    // Propager subscriptionId des lignes devis → facture (même position)
+    if (subs.subscriptionIds.length > 0) {
+      const quoteLines = await tx.invoiceLine.findMany({
+        where: { invoiceId: quoteId, isSubscription: true },
+        orderBy: { position: "asc" },
+      });
+      const invLines = await tx.invoiceLine.findMany({
+        where: { invoiceId: created.id, isSubscription: true },
+        orderBy: { position: "asc" },
+      });
+      for (const qLine of quoteLines) {
+        if (!qLine.subscriptionId) continue;
+        const match = invLines.find((l) => l.position === qLine.position);
+        if (match && !match.subscriptionId) {
+          await tx.invoiceLine.update({
+            where: { id: match.id },
+            data: { subscriptionId: qLine.subscriptionId },
+          });
+        }
       }
     }
-  }
 
-  return { ...invoice, subscriptionsCreated: subs.created };
+    return { ...created, subscriptionsCreated: subs.created };
+  });
+
+  return invoice;
 }

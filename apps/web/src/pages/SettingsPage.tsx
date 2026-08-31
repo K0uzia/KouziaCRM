@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent, type InputHTMLAttributes } from "react";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { Button } from "@/components/ui/Button";
@@ -25,12 +25,17 @@ type Settings = {
   urssafPeriodicity: string;
   treasuryRateBps: number;
   placementRateBps: number;
-  urssafRateBps: number;
   reminderQuoteDays: number;
   reminderInvoiceDays: number;
   publicTrackingShowAmounts: boolean;
   businessStartDate: string | null;
+  rneRegistrationDate: string | null;
+  lastIncomeTaxDeclaredYear: number | null;
   cfeAmountCents: number;
+  bankIban: string | null;
+  bankBic: string | null;
+  bankAccountHolder: string | null;
+  bankName: string | null;
   b2cActivity: boolean;
   incomeTaxReminderMonth: number;
   incomeTaxReminderDay: number;
@@ -39,6 +44,17 @@ type Settings = {
   quoteNumberTemplate: string;
   creditNoteNumberTemplate: string;
   numberCounterWidth: number;
+};
+
+type SmtpStatus = {
+  configured: boolean;
+  source: "db" | "env" | null;
+  host: string | null;
+  port: number | null;
+  secure: boolean;
+  user: string | null;
+  from: string | null;
+  hasPassword: boolean;
 };
 
 type NumberingPreview = {
@@ -96,6 +112,10 @@ const CHECKLIST_LABELS: Array<{ key: keyof Omit<Checklist, "id">; label: string 
   { key: "dedicatedBankAccount", label: "Compte bancaire dédié pro" },
 ];
 
+function settingsFingerprint(s: Settings): string {
+  return JSON.stringify(s);
+}
+
 export function SettingsPage() {
   const [settings, setSettings] = useState<Settings | null>(null);
   const [checklist, setChecklist] = useState<Checklist | null>(null);
@@ -106,74 +126,225 @@ export function SettingsPage() {
   const [clauseForm, setClauseForm] = useState({ title: "", body: "", kind: "CUSTOM" });
   const [previews, setPreviews] = useState<NumberingPreview[]>([]);
   const [audit, setAudit] = useState<NumberingAudit | null>(null);
+  const [smtp, setSmtp] = useState<SmtpStatus | null>(null);
+  const [smtpForm, setSmtpForm] = useState({
+    host: "",
+    port: "587",
+    secure: false,
+    user: "",
+    pass: "",
+    from: "",
+  });
+  const [smtpBusy, setSmtpBusy] = useState(false);
+  const savedFingerprint = useRef<string | null>(null);
+  const smtpSavedFingerprint = useRef<string | null>(null);
+  const settingsRef = useRef<Settings | null>(null);
+  const smtpFormRef = useRef(smtpForm);
+  const savingSettings = useRef(false);
+  const savingSmtp = useRef(false);
+
+  settingsRef.current = settings;
+  smtpFormRef.current = smtpForm;
+
+  function applySettings(next: Settings, markSaved: boolean) {
+    setSettings(next);
+    if (markSaved) {
+      savedFingerprint.current = settingsFingerprint(next);
+    }
+  }
+
+  function isSettingsDirty(next = settingsRef.current): boolean {
+    if (!next || savedFingerprint.current === null) return false;
+    return settingsFingerprint(next) !== savedFingerprint.current;
+  }
+
+  function settingsBlurHandlers(): Pick<InputHTMLAttributes<HTMLInputElement>, "onBlur" | "onKeyDown"> {
+    return {
+      onBlur: () => {
+        void flushSettingsSave();
+      },
+      onKeyDown: (e) => {
+        if (e.key === "Enter") {
+          e.preventDefault();
+          e.currentTarget.blur();
+        }
+      },
+    };
+  }
+
+  async function flushSettingsSave() {
+    const current = settingsRef.current;
+    if (!current || savingSettings.current || !isSettingsDirty(current)) return;
+    await persistSettings(current);
+  }
+
+  function patchSettingsAndSave(patch: Partial<Settings>) {
+    if (!settings) return;
+    const next = { ...settings, ...patch };
+    setSettings(next);
+    void persistSettings(next);
+  }
+
+  function smtpFingerprint(form: typeof smtpForm): string {
+    return JSON.stringify(form);
+  }
+
+  function smtpBlurHandlers(): Pick<InputHTMLAttributes<HTMLInputElement>, "onBlur" | "onKeyDown"> {
+    return {
+      onBlur: () => {
+        void flushSmtpSave();
+      },
+      onKeyDown: (e) => {
+        if (e.key === "Enter") {
+          e.preventDefault();
+          e.currentTarget.blur();
+        }
+      },
+    };
+  }
+
+  async function flushSmtpSave() {
+    const form = smtpFormRef.current;
+    if (savingSmtp.current) return;
+    if (smtpSavedFingerprint.current === null) return;
+    if (smtpFingerprint(form) === smtpSavedFingerprint.current) return;
+    await persistSmtp(form);
+  }
 
   async function load() {
-    const [s, c, cl, prev] = await Promise.all([
+    const [s, c, cl, prev, smtpStatus] = await Promise.all([
       api<Settings>("/api/settings"),
       api<Checklist>("/api/checklist"),
       api<LegalClause[]>("/api/legal-clauses"),
       api<{ previews: NumberingPreview[] }>("/api/numbering/preview"),
+      api<SmtpStatus>("/api/settings/smtp").catch(() => null),
     ]);
-    setSettings(s);
+    applySettings(s, true);
     setChecklist(c);
     setClauses(cl);
     setPreviews(prev.previews);
     setInpiQuery(s.inpiUrl || s.siren || "");
+    if (smtpStatus) {
+      setSmtp(smtpStatus);
+      const loaded = {
+        host: smtpStatus.host ?? "",
+        port: String(smtpStatus.port ?? 587),
+        secure: smtpStatus.secure,
+        user: smtpStatus.user ?? "",
+        pass: "",
+        from: smtpStatus.from ?? "",
+      };
+      setSmtpForm(loaded);
+      smtpSavedFingerprint.current = smtpFingerprint(loaded);
+    } else {
+      smtpSavedFingerprint.current = smtpFingerprint(smtpFormRef.current);
+    }
   }
 
   useEffect(() => {
     load().catch((e: Error) => toast.error(e.message));
   }, []);
 
-  async function save(e: FormEvent) {
-    e.preventDefault();
-    if (!settings) return;
+  async function persistSettings(next: Settings) {
+    if (savingSettings.current) return;
+    savingSettings.current = true;
     setBusy(true);
+    const payloadFingerprint = settingsFingerprint(next);
     try {
       const updated = await api<Settings>("/api/settings", {
         method: "PATCH",
         body: JSON.stringify({
-          legalName: settings.legalName,
-          tradeName: settings.tradeName,
-          siren: settings.siren,
-          siret: settings.siret,
-          apeCode: settings.apeCode,
-          addressLine1: settings.addressLine1,
-          addressLine2: settings.addressLine2,
-          postalCode: settings.postalCode,
-          city: settings.city,
-          country: settings.country,
-          email: settings.email,
-          phone: settings.phone,
-          website: settings.website,
-          urssafPeriodicity: settings.urssafPeriodicity,
-          treasuryRateBps: settings.treasuryRateBps,
-          placementRateBps: settings.placementRateBps,
-          reminderQuoteDays: settings.reminderQuoteDays,
-          reminderInvoiceDays: settings.reminderInvoiceDays,
-          publicTrackingShowAmounts: settings.publicTrackingShowAmounts,
-          businessStartDate: settings.businessStartDate
-            ? settings.businessStartDate.slice(0, 10)
+          legalName: next.legalName,
+          tradeName: next.tradeName,
+          siren: next.siren,
+          siret: next.siret,
+          apeCode: next.apeCode,
+          addressLine1: next.addressLine1,
+          addressLine2: next.addressLine2,
+          postalCode: next.postalCode,
+          city: next.city,
+          country: next.country,
+          email: next.email,
+          phone: next.phone,
+          website: next.website,
+          urssafPeriodicity: next.urssafPeriodicity,
+          treasuryRateBps: next.treasuryRateBps,
+          placementRateBps: next.placementRateBps,
+          reminderQuoteDays: next.reminderQuoteDays,
+          reminderInvoiceDays: next.reminderInvoiceDays,
+          publicTrackingShowAmounts: next.publicTrackingShowAmounts,
+          businessStartDate: next.businessStartDate
+            ? next.businessStartDate.slice(0, 10)
             : null,
-          cfeAmountCents: settings.cfeAmountCents,
-          b2cActivity: settings.b2cActivity,
-          incomeTaxReminderMonth: settings.incomeTaxReminderMonth,
-          incomeTaxReminderDay: settings.incomeTaxReminderDay,
-          inpiUrl: settings.inpiUrl,
-          invoiceNumberTemplate: settings.invoiceNumberTemplate,
-          quoteNumberTemplate: settings.quoteNumberTemplate,
-          creditNoteNumberTemplate: settings.creditNoteNumberTemplate,
-          numberCounterWidth: settings.numberCounterWidth,
+          rneRegistrationDate: next.rneRegistrationDate
+            ? next.rneRegistrationDate.slice(0, 10)
+            : null,
+          lastIncomeTaxDeclaredYear: next.lastIncomeTaxDeclaredYear,
+          cfeAmountCents: next.cfeAmountCents,
+          bankIban: next.bankIban,
+          bankBic: next.bankBic,
+          bankAccountHolder: next.bankAccountHolder,
+          bankName: next.bankName,
+          b2cActivity: next.b2cActivity,
+          incomeTaxReminderMonth: next.incomeTaxReminderMonth,
+          incomeTaxReminderDay: next.incomeTaxReminderDay,
+          inpiUrl: next.inpiUrl,
+          invoiceNumberTemplate: next.invoiceNumberTemplate,
+          quoteNumberTemplate: next.quoteNumberTemplate,
+          creditNoteNumberTemplate: next.creditNoteNumberTemplate,
+          numberCounterWidth: next.numberCounterWidth,
         }),
       });
-      setSettings(updated);
+      setSettings((prev) => (prev ? { ...prev, ...updated } : updated));
+      savedFingerprint.current = payloadFingerprint;
       const prev = await api<{ previews: NumberingPreview[] }>("/api/numbering/preview");
       setPreviews(prev.previews);
-      toast.success("Paramètres enregistrés");
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Erreur");
     } finally {
+      savingSettings.current = false;
       setBusy(false);
+    }
+  }
+
+  async function persistSmtp(form: typeof smtpForm) {
+    if (savingSmtp.current) return;
+    savingSmtp.current = true;
+    setSmtpBusy(true);
+    try {
+      const status = await api<SmtpStatus>("/api/settings/smtp", {
+        method: "PATCH",
+        body: JSON.stringify({
+          host: form.host || null,
+          port: Number(form.port) || 587,
+          secure: form.secure,
+          user: form.user || null,
+          pass: form.pass || null,
+          from: form.from || null,
+          keepPassword: !form.pass,
+        }),
+      });
+      setSmtp(status);
+      const cleared = { ...form, pass: "" };
+      setSmtpForm(cleared);
+      smtpSavedFingerprint.current = smtpFingerprint(cleared);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Erreur SMTP");
+    } finally {
+      savingSmtp.current = false;
+      setSmtpBusy(false);
+    }
+  }
+
+  async function testSmtp() {
+    setSmtpBusy(true);
+    try {
+      await api("/api/settings/smtp/test", { method: "POST", body: "{}" });
+      toast.success("Email de test envoyé (vérifiez votre boîte / Mailpit)");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Échec du test");
+    } finally {
+      setSmtpBusy(false);
     }
   }
 
@@ -187,7 +358,7 @@ export function SettingsPage() {
         method: "POST",
         body: JSON.stringify({ query: inpiQuery }),
       });
-      setSettings(res.settings);
+      applySettings(res.settings, true);
       for (const w of res.import.warnings) toast.message(w);
       toast.success("Identité mise à jour depuis l'open data / INPI");
     } catch (e) {
@@ -266,18 +437,57 @@ export function SettingsPage() {
 
   if (!settings) return <p className="text-sm text-[var(--muted)]">Chargement…</p>;
 
+  function SettingsInput({ onBlur, onKeyDown, ...props }: InputHTMLAttributes<HTMLInputElement>) {
+    const handlers = settingsBlurHandlers();
+    return (
+      <Input
+        {...props}
+        onBlur={(e) => {
+          handlers.onBlur?.(e);
+          onBlur?.(e);
+        }}
+        onKeyDown={(e) => {
+          handlers.onKeyDown?.(e);
+          onKeyDown?.(e);
+        }}
+      />
+    );
+  }
+
+  function SmtpInput({ onBlur, onKeyDown, ...props }: InputHTMLAttributes<HTMLInputElement>) {
+    const handlers = smtpBlurHandlers();
+    return (
+      <Input
+        {...props}
+        onBlur={(e) => {
+          handlers.onBlur?.(e);
+          onBlur?.(e);
+        }}
+        onKeyDown={(e) => {
+          handlers.onKeyDown?.(e);
+          onKeyDown?.(e);
+        }}
+      />
+    );
+  }
+
   return (
     <div>
       <PageHeader
-        title="Paramètres"
-        subtitle="Identité, obligations, conditions légales et trésorerie"
+        title="Réglages"
+        subtitle="Mon entreprise, mes déclarations, mes documents"
+        actions={
+          busy || smtpBusy ? (
+            <span className="text-xs text-[var(--muted)]">Enregistrement…</span>
+          ) : null
+        }
       />
 
-      <form onSubmit={save} className="space-y-8">
+      <div className="space-y-8">
         {/* 1. Identité */}
         <section className="space-y-4">
-          <h2 className="text-base font-semibold">1. Identité entreprise</h2>
-          <Card className="space-y-4 border border-gray-200 p-5">
+          <h2 className="text-base font-semibold">Mon entreprise</h2>
+          <Card className="space-y-4 border border-[var(--border)] p-5">
             <div className="flex flex-wrap gap-2">
               <Input
                 className="min-w-[240px] flex-1"
@@ -294,78 +504,95 @@ export function SettingsPage() {
             </p>
             <div className="grid gap-4 sm:grid-cols-2">
               <Field label="Nom légal">
-                <Input
+                <SettingsInput
                   required
                   value={settings.legalName}
                   onChange={(e) => setSettings({ ...settings, legalName: e.target.value })}
                 />
               </Field>
               <Field label="Nom commercial">
-                <Input
+                <SettingsInput
                   value={settings.tradeName ?? ""}
                   onChange={(e) => setSettings({ ...settings, tradeName: e.target.value || null })}
                 />
               </Field>
               <Field label="SIREN">
-                <Input
+                <SettingsInput
                   required
                   value={settings.siren}
                   onChange={(e) => setSettings({ ...settings, siren: e.target.value })}
                 />
               </Field>
               <Field label="SIRET">
-                <Input
+                <SettingsInput
                   required
                   value={settings.siret}
                   onChange={(e) => setSettings({ ...settings, siret: e.target.value })}
                 />
               </Field>
               <Field label="APE">
-                <Input
+                <SettingsInput
                   required
                   value={settings.apeCode}
                   onChange={(e) => setSettings({ ...settings, apeCode: e.target.value })}
                 />
               </Field>
+              <Field label="Immatriculation RNE">
+                <SettingsInput
+                  type="date"
+                  value={settings.rneRegistrationDate?.slice(0, 10) ?? ""}
+                  onChange={(e) =>
+                    setSettings({ ...settings, rneRegistrationDate: e.target.value || null })
+                  }
+                />
+                <p className="mt-1 text-xs text-[var(--muted)]">
+                  Date d&apos;immatriculation au registre (INPI). Remplie automatiquement à
+                  l&apos;import open data.
+                </p>
+              </Field>
               <Field label="Début d'activité">
-                <Input
+                <SettingsInput
                   type="date"
                   value={settings.businessStartDate?.slice(0, 10) ?? ""}
                   onChange={(e) =>
                     setSettings({ ...settings, businessStartDate: e.target.value || null })
                   }
                 />
+                <p className="mt-1 text-xs text-[var(--muted)]">
+                  Date réelle de début d&apos;activité (souvent = 1er jour facturé). Utilisée pour
+                  CFE, URSSAF et réserves. Import INPI : champ « début d&apos;activité » du siège.
+                </p>
               </Field>
               <Field label="Adresse" className="sm:col-span-2">
-                <Input
+                <SettingsInput
                   required
                   value={settings.addressLine1}
                   onChange={(e) => setSettings({ ...settings, addressLine1: e.target.value })}
                 />
               </Field>
               <Field label="Code postal">
-                <Input
+                <SettingsInput
                   required
                   value={settings.postalCode}
                   onChange={(e) => setSettings({ ...settings, postalCode: e.target.value })}
                 />
               </Field>
               <Field label="Ville">
-                <Input
+                <SettingsInput
                   required
                   value={settings.city}
                   onChange={(e) => setSettings({ ...settings, city: e.target.value })}
                 />
               </Field>
               <Field label="Email">
-                <Input
+                <SettingsInput
                   type="email"
                   value={settings.email ?? ""}
                   onChange={(e) => setSettings({ ...settings, email: e.target.value || null })}
                 />
               </Field>
               <Field label="Téléphone">
-                <Input
+                <SettingsInput
                   value={settings.phone ?? ""}
                   onChange={(e) => setSettings({ ...settings, phone: e.target.value || null })}
                 />
@@ -375,10 +602,51 @@ export function SettingsPage() {
           </Card>
         </section>
 
+        <section className="space-y-4">
+          <h2 className="text-base font-semibold">Coordonnées bancaires (encaissement)</h2>
+          <Card className="grid gap-4 border border-[var(--border)] p-5 sm:grid-cols-2">
+            <p className="text-xs text-[var(--muted)] sm:col-span-2">
+              Affichées sur les factures PDF et le suivi client pour que vos clients puissent vous
+              régler par virement. Utilisez l&apos;IBAN de votre compte Revolut Business (ou autre
+              compte pro).
+            </p>
+            <Field label="Titulaire">
+              <SettingsInput
+                placeholder="Alexandre Kouziaeff"
+                value={settings.bankAccountHolder ?? ""}
+                onChange={(e) =>
+                  setSettings({ ...settings, bankAccountHolder: e.target.value || null })
+                }
+              />
+            </Field>
+            <Field label="Banque">
+              <SettingsInput
+                placeholder="Revolut"
+                value={settings.bankName ?? ""}
+                onChange={(e) => setSettings({ ...settings, bankName: e.target.value || null })}
+              />
+            </Field>
+            <Field label="IBAN">
+              <SettingsInput
+                placeholder="FR76 …"
+                value={settings.bankIban ?? ""}
+                onChange={(e) => setSettings({ ...settings, bankIban: e.target.value || null })}
+              />
+            </Field>
+            <Field label="BIC">
+              <SettingsInput
+                placeholder="REVOFRP2"
+                value={settings.bankBic ?? ""}
+                onChange={(e) => setSettings({ ...settings, bankBic: e.target.value || null })}
+              />
+            </Field>
+          </Card>
+        </section>
+
         {/* 2. Obligations */}
         <section className="space-y-4">
-          <h2 className="text-base font-semibold">2. Obligations & déclarations</h2>
-          <Card className="space-y-4 border border-gray-200 p-5">
+          <h2 className="text-base font-semibold">Déclarations et cotisations</h2>
+          <Card className="space-y-4 border border-[var(--border)] p-5">
             <p className="text-xs text-[var(--muted)]">
               URSSAF : avant le <strong>15</strong> du mois suivant (ou du mois suivant la fin de
               trimestre). CFE : avant le <strong>15 décembre</strong> de l&apos;année en cours.
@@ -387,16 +655,14 @@ export function SettingsPage() {
               <Field label="Périodicité URSSAF">
                 <Select
                   value={settings.urssafPeriodicity}
-                  onChange={(e) =>
-                    setSettings({ ...settings, urssafPeriodicity: e.target.value })
-                  }
+                  onChange={(e) => patchSettingsAndSave({ urssafPeriodicity: e.target.value })}
                 >
                   <option value="MONTHLY">Mensuelle</option>
                   <option value="QUARTERLY">Trimestrielle</option>
                 </Select>
               </Field>
               <Field label="Montant CFE (€)">
-                <Input
+                <SettingsInput
                   type="number"
                   step="0.01"
                   min={0}
@@ -411,7 +677,7 @@ export function SettingsPage() {
               </Field>
               <Field label="Rappel impôts (jj/mm)">
                 <div className="flex gap-2">
-                  <Input
+                  <SettingsInput
                     type="number"
                     min={1}
                     max={28}
@@ -423,7 +689,7 @@ export function SettingsPage() {
                       })
                     }
                   />
-                  <Input
+                  <SettingsInput
                     type="number"
                     min={1}
                     max={12}
@@ -437,17 +703,38 @@ export function SettingsPage() {
                   />
                 </div>
               </Field>
+              <Field label="Revenus déjà déclarés (année des revenus)">
+                <SettingsInput
+                  type="number"
+                  min={2000}
+                  max={2100}
+                  placeholder="2025"
+                  value={settings.lastIncomeTaxDeclaredYear ?? ""}
+                  onChange={(e) =>
+                    setSettings({
+                      ...settings,
+                      lastIncomeTaxDeclaredYear: e.target.value
+                        ? Number(e.target.value)
+                        : null,
+                    })
+                  }
+                />
+                <p className="mt-1 text-xs text-[var(--muted)]">
+                  Année des revenus déjà déclarés (ex. 2025 si déclaré en 2026). Prochaine échéance :
+                  revenus {new Date().getFullYear()} à déclarer en {new Date().getFullYear() + 1}.
+                </p>
+              </Field>
             </div>
             <label className="flex items-center gap-2 text-sm">
               <input
                 type="checkbox"
                 checked={settings.b2cActivity}
-                onChange={(e) => setSettings({ ...settings, b2cActivity: e.target.checked })}
+                onChange={(e) => patchSettingsAndSave({ b2cActivity: e.target.checked })}
               />
               Je facture des particuliers (rappel médiation)
             </label>
             {checklist ? (
-              <div className="border-t border-gray-200 pt-4">
+              <div className="border-t border-[var(--border)] pt-4">
                 <p className="mb-2 text-sm font-medium">Checklist post-création</p>
                 <ul className="grid gap-2 sm:grid-cols-2">
                   {CHECKLIST_LABELS.map(({ key, label }) => (
@@ -470,15 +757,15 @@ export function SettingsPage() {
 
         {/* 3. Numérotation */}
         <section className="space-y-4">
-          <h2 className="text-base font-semibold">3. Numérotation des documents</h2>
-          <Card className="space-y-4 border border-gray-200 p-5">
+          <h2 className="text-base font-semibold">Numérotation des documents</h2>
+          <Card className="space-y-4 border border-[var(--border)] p-5">
             <p className="text-xs text-[var(--muted)]">
               Variables : {"{prefix}"}, {"{year}"}, {"{counter}"}. Attribution uniquement à
               l&apos;émission. Séries distinctes : factures (dont acomptes), devis, avoirs.
             </p>
             <div className="grid gap-4 sm:grid-cols-2">
               <Field label="Template factures">
-                <Input
+                <SettingsInput
                   value={settings.invoiceNumberTemplate}
                   onChange={(e) =>
                     setSettings({ ...settings, invoiceNumberTemplate: e.target.value })
@@ -486,7 +773,7 @@ export function SettingsPage() {
                 />
               </Field>
               <Field label="Template devis">
-                <Input
+                <SettingsInput
                   value={settings.quoteNumberTemplate}
                   onChange={(e) =>
                     setSettings({ ...settings, quoteNumberTemplate: e.target.value })
@@ -494,7 +781,7 @@ export function SettingsPage() {
                 />
               </Field>
               <Field label="Template avoirs">
-                <Input
+                <SettingsInput
                   value={settings.creditNoteNumberTemplate}
                   onChange={(e) =>
                     setSettings({
@@ -505,7 +792,7 @@ export function SettingsPage() {
                 />
               </Field>
               <Field label="Largeur compteur">
-                <Input
+                <SettingsInput
                   type="number"
                   min={1}
                   max={8}
@@ -523,7 +810,7 @@ export function SettingsPage() {
               {previews.map((p) => (
                 <div
                   key={`${p.series}-${p.year}`}
-                  className="rounded-md border border-gray-200 bg-[var(--bg)] px-3 py-2"
+                  className="rounded-md border border-[var(--border)] bg-[var(--bg)] px-3 py-2"
                 >
                   <p className="text-xs text-[var(--muted)]">
                     {p.series} · {p.year}
@@ -545,8 +832,8 @@ export function SettingsPage() {
               <div
                 className={`rounded-md border px-3 py-2 text-xs ${
                   audit.ok
-                    ? "border-green-200 bg-green-50 text-green-900"
-                    : "border-red-200 bg-red-50 text-red-900"
+                    ? "border-[var(--success)]/30 bg-[var(--success-soft)] text-[var(--success)]"
+                    : "border-[var(--danger)]/30 bg-[var(--danger-soft)] text-[var(--danger)]"
                 }`}
               >
                 <p className="font-medium">
@@ -574,7 +861,7 @@ export function SettingsPage() {
         {/* 4. Conditions légales */}
         <section className="space-y-4">
           <div className="flex items-center justify-between gap-2">
-            <h2 className="text-base font-semibold">4. Conditions générales (PDF)</h2>
+            <h2 className="text-base font-semibold">Conditions générales (PDF)</h2>
             <Button
               type="button"
               variant="secondary"
@@ -587,7 +874,7 @@ export function SettingsPage() {
               Ajouter
             </Button>
           </div>
-          <Card className="divide-y divide-gray-200 border border-gray-200">
+          <Card className="divide-y divide-[var(--border)] border border-[var(--border)]">
             {clauses.map((c) => (
               <div key={c.id} className="flex flex-wrap items-start justify-between gap-3 p-4">
                 <div className="min-w-0 flex-1">
@@ -629,10 +916,10 @@ export function SettingsPage() {
 
         {/* 5. Trésorerie & divers */}
         <section className="space-y-4">
-          <h2 className="text-base font-semibold">5. Trésorerie & relances</h2>
-          <Card className="grid gap-4 border border-gray-200 p-5 sm:grid-cols-2">
-            <Field label="Enveloppe frais (bps)">
-              <Input
+          <h2 className="text-base font-semibold">Trésorerie et relances</h2>
+          <Card className="grid gap-4 border border-[var(--border)] p-5 sm:grid-cols-2">
+            <Field label="Enveloppe trésorerie entreprise (bps)" hint="Part des encaissements à garder sur le compte pro (hors URSSAF et placements). 1420 = 14,2 %">
+              <SettingsInput
                 type="number"
                 value={settings.treasuryRateBps}
                 onChange={(e) =>
@@ -641,7 +928,7 @@ export function SettingsPage() {
               />
             </Field>
             <Field label="Enveloppe placements (bps)">
-              <Input
+              <SettingsInput
                 type="number"
                 value={settings.placementRateBps}
                 onChange={(e) =>
@@ -650,7 +937,7 @@ export function SettingsPage() {
               />
             </Field>
             <Field label="Relance devis (j)">
-              <Input
+              <SettingsInput
                 type="number"
                 value={settings.reminderQuoteDays}
                 onChange={(e) =>
@@ -659,7 +946,7 @@ export function SettingsPage() {
               />
             </Field>
             <Field label="Relance facture (j)">
-              <Input
+              <SettingsInput
                 type="number"
                 value={settings.reminderInvoiceDays}
                 onChange={(e) =>
@@ -672,10 +959,7 @@ export function SettingsPage() {
                 type="checkbox"
                 checked={settings.publicTrackingShowAmounts}
                 onChange={(e) =>
-                  setSettings({
-                    ...settings,
-                    publicTrackingShowAmounts: e.target.checked,
-                  })
+                  patchSettingsAndSave({ publicTrackingShowAmounts: e.target.checked })
                 }
               />
               Afficher les montants sur le suivi public client
@@ -683,12 +967,79 @@ export function SettingsPage() {
           </Card>
         </section>
 
-        <div className="flex justify-end">
-          <Button type="submit" disabled={busy}>
-            {busy ? "Enregistrement…" : "Enregistrer"}
-          </Button>
-        </div>
-      </form>
+        <section className="space-y-4">
+          <h2 className="text-base font-semibold">Envoi d&apos;emails (SMTP)</h2>
+          <Card className="space-y-4 border border-[var(--border)] p-5">
+            <p className="text-xs text-[var(--muted)]">
+              {smtp?.configured
+                ? `SMTP actif (source : ${smtp.source === "db" ? "paramètres" : "fichier .env"})`
+                : "SMTP non configuré. Les emails ne partiront pas tant que ces champs (ou le .env) ne sont pas renseignés."}
+            </p>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <Field label="Hôte">
+                <SmtpInput
+                  placeholder="127.0.0.1 ou smtp.exemple.fr"
+                  value={smtpForm.host}
+                  onChange={(e) => setSmtpForm({ ...smtpForm, host: e.target.value })}
+                />
+              </Field>
+              <Field label="Port">
+                <SmtpInput
+                  type="number"
+                  value={smtpForm.port}
+                  onChange={(e) => setSmtpForm({ ...smtpForm, port: e.target.value })}
+                />
+              </Field>
+              <Field label="Utilisateur">
+                <SmtpInput
+                  value={smtpForm.user}
+                  onChange={(e) => setSmtpForm({ ...smtpForm, user: e.target.value })}
+                />
+              </Field>
+              <Field label="Mot de passe">
+                <SmtpInput
+                  type="password"
+                  placeholder={smtp?.hasPassword ? "•••••••• (inchangé si vide)" : ""}
+                  value={smtpForm.pass}
+                  onChange={(e) => setSmtpForm({ ...smtpForm, pass: e.target.value })}
+                  autoComplete="new-password"
+                />
+              </Field>
+              <Field label="Expéditeur (From)" className="sm:col-span-2">
+                <SmtpInput
+                  placeholder='Kouzia <contact@exemple.fr>'
+                  value={smtpForm.from}
+                  onChange={(e) => setSmtpForm({ ...smtpForm, from: e.target.value })}
+                />
+              </Field>
+            </div>
+            <label className="flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={smtpForm.secure}
+                onChange={(e) => {
+                  const next = { ...smtpForm, secure: e.target.checked };
+                  setSmtpForm(next);
+                  void persistSmtp(next);
+                }}
+              />
+              Connexion sécurisée (TLS / port 465)
+            </label>
+            <div className="flex flex-wrap gap-2">
+              <Button
+                type="button"
+                variant="secondary"
+                disabled={smtpBusy}
+                onClick={() => void testSmtp()}
+              >
+                Envoyer un email de test
+              </Button>
+            </div>
+          </Card>
+        </section>
+      </div>
+
+      <PayoutBeneficiaryCard />
 
       <Modal
         open={clauseModal !== null}
@@ -720,5 +1071,108 @@ export function SettingsPage() {
         </form>
       </Modal>
     </div>
+  );
+}
+
+type PayoutStatus = {
+  enabled: boolean;
+  hasBeneficiary: boolean;
+  beneficiaryLabel: string | null;
+};
+
+/**
+ * Compte personnel vers lequel le virement de rémunération est préparé.
+ * L'IBAN est chiffré en base et jamais renvoyé : on ne peut que le remplacer.
+ */
+function PayoutBeneficiaryCard() {
+  const [status, setStatus] = useState<PayoutStatus | null>(null);
+  const [label, setLabel] = useState("Compte personnel");
+  const [name, setName] = useState("");
+  const [iban, setIban] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  async function load() {
+    setStatus(await api<PayoutStatus>("/api/payouts/status"));
+  }
+
+  useEffect(() => {
+    load().catch(() => setStatus(null));
+  }, []);
+
+  async function save(e: FormEvent) {
+    e.preventDefault();
+    const cleanIban = iban.replace(/\s+/g, "").toUpperCase();
+    if (cleanIban.length < 15) {
+      toast.error("IBAN trop court");
+      return;
+    }
+    setBusy(true);
+    try {
+      await api("/api/payouts/beneficiary", {
+        method: "PUT",
+        body: JSON.stringify({ label: label.trim(), name: name.trim(), iban: cleanIban }),
+      });
+      toast.success("Compte enregistré");
+      setName("");
+      setIban("");
+      await load();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Erreur");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (!status) return null;
+
+  return (
+    <section className="mt-8 space-y-4">
+      <h2 className="text-base font-semibold">Virement de rémunération</h2>
+      <Card className="space-y-4 border border-[var(--border)] p-5">
+        <p className="text-sm text-[var(--muted)]">
+          {status.hasBeneficiary
+            ? `Compte enregistré : ${status.beneficiaryLabel}. Le titulaire et l'IBAN sont chiffrés, ils ne peuvent qu'être remplacés.`
+            : "Aucun compte enregistré. Remplissez le formulaire ci-dessous puis cliquez sur Enregistrer."}
+        </p>
+        {!status.enabled ? (
+          <p className="text-sm text-[var(--warning)]">
+            Fonction désactivée : ajoutez{" "}
+            <code className="rounded bg-[var(--surface-raised)] px-1">REVOLUT_PAYOUT_ENABLED=true</code>{" "}
+            dans le fichier <code className="rounded bg-[var(--surface-raised)] px-1">.env</code>,
+            puis redémarrez l&apos;API. Le bouton « Virer mon salaire » apparaîtra sur l&apos;accueil.
+          </p>
+        ) : null}
+        <form onSubmit={save} className="grid gap-4 sm:grid-cols-2">
+          <Field label="Libellé">
+            <Input value={label} onChange={(e) => setLabel(e.target.value)} required />
+          </Field>
+          <Field label="Titulaire du compte">
+            <Input
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="Nom et prénom"
+              required
+            />
+          </Field>
+          <Field label="IBAN">
+            <Input
+              value={iban}
+              onChange={(e) => setIban(e.target.value)}
+              placeholder="FR76 ..."
+              required
+            />
+          </Field>
+          <div className="flex items-end justify-end sm:col-span-2">
+            <Button type="submit" disabled={busy}>
+              {busy
+                ? "Enregistrement…"
+                : status.hasBeneficiary
+                  ? "Remplacer le compte"
+                  : "Enregistrer le compte"}
+            </Button>
+          </div>
+        </form>
+      </Card>
+    </section>
   );
 }

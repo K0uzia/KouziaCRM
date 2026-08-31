@@ -22,7 +22,7 @@ type Payment = {
     totalCents: number;
     status: string;
     client: { displayName: string };
-  };
+  } | null;
 };
 
 type InvoiceOpt = {
@@ -80,27 +80,32 @@ export function PaymentsPage() {
     },
     {
       name: "Facture",
-      selector: (p) => p.invoice.number ?? "",
+      selector: (p) => p.invoice?.number ?? "",
       sortable: true,
       width: "150px",
-      cell: (p) => (
-        <Link
-          to={`/invoices/${p.invoice.id}`}
-          className="font-medium text-[var(--primary)] hover:underline"
-        >
-          {p.invoice.number ?? "-"}
-        </Link>
-      ),
+      cell: (p) =>
+        p.invoice ? (
+          <Link
+            to={`/invoices/${p.invoice.id}`}
+            className="font-medium text-[var(--primary)] hover:underline"
+          >
+            {p.invoice.number ?? "-"}
+          </Link>
+        ) : (
+          <span className="text-[var(--muted)]">Sans facture</span>
+        ),
     },
     {
       name: "Client",
-      selector: (p) => p.invoice.client.displayName,
+      selector: (p) => p.invoice?.client.displayName ?? "",
       sortable: true,
       grow: 2,
-      minWidth: "180px",
       cell: (p) => (
-        <span className="block truncate" title={p.invoice.client.displayName}>
-          {p.invoice.client.displayName}
+        <span
+          className="block truncate"
+          title={p.invoice?.client.displayName ?? "Client non identifié"}
+        >
+          {p.invoice?.client.displayName ?? "Client non identifié"}
         </span>
       ),
     },
@@ -126,8 +131,8 @@ export function PaymentsPage() {
   return (
     <div>
       <PageHeader
-        title="Paiements"
-        subtitle="Suivi des encaissements sur factures émises"
+        title="Encaissements"
+        subtitle="Qui a payé, et combien"
         actions={
           <Button
             onClick={() => {
@@ -161,7 +166,7 @@ export function PaymentsPage() {
         data={payments}
         pagination
         perPage={25}
-        searchable={["invoice.number", "invoice.client.displayName", "method"]}
+        searchable={["invoice.number", "invoice.client.displayName", "method", "reference"]}
         searchPlaceholder="Rechercher un paiement…"
         emptyTitle="Aucun paiement"
         emptyHint="Enregistrez un encaissement depuis une facture émise."

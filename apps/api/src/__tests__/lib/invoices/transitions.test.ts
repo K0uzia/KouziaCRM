@@ -7,7 +7,15 @@ import {
   SubscriptionStatus,
 } from "@prisma/client";
 import { prisma } from "@/lib/prisma.js";
-import { issueInvoice, issueQuote, convertQuoteToInvoice } from "@/lib/invoices/transitions.js";
+import {
+  issueInvoice,
+  issueQuote,
+  convertQuoteToInvoice,
+  rejectQuote,
+  acceptQuoteByClient,
+  repairQuotesMissingNumbers,
+  QuoteDecisionError,
+} from "@/lib/invoices/transitions.js";
 import { resetDb } from "../../helpers/db.js";
 import {
   seedCompanySettings,
@@ -270,5 +278,100 @@ describe("convertQuoteToInvoice", () => {
     await expect(convertQuoteToInvoice(quoteId)).rejects.toThrow(
       /Devis non convertible/,
     );
+  });
+});
+
+describe("décision du client sur un devis", () => {
+  async function issuedQuote(): Promise<string> {
+    const client = await createClient();
+    const quoteId = await createDraftInvoice({
+      documentType: InvoiceDocumentType.QUOTE,
+      clientId: client.id,
+      lines: [{ description: "Mission", unitPriceCents: 100000 }],
+    });
+    await issueQuote(quoteId, new Date(2026, 5, 15));
+    return quoteId;
+  }
+
+  it("refuse un devis envoyé, le clôt et conserve le motif", async () => {
+    const quoteId = await issuedQuote();
+    const rejected = await rejectQuote(quoteId, "  Budget trop élevé  ");
+
+    expect(rejected.quoteStatus).toBe(QuoteStatus.REJECTED);
+    expect(rejected.status).toBe(InvoiceStatus.CANCELLED);
+    expect(rejected.quoteRejectReason).toBe("Budget trop élevé");
+    expect(rejected.quoteDecidedAt).toBeTruthy();
+  });
+
+  it("laisse le motif vide quand aucun n'est saisi", async () => {
+    const quoteId = await issuedQuote();
+    const rejected = await rejectQuote(quoteId, "   ");
+    expect(rejected.quoteRejectReason).toBeNull();
+  });
+
+  it("interdit de facturer un devis refusé", async () => {
+    const quoteId = await issuedQuote();
+    await rejectQuote(quoteId);
+    await expect(convertQuoteToInvoice(quoteId)).rejects.toThrow(/non convertible/);
+  });
+
+  it("accepte un devis en ligne et enregistre le bon pour accord", async () => {
+    const quoteId = await issuedQuote();
+    const accepted = await acceptQuoteByClient(quoteId, " Camille Dupont ");
+
+    expect(accepted.quoteStatus).toBe(QuoteStatus.ACCEPTED);
+    expect(accepted.quoteSignerName).toBe("Camille Dupont");
+    // Le document reste émis : la facture est un geste distinct du dirigeant.
+    expect(accepted.status).toBe(InvoiceStatus.ISSUED);
+  });
+
+  it("permet de facturer un devis accepté par le client", async () => {
+    const quoteId = await issuedQuote();
+    await acceptQuoteByClient(quoteId, "Camille Dupont");
+    const invoice = await convertQuoteToInvoice(quoteId);
+    expect(invoice.documentType).toBe(InvoiceDocumentType.INVOICE);
+  });
+
+  it("refuse une seconde décision sur un devis déjà tranché", async () => {
+    const quoteId = await issuedQuote();
+    await acceptQuoteByClient(quoteId, "Camille Dupont");
+    await expect(rejectQuote(quoteId)).rejects.toThrow(QuoteDecisionError);
+  });
+
+  it("répare un devis accepté sans numéro", async () => {
+    const client = await createClient();
+    const quoteId = await createDraftInvoice({
+      documentType: InvoiceDocumentType.QUOTE,
+      clientId: client.id,
+      lines: [{ description: "Mission", unitPriceCents: 100000 }],
+    });
+    await prisma.invoice.update({
+      where: { id: quoteId },
+      data: { quoteStatus: QuoteStatus.ACCEPTED, status: InvoiceStatus.PAID },
+    });
+    const n = await repairQuotesMissingNumbers();
+    expect(n).toBeGreaterThanOrEqual(1);
+    const quote = await prisma.invoice.findUniqueOrThrow({ where: { id: quoteId } });
+    expect(quote.number).toMatch(/^D-\d{4}-\d+/);
+  });
+
+  it("refuse une décision sur un brouillon jamais envoyé", async () => {
+    const client = await createClient();
+    const quoteId = await createDraftInvoice({
+      documentType: InvoiceDocumentType.QUOTE,
+      clientId: client.id,
+      lines: [{ description: "Mission", unitPriceCents: 100000 }],
+    });
+    await expect(rejectQuote(quoteId)).rejects.toThrow(/envoyé/);
+  });
+
+  it("refuse une décision sur une facture", async () => {
+    const client = await createClient();
+    const invoiceId = await createDraftInvoice({
+      documentType: InvoiceDocumentType.INVOICE,
+      clientId: client.id,
+      lines: [{ description: "Mission", unitPriceCents: 100000 }],
+    });
+    await expect(rejectQuote(invoiceId)).rejects.toThrow(/n'est pas un devis/);
   });
 });

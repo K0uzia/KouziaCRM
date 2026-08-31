@@ -8,7 +8,9 @@ import {
   applyInvoiceMatch,
   applyOrphanPayment,
   buildSuggestionsForTx,
+  decideAutoMatch,
   ignoreBankTransaction,
+  listOpenInvoicesForMatch,
 } from "@/lib/revolut/reconciliationService.js";
 import {
   getLastPollAtMs,
@@ -96,6 +98,12 @@ export const bankRoutes: FastifyPluginAsync = async (app) => {
           }
         : null,
     };
+  });
+
+  app.get("/api/bank/open-invoices", async (request, reply) => {
+    await requireAuth(request, reply);
+    if (reply.sent) return;
+    return listOpenInvoicesForMatch();
   });
 
   app.get("/api/bank/transactions", async (request, reply) => {
@@ -277,5 +285,118 @@ export const bankRoutes: FastifyPluginAsync = async (app) => {
       unmatched: r.unmatched,
       errorMessage: r.errorMessage,
     }));
+  });
+
+  /** Simulation DEV : crée un virement entrant local (sans Revolut). */
+  app.post("/api/bank/simulate", async (request, reply) => {
+    await requireAuth(request, reply);
+    if (reply.sent) return;
+    if (process.env.NODE_ENV === "production") {
+      return reply.code(403).send({ error: "Simulation réservée au développement" });
+    }
+    const schema = z.object({
+      amountEuros: z.coerce.number().positive().max(1_000_000),
+      counterpartyName: z.string().min(1).max(120).optional(),
+      reference: z.string().max(200).optional().nullable(),
+      bookedAt: z.string().optional(),
+      /** Rapprochement direct sur une facture (DEV). */
+      invoiceId: z.string().min(1).optional(),
+      /** Si aucun rapprochement auto : créer un encaissement sans facture (DEV). */
+      orphanIfUnmatched: z.boolean().optional().default(false),
+    });
+    const parsed = schema.safeParse(request.body ?? {});
+    if (!parsed.success) {
+      return reply.code(400).send({ error: parsed.error.flatten() });
+    }
+    const amountCents = Math.round(parsed.data.amountEuros * 100);
+    const bookedAt = parsed.data.bookedAt
+      ? new Date(parsed.data.bookedAt)
+      : new Date();
+    const revolutId = `sim-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const suggestions = await buildSuggestionsForTx({
+      amountCents,
+      counterpartyName: parsed.data.counterpartyName ?? "Client simulation",
+      reference: parsed.data.reference ?? null,
+    }).catch(() => []);
+
+    const row = await prisma.bankTransaction.create({
+      data: {
+        revolutId,
+        bookedAt,
+        amountCents,
+        currency: "EUR",
+        counterpartyName: parsed.data.counterpartyName ?? "Client simulation",
+        reference: parsed.data.reference ?? `SIM-${new Date().toISOString().slice(0, 10)}`,
+        revolutState: "completed",
+        status: BankTxStatus.UNMATCHED,
+        suggestionsJson: suggestions.length ? JSON.stringify(suggestions) : null,
+      },
+    });
+
+    let autoMatched = false;
+    let paymentId: string | null = null;
+    let matchMode: "invoice" | "orphan" | null = null;
+
+    try {
+      if (parsed.data.invoiceId) {
+        const matched = await applyInvoiceMatch({
+          bankTxId: row.id,
+          invoiceId: parsed.data.invoiceId,
+          allowPartial: true,
+        });
+        autoMatched = true;
+        paymentId = matched.paymentId;
+        matchMode = "invoice";
+      } else {
+        const decision = await decideAutoMatch({
+          amountCents,
+          reference: parsed.data.reference ?? row.reference,
+          counterpartyName: row.counterpartyName,
+        });
+        if (decision.kind === "matched") {
+          const matched = await applyInvoiceMatch({
+            bankTxId: row.id,
+            invoiceId: decision.invoiceId,
+          });
+          autoMatched = true;
+          paymentId = matched.paymentId;
+          matchMode = "invoice";
+        } else if (parsed.data.orphanIfUnmatched) {
+          const matched = await applyOrphanPayment({
+            bankTxId: row.id,
+            notes: "Simulation DEV : encaissement sans facture",
+          });
+          autoMatched = true;
+          paymentId = matched.paymentId;
+          matchMode = "orphan";
+        }
+      }
+    } catch {
+      // La transaction reste UNMATCHED pour rapprochement manuel.
+    }
+
+    const final = await prisma.bankTransaction.findUnique({
+      where: { id: row.id },
+      include: { matchedInvoice: { select: { id: true, number: true } } },
+    });
+
+    await prisma.bankSyncLog.create({
+      data: {
+        startedAt: new Date(),
+        finishedAt: new Date(),
+        imported: 1,
+        updated: autoMatched ? 1 : 0,
+        matchedAuto: autoMatched ? 1 : 0,
+        unmatched: autoMatched ? 0 : 1,
+        errorMessage: null,
+      },
+    });
+
+    return {
+      ...serializeTx(final!),
+      autoMatched,
+      paymentId,
+      matchMode,
+    };
   });
 };

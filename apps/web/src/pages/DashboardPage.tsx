@@ -1,22 +1,26 @@
-import { useEffect, useMemo, useState } from "react";
+import { lazy, Suspense, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import {
-  Bar,
-  BarChart,
-  CartesianGrid,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from "recharts";
+  faCoins,
+  faWallet,
+  faBuildingColumns,
+  faFileInvoiceDollar,
+  faUsers,
+  faStar,
+  faChartLine,
+  faFilePen,
+  faBell,
+} from "@fortawesome/free-solid-svg-icons";
 import { toast } from "sonner";
 import { api, formatEUR } from "@/lib/api";
 import { formatDate } from "@/lib/format";
 import { Button } from "@/components/ui/Button";
-import { Card, PageHeader } from "@/components/ui/Card";
+import { Card, KpiCard, PageHeader, StatRow } from "@/components/ui/Card";
 import { Select } from "@/components/ui/Field";
 import { ObligationsReminder } from "@/components/obligations/ObligationsReminder";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
+
+const RevenueChart = lazy(() => import("@/components/dashboard/RevenueChart"));
 
 type DashboardData = {
   company: { legalName: string; tradeName: string | null };
@@ -24,10 +28,21 @@ type DashboardData = {
     totalEncaisseCents: number;
     urssafCents: number;
     fraisCents: number;
+    fraisBps: number;
     placementsCents: number;
+    cfeCents: number;
+    tresorerieCents: number;
+    tresorerieEtCfeCents: number;
     resteNetCents: number;
   };
-  chart: Array<{ label: string; ca: number; urssaf: number }>;
+  chart: Array<{
+    label: string;
+    ca: number;
+    urssaf: number;
+    tresorerie: number;
+    salaire: number;
+    cfe: number;
+  }>;
   echeance: {
     periodLabel: string;
     amountDueCents: number;
@@ -69,6 +84,7 @@ export function DashboardPage() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [payoutEnabled, setPayoutEnabled] = useState(false);
+  const [payoutHasBeneficiary, setPayoutHasBeneficiary] = useState(false);
   const [payoutConfirm, setPayoutConfirm] = useState(false);
   const [payoutBusy, setPayoutBusy] = useState(false);
 
@@ -81,7 +97,10 @@ export function DashboardPage() {
       api<DashboardData>(url),
       api<ReminderRow[]>("/api/reminders/pending").catch(() => [] as ReminderRow[]),
       api<MrrData>("/api/subscriptions/mrr").catch(() => null as MrrData | null),
-      api<{ enabled: boolean }>("/api/payouts/status").catch(() => ({ enabled: false })),
+      api<{ enabled: boolean; hasBeneficiary: boolean }>("/api/payouts/status").catch(() => ({
+        enabled: false,
+        hasBeneficiary: false,
+      })),
     ])
       .then(([d, r, m, p]) => {
         if (!cancelled) {
@@ -89,6 +108,7 @@ export function DashboardPage() {
           setReminders(r);
           if (m) setMrr(m);
           setPayoutEnabled(p.enabled);
+          setPayoutHasBeneficiary(p.hasBeneficiary);
           setError(null);
         }
       })
@@ -128,81 +148,61 @@ export function DashboardPage() {
     data.echeance &&
     data.echeance.status !== "PAID" &&
     data.echeance.amountDueCents > 0;
+  const pendingTotal = data.pendingWithBalance.reduce((s, i) => s + i.remaining, 0);
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-8">
       <PageHeader
-        title="Tableau de bord"
+        title="Accueil"
         subtitle={data.company.tradeName ?? data.company.legalName}
-        actions={
-          <Select
-            className="w-auto"
-            value={scope}
-            onChange={(e) => setScope(e.target.value)}
-          >
-            <option value="month">Ce mois</option>
-            <option value="quarter">Ce trimestre</option>
-            <option value="year">Cette année</option>
-          </Select>
-        }
       />
 
       <div className="flex flex-wrap gap-2">
-        <Link
-          to="/quotes"
-          className="inline-flex h-9 items-center rounded-[var(--radius)] border border-[var(--border-strong)] bg-white px-3 text-xs font-medium hover:bg-[var(--bg)]"
-        >
-          Nouveau devis
+        <Link to="/quotes?new=1">
+          <Button variant="secondary" className="h-9 px-4 text-xs">
+            Nouveau devis
+          </Button>
         </Link>
-        <Link
-          to="/invoices"
-          className="inline-flex h-9 items-center rounded-[var(--radius)] border border-[var(--border-strong)] bg-white px-3 text-xs font-medium hover:bg-[var(--bg)]"
-        >
-          Factures
+        <Link to="/payments">
+          <Button className="h-9 px-4 text-xs">Encaisser</Button>
         </Link>
-        <Link
-          to="/payments"
-          className="inline-flex h-9 items-center rounded-[var(--radius)] bg-[var(--primary)] px-3 text-xs font-medium text-white hover:bg-[var(--primary-hover)]"
-        >
-          Encaisser
+        <Link to="/invoices">
+          <Button variant="ghost" className="h-9 px-4 text-xs">
+            Factures
+          </Button>
         </Link>
-        <Link
-          to="/banque"
-          className="inline-flex h-9 items-center rounded-[var(--radius)] border border-[var(--border-strong)] bg-white px-3 text-xs font-medium hover:bg-[var(--bg)]"
-        >
-          Banque
-        </Link>
-        <Link
-          to="/obligations"
-          className="inline-flex h-9 items-center rounded-[var(--radius)] border border-[var(--border-strong)] bg-white px-3 text-xs font-medium hover:bg-[var(--bg)]"
-        >
-          Obligations / URSSAF
-        </Link>
-        {payoutEnabled ? (
-          <button
-            type="button"
+        {payoutEnabled && payoutHasBeneficiary ? (
+          <Button
+            variant="ghost"
+            className="h-9 px-4 text-xs"
+            disabled={!cf || cf.resteNetCents <= 0}
             onClick={() => setPayoutConfirm(true)}
-            className="inline-flex h-9 items-center rounded-[var(--radius)] border border-[var(--border-strong)] bg-white px-3 text-xs font-medium hover:bg-[var(--bg)]"
           >
             Virer mon salaire
-          </button>
-        ) : null}
+          </Button>
+        ) : (
+          <Link to="/settings">
+            <Button variant="ghost" className="h-9 px-4 text-xs">
+              {!payoutHasBeneficiary
+                ? "Configurer mon virement"
+                : "Activer virement salaire"}
+            </Button>
+          </Link>
+        )}
       </div>
 
       <ObligationsReminder />
 
       {echeanceDue ? (
-        <Card className="border-[var(--warning)]/40 p-4">
+        <Card className="border-[var(--warning)]/30 p-4">
           <p className="text-xs font-medium text-[var(--warning)]">Échéance URSSAF</p>
-          <p className="mt-1 text-sm">
+          <p className="mt-1 text-sm text-[var(--text)]">
             {data.echeance.periodLabel} :{" "}
             <span className="font-semibold tabular-nums">
               {formatEUR(data.echeance.amountDueCents)}
             </span>
             {" · "}
             échéance {formatDate(data.echeance.deadline)}
-            {" · "}
-            {data.echeance.status}
           </p>
           <Link
             to="/urssaf"
@@ -213,26 +213,107 @@ export function DashboardPage() {
         </Card>
       ) : null}
 
-      {mrr && mrr.activeCount > 0 ? (
-        <div className="grid gap-3 sm:grid-cols-3">
-          <Card className="p-4">
-            <p className="text-xs text-[var(--muted)]">CA récurrent (MRR)</p>
-            <p className="mt-1 text-lg font-semibold tabular-nums">{formatEUR(mrr.mrrCents)}</p>
-          </Card>
-          <Card className="p-4">
-            <p className="text-xs text-[var(--muted)]">CA récurrent (ARR)</p>
-            <p className="mt-1 text-lg font-semibold tabular-nums">{formatEUR(mrr.arrCents)}</p>
-          </Card>
-          <Card className="p-4">
-            <p className="text-xs text-[var(--muted)]">Abonnements actifs</p>
-            <p className="mt-1 text-lg font-semibold tabular-nums">{mrr.activeCount}</p>
-          </Card>
-        </div>
-      ) : null}
+      {/* KPI row (4 cartes comme le shot Dribbble) */}
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <KpiCard
+          label="Encaissé"
+          value={formatEUR(cf.totalEncaisseCents)}
+          icon={faCoins}
+          iconTone="green"
+        />
+        <KpiCard
+          label="Reste net"
+          value={formatEUR(cf.resteNetCents)}
+          icon={faWallet}
+          iconTone="purple"
+        />
+        <KpiCard
+          label="URSSAF"
+          value={formatEUR(cf.urssafCents)}
+          icon={faBuildingColumns}
+          iconTone="blue"
+        />
+        <KpiCard
+          label="À encaisser"
+          value={formatEUR(pendingTotal)}
+          icon={faFileInvoiceDollar}
+          iconTone="orange"
+        />
+      </div>
+
+      {/* Graphique + stats rapides */}
+      <div className="grid gap-4 lg:grid-cols-3">
+        <Card className="h-80 p-6 lg:col-span-2">
+          <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+            <h2 className="text-base font-semibold text-[var(--text)]">
+              Répartition des encaissements
+            </h2>
+            <Select
+              className="w-auto"
+              value={scope}
+              onChange={(e) => setScope(e.target.value)}
+            >
+              <option value="week">Semaine</option>
+              <option value="month">Mois</option>
+              <option value="year">Année</option>
+            </Select>
+          </div>
+          <div className="h-[calc(100%-2.75rem)]">
+            <Suspense
+              fallback={
+                <div className="h-full animate-pulse rounded-[var(--radius-sm)] bg-[var(--surface-hover)]" />
+              }
+            >
+              <RevenueChart data={data.chart} />
+            </Suspense>
+          </div>
+        </Card>
+
+        <Card className="p-5">
+          <h2 className="mb-1 text-base font-semibold text-[var(--text)]">En un coup d'oeil</h2>
+          <p className="mb-2 text-xs text-[var(--muted)]">Indicateurs complémentaires</p>
+          <div className="divide-y divide-[var(--border)]">
+            {mrr && mrr.activeCount > 0 ? (
+              <StatRow
+                icon={faUsers}
+                label="Abonnements actifs"
+                value={mrr.activeCount}
+                iconTone="blue"
+              />
+            ) : null}
+            <StatRow
+              icon={faFilePen}
+              label="Brouillons"
+              value={data.drafts}
+              iconTone="purple"
+            />
+            <StatRow
+              icon={faBell}
+              label="Relances en attente"
+              value={reminders.length}
+              iconTone="orange"
+            />
+            {mrr && mrr.mrrCents > 0 ? (
+              <StatRow
+                icon={faStar}
+                label="Revenus récurrents"
+                value={formatEUR(mrr.mrrCents)}
+                iconTone="green"
+              />
+            ) : null}
+            <StatRow
+              icon={faChartLine}
+              label="Trésorerie + CFE"
+              value={formatEUR(cf.tresorerieEtCfeCents)}
+              iconTone="neutral"
+            />
+          </div>
+        </Card>
+      </div>
 
       {reminders.length > 0 ? (
         <Card className="p-5">
-          <h2 className="mb-3 text-sm font-semibold">Relances à envoyer</h2>
+          <h2 className="mb-3 text-base font-semibold">Relances à envoyer</h2>
           <ul className="divide-y divide-[var(--border)] text-sm">
             {reminders.map((r) => (
               <li key={r.id} className="flex flex-wrap items-center justify-between gap-3 py-3">
@@ -247,7 +328,7 @@ export function DashboardPage() {
                   </Link>
                   <p className="text-xs text-[var(--muted)]">
                     {r.documentType === "QUOTE" ? "Devis" : "Facture"} ·{" "}
-                    {r.reminderCount} relance(s) · échéance {formatDate(r.nextReminderAt)}
+                    {r.reminderCount} relance(s)
                   </p>
                 </div>
                 <Button
@@ -262,45 +343,8 @@ export function DashboardPage() {
         </Card>
       ) : null}
 
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
-        {[
-          ["Encaissé", cf.totalEncaisseCents],
-          ["URSSAF", cf.urssafCents],
-          ["Frais", cf.fraisCents],
-          ["Placements", cf.placementsCents],
-          ["Reste net", cf.resteNetCents],
-        ].map(([label, cents]) => (
-          <Card key={String(label)} className="p-4">
-            <p className="text-xs text-[var(--muted)]">{label}</p>
-            <p className="mt-1 text-lg font-semibold tabular-nums">
-              {formatEUR(Number(cents))}
-            </p>
-          </Card>
-        ))}
-      </div>
-
-      <Card className="h-72 p-4">
-        <ResponsiveContainer width="100%" height="100%">
-          <BarChart data={data.chart}>
-            <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-            <XAxis dataKey="label" tick={{ fontSize: 11 }} />
-            <YAxis tick={{ fontSize: 11 }} />
-            <Tooltip />
-            <Bar dataKey="ca" fill="#0f766e" name="Encaissé" radius={[4, 4, 0, 0]} />
-            <Bar dataKey="urssaf" fill="#99f6e4" name="URSSAF" radius={[4, 4, 0, 0]} />
-          </BarChart>
-        </ResponsiveContainer>
-      </Card>
-
       <Card className="p-5">
-        <h2 className="mb-3 text-sm font-semibold">
-          Factures à encaisser
-          {data.drafts > 0 ? (
-            <span className="ml-2 font-normal text-[var(--muted)]">
-              · {data.drafts} brouillon(s)
-            </span>
-          ) : null}
-        </h2>
+        <h2 className="mb-3 text-base font-semibold">Factures à encaisser</h2>
         {data.pendingWithBalance.length === 0 ? (
           <p className="text-sm text-[var(--muted)]">
             Aucune facture en attente.{" "}

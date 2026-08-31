@@ -13,7 +13,8 @@ import {
 } from "@/lib/obligations/obligation-service.js";
 import { prisma } from "@/lib/prisma.js";
 import {
-  paymentMethodLabel,
+  buildReceiptRow,
+  receiptPaymentInclude,
   receiptsPeriod,
   receiptsToCsv,
 } from "@/lib/obligations/receipts.js";
@@ -165,6 +166,7 @@ export const obligationsRoutes: FastifyPluginAsync = async (app) => {
       rcpInsurance: z.boolean().optional(),
       mediationChecked: z.boolean().optional(),
       dedicatedBankAccount: z.boolean().optional(),
+      lastIncomeTaxDeclaredYear: z.number().int().min(2000).max(2100).optional().nullable(),
     });
     const parsed = schema.safeParse(request.body);
     if (!parsed.success) {
@@ -182,43 +184,12 @@ export const obligationsRoutes: FastifyPluginAsync = async (app) => {
     const payments = await prisma.payment.findMany({
       where: { paidAt: { gte: start, lte: end } },
       orderBy: { paidAt: "asc" },
-      include: {
-        invoice: {
-          include: {
-            client: { select: { displayName: true, clientNumber: true } },
-            lines: { orderBy: { position: "asc" }, take: 3 },
-          },
-        },
-      },
+      include: receiptPaymentInclude,
     });
 
     return {
       period: { start: start.toISOString(), end: end.toISOString(), year },
-      rows: payments.map((p) => {
-        const baseNature =
-          p.invoice.lines.map((l) => l.description).join(" · ") ||
-          p.invoice.notes ||
-          "Prestation de services";
-        const nature =
-          p.invoice.documentType === "CREDIT_NOTE" || p.amountCents < 0
-            ? `Avoir · ${baseNature}`
-            : baseNature;
-        return {
-          id: p.id,
-          paidAt: p.paidAt.toISOString(),
-          invoiceNumber: p.invoice.number,
-          invoiceId: p.invoice.id,
-          invoiceType: p.invoice.invoiceType,
-          documentType: p.invoice.documentType,
-          amountCents: p.amountCents,
-          clientName: p.invoice.client.displayName,
-          clientNumber: p.invoice.client.clientNumber,
-          nature,
-          paymentMethod: p.method,
-          paymentMethodLabel: paymentMethodLabel(p.method),
-          reference: p.reference,
-        };
-      }),
+      rows: payments.map(buildReceiptRow),
       totalCents: payments.reduce((s, p) => s + p.amountCents, 0),
     };
   });
@@ -232,36 +203,10 @@ export const obligationsRoutes: FastifyPluginAsync = async (app) => {
     const payments = await prisma.payment.findMany({
       where: { paidAt: { gte: start, lte: end } },
       orderBy: { paidAt: "asc" },
-      include: {
-        invoice: {
-          include: {
-            client: { select: { displayName: true, clientNumber: true } },
-            lines: { orderBy: { position: "asc" }, take: 3 },
-          },
-        },
-      },
+      include: receiptPaymentInclude,
     });
 
-    const csv = receiptsToCsv(
-      payments.map((p) => {
-        const baseNature =
-          p.invoice.lines.map((l) => l.description).join(" · ") ||
-          p.invoice.notes ||
-          "Prestation de services";
-        return {
-          paidAt: p.paidAt.toISOString(),
-          invoiceNumber: p.invoice.number,
-          amountCents: p.amountCents,
-          clientName: p.invoice.client.displayName,
-          clientNumber: p.invoice.client.clientNumber,
-          nature:
-            p.invoice.documentType === "CREDIT_NOTE" || p.amountCents < 0
-              ? `Avoir · ${baseNature}`
-              : baseNature,
-          paymentMethodLabel: paymentMethodLabel(p.method),
-        };
-      }),
-    );
+    const csv = receiptsToCsv(payments.map(buildReceiptRow));
 
     return reply
       .header("Content-Type", "text/csv; charset=utf-8")
@@ -283,35 +228,11 @@ export const obligationsRoutes: FastifyPluginAsync = async (app) => {
       prisma.payment.findMany({
         where: { paidAt: { gte: start, lte: end } },
         orderBy: { paidAt: "asc" },
-        include: {
-          invoice: {
-            include: {
-              client: { select: { displayName: true, clientNumber: true } },
-              lines: { orderBy: { position: "asc" }, take: 3 },
-            },
-          },
-        },
+        include: receiptPaymentInclude,
       }),
     ]);
 
-    const rows = payments.map((p) => {
-      const baseNature =
-        p.invoice.lines.map((l) => l.description).join(" · ") ||
-        p.invoice.notes ||
-        "Prestation de services";
-      return {
-        paidAt: p.paidAt.toISOString(),
-        invoiceNumber: p.invoice.number,
-        clientNumber: p.invoice.client.clientNumber,
-        clientName: p.invoice.client.displayName,
-        nature:
-          p.invoice.documentType === "CREDIT_NOTE" || p.amountCents < 0
-            ? `Avoir · ${baseNature}`
-            : baseNature,
-        paymentMethodLabel: paymentMethodLabel(p.method),
-        amountCents: p.amountCents,
-      };
-    });
+    const rows = payments.map(buildReceiptRow);
 
     const pdf = await renderReceiptsPdf({
       year,

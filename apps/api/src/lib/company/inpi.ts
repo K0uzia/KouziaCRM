@@ -1,4 +1,5 @@
 import { getCompanySettings, invalidateCompanySettingsCache } from "@/lib/company.js";
+import { parseBusinessStartDateInput } from "@/lib/company/business-start.js";
 import { prisma } from "@/lib/prisma.js";
 
 export type InpiImportResult = {
@@ -11,6 +12,7 @@ export type InpiImportResult = {
   postalCode: string | null;
   city: string | null;
   country: string;
+  rneRegistrationDate: string | null;
   businessStartDate: string | null;
   inpiUrl: string;
   redacted: boolean;
@@ -37,6 +39,34 @@ export function extractSiren(input: string): string | null {
   if (digits.length === 9) return digits;
   if (digits.length === 14) return digits.slice(0, 9);
   return null;
+}
+
+/** Date ISO `YYYY-MM-DD` depuis une date open data (date seule ou datetime). */
+function cleanIsoDate(value: unknown): string | null {
+  const raw = clean(value);
+  if (!raw) return null;
+  const m = /^(\d{4}-\d{2}-\d{2})/.exec(raw);
+  return m ? m[1] : null;
+}
+
+/** Dates RNE / début d'activité depuis la réponse recherche-entreprises. */
+export function extractCompanyDates(
+  hit: Record<string, unknown>,
+  siege: Record<string, unknown>,
+): { rneRegistrationDate: string | null; businessStartDate: string | null } {
+  const rneRegistrationDate =
+    cleanIsoDate(hit.date_mise_a_jour_rne) ??
+    cleanIsoDate(siege.date_mise_a_jour_rne) ??
+    cleanIsoDate(hit.date_creation) ??
+    cleanIsoDate(siege.date_creation);
+
+  const businessStartDate =
+    cleanIsoDate(siege.date_debut_activite) ??
+    cleanIsoDate(hit.date_debut_activite) ??
+    cleanIsoDate(siege.date_creation) ??
+    cleanIsoDate(hit.date_creation);
+
+  return { rneRegistrationDate, businessStartDate };
 }
 
 export async function fetchCompanyFromOpenData(sirenOrUrl: string): Promise<InpiImportResult> {
@@ -78,6 +108,13 @@ export async function fetchCompanyFromOpenData(sirenOrUrl: string): Promise<Inpi
     );
   }
 
+  const { rneRegistrationDate, businessStartDate } = extractCompanyDates(hit, siege);
+  if (!businessStartDate) {
+    warnings.push(
+      "Date de début d'activité absente de l'open data : saisissez-la manuellement si besoin.",
+    );
+  }
+
   const streetParts = [
     clean(siege.numero_voie),
     clean(siege.type_voie),
@@ -94,10 +131,8 @@ export async function fetchCompanyFromOpenData(sirenOrUrl: string): Promise<Inpi
     postalCode: clean(siege.code_postal),
     city: clean(siege.libelle_commune),
     country: "FRANCE",
-    businessStartDate:
-      clean(hit.date_creation) ??
-      clean(siege.date_creation) ??
-      clean(siege.date_debut_activite),
+    rneRegistrationDate,
+    businessStartDate,
     inpiUrl,
     redacted,
     warnings,
@@ -121,10 +156,12 @@ export async function applyInpiImport(sirenOrUrl: string) {
       postalCode: imported.postalCode ?? current.postalCode,
       city: imported.city ?? current.city,
       country: imported.country,
-      // Ne pas écraser une date déjà saisie (open data EI souvent incomplet / trompeur)
-      businessStartDate:
-        current.businessStartDate ??
-        (imported.businessStartDate ? new Date(imported.businessStartDate) : null),
+      rneRegistrationDate: imported.rneRegistrationDate
+        ? parseBusinessStartDateInput(imported.rneRegistrationDate)
+        : current.rneRegistrationDate,
+      businessStartDate: imported.businessStartDate
+        ? parseBusinessStartDateInput(imported.businessStartDate)
+        : current.businessStartDate,
       inpiUrl: imported.inpiUrl,
     },
   });

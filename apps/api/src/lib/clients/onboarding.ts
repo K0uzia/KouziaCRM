@@ -55,7 +55,7 @@ export async function sendOnboardingInvite(opts: {
     },
   });
 
-  if (!isSmtpConfigured()) return { ok: true, sent: false, reason: "smtp_off", token };
+  if (!(await isSmtpConfigured())) return { ok: true, sent: false, reason: "smtp_off", token };
 
   try {
     const company = await getCompanySettings();
@@ -77,13 +77,25 @@ export async function sendOnboardingInvite(opts: {
       brand,
     ].join("\n");
 
+    const subject = opts.existingClientId
+      ? `Mise à jour de votre fiche client - ${brand}`
+      : `Complétez votre fiche client - ${brand}`;
     await sendEmail({
       to: email,
-      subject: opts.existingClientId
-        ? `Mise à jour de votre fiche client - ${brand}`
-        : `Complétez votre fiche client - ${brand}`,
+      subject,
       text: body,
     });
+
+    if (opts.existingClientId) {
+      const { logClientEmailEvent } = await import("@/lib/email/log-event.js");
+      await logClientEmailEvent({
+        clientId: opts.existingClientId,
+        kind: "onboarding",
+        subject,
+        toAddress: email,
+        success: true,
+      });
+    }
 
     return { ok: true, sent: true, token };
   } catch (err) {

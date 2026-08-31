@@ -4,6 +4,7 @@ import {
   createSubscription,
   updateSubscription,
   SubscriptionError,
+  type Db,
 } from "@/lib/subscriptions/subscription-service";
 
 export type ActivateSubscriptionsResult = {
@@ -21,8 +22,9 @@ export type ActivateSubscriptionsResult = {
  */
 export async function activateSubscriptionsFromDocument(
   documentId: string,
+  db: Db = prisma,
 ): Promise<ActivateSubscriptionsResult> {
-  const doc = await prisma.invoice.findUnique({
+  const doc = await db.invoice.findUnique({
     where: { id: documentId },
     include: {
       lines: { orderBy: { position: "asc" } },
@@ -55,35 +57,42 @@ export async function activateSubscriptionsFromDocument(
     }
 
     // Un abonnement actif existe déjà pour ce client ? On le met à jour.
-    const existing = await prisma.subscription.findFirst({
+    const existing = await db.subscription.findFirst({
       where: { clientId: doc.clientId, status: SubscriptionStatus.ACTIVE },
       select: { id: true },
     });
 
     let subId: string;
     if (existing) {
-      await updateSubscription(existing.id, {
-        label: line.description,
-        amountCents: line.unitPriceCents,
-        billingDay: line.billingDay,
-      });
+      await updateSubscription(
+        existing.id,
+        {
+          label: line.description,
+          amountCents: line.unitPriceCents,
+          billingDay: line.billingDay,
+        },
+        db,
+      );
       subId = existing.id;
       updated += 1;
     } else {
-      const sub = await createSubscription({
-        clientId: doc.clientId,
-        serviceId: line.serviceId,
-        label: line.description,
-        amountCents: line.unitPriceCents,
-        billingDay: line.billingDay,
-        startDate: new Date(),
-        skipCurrentPeriod: true,
-      });
+      const sub = await createSubscription(
+        {
+          clientId: doc.clientId,
+          serviceId: line.serviceId,
+          label: line.description,
+          amountCents: line.unitPriceCents,
+          billingDay: line.billingDay,
+          startDate: new Date(),
+          skipCurrentPeriod: true,
+        },
+        db,
+      );
       subId = sub.id;
       created += 1;
     }
 
-    await prisma.invoiceLine.update({
+    await db.invoiceLine.update({
       where: { id: line.id },
       data: { subscriptionId: subId },
     });

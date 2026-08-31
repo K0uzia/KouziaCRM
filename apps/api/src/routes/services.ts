@@ -19,9 +19,16 @@ export const servicesRoutes: FastifyPluginAsync = async (app) => {
   app.get("/api/services", async (request, reply) => {
     await requireAuth(request, reply);
     if (reply.sent) return;
-    const q = request.query as { active?: string };
+    const q = request.query as { active?: string; subscription?: string };
+    const where: {
+      active?: boolean;
+      isSubscription?: boolean;
+    } = {};
+    if (q.active === "1") where.active = true;
+    if (q.subscription === "0") where.isSubscription = false;
+    if (q.subscription === "1") where.isSubscription = true;
     return prisma.service.findMany({
-      where: q.active === "1" ? { active: true } : undefined,
+      where: Object.keys(where).length > 0 ? where : undefined,
       orderBy: { name: "asc" },
     });
   });

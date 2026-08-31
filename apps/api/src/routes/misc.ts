@@ -6,9 +6,11 @@ import { prisma } from "@/lib/prisma.js";
 import { getDashboardSnapshot } from "@/lib/finance/dashboard-service.js";
 import { isCashflowScope } from "@/lib/finance/cashflow-service.js";
 import { getCompanySettings, invalidateCompanySettingsCache } from "@/lib/company.js";
+import { parseBusinessStartDateInput, formatBusinessStartDateForApi } from "@/lib/company/business-start.js";
 import { applyInpiImport } from "@/lib/company/inpi.js";
+import { syncObligations } from "@/lib/obligations/obligation-service.js";
 import { markUrssafPaid } from "@/lib/finance/dashboard-service.js";
-import { isSmtpConfigured, sendEmail } from "@/lib/email/smtp.js";
+import { isSmtpConfigured, sendEmail, getSmtpStatus, saveSmtpSettings, resolveSmtpConfig } from "@/lib/email/smtp.js";
 import { findClientIdByEmail } from "@/lib/email/match-client.js";
 import { isImapConfigured, syncImapInbox } from "@/lib/email/imap-sync.js";
 import { decryptOptional } from "@/lib/crypto.js";
@@ -24,10 +26,99 @@ export const miscRoutes: FastifyPluginAsync = async (app) => {
     return getDashboardSnapshot(scope, invoiceId);
   });
 
+  /** Recherche globale : clients, devis, factures, avoirs, tarifs. */
+  app.get("/api/search", async (request, reply) => {
+    await requireAuth(request, reply);
+    if (reply.sent) return;
+    const q = String((request.query as { q?: string }).q ?? "").trim();
+    if (q.length < 1) {
+      return { clients: [], documents: [], services: [] };
+    }
+
+    const [clients, documents, services] = await Promise.all([
+      prisma.client.findMany({
+        where: {
+          OR: [
+            { displayName: { contains: q } },
+            { clientNumber: { contains: q } },
+            { companyName: { contains: q } },
+            { firstName: { contains: q } },
+            { lastName: { contains: q } },
+            { city: { contains: q } },
+          ],
+        },
+        select: {
+          id: true,
+          displayName: true,
+          clientNumber: true,
+          city: true,
+          type: true,
+        },
+        orderBy: { displayName: "asc" },
+        take: 8,
+      }),
+      prisma.invoice.findMany({
+        where: {
+          OR: [
+            { number: { contains: q } },
+            { notes: { contains: q } },
+            { purchaseOrderRef: { contains: q } },
+            { client: { displayName: { contains: q } } },
+            { client: { clientNumber: { contains: q } } },
+          ],
+        },
+        select: {
+          id: true,
+          number: true,
+          documentType: true,
+          status: true,
+          quoteStatus: true,
+          totalCents: true,
+          client: { select: { displayName: true } },
+        },
+        orderBy: [{ issueDate: "desc" }, { createdAt: "desc" }],
+        take: 10,
+      }),
+      prisma.service.findMany({
+        where: {
+          OR: [{ name: { contains: q } }, { description: { contains: q } }],
+        },
+        select: {
+          id: true,
+          name: true,
+          unitPriceCents: true,
+          active: true,
+          isSubscription: true,
+        },
+        orderBy: { name: "asc" },
+        take: 6,
+      }),
+    ]);
+
+    return {
+      clients,
+      documents: documents.map((d) => ({
+        id: d.id,
+        number: d.number,
+        documentType: d.documentType,
+        status: d.status,
+        quoteStatus: d.quoteStatus,
+        totalCents: d.totalCents,
+        clientName: d.client.displayName,
+      })),
+      services,
+    };
+  });
+
   app.get("/api/settings", async (request, reply) => {
     await requireAuth(request, reply);
     if (reply.sent) return;
-    return getCompanySettings();
+    const settings = await getCompanySettings();
+    return {
+      ...settings,
+      businessStartDate: formatBusinessStartDateForApi(settings.businessStartDate),
+      rneRegistrationDate: formatBusinessStartDateForApi(settings.rneRegistrationDate),
+    };
   });
 
   app.patch("/api/settings", async (request, reply) => {
@@ -56,10 +147,19 @@ export const miscRoutes: FastifyPluginAsync = async (app) => {
       phone: z.string().optional().nullable(),
       website: z.string().optional().nullable(),
       businessStartDate: z.string().optional().nullable(),
+      rneRegistrationDate: z.string().optional().nullable(),
+      lastIncomeTaxDeclaredYear: z.number().int().min(2000).max(2100).optional().nullable(),
       cfeAmountCents: z.number().int().min(0).optional(),
       cfeAmountEuros: z.coerce.number().min(0).optional(),
+      bankIban: z.string().max(34).optional().nullable(),
+      bankBic: z.string().max(11).optional().nullable(),
+      bankAccountHolder: z.string().max(200).optional().nullable(),
+      bankName: z.string().max(120).optional().nullable(),
       b2cActivity: z.boolean().optional(),
       mediationClause: z.string().optional().nullable(),
+      paymentConditions: z.string().max(300).optional(),
+      latePenaltiesText: z.string().max(500).optional(),
+      earlyPaymentDiscountText: z.string().max(300).optional(),
       incomeTaxReminderMonth: z.number().int().min(1).max(12).optional(),
       incomeTaxReminderDay: z.number().int().min(1).max(28).optional(),
       inpiUrl: z.string().optional().nullable(),
@@ -83,6 +183,7 @@ export const miscRoutes: FastifyPluginAsync = async (app) => {
     const current = await getCompanySettings();
     const {
       businessStartDate,
+      rneRegistrationDate,
       cfeAmountEuros,
       cfeAmountCents,
       officialLinks,
@@ -94,11 +195,24 @@ export const miscRoutes: FastifyPluginAsync = async (app) => {
       urssafDeadlineDay: 15,
     };
     if (businessStartDate !== undefined) {
-      data.businessStartDate = businessStartDate ? new Date(businessStartDate) : null;
+      data.businessStartDate = businessStartDate
+        ? parseBusinessStartDateInput(businessStartDate)
+        : null;
+    }
+    if (rneRegistrationDate !== undefined) {
+      data.rneRegistrationDate = rneRegistrationDate
+        ? parseBusinessStartDateInput(rneRegistrationDate)
+        : null;
     }
     if (cfeAmountCents !== undefined) data.cfeAmountCents = cfeAmountCents;
     else if (cfeAmountEuros !== undefined) {
       data.cfeAmountCents = Math.round(cfeAmountEuros * 100);
+    }
+    if (typeof data.bankIban === "string") {
+      data.bankIban = data.bankIban.replace(/\s+/g, "").toUpperCase() || null;
+    }
+    if (typeof data.bankBic === "string") {
+      data.bankBic = data.bankBic.replace(/\s+/g, "").toUpperCase() || null;
     }
     if (officialLinks !== undefined) {
       data.officialLinks = officialLinks;
@@ -108,7 +222,72 @@ export const miscRoutes: FastifyPluginAsync = async (app) => {
       data,
     });
     invalidateCompanySettingsCache();
-    return updated;
+    if (
+      businessStartDate !== undefined ||
+      rneRegistrationDate !== undefined ||
+      parsed.data.lastIncomeTaxDeclaredYear !== undefined
+    ) {
+      await syncObligations();
+    }
+    return {
+      ...updated,
+      businessStartDate: formatBusinessStartDateForApi(updated.businessStartDate),
+      rneRegistrationDate: formatBusinessStartDateForApi(updated.rneRegistrationDate),
+    };
+  });
+
+  app.get("/api/settings/smtp", async (request, reply) => {
+    await requireAuth(request, reply);
+    if (reply.sent) return;
+    return getSmtpStatus();
+  });
+
+  app.patch("/api/settings/smtp", async (request, reply) => {
+    await requireAuth(request, reply);
+    if (reply.sent) return;
+    const schema = z.object({
+      host: z.string().nullable().optional(),
+      port: z.number().int().min(1).max(65535).nullable().optional(),
+      secure: z.boolean().optional(),
+      user: z.string().nullable().optional(),
+      pass: z.string().nullable().optional(),
+      from: z.string().nullable().optional(),
+      keepPassword: z.boolean().optional(),
+    });
+    const parsed = schema.safeParse(request.body);
+    if (!parsed.success) {
+      return reply.code(400).send({ error: parsed.error.flatten() });
+    }
+    await saveSmtpSettings({
+      host: parsed.data.host ?? null,
+      port: parsed.data.port ?? null,
+      secure: parsed.data.secure ?? false,
+      user: parsed.data.user ?? null,
+      pass: parsed.data.pass ?? null,
+      from: parsed.data.from ?? null,
+      keepPassword: parsed.data.keepPassword,
+    });
+    return getSmtpStatus();
+  });
+
+  app.post("/api/settings/smtp/test", async (request, reply) => {
+    await requireAuth(request, reply);
+    if (reply.sent) return;
+    if (!(await isSmtpConfigured())) {
+      return reply.code(400).send({ error: "SMTP non configuré" });
+    }
+    const cfg = await resolveSmtpConfig();
+    const settings = await getCompanySettings();
+    const to = settings.email || cfg?.from;
+    if (!to) {
+      return reply.code(400).send({ error: "Aucun destinataire (email entreprise ou From SMTP)" });
+    }
+    await sendEmail({
+      to,
+      subject: "Test SMTP Kouzia",
+      text: "Cet email confirme que la configuration SMTP fonctionne.",
+    });
+    return { ok: true, to };
   });
 
   app.post("/api/settings/import-inpi", async (request, reply) => {
@@ -122,7 +301,16 @@ export const miscRoutes: FastifyPluginAsync = async (app) => {
       return reply.code(400).send({ error: "Fournissez un SIREN ou une URL data.inpi.fr" });
     }
     try {
-      return await applyInpiImport(parsed.data.query);
+      const result = await applyInpiImport(parsed.data.query);
+      await syncObligations();
+      return {
+        ...result,
+        settings: {
+          ...result.settings,
+          businessStartDate: formatBusinessStartDateForApi(result.settings.businessStartDate),
+          rneRegistrationDate: formatBusinessStartDateForApi(result.settings.rneRegistrationDate),
+        },
+      };
     } catch (e) {
       return reply
         .code(400)
@@ -231,10 +419,10 @@ export const miscRoutes: FastifyPluginAsync = async (app) => {
   app.post("/api/emails/send", async (request, reply) => {
     await requireAuth(request, reply);
     if (reply.sent) return;
-    if (!isSmtpConfigured()) {
+    if (!(await isSmtpConfigured())) {
       return reply
         .code(400)
-        .send({ error: "SMTP non configuré (SMTP_HOST / SMTP_USER / SMTP_FROM)" });
+        .send({ error: "SMTP non configuré (paramètres ou SMTP_HOST / SMTP_USER / SMTP_FROM)" });
     }
     const schema = z.object({
       to: z.string().email().optional(),
@@ -308,6 +496,17 @@ export const miscRoutes: FastifyPluginAsync = async (app) => {
         receivedAt: new Date(),
       },
     });
+
+    if (clientId) {
+      const { logClientEmailEvent } = await import("@/lib/email/log-event.js");
+      await logClientEmailEvent({
+        clientId,
+        kind: "custom",
+        subject,
+        toAddress: to,
+        success: true,
+      });
+    }
 
     return reply.code(201).send({ threadId: resolvedThreadId, message });
   });

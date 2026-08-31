@@ -1,11 +1,15 @@
+import type { ReactNode } from "react";
+import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
+import type { IconDefinition } from "@fortawesome/fontawesome-svg-core";
+
 const tones = {
-  neutral: "bg-gray-100 text-gray-700",
+  neutral: "bg-[var(--surface-raised)] text-[var(--muted)] ring-1 ring-[var(--border)]",
   teal: "bg-[var(--primary-soft)] text-[var(--primary)]",
   green: "bg-[var(--success-soft)] text-[var(--success)]",
   amber: "bg-[var(--warning-soft)] text-[var(--warning)]",
   red: "bg-[var(--danger-soft)] text-[var(--danger)]",
-  blue: "bg-sky-50 text-sky-700",
-  violet: "bg-violet-50 text-violet-700",
+  blue: "bg-[var(--info-soft)] text-[var(--info)]",
+  violet: "bg-[var(--primary-soft)] text-[var(--primary)]",
 } as const;
 
 export function Badge({
@@ -36,13 +40,13 @@ export function PageHeader({
   actions?: React.ReactNode;
 }) {
   return (
-    <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+    <div className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
       <div className="min-w-0">
-        <h1 className="text-2xl font-semibold tracking-tight text-[var(--text)]">
+        <h1 className="text-2xl font-bold leading-tight tracking-tight text-[var(--text)] sm:text-3xl">
           {title}
         </h1>
         {subtitle ? (
-          <p className="mt-1 text-sm text-[var(--muted)]">{subtitle}</p>
+          <p className="mt-2 max-w-xl text-sm leading-relaxed text-[var(--muted)]">{subtitle}</p>
         ) : null}
       </div>
       {actions ? (
@@ -62,19 +66,115 @@ export function Card({
   className?: string;
 }) {
   return (
-    <div
-      className={`rounded-[var(--radius)] border border-[var(--border)] bg-[var(--surface)] shadow-[var(--shadow)] ${className}`}
-    >
+    <div className={`glass-card ${className}`}>
       {children}
     </div>
+  );
+}
+
+const iconTones: Record<string, string> = {
+  purple: "bg-[var(--primary-soft)] text-[var(--primary)]",
+  green: "bg-[var(--success-soft)] text-[var(--success)]",
+  blue: "bg-[var(--info-soft)] text-[var(--info)]",
+  orange: "bg-[var(--orange-soft)] text-[var(--orange)]",
+  neutral: "bg-[var(--surface-hover)] text-[var(--muted)]",
+};
+
+/** Carte KPI style Dribbble : icône, trend, label, grande valeur */
+export function KpiCard({
+  label,
+  value,
+  icon,
+  iconTone = "purple",
+  trend,
+  trendUp = true,
+  className = "",
+}: {
+  label: string;
+  value: ReactNode;
+  icon: IconDefinition;
+  iconTone?: keyof typeof iconTones;
+  trend?: string;
+  trendUp?: boolean;
+  className?: string;
+}) {
+  return (
+    <Card className={`p-5 ${className}`}>
+      <div className="mb-4 flex items-start justify-between gap-2">
+        <div
+          className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-[var(--radius-sm)] ${iconTones[iconTone]}`}
+        >
+          <FontAwesomeIcon icon={icon} className="h-4 w-4" />
+        </div>
+        {trend ? (
+          <span
+            className={`text-xs font-medium tabular-nums ${
+              trendUp ? "text-[var(--success)]" : "text-[var(--danger)]"
+            }`}
+          >
+            {trendUp ? "↑" : "↓"} {trend}
+          </span>
+        ) : null}
+      </div>
+      <p className="text-sm text-[var(--muted)]">{label}</p>
+      <p className="mt-1 text-2xl font-bold tabular-nums tracking-tight text-[var(--text)] sm:text-[1.75rem]">
+        {value}
+      </p>
+    </Card>
+  );
+}
+
+/** Ligne stat compacte (panneau latéral style Dribbble) */
+export function StatRow({
+  icon,
+  label,
+  value,
+  iconTone = "blue",
+}: {
+  icon: IconDefinition;
+  label: string;
+  value: ReactNode;
+  iconTone?: keyof typeof iconTones;
+}) {
+  return (
+    <div className="flex items-center gap-3 py-3">
+      <div
+        className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-[var(--radius-sm)] ${iconTones[iconTone]}`}
+      >
+        <FontAwesomeIcon icon={icon} className="h-3.5 w-3.5" />
+      </div>
+      <div className="min-w-0 flex-1">
+        <p className="text-sm text-[var(--muted)]">{label}</p>
+        <p className="font-semibold tabular-nums text-[var(--text)]">{value}</p>
+      </div>
+    </div>
+  );
+}
+
+/** @deprecated Utiliser KpiCard */
+export function StatCard({
+  label,
+  value,
+  className = "",
+}: {
+  label: string;
+  value: ReactNode;
+  accent?: string;
+  className?: string;
+}) {
+  return (
+    <Card className={`p-5 ${className}`}>
+      <p className="text-sm text-[var(--muted)]">{label}</p>
+      <p className="mt-2 text-2xl font-bold tabular-nums text-[var(--text)]">{value}</p>
+    </Card>
   );
 }
 
 export function EmptyState({ title, hint }: { title: string; hint?: string }) {
   return (
     <div className="px-6 py-14 text-center">
-      <p className="text-sm font-medium text-[var(--text)]">{title}</p>
-      {hint ? <p className="mt-1 text-sm text-[var(--muted)]">{hint}</p> : null}
+      <p className="text-base font-medium text-[var(--text)]">{title}</p>
+      {hint ? <p className="mt-1.5 text-sm text-[var(--muted)]">{hint}</p> : null}
     </div>
   );
 }
