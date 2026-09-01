@@ -1,4 +1,6 @@
 import { getCompanySettings } from "@/lib/company";
+import { resolveClientPortalUrl } from "@/lib/email/portal-url.js";
+import { formatPlainTextSignature } from "@/lib/email/signature.js";
 
 export type EmailTemplateKind =
   | "quote"
@@ -10,7 +12,8 @@ export type EmailTemplateKind =
   | "reminder_firm"
   | "reminder_formal"
   | "access"
-  | "onboarding";
+  | "onboarding"
+  | "payment_received";
 
 export type EmailBrand = {
   tradeName: string;
@@ -33,6 +36,13 @@ export type EmailContentInput = {
   projectLabel?: string | null;
   brand: EmailBrand;
   extraLines?: string[];
+  /** URL portail client (sinon résolue automatiquement). */
+  clientPortalUrl?: string | null;
+  /** Lien Revolut : déclenche le bouton HTML minimal. */
+  paymentUrl?: string | null;
+  brandPrimaryColor?: string;
+  /** Montant payé (centimes) pour payment_received. */
+  paidAmountCents?: number;
 };
 
 function greeting(name?: string | null): string {
@@ -40,18 +50,40 @@ function greeting(name?: string | null): string {
   return n ? `Bonjour ${n},` : "Bonjour,";
 }
 
-function signature(brand: EmailBrand): string {
+function escapeHtml(s: string): string {
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+/** Bouton HTML minimal pour les emails de paiement (seule exception HTML autorisée). */
+export function renderPaymentButtonHtml(opts: {
+  url: string;
+  label?: string;
+  brandPrimaryColor: string;
+}): string {
+  const color = opts.brandPrimaryColor || "#0f766e";
+  const label = escapeHtml(opts.label ?? "Payer en ligne");
+  const url = escapeHtml(opts.url);
+  return `<p><a href="${url}" style="display:inline-block;padding:12px 20px;background:${color};color:#ffffff;text-decoration:none;border-radius:6px;font-family:sans-serif;font-size:15px;">${label}</a></p>
+<p style="font-size:12px;color:#64748b;font-family:sans-serif;">Ou copiez ce lien : ${url}</p>`;
+}
+
+export function quoteTrackingBlockText(portalUrl: string): string {
   return [
-    "Cordialement,",
-    brand.tradeName || brand.legalName,
-    brand.legalName,
-    `EI · SIRET ${brand.siret}`,
-    [brand.addressLine1, `${brand.postalCode} ${brand.city}`].filter(Boolean).join(", "),
-    brand.email || "",
-    brand.website || "",
-  ]
-    .filter(Boolean)
-    .join("\n");
+    `Vous pouvez retrouver ce devis et l'ensemble de vos documents sur votre espace de suivi : ${portalUrl}`,
+    "Vous pouvez valider ce devis directement depuis cette page, ou simplement répondre à cet email pour confirmer - nous nous chargeons alors de la validation et de l'envoi de votre demande d'acompte.",
+  ].join("\n");
+}
+
+export function invoiceTrackingBlockText(portalUrl: string): string {
+  return `Vous pouvez retrouver cette facture et l'ensemble de vos documents sur votre espace de suivi : ${portalUrl}`;
+}
+
+function paymentLinesText(paymentUrl: string): string[] {
+  return ["", "Régler en ligne :", paymentUrl];
 }
 
 function subjectFor(input: EmailContentInput): string {
@@ -82,14 +114,25 @@ function subjectFor(input: EmailContentInput): string {
       return `Vos identifiants de suivi - ${input.brand.tradeName || input.brand.legalName}`;
     case "onboarding":
       return `Complétez votre fiche client - ${input.brand.tradeName || input.brand.legalName}`;
+    case "payment_received":
+      return num ? `Paiement reçu : ${num}` : "Paiement reçu";
     default:
       return input.brand.tradeName || "Message";
   }
 }
 
-function bodyTextFor(input: EmailContentInput): string {
+function fmtEur(cents: number): string {
+  return new Intl.NumberFormat("fr-FR", {
+    style: "currency",
+    currency: "EUR",
+  }).format(cents / 100);
+}
+
+async function bodyTextFor(input: EmailContentInput): Promise<string> {
   const greets = greeting(input.clientFirstName || input.clientName);
   const num = input.docNumber ?? "";
+  const portalUrl =
+    input.clientPortalUrl?.trim() || (await resolveClientPortalUrl());
   const lines: string[] = [greets, ""];
 
   switch (input.kind) {
@@ -97,25 +140,22 @@ function bodyTextFor(input: EmailContentInput): string {
       lines.push(
         `Veuillez trouver ci-joint le devis ${num || ""}.`.trim(),
         "Je reste disponible pour en discuter.",
+        "",
+        quoteTrackingBlockText(portalUrl),
       );
       break;
     case "invoice_acompte":
-      lines.push(
-        `Veuillez trouver ci-joint la facture d'acompte ${num}.`.trim(),
-        "Merci de procéder au règlement selon les conditions indiquées.",
-      );
-      break;
     case "invoice_solde":
-      lines.push(
-        `Veuillez trouver ci-joint la facture de solde ${num}.`.trim(),
-        "Merci de procéder au règlement selon les conditions indiquées.",
-      );
-      break;
     case "invoice":
       lines.push(
-        `Veuillez trouver ci-joint la facture ${num}.`.trim(),
+        `Veuillez trouver ci-joint ${input.kind === "invoice_acompte" ? "la facture d'acompte" : input.kind === "invoice_solde" ? "la facture de solde" : "la facture"} ${num}.`.trim(),
         "Merci de procéder au règlement selon les conditions indiquées.",
+        "",
+        invoiceTrackingBlockText(portalUrl),
       );
+      if (input.paymentUrl?.trim()) {
+        lines.push(...paymentLinesText(input.paymentUrl.trim()));
+      }
       break;
     case "credit_note":
       lines.push(`Veuillez trouver ci-joint l'avoir ${num}.`.trim());
@@ -125,83 +165,73 @@ function bodyTextFor(input: EmailContentInput): string {
         `Sauf erreur de notre part, le ${input.docLabel ?? "document"} ${num} reste en attente.`,
         "N'hésitez pas si un RIB ou une précision vous manque.",
       );
+      if (input.paymentUrl?.trim()) {
+        lines.push(...paymentLinesText(input.paymentUrl.trim()));
+      }
       break;
     case "reminder_firm":
       lines.push(
         `Je me permets de revenir vers vous concernant le ${input.docLabel ?? "document"} ${num}, toujours en attente de règlement.`,
         "Merci de me confirmer la date de virement prévue.",
       );
+      if (input.paymentUrl?.trim()) {
+        lines.push(...paymentLinesText(input.paymentUrl.trim()));
+      }
       break;
     case "reminder_formal":
       lines.push(
         `Malgré mes précédents rappels, le ${input.docLabel ?? "document"} ${num} demeure impayé.`,
         "Sans règlement sous huit jours, les pénalités de retard prévues au contrat pourront être appliquées, ainsi que l'indemnité forfaitaire de 40 € pour frais de recouvrement.",
       );
+      if (input.paymentUrl?.trim()) {
+        lines.push(...paymentLinesText(input.paymentUrl.trim()));
+      }
+      break;
+    case "payment_received":
+      lines.push(
+        input.paidAmountCents != null
+          ? `Nous avons bien reçu votre paiement de ${fmtEur(input.paidAmountCents)}${num ? ` (${num})` : ""}.`
+          : `Nous avons bien reçu votre paiement${num ? ` pour ${num}` : ""}.`,
+        "Merci pour votre confiance.",
+      );
       break;
     default:
       if (input.extraLines?.length) lines.push(...input.extraLines);
   }
 
-  if (input.extraLines?.length && input.kind !== "access" && input.kind !== "onboarding") {
-    // already handled for default
-  }
   if (input.extraLines?.length && ["access", "onboarding"].includes(input.kind)) {
     lines.push(...input.extraLines);
   }
 
-  lines.push("", signature(input.brand));
+  lines.push("", await resolveEmailSignature(input.brand));
   return lines.join("\n");
 }
 
-/** HTML email-safe (tables, styles inline, largeur 600px). */
-export function renderEmailHtml(textBody: string, brand: EmailBrand): string {
-  const paragraphs = textBody
-    .split("\n")
-    .map((line) =>
-      line.trim() === ""
-        ? "<br/>"
-        : `<p style="margin:0 0 12px 0;font-size:15px;line-height:1.5;color:#111827;">${escapeHtml(line)}</p>`,
-    )
-    .join("");
-
-  const brandName = escapeHtml(brand.tradeName || brand.legalName);
-  return `<!DOCTYPE html>
-<html lang="fr">
-<head><meta charset="utf-8"/><meta name="viewport" content="width=device-width"/></head>
-<body style="margin:0;padding:0;background:#f6f7f8;">
-  <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#f6f7f8;padding:24px 12px;">
-    <tr><td align="center">
-      <table role="presentation" width="600" cellspacing="0" cellpadding="0" style="max-width:600px;width:100%;background:#ffffff;border:1px solid #e5e7eb;border-radius:8px;">
-        <tr><td style="padding:20px 24px;border-bottom:1px solid #e5e7eb;">
-          <p style="margin:0;font-size:18px;font-weight:600;color:#0f766e;">${brandName}</p>
-        </td></tr>
-        <tr><td style="padding:24px;">${paragraphs}</td></tr>
-        <tr><td style="padding:16px 24px;border-top:1px solid #e5e7eb;font-size:12px;color:#6b7280;">
-          ${escapeHtml(brand.legalName)} · SIRET ${escapeHtml(brand.siret)}
-        </td></tr>
-      </table>
-    </td></tr>
-  </table>
-</body>
-</html>`;
+async function resolveEmailSignature(brand: EmailBrand): Promise<string> {
+  const settings = await getCompanySettings();
+  return formatPlainTextSignature(settings, brand);
 }
 
-function escapeHtml(s: string): string {
-  return s
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
-}
-
-export function buildEmailContent(input: EmailContentInput): {
+export async function buildEmailContent(input: EmailContentInput): Promise<{
   subject: string;
   text: string;
-  html: string;
-} {
+  html?: string;
+}> {
   const subject = subjectFor(input);
-  const text = bodyTextFor(input);
-  return { subject, text, html: renderEmailHtml(text, input.brand) };
+  const text = await bodyTextFor(input);
+  const paymentUrl = input.paymentUrl?.trim();
+  if (!paymentUrl) {
+    return { subject, text };
+  }
+
+  const settings = await getCompanySettings();
+  const color = input.brandPrimaryColor ?? settings.brandPrimaryColor ?? "#0f766e";
+  const html = renderPaymentButtonHtml({
+    url: paymentUrl,
+    label: "Payer en ligne",
+    brandPrimaryColor: color,
+  });
+  return { subject, text, html };
 }
 
 export async function brandFromSettings(): Promise<EmailBrand> {

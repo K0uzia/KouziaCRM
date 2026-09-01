@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { faPlus, faPaperPlane } from "@fortawesome/free-solid-svg-icons";
+import { faPlus, faPaperPlane, faEnvelope } from "@fortawesome/free-solid-svg-icons";
 import { toast } from "sonner";
 import { api, formatEUR } from "@/lib/api";
 import { formatDate } from "@/lib/format";
@@ -16,6 +16,7 @@ import {
   type Client,
 } from "@/components/clients/ClientForm";
 import { ClientEmailLink } from "@/components/clients/ClientEmailLink";
+import { ClientMessagesTab } from "@/pages/messaging/ClientMessagesTab";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { useCreateParam } from "@/lib/use-create-param";
 
@@ -28,6 +29,7 @@ export function ClientsPage() {
   const [inviteOpen, setInviteOpen] = useState(false);
   const [inviteEmail, setInviteEmail] = useState("");
   const [inviteBusy, setInviteBusy] = useState(false);
+  const [correspondenceFilter, setCorrespondenceFilter] = useState<"all" | "with" | "without">("all");
   const openCreate = useCallback(() => {
     setEditing(null);
     setModal("create");
@@ -36,15 +38,20 @@ export function ClientsPage() {
   useCreateParam(openCreate);
 
   async function load() {
-    const rows = await api<Client[]>("/api/clients");
+    const params = new URLSearchParams();
+    if (correspondenceFilter === "with") params.set("hasCorrespondence", "true");
+    if (correspondenceFilter === "without") params.set("hasCorrespondence", "false");
+    const qs = params.toString();
+    const rows = await api<Client[]>(`/api/clients${qs ? `?${qs}` : ""}`);
     setClients(rows);
   }
 
   useEffect(() => {
+    setLoading(true);
     load()
       .catch((e: Error) => toast.error(e.message))
       .finally(() => setLoading(false));
-  }, []);
+  }, [correspondenceFilter]);
 
   const columns: TableColumn<Client>[] = [
     {
@@ -95,6 +102,25 @@ export function ClientsPage() {
       ),
     },
     {
+      name: "Dernier échange",
+      grow: 2,
+      cell: (c) =>
+        c.lastExchange ? (
+          <Link
+            to={`/clients/${c.id}?tab=messages`}
+            className="block text-left text-sm hover:underline"
+            title={c.lastExchange.subject}
+          >
+            <span className="text-[var(--text)]">{formatDate(c.lastExchange.lastMessageAt)}</span>
+            <span className="mt-0.5 block truncate text-xs text-[var(--muted)]">
+              {c.lastExchange.subject}
+            </span>
+          </Link>
+        ) : (
+          <span className="text-sm text-[var(--muted)]">-</span>
+        ),
+    },
+    {
       name: "Ville",
       selector: (c) => c.city ?? "",
       sortable: true,
@@ -104,20 +130,34 @@ export function ClientsPage() {
     {
       name: "",
       grow: 0,
-      width: "5.5rem",
+      width: "9rem",
       right: true,
       style: { whiteSpace: "nowrap" },
       cell: (c) => (
-        <Button
-          variant="ghost"
-          className="h-8 px-3 text-xs"
-          onClick={() => {
-            setEditing(c);
-            setModal("edit");
-          }}
-        >
-          Modifier
-        </Button>
+        <div className="flex justify-end gap-1">
+          {c.email ? (
+            <Button
+              variant="ghost"
+              className="h-8 px-2 text-xs"
+              onClick={() =>
+                navigate(`/inbox/compose?clientId=${encodeURIComponent(c.id)}&to=${encodeURIComponent(c.email ?? "")}`)
+              }
+            >
+              <FontAwesomeIcon icon={faEnvelope} className="h-3 w-3" />
+              Écrire
+            </Button>
+          ) : null}
+          <Button
+            variant="ghost"
+            className="h-8 px-2 text-xs"
+            onClick={() => {
+              setEditing(c);
+              setModal("edit");
+            }}
+          >
+            Modifier
+          </Button>
+        </div>
       ),
     },
   ];
@@ -146,7 +186,30 @@ export function ClientsPage() {
           <p className="p-8 text-sm text-[var(--muted)]">Chargement…</p>
         </Card>
       ) : (
-        <DataTable
+        <>
+          <div className="mb-3 flex flex-wrap gap-2">
+            {(
+              [
+                ["all", "Tous"],
+                ["with", "Ayant une correspondance"],
+                ["without", "Sans échange"],
+              ] as const
+            ).map(([id, label]) => (
+              <button
+                key={id}
+                type="button"
+                className={`rounded-full px-3 py-1 text-xs ${
+                  correspondenceFilter === id
+                    ? "bg-[var(--primary)] text-white"
+                    : "bg-[var(--surface-muted)] text-[var(--muted)]"
+                }`}
+                onClick={() => setCorrespondenceFilter(id)}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          <DataTable
           columns={columns}
           data={clients}
           pagination
@@ -156,6 +219,7 @@ export function ClientsPage() {
           emptyTitle="Aucun client"
           emptyHint="Créez votre premier contact pour facturer et suivre les échanges."
         />
+        </>
       )}
 
       <Modal
@@ -304,7 +368,7 @@ export function ClientDetailPage() {
             {client.clientNumber ?? "Non attribué"}
           </p>
           <p className="mt-1 text-xs text-[var(--muted)]">
-            Identifiant client immuable, utilisé pour le suivi public (/suivi).
+            Identifiant client immuable, utilisé pour le suivi public (kouzia.fr/suivi).
           </p>
         </div>
 
@@ -536,6 +600,8 @@ export function ClientDetailPage() {
           )}
         </Card>
       </div>
+
+      <ClientMessagesTab clientId={client.id} />
 
       <Modal open={editOpen} onClose={() => setEditOpen(false)} title="Modifier le client" wide>
         <ClientFormEditor

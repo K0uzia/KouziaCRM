@@ -313,6 +313,7 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
   const [busyId, setBusyId] = useState<string | null>(null);
   const [issueOpen, setIssueOpen] = useState(false);
   const [issueBusy, setIssueBusy] = useState(false);
+  const [resendBusy, setResendBusy] = useState(false);
   const [sendEmailOnIssue, setSendEmailOnIssue] = useState(true);
   const [emailSubject, setEmailSubject] = useState("");
   const [emailBody, setEmailBody] = useState("");
@@ -321,6 +322,8 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
   const [rejectOpen, setRejectOpen] = useState(false);
   const [rejectReason, setRejectReason] = useState("");
   const [rejectBusy, setRejectBusy] = useState(false);
+  const [invoiceModalOpen, setInvoiceModalOpen] = useState(false);
+  const [invoiceModalBusy, setInvoiceModalBusy] = useState(false);
 
   async function load() {
     if (!id) return;
@@ -336,6 +339,12 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
         setMarket(await api<MarketView>(`/api/quotes/${id}/market`));
       } catch {
         setMarket(null);
+      }
+      try {
+        const siblings = await api<Doc[]>(`/api/invoices?type=INVOICE&market=${id}`);
+        setLinked(siblings);
+      } catch {
+        setLinked([]);
       }
     } else if (d.quoteId) {
       try {
@@ -365,6 +374,16 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
   const labels = isQuote ? quoteStatusLabel : invoiceStatusLabel;
   const paid = (doc.payments ?? []).reduce((s, p) => s + p.amountCents, 0);
   const remaining = Math.max(0, doc.totalCents - paid);
+  const hasMarket = Boolean(market?.milestones.length);
+  const hasSimpleInvoice = linked.some((i) => i.invoiceType === "SIMPLE" || !i.invoiceType);
+  const hasDepositInvoices = linked.some(
+    (i) => i.invoiceType === "ACOMPTE" || i.invoiceType === "SOLDE",
+  );
+  const canCreateInvoice =
+    isQuote &&
+    Boolean(doc.number) &&
+    (doc.quoteStatus === "ACCEPTED" || doc.quoteStatus === "SENT");
+  const totalInvoiceDisabled = hasSimpleInvoice || hasDepositInvoices;
 
   function openIssueModal() {
     const draft = buildIssueEmailDraft(doc!, kind, companyName);
@@ -419,14 +438,12 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
     }
   }
 
-  async function convert() {
+  async function createTotalInvoice() {
+    setInvoiceModalBusy(true);
     try {
       const inv = await api<{ id: string; subscriptionsCreated?: number }>(
         `/api/invoices/${id}/convert`,
-        {
-          method: "POST",
-          body: "{}",
-        },
+        { method: "POST", body: "{}" },
       );
       toast.success("Facture créée depuis le devis");
       if (inv.subscriptionsCreated && inv.subscriptionsCreated > 0) {
@@ -434,9 +451,29 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
           `${inv.subscriptionsCreated} abonnement(s) créé(s) (prochaine facture le mois suivant)`,
         );
       }
+      setInvoiceModalOpen(false);
       navigate(`/invoices/${inv.id}`);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Erreur");
+    } finally {
+      setInvoiceModalBusy(false);
+    }
+  }
+
+  async function createMilestoneInvoice(milestoneId: string) {
+    setInvoiceModalBusy(true);
+    try {
+      const inv = await api<{ id: string }>(
+        `/api/quotes/${id}/milestones/${milestoneId}/invoice`,
+        { method: "POST", body: "{}" },
+      );
+      toast.success("Facture d'acompte créée");
+      setInvoiceModalOpen(false);
+      navigate(`/invoices/${inv.id}`);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Erreur");
+    } finally {
+      setInvoiceModalBusy(false);
     }
   }
 
@@ -455,6 +492,28 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
       toast.error(e instanceof Error ? e.message : "Erreur");
     } finally {
       setRejectBusy(false);
+    }
+  }
+
+  async function manualPayMilestone(milestoneId: string) {
+    const reference = window.prompt("Référence du virement ou chèque (optionnel) :") ?? "";
+    const notes = window.prompt("Commentaire interne (optionnel) :") ?? "";
+    setBusyId(`pay-${milestoneId}`);
+    try {
+      await api(`/api/quotes/${id}/milestones/${milestoneId}/pay-manual`, {
+        method: "POST",
+        body: JSON.stringify({
+          method: "BANK_TRANSFER",
+          reference: reference || null,
+          notes: notes || null,
+        }),
+      });
+      toast.success("Acompte marqué comme payé");
+      await load();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Erreur");
+    } finally {
+      setBusyId(null);
     }
   }
 
@@ -543,12 +602,30 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
               </>
             ) : null}
             {doc.number ? (
-              <a
-                href={`/api/invoices/${doc.id}/pdf`}
-                className="inline-flex h-10 shrink-0 items-center whitespace-nowrap rounded-[var(--radius)] border border-[var(--border-strong)] bg-[var(--surface)] px-4 text-sm font-medium hover:bg-[var(--surface-raised)]"
-              >
-                PDF
-              </a>
+              <>
+                <a
+                  href={`/api/invoices/${doc.id}/pdf`}
+                  className="inline-flex h-10 shrink-0 items-center whitespace-nowrap rounded-[var(--radius)] border border-[var(--border-strong)] bg-[var(--surface)] px-4 text-sm font-medium hover:bg-[var(--surface-raised)]"
+                >
+                  PDF
+                </a>
+                <Button
+                  variant="secondary"
+                  disabled={resendBusy}
+                  onClick={() => {
+                    setResendBusy(true);
+                    void api<{ emailed: boolean }>(`/api/invoices/${doc.id}/send-email`, {
+                      method: "POST",
+                      body: "{}",
+                    })
+                      .then(() => toast.success("PDF en file d'envoi"))
+                      .catch((e: Error) => toast.error(e.message))
+                      .finally(() => setResendBusy(false));
+                  }}
+                >
+                  {resendBusy ? "Envoi…" : "Renvoyer par email"}
+                </Button>
+              </>
             ) : null}
             {!isQuote && doc.status === "ISSUED" ? (
               <Button onClick={() => setPayOpen(true)}>Paiement</Button>
@@ -560,12 +637,9 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
                 Avoir
               </Button>
             ) : null}
-            {isQuote &&
-            (doc.quoteStatus === "SENT" ||
-              doc.status === "ISSUED" ||
-              doc.status === "DRAFT") ? (
-              <Button variant="secondary" onClick={() => void convert()}>
-                Valider et facturer
+            {canCreateInvoice ? (
+              <Button variant="secondary" onClick={() => setInvoiceModalOpen(true)}>
+                Créer une facture
               </Button>
             ) : null}
             {isQuote && doc.quoteStatus === "SENT" ? (
@@ -582,12 +656,53 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
         }
       />
 
+      {isQuote && linked.length > 0 ? (
+        <Card className="p-5">
+          <h2 className="mb-3 text-sm font-semibold">Factures liées</h2>
+          <ul className="divide-y divide-[var(--border)] text-sm">
+            {linked.map((inv) => (
+              <li key={inv.id} className="flex flex-wrap items-center justify-between gap-2 py-2">
+                <Link to={`/invoices/${inv.id}`} className="font-medium hover:text-[var(--primary)]">
+                  {inv.invoiceType === "ACOMPTE"
+                    ? "Acompte"
+                    : inv.invoiceType === "SOLDE"
+                      ? "Solde"
+                      : "Facture"}{" "}
+                  {inv.number ?? "Brouillon"}
+                </Link>
+                <div className="flex gap-2">
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    className="h-7 px-2 text-xs"
+                    disabled={resendBusy}
+                    onClick={() => {
+                      setResendBusy(true);
+                      void api(`/api/invoices/${inv.id}/send-email`, {
+                        method: "POST",
+                        body: "{}",
+                      })
+                        .then(() => toast.success("PDF en file d'envoi"))
+                        .catch((e: Error) => toast.error(e.message))
+                        .finally(() => setResendBusy(false));
+                    }}
+                  >
+                    Envoyer par email
+                  </Button>
+                </div>
+              </li>
+            ))}
+          </ul>
+        </Card>
+      ) : null}
+
       {isQuote && market ? (
         <MarketTimeline
           market={market}
           busyId={busyId}
           onGenerateAcompte={(mid) => void generateDeposit(mid)}
           onGenerateSolde={(force) => void generateSolde(Boolean(force))}
+          onManualPay={(mid) => void manualPayMilestone(mid)}
         />
       ) : null}
 
@@ -815,6 +930,56 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
           ) : null}
         </div>
       </div>
+
+      <Modal
+        open={invoiceModalOpen}
+        onClose={() => !invoiceModalBusy && setInvoiceModalOpen(false)}
+        title="Créer une facture"
+        description="Choisissez une facture totale ou un acompte selon le marché."
+      >
+        <div className="space-y-3">
+          <Button
+            type="button"
+            className="w-full justify-start"
+            disabled={invoiceModalBusy || totalInvoiceDisabled}
+            onClick={() => void createTotalInvoice()}
+          >
+            Facture totale ({formatEUR(doc.totalCents)})
+          </Button>
+          {totalInvoiceDisabled ? (
+            <p className="text-xs text-[var(--muted)]">
+              {hasSimpleInvoice
+                ? "Une facture totale existe déjà pour ce devis."
+                : "Des factures d'acompte existent : utilisez les jalons ou le solde."}
+            </p>
+          ) : null}
+          {hasMarket
+            ? market!.milestones.map((m) => (
+                <Button
+                  key={m.id}
+                  type="button"
+                  variant="secondary"
+                  className="w-full justify-start"
+                  disabled={invoiceModalBusy || Boolean(m.invoiceId)}
+                  onClick={() => void createMilestoneInvoice(m.id)}
+                >
+                  Acompte {m.position} · {m.label} ({formatEUR(m.amountCents)})
+                  {m.invoiceId ? " · déjà facturé" : ""}
+                </Button>
+              ))
+            : null}
+          <div className="flex justify-end border-t border-[var(--border)] pt-3">
+            <Button
+              type="button"
+              variant="secondary"
+              disabled={invoiceModalBusy}
+              onClick={() => setInvoiceModalOpen(false)}
+            >
+              Annuler
+            </Button>
+          </div>
+        </div>
+      </Modal>
 
       <Modal
         open={issueOpen}

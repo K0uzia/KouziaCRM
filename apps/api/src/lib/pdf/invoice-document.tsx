@@ -1,67 +1,101 @@
 import React from "react";
-import { Document, Page, Text, View, StyleSheet } from "@react-pdf/renderer";
-import type { CompanySettings } from "@prisma/client";
+import {
+  Document,
+  Page,
+  Text,
+  View,
+  StyleSheet,
+  Image,
+} from "@react-pdf/renderer";
+import type { PdfCompanySettings } from "@/lib/pdf/brand-assets";
 import type { ClientSnapshot } from "@/lib/invoices/transitions";
 import { centsToEuros } from "@/lib/money";
 
-const styles = StyleSheet.create({
-  page: {
-    paddingTop: 36,
-    paddingBottom: 40,
-    paddingHorizontal: 40,
-    fontSize: 10,
-    fontFamily: "Helvetica",
-    color: "#0f172a",
-  },
-  header: {
-    marginBottom: 22,
-    paddingBottom: 14,
-    borderBottomWidth: 2,
-    borderBottomColor: "#4f46e5",
-  },
-  brand: { fontSize: 22, fontFamily: "Helvetica-Bold", color: "#4f46e5" },
-  muted: { color: "#64748b", marginTop: 2 },
-  row: { flexDirection: "row", justifyContent: "space-between", gap: 24 },
-  block: { flex: 1 },
-  h2: { fontSize: 11, fontFamily: "Helvetica-Bold", marginBottom: 6, color: "#312e81" },
-  table: { marginTop: 22, borderTopWidth: 1, borderColor: "#e2e8f0" },
-  tr: {
-    flexDirection: "row",
-    borderBottomWidth: 1,
-    borderColor: "#e2e8f0",
-    paddingVertical: 7,
-  },
-  th: { fontFamily: "Helvetica-Bold", color: "#475569", backgroundColor: "#f8fafc" },
-  colDesc: { flex: 3 },
-  colQty: { flex: 1, textAlign: "right" },
-  colPrice: { flex: 1.2, textAlign: "right" },
-  colTotal: { flex: 1.2, textAlign: "right" },
-  totals: { marginTop: 16, alignItems: "flex-end" },
-  totalLine: { flexDirection: "row", justifyContent: "flex-end", gap: 24, marginTop: 4 },
-  paymentBox: {
-    marginTop: 18,
-    padding: 12,
-    borderWidth: 1,
-    borderColor: "#c7d2fe",
-    backgroundColor: "#eef2ff",
-    borderRadius: 4,
-  },
-  legal: {
-    marginTop: 28,
-    paddingTop: 12,
-    borderTopWidth: 1,
-    borderColor: "#e2e8f0",
-    fontSize: 8,
-    color: "#64748b",
-    lineHeight: 1.4,
-  },
-  badge: {
-    marginTop: 4,
-    fontSize: 13,
-    fontFamily: "Helvetica-Bold",
-    color: "#312e81",
-  },
-});
+function createStyles(primary: string, secondary: string) {
+  return StyleSheet.create({
+    page: {
+      paddingTop: 36,
+      paddingBottom: 40,
+      paddingHorizontal: 40,
+      fontSize: 10,
+      fontFamily: "Helvetica",
+      color: "#0f172a",
+    },
+    header: {
+      marginBottom: 22,
+      paddingBottom: 14,
+      borderBottomWidth: 2,
+      borderBottomColor: primary,
+    },
+    headerRow: {
+      flexDirection: "row",
+      justifyContent: "space-between",
+      alignItems: "flex-start",
+      gap: 16,
+    },
+    logo: { width: 72, height: 72, objectFit: "contain" },
+    brand: { fontSize: 22, fontFamily: "Helvetica-Bold", color: primary },
+    muted: { color: "#64748b", marginTop: 2 },
+    row: { flexDirection: "row", justifyContent: "space-between", gap: 24 },
+    block: { flex: 1 },
+    h2: {
+      fontSize: 11,
+      fontFamily: "Helvetica-Bold",
+      marginBottom: 6,
+      color: secondary,
+    },
+    table: { marginTop: 22, borderTopWidth: 1, borderColor: "#e2e8f0" },
+    tr: {
+      flexDirection: "row",
+      borderBottomWidth: 1,
+      borderColor: "#e2e8f0",
+      paddingVertical: 7,
+    },
+    th: {
+      fontFamily: "Helvetica-Bold",
+      color: "#475569",
+      backgroundColor: "#f8fafc",
+    },
+    colDesc: { flex: 3 },
+    colQty: { flex: 1, textAlign: "right" },
+    colPrice: { flex: 1.2, textAlign: "right" },
+    colTotal: { flex: 1.2, textAlign: "right" },
+    colPayDate: { flex: 1.4 },
+    colPayMethod: { flex: 1.2 },
+    colPayRef: { flex: 1.2 },
+    colPayAmount: { flex: 1, textAlign: "right" },
+    totals: { marginTop: 16, alignItems: "flex-end" },
+    totalLine: {
+      flexDirection: "row",
+      justifyContent: "flex-end",
+      gap: 24,
+      marginTop: 4,
+    },
+    paymentBox: {
+      marginTop: 18,
+      padding: 12,
+      borderWidth: 1,
+      borderColor: primary,
+      backgroundColor: "#f8fafc",
+      borderRadius: 4,
+    },
+    legal: {
+      marginTop: 28,
+      paddingTop: 12,
+      borderTopWidth: 1,
+      borderColor: "#e2e8f0",
+      fontSize: 8,
+      color: "#64748b",
+      lineHeight: 1.4,
+    },
+    badge: {
+      marginTop: 4,
+      fontSize: 13,
+      fontFamily: "Helvetica-Bold",
+      color: secondary,
+    },
+  });
+}
 
 function formatIban(iban: string): string {
   const clean = iban.replace(/\s+/g, "").toUpperCase();
@@ -80,7 +114,7 @@ function fmtMoney(cents: number) {
 }
 
 export type InvoicePdfData = {
-  company: CompanySettings;
+  company: PdfCompanySettings;
   client: ClientSnapshot;
   invoice: {
     number: string;
@@ -122,6 +156,15 @@ export type InvoicePdfData = {
       percentBps: number;
       amountCents: number;
       triggerText: string;
+      status?: string;
+      dueDate?: Date | null;
+    }>;
+    payments?: Array<{
+      paidAt: Date;
+      amountCents: number;
+      method: string;
+      reference?: string | null;
+      status?: string;
     }>;
     lines: Array<{
       description: string;
@@ -136,6 +179,10 @@ export type InvoicePdfData = {
 };
 
 export function InvoiceDocument({ company, client, invoice }: InvoicePdfData) {
+  const primary = company.brandPrimaryColor || "#0f766e";
+  const secondary = company.brandSecondaryColor || "#0f172a";
+  const styles = createStyles(primary, secondary);
+
   const isCredit = invoice.documentType === "CREDIT_NOTE";
   const isQuote = invoice.documentType === "QUOTE";
   const isAcompte = invoice.invoiceType === "ACOMPTE";
@@ -150,23 +197,46 @@ export function InvoiceDocument({ company, client, invoice }: InvoicePdfData) {
           ? "FACTURE DE SOLDE"
           : "FACTURE";
 
+  const legalFormLine = [
+    company.legalName,
+    company.legalForm ? company.legalForm : "Entrepreneur individuel",
+    company.rcsMention,
+  ]
+    .filter(Boolean)
+    .join(" - ");
+
   return (
     <Document>
       <Page size="A4" style={styles.page}>
         <View style={styles.header}>
-          <Text style={styles.brand}>{company.tradeName ?? company.legalName}</Text>
-          <Text>{company.legalName} - Entrepreneur individuel</Text>
-          <Text style={styles.muted}>
-            {company.addressLine1}
-            {company.addressLine2 ? `, ${company.addressLine2}` : ""}
-          </Text>
-          <Text style={styles.muted}>
-            {company.postalCode} {company.city} - {company.country}
-          </Text>
-          <Text style={styles.muted}>
-            SIREN {company.siren} · SIRET {company.siret} · APE {company.apeCode}
-          </Text>
-          {company.website && <Text style={styles.muted}>{company.website}</Text>}
+          <View style={styles.headerRow}>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.brand}>
+                {company.tradeName ?? company.legalName}
+              </Text>
+              <Text>{legalFormLine}</Text>
+              <Text style={styles.muted}>
+                {company.addressLine1}
+                {company.addressLine2 ? `, ${company.addressLine2}` : ""}
+              </Text>
+              <Text style={styles.muted}>
+                {company.postalCode} {company.city} - {company.country}
+              </Text>
+              <Text style={styles.muted}>
+                SIREN {company.siren} · SIRET {company.siret} · APE{" "}
+                {company.apeCode}
+              </Text>
+              {company.vatIntraNumber ? (
+                <Text style={styles.muted}>TVA intra : {company.vatIntraNumber}</Text>
+              ) : null}
+              {company.website ? (
+                <Text style={styles.muted}>{company.website}</Text>
+              ) : null}
+            </View>
+            {company.brandLogoDataUrl ? (
+              <Image src={company.brandLogoDataUrl} style={styles.logo} />
+            ) : null}
+          </View>
         </View>
 
         <View style={styles.row}>
@@ -228,7 +298,9 @@ export function InvoiceDocument({ company, client, invoice }: InvoicePdfData) {
         </View>
 
         {isSolde && invoice.balanceSummary ? (
-          <View style={{ marginTop: 16, padding: 10, borderWidth: 1, borderColor: "#cfdad3" }}>
+          <View
+            style={{ marginTop: 16, padding: 10, borderWidth: 1, borderColor: "#cfdad3" }}
+          >
             <Text style={styles.h2}>Récapitulatif du marché</Text>
             <Text style={{ marginTop: 4 }}>
               Total du marché (devis {invoice.balanceSummary.quoteNumber ?? "?"}) :{" "}
@@ -293,16 +365,16 @@ export function InvoiceDocument({ company, client, invoice }: InvoicePdfData) {
                 </Text>
                 <Text>
                   −
-                  {fmtMoney(
-                    Math.max(0, invoice.subtotalCents - invoice.totalCents),
-                  )}
+                  {fmtMoney(Math.max(0, invoice.subtotalCents - invoice.totalCents))}
                 </Text>
               </View>
             </>
           ) : null}
           <View style={styles.totalLine}>
             <Text>Total TTC (= HT{company.vatMention ? ", franchise TVA" : ""})</Text>
-            <Text style={{ fontFamily: "Helvetica-Bold" }}>{fmtMoney(invoice.totalCents)}</Text>
+            <Text style={{ fontFamily: "Helvetica-Bold" }}>
+              {fmtMoney(invoice.totalCents)}
+            </Text>
           </View>
         </View>
 
@@ -336,9 +408,35 @@ export function InvoiceDocument({ company, client, invoice }: InvoicePdfData) {
             <Text style={styles.h2}>Échéancier de paiement</Text>
             {invoice.milestones.map((m, i) => (
               <Text key={i} style={{ marginTop: 3 }}>
-                {m.label} ({(m.percentBps / 100).toFixed(0)} %) : {fmtMoney(m.amountCents)} -{" "}
+                {m.label} ({(m.percentBps / 100).toFixed(0)} %) : {fmtMoney(m.amountCents)}
+                {m.status ? ` - ${m.status}` : ""}
+                {m.dueDate ? ` - échéance ${fmtDate(m.dueDate)}` : ""}
+                {" - "}
                 {m.triggerText}
               </Text>
+            ))}
+          </View>
+        ) : null}
+
+        {!isQuote &&
+        !isCredit &&
+        invoice.payments &&
+        invoice.payments.length > 0 ? (
+          <View style={{ marginTop: 20 }}>
+            <Text style={styles.h2}>Règlements reçus</Text>
+            <View style={[styles.tr, styles.th, { marginTop: 6 }]}>
+              <Text style={styles.colPayDate}>Date</Text>
+              <Text style={styles.colPayMethod}>Moyen</Text>
+              <Text style={styles.colPayRef}>Référence</Text>
+              <Text style={styles.colPayAmount}>Montant</Text>
+            </View>
+            {invoice.payments.map((p, i) => (
+              <View key={i} style={styles.tr}>
+                <Text style={styles.colPayDate}>{fmtDate(p.paidAt)}</Text>
+                <Text style={styles.colPayMethod}>{p.method}</Text>
+                <Text style={styles.colPayRef}>{p.reference ?? "-"}</Text>
+                <Text style={styles.colPayAmount}>{fmtMoney(p.amountCents)}</Text>
+              </View>
             ))}
           </View>
         ) : null}
@@ -354,7 +452,8 @@ export function InvoiceDocument({ company, client, invoice }: InvoicePdfData) {
           <View style={styles.paymentBox}>
             <Text style={styles.h2}>Réglement par virement</Text>
             <Text style={{ marginTop: 4 }}>
-              Merci de régler {fmtMoney(invoice.totalCents)} par virement en indiquant la référence{" "}
+              Merci de régler {fmtMoney(invoice.totalCents)} par virement en indiquant la
+              référence{" "}
               <Text style={{ fontFamily: "Helvetica-Bold" }}>{invoice.number}</Text>.
             </Text>
             {company.bankAccountHolder ? (
@@ -370,15 +469,14 @@ export function InvoiceDocument({ company, client, invoice }: InvoicePdfData) {
 
         <View style={styles.legal}>
           <Text>
-            {company.legalName}, Entrepreneur individuel, SIREN {company.siren}, SIRET{" "}
-            {company.siret}, code APE {company.apeCode}.
+            {company.legalName}, {company.legalForm ?? "Entrepreneur individuel"}, SIREN{" "}
+            {company.siren}, SIRET {company.siret}, code APE {company.apeCode}.
+            {company.rcsMention ? ` ${company.rcsMention}.` : ""}
           </Text>
           <Text>
-            Document émis dans le cadre de la micro-entreprise - activité libérale non réglementée
-            (BNC).
+            Document émis dans le cadre de la micro-entreprise - activité libérale non
+            réglementée (BNC).
           </Text>
-          {/* Mentions imposées par la loi : affichées quoi qu'il arrive, les
-              clauses personnalisées viennent s'y ajouter et non s'y substituer. */}
           {company.vatMention ? <Text>{company.vatMention}</Text> : null}
           {!isQuote && company.paymentConditions ? (
             <Text>Conditions de paiement : {company.paymentConditions}</Text>
@@ -389,11 +487,23 @@ export function InvoiceDocument({ company, client, invoice }: InvoicePdfData) {
           {!isQuote && company.earlyPaymentDiscountText ? (
             <Text>{company.earlyPaymentDiscountText}</Text>
           ) : null}
+          {company.decennaleInsurer ? (
+            <Text>
+              Assurance décennale : {company.decennaleInsurer}
+              {company.decennalePolicyNumber
+                ? `, police n° ${company.decennalePolicyNumber}`
+                : ""}
+              {company.decennaleCoverageZone
+                ? `, zone ${company.decennaleCoverageZone}`
+                : ""}
+              .
+            </Text>
+          ) : null}
           {(invoice.legalClauses ?? []).map((c, i) => (
-              <Text key={i} style={{ marginTop: 4 }}>
-                {c.title} : {c.body}
-              </Text>
-            ))}
+            <Text key={i} style={{ marginTop: 4 }}>
+              {c.title} : {c.body}
+            </Text>
+          ))}
           {!(invoice.legalClauses?.length) && company.suspensionClause ? (
             <Text>{company.suspensionClause}</Text>
           ) : null}
@@ -402,6 +512,9 @@ export function InvoiceDocument({ company, client, invoice }: InvoicePdfData) {
           ) : null}
           {company.b2cActivity && company.mediationClause ? (
             <Text style={{ marginTop: 4 }}>{company.mediationClause}</Text>
+          ) : null}
+          {company.pdfFooterText ? (
+            <Text style={{ marginTop: 6 }}>{company.pdfFooterText}</Text>
           ) : null}
         </View>
       </Page>

@@ -1,34 +1,39 @@
 # Délivrabilité email (SPF, DKIM, DMARC)
 
-Configurer ces enregistrements DNS sur le domaine utilisé dans `SMTP_FROM` (ex. `kouzia.fr`).
+Configurer ces enregistrements DNS sur le domaine utilisé dans l'adresse d'expédition
+(Paramètres > Emails & Messagerie, ex. `contact@kouzia.com` / domaine `kouzia.com`).
+
+Hébergeur mail : **Hostinger** (hPanel > Emails).
 
 ## SPF
 
 Type: `TXT` · Nom: `@` (ou le domaine d'envoi)
 
 ```
-v=spf1 include:mx.ovh.com -all
+v=spf1 include:_spf.mail.hostinger.com ~all
 ```
-
-Adapter `include:` selon l'hébergeur SMTP (OVH, Google, Microsoft 365…).
 
 ## DKIM
 
-Activer DKIM dans le panneau mail de l'hébergeur, puis coller le `TXT` fourni (souvent `selector._domainkey`).
+Dans hPanel > Emails, activer DKIM puis coller l'enregistrement `TXT` fourni
+(souvent `selector._domainkey`).
 
 ## DMARC
 
 Type: `TXT` · Nom: `_dmarc`
 
+Phase 1 (observation) :
+
 ```
-v=DMARC1; p=quarantine; rua=mailto:dmarc@votredomaine.fr; pct=100; adkim=s; aspf=s
+v=DMARC1; p=none; rua=mailto:contact@kouzia.com
 ```
 
-Passer à `p=reject` une fois les rapports stables.
+Une fois les rapports stables, renforcer vers `p=quarantine` puis `p=reject`.
 
 ## Checklist KouziaCRM
 
-1. `SMTP_*` renseignés avec une adresse du domaine authentifié
-2. `SMTP_FROM` aligné sur SPF/DKIM
-3. Tester via Mailpit en local (`make mailpit`), puis un envoi réel vers une boîte externe
-4. Vérifier sur https://www.mail-tester.com (cible ≥ 8/10)
+1. Paramètres > Emails & Messagerie : SMTP Hostinger (`smtp.hostinger.com:465` SSL) + IMAP (`imap.hostinger.com:993`)
+2. Mot de passe boîte `contact@kouzia.com` enregistré (chiffré en base)
+3. Boutons « Tester l'envoi » et « Tester IMAP »
+4. En local : Mailpit (`make mailpit`) via `.env` tant que les Paramètres SMTP ne sont pas enregistrés
+5. Vérifier sur https://www.mail-tester.com (cible ≥ 8/10)

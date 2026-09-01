@@ -2,9 +2,16 @@ import { prisma } from "@/lib/prisma.js";
 
 // Ordre enfants → parents (FK SQLite).
 const TABLES = [
+  "QuoteAcceptanceAudit",
+  "EmailAttachment",
+  "RevolutWebhookEvent",
   "EmailMessage",
   "EmailThread",
+  "MailFolder",
+  "MailAccount",
+  "MailSyncStatus",
   "EmailSyncState",
+  "EmailOutbox",
   "Payment",
   "InvoiceLine",
   "PaymentMilestone",
@@ -12,6 +19,7 @@ const TABLES = [
   "Subscription",
   "Service",
   "OnboardingInvitation",
+  "ClientTestimonial",
   "Client",
   "Counter",
   "NamedCounter",
@@ -20,6 +28,7 @@ const TABLES = [
   "UrssafDeclaration",
   "LegalClause",
   "Session",
+  "SettingsAuditLog",
 ];
 
 /** Vide toutes les tables métier (garde User et CompanySettings seedés). */

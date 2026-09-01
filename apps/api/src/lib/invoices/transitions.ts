@@ -99,14 +99,14 @@ export async function issueInvoice(invoiceId: string, issueDate = new Date(), du
   );
 }
 
-/** Émet un devis (numéro D-YYYY-NNN, QuoteStatus SENT) et crée les jalons 30/40/30. */
+/** Émet un devis (numéro D-YYYY-NNN, QuoteStatus SENT) et crée les jalons acompte / solde. */
 export async function issueQuote(
   quoteId: string,
   issueDate = new Date(),
   validUntil?: Date,
 ) {
   const settings = await getCompanySettings();
-  return prisma.$transaction(async (tx) => {
+  const updated = await prisma.$transaction(async (tx) => {
     const quote = await tx.invoice.findUniqueOrThrow({
       where: { id: quoteId },
       include: { lines: true },
@@ -149,6 +149,8 @@ export async function issueQuote(
     await ensureQuoteMilestones(quoteId, quote.totalCents, tx);
     return updated;
   });
+
+  return updated;
 }
 
 /**
@@ -209,11 +211,40 @@ export async function repairQuotesMissingNumbers(): Promise<number> {
 export class QuoteDecisionError extends Error {
   constructor(
     message: string,
-    readonly code: "NOT_A_QUOTE" | "NOT_PENDING" | "ALREADY_INVOICED",
+    readonly code:
+      | "NOT_A_QUOTE"
+      | "NOT_PENDING"
+      | "ALREADY_INVOICED"
+      | "DEPOSIT_REQUIRED",
   ) {
     super(message);
     this.name = "QuoteDecisionError";
   }
+}
+
+export type QuoteAcceptanceSource = "PORTAL" | "THREAD" | "ADMIN";
+
+export type QuoteAcceptanceActor = {
+  userId?: string | null;
+  userEmail?: string | null;
+};
+
+async function logQuoteAcceptance(
+  quoteId: string,
+  signerName: string,
+  source: QuoteAcceptanceSource,
+  opts: { threadId?: string | null; actor?: QuoteAcceptanceActor } = {},
+) {
+  await prisma.quoteAcceptanceAudit.create({
+    data: {
+      quoteId,
+      signerName: signerName.trim(),
+      source,
+      threadId: opts.threadId ?? null,
+      userId: opts.actor?.userId ?? null,
+      userEmail: opts.actor?.userEmail ?? null,
+    },
+  });
 }
 
 /**
@@ -271,11 +302,15 @@ export async function rejectQuote(quoteId: string, reason?: string) {
  * Acceptation d'un devis par le client depuis le portail de suivi.
  * Le nom saisi vaut bon pour accord. La facture reste à émettre par le dirigeant.
  */
-export async function acceptQuoteByClient(quoteId: string, signerName: string) {
-  return prisma.$transaction(async (tx) => {
+export async function acceptQuoteByClient(
+  quoteId: string,
+  signerName: string,
+  audit: { source?: QuoteAcceptanceSource; threadId?: string | null; actor?: QuoteAcceptanceActor } = {},
+) {
+  const updated = await prisma.$transaction(async (tx) => {
     await loadPendingQuote(tx, quoteId);
     await ensureQuoteHasOfficialNumber(tx, quoteId);
-    return tx.invoice.update({
+    const result = await tx.invoice.update({
       where: { id: quoteId },
       data: {
         quoteStatus: QuoteStatus.ACCEPTED,
@@ -284,6 +319,55 @@ export async function acceptQuoteByClient(quoteId: string, signerName: string) {
       },
       include: { lines: true, client: true },
     });
+    await activateSubscriptionsFromDocument(quoteId, tx);
+    return result;
+  });
+
+  await logQuoteAcceptance(quoteId, signerName, audit.source ?? "PORTAL", {
+    threadId: audit.threadId,
+    actor: audit.actor,
+  });
+
+  const { onQuoteAcceptedByClient } = await import(
+    "@/lib/payments/milestonePaymentService.js"
+  );
+  await onQuoteAcceptedByClient(quoteId);
+
+  return updated;
+}
+
+/** Validation admin depuis la messagerie (fil lié à un client). */
+export async function acceptQuoteFromThread(
+  quoteId: string,
+  opts: {
+    signerName: string;
+    threadId: string;
+    actor: QuoteAcceptanceActor;
+  },
+) {
+  const thread = await prisma.emailThread.findUnique({
+    where: { id: opts.threadId },
+    select: { clientId: true },
+  });
+  if (!thread?.clientId) {
+    throw new QuoteDecisionError("Fil non rattaché à un client", "NOT_PENDING");
+  }
+
+  const quote = await prisma.invoice.findUnique({
+    where: { id: quoteId },
+    select: { clientId: true, documentType: true, quoteStatus: true },
+  });
+  if (!quote || quote.documentType !== InvoiceDocumentType.QUOTE) {
+    throw new QuoteDecisionError("Ce document n'est pas un devis", "NOT_A_QUOTE");
+  }
+  if (quote.clientId !== thread.clientId) {
+    throw new QuoteDecisionError("Ce devis n'appartient pas au client du fil", "NOT_PENDING");
+  }
+
+  return acceptQuoteByClient(quoteId, opts.signerName, {
+    source: "THREAD",
+    threadId: opts.threadId,
+    actor: opts.actor,
   });
 }
 

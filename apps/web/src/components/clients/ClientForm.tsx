@@ -2,7 +2,16 @@ import { useEffect, useState, type FormEvent } from "react";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { Button } from "@/components/ui/Button";
-import { Field, Input, Select, Textarea } from "@/components/ui/Field";
+import { Field, Input, Textarea } from "@/components/ui/Field";
+import {
+  AddressAutocomplete,
+  revalidateAddressBeforeSubmit,
+  type AddressValue,
+} from "@/components/forms/AddressAutocomplete";
+import {
+  CompanyLookup,
+  type CompanyLookupValue,
+} from "@/components/forms/CompanyLookup";
 
 export type Client = {
   id: string;
@@ -16,17 +25,28 @@ export type Client = {
   email: string | null;
   phone: string | null;
   siret: string | null;
+  siren?: string | null;
+  apeCode?: string | null;
+  companyVerifiedAt?: string | null;
   addressLine1: string | null;
   addressLine2: string | null;
   postalCode: string | null;
   city: string | null;
   country: string;
+  addressCityCode?: string | null;
+  addressLat?: number | null;
+  addressLon?: number | null;
   notes: string | null;
   hasAccessCode?: boolean;
   onboardingCompletedAt?: string | null;
   accessEmailSentAt?: string | null;
   createdAt: string;
   updatedAt: string;
+  lastExchange?: {
+    threadId: string;
+    subject: string;
+    lastMessageAt: string;
+  } | null;
 };
 
 export type ClientFormData = {
@@ -37,12 +57,20 @@ export type ClientFormData = {
   email: string;
   phone: string;
   siret: string;
+  siren: string;
+  apeCode: string;
+  companyVerifiedAt: string | null;
   addressLine1: string;
   addressLine2: string;
   postalCode: string;
   city: string;
   country: string;
+  addressCityCode: string;
+  addressLat: number | null;
+  addressLon: number | null;
+  addressManualConfirmed: boolean;
   notes: string;
+  sirenLocked: boolean;
 };
 
 export const emptyClientForm = (): ClientFormData => ({
@@ -53,12 +81,20 @@ export const emptyClientForm = (): ClientFormData => ({
   email: "",
   phone: "",
   siret: "",
+  siren: "",
+  apeCode: "",
+  companyVerifiedAt: null,
   addressLine1: "",
   addressLine2: "",
   postalCode: "",
   city: "",
   country: "FRANCE",
+  addressCityCode: "",
+  addressLat: null,
+  addressLon: null,
+  addressManualConfirmed: false,
   notes: "",
+  sirenLocked: false,
 });
 
 export function clientToForm(c: Client): ClientFormData {
@@ -70,12 +106,45 @@ export function clientToForm(c: Client): ClientFormData {
     email: c.email ?? "",
     phone: c.phone ?? "",
     siret: c.siret ?? "",
+    siren: c.siren ?? "",
+    apeCode: c.apeCode ?? "",
+    companyVerifiedAt: c.companyVerifiedAt ?? null,
     addressLine1: c.addressLine1 ?? "",
     addressLine2: c.addressLine2 ?? "",
     postalCode: c.postalCode ?? "",
     city: c.city ?? "",
     country: c.country ?? "FRANCE",
+    addressCityCode: c.addressCityCode ?? "",
+    addressLat: c.addressLat ?? null,
+    addressLon: c.addressLon ?? null,
+    addressManualConfirmed: false,
     notes: c.notes ?? "",
+    sirenLocked: Boolean(c.companyVerifiedAt),
+  };
+}
+
+function toAddressValue(form: ClientFormData): AddressValue {
+  return {
+    addressLine1: form.addressLine1,
+    addressLine2: form.addressLine2,
+    postalCode: form.postalCode,
+    city: form.city,
+    country: form.country,
+    addressCityCode: form.addressCityCode,
+    addressLat: form.addressLat,
+    addressLon: form.addressLon,
+    addressManualConfirmed: form.addressManualConfirmed,
+  };
+}
+
+function toCompanyValue(form: ClientFormData): CompanyLookupValue {
+  return {
+    siren: form.siren,
+    siret: form.siret,
+    companyName: form.companyName,
+    apeCode: form.apeCode,
+    companyVerifiedAt: form.companyVerifiedAt,
+    locked: form.sirenLocked,
   };
 }
 
@@ -92,6 +161,7 @@ export function ClientFormEditor({
 }) {
   const [form, setForm] = useState<ClientFormData>(initial ?? emptyClientForm());
   const [busy, setBusy] = useState(false);
+  const [addressError, setAddressError] = useState<string | null>(null);
 
   useEffect(() => {
     if (initial) setForm(initial);
@@ -104,12 +174,49 @@ export function ClientFormEditor({
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
     setBusy(true);
+    setAddressError(null);
     try {
+      const addrErr = await revalidateAddressBeforeSubmit(toAddressValue(form), (addr) => {
+        setForm((f) => ({
+          ...f,
+          addressLine1: addr.addressLine1,
+          addressLine2: addr.addressLine2,
+          postalCode: addr.postalCode,
+          city: addr.city,
+          country: addr.country,
+          addressCityCode: addr.addressCityCode,
+          addressLat: addr.addressLat,
+          addressLon: addr.addressLon,
+          addressManualConfirmed: addr.addressManualConfirmed,
+        }));
+      });
+      if (addrErr) {
+        setAddressError(addrErr);
+        toast.error(addrErr);
+        return;
+      }
+
       const payload = {
-        ...form,
+        type: form.type,
+        firstName: form.firstName,
+        lastName: form.lastName,
+        companyName: form.companyName,
         email: form.email || null,
         phone: form.phone || null,
         siret: form.siret || null,
+        siren: form.siren || null,
+        apeCode: form.apeCode || null,
+        companyVerifiedAt: form.companyVerifiedAt,
+        addressLine1: form.addressLine1,
+        addressLine2: form.addressLine2,
+        postalCode: form.postalCode,
+        city: form.city,
+        country: form.country,
+        addressCityCode: form.addressCityCode || null,
+        addressLat: form.addressLat,
+        addressLon: form.addressLon,
+        addressManualConfirmed: form.addressManualConfirmed,
+        notes: form.notes,
       };
       const client = await api<Client>(clientId ? `/api/clients/${clientId}` : "/api/clients", {
         method: clientId ? "PUT" : "POST",
@@ -140,7 +247,7 @@ export function ClientFormEditor({
             onClick={() => set("type", t)}
             className={`flex-1 rounded-lg px-3 py-2 text-sm font-medium transition ${
               form.type === t
-                  ? "bg-[var(--surface)] text-[var(--text)] shadow-sm"
+                ? "bg-[var(--surface)] text-[var(--text)] shadow-sm"
                 : "text-[var(--muted)] hover:text-[var(--text)]"
             }`}
           >
@@ -159,22 +266,32 @@ export function ClientFormEditor({
           </Field>
         </div>
       ) : (
-        <div className="grid gap-4 sm:grid-cols-2">
-          <Field label="Raison sociale" hint="Obligatoire" className="sm:col-span-2">
-            <Input
-              required
-              value={form.companyName}
-              onChange={(e) => set("companyName", e.target.value)}
-            />
-          </Field>
-          <Field label="SIRET" hint="14 chiffres">
-            <Input
-              value={form.siret}
-              onChange={(e) => set("siret", e.target.value)}
-              inputMode="numeric"
-            />
-          </Field>
-        </div>
+        <CompanyLookup
+          value={toCompanyValue(form)}
+          onChange={(c) =>
+            setForm((f) => ({
+              ...f,
+              siren: c.siren,
+              siret: c.siret,
+              companyName: c.companyName,
+              apeCode: c.apeCode,
+              companyVerifiedAt: c.companyVerifiedAt,
+              sirenLocked: c.locked,
+            }))
+          }
+          onAddressPrefill={(addr) =>
+            setForm((f) => ({
+              ...f,
+              addressLine1: addr.addressLine1,
+              postalCode: addr.postalCode,
+              city: addr.city,
+              addressCityCode: addr.addressCityCode,
+              addressLat: null,
+              addressLon: null,
+              addressManualConfirmed: false,
+            }))
+          }
+        />
       )}
 
       <div className="grid gap-4 sm:grid-cols-2">
@@ -186,32 +303,24 @@ export function ClientFormEditor({
         </Field>
       </div>
 
-      <div className="space-y-4 rounded-[var(--radius)] border border-[var(--border)] p-4">
-        <p className="text-sm font-medium">Adresse de facturation</p>
-        <Field label="Adresse">
-          <Input value={form.addressLine1} onChange={(e) => set("addressLine1", e.target.value)} />
-        </Field>
-        <Field label="Complément">
-          <Input value={form.addressLine2} onChange={(e) => set("addressLine2", e.target.value)} />
-        </Field>
-        <div className="grid gap-4 sm:grid-cols-3">
-          <Field label="Code postal">
-            <Input value={form.postalCode} onChange={(e) => set("postalCode", e.target.value)} />
-          </Field>
-          <Field label="Ville" className="sm:col-span-2">
-            <Input value={form.city} onChange={(e) => set("city", e.target.value)} />
-          </Field>
-        </div>
-        <Field label="Pays">
-          <Select value={form.country} onChange={(e) => set("country", e.target.value)}>
-            <option value="FRANCE">France</option>
-            <option value="BELGIQUE">Belgique</option>
-            <option value="SUISSE">Suisse</option>
-            <option value="LUXEMBOURG">Luxembourg</option>
-            <option value="AUTRE">Autre</option>
-          </Select>
-        </Field>
-      </div>
+      <AddressAutocomplete
+        value={toAddressValue(form)}
+        onChange={(addr) =>
+          setForm((f) => ({
+            ...f,
+            addressLine1: addr.addressLine1,
+            addressLine2: addr.addressLine2,
+            postalCode: addr.postalCode,
+            city: addr.city,
+            country: addr.country,
+            addressCityCode: addr.addressCityCode,
+            addressLat: addr.addressLat,
+            addressLon: addr.addressLon,
+            addressManualConfirmed: addr.addressManualConfirmed,
+          }))
+        }
+      />
+      {addressError ? <p className="text-sm text-[var(--danger)]">{addressError}</p> : null}
 
       <Field label="Notes internes" hint="Non visibles sur les documents PDF">
         <Textarea value={form.notes} onChange={(e) => set("notes", e.target.value)} rows={3} />

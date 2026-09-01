@@ -28,6 +28,7 @@ import { CreditNoteReason, RefundMethod } from "@prisma/client";
 import { getCompanySettings } from "@/lib/company.js";
 import { renderInvoicePdf } from "@/lib/pdf/render.js";
 import { buildInvoicePdfPayload } from "@/lib/pdf/build-payload.js";
+import { enrichCompanyForPdf } from "@/lib/pdf/brand-assets.js";
 import { decryptOptional } from "@/lib/crypto.js";
 import type { ClientSnapshot } from "@/lib/invoices/transitions.js";
 import { serializeInvoice } from "@/lib/invoices/serialize.js";
@@ -36,8 +37,12 @@ import { ensureQuoteMilestones } from "@/lib/quotes/milestones.js";
 import {
   listPendingReminders,
   markReminderSent,
+  scheduleReminders,
 } from "@/lib/reminders.js";
-import { isSmtpConfigured, sendEmail } from "@/lib/email/smtp.js";
+import { sendDueReminders, sendDueDepositReminders } from "@/lib/reminders/send.js";
+import { processEmailOutbox } from "@/lib/email/mailer/index.js";
+import { isSmtpConfigured } from "@/lib/email/smtp.js";
+import { mailEnqueue } from "@/lib/email/mailer/index.js";
 import { sendDocumentPdf } from "@/lib/email/send-document-pdf.js";
 import { signDocumentToken } from "@/lib/documents/public-token.js";
 import { listActiveLegalClauses } from "@/lib/company/legal-clauses.js";
@@ -269,6 +274,39 @@ export const invoicesRoutes: FastifyPluginAsync = async (app) => {
     if (reply.sent) return;
     const rows = await listPendingReminders();
     return rows.map(serializeInvoice);
+  });
+
+  app.post("/api/reminders/run", async (request, reply) => {
+    await requireAuth(request, reply);
+    if (reply.sent) return;
+    const errors: string[] = [];
+    let scheduled = 0;
+    let enqueued = 0;
+    let sent = 0;
+
+    try {
+      scheduled = await scheduleReminders();
+    } catch (e) {
+      errors.push(e instanceof Error ? e.message : "Planification impossible");
+    }
+
+    try {
+      enqueued = (await sendDueReminders()) + (await sendDueDepositReminders());
+    } catch (e) {
+      errors.push(e instanceof Error ? e.message : "Enqueue relances impossible");
+    }
+
+    try {
+      const result = await processEmailOutbox();
+      sent = result.processed;
+      if (result.failed > 0) {
+        errors.push(`${result.failed} envoi(s) outbox en échec`);
+      }
+    } catch (e) {
+      errors.push(e instanceof Error ? e.message : "Traitement outbox impossible");
+    }
+
+    return { scheduled, enqueued, sent, errors };
   });
 
   app.get<{ Params: { id: string } }>("/api/invoices/:id", async (request, reply) => {
@@ -519,6 +557,30 @@ export const invoicesRoutes: FastifyPluginAsync = async (app) => {
     }
   });
 
+  app.post<{ Params: { id: string } }>("/api/invoices/:id/send-email", async (request, reply) => {
+    await requireAuth(request, reply);
+    if (reply.sent) return;
+    const body = (request.body ?? {}) as { subject?: string; body?: string; text?: string };
+    const invoice = await prisma.invoice.findUnique({
+      where: { id: request.params.id },
+      select: { id: true, number: true, status: true },
+    });
+    if (!invoice) return reply.code(404).send({ error: "Introuvable" });
+    if (!invoice.number || invoice.status === "DRAFT") {
+      return reply.code(400).send({ error: "Document non émis" });
+    }
+    const mail = await sendDocumentPdf(invoice.id, {
+      subject: body.subject,
+      text: body.body ?? body.text,
+    });
+    return {
+      emailed: mail.sent,
+      queued: mail.queued ?? false,
+      outboxId: mail.outboxId ?? null,
+      reason: mail.reason ?? null,
+    };
+  });
+
   app.post<{ Params: { id: string } }>("/api/invoices/:id/convert", async (request, reply) => {
     await requireAuth(request, reply);
     if (reply.sent) return;
@@ -598,16 +660,15 @@ export const invoicesRoutes: FastifyPluginAsync = async (app) => {
 
       const smtpOk = await isSmtpConfigured();
       if (email && smtpOk) {
-        await sendEmail({ to: email, subject, text: body });
-        const { logClientEmailEvent } = await import("@/lib/email/log-event.js");
-        await logClientEmailEvent({
-          clientId: invoice.clientId,
-          kind: "reminder_soft",
+        await mailEnqueue({
+          to: email,
           subject,
-          toAddress: email,
+          text: body,
+          clientId: invoice.clientId,
           documentId: invoice.id,
-          documentNumber: invoice.number,
-          success: true,
+          documentNumber: invoice.number ?? undefined,
+          kind: "reminder_soft",
+          bodyTextForMessage: body,
         });
       }
 
@@ -824,6 +885,7 @@ export const invoicesRoutes: FastifyPluginAsync = async (app) => {
         quote: true,
         sourceMilestone: true,
         milestones: { orderBy: { position: "asc" } },
+        payments: { orderBy: { paidAt: "asc" } },
       },
     });
     if (!invoice) return reply.code(404).send({ error: "Introuvable" });
@@ -831,7 +893,7 @@ export const invoicesRoutes: FastifyPluginAsync = async (app) => {
       return reply.code(400).send({ error: "PDF disponible uniquement après émission" });
     }
 
-    const company = await getCompanySettings();
+    const company = await enrichCompanyForPdf(await getCompanySettings());
     const legalClauses = await listActiveLegalClauses();
     const snapshot =
       (invoice.clientSnapshot as ClientSnapshot | null) ??

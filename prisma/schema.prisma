@@ -53,6 +53,63 @@ enum EmailDirection {
   OUTBOUND
 }
 
+enum MailFolderRole {
+  INBOX
+  SENT
+  DRAFTS
+  TRASH
+  JUNK
+  ARCHIVE
+  CUSTOM
+}
+
+/// Compte mail (extensible multi-comptes)
+model MailAccount {
+  id        String       @id @default(cuid())
+  email     String
+  label     String?
+  isDefault Boolean      @default(true)
+  imapHost  String?
+  smtpHost  String?
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+  folders   MailFolder[]
+
+  @@index([isDefault])
+}
+
+/// Dossier IMAP synchronisé (ou virtuel côté ERP)
+model MailFolder {
+  id           String         @id @default(cuid())
+  accountId    String
+  account      MailAccount    @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  imapPath     String
+  displayName  String
+  role         MailFolderRole @default(CUSTOM)
+  uidValidity  Int            @default(0)
+  highestUid   Int            @default(0)
+  unreadCount  Int            @default(0)
+  isVirtual    Boolean        @default(false)
+  lastSyncedAt DateTime?
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
+  messages     EmailMessage[]
+
+  @@unique([accountId, imapPath])
+  @@index([accountId, role])
+}
+
+/// État de connexion sync (bannière UI)
+model MailSyncStatus {
+  id              String   @id @default("default")
+  connected       Boolean  @default(false)
+  idleActive      Boolean  @default(false)
+  lastError       String?
+  lastSyncAt      DateTime?
+  reconnectAt     DateTime?
+  updatedAt       DateTime @updatedAt
+}
+
 enum UrssafPeriodicity {
   MONTHLY
   QUARTERLY
@@ -87,8 +144,12 @@ enum ServiceUnit {
 
 enum MilestoneStatus {
   PENDING
+  DUE
   INVOICED
   PAID
+  OVERDUE
+  FAILED
+  CANCELLED
 }
 
 enum CreditNoteReason {
@@ -176,6 +237,8 @@ model CompanySettings {
   reminderInvoiceDays Int @default(7)
   /// Afficher les montants sur le suivi public client
   publicTrackingShowAmounts Boolean @default(false)
+  /// URL du portail client (suivi devis / factures)
+  clientPortalUrl String?
   /// Date de création de l'entreprise (INPI) pour délais initiaux
   businessStartDate DateTime?
   /// Date d'immatriculation au RNE (INPI / open data)
@@ -208,11 +271,101 @@ model CompanySettings {
   smtpHost          String?
   smtpPort          Int?
   smtpSecure        Boolean @default(false)
+  /// SSL | STARTTLS | NONE (null = dérivé de smtpSecure)
+  smtpEncryption    String?
   smtpUser          String?
   smtpPassEncrypted String?
+  smtpPassHint      String?
   smtpFrom          String?
+  smtpFromName      String?
+  smtpReplyTo       String?
+  /// Plafond d'envois (emails / minute)
+  emailThrottlePerMinute Int @default(30)
+
+  /// IMAP (réception). Prioritaire sur IMAP_* du .env si hôte + utilisateur renseignés.
+  imapHost          String?
+  imapPort          Int?
+  imapSecure        Boolean @default(true)
+  imapUser          String?
+  imapPassEncrypted String?
+  imapPassHint      String?
+  imapMailbox       String  @default("INBOX")
+  imapPollIntervalMinutes Int @default(15)
+
+  /// Mapping dossiers IMAP (null = auto-détection Hostinger)
+  imapFolderInbox   String?
+  imapFolderSent    String?
+  imapFolderDrafts  String?
+  imapFolderTrash   String?
+  imapFolderJunk    String?
+  imapFolderArchive String?
+
+  /// Signature email (HTML) insérée dans les nouveaux messages
+  emailSignatureHtml String?
+  /// Notifications navigateur pour nouveaux emails
+  emailBrowserNotifications Boolean @default(false)
+
+  /// Plafonds pièces jointes IMAP (stockage ERP). Défauts calés sur un mail riche (PDF + photos + video courte).
+  attachmentMaxFileMb    Int @default(50)
+  attachmentMaxMessageMb Int @default(80)
+
+  /// Identité légale (PDF, emails, portail)
+  legalForm              String?
+  rcsMention             String?
+  vatIntraNumber         String?
+  decennaleInsurer       String?
+  decennalePolicyNumber  String?
+  decennaleCoverageZone  String?
+
+  /// Charte documents (PDF / emails)
+  brandPrimaryColor   String  @default("#0f766e")
+  brandSecondaryColor String  @default("#0f172a")
+  brandLogoPath       String?
+  pdfFooterText       String?
+
+  /// Revolut Merchant API (encaissement en ligne). Distinct de la Business API bancaire.
+  revolutMerchantApiKeyEncrypted   String?
+  revolutMerchantApiKeyHint        String?
+  revolutWebhookSecretEncrypted    String?
+  revolutWebhookSecretHint         String?
+  /// sandbox | production
+  revolutMerchantMode              String @default("sandbox")
+
+  /// Échéancier d'acomptes (bps, 10000 = 100 %) : acompte + solde
+  depositCount            Int @default(2)
+  depositPercent1Bps      Int @default(3000)
+  depositPercent2Bps      Int @default(7000)
+  depositPercent3Bps      Int @default(0)
+  /// Jours avant échéance où le bouton de paiement Revolut est créé / activé
+  paymentButtonLeadDays   Int @default(7)
+  /// Position du jalon 2 sur la durée du projet (5000 = 50 %)
+  projectMilestoneMidBps  Int @default(5000)
+
+  /// Rappels d'acomptes (délais en jours, activables)
+  reminderDepositMinus7Days    Int     @default(7)
+  reminderDepositMinus1Days    Int     @default(1)
+  reminderDepositPlus3Days     Int     @default(3)
+  reminderDepositPlus10Days    Int     @default(10)
+  reminderDepositMinus7Enabled Boolean @default(true)
+  reminderDepositMinus1Enabled Boolean @default(true)
+  reminderDepositPlus3Enabled  Boolean @default(true)
+  reminderDepositPlus10Enabled Boolean @default(true)
+
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
+}
+
+/// Journal des modifications de Paramètres (jamais de valeurs secrètes)
+model SettingsAuditLog {
+  id        String   @id @default(cuid())
+  userId    String?
+  userEmail String?
+  tab       String
+  field     String
+  createdAt DateTime @default(now())
+
+  @@index([tab, createdAt])
+  @@index([createdAt])
 }
 
 enum LegalClauseKind {
@@ -342,13 +495,24 @@ model Client {
   lastName       String?
   companyName    String?
   emailEncrypted String?
+  /// HMAC-SHA256 de l'email normalisé (lookup messagerie sans decrypt)
+  emailHash      String?       @unique
   phoneEncrypted String?
   siretEncrypted String?
+  sirenEncrypted String?
+  /// Code NAF/APE (open data)
+  apeCode        String?
+  /// Date de dernière vérification via recherche-entreprises
+  companyVerifiedAt DateTime?
   addressLine1   String?
   addressLine2   String?
   postalCode     String?
   city           String?
   country        String        @default("FRANCE")
+  /// Code INSEE commune (BAN)
+  addressCityCode String?
+  addressLat     Float?
+  addressLon     Float?
   notes          String?
   /// Date à laquelle le client a complété son onboarding (via invitation)
   onboardingCompletedAt  DateTime?
@@ -362,6 +526,8 @@ model Client {
   subscriptions  Subscription[]
   onboardingAsExisting OnboardingInvitation[] @relation("OnboardingExisting")
   onboardingAsCreated  OnboardingInvitation[] @relation("OnboardingCreated")
+
+  testimonials        ClientTestimonial[]
 
   @@index([displayName])
   @@index([type])
@@ -380,9 +546,13 @@ model ClientEmailEvent {
   success        Boolean  @default(true)
   errorMessage   String?
   sentAt         DateTime @default(now())
+  outboxId       String?
+  threadId       String?
 
   @@index([clientId, sentAt])
   @@index([documentId])
+  @@index([outboxId])
+  @@index([threadId])
 }
 
 /// Invitation envoyée à un prospect/client pour qu'il remplisse sa fiche lui-même.
@@ -392,8 +562,10 @@ model OnboardingInvitation {
   id              String    @id @default(cuid())
   /// Email de destination de l'invitation
   email           String
-  /// Token secret du lien /onboarding/:token
+  /// Token secret du lien /onboarding/:token (legacy hex) ou jti HMAC
   token           String    @unique
+  /// Identifiant unique pour idempotence HMAC (UUID)
+  jti             String?   @unique
   /// Date d'expiration du token
   expiresAt       DateTime
   /// Date de soumission du formulaire (null = pas encore rempli)
@@ -542,8 +714,12 @@ model Invoice {
   reminderCount     Int                 @default(0)
   nextReminderAt    DateTime?
   issuedAt          DateTime?
+  /// Revolut Merchant (facture simple ou lien de paiement direct)
+  revolutOrderId    String?
+  checkoutUrl       String?
   createdAt         DateTime            @default(now())
   updatedAt         DateTime            @updatedAt
+  quoteAcceptanceAudits QuoteAcceptanceAudit[]
 
   @@unique([sequenceYear, sequenceNumber, documentType])
   @@index([status])
@@ -558,6 +734,7 @@ model Invoice {
   @@index([documentType, status])
   @@index([documentType, quoteStatus])
   @@index([clientId, documentType])
+  @@index([revolutOrderId])
 }
 
 model PaymentMilestone {
@@ -570,16 +747,43 @@ model PaymentMilestone {
   amountCents     Int
   triggerText     String
   status          MilestoneStatus @default(PENDING)
+  /// Date d'échéance du règlement (signature devis ou jalon projet)
+  dueDate         DateTime?
+  /// Revolut Merchant (encaissement en ligne)
+  revolutOrderId    String?
+  revolutPaymentId  String?
+  checkoutUrl       String?
+  paidAt            DateTime?
+  paymentMethod     PaymentMethod?
+  manualReference   String?
+  manualNotes       String?
   /// Facture générée pour ce jalon (dénormalisé, sync avec Invoice.milestoneId)
   invoiceId       String?
   /// Facture d'acompte/solde générée (lien 1-1 via Invoice.milestoneId)
   generatedInvoice Invoice?       @relation("MilestoneInvoice")
+  webhookEvents   RevolutWebhookEvent[]
   createdAt       DateTime        @default(now())
   updatedAt       DateTime        @updatedAt
 
   @@index([quoteId])
   @@index([status])
   @@index([invoiceId])
+  @@index([dueDate])
+  @@index([revolutOrderId])
+}
+
+model RevolutWebhookEvent {
+  id          String    @id @default(cuid())
+  /// Identifiant unique Revolut (idempotence)
+  eventId     String    @unique
+  eventType   String
+  payload     Json
+  processedAt DateTime  @default(now())
+  milestoneId String?
+  milestone   PaymentMilestone? @relation(fields: [milestoneId], references: [id], onDelete: SetNull)
+
+  @@index([milestoneId])
+  @@index([eventType])
 }
 
 model InvoiceLine {
@@ -714,39 +918,115 @@ model SalaryPayout {
   @@index([createdAt])
 }
 
+enum EmailOutboxStatus {
+  PENDING
+  SENDING
+  SENT
+  FAILED
+}
+
+model EmailOutbox {
+  id          String            @id @default(cuid())
+  status      EmailOutboxStatus @default(PENDING)
+  attempts    Int               @default(0)
+  maxAttempts Int               @default(3)
+  scheduledAt DateTime          @default(now())
+  sentAt      DateTime?
+  lastError   String?
+  /// JSON : to, subject, text, html, headers, attachments, clientId, documentId, threadId, kind
+  payload     String
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+
+  @@index([status, scheduledAt])
+}
+
 model EmailThread {
-  id            String         @id @default(cuid())
-  clientId      String?
-  client        Client?        @relation(fields: [clientId], references: [id])
-  subject       String
-  participants  String         // JSON string[]
-  lastMessageAt DateTime
-  createdAt     DateTime       @default(now())
-  updatedAt     DateTime       @updatedAt
-  messages      EmailMessage[]
+  id              String         @id @default(cuid())
+  clientId        String?
+  client          Client?        @relation(fields: [clientId], references: [id])
+  subject         String
+  participants    String         // JSON string[]
+  lastMessageAt   DateTime
+  hasAttachments  Boolean        @default(false)
+  unreadCount     Int            @default(0)
+  isStarred       Boolean        @default(false)
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+  messages        EmailMessage[]
+
+  quoteAcceptanceAudits QuoteAcceptanceAudit[]
 
   @@index([clientId])
   @@index([lastMessageAt])
+  @@index([clientId, lastMessageAt])
+  @@index([isStarred])
+}
+
+model QuoteAcceptanceAudit {
+  id         String       @id @default(cuid())
+  quoteId    String
+  quote      Invoice      @relation(fields: [quoteId], references: [id], onDelete: Cascade)
+  signerName String
+  /// PORTAL | THREAD | ADMIN
+  source     String
+  threadId   String?
+  thread     EmailThread? @relation(fields: [threadId], references: [id], onDelete: SetNull)
+  userId     String?
+  userEmail  String?
+  createdAt  DateTime     @default(now())
+
+  @@index([quoteId])
+  @@index([threadId])
 }
 
 model EmailMessage {
-  id          String         @id @default(cuid())
-  threadId    String
-  thread      EmailThread    @relation(fields: [threadId], references: [id], onDelete: Cascade)
-  direction   EmailDirection
-  messageId   String         @unique
-  inReplyTo   String?
-  fromAddress String
-  toAddresses String         // JSON string[]
-  subject     String
-  bodyText    String?
-  bodyHtml    String?
-  receivedAt  DateTime
-  rawHeaders  String?
-  createdAt   DateTime       @default(now())
+  id            String            @id @default(cuid())
+  threadId      String
+  thread        EmailThread       @relation(fields: [threadId], references: [id], onDelete: Cascade)
+  folderId      String?
+  folder        MailFolder?       @relation(fields: [folderId], references: [id], onDelete: SetNull)
+  direction     EmailDirection
+  messageId     String            @unique
+  inReplyTo     String?
+  referencesHeader String?
+  fromAddress   String
+  fromName      String?
+  toAddresses   String            // JSON string[]
+  ccAddresses   String?           // JSON string[]
+  subject       String
+  snippet       String?
+  bodyText      String?
+  bodyHtml      String?
+  bodyFetched   Boolean           @default(false)
+  receivedAt    DateTime
+  rawHeaders    String?
+  isRead        Boolean           @default(false)
+  isStarred     Boolean           @default(false)
+  hasAttachments Boolean          @default(false)
+  imapUid       Int?
+  orphaned      Boolean           @default(false)
+  createdAt     DateTime          @default(now())
+  attachments   EmailAttachment[]
 
   @@index([threadId, receivedAt])
   @@index([fromAddress])
+  @@index([folderId, imapUid])
+  @@index([isRead])
+  @@index([isStarred])
+}
+
+model EmailAttachment {
+  id          String       @id @default(cuid())
+  messageId   String
+  message     EmailMessage @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  filename    String
+  mimeType    String
+  sizeBytes   Int
+  storagePath String
+  createdAt   DateTime     @default(now())
+
+  @@index([messageId])
 }
 
 /// Curseur IMAP (UID) par boîte
@@ -756,4 +1036,26 @@ model EmailSyncState {
   lastUid      Int      @default(0)
   lastSyncedAt DateTime?
   updatedAt    DateTime @updatedAt
+}
+
+enum TestimonialStatus {
+  PENDING
+  PUBLISHED
+  REJECTED
+}
+
+/// Avis client soumis depuis le portail de suivi, publié sur kouzia.fr après validation.
+model ClientTestimonial {
+  id          String            @id @default(cuid())
+  clientId    String
+  client      Client            @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  authorName  String
+  body        String
+  status      TestimonialStatus @default(PENDING)
+  publishedAt DateTime?
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+
+  @@index([clientId])
+  @@index([status, publishedAt])
 }

@@ -227,6 +227,10 @@ a {
   background-color: transparent !important;
   color: var(--text);
 }
+.rdt_noData {
+  background-color: transparent !important;
+  color: var(--text) !important;
+}
 .rdt_TableHeadRow {
   background-color: var(--surface-raised) !important;
   border-bottom: 1px solid var(--border);

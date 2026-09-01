@@ -30,6 +30,10 @@ export async function seedCompanySettings(): Promise<void> {
     b2cActivity: false,
     incomeTaxReminderMonth: 4,
     incomeTaxReminderDay: 15,
+    depositCount: 2,
+    depositPercent1Bps: 3000,
+    depositPercent2Bps: 7000,
+    depositPercent3Bps: 0,
   };
   if (existing) {
     await prisma.companySettings.update({ where: { id: existing.id }, data });

@@ -8,6 +8,8 @@ import {
 } from "@fortawesome/free-solid-svg-icons";
 import { useAuth } from "@/lib/auth";
 import { CommandPalette } from "@/components/CommandPalette";
+import { NewMailPill } from "@/components/NewMailPill";
+import { useNewMailAlert } from "@/hooks/useNewMailAlert";
 import { getHubFromPath, HUBS, SUB_NAV } from "@/lib/navigation";
 
 export function AppLayout() {
@@ -16,6 +18,10 @@ export function AppLayout() {
   const { pathname } = useLocation();
   const hub = getHubFromPath(pathname);
   const subNav = hub && hub !== "home" ? SUB_NAV[hub] : null;
+  const { visible: newMailVisible, dismiss: dismissNewMail } = useNewMailAlert();
+  const isMailWorkspace =
+    pathname === "/inbox" ||
+    (pathname.startsWith("/inbox/") && !pathname.startsWith("/inbox/compose"));
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
@@ -29,9 +35,13 @@ export function AppLayout() {
   }, []);
 
   return (
-    <div className="flex min-h-screen flex-col bg-[var(--bg)]">
+    <div
+      className={`flex flex-col bg-[var(--bg)] ${isMailWorkspace ? "h-dvh overflow-hidden" : "min-h-screen"}`}
+    >
       <header className="sticky top-0 z-40 border-b border-[var(--border)] bg-[var(--bg)]/90 backdrop-blur-md">
-        <div className="mx-auto flex h-14 max-w-7xl items-center gap-3 px-4 sm:px-6">
+        <div
+          className={`mx-auto flex h-14 items-center gap-3 px-4 sm:px-6 ${isMailWorkspace ? "" : "max-w-7xl"}`}
+        >
           <Link to="/" className="flex shrink-0 items-center gap-2.5">
             <div className="flex h-9 w-9 items-center justify-center rounded-[var(--radius-sm)] bg-gradient-to-br from-[var(--gradient-from)] to-[var(--gradient-to)] text-sm font-bold text-white">
               K
@@ -96,7 +106,9 @@ export function AppLayout() {
 
         {subNav ? (
           <div className="border-t border-[var(--border)]">
-            <div className="mx-auto flex max-w-7xl gap-1 overflow-x-auto px-4 py-2 no-scrollbar sm:px-6">
+            <div
+              className={`mx-auto flex gap-1 overflow-x-auto px-4 py-2 no-scrollbar sm:px-6 ${isMailWorkspace ? "" : "max-w-7xl"}`}
+            >
               {subNav.map((item) => (
                 <NavLink
                   key={item.to}
@@ -117,13 +129,22 @@ export function AppLayout() {
         ) : null}
       </header>
 
-      <main className="min-w-0 flex-1 overflow-x-hidden">
-        <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6 sm:py-8">
+      <main
+        className={`min-w-0 flex-1 ${isMailWorkspace ? "min-h-0 overflow-hidden" : "overflow-x-hidden"}`}
+      >
+        <div
+          className={
+            isMailWorkspace
+              ? "flex h-full min-h-0 flex-col"
+              : "mx-auto max-w-7xl px-4 py-6 sm:px-6 sm:py-8"
+          }
+        >
           <Outlet />
         </div>
       </main>
 
       <CommandPalette open={paletteOpen} onOpenChange={setPaletteOpen} />
+      <NewMailPill visible={newMailVisible} onDismiss={dismissNewMail} />
     </div>
   );
 }

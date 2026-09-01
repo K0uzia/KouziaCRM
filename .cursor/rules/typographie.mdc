@@ -1,12 +1,12 @@
 ---
-description: Interdiction totale du tiret cadratin (em dash) "—" partout dans le projet
+description: Interdiction totale du tiret cadratin (em dash, U+2014) partout dans le projet
 globs: "**/*"
 alwaysApply: true
 ---
 
-# Interdiction du tiret cadratin "—"
+# Interdiction du tiret cadratin (U+2014)
 
-Le caractère tiret cadratin (em dash) `—` (U+2014) est **interdit** partout dans le projet, sans exception :
+Le caractère tiret cadratin (em dash, U+2014) est **interdit** partout dans le projet, sans exception :
 
 - Code source (TS, TSX, JS, JSON, SQL, Prisma)
 - Libellés UI (texte affiché, placeholders, labels, boutons)
@@ -28,4 +28,4 @@ Utiliser à la place, selon le contexte :
 
 ## Vérification
 
-Avant de terminer une tâche, vérifier qu'aucun `—` n'a été introduit. Une recherche `rg "—"` doit retourner zéro résultat.
+Avant de terminer une tâche, vérifier qu'aucun tiret cadratin (U+2014) n'a été introduit. Une recherche `rg $'\u2014'` doit retourner zéro résultat dans le code source du projet.

@@ -4,6 +4,7 @@ export default defineConfig({
   resolve: {
     alias: {
       "@/": new URL("./src/", import.meta.url).pathname,
+      "@kouzia/forms": new URL("../../packages/kouzia-forms/src/index.ts", import.meta.url).pathname,
     },
   },
   test: {

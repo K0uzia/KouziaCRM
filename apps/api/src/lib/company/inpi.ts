@@ -1,3 +1,4 @@
+import { lookupEntreprise } from "@kouzia/forms";
 import { getCompanySettings, invalidateCompanySettingsCache } from "@/lib/company.js";
 import { parseBusinessStartDateInput } from "@/lib/company/business-start.js";
 import { prisma } from "@/lib/prisma.js";
@@ -11,7 +12,9 @@ export type InpiImportResult = {
   addressLine1: string | null;
   postalCode: string | null;
   city: string | null;
+  citycode: string | null;
   country: string;
+  legalForm: string | null;
   rneRegistrationDate: string | null;
   businessStartDate: string | null;
   inpiUrl: string;
@@ -19,34 +22,23 @@ export type InpiImportResult = {
   warnings: string[];
 };
 
-function isRedacted(value: unknown): boolean {
-  return typeof value === "string" && value.includes("NON-DIFFUSIBLE");
-}
-
-function clean(value: unknown): string | null {
-  if (typeof value !== "string") return null;
-  const v = value.trim();
-  if (!v || isRedacted(v)) return null;
-  return v;
-}
-
 /** Extrait un SIREN depuis une URL data.inpi.fr ou une saisie libre. */
 export function extractSiren(input: string): string | null {
   const raw = input.trim();
   const fromUrl = raw.match(/(\d{9})(?:\D|$)/);
-  if (fromUrl) return fromUrl[1];
+  if (fromUrl) return fromUrl[1] ?? null;
   const digits = raw.replace(/\D/g, "");
   if (digits.length === 9) return digits;
   if (digits.length === 14) return digits.slice(0, 9);
   return null;
 }
 
-/** Date ISO `YYYY-MM-DD` depuis une date open data (date seule ou datetime). */
 function cleanIsoDate(value: unknown): string | null {
-  const raw = clean(value);
-  if (!raw) return null;
-  const m = /^(\d{4}-\d{2}-\d{2})/.exec(raw);
-  return m ? m[1] : null;
+  if (typeof value !== "string") return null;
+  const v = value.trim();
+  if (!v || v.includes("NON-DIFFUSIBLE")) return null;
+  const m = /^(\d{4}-\d{2}-\d{2})/.exec(v);
+  return m ? m[1]! : null;
 }
 
 /** Dates RNE / début d'activité depuis la réponse recherche-entreprises. */
@@ -69,72 +61,58 @@ export function extractCompanyDates(
   return { rneRegistrationDate, businessStartDate };
 }
 
+/**
+ * Source unique de vérité pour Settings (import INPI) et formulaires clients.
+ * S'appuie sur l'API Recherche d'entreprises (même pipeline que Paramètres > Identité).
+ */
 export async function fetchCompanyFromOpenData(sirenOrUrl: string): Promise<InpiImportResult> {
   const siren = extractSiren(sirenOrUrl);
   if (!siren) {
     throw new Error("SIREN introuvable (9 chiffres ou URL data.inpi.fr)");
   }
 
-  const inpiUrl =
-    sirenOrUrl.includes("inpi.fr")
-      ? sirenOrUrl.trim()
-      : `https://data.inpi.fr/entreprises/${siren}`;
+  const inpiUrl = sirenOrUrl.includes("inpi.fr")
+    ? sirenOrUrl.trim()
+    : `https://data.inpi.fr/entreprises/${siren}`;
 
-  const res = await fetch(
-    `https://recherche-entreprises.api.gouv.fr/search?q=${encodeURIComponent(siren)}&per_page=1`,
-    { headers: { Accept: "application/json" } },
-  );
-  if (!res.ok) {
-    throw new Error(`API entreprises indisponible (${res.status})`);
-  }
-  const json = (await res.json()) as {
-    results?: Array<Record<string, unknown>>;
-  };
-  const hit = json.results?.[0];
-  if (!hit || String(hit.siren) !== siren) {
-    throw new Error(`Aucune entreprise trouvée pour le SIREN ${siren}`);
+  const result = await lookupEntreprise(sirenOrUrl);
+  if (!result.ok) {
+    if (result.reason === "not_found") {
+      throw new Error(`Aucune entreprise trouvée pour le SIREN ${siren}`);
+    }
+    if (result.reason === "invalid_siren") {
+      throw new Error("SIREN invalide");
+    }
+    throw new Error("API entreprises indisponible");
   }
 
-  const siege = (hit.siege ?? {}) as Record<string, unknown>;
-  const warnings: string[] = [];
-  const redacted =
-    isRedacted(hit.nom_complet) ||
-    isRedacted(siege.adresse) ||
-    String(siege.statut_diffusion_etablissement ?? "") === "P";
-
-  if (redacted) {
-    warnings.push(
-      "Entreprise à diffusion partielle (EI) : certains champs sont masqués par l'open data. Les valeurs déjà en base sont conservées.",
-    );
-  }
-
-  const { rneRegistrationDate, businessStartDate } = extractCompanyDates(hit, siege);
-  if (!businessStartDate) {
+  const e = result.entreprise;
+  const warnings = [...e.warnings];
+  if (!e.creationDate) {
     warnings.push(
       "Date de début d'activité absente de l'open data : saisissez-la manuellement si besoin.",
     );
   }
 
-  const streetParts = [
-    clean(siege.numero_voie),
-    clean(siege.type_voie),
-    clean(siege.libelle_voie),
-  ].filter(Boolean);
+  // Raison sociale affichée : priorité à la dénomination, sinon enseigne
+  const displayName = e.legalName ?? e.tradeName;
 
   return {
-    siren,
-    siret: clean(siege.siret) ?? (typeof siege.siret === "string" ? siege.siret : null),
-    legalName: clean(hit.nom_raison_sociale) ?? clean(hit.nom_complet),
-    tradeName: clean(siege.nom_commercial) ?? clean(hit.sigle),
-    apeCode: clean(hit.activite_principale) ?? clean(siege.activite_principale),
-    addressLine1: streetParts.length ? streetParts.join(" ") : clean(siege.geo_adresse),
-    postalCode: clean(siege.code_postal),
-    city: clean(siege.libelle_commune),
-    country: "FRANCE",
-    rneRegistrationDate,
-    businessStartDate,
+    siren: e.siren,
+    siret: e.siret,
+    legalName: displayName,
+    tradeName: e.tradeName,
+    apeCode: e.apeCode,
+    addressLine1: e.addressLine1,
+    postalCode: e.postalCode,
+    city: e.city,
+    citycode: e.citycode,
+    country: e.country,
+    legalForm: e.legalForm,
+    rneRegistrationDate: e.creationDate,
+    businessStartDate: e.creationDate,
     inpiUrl,
-    redacted,
+    redacted: e.redacted,
     warnings,
   };
 }
@@ -149,6 +127,7 @@ export async function applyInpiImport(sirenOrUrl: string) {
     data: {
       siren: imported.siren,
       siret: imported.siret ?? current.siret,
+      // Ne jamais écraser une valeur existante par null (EI non diffusibles)
       legalName: imported.legalName ?? current.legalName,
       tradeName: imported.tradeName ?? current.tradeName,
       apeCode: imported.apeCode ?? current.apeCode,

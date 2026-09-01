@@ -4,12 +4,14 @@
   "private": true,
   "description": "CRM & facturation EI  -  Kouzia (micro-entreprise, franchise TVA)",
   "workspaces": [
-    "apps/*"
+    "apps/*",
+    "packages/*"
   ],
   "scripts": {
     "dev:api": "npm run dev -w @kouziacrm/api",
     "dev:web": "wait-on -t 60000 http-get://127.0.0.1:3001/api/health && npm run dev -w @kouziacrm/web",
-    "dev": "concurrently -k -n api,web -c blue,green \"npm run dev:api\" \"npm run dev:web\"",
+    "dev:worker": "wait-on -t 60000 http-get://127.0.0.1:3001/api/health && npm run worker",
+    "dev": "concurrently -k -n api,web,worker -c blue,green,magenta \"npm run dev:api\" \"npm run dev:web\" \"npm run dev:worker\"",
     "build": "npm run build -w @kouziacrm/web",
     "start": "tsx --env-file=.env --tsconfig apps/api/tsconfig.json apps/api/src/index.ts",
     "db:generate": "prisma generate",
@@ -18,7 +20,7 @@
     "db:push": "prisma db push",
     "db:seed": "tsx --env-file=.env prisma/seed.ts",
     "db:studio": "prisma studio",
-    "worker": "tsx --env-file=.env --tsconfig apps/api/tsconfig.json scripts/worker.ts",
+    "worker": "tsx watch --env-file=.env --tsconfig apps/api/tsconfig.json scripts/worker.ts",
     "test": "npm run test -w @kouziacrm/api",
     "test:watch": "npm run test:watch -w @kouziacrm/api",
     "postinstall": "node scripts/ensure-native-deps.mjs"

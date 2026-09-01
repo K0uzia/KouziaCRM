@@ -1,5 +1,7 @@
 import { getCompanySettings } from "@/lib/company.js";
-import { isSmtpConfigured, sendEmail } from "@/lib/email/smtp.js";
+import { isSmtpConfigured } from "@/lib/email/smtp.js";
+import { mailEnqueue } from "@/lib/email/mailer/index.js";
+import { resolveClientPortalUrl } from "@/lib/email/portal-url.js";
 import { generateAccessCode } from "@/lib/clients/numbering.js";
 import { decryptOptional, encrypt } from "@/lib/crypto.js";
 import { prisma } from "@/lib/prisma.js";
@@ -61,8 +63,7 @@ export async function issueAndSendAccessCode(clientId: string): Promise<IssueAcc
 
 /**
  * Envoie au client un email contenant son code de suivi (CLI-xxxx), son code
- * d'accès secret, le lien de la page publique /suivi et une explication
- * de l'utilité du suivi.
+ * d'accès secret et le lien du portail client.
  */
 export async function sendClientAccessEmail(opts: {
   clientId: string;
@@ -77,11 +78,16 @@ export async function sendClientAccessEmail(opts: {
   try {
     const company = await getCompanySettings();
     const brand = company.tradeName ?? company.legalName;
-    const origin =
-      process.env.PUBLIC_WEB_ORIGIN?.trim() ||
-      process.env.WEB_ORIGIN?.trim() ||
-      "http://localhost:5173";
-    const trackingUrl = `${origin.replace(/\/$/, "")}/suivi`;
+    const trackingUrl = await resolveClientPortalUrl();
+    const clientNumber = opts.clientNumber?.trim() ?? "";
+    const trackingDeepLink = clientNumber
+      ? (() => {
+          const url = new URL(trackingUrl);
+          url.searchParams.set("reference", clientNumber);
+          url.searchParams.set("code", opts.accessCode);
+          return url.toString();
+        })()
+      : trackingUrl;
     const firstName = opts.displayName.trim().split(/\s+/)[0] || "";
 
     const body = [
@@ -92,11 +98,12 @@ export async function sendClientAccessEmail(opts: {
       `Code de suivi : ${opts.clientNumber ?? "(non encore attribué)"}`,
       `Code d'accès : ${opts.accessCode}`,
       "",
+      `Accès direct : ${trackingDeepLink}`,
       `Page de connexion : ${trackingUrl}`,
       "",
       "Comment les utiliser ?",
-      "- Rendez-vous sur la page de connexion indiquée ci-dessus.",
-      "- Saisissez votre code de suivi (votre identifiant unique, au format CLI-XXXX) et votre code d'accès.",
+      "- Cliquez sur le lien d'accès direct : votre espace s'ouvre, le code n'est pas laissé dans l'adresse ensuite.",
+      "- Sinon, rendez-vous sur la page de connexion et saisissez votre code de suivi (CLI-XXXX) et votre code d'accès.",
       "- Vous accédez alors à la liste de vos documents (devis, factures, avoirs) et à leur statut.",
       "",
       "Conservez précieusement votre code d'accès : il est personnel et confidentiel. En cas de perte, contactez-moi pour en générer un nouveau.",
@@ -106,19 +113,14 @@ export async function sendClientAccessEmail(opts: {
     ].join("\n");
 
     const subject = `Vos identifiants de suivi - ${brand}`;
-    await sendEmail({
+    await mailEnqueue({
       to: opts.email,
       subject,
       text: body,
-    });
-
-    const { logClientEmailEvent } = await import("@/lib/email/log-event.js");
-    await logClientEmailEvent({
       clientId: opts.clientId,
       kind: "access",
-      subject,
-      toAddress: opts.email,
-      success: true,
+      markAccessEmailSent: true,
+      bodyTextForMessage: body,
     });
 
     return { sent: true };

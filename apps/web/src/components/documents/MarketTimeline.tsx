@@ -11,6 +11,11 @@ export type MarketMilestone = {
   amountCents: number;
   triggerText: string;
   status: string;
+  dueDate?: string | null;
+  checkoutUrl?: string | null;
+  paidAt?: string | null;
+  paymentMethod?: string | null;
+  manualReference?: string | null;
   invoiceId: string | null;
   invoice: {
     id: string;
@@ -42,17 +47,23 @@ export type MarketView = {
   };
 };
 
-function statusTone(status: string): "neutral" | "amber" | "green" | "blue" {
+function statusTone(status: string): "neutral" | "amber" | "green" | "blue" | "red" {
   if (status === "PAID") return "green";
   if (status === "INVOICED") return "blue";
-  if (status === "PENDING") return "amber";
+  if (status === "DUE" || status === "OVERDUE") return "amber";
+  if (status === "FAILED") return "red";
+  if (status === "PENDING") return "neutral";
   return "neutral";
 }
 
 function statusLabel(status: string): string {
   if (status === "PAID") return "Payé";
   if (status === "INVOICED") return "Facturé";
-  if (status === "PENDING") return "À facturer";
+  if (status === "DUE") return "Exigible";
+  if (status === "OVERDUE") return "En retard";
+  if (status === "FAILED") return "Échoué";
+  if (status === "CANCELLED") return "Annulé";
+  if (status === "PENDING") return "À venir";
   return status;
 }
 
@@ -60,11 +71,13 @@ export function MarketTimeline({
   market,
   onGenerateAcompte,
   onGenerateSolde,
+  onManualPay,
   busyId,
 }: {
   market: MarketView;
   onGenerateAcompte: (milestoneId: string) => void;
   onGenerateSolde: (force?: boolean) => void;
+  onManualPay?: (milestoneId: string) => void;
   busyId?: string | null;
 }) {
   const { progress, milestones, balance } = market;
@@ -105,7 +118,15 @@ export function MarketTimeline({
         {milestones.map((m) => {
           const isSolde =
             m.label.toLowerCase().includes("solde") || m.position === maxPos;
-          const canInvoice = m.status === "PENDING" && !m.invoiceId && !isSolde;
+          const canInvoice =
+            (m.status === "PENDING" || m.status === "DUE") &&
+            !m.invoiceId &&
+            !isSolde;
+          const canManualPay =
+            onManualPay &&
+            m.status !== "PAID" &&
+            m.status !== "CANCELLED" &&
+            !isSolde;
 
           return (
             <li
@@ -125,7 +146,20 @@ export function MarketTimeline({
                 <p className="mt-0.5 text-xs text-[var(--muted)]">
                   {formatEUR(m.amountCents)}
                   {m.triggerText ? ` · ${m.triggerText}` : ""}
+                  {m.dueDate
+                    ? ` · échéance ${new Date(m.dueDate).toLocaleDateString("fr-FR")}`
+                    : ""}
                 </p>
+                {m.checkoutUrl ? (
+                  <a
+                    href={m.checkoutUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="mt-1 inline-block text-xs text-[var(--primary)] hover:underline"
+                  >
+                    Lien de paiement Revolut
+                  </a>
+                ) : null}
                 {m.invoice?.number ? (
                   <Link
                     to={`/invoices/${m.invoice.id}`}
@@ -136,6 +170,16 @@ export function MarketTimeline({
                 ) : null}
               </div>
 
+              {canManualPay ? (
+                <Button
+                  variant="secondary"
+                  className="h-8 shrink-0 px-3 text-xs"
+                  disabled={busyId === `pay-${m.id}`}
+                  onClick={() => onManualPay(m.id)}
+                >
+                  Marquer payé
+                </Button>
+              ) : null}
               {canInvoice ? (
                 <Button
                   className="h-8 shrink-0 px-3 text-xs"

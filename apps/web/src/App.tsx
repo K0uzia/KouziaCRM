@@ -34,8 +34,10 @@ const ServicesPage = lazy(() =>
 const SubscriptionsPage = lazy(() =>
   import("@/pages/SubscriptionsPage").then((m) => ({ default: m.SubscriptionsPage })),
 );
-const TrackingPage = lazy(() =>
-  import("@/pages/TrackingPage").then((m) => ({ default: m.TrackingPage })),
+const TrackingRedirectPage = lazy(() =>
+  import("@/pages/TrackingRedirectPage").then((m) => ({
+    default: m.TrackingRedirectPage,
+  })),
 );
 const OnboardingPage = lazy(() =>
   import("@/pages/OnboardingPage").then((m) => ({ default: m.OnboardingPage })),
@@ -53,13 +55,13 @@ const UrssafPage = lazy(() =>
   import("@/pages/OtherPages").then((m) => ({ default: m.UrssafPage })),
 );
 const InboxPage = lazy(() =>
-  import("@/pages/OtherPages").then((m) => ({ default: m.InboxPage })),
-);
-const InboxThreadPage = lazy(() =>
-  import("@/pages/OtherPages").then((m) => ({ default: m.InboxThreadPage })),
+  import("@/pages/messaging/InboxPage").then((m) => ({ default: m.InboxPage })),
 );
 const ComposePage = lazy(() =>
-  import("@/pages/OtherPages").then((m) => ({ default: m.ComposePage })),
+  import("@/pages/messaging/ComposePage").then((m) => ({ default: m.ComposePage })),
+);
+const TestimonialsPage = lazy(() =>
+  import("@/pages/TestimonialsPage").then((m) => ({ default: m.TestimonialsPage })),
 );
 
 function PageFallback() {
@@ -96,7 +98,7 @@ export default function App() {
     <Suspense fallback={<PageFallback />}>
       <Routes>
         <Route path="/login" element={<LoginPage />} />
-        <Route path="/suivi" element={<TrackingPage />} />
+        <Route path="/suivi" element={<TrackingRedirectPage />} />
         <Route path="/onboarding/:token" element={<OnboardingPage />} />
         <Route
           element={
@@ -121,7 +123,8 @@ export default function App() {
           <Route path="urssaf" element={<UrssafPage />} />
           <Route path="inbox" element={<InboxPage />} />
           <Route path="inbox/compose" element={<ComposePage />} />
-          <Route path="inbox/:threadId" element={<InboxThreadPage />} />
+          <Route path="inbox/:threadId" element={<InboxPage />} />
+          <Route path="avis" element={<TestimonialsPage />} />
           <Route path="settings" element={<SettingsPage />} />
         </Route>
         <Route path="*" element={<Navigate to="/" replace />} />

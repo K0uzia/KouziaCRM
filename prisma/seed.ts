@@ -81,9 +81,20 @@ async function main() {
           "En cas de litige non résolu, le client peut recourir gratuitement à un médiateur de la consommation : voir medic.conso.fr",
         incomeTaxReminderMonth: 4,
         incomeTaxReminderDay: 15,
+        email: "contact@kouzia.com",
+        legalForm: "EI",
+        depositCount: 2,
+        depositPercent1Bps: 3000,
+        depositPercent2Bps: 7000,
+        depositPercent3Bps: 0,
       },
     });
   } else {
+    const stillLegacyThree =
+      existing.depositCount === 3 &&
+      existing.depositPercent1Bps === 3000 &&
+      existing.depositPercent2Bps === 4000 &&
+      existing.depositPercent3Bps === 3000;
     await prisma.companySettings.update({
       where: { id: existing.id },
       data: {
@@ -94,6 +105,14 @@ async function main() {
         publicodesRegime: existing.publicodesRegime || "AE_BNC_LIBERAL",
         businessStartDate: existing.businessStartDate ?? new Date(),
         publicTrackingShowAmounts: true,
+        ...(stillLegacyThree
+          ? {
+              depositCount: 2,
+              depositPercent1Bps: 3000,
+              depositPercent2Bps: 7000,
+              depositPercent3Bps: 0,
+            }
+          : {}),
       },
     });
   }

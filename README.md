@@ -47,12 +47,43 @@ make worker
 ## Architecture
 
 ```
-apps/api   Fastify  -  auth sessions SQLite, métier, PDF, sert le build web en prod
-apps/web   Vite React SPA
-prisma/    schéma + migrations SQLite
-scripts/   worker IMAP
-data/      kouziacrm.db
+apps/api              Fastify  -  auth sessions SQLite, métier, PDF, sert le build web en prod
+apps/web              Vite React SPA
+packages/kouzia-forms Logique partagée (adresse BAN, SIREN, cache) utilisée aussi par le site Kouzia
+prisma/               schéma + migrations SQLite
+scripts/              worker IMAP
+data/                 kouziacrm.db
 ```
+
+## Formulaire client public (Kouzia)
+
+Flux :
+
+1. Depuis l'ERP, invitation email (`POST /api/onboarding/invite`) : génère un token HMAC
+   (`ONBOARDING_HMAC_SECRET`) et un enregistrement `OnboardingInvitation` (jti, expiration).
+2. Le client ouvre `https://kouzia.fr/nouveau-client?token=...`.
+3. Kouzia appelle `GET /api/public/clients/preview` puis `POST /api/public/clients`
+   (CORS limité à `PUBLIC_WEB_ORIGIN`). Aucune donnée n'est stockée sur Kouzia.
+4. L'ERP revalide adresse (BAN) et SIREN (recherche-entreprises), crée/met à jour le client.
+
+### Portail client (suivi devis / acomptes)
+
+Workflow : le client **valide d'abord le devis** (portail `/suivi` ou réponse email), puis reçoit le lien de paiement de l'acompte. La confirmation de paiement part après encaissement Revolut.
+
+| Variable | Rôle |
+|----------|------|
+| `CLIENT_PORTAL_URL` | Lien `/suivi` inséré dans les emails (ex. `https://kouzia.com/suivi`) |
+| Dev local | `http://localhost:5174/suivi` (site Kouzia sur :5174) |
+
+Variables à ajouter dans `.env` :
+
+| Variable | Rôle |
+|----------|------|
+| `ONBOARDING_HMAC_SECRET` | Secret HMAC des liens (openssl rand -hex 32) |
+| `ONBOARDING_TOKEN_TTL_DAYS` | Durée de validité (défaut 7) |
+| `PUBLIC_WEB_ORIGIN` | Origine Kouzia (CORS + lien email) |
+| `CLIENT_PORTAL_URL` | URL espace client `/suivi` (emails devis, paramètres ERP) |
+| `VITE_PUBLIC_SITE_URL` | Redirection legacy `/onboarding/:token` |
 
 ## Docker (app + worker + Prisma Studio)
 

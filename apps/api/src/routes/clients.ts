@@ -1,7 +1,7 @@
 import type { FastifyPluginAsync } from "fastify";
-import { z } from "zod";
 import { prisma } from "@/lib/prisma.js";
 import {
+  AddressValidationError,
   clientInputSchema,
   createClientWithAccess,
   listClients,
@@ -11,12 +11,20 @@ import {
 import { requireAuth } from "@/lib/auth.js";
 import { issueAndSendAccessCode } from "@/lib/clients/access-email.js";
 import { sendOnboardingInvite } from "@/lib/clients/onboarding.js";
+import { replyEntrepriseLookup } from "@/lib/company/entreprise-route.js";
 
 export const clientsRoutes: FastifyPluginAsync = async (app) => {
   app.get("/api/clients", async (request, reply) => {
     await requireAuth(request, reply);
     if (reply.sent) return;
-    return listClients();
+    const q = request.query as { hasCorrespondence?: string };
+    const hasCorrespondence =
+      q.hasCorrespondence === "true"
+        ? true
+        : q.hasCorrespondence === "false"
+          ? false
+          : undefined;
+    return listClients({ hasCorrespondence });
   });
 
   app.post("/api/clients", async (request, reply) => {
@@ -26,9 +34,15 @@ export const clientsRoutes: FastifyPluginAsync = async (app) => {
     if (!parsed.success) {
       return reply.code(400).send({ error: parsed.error.flatten() });
     }
-    const { client } = await createClientWithAccess(parsed.data);
-    // Pas de code d'accès ici : onboarding auto ou bouton « Générer et envoyer » sur la fiche
-    return reply.code(201).send(client);
+    try {
+      const { client } = await createClientWithAccess(parsed.data);
+      return reply.code(201).send(client);
+    } catch (e) {
+      if (e instanceof AddressValidationError) {
+        return reply.code(400).send({ error: e.message });
+      }
+      throw e;
+    }
   });
 
   app.get<{ Params: { id: string } }>("/api/clients/:id", async (request, reply) => {
@@ -46,12 +60,28 @@ export const clientsRoutes: FastifyPluginAsync = async (app) => {
     if (!parsed.success) {
       return reply.code(400).send({ error: parsed.error.flatten() });
     }
-    const client = await prisma.client.update({
-      where: { id: request.params.id },
-      data: toPrismaClientData(parsed.data),
-    });
-    return serializeClient(client);
+    try {
+      const client = await prisma.client.update({
+        where: { id: request.params.id },
+        data: await toPrismaClientData(parsed.data),
+      });
+      return serializeClient(client);
+    } catch (e) {
+      if (e instanceof AddressValidationError) {
+        return reply.code(400).send({ error: e.message });
+      }
+      throw e;
+    }
   });
+
+  app.get<{ Params: { siren: string } }>(
+    "/api/entreprises/:siren",
+    async (request, reply) => {
+      await requireAuth(request, reply);
+      if (reply.sent) return;
+      return replyEntrepriseLookup(request.params.siren, reply);
+    },
+  );
 
   app.post<{ Params: { id: string } }>(
     "/api/clients/:id/regenerate-access-code",
@@ -97,7 +127,6 @@ export const clientsRoutes: FastifyPluginAsync = async (app) => {
     },
   );
 
-  // Inviter un nouveau prospect par email (sans pré-créer de client).
   app.post("/api/onboarding/invite", async (request, reply) => {
     await requireAuth(request, reply);
     if (reply.sent) return;
@@ -114,6 +143,57 @@ export const clientsRoutes: FastifyPluginAsync = async (app) => {
     }
   });
 
+  app.get<{ Params: { id: string } }>("/api/clients/:id/emails", async (request, reply) => {
+    await requireAuth(request, reply);
+    if (reply.sent) return;
+    const client = await prisma.client.findUnique({ where: { id: request.params.id } });
+    if (!client) return reply.code(404).send({ error: "Introuvable" });
+
+    const [threads, events] = await Promise.all([
+      prisma.emailThread.findMany({
+        where: { clientId: client.id },
+        orderBy: { lastMessageAt: "desc" },
+        take: 50,
+        include: {
+          messages: {
+            orderBy: { receivedAt: "desc" },
+            take: 1,
+            select: { direction: true },
+          },
+        },
+      }),
+      prisma.clientEmailEvent.findMany({
+        where: { clientId: client.id },
+        orderBy: { sentAt: "desc" },
+        take: 50,
+      }),
+    ]);
+
+    const items = [
+      ...threads.map((t) => ({
+        id: `thread-${t.id}`,
+        kind: "thread" as const,
+        at: t.lastMessageAt.toISOString(),
+        subject: t.subject,
+        direction: t.messages[0]?.direction,
+        threadId: t.id,
+      })),
+      ...events.map((e) => ({
+        id: `event-${e.id}`,
+        kind: "event" as const,
+        at: e.sentAt.toISOString(),
+        subject: e.subject,
+        eventKind: e.kind,
+        documentId: e.documentId,
+        documentNumber: e.documentNumber,
+        success: e.success,
+        threadId: e.threadId ?? undefined,
+      })),
+    ].sort((a, b) => new Date(b.at).getTime() - new Date(a.at).getTime());
+
+    return { items };
+  });
+
   app.delete<{ Params: { id: string } }>("/api/clients/:id", async (request, reply) => {
     await requireAuth(request, reply);
     if (reply.sent) return;
@@ -127,7 +207,6 @@ export const clientsRoutes: FastifyPluginAsync = async (app) => {
     return { ok: true };
   });
 
-  // Export RGPD (droit d'accès / portabilité) : toutes les données d'un client.
   app.get<{ Params: { id: string } }>(
     "/api/clients/:id/export",
     async (request, reply) => {

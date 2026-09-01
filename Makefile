@@ -16,10 +16,12 @@ mailpit-stop:
 	@docker compose -f docker-compose.dev.yml stop mailpit 2>/dev/null || true
 
 dev:
+	@$(MAKE) --no-print-directory db-deploy
 	@$(MAKE) --no-print-directory mailpit
 	@echo "API : http://127.0.0.1:3001"
 	@echo "Web : http://127.0.0.1:5173 (proxy /api → API)"
 	@echo "Mailpit UI : http://127.0.0.1:8025"
+	@echo "Worker : relances + outbox email (inclus dans npm run dev)"
 	npm run dev
 
 app: build

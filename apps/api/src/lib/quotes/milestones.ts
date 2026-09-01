@@ -8,24 +8,18 @@ export type MilestoneTemplate = {
   triggerText: string;
 };
 
-/** Échéancier défaut 30 / 40 / 30 */
+/** Échéancier défaut : acompte à la validation, solde à la livraison. */
 export const DEFAULT_MILESTONE_TEMPLATE: MilestoneTemplate[] = [
   {
     position: 1,
     label: "Acompte",
     percentBps: 3000,
-    triggerText: "À la signature du devis",
+    triggerText: "À la validation du devis",
   },
   {
     position: 2,
-    label: "Échéance intermédiaire",
-    percentBps: 4000,
-    triggerText: "À mi-parcours du projet",
-  },
-  {
-    position: 3,
     label: "Solde",
-    percentBps: 3000,
+    percentBps: 7000,
     triggerText: "À la livraison / fin de mission",
   },
 ];

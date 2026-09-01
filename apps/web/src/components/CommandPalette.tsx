@@ -53,6 +53,7 @@ const NAV_ITEMS = [
   { label: "Accueil", to: "/", keywords: "dashboard home" },
   { label: "Clients", to: "/clients", keywords: "activité contact" },
   { label: "Messages", to: "/inbox", keywords: "email mail activité" },
+  { label: "Avis", to: "/avis", keywords: "témoignage avis client activité" },
   { label: "Devis", to: "/quotes", keywords: "proposition facturation" },
   { label: "Factures", to: "/invoices", keywords: "facturation" },
   { label: "Encaissements", to: "/payments", keywords: "paiement facturation" },

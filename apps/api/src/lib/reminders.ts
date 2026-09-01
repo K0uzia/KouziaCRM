@@ -35,6 +35,7 @@ export async function expireQuotes(now = new Date()): Promise<number> {
 export async function scheduleReminders(now = new Date()): Promise<number> {
   const settings = await getCompanySettings();
   let updated = 0;
+  console.log(`[reminders] planification démarrée ${now.toISOString()}`);
 
   const quotes = await prisma.invoice.findMany({
     where: {
@@ -80,6 +81,9 @@ export async function scheduleReminders(now = new Date()): Promise<number> {
     }
   }
 
+  if (updated > 0) {
+    console.log(`[reminders] ${updated} document(s) replanifié(s)`);
+  }
   return updated;
 }
 
@@ -152,5 +156,14 @@ export async function markReminderSent(invoiceId: string, now = new Date()) {
       reminderCount: { increment: 1 },
       nextReminderAt: addDays(now, days),
     },
+  });
+}
+
+/** Repousse nextReminderAt à l'enqueue pour éviter les doublons horaires. */
+export async function markReminderQueued(invoiceId: string, now = new Date()) {
+  const cooldown = new Date(now.getTime() + 60 * 60 * 1000);
+  return prisma.invoice.update({
+    where: { id: invoiceId },
+    data: { nextReminderAt: cooldown },
   });
 }

@@ -17,11 +17,14 @@ import { publicRoutes } from "@/routes/public.js";
 import { obligationsRoutes } from "@/routes/obligations.js";
 import { legalClausesRoutes } from "@/routes/legal-clauses.js";
 import { miscRoutes } from "@/routes/misc.js";
+import { settingsRoutes } from "@/routes/settings.js";
 import { numberingRoutes } from "@/routes/numbering.js";
 import { quotesMarketRoutes } from "@/routes/quotes-market.js";
 import { subscriptionsRoutes } from "@/routes/subscriptions.js";
 import { bankRoutes } from "@/routes/bank.js";
 import { payoutsRoutes } from "@/routes/payouts.js";
+import { webhooksRevolutRoutes } from "@/routes/webhooks-revolut.js";
+import { testimonialsRoutes } from "@/routes/testimonials.js";
 import { registerErrorHandler, setJsonSerializer } from "@/lib/http.js";
 import { ensureDefaultLegalClauses } from "@/lib/company/legal-clauses.js";
 
@@ -36,7 +39,23 @@ export type BuildAppOptions = {
 
 export async function buildApp(opts: BuildAppOptions = {}): Promise<FastifyInstance> {
   const app = Fastify({
-    logger: opts.silent ? false : true,
+    logger: opts.silent
+      ? false
+      : {
+          redact: {
+            paths: [
+              "req.headers.authorization",
+              "req.headers.cookie",
+              "req.body.accessCode",
+              "req.body.code",
+              "req.query.accessCode",
+              "req.query.code",
+              "req.query.reference",
+              "req.params.token",
+            ],
+            censor: "[redacted]",
+          },
+        },
     trustProxy: getTrustProxy(),
     // Les tokens PDF publics (base64url(payload).base64url(sig)) dépassent le défaut 100.
     maxParamLength: 256,
@@ -46,15 +65,22 @@ export async function buildApp(opts: BuildAppOptions = {}): Promise<FastifyInsta
   registerErrorHandler(app);
 
   await app.register(helmet, {
+    referrerPolicy: { policy: "no-referrer" },
     // SPA servie par l'API: CSP permissive pour assets same-origin + inline styles Tailwind.
     contentSecurityPolicy: {
       directives: {
         defaultSrc: ["'self'"],
         scriptSrc: ["'self'"],
         styleSrc: ["'self'", "'unsafe-inline'"],
-        imgSrc: ["'self'", "data:", "blob:"],
-        fontSrc: ["'self'", "data:"],
-        connectSrc: ["'self'"],
+        imgSrc: ["'self'", "data:", "blob:", "https:"],
+        fontSrc: ["'self'", "data:", "https:"],
+        frameSrc: ["'self'", "blob:", "data:"],
+        connectSrc: [
+          "'self'",
+          "https://geo.api.gouv.fr",
+          "https://api-adresse.data.gouv.fr",
+          "https://recherche-entreprises.api.gouv.fr",
+        ],
         objectSrc: ["'none'"],
         frameAncestors: ["'self'"],
         baseUri: ["'self'"],
@@ -100,11 +126,14 @@ export async function buildApp(opts: BuildAppOptions = {}): Promise<FastifyInsta
   await app.register(obligationsRoutes);
   await app.register(legalClausesRoutes);
   await app.register(miscRoutes);
+  await app.register(settingsRoutes);
   await app.register(numberingRoutes);
   await app.register(quotesMarketRoutes);
   await app.register(subscriptionsRoutes);
   await app.register(bankRoutes);
   await app.register(payoutsRoutes);
+  await app.register(webhooksRevolutRoutes);
+  await app.register(testimonialsRoutes);
 
   app.get("/api/health", async () => ({ ok: true }));
 

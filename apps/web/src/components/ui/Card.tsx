@@ -88,6 +88,8 @@ export function KpiCard({
   iconTone = "purple",
   trend,
   trendUp = true,
+  hint,
+  footer,
   className = "",
 }: {
   label: string;
@@ -96,6 +98,8 @@ export function KpiCard({
   iconTone?: keyof typeof iconTones;
   trend?: string;
   trendUp?: boolean;
+  hint?: ReactNode;
+  footer?: ReactNode;
   className?: string;
 }) {
   return (
@@ -120,6 +124,8 @@ export function KpiCard({
       <p className="mt-1 text-2xl font-bold tabular-nums tracking-tight text-[var(--text)] sm:text-[1.75rem]">
         {value}
       </p>
+      {hint ? <p className="mt-2 text-xs text-[var(--muted)]">{hint}</p> : null}
+      {footer ? <div className="mt-2">{footer}</div> : null}
     </Card>
   );
 }

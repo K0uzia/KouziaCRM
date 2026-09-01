@@ -26,6 +26,11 @@ export const SUB_NAV: Record<Exclude<HubId, "home">, SubNavItem[]> = {
       label: "Messages",
       match: (p) => p.startsWith("/inbox"),
     },
+    {
+      to: "/avis",
+      label: "Avis",
+      match: (p) => p === "/avis",
+    },
   ],
   billing: [
     { to: "/quotes", label: "Devis", match: (p) => p.startsWith("/quotes") },
@@ -46,7 +51,13 @@ export const SUB_NAV: Record<Exclude<HubId, "home">, SubNavItem[]> = {
 
 export function getHubFromPath(pathname: string): HubId | null {
   if (pathname === "/") return "home";
-  if (pathname.startsWith("/clients") || pathname.startsWith("/inbox")) return "activity";
+  if (
+    pathname.startsWith("/clients") ||
+    pathname.startsWith("/inbox") ||
+    pathname === "/avis"
+  ) {
+    return "activity";
+  }
   if (
     pathname.startsWith("/quotes") ||
     pathname.startsWith("/invoices") ||

@@ -5,7 +5,7 @@
  */
 import { execSync } from "node:child_process";
 import { createRequire } from "node:module";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -54,4 +54,28 @@ function ensureLightningcss() {
   console.log("lightningcss OK");
 }
 
+function patchReactPdfHyphenate() {
+  const pkgPath = join(root, "node_modules", "@react-pdf", "hyphenate", "package.json");
+  if (!existsSync(pkgPath)) {
+    return;
+  }
+
+  const json = JSON.parse(readFileSync(pkgPath, "utf8"));
+  let changed = false;
+
+  for (const key of [".", "./*"]) {
+    const entry = json.exports?.[key];
+    if (entry && !entry.require && entry.import) {
+      entry.require = entry.import;
+      changed = true;
+    }
+  }
+
+  if (changed) {
+    writeFileSync(pkgPath, `${JSON.stringify(json, null, 2)}\n`);
+    console.log("@react-pdf/hyphenate exports patch OK");
+  }
+}
+
 ensureLightningcss();
+patchReactPdfHyphenate();

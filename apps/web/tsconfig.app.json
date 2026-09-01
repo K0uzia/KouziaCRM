@@ -22,11 +22,17 @@
     "noUnusedLocals": true,
     "noUnusedParameters": true,
     "noFallthroughCasesInSwitch": true,
-    "ignoreDeprecations": "6.0",
+    "ignoreDeprecations": "5.0",
     "baseUrl": ".",
     "paths": {
       "@/*": [
         "./src/*"
+      ],
+      "@kouziacrm/email-sanitize": [
+        "../api/src/lib/email/sanitize-html.ts"
+      ],
+      "@kouziacrm/email-sender": [
+        "../api/src/lib/email/sender-label.ts"
       ]
     }
   },

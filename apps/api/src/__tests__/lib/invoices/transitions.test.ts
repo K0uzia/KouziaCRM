@@ -3,6 +3,7 @@ import {
   InvoiceDocumentType,
   InvoiceStatus,
   InvoiceType,
+  MilestoneStatus,
   QuoteStatus,
   SubscriptionStatus,
 } from "@prisma/client";
@@ -176,7 +177,6 @@ describe("issueInvoice", () => {
     expect(sub!.amountCents).toBe(30000);
     expect(sub!.billingDay).toBe(1);
 
-    // nextInvoiceAt = mois suivant startDate (skipCurrentPeriod, startDate = now)
     const expectedNextMonth = (new Date().getMonth() + 1) % 12;
     expect(sub!.nextInvoiceAt.getMonth()).toBe(expectedNextMonth);
 
@@ -258,7 +258,6 @@ describe("convertQuoteToInvoice", () => {
     expect(invLines[0]!.subscriptionId).toBeTruthy();
     expect(invLines[1]!.isSubscription).toBe(false);
 
-    // La ligne abonnement du devis doit porter le même subscriptionId
     const quoteLines = await prisma.invoiceLine.findMany({
       where: { invoiceId: quoteId, isSubscription: true },
     });
@@ -274,7 +273,6 @@ describe("convertQuoteToInvoice", () => {
     });
     await issueQuote(quoteId, new Date(2026, 5, 15));
     await convertQuoteToInvoice(quoteId);
-    // 2e conversion : le devis est déjà ACCEPTED/PAID -> rejeté par le garde-fou de statut
     await expect(convertQuoteToInvoice(quoteId)).rejects.toThrow(
       /Devis non convertible/,
     );
@@ -291,6 +289,18 @@ describe("décision du client sur un devis", () => {
     });
     await issueQuote(quoteId, new Date(2026, 5, 15));
     return quoteId;
+  }
+
+  async function markFirstDepositPaid(quoteId: string): Promise<void> {
+    const first = await prisma.paymentMilestone.findFirst({
+      where: { quoteId },
+      orderBy: { position: "asc" },
+    });
+    if (!first) throw new Error("Jalon acompte introuvable");
+    await prisma.paymentMilestone.update({
+      where: { id: first.id },
+      data: { status: MilestoneStatus.PAID, paidAt: new Date() },
+    });
   }
 
   it("refuse un devis envoyé, le clôt et conserve le motif", async () => {
@@ -315,13 +325,35 @@ describe("décision du client sur un devis", () => {
     await expect(convertQuoteToInvoice(quoteId)).rejects.toThrow(/non convertible/);
   });
 
-  it("accepte un devis en ligne et enregistre le bon pour accord", async () => {
+  it("accepte un devis sans acompte payé (validation d'abord)", async () => {
     const quoteId = await issuedQuote();
     const accepted = await acceptQuoteByClient(quoteId, " Camille Dupont ");
 
     expect(accepted.quoteStatus).toBe(QuoteStatus.ACCEPTED);
     expect(accepted.quoteSignerName).toBe("Camille Dupont");
-    // Le document reste émis : la facture est un geste distinct du dirigeant.
+    expect(accepted.status).toBe(InvoiceStatus.ISSUED);
+  });
+
+  it("crée un acompte et un solde à l'émission, sans jalon intermédiaire", async () => {
+    const quoteId = await issuedQuote();
+    const milestones = await prisma.paymentMilestone.findMany({
+      where: { quoteId },
+      orderBy: { position: "asc" },
+    });
+    expect(milestones).toHaveLength(2);
+    expect(milestones.map((m) => m.label)).toEqual(["Acompte", "Solde"]);
+    expect(milestones[0]?.percentBps).toBe(3000);
+    expect(milestones[1]?.percentBps).toBe(7000);
+    expect(milestones[0]?.checkoutUrl).toBeNull();
+  });
+
+  it("accepte un devis en ligne même si l'acompte est déjà payé", async () => {
+    const quoteId = await issuedQuote();
+    await markFirstDepositPaid(quoteId);
+    const accepted = await acceptQuoteByClient(quoteId, " Camille Dupont ");
+
+    expect(accepted.quoteStatus).toBe(QuoteStatus.ACCEPTED);
+    expect(accepted.quoteSignerName).toBe("Camille Dupont");
     expect(accepted.status).toBe(InvoiceStatus.ISSUED);
   });
 

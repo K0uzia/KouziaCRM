@@ -3,13 +3,12 @@ import {
   InvoiceStatus,
   InvoiceType,
   MilestoneStatus,
-  QuoteStatus,
   type Prisma,
 } from "@prisma/client";
 import { prisma } from "@/lib/prisma.js";
 import { decryptOptional } from "@/lib/crypto.js";
 import { allocateInvoiceNumber } from "@/lib/invoices/numberingService.js";
-import { ensureQuoteMilestones } from "@/lib/quotes/milestones.js";
+import { ensureQuoteMilestonesFromSettings } from "@/lib/payments/milestonePaymentService.js";
 
 export class DocumentFlowError extends Error {
   constructor(
@@ -184,7 +183,7 @@ export async function getMarketView(quoteId: string) {
     throw new DocumentFlowError("Devis introuvable", 404);
   }
 
-  await ensureQuoteMilestones(quote.id, quote.totalCents);
+  await ensureQuoteMilestonesFromSettings(quote.id, quote.totalCents);
 
   const milestones = await prisma.paymentMilestone.findMany({
     where: { quoteId },
@@ -231,6 +230,12 @@ export async function getMarketView(quoteId: string) {
       amountCents: m.amountCents,
       triggerText: m.triggerText,
       status: m.status,
+      dueDate: m.dueDate,
+      checkoutUrl: m.checkoutUrl,
+      revolutOrderId: m.revolutOrderId,
+      paidAt: m.paidAt,
+      paymentMethod: m.paymentMethod,
+      manualReference: m.manualReference,
       invoiceId: m.invoiceId,
       invoice: m.generatedInvoice
         ? {
@@ -289,7 +294,10 @@ export async function generateMilestoneInvoice(
         409,
       );
     }
-    if (milestone.status !== MilestoneStatus.PENDING) {
+    if (milestone.status !== MilestoneStatus.PENDING &&
+        milestone.status !== MilestoneStatus.DUE &&
+        milestone.status !== MilestoneStatus.OVERDUE &&
+        milestone.status !== MilestoneStatus.FAILED) {
       throw new DocumentFlowError(
         "Ce jalon a déjà été facturé",
         409,
@@ -365,21 +373,6 @@ export async function generateMilestoneInvoice(
         invoiceId: created.id,
       },
     });
-
-    // Première facture d'acompte = acceptation commerciale du devis
-    if (milestone.quote.quoteStatus !== QuoteStatus.ACCEPTED) {
-      const { ensureQuoteHasOfficialNumber } = await import("@/lib/invoices/transitions");
-      await ensureQuoteHasOfficialNumber(tx, milestone.quoteId);
-      await tx.invoice.update({
-        where: { id: milestone.quoteId },
-        data: { quoteStatus: QuoteStatus.ACCEPTED },
-      });
-    }
-
-    const { activateSubscriptionsFromDocument } = await import(
-      "@/lib/subscriptions/activate-from-document"
-    );
-    await activateSubscriptionsFromDocument(milestone.quoteId, tx);
 
     return { invoice: created, quoteId: milestone.quoteId };
   });

@@ -9,6 +9,8 @@ export type LogClientEmailInput = {
   documentNumber?: string | null;
   success?: boolean;
   errorMessage?: string | null;
+  outboxId?: string | null;
+  threadId?: string | null;
 };
 
 /** Enregistre un email sortant pour le portail de suivi client. */
@@ -24,6 +26,8 @@ export async function logClientEmailEvent(input: LogClientEmailInput): Promise<v
         documentNumber: input.documentNumber ?? null,
         success: input.success ?? true,
         errorMessage: input.errorMessage ?? null,
+        outboxId: input.outboxId ?? null,
+        threadId: input.threadId ?? null,
       },
     });
   } catch (err) {

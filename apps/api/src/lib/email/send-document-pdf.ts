@@ -1,14 +1,20 @@
-import { InvoiceDocumentType } from "@prisma/client";
+import { InvoiceDocumentType, InvoiceStatus } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { decryptOptional } from "@/lib/crypto";
 import { getCompanySettings } from "@/lib/company";
 import { listActiveLegalClauses } from "@/lib/company/legal-clauses";
-import { isSmtpConfigured, sendEmail } from "@/lib/email/smtp";
+import { isSmtpConfigured } from "@/lib/email/smtp";
+import { mailEnqueue } from "@/lib/email/mailer";
 import { buildInvoicePdfPayload, type ClientSnapshot } from "@/lib/pdf/build-payload";
+import { enrichCompanyForPdf } from "@/lib/pdf/brand-assets";
 import { renderInvoicePdf } from "@/lib/pdf/render";
+import { resolveClientPortalUrl } from "@/lib/email/portal-url.js";
+import { resolveInvoicePaymentUrl } from "@/lib/email/payment-url.js";
 
 export type SendDocumentPdfResult = {
   sent: boolean;
+  queued?: boolean;
+  outboxId?: string;
   reason?: "smtp_off" | "no_email" | "not_found" | "error";
 };
 
@@ -17,12 +23,17 @@ export type SendDocumentPdfOptions = {
   text?: string;
   /** Si false, n'envoie pas (émission seule). Défaut true. */
   send?: boolean;
+  threadId?: string;
+  extraAttachments?: Array<{
+    filename: string;
+    contentBase64: string;
+    contentType?: string;
+  }>;
 };
 
 /**
- * Envoie le PDF d'un document émis (devis / facture / avoir) au client par SMTP.
- * Corps en texte brut uniquement (pas de HTML).
- * Ne jette pas : retourne { sent, reason } pour que l'émission reste prioritaire.
+ * Génère le PDF et enfile l'envoi email via EmailOutbox (worker).
+ * Ne jette pas : retourne { sent, queued, outboxId, reason }.
  */
 export async function sendDocumentPdf(
   documentId: string,
@@ -36,7 +47,7 @@ export async function sendDocumentPdf(
   }
 
   try {
-    const [company, legalClauses, invoice] = await Promise.all([
+    const [companyRaw, legalClauses, invoice] = await Promise.all([
       getCompanySettings(),
       listActiveLegalClauses(),
       prisma.invoice.findUnique({
@@ -48,9 +59,11 @@ export async function sendDocumentPdf(
           quote: true,
           sourceMilestone: true,
           milestones: { orderBy: { position: "asc" } },
+          payments: { orderBy: { paidAt: "asc" } },
         },
       }),
     ]);
+    const company = await enrichCompanyForPdf(companyRaw);
 
     if (!invoice || !invoice.number) {
       return { sent: false, reason: "not_found" };
@@ -113,6 +126,7 @@ export async function sendDocumentPdf(
     const brand = await brandFromSettings();
     const clientName = snapshot.displayName || "Client";
     const clientFirstName = snapshot.displayName?.split(/\s+/)[0] || null;
+    const portalUrl = await resolveClientPortalUrl();
 
     let kind: import("@/lib/email/templates.js").EmailTemplateKind = "invoice";
     if (isQuote) kind = "quote";
@@ -120,12 +134,20 @@ export async function sendDocumentPdf(
     else if (invoice.invoiceType === "ACOMPTE") kind = "invoice_acompte";
     else if (invoice.invoiceType === "SOLDE") kind = "invoice_solde";
 
-    const built = buildEmailContent({
+    let paymentUrl: string | null = null;
+    if (!isQuote && !isCredit && invoice.status !== InvoiceStatus.PAID) {
+      paymentUrl = await resolveInvoicePaymentUrl(invoice);
+    }
+
+    const built = await buildEmailContent({
       kind,
       clientName,
       clientFirstName,
       docNumber: invoice.number,
       brand,
+      clientPortalUrl: portalUrl,
+      paymentUrl,
+      brandPrimaryColor: companyRaw.brandPrimaryColor,
     });
 
     const replaceNumero = (s: string) =>
@@ -133,38 +155,35 @@ export async function sendDocumentPdf(
 
     const text = replaceNumero((opts.text ?? built.text).trim());
     const subject = replaceNumero((opts.subject ?? built.subject).trim());
-    const html = opts.text ? undefined : built.html;
+    const html = opts.text ? (paymentUrl ? built.html : undefined) : built.html;
 
     const attachKind = isQuote ? "Devis" : isCredit ? "Avoir" : "Facture";
+    const filename = pdfAttachmentFilename(attachKind, invoice.number, clientName);
 
-    await sendEmail({
+    const { outboxId } = await mailEnqueue({
       to: email,
       subject,
       text,
       html,
+      clientId: invoice.clientId,
+      documentId: invoice.id,
+      documentNumber: invoice.number,
+      threadId: opts.threadId,
+      kind,
+      bodyTextForMessage: text,
       attachments: [
         {
-          filename: pdfAttachmentFilename(attachKind, invoice.number, clientName),
-          content: pdf,
+          filename,
+          contentBase64: pdf.toString("base64"),
           contentType: "application/pdf",
         },
+        ...(opts.extraAttachments ?? []),
       ],
     });
 
-    const { logClientEmailEvent } = await import("@/lib/email/log-event.js");
-    await logClientEmailEvent({
-      clientId: invoice.clientId,
-      kind,
-      subject,
-      toAddress: email,
-      documentId: invoice.id,
-      documentNumber: invoice.number,
-      success: true,
-    });
-
-    return { sent: true };
+    return { sent: true, queued: true, outboxId };
   } catch (err) {
-    console.error(`[email] envoi PDF échoué pour ${documentId}`, err);
+    console.error(`[email] enqueue PDF échoué pour ${documentId}`, err);
     return { sent: false, reason: "error" };
   }
 }

@@ -7,9 +7,10 @@ import {
   faFileInvoiceDollar,
   faUsers,
   faStar,
-  faChartLine,
   faFilePen,
   faBell,
+  faLandmark,
+  faMoneyBillWave,
 } from "@fortawesome/free-solid-svg-icons";
 import { toast } from "sonner";
 import { api, formatEUR } from "@/lib/api";
@@ -76,6 +77,12 @@ type MrrData = {
   activeCount: number;
 };
 
+type CfeObligation = {
+  label: string;
+  dueDate: string;
+  amountCents: number | null;
+};
+
 export function DashboardPage() {
   const [scope, setScope] = useState("month");
   const [data, setData] = useState<DashboardData | null>(null);
@@ -87,6 +94,8 @@ export function DashboardPage() {
   const [payoutHasBeneficiary, setPayoutHasBeneficiary] = useState(false);
   const [payoutConfirm, setPayoutConfirm] = useState(false);
   const [payoutBusy, setPayoutBusy] = useState(false);
+  const [cfeObligation, setCfeObligation] = useState<CfeObligation | null>(null);
+  const [remindersRunBusy, setRemindersRunBusy] = useState(false);
 
   const url = useMemo(() => `/api/dashboard?scope=${scope}`, [scope]);
 
@@ -101,14 +110,25 @@ export function DashboardPage() {
         enabled: false,
         hasBeneficiary: false,
       })),
+      api<{ items: Array<{ type: string; label: string; dueDate: string; amountCents: number | null; displayStatus: string }> }>(
+        "/api/obligations",
+      ).catch(() => ({ items: [] })),
     ])
-      .then(([d, r, m, p]) => {
+      .then(([d, r, m, p, ob]) => {
         if (!cancelled) {
           setData(d);
           setReminders(r);
           if (m) setMrr(m);
           setPayoutEnabled(p.enabled);
           setPayoutHasBeneficiary(p.hasBeneficiary);
+          const cfe = ob.items
+            .filter((i) => i.type === "CFE_PAYMENT" && i.displayStatus !== "DONE")
+            .sort((a, b) => a.dueDate.localeCompare(b.dueDate))[0];
+          setCfeObligation(
+            cfe
+              ? { label: cfe.label, dueDate: cfe.dueDate, amountCents: cfe.amountCents }
+              : null,
+          );
           setError(null);
         }
       })
@@ -122,6 +142,25 @@ export function DashboardPage() {
       cancelled = true;
     };
   }, [url]);
+
+  async function runAllReminders() {
+    setRemindersRunBusy(true);
+    try {
+      const res = await api<{ scheduled: number; enqueued: number; sent: number; errors: string[] }>(
+        "/api/reminders/run",
+        { method: "POST", body: "{}" },
+      );
+      toast.success(
+        `Relances : ${res.enqueued} enfilée(s), ${res.sent} envoyée(s)`,
+      );
+      if (res.errors.length) toast.error(res.errors.join(" · "));
+      setReminders(await api<ReminderRow[]>("/api/reminders/pending"));
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Erreur");
+    } finally {
+      setRemindersRunBusy(false);
+    }
+  }
 
   async function sendReminder(id: string) {
     try {
@@ -213,8 +252,8 @@ export function DashboardPage() {
         </Card>
       ) : null}
 
-      {/* KPI row (4 cartes comme le shot Dribbble) */}
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+      {/* KPI : 6 cartes sur une ligne (desktop) */}
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
         <KpiCard
           label="Encaissé"
           value={formatEUR(cf.totalEncaisseCents)}
@@ -238,6 +277,34 @@ export function DashboardPage() {
           value={formatEUR(pendingTotal)}
           icon={faFileInvoiceDollar}
           iconTone="orange"
+        />
+        <KpiCard
+          label="CFE & Trésorerie"
+          value={formatEUR(cf.cfeCents + cf.tresorerieCents)}
+          icon={faLandmark}
+          iconTone="blue"
+          hint={
+            cf.cfeCents > 0 || cfeObligation
+              ? `CFE ${formatEUR(cf.cfeCents)}${
+                  cfeObligation
+                    ? ` · échéance ${formatDate(cfeObligation.dueDate)}`
+                    : ""
+                }`
+              : undefined
+          }
+          footer={
+            cf.cfeCents <= 0 && !cfeObligation ? (
+              <Link to="/settings" className="text-xs font-medium text-[var(--primary)] hover:underline">
+                Renseigner
+              </Link>
+            ) : undefined
+          }
+        />
+        <KpiCard
+          label="Salaire disponible"
+          value={formatEUR(cf.resteNetCents)}
+          icon={faMoneyBillWave}
+          iconTone="purple"
         />
       </div>
 
@@ -301,19 +368,26 @@ export function DashboardPage() {
                 iconTone="green"
               />
             ) : null}
-            <StatRow
-              icon={faChartLine}
-              label="Trésorerie + CFE"
-              value={formatEUR(cf.tresorerieEtCfeCents)}
-              iconTone="neutral"
-            />
           </div>
         </Card>
       </div>
 
-      {reminders.length > 0 ? (
-        <Card className="p-5">
-          <h2 className="mb-3 text-base font-semibold">Relances à envoyer</h2>
+      <Card className="p-5">
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+          <h2 className="text-base font-semibold">Relances automatiques</h2>
+          <Button
+            type="button"
+            variant="secondary"
+            className="h-8 text-xs"
+            disabled={remindersRunBusy}
+            onClick={() => void runAllReminders()}
+          >
+            {remindersRunBusy ? "Exécution…" : "Exécuter les rappels maintenant"}
+          </Button>
+        </div>
+        {reminders.length === 0 ? (
+          <p className="text-sm text-[var(--muted)]">Aucune relance en attente.</p>
+        ) : (
           <ul className="divide-y divide-[var(--border)] text-sm">
             {reminders.map((r) => (
               <li key={r.id} className="flex flex-wrap items-center justify-between gap-3 py-3">
@@ -340,8 +414,8 @@ export function DashboardPage() {
               </li>
             ))}
           </ul>
-        </Card>
-      ) : null}
+        )}
+      </Card>
 
       <Card className="p-5">
         <h2 className="mb-3 text-base font-semibold">Factures à encaisser</h2>

@@ -2,11 +2,21 @@ import { randomBytes } from "node:crypto";
 import { prisma } from "@/lib/prisma.js";
 import { getCompanySettings } from "@/lib/company.js";
 import { encryptOptional } from "@/lib/crypto.js";
-import { isSmtpConfigured, sendEmail } from "@/lib/email/smtp.js";
+import { isSmtpConfigured } from "@/lib/email/smtp.js";
+import { mailEnqueue } from "@/lib/email/mailer/index.js";
 import { allocateClientNumber } from "@/lib/clients/numbering.js";
 import { issueAndSendAccessCode } from "@/lib/clients/access-email.js";
-
-const ONBOARDING_TTL_DAYS = 30;
+import {
+  createOnboardingToken,
+  getOnboardingTtlDays,
+  isLegacyOnboardingToken,
+  verifyOnboardingToken,
+} from "@/lib/clients/onboarding-token.js";
+import {
+  normalizeFrenchAddress,
+  verifyCompanyIdentifiers,
+} from "@/lib/address/france.js";
+import { computeEmailHash } from "@/lib/clients/email-hash.js";
 
 export type OnboardingInviteResult = {
   ok: boolean;
@@ -15,18 +25,11 @@ export type OnboardingInviteResult = {
   token: string;
 };
 
-/** Génère un token d'onboarding (32 hex) avec expiration à +30 jours. */
-function generateOnboardingToken(): { token: string; expiresAt: Date } {
-  const token = randomBytes(16).toString("hex");
-  const expiresAt = new Date(Date.now() + ONBOARDING_TTL_DAYS * 24 * 60 * 60 * 1000);
-  return { token, expiresAt };
-}
-
-function originUrl(): string {
+function publicSiteOrigin(): string {
   return (
     process.env.PUBLIC_WEB_ORIGIN?.trim() ||
     process.env.WEB_ORIGIN?.trim() ||
-    "http://localhost:5173"
+    "http://localhost:5174"
   ).replace(/\/$/, "");
 }
 
@@ -34,7 +37,7 @@ function originUrl(): string {
  * Crée une invitation d'onboarding pour un email donné.
  * - existingClientId null : nouveau prospect (le client sera créé à la soumission).
  * - existingClientId renseigné : client existant à mettre à jour.
- * Envoie l'email contenant le lien /onboarding/:token.
+ * Envoie l'email contenant le lien Kouzia /nouveau-client?token=...
  */
 export async function sendOnboardingInvite(opts: {
   email: string;
@@ -45,11 +48,16 @@ export async function sendOnboardingInvite(opts: {
     throw new Error("Email invalide");
   }
 
-  const { token, expiresAt } = generateOnboardingToken();
+  const { token, jti, expiresAt } = createOnboardingToken({
+    email,
+    existingClientId: opts.existingClientId ?? null,
+  });
+
   await prisma.onboardingInvitation.create({
     data: {
       email,
-      token,
+      token: jti,
+      jti,
       expiresAt,
       existingClientId: opts.existingClientId ?? null,
     },
@@ -60,7 +68,8 @@ export async function sendOnboardingInvite(opts: {
   try {
     const company = await getCompanySettings();
     const brand = company.tradeName ?? company.legalName;
-    const link = `${originUrl()}/onboarding/${token}`;
+    const ttl = getOnboardingTtlDays();
+    const link = `${publicSiteOrigin()}/nouveau-client?token=${encodeURIComponent(token)}`;
 
     const body = [
       "Bonjour,",
@@ -71,7 +80,7 @@ export async function sendOnboardingInvite(opts: {
       "",
       link,
       "",
-      "Ce lien est personnel et expire dans 30 jours. Vos informations sont chiffrées et stockées de façon sécurisée.",
+      `Ce lien est personnel et expire dans ${ttl} jours. Vos données sont transmises directement à ${brand} et ne sont pas conservées sur le site public.`,
       "",
       "Cordialement,",
       brand,
@@ -80,22 +89,14 @@ export async function sendOnboardingInvite(opts: {
     const subject = opts.existingClientId
       ? `Mise à jour de votre fiche client - ${brand}`
       : `Complétez votre fiche client - ${brand}`;
-    await sendEmail({
+    await mailEnqueue({
       to: email,
       subject,
       text: body,
+      clientId: opts.existingClientId ?? undefined,
+      kind: "onboarding",
+      bodyTextForMessage: body,
     });
-
-    if (opts.existingClientId) {
-      const { logClientEmailEvent } = await import("@/lib/email/log-event.js");
-      await logClientEmailEvent({
-        clientId: opts.existingClientId,
-        kind: "onboarding",
-        subject,
-        toAddress: email,
-        success: true,
-      });
-    }
 
     return { ok: true, sent: true, token };
   } catch (err) {
@@ -105,13 +106,12 @@ export async function sendOnboardingInvite(opts: {
 }
 
 export type OnboardingView = {
-  /** Email masqué pour affichage public (a***@domaine.fr) */
   emailMasked: string;
-  /** Client existant à mettre à jour (null = nouveau client à créer) */
   existingClientId: string | null;
   existingType: "B2B" | "B2C" | null;
   displayName: string | null;
   completedAt: Date | null;
+  brandName: string | null;
 };
 
 function maskEmail(email: string): string {
@@ -121,29 +121,70 @@ function maskEmail(email: string): string {
   return `${visible}***@${domain}`;
 }
 
-/** Récupère les infos pré-remplies pour le formulaire d'onboarding public. */
+async function brandName(): Promise<string | null> {
+  try {
+    const company = await getCompanySettings();
+    return company.tradeName ?? company.legalName;
+  } catch {
+    return null;
+  }
+}
+
+/** Preview pour le formulaire public Kouzia (token HMAC). */
+export async function getPublicClientPreview(
+  token: string,
+): Promise<OnboardingView | null> {
+  const payload = verifyOnboardingToken(token);
+  if (!payload) {
+    // Compat legacy : token hex 32
+    if (isLegacyOnboardingToken(token)) {
+      return getOnboardingView(token);
+    }
+    return null;
+  }
+
+  const invitation = await prisma.onboardingInvitation.findUnique({
+    where: { jti: payload.jti },
+    include: { existingClient: true },
+  });
+  if (!invitation) return null;
+  if (invitation.expiresAt < new Date() && !invitation.usedAt) return null;
+
+  return {
+    emailMasked: maskEmail(invitation.email),
+    existingClientId: invitation.existingClientId,
+    existingType: invitation.existingClient?.type ?? null,
+    displayName: invitation.existingClient?.displayName ?? null,
+    completedAt: invitation.usedAt,
+    brandName: await brandName(),
+  };
+}
+
+/** Récupère les infos pré-remplies pour le formulaire d'onboarding legacy. */
 export async function getOnboardingView(token: string): Promise<OnboardingView | null> {
   const invitation = await prisma.onboardingInvitation.findUnique({
     where: { token },
     include: { existingClient: true },
   });
   if (!invitation) return null;
-  if (invitation.usedAt) return { ...mapView(invitation), completedAt: invitation.usedAt };
+  if (invitation.usedAt) {
+    return {
+      emailMasked: maskEmail(invitation.email),
+      existingClientId: invitation.existingClientId,
+      existingType: invitation.existingClient?.type ?? null,
+      displayName: invitation.existingClient?.displayName ?? null,
+      completedAt: invitation.usedAt,
+      brandName: await brandName(),
+    };
+  }
   if (invitation.expiresAt < new Date()) return null;
-  return { ...mapView(invitation), completedAt: null };
-}
-
-function mapView(inv: {
-  email: string;
-  existingClientId: string | null;
-  existingClient: { type: "B2B" | "B2C"; displayName: string } | null;
-}): OnboardingView {
   return {
-    emailMasked: maskEmail(inv.email),
-    existingClientId: inv.existingClientId,
-    existingType: inv.existingClient?.type ?? null,
-    displayName: inv.existingClient?.displayName ?? null,
+    emailMasked: maskEmail(invitation.email),
+    existingClientId: invitation.existingClientId,
+    existingType: invitation.existingClient?.type ?? null,
+    displayName: invitation.existingClient?.displayName ?? null,
     completedAt: null,
+    brandName: await brandName(),
   };
 }
 
@@ -155,11 +196,18 @@ export type OnboardingSubmission = {
   email?: string | null;
   phone?: string | null;
   siret?: string | null;
+  siren?: string | null;
+  apeCode?: string | null;
   addressLine1?: string | null;
   addressLine2?: string | null;
   postalCode?: string | null;
   city?: string | null;
   country?: string | null;
+  addressCityCode?: string | null;
+  addressLat?: number | null;
+  addressLon?: number | null;
+  addressManualConfirmed?: boolean;
+  notes?: string | null;
 };
 
 function buildDisplayName(d: OnboardingSubmission): string {
@@ -167,96 +215,176 @@ function buildDisplayName(d: OnboardingSubmission): string {
   return [d.firstName?.trim(), d.lastName?.trim()].filter(Boolean).join(" ") || "Client";
 }
 
-function toPrismaData(d: OnboardingSubmission) {
-  const siret = d.siret?.replace(/\s/g, "") || null;
+async function toPrismaData(d: OnboardingSubmission) {
+  const addr = await normalizeFrenchAddress({
+    addressLine1: d.addressLine1,
+    postalCode: d.postalCode,
+    city: d.city,
+    country: d.country,
+    addressCityCode: d.addressCityCode,
+    addressLat: d.addressLat,
+    addressLon: d.addressLon,
+    addressManualConfirmed: d.addressManualConfirmed,
+  });
+  if (!addr.ok) throw new AddressValidationError(addr.error);
+
+  let siren = d.siren?.replace(/\s/g, "") || null;
+  let siret = d.siret?.replace(/\s/g, "") || null;
+  let apeCode = d.apeCode?.trim() || null;
+  let companyName = d.companyName?.trim() || null;
+  let companyVerifiedAt: Date | null = null;
+
+  if (d.type === "B2B" && (siren || siret)) {
+    const verified = await verifyCompanyIdentifiers({
+      siren,
+      siret,
+      companyName,
+      apeCode,
+    });
+    if (!verified.ok) throw new AddressValidationError(verified.error);
+    siren = verified.data.siren;
+    siret = verified.data.siret;
+    apeCode = verified.data.apeCode;
+    companyName = verified.data.companyName;
+    companyVerifiedAt = verified.data.companyVerifiedAt;
+  }
+
   return {
     type: d.type,
-    displayName: buildDisplayName(d),
+    displayName: buildDisplayName({ ...d, companyName }),
     firstName: d.firstName?.trim() || null,
     lastName: d.lastName?.trim() || null,
-    companyName: d.companyName?.trim() || null,
+    companyName,
     emailEncrypted: encryptOptional(d.email || null),
+    emailHash: computeEmailHash(d.email || null),
     phoneEncrypted: encryptOptional(d.phone || null),
     siretEncrypted: encryptOptional(siret),
-    addressLine1: d.addressLine1?.trim() || null,
+    sirenEncrypted: encryptOptional(siren),
+    apeCode,
+    companyVerifiedAt,
+    addressLine1: addr.address.addressLine1,
     addressLine2: d.addressLine2?.trim() || null,
-    postalCode: d.postalCode?.trim() || null,
-    city: d.city?.trim() || null,
+    postalCode: addr.address.postalCode,
+    city: addr.address.city,
     country: d.country?.trim() || "FRANCE",
+    addressCityCode: addr.address.addressCityCode,
+    addressLat: addr.address.addressLat,
+    addressLon: addr.address.addressLon,
   };
 }
 
-/**
- * Valide et applique la soumission d'onboarding.
- * - Crée un nouveau client (avec numéro + code d'accès) si pas de existingClient.
- * - Met à jour le client existant sinon.
- * Marque l'invitation comme utilisée.
- */
-export async function submitOnboarding(
-  token: string,
+async function applySubmission(
+  invitation: {
+    id: string;
+    email: string;
+    existingClientId: string | null;
+  },
   data: OnboardingSubmission,
-): Promise<{ ok: boolean; error?: string }> {
-  const invitation = await prisma.onboardingInvitation.findUnique({
-    where: { token },
-  });
-  if (!invitation) return { ok: false, error: "Lien invalide ou expiré" };
-  if (invitation.usedAt) {
-    return { ok: false, error: "Ce formulaire a déjà été soumis." };
-  }
-  if (invitation.expiresAt < new Date()) {
-    return { ok: false, error: "Ce lien a expiré. Contactez-moi pour en recevoir un nouveau." };
-  }
-
-  // Validation métier
+): Promise<{ ok: boolean; error?: string; alreadySubmitted?: boolean }> {
   if (data.type === "B2B" && !data.companyName?.trim()) {
     return { ok: false, error: "Raison sociale requise pour un professionnel" };
   }
   if (data.type === "B2C" && !data.lastName?.trim()) {
     return { ok: false, error: "Nom requis pour un particulier" };
   }
-  if (data.siret && !/^\d{14}$/.test(data.siret.replace(/\s/g, ""))) {
-    return { ok: false, error: "SIRET invalide (14 chiffres)" };
-  }
 
-  // Email imposé par l'invitation (jamais celui du body public)
   const locked: OnboardingSubmission = { ...data, email: invitation.email };
   const now = new Date();
 
-  if (invitation.existingClientId) {
-    // Mise à jour d'un client existant
-    await prisma.client.update({
-      where: { id: invitation.existingClientId },
-      data: { ...toPrismaData(locked), onboardingCompletedAt: now },
+  try {
+    if (invitation.existingClientId) {
+      await prisma.client.update({
+        where: { id: invitation.existingClientId },
+        data: { ...(await toPrismaData(locked)), onboardingCompletedAt: now },
+      });
+      await prisma.onboardingInvitation.update({
+        where: { id: invitation.id },
+        data: { usedAt: now },
+      });
+      await issueAndSendAccessCode(invitation.existingClientId).catch((err) => {
+        console.error(`[email] code suivi après onboarding (existant) échoué`, err);
+      });
+      return { ok: true };
+    }
+
+    const clientNumber = await allocateClientNumber();
+    const created = await prisma.client.create({
+      data: {
+        ...(await toPrismaData(locked)),
+        clientNumber,
+        accessCodeHash: null,
+        onboardingCompletedAt: now,
+      },
     });
     await prisma.onboardingInvitation.update({
       where: { id: invitation.id },
-      data: { usedAt: now },
+      data: { usedAt: now, createdClientId: created.id },
     });
-    // Identifiants de suivi : générés + email auto (récupérables uniquement via le mail)
-    await issueAndSendAccessCode(invitation.existingClientId).catch((err) => {
-      console.error(`[email] code suivi après onboarding (existant) échoué`, err);
+    await issueAndSendAccessCode(created.id).catch((err) => {
+      console.error(`[email] code suivi après onboarding (nouveau) échoué`, err);
     });
     return { ok: true };
+  } catch (e) {
+    if (e instanceof AddressValidationError) {
+      return { ok: false, error: e.message };
+    }
+    throw e;
+  }
+}
+
+/**
+ * Soumission via token HMAC (formulaire Kouzia).
+ * Idempotence : si déjà soumis → alreadySubmitted.
+ */
+export async function submitPublicClient(
+  token: string,
+  data: OnboardingSubmission,
+): Promise<{ ok: boolean; error?: string; alreadySubmitted?: boolean }> {
+  const payload = verifyOnboardingToken(token);
+  if (!payload) {
+    if (isLegacyOnboardingToken(token)) {
+      return submitOnboarding(token, data);
+    }
+    return { ok: false, error: "Lien invalide ou expiré" };
   }
 
-  // Création d'un nouveau client (numéro CLI uniquement; code d'accès + email ensuite)
-  const clientNumber = await allocateClientNumber();
-  const created = await prisma.client.create({
-    data: {
-      ...toPrismaData(locked),
-      clientNumber,
-      accessCodeHash: null,
-      onboardingCompletedAt: now,
-    },
+  const invitation = await prisma.onboardingInvitation.findUnique({
+    where: { jti: payload.jti },
   });
-  await prisma.onboardingInvitation.update({
-    where: { id: invitation.id },
-    data: { usedAt: now, createdClientId: created.id },
-  });
+  if (!invitation) return { ok: false, error: "Lien invalide ou expiré" };
+  if (invitation.usedAt) {
+    return { ok: false, error: "Ce formulaire a déjà été soumis.", alreadySubmitted: true };
+  }
+  if (invitation.expiresAt < new Date()) {
+    return { ok: false, error: "Ce lien a expiré. Contactez-moi pour en recevoir un nouveau." };
+  }
 
-  await issueAndSendAccessCode(created.id).catch((err) => {
-    console.error(`[email] code suivi après onboarding (nouveau) échoué`, err);
-  });
+  return applySubmission(invitation, data);
+}
 
-  return { ok: true };
+/**
+ * Valide et applique la soumission d'onboarding legacy (token hex).
+ */
+export async function submitOnboarding(
+  token: string,
+  data: OnboardingSubmission,
+): Promise<{ ok: boolean; error?: string; alreadySubmitted?: boolean }> {
+  const invitation = await prisma.onboardingInvitation.findUnique({
+    where: { token },
+  });
+  if (!invitation) return { ok: false, error: "Lien invalide ou expiré" };
+  if (invitation.usedAt) {
+    return { ok: false, error: "Ce formulaire a déjà été soumis.", alreadySubmitted: true };
+  }
+  if (invitation.expiresAt < new Date()) {
+    return { ok: false, error: "Ce lien a expiré. Contactez-moi pour en recevoir un nouveau." };
+  }
+  return applySubmission(invitation, data);
+}
+
+/** Conservé pour compat éventuelle (génération token legacy). */
+export function generateLegacyOnboardingToken(): { token: string; expiresAt: Date } {
+  const token = randomBytes(16).toString("hex");
+  const expiresAt = new Date(Date.now() + getOnboardingTtlDays() * 24 * 60 * 60 * 1000);
+  return { token, expiresAt };
 }

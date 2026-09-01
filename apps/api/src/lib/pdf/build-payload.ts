@@ -1,9 +1,16 @@
-import type { Invoice, InvoiceLine, PaymentMilestone, LegalClause } from "@prisma/client";
+import type {
+  Invoice,
+  InvoiceLine,
+  Payment,
+  PaymentMilestone,
+  LegalClause,
+} from "@prisma/client";
 import type { ClientSnapshot } from "@/lib/invoices/transitions";
 import type { InvoicePdfData } from "@/lib/pdf/invoice-document";
 
 type InvoiceWithRelations = Invoice & {
   lines: InvoiceLine[];
+  payments?: Payment[];
   creditedInvoice?: { number: string | null; issueDate: Date | null } | null;
   quote?: { number: string | null; issueDate: Date | null } | null;
   sourceMilestone?: { triggerText: string | null } | null;
@@ -16,6 +23,24 @@ export type BuildPdfPayloadInput = {
   invoice: InvoiceWithRelations;
   legalClauses?: LegalClause[];
   balanceSummary?: BalanceSummary | null;
+};
+
+const MILESTONE_STATUS_LABEL: Record<string, string> = {
+  PENDING: "En attente",
+  DUE: "Exigible",
+  INVOICED: "Facturé",
+  PAID: "Payé",
+  OVERDUE: "En retard",
+  FAILED: "Échec",
+  CANCELLED: "Annulé",
+};
+
+const PAYMENT_METHOD_LABEL: Record<string, string> = {
+  CARD: "Carte bancaire",
+  BANK_TRANSFER: "Virement",
+  CHECK: "Chèque",
+  CASH: "Espèces",
+  OTHER: "Autre",
 };
 
 /**
@@ -62,6 +87,15 @@ export function buildInvoicePdfPayload({
       percentBps: m.percentBps,
       amountCents: m.amountCents,
       triggerText: m.triggerText,
+      status: MILESTONE_STATUS_LABEL[m.status] ?? m.status,
+      dueDate: m.dueDate,
+    })),
+    payments: (invoice.payments ?? []).map((p) => ({
+      paidAt: p.paidAt,
+      amountCents: p.amountCents,
+      method: PAYMENT_METHOD_LABEL[p.method] ?? p.method,
+      reference: p.reference,
+      status: invoice.status === "PAID" ? "Payé" : "Enregistré",
     })),
     lines: invoice.lines.map((l) => ({
       description: l.description,

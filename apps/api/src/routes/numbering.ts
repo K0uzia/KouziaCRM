@@ -8,6 +8,9 @@ import {
   previewNextNumbers,
   reseedCountersFromDatabase,
 } from "@/lib/invoices/numberingService.js";
+import { toPublicSettings } from "@/lib/settings/public.js";
+import { formatBusinessStartDateForApi } from "@/lib/company/business-start.js";
+import { logSettingsAudit } from "@/lib/settings/audit.js";
 
 export const numberingRoutes: FastifyPluginAsync = async (app) => {
   app.get("/api/numbering/preview", async (request, reply) => {
@@ -88,6 +91,21 @@ export const numberingRoutes: FastifyPluginAsync = async (app) => {
     });
     invalidateCompanySettingsCache();
     const previews = await previewNextNumbers(updated);
-    return { settings: updated, previews };
+    await logSettingsAudit({
+      actor: {
+        userId: request.user?.id ?? null,
+        userEmail: request.user?.email ?? null,
+      },
+      tab: "numbering",
+      fields: Object.keys(parsed.data),
+    });
+    return {
+      settings: {
+        ...toPublicSettings(updated),
+        businessStartDate: formatBusinessStartDateForApi(updated.businessStartDate),
+        rneRegistrationDate: formatBusinessStartDateForApi(updated.rneRegistrationDate),
+      },
+      previews,
+    };
   });
 };

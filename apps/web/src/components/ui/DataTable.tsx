@@ -80,7 +80,11 @@ const customStyles: TableProps<never>["customStyles"] = {
     },
   },
   noData: {
-    style: { padding: 0 },
+    style: {
+      padding: 0,
+      backgroundColor: "transparent",
+      color: "var(--text)",
+    },
   },
 };
 
