@@ -92,7 +92,8 @@ function withTwoDepositMilestones(s: PublicSettings): PublicSettings {
 
 export function SettingsPage() {
   const [params, setParams] = useSearchParams();
-  const tab: SettingsTabId = isTab(params.get("tab")) ? params.get("tab")! : "general";
+  const tabParam = params.get("tab");
+  const tab: SettingsTabId = isTab(tabParam) ? tabParam : "general";
   const setTab = (id: SettingsTabId) => {
     const next = new URLSearchParams(params);
     next.set("tab", id);
