@@ -8,6 +8,7 @@ COPY package.json package-lock.json ./
 COPY apps/api/package.json ./apps/api/
 COPY apps/web/package.json ./apps/web/
 COPY prisma ./prisma
+COPY scripts ./scripts
 RUN npm ci
 COPY . .
 ENV DATABASE_URL="file:/app/data/kouziacrm.db"
