@@ -97,7 +97,22 @@ docker compose up -d --build
 | Worker |  -  | polling IMAP horaire |
 | Prisma Studio | `127.0.0.1:5555` | SSH tunnel uniquement |
 
-Volume persistant : `./data/kouziacrm.db`
+Volume persistant : `./data/kouziacrm.db` (sur l'hôte Proxmox, **pas dans l'image Docker**).
+
+### Mise à jour après modification du code
+
+```bash
+bash scripts/deploy.sh
+# équivalent : git pull && docker compose build app && docker compose up -d
+```
+
+- **Ne pas utiliser `--no-cache`** sauf dépannage (force un rebuild complet ~1 h sur petit CT).
+- Le cache Docker réutilise `npm ci` tant que `package-lock.json` ne change pas.
+- Une seule image (`kouziacrm:latest`) sert app, worker et prisma-studio.
+- **`docker compose down` ne supprime pas `./data`** (volume bind sur le disque hôte).
+- **Ne jamais** `rm -rf data/` ni restaurer une vieille image par-dessus la base sans backup.
+
+Premier build : long (npm + build SPA). Mises à jour code seul : quelques minutes (rebuild des layers `COPY . .` et build web uniquement).
 
 ## Déploiement Proxmox + Cloudflare Tunnel
 

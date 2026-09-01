@@ -1,6 +1,8 @@
+# Image unique partagée par app / worker / prisma-studio (1 seul build).
 services:
   app:
     build: .
+    image: kouziacrm:latest
     container_name: kouziacrm-app
     restart: unless-stopped
     ports:
@@ -24,7 +26,7 @@ services:
       start_period: 20s
 
   worker:
-    build: .
+    image: kouziacrm:latest
     container_name: kouziacrm-worker
     restart: unless-stopped
     command: ["npx", "tsx", "--env-file=.env", "--tsconfig", "apps/api/tsconfig.json", "scripts/worker.ts"]
@@ -35,10 +37,11 @@ services:
       - ./data:/app/data
       - ./.env:/app/.env:ro
     depends_on:
-      - app
+      app:
+        condition: service_healthy
 
   prisma-studio:
-    build: .
+    image: kouziacrm:latest
     container_name: kouziacrm-studio
     restart: unless-stopped
     command: ["npx", "prisma", "studio", "--hostname", "0.0.0.0", "--port", "5555"]
