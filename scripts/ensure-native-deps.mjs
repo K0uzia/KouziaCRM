@@ -35,6 +35,10 @@ function lightningcssPlatformPackage() {
 }
 
 function ensureLightningcss() {
+  // Runtime Docker : pas de build Vite, lightningcss inutile.
+  if (process.env.NODE_ENV === "production") {
+    return;
+  }
   const pkg = lightningcssPlatformPackage();
   if (existsSync(join(root, "node_modules", pkg))) {
     return;

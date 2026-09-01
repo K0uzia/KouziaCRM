@@ -16,7 +16,12 @@ echo "==> Build incrémental (cache Docker, pas de --no-cache)…"
 docker compose build app
 
 echo "==> Redémarrage des services…"
-docker compose up -d
+if ! docker compose up -d; then
+  echo ""
+  echo "Échec au démarrage. Dernières lignes des logs app :"
+  docker compose logs app --tail 40
+  exit 1
+fi
 
 echo "==> État :"
 docker compose ps

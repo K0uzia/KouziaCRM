@@ -42,9 +42,9 @@ COPY packages/kouzia-forms/package.json ./packages/kouzia-forms/
 COPY prisma ./prisma
 COPY scripts ./scripts
 
-# --ignore-scripts : pas de lightningcss (build web uniquement)
+# postinstall requis pour argon2 (binaire natif) et patch @react-pdf/hyphenate
 RUN --mount=type=cache,target=/root/.npm \
-    npm ci --omit=dev --ignore-scripts \
+    npm ci --omit=dev \
   && npm install --no-save tsx \
   && npx prisma generate
 
