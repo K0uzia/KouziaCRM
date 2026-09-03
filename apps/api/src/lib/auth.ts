@@ -2,6 +2,7 @@ import { randomBytes } from "node:crypto";
 import argon2 from "argon2";
 import bcrypt from "bcryptjs";
 import type { FastifyReply, FastifyRequest } from "fastify";
+import { getCookieSecure } from "@/lib/env.js";
 import { prisma } from "@/lib/prisma.js";
 
 export const SESSION_COOKIE = "kouzia_session";
@@ -81,7 +82,7 @@ export async function resolveSession(
 }
 
 export function setSessionCookie(reply: FastifyReply, sessionId: string, expiresAt: Date): void {
-  const secure = process.env.COOKIE_SECURE === "true" || process.env.NODE_ENV === "production";
+  const secure = getCookieSecure();
   reply.setCookie(SESSION_COOKIE, sessionId, {
     path: "/",
     httpOnly: true,
@@ -92,7 +93,7 @@ export function setSessionCookie(reply: FastifyReply, sessionId: string, expires
 }
 
 export function clearSessionCookie(reply: FastifyReply): void {
-  const secure = process.env.COOKIE_SECURE === "true" || process.env.NODE_ENV === "production";
+  const secure = getCookieSecure();
   reply.clearCookie(SESSION_COOKIE, {
     path: "/",
     httpOnly: true,

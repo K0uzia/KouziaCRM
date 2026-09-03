@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Assistant post-install : .env, Cloudflare Tunnel, rsync offsite, récap IP/status.
+# Assistant post-install : profil d'accès, admin, site kouzia.com, SMTP,
+# Cloudflare (optionnel), rsync offsite, récap IP/status.
 #
 # Usage :
 #   kouziactl configure
@@ -14,6 +15,7 @@ source "${SCRIPT_DIR}/lib.sh"
 
 SUMMARY_ONLY=0
 SKIP_RESTART=0
+NEED_WEB_REBUILD=0
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -30,13 +32,18 @@ done
 ENV_FILE="${KOUZIA_APP_DIR}/.env"
 
 detect_ips() {
-  # IPv4 non-loopback (busybox ip / ifconfig)
   if command -v ip >/dev/null 2>&1; then
     ip -4 -o addr show scope global 2>/dev/null \
       | awk '{print $4}' | cut -d/ -f1
   elif command -v hostname >/dev/null 2>&1; then
     hostname -i 2>/dev/null | tr ' ' '\n' | grep -E '^[0-9]+\.' || true
   fi
+}
+
+primary_ip() {
+  local ip
+  ip="$(detect_ips | head -1 || true)"
+  echo "${ip:-127.0.0.1}"
 }
 
 env_get() {
@@ -48,7 +55,8 @@ env_get() {
     echo "$def"
     return
   fi
-  echo "${line#*=}" | sed -e 's/^"//' -e 's/"$//'
+  # JSON-style quotes from env_set, ou quotes simples
+  echo "${line#*=}" | sed -e 's/^"//' -e 's/"$//' -e "s/^'//" -e "s/'$//"
 }
 
 env_set() {
@@ -74,13 +82,13 @@ NODE
 }
 
 ask() {
-  # ask VAR "Prompt" "default"
   local __var="$1" __prompt="$2" __def="${3:-}"
   local __ans
   if [[ -n "$__def" ]]; then
-    echo -n "${__prompt} [${__def}]: "
+    echo -n "  ${__prompt}"
+    echo -n " [${__def}]: "
   else
-    echo -n "${__prompt}: "
+    echo -n "  ${__prompt}: "
   fi
   read -r __ans || true
   if [[ -z "$__ans" ]]; then
@@ -93,11 +101,17 @@ ask_secret() {
   local __var="$1" __prompt="$2" __def="${3:-}"
   local __ans
   if [[ -n "$__def" ]]; then
-    echo -n "${__prompt} [garder actuel]: "
+    echo -n "  ${__prompt} [Entrée = garder l'actuel]: "
   else
-    echo -n "${__prompt}: "
+    echo -n "  ${__prompt}: "
   fi
-  read -r __ans || true
+  # -s masque la saisie si TTY
+  if [[ -t 0 ]]; then
+    read -rs __ans || true
+    echo ""
+  else
+    read -r __ans || true
+  fi
   if [[ -z "$__ans" ]]; then
     __ans="$__def"
   fi
@@ -105,15 +119,29 @@ ask_secret() {
 }
 
 yesno() {
-  local prompt="$1" def="${2:-n}" ans
-  echo -n "${prompt} [y/N]: "
+  local prompt="$1" def="${2:-n}" ans hint
+  if [[ "$def" == "y" || "$def" == "Y" ]]; then
+    hint="[Y/n]"
+  else
+    hint="[y/N]"
+  fi
+  echo -n "  ${prompt} ${hint}: "
   read -r ans || true
   ans="${ans:-$def}"
   [[ "$ans" == "y" || "$ans" == "Y" ]]
 }
 
+section() {
+  echo ""
+  echo "${C_BOLD}── $1 ──${C_RESET}"
+  if [[ -n "${2:-}" ]]; then
+    echo "  $2"
+    echo ""
+  fi
+}
+
 print_access() {
-  local port primary web_origin
+  local port web_origin
   port="$(env_get API_PORT "$KOUZIA_API_PORT")"
   web_origin="$(env_get WEB_ORIGIN "")"
   local IPS=()
@@ -121,23 +149,21 @@ print_access() {
   while IFS= read -r ip; do
     [[ -n "$ip" ]] && IPS+=("$ip")
   done < <(detect_ips)
-  primary="${IPS[0]:-127.0.0.1}"
 
   echo ""
-  echo "${C_BOLD}═══ Accès ERP ═══${C_RESET}"
-  echo "  Local (sur le CT)     : http://127.0.0.1:${port}"
+  echo "${C_BOLD}═══ Accès ERP (admin) ═══${C_RESET}"
+  echo "  Sur le CT          : http://127.0.0.1:${port}"
   if [[ ${#IPS[@]} -gt 0 ]]; then
     for ip in "${IPS[@]}"; do
-      echo "  Réseau LAN            : http://${ip}:${port}"
+      echo "  Depuis le LAN      : http://${ip}:${port}"
     done
-    echo "  IP principale CT      : ${primary}"
   else
-    warn "Aucune IP LAN détectée (vérifier le réseau du CT)."
+    warn "Aucune IP LAN détectée."
   fi
   if [[ -n "$web_origin" ]]; then
-    echo "  URL publique (WEB_ORIGIN) : ${web_origin}"
+    echo "  WEB_ORIGIN (CORS)  : ${web_origin}"
   fi
-  echo "  Healthcheck           : http://127.0.0.1:${port}/api/health"
+  echo "  Healthcheck        : http://127.0.0.1:${port}/api/health"
   echo ""
 }
 
@@ -152,23 +178,22 @@ print_summary() {
   print_access
 
   echo "${C_BOLD}═══ Configuration ═══${C_RESET}"
-  echo "  App dir     : $KOUZIA_APP_DIR"
-  echo "  .env        : $ENV_FILE"
-  echo "  WEB_ORIGIN  : $(env_get WEB_ORIGIN)"
-  echo "  COOKIE_SECURE / TRUST_PROXY : $(env_get COOKIE_SECURE) / $(env_get TRUST_PROXY)"
-  echo "  ADMIN_EMAIL : ${admin_email}"
-  echo "  SMTP        : $(env_get SMTP_HOST):$(env_get SMTP_PORT) ($(env_get SMTP_USER))"
-  echo "  IMAP        : $(env_get IMAP_HOST) ($(env_get IMAP_USER))"
+  echo "  Mode cookies       : COOKIE_SECURE=$(env_get COOKIE_SECURE)  TRUST_PROXY=$(env_get TRUST_PROXY)"
+  echo "  Admin ERP          : ${admin_email}"
+  echo "  Site public        : $(env_get PUBLIC_WEB_ORIGIN)"
+  echo "  Portail /suivi     : $(env_get CLIENT_PORTAL_URL)"
+  echo "  SMTP               : $(env_get SMTP_HOST):$(env_get SMTP_PORT) ($(env_get SMTP_USER))"
+  echo "  IMAP               : $(env_get IMAP_HOST) ($(env_get IMAP_USER))"
   if [[ -n "$tunnel_token" ]]; then
-    echo "  Cloudflare  : token présent ($( [[ -f /etc/init.d/cloudflared ]] && echo service OK || echo service à vérifier ))"
+    echo "  Cloudflare Tunnel  : token présent"
   else
-    echo "  Cloudflare  : non configuré (accès via IP LAN ou reverse-proxy)"
+    echo "  Cloudflare Tunnel  : non (API joignable seulement en LAN)"
   fi
-  echo "  Rsync       : ${rsync_target:-non configuré}"
-  echo "  Backups     : $KOUZIA_BACKUP_DIR"
+  echo "  Rsync offsite      : ${rsync_target:-non (backups locaux seulement)}"
+  echo "  Backups locaux     : $KOUZIA_BACKUP_DIR"
   echo ""
 
-  echo "${C_BOLD}═══ Status services ═══${C_RESET}"
+  echo "${C_BOLD}═══ Services ═══${C_RESET}"
   for svc in kouziacrm kouziacrm-worker cloudflared crond; do
     if service_exists "$svc"; then
       st="$(rc-service "$svc" status 2>&1 | head -1 || true)"
@@ -176,37 +201,140 @@ print_summary() {
     fi
   done
   if curl -fsS "http://127.0.0.1:${port}/api/health" >/dev/null 2>&1; then
-    ok "API healthy sur le port ${port}"
+    ok "API healthy (port ${port})"
   else
-    warn "API ne répond pas encore sur le port ${port}"
+    warn "API ne répond pas sur le port ${port}"
   fi
   echo ""
-  echo "Compte admin : ${admin_email} (mot de passe dans .env : ADMIN_PASSWORD)"
-  echo "Commandes    : kouziactl status | kouziactl backup | kouziactl"
+  echo "  Connexion ERP : ${admin_email} / (mot de passe défini à l'étape Admin)"
+  echo "  Ouvrir        : http://$(primary_ip):${port}"
+  echo "  Menu          : kouziactl"
   echo ""
 }
 
-configure_env() {
-  echo ""
-  echo "${C_BOLD}── 1/3 Configuration .env ──${C_RESET}"
-  [[ -f "$ENV_FILE" ]] || die ".env manquant: $ENV_FILE"
+# --- Étapes ---
 
-  local web_origin public_web client_portal site_url
-  local admin_email admin_name
+choose_profile() {
+  section "1/6  Profil d'accès" \
+    "L'ERP admin reste privé. kouzia.com (site public) appelle l'API /api/public/*."
+  echo "  1) Local LAN seulement"
+  echo "     → Admin en http://IP:port  |  pas de HTTPS  |  kouzia.com ne joindra l'API que si elle est exposée autrement"
+  echo "  2) LAN + Cloudflare Tunnel"
+  echo "     → Admin en LAN HTTP  |  API joignable depuis Internet via tunnel (pour kouzia.com / webhooks)"
+  echo ""
+  local choice
+  ask choice "Choix" "1"
+  case "$choice" in
+    2) PROFILE="tunnel" ;;
+    *) PROFILE="lan" ;;
+  esac
+  ok "Profil : $PROFILE"
+}
+
+configure_access() {
+  section "2/6  Accès admin (WEB_ORIGIN + port)" \
+    "WEB_ORIGIN = l'URL exacte que tu tapes dans le navigateur pour l'ERP (CORS + cookies). Pas un faux domaine."
+
+  local lan_ip api_port def_origin
+  lan_ip="$(primary_ip)"
+  api_port="$(env_get API_PORT "$KOUZIA_API_PORT")"
+  def_origin="$(env_get WEB_ORIGIN "http://${lan_ip}:${api_port}")"
+  # Si l'ancien défaut était un HTTPS inventé, proposer l'IP LAN
+  if [[ "$def_origin" == https://gestion.* ]] || [[ "$def_origin" == "https://gestion.kouzia.fr" ]]; then
+    def_origin="http://${lan_ip}:${api_port}"
+  fi
+
+  ask api_port "Port d'écoute local (API_PORT)" "$api_port"
+  ask web_origin "URL d'ouverture de l'ERP (WEB_ORIGIN)" "http://${lan_ip}:${api_port}"
+
+  env_set API_PORT "$api_port"
+  env_set WEB_ORIGIN "$web_origin"
+  env_set WEB_DIST "${KOUZIA_APP_DIR}/apps/web/dist"
+  env_set NODE_ENV "production"
+  env_set PUBLIC_API_ORIGIN "$web_origin"
+
+  if [[ "$PROFILE" == "tunnel" ]]; then
+    env_set COOKIE_SECURE "false"
+    env_set TRUST_PROXY "true"
+    echo "  → COOKIE_SECURE=false (admin en HTTP LAN) ; TRUST_PROXY=true (tunnel)"
+  else
+    env_set COOKIE_SECURE "false"
+    env_set TRUST_PROXY "false"
+    echo "  → COOKIE_SECURE=false ; TRUST_PROXY=false (HTTP LAN pur)"
+  fi
+
+  KOUZIA_API_PORT="$api_port"
+  KOUZIA_HEALTH_URL="http://127.0.0.1:${api_port}/api/health"
+  ok "Accès admin enregistré"
+}
+
+configure_admin() {
+  section "3/6  Compte admin ERP" \
+    "Email + mot de passe pour te connecter à l'interface. Le seed met à jour le hash en base."
+
+  local admin_email admin_name admin_pass admin_pass2
+  ask admin_email "Email admin" "$(env_get ADMIN_EMAIL "admin@kouzia.com")"
+  ask admin_name "Nom affiché" "$(env_get ADMIN_NAME "Alexandre Kouziaeff")"
+
+  while true; do
+    ask_secret admin_pass "Mot de passe admin (>= 12 caractères)" "$(env_get ADMIN_PASSWORD "")"
+    if [[ ${#admin_pass} -lt 12 ]]; then
+      warn "Trop court (${#admin_pass} < 12). Réessaie."
+      continue
+    fi
+    ask_secret admin_pass2 "Confirmer le mot de passe" ""
+    if [[ "$admin_pass" != "$admin_pass2" ]]; then
+      warn "Les mots de passe ne correspondent pas."
+      continue
+    fi
+    break
+  done
+
+  env_set ADMIN_EMAIL "$admin_email"
+  env_set ADMIN_NAME "$admin_name"
+  env_set ADMIN_PASSWORD "$admin_pass"
+
+  log "Mise à jour du compte admin en base (db:seed)…"
+  if run_as_app "cd '$KOUZIA_APP_DIR' && npm run db:seed"; then
+    ok "Admin prêt : $admin_email"
+  else
+    warn "Seed échoué. Vérifie les logs ; tu pourras relancer : kouziactl configure"
+  fi
+}
+
+configure_public_site() {
+  section "4/6  Site public kouzia.com" \
+    "Seul site public. Il appelle l'API CRM (/api/public/*) pour le suivi client, devis, PDF…"
+
+  local public_web client_portal site_url
+  ask public_web "Origine du site (PUBLIC_WEB_ORIGIN, CORS)" "$(env_get PUBLIC_WEB_ORIGIN "https://kouzia.com")"
+  ask client_portal "URL page suivi (CLIENT_PORTAL_URL, liens emails)" "$(env_get CLIENT_PORTAL_URL "https://kouzia.com/suivi")"
+  ask site_url "URL redirections legacy SPA (VITE_PUBLIC_SITE_URL)" "$(env_get VITE_PUBLIC_SITE_URL "$public_web")"
+
+  local old_vite
+  old_vite="$(env_get VITE_PUBLIC_SITE_URL "")"
+  env_set PUBLIC_WEB_ORIGIN "$public_web"
+  env_set CLIENT_PORTAL_URL "$client_portal"
+  env_set VITE_PUBLIC_SITE_URL "$site_url"
+  if [[ "$site_url" != "$old_vite" ]]; then
+    NEED_WEB_REBUILD=1
+  fi
+  ok "Site public enregistré"
+}
+
+configure_mail() {
+  section "5/6  Email (SMTP / IMAP)" \
+    "Optionnel : tu peux aussi tout renseigner plus tard dans Paramètres ERP. Laisser vide = skip."
+
+  if ! yesno "Configurer SMTP / IMAP maintenant ?" "n"; then
+    warn "Email skip."
+    return 0
+  fi
+
   local smtp_host smtp_port smtp_secure smtp_user smtp_pass smtp_from
   local imap_host imap_port imap_user imap_pass
-  local api_port
 
-  ask web_origin "URL publique ERP (WEB_ORIGIN, ex. https://gestion.kouzia.fr)" "$(env_get WEB_ORIGIN "https://gestion.kouzia.fr")"
-  ask public_web "Site public Kouzia (PUBLIC_WEB_ORIGIN)" "$(env_get PUBLIC_WEB_ORIGIN "https://kouzia.fr")"
-  ask client_portal "Portail client /suivi (CLIENT_PORTAL_URL)" "$(env_get CLIENT_PORTAL_URL "https://kouzia.com/suivi")"
-  ask site_url "URL site (VITE_PUBLIC_SITE_URL)" "$(env_get VITE_PUBLIC_SITE_URL "$public_web")"
-  ask api_port "Port API local (API_PORT)" "$(env_get API_PORT "$KOUZIA_API_PORT")"
-  ask admin_email "Email admin" "$(env_get ADMIN_EMAIL "admin@kouzia.com")"
-  ask admin_name "Nom admin" "$(env_get ADMIN_NAME "Alexandre Kouziaeff")"
-
-  echo ""
-  echo "SMTP (laisser vide pour configurer plus tard dans l'ERP) :"
+  echo "  SMTP (envoi) :"
   ask smtp_host "SMTP_HOST" "$(env_get SMTP_HOST "")"
   ask smtp_port "SMTP_PORT" "$(env_get SMTP_PORT "465")"
   ask smtp_secure "SMTP_SECURE (true/false)" "$(env_get SMTP_SECURE "true")"
@@ -214,25 +342,12 @@ configure_env() {
   ask_secret smtp_pass "SMTP_PASS" "$(env_get SMTP_PASS "")"
   ask smtp_from "SMTP_FROM" "$(env_get SMTP_FROM "KOUZIA <contact@kouzia.com>")"
 
-  echo ""
-  echo "IMAP (optionnel, worker) :"
+  echo "  IMAP (réception, worker) :"
   ask imap_host "IMAP_HOST" "$(env_get IMAP_HOST "")"
   ask imap_port "IMAP_PORT" "$(env_get IMAP_PORT "993")"
   ask imap_user "IMAP_USER" "$(env_get IMAP_USER "")"
   ask_secret imap_pass "IMAP_PASS" "$(env_get IMAP_PASS "")"
 
-  env_set WEB_ORIGIN "$web_origin"
-  env_set PUBLIC_WEB_ORIGIN "$public_web"
-  env_set CLIENT_PORTAL_URL "$client_portal"
-  env_set VITE_PUBLIC_SITE_URL "$site_url"
-  env_set API_PORT "$api_port"
-  env_set WEB_DIST "${KOUZIA_APP_DIR}/apps/web/dist"
-  env_set NODE_ENV "production"
-  env_set COOKIE_SECURE "true"
-  env_set TRUST_PROXY "true"
-  env_set PUBLIC_API_ORIGIN "$web_origin"
-  env_set ADMIN_EMAIL "$admin_email"
-  env_set ADMIN_NAME "$admin_name"
   env_set SMTP_HOST "$smtp_host"
   env_set SMTP_PORT "$smtp_port"
   env_set SMTP_SECURE "$smtp_secure"
@@ -245,77 +360,82 @@ configure_env() {
   env_set IMAP_USER "$imap_user"
   env_set IMAP_PASS "$imap_pass"
   env_set IMAP_MAILBOX "INBOX"
-
-  KOUZIA_API_PORT="$api_port"
-  KOUZIA_HEALTH_URL="http://127.0.0.1:${api_port}/api/health"
-  ok ".env mis à jour"
+  ok "Email enregistré"
 }
 
 configure_cloudflare() {
-  echo ""
-  echo "${C_BOLD}── 2/3 Cloudflare Tunnel ──${C_RESET}"
-  echo "Dans Cloudflare Zero Trust → Networks → Tunnels :"
-  echo "  1. Créer un tunnel (cloudflared)"
-  echo "  2. Public hostname → votre WEB_ORIGIN (ex. gestion.kouzia.fr)"
-  echo "  3. Service : http://127.0.0.1:$(env_get API_PORT "$KOUZIA_API_PORT")"
-  echo "  4. Copier le token d'installation du tunnel"
-  echo ""
+  section "Cloudflare Tunnel (pour exposer l'API à kouzia.com)" \
+    "Zero Trust → Tunnels → hostname public → http://127.0.0.1:$(env_get API_PORT "$KOUZIA_API_PORT")"
 
-  if ! yesno "Configurer Cloudflare Tunnel maintenant ?"; then
-    warn "Cloudflare ignoré (accès possible via IP LAN)."
-    return 0
+  if [[ "$PROFILE" != "tunnel" ]]; then
+    if ! yesno "Configurer un tunnel Cloudflare quand même ?" "n"; then
+      warn "Tunnel skip. Backups / admin restent en LAN."
+      return 0
+    fi
+  else
+    if ! yesno "Configurer le token Cloudflare maintenant ?" "y"; then
+      warn "Tunnel reporté. Relancer : kouziactl configure"
+      return 0
+    fi
   fi
 
   local token
-  ask_secret token "CLOUDFLARE_TUNNEL_TOKEN" "$(env_get CLOUDFLARE_TUNNEL_TOKEN "")"
+  ask_secret token "Token du tunnel (CLOUDFLARE_TUNNEL_TOKEN)" "$(env_get CLOUDFLARE_TUNNEL_TOKEN "")"
   [[ -n "$token" ]] || { warn "Token vide, skip."; return 0; }
   env_set CLOUDFLARE_TUNNEL_TOKEN "$token"
+  env_set TRUST_PROXY "true"
 
   log "Installation cloudflared…"
   if ! command -v cloudflared >/dev/null 2>&1; then
-    # Binaire officiel Cloudflare (Alpine musl x86_64)
-    local arch
+    local arch url=""
     arch="$(uname -m)"
-    local url=""
     case "$arch" in
       x86_64|amd64) url="https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64" ;;
       aarch64|arm64) url="https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-arm64" ;;
-      *) warn "Arch $arch non gérée pour cloudflared auto-install."; return 0 ;;
+      *) warn "Arch $arch non gérée pour cloudflared."; return 0 ;;
     esac
     curl -fsSL "$url" -o /usr/local/bin/cloudflared
     chmod 755 /usr/local/bin/cloudflared
   fi
-  ok "cloudflared $(cloudflared --version 2>/dev/null | head -1 || echo installé)"
+  ok "cloudflared $(cloudflared --version 2>/dev/null | head -1 || echo OK)"
 
   install -m 755 "${SCRIPT_DIR}/openrc/cloudflared" /etc/init.d/cloudflared
   cat > /etc/conf.d/cloudflared <<EOF
 CLOUDFLARE_TUNNEL_TOKEN="${token}"
 EOF
   chmod 600 /etc/conf.d/cloudflared
-
   rc-update add cloudflared default 2>/dev/null || true
   rc-service cloudflared restart 2>/dev/null || rc-service cloudflared start
-  ok "Service cloudflared démarré"
-  echo "Vérifier le hostname dans Cloudflare Zero Trust (status Healthy)."
+  ok "cloudflared démarré (vérifier status Healthy dans Cloudflare)"
 }
 
 configure_rsync() {
-  echo ""
-  echo "${C_BOLD}── 3/3 Backup rsync offsite ──${C_RESET}"
-  echo "Pousse les backups chiffrés (.db.gpg) vers un NAS / autre hôte."
-  echo "Ex. : backup@192.168.1.10:/volume1/backups/kouzia/"
-  echo ""
+  section "6/6  Backup rsync offsite" \
+    "Les backups locaux tournent déjà chaque jour dans $KOUZIA_BACKUP_DIR.
+  Rsync = copie chiffrée vers un NAS / autre machine (recommandé)."
 
-  if ! yesno "Configurer rsync offsite maintenant ?"; then
-    warn "Rsync offsite ignoré (backups locaux uniquement dans $KOUZIA_BACKUP_DIR)."
+  mkdir -p "$KOUZIA_ETC_DIR"
+  local current_target target ssh_cmd delete
+  current_target="$(grep -E '^KOUZIA_RSYNC_TARGET=' "$KOUZIA_RSYNC_CONF" 2>/dev/null | cut -d= -f2- | tr -d '"' || true)"
+
+  echo "  Exemple : backup@192.168.1.10:/volume1/backups/kouzia/"
+  echo "  Laisser VIDE pour désactiver le rsync offsite (backups locaux seulement)."
+  ask target "Cible rsync (user@host:/chemin/)" "${current_target}"
+
+  if [[ -z "$target" ]]; then
+    cat > "$KOUZIA_RSYNC_CONF" <<EOF
+# Généré par configure.sh - $(date '+%Y-%m-%dT%H:%M:%S%z')
+KOUZIA_RSYNC_TARGET=""
+KOUZIA_RSYNC_SSH=""
+KOUZIA_RSYNC_DELETE="0"
+EOF
+    chmod 600 "$KOUZIA_RSYNC_CONF"
+    warn "Rsync offsite désactivé. Backups locaux : $KOUZIA_BACKUP_DIR"
     return 0
   fi
 
-  mkdir -p "$KOUZIA_ETC_DIR"
-  local target ssh_cmd delete
-  ask target "KOUZIA_RSYNC_TARGET" "$(grep -E '^KOUZIA_RSYNC_TARGET=' "$KOUZIA_RSYNC_CONF" 2>/dev/null | cut -d= -f2- | tr -d '"' || true)"
-  ask ssh_cmd "SSH custom (KOUZIA_RSYNC_SSH, vide = ssh défaut)" "$(grep -E '^KOUZIA_RSYNC_SSH=' "$KOUZIA_RSYNC_CONF" 2>/dev/null | cut -d= -f2- | tr -d '"' || true)"
-  ask delete "KOUZIA_RSYNC_DELETE (0/1)" "0"
+  ask ssh_cmd "Commande SSH custom (vide = ssh par défaut)" "$(grep -E '^KOUZIA_RSYNC_SSH=' "$KOUZIA_RSYNC_CONF" 2>/dev/null | cut -d= -f2- | tr -d '"' || true)"
+  ask delete "Supprimer sur la cible les fichiers absents localement ? (0/1)" "0"
 
   cat > "$KOUZIA_RSYNC_CONF" <<EOF
 # Généré par configure.sh - $(date '+%Y-%m-%dT%H:%M:%S%z')
@@ -324,16 +444,24 @@ KOUZIA_RSYNC_SSH="${ssh_cmd}"
 KOUZIA_RSYNC_DELETE="${delete}"
 EOF
   chmod 600 "$KOUZIA_RSYNC_CONF"
-  ok "Écrit $KOUZIA_RSYNC_CONF"
+  ok "Rsync → $target"
 
-  if [[ -n "$target" ]] && yesno "Tester un backup + rsync maintenant ?"; then
-    bash "${SCRIPT_DIR}/backup.sh" || warn "Backup/rsync a échoué (vérifier SSH/cible)."
+  if yesno "Lancer un backup + rsync de test maintenant ?" "y"; then
+    bash "${SCRIPT_DIR}/backup.sh" || warn "Backup/rsync a échoué (SSH, droits, chemin ?)."
+  fi
+}
+
+maybe_rebuild_web() {
+  if [[ "$NEED_WEB_REBUILD" -eq 1 ]]; then
+    log "VITE_PUBLIC_SITE_URL a changé : rebuild SPA…"
+    run_as_app "cd '$KOUZIA_APP_DIR' && npm run build -w @kouziacrm/web" \
+      || warn "Build SPA échoué (redirections legacy peuvent rester anciennes)."
   fi
 }
 
 restart_stack() {
   [[ "$SKIP_RESTART" -eq 1 ]] && return 0
-  log "Redémarrage des services pour appliquer .env…"
+  log "Redémarrage des services…"
   service_safe kouziacrm restart
   service_safe kouziacrm-worker restart
   sleep 1
@@ -354,15 +482,25 @@ fi
 
 require_root
 [[ -d "$KOUZIA_APP_DIR" ]] || die "App absente: $KOUZIA_APP_DIR"
+[[ -f "$ENV_FILE" ]] || die ".env manquant: $ENV_FILE (lancer l'install d'abord)"
+
+PROFILE="lan"
 
 echo ""
-echo "${C_BOLD}Assistant de configuration KouziaCRM${C_RESET}"
+echo "${C_BOLD}════════════════════════════════════════${C_RESET}"
+echo "${C_BOLD}  Assistant configuration KouziaCRM${C_RESET}"
+echo "${C_BOLD}════════════════════════════════════════${C_RESET}"
 print_access
 
-configure_env
+choose_profile
+configure_access
+configure_admin
+configure_public_site
+configure_mail
 configure_cloudflare
 configure_rsync
+maybe_rebuild_web
 restart_stack
 print_summary
 
-ok "Configuration terminée."
+ok "Configuration terminée. Ouvre l'ERP avec l'URL LAN ci-dessus."

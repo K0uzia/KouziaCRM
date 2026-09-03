@@ -7,7 +7,7 @@ import helmet from "@fastify/helmet";
 import rateLimit from "@fastify/rate-limit";
 import fastifyStatic from "@fastify/static";
 import multipart from "@fastify/multipart";
-import { getAllowedOrigins, getTrustProxy } from "@/lib/env.js";
+import { getAllowedOrigins, getCookieSecure, getTrustProxy } from "@/lib/env.js";
 import { originGuardPlugin } from "@/plugins/origin-guard.js";
 import { authRoutes } from "@/routes/auth.js";
 import { clientsRoutes } from "@/routes/clients.js";
@@ -64,9 +64,14 @@ export async function buildApp(opts: BuildAppOptions = {}): Promise<FastifyInsta
   setJsonSerializer(app);
   registerErrorHandler(app);
 
+  // HTTP LAN : désactiver upgrade-insecure-requests (sinon le navigateur charge
+  // les assets en https://IP:port → ERR_SSL_PROTOCOL_ERROR). HSTS/COOP adaptés.
+  const httpsCookies = getCookieSecure();
   await app.register(helmet, {
     referrerPolicy: { policy: "no-referrer" },
-    // SPA servie par l'API: CSP permissive pour assets same-origin + inline styles Tailwind.
+    strictTransportSecurity: httpsCookies,
+    crossOriginOpenerPolicy: httpsCookies,
+    originAgentCluster: httpsCookies,
     contentSecurityPolicy: {
       directives: {
         defaultSrc: ["'self'"],
@@ -85,6 +90,8 @@ export async function buildApp(opts: BuildAppOptions = {}): Promise<FastifyInsta
         frameAncestors: ["'self'"],
         baseUri: ["'self'"],
         formAction: ["'self'"],
+        // null = retire le défaut helmet "upgrade-insecure-requests"
+        upgradeInsecureRequests: null,
       },
     },
   });

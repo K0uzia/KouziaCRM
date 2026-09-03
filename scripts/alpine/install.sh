@@ -142,13 +142,13 @@ ENCRYPTION_KEY="${ENCRYPTION_KEY}"
 ONBOARDING_HMAC_SECRET="${ONBOARDING_HMAC}"
 ONBOARDING_TOKEN_TTL_DAYS="7"
 
-# Adapter à votre tunnel / domaine
-WEB_ORIGIN="https://gestion.kouzia.fr"
-PUBLIC_WEB_ORIGIN="https://kouzia.fr"
+# Adapter via kouziactl configure (WEB_ORIGIN = URL LAN exacte du navigateur)
+WEB_ORIGIN="http://127.0.0.1:${KOUZIA_API_PORT}"
+PUBLIC_WEB_ORIGIN="https://kouzia.com"
 CLIENT_PORTAL_URL="https://kouzia.com/suivi"
-VITE_PUBLIC_SITE_URL="https://kouzia.fr"
-COOKIE_SECURE="true"
-TRUST_PROXY="true"
+VITE_PUBLIC_SITE_URL="https://kouzia.com"
+COOKIE_SECURE="false"
+TRUST_PROXY="false"
 API_PORT="${KOUZIA_API_PORT}"
 WEB_DIST="${KOUZIA_APP_DIR}/apps/web/dist"
 NODE_ENV="production"
@@ -171,6 +171,7 @@ IMAP_USER=""
 IMAP_PASS=""
 IMAP_MAILBOX="INBOX"
 
+# PUBLIC_WEB_ORIGIN / CLIENT_PORTAL_URL : site kouzia.com (assistant configure)
 # CLOUDFLARE_TUNNEL_TOKEN=""
 EOF
   chmod 640 "$ENV_FILE"
