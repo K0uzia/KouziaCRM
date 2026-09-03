@@ -64,15 +64,21 @@ export async function buildApp(opts: BuildAppOptions = {}): Promise<FastifyInsta
   setJsonSerializer(app);
   registerErrorHandler(app);
 
-  // Headers « HTTPS only » (COOP, OAC, HSTS) : inutiles / bruyants en HTTP LAN.
-  // Activer seulement si cookies Secure OU WEB_ORIGIN en https.
+  // Headers « HTTPS only » (COOP, OAC, HSTS) : ne jamais les envoyer en HTTP LAN.
+  // Sinon Chrome ignore COOP et spam la console (origine IP non « trustworthy »).
+  // Priorité à WEB_ORIGIN : http:// → headers off, même si COOKIE_SECURE est mal réglé.
   const webOrigin = (process.env.WEB_ORIGIN ?? "").trim().toLowerCase();
-  const httpsMode = getCookieSecure() || webOrigin.startsWith("https://");
+  const httpsMode = webOrigin.startsWith("https://")
+    ? true
+    : webOrigin.startsWith("http://")
+      ? false
+      : getCookieSecure();
   await app.register(helmet, {
     referrerPolicy: { policy: "no-referrer" },
-    strictTransportSecurity: httpsMode,
+    hsts: httpsMode,
     crossOriginOpenerPolicy: httpsMode ? { policy: "same-origin" } : false,
-    originAgentCluster: httpsMode,
+    // false = désactivé ; true activerait le header (voir helmet originAgentCluster switch)
+    originAgentCluster: httpsMode === true,
     contentSecurityPolicy: {
       directives: {
         defaultSrc: ["'self'"],
@@ -91,7 +97,6 @@ export async function buildApp(opts: BuildAppOptions = {}): Promise<FastifyInsta
         frameAncestors: ["'self'"],
         baseUri: ["'self'"],
         formAction: ["'self'"],
-        // null = retire le défaut helmet "upgrade-insecure-requests"
         upgradeInsecureRequests: null,
       },
     },
