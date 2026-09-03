@@ -4,7 +4,7 @@
 #   kouziactl                 → menu interactif
 #   kouziactl <cmd>           → commande directe
 #   kouziactl cloudflare      → reconfigurer Cloudflare
-# Installé dans /usr/local/bin/kouziactl par install.sh
+# PATH : symlink /usr/local/bin/kouziactl → ce fichier (install/update)
 
 set -euo pipefail
 

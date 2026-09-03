@@ -150,6 +150,68 @@ ask_secret() {
   printf -v "$__var" '%s' "$__ans"
 }
 
+# Collage fiable (Ctrl+Shift+V) : lecture VISIBLE, pas -s (sinon le paste rate souvent).
+# Accepte aussi la commande complète Cloudflare ; extrait le token.
+ask_paste_token() {
+  local __var="$1" __prompt="$2" __def="${3:-}"
+  local __raw="" __tok=""
+  echo ""
+  echo "  ${__prompt}"
+  if [[ -n "$__def" ]]; then
+    echo "  (token actuel : ${#__def} caractères, aperçu ${__def:0:8}…${__def: -6})"
+    echo "  Entrée seule = garder l'actuel."
+  fi
+  echo "  Colle avec Ctrl+Shift+V (ou clic droit → Coller), puis Entrée."
+  echo "  Tu peux coller soit le token seul, soit toute la commande cloudflared."
+  echo -n "  › "
+  # read -r visible : le paste long fonctionne (contrairement à read -rs)
+  read -r __raw || true
+  __raw="$(printf '%s' "$__raw" | tr -d '\r' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
+  if [[ -z "$__raw" ]]; then
+    __tok="$__def"
+  else
+    __tok="$(extract_cloudflare_token "$__raw")"
+  fi
+  if [[ -z "$__tok" ]]; then
+    warn "Rien de valide collé."
+    printf -v "$__var" '%s' ""
+    return 1
+  fi
+  echo "  → Token accepté (${#__tok} car., aperçu ${__tok:0:8}…${__tok: -6})"
+  printf -v "$__var" '%s' "$__tok"
+}
+
+# Extrait eyJ… depuis « cloudflared … --token eyJ… » ou « service install eyJ… »
+extract_cloudflare_token() {
+  local raw="$1"
+  # Déjà un JWT-like (commence souvent par eyJ)
+  if [[ "$raw" =~ ^eyJ[A-Za-z0-9_.+-]+=*$ ]] || [[ "$raw" =~ ^[A-Za-z0-9_-]{40,}$ ]]; then
+    printf '%s' "$raw"
+    return 0
+  fi
+  # --token VALUE ou --token=VALUE
+  if [[ "$raw" =~ --token(=|[[:space:]]+)([A-Za-z0-9_.+-]+) ]]; then
+    printf '%s' "${BASH_REMATCH[2]}"
+    return 0
+  fi
+  # cloudflared service install TOKEN
+  if [[ "$raw" =~ service[[:space:]]+install[[:space:]]+([A-Za-z0-9_.+-]+) ]]; then
+    printf '%s' "${BASH_REMATCH[1]}"
+    return 0
+  fi
+  # Dernier « mot » long qui ressemble à un token
+  local word
+  for word in $raw; do
+    if [[ ${#word} -ge 40 ]] && [[ "$word" =~ ^[A-Za-z0-9_.+-]+$ ]]; then
+      printf '%s' "$word"
+      return 0
+    fi
+  done
+  printf '%s' ""
+  return 1
+}
+
+
 yesno() {
   local prompt="$1" def="${2:-n}" ans hint
   if [[ "$def" == "y" || "$def" == "Y" ]]; then
@@ -397,12 +459,17 @@ configure_mail() {
 
 configure_cloudflare() {
   local standalone="${1:-0}"
+  local api_port
+  api_port="$(env_get API_PORT "$KOUZIA_API_PORT")"
   section "Cloudflare Tunnel (pour exposer l'API à kouzia.com)" \
-    "Zero Trust → Tunnels → hostname public → http://127.0.0.1:$(env_get API_PORT "$KOUZIA_API_PORT")"
+    "Dans Zero Trust → Networks → Tunnels → ton tunnel :
+  1. Public hostname → ex. api.kouzia.com (ou le hostname que kouzia.com utilisera)
+  2. Service : http://127.0.0.1:${api_port}
+  3. Copier le token (ou la commande d'install) depuis le panneau"
 
   if [[ "$standalone" != "1" ]]; then
     if [[ "${PROFILE:-lan}" != "tunnel" ]]; then
-      if ! yesno "Configurer un tunnel Cloudflare quand même ?" "n"; then
+      if ! yesno "Configurer un tunnel Cloudflare maintenant ?" "n"; then
         warn "Tunnel skip. Backups / admin restent en LAN."
         return 0
       fi
@@ -414,11 +481,23 @@ configure_cloudflare() {
     fi
   fi
 
-  local token
-  ask_secret token "Token du tunnel (CLOUDFLARE_TUNNEL_TOKEN)" "$(env_get CLOUDFLARE_TUNNEL_TOKEN "")"
+  local token=""
+  local existing
+  existing="$(env_get CLOUDFLARE_TUNNEL_TOKEN "")"
+  # IMPORTANT : pas de read -rs (le Ctrl+Shift+V ne colle souvent pas)
+  if ! ask_paste_token token "Token Cloudflare (ou colle toute la commande cloudflared)" "$existing"; then
+    warn "Pas de token, skip."
+    return 0
+  fi
   [[ -n "$token" ]] || { warn "Token vide, skip."; return 0; }
+
   env_set CLOUDFLARE_TUNNEL_TOKEN "$token"
   env_set TRUST_PROXY "true"
+
+  # Fichier dédié (évite les soucis de quoting OpenRC avec un JWT long)
+  mkdir -p "$KOUZIA_ETC_DIR"
+  printf '%s\n' "$token" > "${KOUZIA_ETC_DIR}/cloudflare-tunnel.token"
+  chmod 600 "${KOUZIA_ETC_DIR}/cloudflare-tunnel.token"
 
   log "Installation cloudflared…"
   if ! command -v cloudflared >/dev/null 2>&1; then
@@ -436,12 +515,31 @@ configure_cloudflare() {
 
   install -m 755 "${SCRIPT_DIR}/openrc/cloudflared" /etc/init.d/cloudflared
   cat > /etc/conf.d/cloudflared <<EOF
-CLOUDFLARE_TUNNEL_TOKEN="${token}"
+# Token lu depuis fichier (généré par kouziactl cloudflare)
+CLOUDFLARE_TOKEN_FILE="${KOUZIA_ETC_DIR}/cloudflare-tunnel.token"
 EOF
   chmod 600 /etc/conf.d/cloudflared
+
   rc-update add cloudflared default 2>/dev/null || true
-  rc-service cloudflared restart 2>/dev/null || rc-service cloudflared start
-  ok "cloudflared démarré (vérifier status Healthy dans Cloudflare)"
+  rc-service cloudflared stop 2>/dev/null || true
+  sleep 1
+  if ! rc-service cloudflared start; then
+    warn "Échec démarrage cloudflared. Logs :"
+    tail -n 30 /var/log/kouzia/cloudflared.err 2>/dev/null || true
+    tail -n 30 /var/log/kouzia/cloudflared.log 2>/dev/null || true
+    return 1
+  fi
+
+  sleep 2
+  echo ""
+  echo "  Status OpenRC :"
+  rc-service cloudflared status 2>&1 | sed 's/^/    /' || true
+  echo "  Dernières lignes log :"
+  tail -n 15 /var/log/kouzia/cloudflared.log 2>/dev/null | sed 's/^/    /' \
+    || echo "    (pas encore de log)"
+  echo ""
+  ok "cloudflared démarré. Dans le panneau Cloudflare le tunnel doit passer Healthy sous peu."
+  echo "  Si ça reste Down : vérifie le hostname → http://127.0.0.1:${api_port}"
 }
 
 configure_rsync() {

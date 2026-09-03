@@ -236,8 +236,8 @@ cp /etc/conf.d/kouziacrm /etc/conf.d/kouziacrm-worker
 rc-update add kouziacrm default
 rc-update add kouziacrm-worker default
 
-# --- CLI (résout /opt/kouziacrm/scripts/alpine si copié hors du dépôt) ---
-install -m 755 "${KOUZIA_APP_DIR}/scripts/alpine/kouziactl" /usr/local/bin/kouziactl
+# --- CLI : symlink (toujours le script du dépôt, pas une copie figée) ---
+install_kouziactl_link "${KOUZIA_APP_DIR}/scripts/alpine/kouziactl" /usr/local/bin/kouziactl
 
 # --- Cron backup + logrotate ---
 install -m 644 "${SCRIPT_DIR}/conf/logrotate.kouzia" /etc/logrotate.d/kouzia

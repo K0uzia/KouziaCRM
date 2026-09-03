@@ -198,6 +198,17 @@ disk_guard() {
   fi
 }
 
+# Symlink PATH → script du dépôt (évite une copie figée désynchronisée).
+install_kouziactl_link() {
+  local target="${1:-${KOUZIA_APP_DIR}/scripts/alpine/kouziactl}"
+  local link="${2:-/usr/local/bin/kouziactl}"
+  [[ -f "$target" ]] || die "kouziactl introuvable: $target"
+  chmod +x "$target" 2>/dev/null || true
+  mkdir -p "$(dirname "$link")"
+  ln -sfn "$target" "$link"
+  ok "Commande kouziactl → $target"
+}
+
 # npm ci strict ; fallback npm install si lockfile / plateforme (ex. Alpine musl + npm 11).
 npm_ci_or_install() {
   local dir="${1:-$KOUZIA_APP_DIR}"

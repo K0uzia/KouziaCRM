@@ -1,14 +1,13 @@
 #!/sbin/openrc-run
 # Cloudflare Tunnel pour KouziaCRM
-# Token dans /etc/conf.d/cloudflared
+# Token : /etc/kouzia/cloudflare-tunnel.token (posé par kouziactl cloudflare)
 
 description="Cloudflare Tunnel (cloudflared)"
 
-: "${CLOUDFLARE_TUNNEL_TOKEN:=}"
+: "${CLOUDFLARE_TOKEN_FILE:=/etc/kouzia/cloudflare-tunnel.token}"
 
 name="cloudflared"
 command="/usr/local/bin/cloudflared"
-command_args="tunnel --no-autoupdate run --token ${CLOUDFLARE_TUNNEL_TOKEN}"
 command_background=true
 pidfile="/run/${RC_SVCNAME}.pid"
 output_log="/var/log/kouzia/cloudflared.log"
@@ -21,12 +20,23 @@ depend() {
 
 start_pre() {
   checkpath -d -o root:root -m 0750 /var/log/kouzia
-  if [ -z "$CLOUDFLARE_TUNNEL_TOKEN" ]; then
-    eerror "CLOUDFLARE_TUNNEL_TOKEN vide dans /etc/conf.d/cloudflared"
-    return 1
-  fi
+
   if [ ! -x "$command" ]; then
     eerror "cloudflared introuvable: $command"
     return 1
   fi
+
+  if [ ! -f "$CLOUDFLARE_TOKEN_FILE" ] || [ ! -s "$CLOUDFLARE_TOKEN_FILE" ]; then
+    eerror "Token manquant: $CLOUDFLARE_TOKEN_FILE (kouziactl cloudflare)"
+    return 1
+  fi
+
+  _tok="$(tr -d '\r\n' < "$CLOUDFLARE_TOKEN_FILE")"
+  if [ -z "$_tok" ]; then
+    eerror "Token vide dans $CLOUDFLARE_TOKEN_FILE"
+    return 1
+  fi
+
+  # Défini ici pour que start() voie le bon argument (après lecture fichier)
+  command_args="tunnel --no-autoupdate run --token ${_tok}"
 }

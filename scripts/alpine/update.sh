@@ -121,6 +121,9 @@ else
 fi
 
 # --- 6. Restart + health ---
+# S'assurer que /usr/local/bin/kouziactl pointe toujours sur le dépôt
+install_kouziactl_link "${KOUZIA_APP_DIR}/scripts/alpine/kouziactl" /usr/local/bin/kouziactl
+
 log "Redémarrage services…"
 service_safe kouziacrm start
 service_safe kouziacrm-worker start
