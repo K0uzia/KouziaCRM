@@ -156,17 +156,35 @@ ask_paste_token() {
   local __raw="" __tok="" __mode
   echo ""
   echo "  ${__prompt}"
+  echo ""
+  echo "  ${C_YELLOW}Important${C_RESET} : ce n'est PAS l'UUID du tunnel (ex. 737e6a68-1c97-…)."
+  echo "  Il faut le ${C_BOLD}token d'installation${C_RESET} : longue chaîne qui commence par ${C_BOLD}eyJ${C_RESET}…"
+  echo "  Cloudflare → Zero Trust → Tunnels → ton tunnel →"
+  echo "  commande « Install as a service » / « cloudflared service install eyJ… »"
+  echo "  → copie le eyJ… (ou toute la commande)."
+  echo ""
   if [[ -n "$__def" ]]; then
-    echo "  (token actuel : ${#__def} car., aperçu ${__def:0:8}…${__def: -6})"
+    if [[ "$__def" =~ ^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}- ]]; then
+      warn "Le « token » actuel ressemble à un UUID (Tunnel ID) → à remplacer par eyJ…"
+    else
+      echo "  (token actuel : ${#__def} car., aperçu ${__def:0:8}…${__def: -6})"
+    fi
   fi
   echo "  1) Coller ici (Ctrl+Shift+V) puis Entrée"
-  echo "  2) Coller via fichier temporaire (recommandé si long / paste capricieux)"
-  if [[ -n "$__def" ]]; then
+  echo "  2) Coller via fichier temporaire (recommandé si paste capricieux)"
+  if [[ -n "$__def" ]] && [[ ! "$__def" =~ ^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}- ]]; then
     echo "  3) Garder le token actuel"
   fi
   echo -n "  Mode [1]: "
   read -r __mode || true
   __mode="${__mode:-1}"
+
+  # Collage accidentel dans le champ Mode
+  if [[ "$__mode" != "1" && "$__mode" != "2" && "$__mode" != "3" && ${#__mode} -gt 10 ]]; then
+    echo "  (collage détecté dans « Mode » → traité comme token)"
+    __raw="$__mode"
+    __mode="paste"
+  fi
 
   case "$__mode" in
     3)
@@ -174,25 +192,33 @@ ask_paste_token() {
       ;;
     2)
       local tmp
-      tmp="$(mktemp)"
-      echo "  Ouvre un éditeur : colle le token (ou la commande), enregistre, quitte."
+      tmp="$(mktemp /tmp/kouzia-cf-token.XXXXXX)"
+      : > "$tmp"
       echo "  Fichier : $tmp"
+      echo "  Colle le eyJ… (ou la commande), enregistre, quitte (:wq dans vi)."
       ${EDITOR:-vi} "$tmp"
       __raw="$(tr -d '\r\n' < "$tmp" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
       rm -f "$tmp"
       __tok="$(extract_cloudflare_token "$__raw")"
       ;;
+    paste)
+      __raw="$(printf '%s' "$__raw" | tr -cd '\11\12\15\40-\176' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
+      echo "  (reçu ${#__raw} caractères bruts)"
+      __tok="$(extract_cloudflare_token "$__raw")"
+      ;;
     *)
-      echo "  Colle maintenant, puis Entrée :"
+      echo "  Colle le token eyJ… (ou toute la commande), puis Entrée :"
       echo -n "  › "
-      # -e : autorise les séquences ; certains terminaux collent mieux ainsi
       read -r __raw || true
       __raw="$(printf '%s' "$__raw" | tr -d '\r' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
-      # Nettoie caractères non imprimables (copier-coller navigateur)
       __raw="$(printf '%s' "$__raw" | tr -cd '\11\12\15\40-\176')"
       __raw="$(printf '%s' "$__raw" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
       if [[ -z "$__raw" ]]; then
-        __tok="$__def"
+        if [[ -n "$__def" ]] && [[ ! "$__def" =~ ^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}- ]]; then
+          __tok="$__def"
+        else
+          __tok=""
+        fi
       else
         echo "  (reçu ${#__raw} caractères bruts)"
         __tok="$(extract_cloudflare_token "$__raw")"
@@ -203,25 +229,48 @@ ask_paste_token() {
   if [[ -z "$__tok" ]]; then
     warn "Rien de valide collé (reçu ${#__raw} car. bruts)."
     if [[ ${#__raw} -gt 0 ]]; then
-      echo "  Aperçu brut : [${__raw:0:40}…]"
-      echo "  Astuce : choisis le mode 2 (fichier) ou colle uniquement le token eyJ…"
+      echo "  Aperçu brut : [${__raw:0:48}]"
+      if [[ "$__raw" =~ ^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}- ]]; then
+        echo ""
+        warn "Tu as collé un Tunnel ID (UUID), pas le token."
+        echo "  Le bon token fait souvent 100+ caractères et commence par ${C_BOLD}eyJ${C_RESET}."
+        echo "  Dans Cloudflare, copie la commande « Install as a service », pas l'ID du tunnel."
+      fi
     fi
     printf -v "$__var" '%s' ""
     return 1
   fi
+
+  if [[ "$__tok" =~ ^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}- ]]; then
+    warn "Valeur refusée : UUID (Tunnel ID). Il faut le token eyJ…"
+    printf -v "$__var" '%s' ""
+    return 1
+  fi
+
   echo "  → Token accepté (${#__tok} car., aperçu ${__tok:0:8}…${__tok: -6})"
   printf -v "$__var" '%s' "$__tok"
 }
 
 # Token CF = JSON en base64 (alphabet A-Za-z0-9+/=), souvent préfixé eyJ…
+# Refuse les UUID de tunnel (36 car. avec tirets).
 extract_cloudflare_token() {
   local raw="$1"
-  local tok=""
   # Charset base64 standard (+ / =) et URL-safe (- _)
   local b64='[A-Za-z0-9_./+=-]'
 
-  # Déjà un token seul
-  if [[ "$raw" =~ ^eyJ${b64}+$ ]] || [[ "$raw" =~ ^${b64}{40,}$ ]]; then
+  # UUID tunnel ID → refuse (ce n'est pas le token)
+  if [[ "$raw" =~ ^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$ ]]; then
+    printf '%s' ""
+    return 1
+  fi
+
+  # Déjà un token seul (eyJ… ou long base64)
+  if [[ "$raw" =~ ^eyJ${b64}+$ ]]; then
+    printf '%s' "$raw"
+    return 0
+  fi
+  # Long base64 sans être un UUID
+  if [[ ${#raw} -ge 80 ]] && [[ "$raw" =~ ^${b64}+$ ]]; then
     printf '%s' "$raw"
     return 0
   fi
@@ -238,7 +287,7 @@ extract_cloudflare_token() {
     return 0
   fi
 
-  # Premier mot qui commence par eyJ (base64 JSON)
+  # Premier mot qui commence par eyJ
   local word
   for word in $raw; do
     word="${word//\"/}"
@@ -249,11 +298,11 @@ extract_cloudflare_token() {
     fi
   done
 
-  # Dernier recours : plus long « mot » base64 >= 40
+  # Dernier recours : plus long « mot » base64 >= 80 (évite les UUID 36 car.)
   for word in $raw; do
     word="${word//\"/}"
     word="${word//\'/}"
-    if [[ ${#word} -ge 40 ]] && [[ "$word" =~ ^${b64}+$ ]]; then
+    if [[ ${#word} -ge 80 ]] && [[ "$word" =~ ^${b64}+$ ]]; then
       printf '%s' "$word"
       return 0
     fi
