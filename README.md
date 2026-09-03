@@ -123,15 +123,13 @@ Léger, OpenRC, mises à jour sans rebuild complet, backup SQLite + rsync offsit
 Sur le CT Alpine 3.21+ (unprivileged OK) :
 
 ```bash
-# Option A : depuis un clone déjà présent
 apk add bash git
 git clone https://github.com/K0uzia/KouziaCRM.git /opt/kouziacrm
-bash /opt/kouziacrm/scripts/alpine/install.sh
-
-# Option B : rsync depuis votre machine de dev, puis install sur le CT
-./scripts/alpine/deploy-rsync.sh root@CT_IP --skip-update
-ssh root@CT_IP 'bash /opt/kouziacrm/scripts/alpine/install.sh'
+bash /opt/kouziacrm/scripts/alpine/kouziactl
+# → menu : 1) Installer / réinstaller
 ```
+
+Sans menu (non interactif) : `bash /opt/kouziacrm/scripts/alpine/install.sh --yes`
 
 Puis :
 

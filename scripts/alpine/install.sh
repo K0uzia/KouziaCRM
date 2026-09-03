@@ -1,18 +1,22 @@
 #!/usr/bin/env bash
 # Installation KouziaCRM sur CT Proxmox Alpine (natif, sans Docker).
 #
-# Usage (dans le CT, en root) :
-#   wget -O- https://... | bash   # ou
-#   bash scripts/alpine/install.sh [--repo URL] [--skip-seed] [--no-start]
+# Préférer le menu :
+#   bash /opt/kouziacrm/scripts/alpine/kouziactl
+#   kouziactl
 #
-# Après install :
-#   kouziactl status
-#   kouziactl update
-#   kouziactl backup
+# Install non interactive :
+#   bash scripts/alpine/install.sh --yes [--skip-seed] [--no-start]
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# Sans option en TTY → menu (ne lance pas l'install directement)
+if [[ $# -eq 0 && -t 0 && "${KOUZIA_FORCE_INSTALL:-0}" != "1" ]]; then
+  exec bash "${SCRIPT_DIR}/kouziactl"
+fi
+
 # shellcheck source=lib.sh
 source "${SCRIPT_DIR}/lib.sh"
 
@@ -24,9 +28,10 @@ SEED_FROM_DIR=""
 
 usage() {
   cat <<EOF
-Usage: $(basename "$0") [options]
+Usage: $(basename "$0") --yes [options]
 
 Options:
+  --yes               Confirmer l'installation (obligatoire hors menu)
   --repo URL          URL git du dépôt (défaut: $REPO_URL)
   --branch NAME       Branche à cloner (défaut: $REPO_BRANCH)
   --from DIR          Installer depuis un dossier local (rsync) au lieu de git
@@ -34,11 +39,15 @@ Options:
   --skip-seed         Ne pas exécuter le seed Prisma
   --no-start          Installer sans démarrer les services
   -h, --help          Aide
+
+Sans argument en terminal interactif : ouvre le menu kouziactl.
 EOF
 }
 
+YES=0
 while [[ $# -gt 0 ]]; do
   case "$1" in
+    --yes) YES=1; shift ;;
     --repo) REPO_URL="$2"; shift 2 ;;
     --branch) REPO_BRANCH="$2"; shift 2 ;;
     --from) SEED_FROM_DIR="$2"; shift 2 ;;
@@ -49,6 +58,10 @@ while [[ $# -gt 0 ]]; do
     *) die "Option inconnue: $1" ;;
   esac
 done
+
+if [[ "$YES" -ne 1 && "${KOUZIA_FORCE_INSTALL:-0}" != "1" ]]; then
+  die "Installation refusée sans --yes (utilisez kouziactl pour le menu)."
+fi
 
 require_root
 require_alpine
@@ -183,37 +196,7 @@ if [[ ! -f "$KOUZIA_RSYNC_CONF" ]]; then
 fi
 
 # --- Dépendances Node + build ---
-# region agent log
-(
-  cd "$KOUZIA_APP_DIR"
-  dbg_log "B" "pre_npm_ci" "{\"npm\":\"$(npm -v 2>/dev/null || echo none)\",\"node\":\"$(node -v 2>/dev/null || echo none)\",\"alpine\":\"$(cat /etc/alpine-release 2>/dev/null || echo none)\"}"
-  LC_PRESENT="$(node -e 'const l=require("./package-lock.json");const k=Object.keys(l.packages||{}).filter(x=>x.includes("lightningcss"));console.log(JSON.stringify(k))' 2>/dev/null || echo '[]')"
-  MUSL_IN_LOCK="$(node -e 'const l=require("./package-lock.json");console.log(!!l.packages["node_modules/lightningcss-linux-x64-musl"])' 2>/dev/null || echo false)"
-  GNU_IN_LOCK="$(node -e 'const l=require("./package-lock.json");console.log(!!l.packages["node_modules/lightningcss-linux-x64-gnu"])' 2>/dev/null || echo false)"
-  LIBC="$(node -e 'try{const{familySync}=require("detect-libc");console.log(familySync())}catch{console.log("unknown")}' 2>/dev/null || echo unknown)"
-  dbg_log "A" "lockfile_lightningcss" "{\"keys\":${LC_PRESENT},\"muslInLock\":${MUSL_IN_LOCK},\"gnuInLock\":${GNU_IN_LOCK}}"
-  dbg_log "D" "runtime_libc" "{\"libc\":\"${LIBC}\",\"arch\":\"$(uname -m)\"}"
-  dbg_log "E" "npm_major" "{\"npmMajor\":$(npm -v | cut -d. -f1)}"
-)
-# endregion
-log "npm ci (peut prendre plusieurs minutes)…"
-NPM_CI_OUT="$(mktemp)"
-set +e
-run_as_app "cd '$KOUZIA_APP_DIR' && npm ci" >"$NPM_CI_OUT" 2>&1
-NPM_CI_RC=$?
-set -e
-# region agent log
-MISSING_LINES="$(grep -E 'Missing: lightningcss|in sync' "$NPM_CI_OUT" | head -20 | tr '\n' '|' | sed 's/"/\\"/g' || true)"
-dbg_log "A" "npm_ci_result" "{\"exitCode\":${NPM_CI_RC},\"missingSnippet\":\"${MISSING_LINES:0:800}\"}"
-dbg_log "C" "npm_ci_postinstall_reached" "{\"reached\":$([[ $NPM_CI_RC -eq 0 ]] && echo true || echo false)}"
-# endregion
-if [[ "$NPM_CI_RC" -ne 0 ]]; then
-  cat "$NPM_CI_OUT" >&2
-  rm -f "$NPM_CI_OUT"
-  die "npm ci a échoué (voir ${KOUZIA_APP_DIR}/.cursor/debug-46af7e.log)"
-fi
-rm -f "$NPM_CI_OUT"
-ok "npm ci terminé"
+npm_ci_or_install "$KOUZIA_APP_DIR"
 log "Prisma generate + migrate deploy…"
 run_as_app "cd '$KOUZIA_APP_DIR' && npx prisma generate && npx prisma migrate deploy"
 if [[ "$SKIP_SEED" -eq 0 ]]; then

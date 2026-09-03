@@ -162,14 +162,15 @@ disk_guard() {
   fi
 }
 
-# region agent log
-dbg_log() {
-  # Args: hypothesisId message [json_data_object]
-  local hid="${1:-?}" msg="${2:-}" data="${3:-{}}"
-  local log_file="${KOUZIA_APP_DIR}/.cursor/debug-46af7e.log"
-  mkdir -p "$(dirname "$log_file")" 2>/dev/null || true
-  printf '{"sessionId":"46af7e","hypothesisId":"%s","location":"scripts/alpine","message":"%s","data":%s,"timestamp":%s}\n' \
-    "$hid" "$msg" "$data" "$(date +%s%3N 2>/dev/null || date +%s000)" \
-    >> "$log_file" 2>/dev/null || true
+# npm ci strict ; fallback npm install si lockfile / plateforme (ex. Alpine musl + npm 11).
+npm_ci_or_install() {
+  local dir="${1:-$KOUZIA_APP_DIR}"
+  log "npm ci dans $dir…"
+  if run_as_app "cd '$dir' && npm ci"; then
+    ok "npm ci terminé"
+    return 0
+  fi
+  warn "npm ci a échoué : fallback npm install (lockfile / plateforme)."
+  run_as_app "cd '$dir' && npm install"
+  ok "npm install terminé"
 }
-# endregion

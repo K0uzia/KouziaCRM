@@ -99,8 +99,7 @@ service_safe kouziacrm-worker stop
 
 # --- 5. Dépendances ---
 if [[ "$NEED_DEPS" -eq 1 ]]; then
-  log "npm ci…"
-  run_as_app "cd '$KOUZIA_APP_DIR' && npm ci"
+  npm_ci_or_install "$KOUZIA_APP_DIR"
 else
   ok "package-lock inchangé : skip npm ci"
 fi
