@@ -64,14 +64,15 @@ export async function buildApp(opts: BuildAppOptions = {}): Promise<FastifyInsta
   setJsonSerializer(app);
   registerErrorHandler(app);
 
-  // HTTP LAN : désactiver upgrade-insecure-requests (sinon le navigateur charge
-  // les assets en https://IP:port → ERR_SSL_PROTOCOL_ERROR). HSTS/COOP adaptés.
-  const httpsCookies = getCookieSecure();
+  // Headers « HTTPS only » (COOP, OAC, HSTS) : inutiles / bruyants en HTTP LAN.
+  // Activer seulement si cookies Secure OU WEB_ORIGIN en https.
+  const webOrigin = (process.env.WEB_ORIGIN ?? "").trim().toLowerCase();
+  const httpsMode = getCookieSecure() || webOrigin.startsWith("https://");
   await app.register(helmet, {
     referrerPolicy: { policy: "no-referrer" },
-    strictTransportSecurity: httpsCookies,
-    crossOriginOpenerPolicy: httpsCookies,
-    originAgentCluster: httpsCookies,
+    strictTransportSecurity: httpsMode,
+    crossOriginOpenerPolicy: httpsMode ? { policy: "same-origin" } : false,
+    originAgentCluster: httpsMode,
     contentSecurityPolicy: {
       directives: {
         defaultSrc: ["'self'"],
