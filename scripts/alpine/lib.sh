@@ -161,3 +161,15 @@ disk_guard() {
     die "Espace disque insuffisant sur $path (${avail} Mo libres, minimum ${min_mb} Mo)."
   fi
 }
+
+# region agent log
+dbg_log() {
+  # Args: hypothesisId message [json_data_object]
+  local hid="${1:-?}" msg="${2:-}" data="${3:-{}}"
+  local log_file="${KOUZIA_APP_DIR}/.cursor/debug-46af7e.log"
+  mkdir -p "$(dirname "$log_file")" 2>/dev/null || true
+  printf '{"sessionId":"46af7e","hypothesisId":"%s","location":"scripts/alpine","message":"%s","data":%s,"timestamp":%s}\n' \
+    "$hid" "$msg" "$data" "$(date +%s%3N 2>/dev/null || date +%s000)" \
+    >> "$log_file" 2>/dev/null || true
+}
+# endregion

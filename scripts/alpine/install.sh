@@ -183,8 +183,37 @@ if [[ ! -f "$KOUZIA_RSYNC_CONF" ]]; then
 fi
 
 # --- Dépendances Node + build ---
+# region agent log
+(
+  cd "$KOUZIA_APP_DIR"
+  dbg_log "B" "pre_npm_ci" "{\"npm\":\"$(npm -v 2>/dev/null || echo none)\",\"node\":\"$(node -v 2>/dev/null || echo none)\",\"alpine\":\"$(cat /etc/alpine-release 2>/dev/null || echo none)\"}"
+  LC_PRESENT="$(node -e 'const l=require("./package-lock.json");const k=Object.keys(l.packages||{}).filter(x=>x.includes("lightningcss"));console.log(JSON.stringify(k))' 2>/dev/null || echo '[]')"
+  MUSL_IN_LOCK="$(node -e 'const l=require("./package-lock.json");console.log(!!l.packages["node_modules/lightningcss-linux-x64-musl"])' 2>/dev/null || echo false)"
+  GNU_IN_LOCK="$(node -e 'const l=require("./package-lock.json");console.log(!!l.packages["node_modules/lightningcss-linux-x64-gnu"])' 2>/dev/null || echo false)"
+  LIBC="$(node -e 'try{const{familySync}=require("detect-libc");console.log(familySync())}catch{console.log("unknown")}' 2>/dev/null || echo unknown)"
+  dbg_log "A" "lockfile_lightningcss" "{\"keys\":${LC_PRESENT},\"muslInLock\":${MUSL_IN_LOCK},\"gnuInLock\":${GNU_IN_LOCK}}"
+  dbg_log "D" "runtime_libc" "{\"libc\":\"${LIBC}\",\"arch\":\"$(uname -m)\"}"
+  dbg_log "E" "npm_major" "{\"npmMajor\":$(npm -v | cut -d. -f1)}"
+)
+# endregion
 log "npm ci (peut prendre plusieurs minutes)…"
-run_as_app "cd '$KOUZIA_APP_DIR' && npm ci"
+NPM_CI_OUT="$(mktemp)"
+set +e
+run_as_app "cd '$KOUZIA_APP_DIR' && npm ci" >"$NPM_CI_OUT" 2>&1
+NPM_CI_RC=$?
+set -e
+# region agent log
+MISSING_LINES="$(grep -E 'Missing: lightningcss|in sync' "$NPM_CI_OUT" | head -20 | tr '\n' '|' | sed 's/"/\\"/g' || true)"
+dbg_log "A" "npm_ci_result" "{\"exitCode\":${NPM_CI_RC},\"missingSnippet\":\"${MISSING_LINES:0:800}\"}"
+dbg_log "C" "npm_ci_postinstall_reached" "{\"reached\":$([[ $NPM_CI_RC -eq 0 ]] && echo true || echo false)}"
+# endregion
+if [[ "$NPM_CI_RC" -ne 0 ]]; then
+  cat "$NPM_CI_OUT" >&2
+  rm -f "$NPM_CI_OUT"
+  die "npm ci a échoué (voir ${KOUZIA_APP_DIR}/.cursor/debug-46af7e.log)"
+fi
+rm -f "$NPM_CI_OUT"
+ok "npm ci terminé"
 log "Prisma generate + migrate deploy…"
 run_as_app "cd '$KOUZIA_APP_DIR' && npx prisma generate && npx prisma migrate deploy"
 if [[ "$SKIP_SEED" -eq 0 ]]; then
