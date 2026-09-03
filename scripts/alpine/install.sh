@@ -24,6 +24,7 @@ REPO_URL="${KOUZIA_REPO_URL:-https://github.com/K0uzia/KouziaCRM.git}"
 REPO_BRANCH="${KOUZIA_REPO_BRANCH:-main}"
 SKIP_SEED=0
 NO_START=0
+SKIP_WIZARD=0
 SEED_FROM_DIR=""
 
 usage() {
@@ -38,6 +39,7 @@ Options:
   --app-dir DIR       Répertoire d'install (défaut: $KOUZIA_APP_DIR)
   --skip-seed         Ne pas exécuter le seed Prisma
   --no-start          Installer sans démarrer les services
+  --skip-wizard       Ne pas lancer l'assistant .env / Cloudflare / rsync
   -h, --help          Aide
 
 Sans argument en terminal interactif : ouvre le menu kouziactl.
@@ -54,6 +56,7 @@ while [[ $# -gt 0 ]]; do
     --app-dir) KOUZIA_APP_DIR="$2"; KOUZIA_DATA_DIR="${KOUZIA_APP_DIR}/data"; KOUZIA_DB_PATH="${KOUZIA_DATA_DIR}/kouziacrm.db"; KOUZIA_STATE_DIR="${KOUZIA_APP_DIR}/.deploy-state"; shift 2 ;;
     --skip-seed) SKIP_SEED=1; shift ;;
     --no-start) NO_START=1; shift ;;
+    --skip-wizard) SKIP_WIZARD=1; shift ;;
     -h|--help) usage; exit 0 ;;
     *) die "Option inconnue: $1" ;;
   esac
@@ -78,7 +81,7 @@ apk add --no-cache \
   nodejs npm \
   python3 make g++ linux-headers \
   ca-certificates tzdata \
-  logrotate shadow
+  logrotate shadow iproute2
 
 # Node 20+ requis
 NODE_MAJOR="$(node -p "process.versions.node.split('.')[0]" 2>/dev/null || echo 0)"
@@ -176,7 +179,7 @@ EOF
   warn "Noter ADMIN_PASSWORD maintenant (affiché une seule fois) :"
   echo "    ADMIN_PASSWORD=${ADMIN_PASSWORD}"
   echo ""
-  warn "Éditer ensuite WEB_ORIGIN, SMTP, IMAP : nano $ENV_FILE"
+  warn "L'assistant post-install configurera WEB_ORIGIN / SMTP / Cloudflare / rsync."
 else
   ok ".env existant conservé."
 fi
@@ -256,27 +259,14 @@ else
   warn "Services non démarrés (--no-start)."
 fi
 
-cat <<EOF
-
-${C_BOLD}=== Installation terminée ===${C_RESET}
-
-  App       : ${KOUZIA_APP_DIR}
-  Data/DB   : ${KOUZIA_DB_PATH}
-  Backups   : ${KOUZIA_BACKUP_DIR}
-  Logs      : ${KOUZIA_LOG_DIR}
-  Secrets   : ${ENV_FILE}
-  Passphrase: ${KOUZIA_PASSPHRASE_FILE}
-
-Commandes :
-  kouziactl status
-  kouziactl update
-  kouziactl backup
-  kouziactl restore <fichier.db.gpg>
-
-Prochaines étapes :
-  1. Éditer ${ENV_FILE} (WEB_ORIGIN, SMTP, IMAP)
-  2. Configurer le tunnel Cloudflare → 127.0.0.1:${KOUZIA_API_PORT}
-  3. Optionnel : éditer ${KOUZIA_RSYNC_CONF} pour backup offsite
-  4. Tester : kouziactl backup && kouziactl status
-
-EOF
+# --- Assistant post-install (.env, Cloudflare, rsync) + récap IP ---
+if [[ "$SKIP_WIZARD" -eq 0 && -t 0 ]]; then
+  echo ""
+  log "Lancement de l'assistant de configuration…"
+  bash "${SCRIPT_DIR}/configure.sh" || warn "Assistant interrompu. Relancer : kouziactl configure"
+else
+  bash "${SCRIPT_DIR}/configure.sh" --summary-only || true
+  if [[ "$SKIP_WIZARD" -eq 1 ]]; then
+    warn "Wizard skip (--skip-wizard). Configurer plus tard : kouziactl configure"
+  fi
+fi

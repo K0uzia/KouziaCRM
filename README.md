@@ -139,7 +139,9 @@ Puis :
 
 | Commande | Rôle |
 |----------|------|
-| `kouziactl status` | Services, health, disque, backups |
+| `kouziactl` / menu | Install, config, update, backup… |
+| `kouziactl configure` | Assistant .env + Cloudflare + rsync + récap IP |
+| `kouziactl summary` | Affiche IP LAN, URL, status |
 | `kouziactl update` | Update incrémental (npm/build seulement si besoin) |
 | `kouziactl update --git` | `git pull` + update |
 | `./scripts/alpine/deploy-rsync.sh user@ct` | Depuis le PC : rsync code + update distant |

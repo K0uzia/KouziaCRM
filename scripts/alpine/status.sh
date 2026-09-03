@@ -13,8 +13,21 @@ echo "  App      : $KOUZIA_APP_DIR"
 echo "  Node     : $(node -v 2>/dev/null || echo absent)"
 echo ""
 
+echo "${C_BOLD}Accès ERP${C_RESET}"
+PORT="$(grep -E '^API_PORT=' "${KOUZIA_APP_DIR}/.env" 2>/dev/null | tail -1 | cut -d= -f2- | tr -d '"' || echo "$KOUZIA_API_PORT")"
+PORT="${PORT:-$KOUZIA_API_PORT}"
+WEB_ORIGIN="$(grep -E '^WEB_ORIGIN=' "${KOUZIA_APP_DIR}/.env" 2>/dev/null | tail -1 | cut -d= -f2- | tr -d '"' || true)"
+echo "  Local : http://127.0.0.1:${PORT}"
+if command -v ip >/dev/null 2>&1; then
+  ip -4 -o addr show scope global 2>/dev/null | awk '{print $4}' | cut -d/ -f1 | while read -r ip; do
+    echo "  LAN   : http://${ip}:${PORT}"
+  done
+fi
+[[ -n "$WEB_ORIGIN" ]] && echo "  Public: $WEB_ORIGIN"
+echo ""
+
 echo "${C_BOLD}Services${C_RESET}"
-for svc in kouziacrm kouziacrm-worker crond; do
+for svc in kouziacrm kouziacrm-worker cloudflared crond; do
   if service_exists "$svc"; then
     st="$(rc-service "$svc" status 2>&1 | head -1 || true)"
     echo "  $svc : $st"
@@ -25,10 +38,10 @@ done
 echo ""
 
 echo "${C_BOLD}Health${C_RESET}"
-if curl -fsS "$KOUZIA_HEALTH_URL" >/dev/null 2>&1; then
-  ok "API $KOUZIA_HEALTH_URL"
+if curl -fsS "http://127.0.0.1:${PORT}/api/health" >/dev/null 2>&1; then
+  ok "API http://127.0.0.1:${PORT}/api/health"
 else
-  warn "API ne répond pas ($KOUZIA_HEALTH_URL)"
+  warn "API ne répond pas (http://127.0.0.1:${PORT}/api/health)"
 fi
 echo ""
 

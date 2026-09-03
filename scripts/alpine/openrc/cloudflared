@@ -1,0 +1,32 @@
+#!/sbin/openrc-run
+# Cloudflare Tunnel pour KouziaCRM
+# Token dans /etc/conf.d/cloudflared
+
+description="Cloudflare Tunnel (cloudflared)"
+
+: "${CLOUDFLARE_TUNNEL_TOKEN:=}"
+
+name="cloudflared"
+command="/usr/local/bin/cloudflared"
+command_args="tunnel --no-autoupdate run --token ${CLOUDFLARE_TUNNEL_TOKEN}"
+command_background=true
+pidfile="/run/${RC_SVCNAME}.pid"
+output_log="/var/log/kouzia/cloudflared.log"
+error_log="/var/log/kouzia/cloudflared.err"
+
+depend() {
+  need net
+  after kouziacrm
+}
+
+start_pre() {
+  checkpath -d -o root:root -m 0750 /var/log/kouzia
+  if [ -z "$CLOUDFLARE_TUNNEL_TOKEN" ]; then
+    eerror "CLOUDFLARE_TUNNEL_TOKEN vide dans /etc/conf.d/cloudflared"
+    return 1
+  fi
+  if [ ! -x "$command" ]; then
+    eerror "cloudflared introuvable: $command"
+    return 1
+  fi
+}
