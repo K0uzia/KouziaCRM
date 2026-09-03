@@ -150,30 +150,62 @@ ask_secret() {
   printf -v "$__var" '%s' "$__ans"
 }
 
-# Collage fiable (Ctrl+Shift+V) : lecture VISIBLE, pas -s (sinon le paste rate souvent).
-# Accepte aussi la commande complète Cloudflare ; extrait le token.
+# Collage fiable : lecture VISIBLE + charset base64 (les tokens CF contiennent souvent / et =).
 ask_paste_token() {
   local __var="$1" __prompt="$2" __def="${3:-}"
-  local __raw="" __tok=""
+  local __raw="" __tok="" __mode
   echo ""
   echo "  ${__prompt}"
   if [[ -n "$__def" ]]; then
-    echo "  (token actuel : ${#__def} caractères, aperçu ${__def:0:8}…${__def: -6})"
-    echo "  Entrée seule = garder l'actuel."
+    echo "  (token actuel : ${#__def} car., aperçu ${__def:0:8}…${__def: -6})"
   fi
-  echo "  Colle avec Ctrl+Shift+V (ou clic droit → Coller), puis Entrée."
-  echo "  Tu peux coller soit le token seul, soit toute la commande cloudflared."
-  echo -n "  › "
-  # read -r visible : le paste long fonctionne (contrairement à read -rs)
-  read -r __raw || true
-  __raw="$(printf '%s' "$__raw" | tr -d '\r' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
-  if [[ -z "$__raw" ]]; then
-    __tok="$__def"
-  else
-    __tok="$(extract_cloudflare_token "$__raw")"
+  echo "  1) Coller ici (Ctrl+Shift+V) puis Entrée"
+  echo "  2) Coller via fichier temporaire (recommandé si long / paste capricieux)"
+  if [[ -n "$__def" ]]; then
+    echo "  3) Garder le token actuel"
   fi
+  echo -n "  Mode [1]: "
+  read -r __mode || true
+  __mode="${__mode:-1}"
+
+  case "$__mode" in
+    3)
+      __tok="$__def"
+      ;;
+    2)
+      local tmp
+      tmp="$(mktemp)"
+      echo "  Ouvre un éditeur : colle le token (ou la commande), enregistre, quitte."
+      echo "  Fichier : $tmp"
+      ${EDITOR:-vi} "$tmp"
+      __raw="$(tr -d '\r\n' < "$tmp" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
+      rm -f "$tmp"
+      __tok="$(extract_cloudflare_token "$__raw")"
+      ;;
+    *)
+      echo "  Colle maintenant, puis Entrée :"
+      echo -n "  › "
+      # -e : autorise les séquences ; certains terminaux collent mieux ainsi
+      read -r __raw || true
+      __raw="$(printf '%s' "$__raw" | tr -d '\r' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
+      # Nettoie caractères non imprimables (copier-coller navigateur)
+      __raw="$(printf '%s' "$__raw" | tr -cd '\11\12\15\40-\176')"
+      __raw="$(printf '%s' "$__raw" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
+      if [[ -z "$__raw" ]]; then
+        __tok="$__def"
+      else
+        echo "  (reçu ${#__raw} caractères bruts)"
+        __tok="$(extract_cloudflare_token "$__raw")"
+      fi
+      ;;
+  esac
+
   if [[ -z "$__tok" ]]; then
-    warn "Rien de valide collé."
+    warn "Rien de valide collé (reçu ${#__raw} car. bruts)."
+    if [[ ${#__raw} -gt 0 ]]; then
+      echo "  Aperçu brut : [${__raw:0:40}…]"
+      echo "  Astuce : choisis le mode 2 (fichier) ou colle uniquement le token eyJ…"
+    fi
     printf -v "$__var" '%s' ""
     return 1
   fi
@@ -181,32 +213,52 @@ ask_paste_token() {
   printf -v "$__var" '%s' "$__tok"
 }
 
-# Extrait eyJ… depuis « cloudflared … --token eyJ… » ou « service install eyJ… »
+# Token CF = JSON en base64 (alphabet A-Za-z0-9+/=), souvent préfixé eyJ…
 extract_cloudflare_token() {
   local raw="$1"
-  # Déjà un JWT-like (commence souvent par eyJ)
-  if [[ "$raw" =~ ^eyJ[A-Za-z0-9_.+-]+=*$ ]] || [[ "$raw" =~ ^[A-Za-z0-9_-]{40,}$ ]]; then
+  local tok=""
+  # Charset base64 standard (+ / =) et URL-safe (- _)
+  local b64='[A-Za-z0-9_./+=-]'
+
+  # Déjà un token seul
+  if [[ "$raw" =~ ^eyJ${b64}+$ ]] || [[ "$raw" =~ ^${b64}{40,}$ ]]; then
     printf '%s' "$raw"
     return 0
   fi
+
   # --token VALUE ou --token=VALUE
-  if [[ "$raw" =~ --token(=|[[:space:]]+)([A-Za-z0-9_.+-]+) ]]; then
+  if [[ "$raw" =~ --token(=|[[:space:]]+)(${b64}+) ]]; then
     printf '%s' "${BASH_REMATCH[2]}"
     return 0
   fi
+
   # cloudflared service install TOKEN
-  if [[ "$raw" =~ service[[:space:]]+install[[:space:]]+([A-Za-z0-9_.+-]+) ]]; then
+  if [[ "$raw" =~ service[[:space:]]+install[[:space:]]+(${b64}+) ]]; then
     printf '%s' "${BASH_REMATCH[1]}"
     return 0
   fi
-  # Dernier « mot » long qui ressemble à un token
+
+  # Premier mot qui commence par eyJ (base64 JSON)
   local word
   for word in $raw; do
-    if [[ ${#word} -ge 40 ]] && [[ "$word" =~ ^[A-Za-z0-9_.+-]+$ ]]; then
+    word="${word//\"/}"
+    word="${word//\'/}"
+    if [[ "$word" =~ ^eyJ${b64}+$ ]]; then
       printf '%s' "$word"
       return 0
     fi
   done
+
+  # Dernier recours : plus long « mot » base64 >= 40
+  for word in $raw; do
+    word="${word//\"/}"
+    word="${word//\'/}"
+    if [[ ${#word} -ge 40 ]] && [[ "$word" =~ ^${b64}+$ ]]; then
+      printf '%s' "$word"
+      return 0
+    fi
+  done
+
   printf '%s' ""
   return 1
 }
