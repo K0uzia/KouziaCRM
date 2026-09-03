@@ -153,6 +153,42 @@ service_safe() {
   fi
 }
 
+# Arrête app + worker pour libérer le verrou SQLite (WAL).
+stop_app_stack() {
+  log "Arrêt app/worker (libération SQLite)…"
+  service_safe kouziacrm-worker stop
+  service_safe kouziacrm stop
+  local i
+  for ((i = 1; i <= 15; i++)); do
+    if ! pgrep -f "tsx.*(apps/api/src/index\\.ts|scripts/worker\\.ts)" >/dev/null 2>&1; then
+      break
+    fi
+    sleep 1
+  done
+  if pgrep -f "tsx.*(apps/api/src/index\\.ts|scripts/worker\\.ts)" >/dev/null 2>&1; then
+    warn "Processus tsx encore présents, kill…"
+    pkill -f "tsx.*apps/api/src/index\\.ts" 2>/dev/null || true
+    pkill -f "tsx.*scripts/worker\\.ts" 2>/dev/null || true
+    sleep 1
+  fi
+}
+
+# prisma migrate avec retry si "database is locked"
+prisma_migrate_deploy() {
+  local dir="${1:-$KOUZIA_APP_DIR}"
+  local attempt
+  for attempt in 1 2 3 4 5; do
+    if run_as_app "cd '$dir' && npx prisma migrate deploy"; then
+      ok "prisma migrate deploy OK"
+      return 0
+    fi
+    warn "migrate deploy échoué (tentative ${attempt}/5) : arrêt services + retry…"
+    stop_app_stack
+    sleep 2
+  done
+  die "prisma migrate deploy a échoué (SQLite locked ou erreur migration)."
+}
+
 disk_guard() {
   local path="$1" min_mb="${2:-500}"
   local avail

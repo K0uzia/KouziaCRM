@@ -93,9 +93,8 @@ echo "  prisma generate   : $([[ $NEED_PRISMA_GEN -eq 1 ]] && echo OUI || echo n
 echo "  build SPA         : $([[ $NEED_WEB -eq 1 ]] && echo OUI || echo non)"
 echo "  migrate deploy    : toujours"
 
-# --- 4. Arrêt court pour migrate (SQLite + WAL plus sûr à froid si grosse migrate) ---
-log "Arrêt worker (API reste up jusqu'au restart final)…"
-service_safe kouziacrm-worker stop
+# --- 4. Arrêt pour migrate (SQLite : API + worker doivent libérer le lock) ---
+stop_app_stack
 
 # --- 5. Dépendances ---
 if [[ "$NEED_DEPS" -eq 1 ]]; then
@@ -112,7 +111,7 @@ else
 fi
 
 log "prisma migrate deploy…"
-run_as_app "cd '$KOUZIA_APP_DIR' && npx prisma migrate deploy"
+prisma_migrate_deploy "$KOUZIA_APP_DIR"
 
 if [[ "$NEED_WEB" -eq 1 ]]; then
   log "Build SPA…"
@@ -123,7 +122,7 @@ fi
 
 # --- 6. Restart + health ---
 log "Redémarrage services…"
-service_safe kouziacrm restart
+service_safe kouziacrm start
 service_safe kouziacrm-worker start
 sleep 1
 if ! wait_health; then

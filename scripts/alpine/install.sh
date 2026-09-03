@@ -81,7 +81,7 @@ apk add --no-cache \
   nodejs npm \
   python3 make g++ linux-headers \
   ca-certificates tzdata \
-  logrotate shadow iproute2
+  logrotate shadow iproute2 procps
 
 # Node 20+ requis
 NODE_MAJOR="$(node -p "process.versions.node.split('.')[0]" 2>/dev/null || echo 0)"
@@ -199,12 +199,14 @@ if [[ ! -f "$KOUZIA_RSYNC_CONF" ]]; then
 fi
 
 # --- Dépendances Node + build ---
+# Réinstall : stopper les services avant migrate (évite "database is locked")
+stop_app_stack
 npm_ci_or_install "$KOUZIA_APP_DIR"
 log "Prisma generate + migrate deploy…"
-run_as_app "cd '$KOUZIA_APP_DIR' && npx prisma generate && npx prisma migrate deploy"
+run_as_app "cd '$KOUZIA_APP_DIR' && npx prisma generate"
+prisma_migrate_deploy "$KOUZIA_APP_DIR"
 if [[ "$SKIP_SEED" -eq 0 ]]; then
   if [[ -f "$KOUZIA_DB_PATH" ]] && [[ -s "$KOUZIA_DB_PATH" ]]; then
-    # Base déjà peuplée : seed idempotent ou skip
     log "Base existante détectée, seed (idempotent)…"
   fi
   run_as_app "cd '$KOUZIA_APP_DIR' && npm run db:seed" || warn "Seed échoué (compte admin déjà présent ?). Continuer."
