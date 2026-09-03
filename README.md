@@ -4,7 +4,7 @@ Outil privé de CRM et facturation pour **Alexandre Kouziaeff** (EI Kouzia)  -  
 
 Stack : **Fastify + Prisma + SQLite** (API) · **Vite + React + TypeScript + Tailwind + Font Awesome** (SPA).
 
-Hébergement cible : **Proxmox (LXC/VM)** + **SQLite** + **Cloudflare Tunnel**.
+Hébergement cible : **Proxmox CT Alpine** (natif OpenRC) ou Ubuntu+Docker + **SQLite** + **Cloudflare Tunnel**.
 
 ## Prérequis
 
@@ -116,6 +116,41 @@ Premier build : long (npm + build SPA). Mises à jour code seul : quelques minut
 
 ## Déploiement Proxmox + Cloudflare Tunnel
 
+### Recommandé : CT Alpine natif (sans Docker)
+
+Léger, OpenRC, mises à jour sans rebuild complet, backup SQLite + rsync offsite.
+
+Sur le CT Alpine 3.21+ (unprivileged OK) :
+
+```bash
+# Option A : depuis un clone déjà présent
+apk add bash git
+git clone https://github.com/K0uzia/KouziaCRM.git /opt/kouziacrm
+bash /opt/kouziacrm/scripts/alpine/install.sh
+
+# Option B : rsync depuis votre machine de dev, puis install sur le CT
+./scripts/alpine/deploy-rsync.sh root@CT_IP --skip-update
+ssh root@CT_IP 'bash /opt/kouziacrm/scripts/alpine/install.sh'
+```
+
+Puis :
+
+1. Éditer `/opt/kouziacrm/.env` (`WEB_ORIGIN`, SMTP, IMAP).
+2. Cloudflare Tunnel → `http://127.0.0.1:3000`.
+3. Optionnel : `/etc/kouzia/rsync.env` pour pousser les backups chiffrés hors du CT.
+
+| Commande | Rôle |
+|----------|------|
+| `kouziactl status` | Services, health, disque, backups |
+| `kouziactl update` | Update incrémental (npm/build seulement si besoin) |
+| `kouziactl update --git` | `git pull` + update |
+| `./scripts/alpine/deploy-rsync.sh user@ct` | Depuis le PC : rsync code + update distant |
+| `kouziactl backup` / `restore` | Backup GPG + rsync / restore |
+
+Détails : `scripts/alpine/` (install, update, backup, restore, OpenRC, conf rsync).
+
+### Alternative : LXC Ubuntu + Docker
+
 1. LXC Ubuntu 24.04 + Docker.
 2. Cloner dans `/opt/kouziacrm`, renseigner `.env` :
    - `WEB_ORIGIN=https://gestion.<domaine>`
@@ -131,32 +166,61 @@ Premier build : long (npm + build SPA). Mises à jour code seul : quelques minut
 Le backup utilise l'API SQLite (`.backup`) qui gère correctement le mode WAL,
 contrairement à un `cp` brut qui peut produire un fichier incohérent.
 
-### Mise en place (une seule fois, sur l'hôte Proxmox)
+# Mise en place (une seule fois)
+
+Alpine (fait par install.sh) : passphrase dans `/etc/kouzia/backup-pass`,
+backups dans `/var/backup/kouzia`, cron `/etc/periodic/daily/kouzia-backup`.
+
+Docker / Ubuntu hôte Proxmox :
 
 ```bash
-apt install sqlite3 gnupg
+apt install sqlite3 gnupg rsync
 echo "passphrase-forte-aleatoire" | sudo tee /etc/kouzia-backup-pass >/dev/null
 sudo chmod 600 /etc/kouzia-backup-pass
+# Optionnel offsite : cp scripts/alpine/conf/rsync.env.example /etc/kouzia/rsync.env
 ```
 
-### Cron quotidien (crontab -e)
+### Cron quotidien
+
+Alpine : déjà via `/etc/periodic/daily` (crond).
+
+Docker / Ubuntu (`crontab -e`) :
 
 ```
 0 2 * * * /opt/kouziacrm/scripts/backup.sh
 ```
 
-Le script :
+Le script Alpine (`kouziactl backup`) :
 - fait un `sqlite3 .backup` (cohérent, gère le WAL)
 - vérifie `PRAGMA integrity_check`
 - chiffre en AES-256 via GPG (passphrase hors du repo)
-- copie dans `/backup/kouzia/kouziacrm-AAAA-MM-JJ.db.gpg`
+- archive meta (`.env` + migrations) et uploads si présents
+- copie dans `/var/backup/kouzia/kouziacrm-….db.gpg`
 - rotation automatique 30 jours
-- log dans `/var/log/kouzia-backup.log`
+- rsync optionnel vers cible distant
+- log dans `/var/log/kouzia/backup.log`
+
+Le script Docker (`scripts/backup.sh`) fait de même pour la DB (chemin
+`/backup/kouzia` par défaut) + rsync si `/etc/kouzia/rsync.env` est renseigné.
 
 Variables configurables (env) : `KOUZIA_DB_PATH`, `KOUZIA_BACKUP_DIR`,
 `KOUZIA_RETENTION_DAYS`, `KOUZIA_PASSPHRASE_FILE`, `KOUZIA_LOG_FILE`.
 
+Rsync offsite (Docker ou Alpine) : créer `/etc/kouzia/rsync.env` à partir de
+`scripts/alpine/conf/rsync.env.example` (`KOUZIA_RSYNC_TARGET=…`). Sur Alpine,
+préférer `kouziactl backup` (DB + meta `.env` + uploads, puis rsync).
+
 ### Restore (test mensuel conseillé)
+
+Alpine :
+
+```bash
+kouziactl restore /var/backup/kouzia/kouziacrm-2026-08-27.db.gpg
+# avec pièces jointes :
+kouziactl restore /var/backup/kouzia/….db.gpg --uploads /var/backup/kouzia/….uploads.tar.gz.gpg
+```
+
+Docker :
 
 ```bash
 cd /opt/kouziacrm
@@ -184,6 +248,8 @@ docker compose start app worker
 | `make app` | Build web + API qui sert la SPA |
 | `make worker` | Sync IMAP horaire |
 | `make db-deploy` / `make db-seed` | Base |
+| `make alpine-deploy HOST=user@ct` | Rsync + update incrémental vers CT Alpine |
+| `make alpine-status HOST=user@ct` | Status distant |
 
 ## Conformité MVP
 

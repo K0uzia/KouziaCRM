@@ -1,4 +1,4 @@
-.PHONY: setup dev app worker db-deploy db-seed build mailpit mailpit-stop
+.PHONY: setup dev app worker db-deploy db-seed build mailpit mailpit-stop alpine-deploy alpine-status
 
 setup:
 	cp -n .env.example .env || true
@@ -39,3 +39,12 @@ db-deploy:
 
 db-seed:
 	npm run db:seed
+
+# Déploiement vers CT Alpine (ex. make alpine-deploy HOST=root@10.0.0.50)
+alpine-deploy:
+	@test -n "$(HOST)" || (echo "Usage: make alpine-deploy HOST=user@ct-ip"; exit 1)
+	bash scripts/alpine/deploy-rsync.sh "$(HOST)"
+
+alpine-status:
+	@test -n "$(HOST)" || (echo "Usage: make alpine-status HOST=user@ct-ip"; exit 1)
+	ssh $(HOST) kouziactl status

@@ -1,0 +1,102 @@
+#!/usr/bin/env bash
+# Point d'entrée unifié KouziaCRM (Alpine / Proxmox CT).
+#
+# Installé dans /usr/local/bin/kouziactl par install.sh
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Si invoqué via /usr/local/bin, basculer vers le dépôt installé
+if [[ ! -f "${SCRIPT_DIR}/lib.sh" ]]; then
+  for candidate in \
+    "${KOUZIA_APP_DIR:-/opt/kouziacrm}/scripts/alpine" \
+    /opt/kouziacrm/scripts/alpine
+  do
+    if [[ -f "${candidate}/lib.sh" ]]; then
+      SCRIPT_DIR="$candidate"
+      break
+    fi
+  done
+fi
+[[ -f "${SCRIPT_DIR}/lib.sh" ]] || { echo "ERREUR: scripts alpine introuvables." >&2; exit 1; }
+
+# shellcheck source=lib.sh
+source "${SCRIPT_DIR}/lib.sh"
+
+usage() {
+  cat <<EOF
+${C_BOLD}kouziactl${C_RESET} - gestion KouziaCRM (Alpine CT)
+
+Usage: kouziactl <commande> [options]
+
+Commandes :
+  install   Installation complète (root)
+  update    Mise à jour code + deps sélectives + migrations
+  deploy    Alias de update (depuis machine distante via rsync, voir deploy-rsync.sh)
+  backup    Backup SQLite chiffré (+ rsync offsite si configuré)
+  restore   Restauration d'un backup .db.gpg
+  status    État services, disque, healthcheck, dernière migration
+  logs      Dernières lignes des logs (app|worker|backup)
+  restart   Redémarre app + worker
+  stop      Arrête app + worker
+  start     Démarre app + worker
+  migrate   prisma migrate deploy seul
+  help      Cette aide
+
+Exemples :
+  kouziactl update
+  kouziactl update --git
+  kouziactl backup
+  kouziactl restore /var/backup/kouzia/kouziacrm-2026-09-03.db.gpg
+  kouziactl logs app
+EOF
+}
+
+cmd="${1:-help}"
+shift || true
+
+case "$cmd" in
+  install)  exec bash "${SCRIPT_DIR}/install.sh" "$@" ;;
+  update)   exec bash "${SCRIPT_DIR}/update.sh" "$@" ;;
+  deploy)   exec bash "${SCRIPT_DIR}/update.sh" "$@" ;;
+  backup)   exec bash "${SCRIPT_DIR}/backup.sh" "$@" ;;
+  restore)  exec bash "${SCRIPT_DIR}/restore.sh" "$@" ;;
+  status)   exec bash "${SCRIPT_DIR}/status.sh" "$@" ;;
+  logs)
+    which="${1:-app}"
+    case "$which" in
+      app)    tail -n "${2:-80}" "${KOUZIA_LOG_DIR}/app.log" ;;
+      worker) tail -n "${2:-80}" "${KOUZIA_LOG_DIR}/worker.log" ;;
+      backup) tail -n "${2:-80}" "${KOUZIA_LOG_DIR}/backup.log" ;;
+      *) die "logs: app|worker|backup" ;;
+    esac
+    ;;
+  restart)
+    require_root
+    service_safe kouziacrm restart
+    service_safe kouziacrm-worker restart
+    wait_health
+    ;;
+  stop)
+    require_root
+    service_safe kouziacrm-worker stop
+    service_safe kouziacrm stop
+    ;;
+  start)
+    require_root
+    service_safe kouziacrm start
+    service_safe kouziacrm-worker start
+    wait_health
+    ;;
+  migrate)
+    require_cmd npx
+    cd "$KOUZIA_APP_DIR"
+    if [[ "$(id -u)" -eq 0 ]]; then
+      run_as_app "cd '$KOUZIA_APP_DIR' && npx prisma migrate deploy"
+    else
+      npx prisma migrate deploy
+    fi
+    ;;
+  help|-h|--help) usage ;;
+  *) die "Commande inconnue: $cmd (kouziactl help)" ;;
+esac

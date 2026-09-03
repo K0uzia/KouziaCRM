@@ -1,0 +1,34 @@
+#!/sbin/openrc-run
+# OpenRC : worker KouziaCRM (IMAP + cron métier via node-cron)
+# conf.d : /etc/conf.d/kouziacrm-worker
+
+description="KouziaCRM worker (IMAP / relances)"
+
+: "${KOUZIA_APP_DIR:=/opt/kouziacrm}"
+: "${KOUZIA_USER:=kouzia}"
+: "${KOUZIA_GROUP:=kouzia}"
+
+name="kouziacrm-worker"
+command="${KOUZIA_APP_DIR}/node_modules/.bin/tsx"
+command_args="--env-file=${KOUZIA_APP_DIR}/.env --tsconfig apps/api/tsconfig.json scripts/worker.ts"
+command_user="${KOUZIA_USER}:${KOUZIA_GROUP}"
+directory="${KOUZIA_APP_DIR}"
+pidfile="/run/${RC_SVCNAME}.pid"
+command_background=true
+
+output_log="/var/log/kouzia/worker.log"
+error_log="/var/log/kouzia/worker.err"
+
+depend() {
+  need net
+  after kouziacrm
+  use kouziacrm
+}
+
+start_pre() {
+  checkpath -d -o "${KOUZIA_USER}:${KOUZIA_GROUP}" -m 0750 /var/log/kouzia
+  if [ ! -x "$command" ]; then
+    eerror "tsx introuvable: $command"
+    return 1
+  fi
+}

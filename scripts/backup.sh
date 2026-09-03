@@ -79,3 +79,29 @@ find "$BACKUP_DIR" -name 'kouziacrm-*.db.gpg' -mtime "+${RETENTION_DAYS}" -delet
 SIZE="$(stat -c %s "$ENC_FILE" 2>/dev/null || stat -f %z "$ENC_FILE")"
 COUNT="$(find "$BACKUP_DIR" -name 'kouziacrm-*.db.gpg' | wc -l | tr -d ' ')"
 log "OK: $ENC_FILE ($(( SIZE / 1024 )) Ko) : $COUNT backup(s) conservé(s)"
+
+# Rsync offsite optionnel (même conf que scripts/alpine : /etc/kouzia/rsync.env).
+RSYNC_CONF="${KOUZIA_RSYNC_CONF:-/etc/kouzia/rsync.env}"
+if [[ -f "$RSYNC_CONF" ]]; then
+  # shellcheck disable=SC1090
+  set -a
+  # shellcheck source=/dev/null
+  source "$RSYNC_CONF"
+  set +a
+fi
+if [[ -n "${KOUZIA_RSYNC_TARGET:-}" ]]; then
+  if ! command -v rsync >/dev/null 2>&1; then
+    log "WARN: KOUZIA_RSYNC_TARGET défini mais rsync absent"
+  else
+    RSYNC_OPTS=(-az --timeout=60)
+    if [[ -n "${KOUZIA_RSYNC_SSH:-}" ]]; then
+      RSYNC_OPTS+=(-e "$KOUZIA_RSYNC_SSH")
+    fi
+    if [[ "${KOUZIA_RSYNC_DELETE:-0}" == "1" ]]; then
+      RSYNC_OPTS+=(--delete)
+    fi
+    log "Rsync -> $KOUZIA_RSYNC_TARGET"
+    rsync "${RSYNC_OPTS[@]}" "${BACKUP_DIR}/" "$KOUZIA_RSYNC_TARGET"
+    log "Rsync OK"
+  fi
+fi
