@@ -16,18 +16,50 @@ source "${SCRIPT_DIR}/lib.sh"
 SUMMARY_ONLY=0
 SKIP_RESTART=0
 NEED_WEB_REBUILD=0
+# Section: all | access | admin | site | mail | cloudflare | rsync
+SECTION="all"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --summary-only) SUMMARY_ONLY=1; shift ;;
     --skip-restart) SKIP_RESTART=1; shift ;;
+    --section)
+      SECTION="$2"
+      shift 2
+      ;;
+    all|access|admin|site|public|mail|email|smtp|cloudflare|tunnel|rsync)
+      SECTION="$1"
+      shift
+      ;;
     -h|--help)
-      echo "Usage: configure.sh [--summary-only] [--skip-restart]"
+      cat <<EOF
+Usage: configure.sh [section] [--skip-restart] [--summary-only]
+
+Sections :
+  all          Assistant complet (défaut)
+  access       WEB_ORIGIN, API_PORT, COOKIE_SECURE / TRUST_PROXY
+  admin        Email + mot de passe admin (+ seed)
+  site         PUBLIC_WEB_ORIGIN, CLIENT_PORTAL_URL, VITE_PUBLIC_SITE_URL
+  mail         SMTP / IMAP
+  cloudflare   Token tunnel + service cloudflared
+  rsync        Cible backup offsite
+
+Exemples :
+  configure.sh
+  configure.sh cloudflare
+  configure.sh --section admin
+EOF
       exit 0
       ;;
-    *) die "Option inconnue: $1" ;;
+    *) die "Option/section inconnue: $1 (configure.sh --help)" ;;
   esac
 done
+
+case "$SECTION" in
+  public) SECTION="site" ;;
+  email|smtp) SECTION="mail" ;;
+  tunnel) SECTION="cloudflare" ;;
+esac
 
 ENV_FILE="${KOUZIA_APP_DIR}/.env"
 
@@ -364,18 +396,21 @@ configure_mail() {
 }
 
 configure_cloudflare() {
+  local standalone="${1:-0}"
   section "Cloudflare Tunnel (pour exposer l'API à kouzia.com)" \
     "Zero Trust → Tunnels → hostname public → http://127.0.0.1:$(env_get API_PORT "$KOUZIA_API_PORT")"
 
-  if [[ "$PROFILE" != "tunnel" ]]; then
-    if ! yesno "Configurer un tunnel Cloudflare quand même ?" "n"; then
-      warn "Tunnel skip. Backups / admin restent en LAN."
-      return 0
-    fi
-  else
-    if ! yesno "Configurer le token Cloudflare maintenant ?" "y"; then
-      warn "Tunnel reporté. Relancer : kouziactl configure"
-      return 0
+  if [[ "$standalone" != "1" ]]; then
+    if [[ "${PROFILE:-lan}" != "tunnel" ]]; then
+      if ! yesno "Configurer un tunnel Cloudflare quand même ?" "n"; then
+        warn "Tunnel skip. Backups / admin restent en LAN."
+        return 0
+      fi
+    else
+      if ! yesno "Configurer le token Cloudflare maintenant ?" "y"; then
+        warn "Tunnel reporté. Relancer : kouziactl cloudflare"
+        return 0
+      fi
     fi
   fi
 
@@ -485,22 +520,105 @@ require_root
 [[ -f "$ENV_FILE" ]] || die ".env manquant: $ENV_FILE (lancer l'install d'abord)"
 
 PROFILE="lan"
+DO_RESTART=0
 
-echo ""
-echo "${C_BOLD}════════════════════════════════════════${C_RESET}"
-echo "${C_BOLD}  Assistant configuration KouziaCRM${C_RESET}"
-echo "${C_BOLD}════════════════════════════════════════${C_RESET}"
-print_access
+run_full_wizard() {
+  echo ""
+  echo "${C_BOLD}════════════════════════════════════════${C_RESET}"
+  echo "${C_BOLD}  Assistant configuration KouziaCRM${C_RESET}"
+  echo "${C_BOLD}════════════════════════════════════════${C_RESET}"
+  print_access
+  choose_profile
+  configure_access
+  configure_admin
+  configure_public_site
+  configure_mail
+  configure_cloudflare 0
+  configure_rsync
+  maybe_rebuild_web
+  restart_stack
+  print_summary
+  ok "Configuration terminée. Ouvre l'ERP avec l'URL LAN ci-dessus."
+}
 
-choose_profile
-configure_access
-configure_admin
-configure_public_site
-configure_mail
-configure_cloudflare
-configure_rsync
-maybe_rebuild_web
-restart_stack
-print_summary
+run_section() {
+  echo ""
+  echo "${C_BOLD}Configuration : ${SECTION}${C_RESET}"
+  print_access
+  case "$SECTION" in
+    access)
+      # Déduire un profil minimal pour COOKIE/TRUST defaults
+      if [[ "$(env_get TRUST_PROXY "false")" == "true" ]] || [[ -n "$(env_get CLOUDFLARE_TUNNEL_TOKEN "")" ]]; then
+        PROFILE="tunnel"
+      else
+        PROFILE="lan"
+      fi
+      configure_access
+      DO_RESTART=1
+      ;;
+    admin)
+      configure_admin
+      DO_RESTART=1
+      ;;
+    site)
+      configure_public_site
+      maybe_rebuild_web
+      DO_RESTART=1
+      ;;
+    mail)
+      # Forcer la config mail (pas de yesno skip en mode section)
+      section "Email (SMTP / IMAP)" \
+        "Laisser un champ vide pour effacer / désactiver."
+      local smtp_host smtp_port smtp_secure smtp_user smtp_pass smtp_from
+      local imap_host imap_port imap_user imap_pass
+      echo "  SMTP (envoi) :"
+      ask smtp_host "SMTP_HOST" "$(env_get SMTP_HOST "")"
+      ask smtp_port "SMTP_PORT" "$(env_get SMTP_PORT "465")"
+      ask smtp_secure "SMTP_SECURE (true/false)" "$(env_get SMTP_SECURE "true")"
+      ask smtp_user "SMTP_USER" "$(env_get SMTP_USER "")"
+      ask_secret smtp_pass "SMTP_PASS" "$(env_get SMTP_PASS "")"
+      ask smtp_from "SMTP_FROM" "$(env_get SMTP_FROM "KOUZIA <contact@kouzia.com>")"
+      echo "  IMAP (réception, worker) :"
+      ask imap_host "IMAP_HOST" "$(env_get IMAP_HOST "")"
+      ask imap_port "IMAP_PORT" "$(env_get IMAP_PORT "993")"
+      ask imap_user "IMAP_USER" "$(env_get IMAP_USER "")"
+      ask_secret imap_pass "IMAP_PASS" "$(env_get IMAP_PASS "")"
+      env_set SMTP_HOST "$smtp_host"
+      env_set SMTP_PORT "$smtp_port"
+      env_set SMTP_SECURE "$smtp_secure"
+      env_set SMTP_USER "$smtp_user"
+      env_set SMTP_PASS "$smtp_pass"
+      env_set SMTP_FROM "$smtp_from"
+      env_set IMAP_HOST "$imap_host"
+      env_set IMAP_PORT "$imap_port"
+      env_set IMAP_SECURE "true"
+      env_set IMAP_USER "$imap_user"
+      env_set IMAP_PASS "$imap_pass"
+      env_set IMAP_MAILBOX "INBOX"
+      ok "Email enregistré"
+      DO_RESTART=1
+      ;;
+    cloudflare)
+      configure_cloudflare 1
+      DO_RESTART=1
+      ;;
+    rsync)
+      configure_rsync
+      ;;
+    *)
+      die "Section inconnue: $SECTION"
+      ;;
+  esac
 
-ok "Configuration terminée. Ouvre l'ERP avec l'URL LAN ci-dessus."
+  if [[ "$DO_RESTART" -eq 1 ]]; then
+    restart_stack
+  fi
+  print_summary
+  ok "Section « ${SECTION} » terminée."
+}
+
+if [[ "$SECTION" == "all" ]]; then
+  run_full_wizard
+else
+  run_section
+fi

@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # Point d'entrée unifié KouziaCRM (Alpine / Proxmox CT).
 #
-#   kouziactl          → menu interactif
-#   kouziactl <cmd>    → commande directe
+#   kouziactl              → menu interactif
+#   kouziactl <cmd>        → commande directe
+#   kouziactl cloudflare   → reconfigurer Cloudflare seul
 # Installé dans /usr/local/bin/kouziactl par install.sh
 
 set -euo pipefail
@@ -32,28 +33,39 @@ Usage:
   kouziactl                 Menu interactif
   kouziactl <commande> …    Commande directe
 
-Commandes :
-  install     Installation / réinstallation complète (root)
-  configure   Assistant .env + Cloudflare + rsync + récap IP
-  summary     Récap accès (IP, status, config)
-  update      Mise à jour code + deps sélectives + migrations
-  backup      Backup SQLite chiffré (+ rsync offsite si configuré)
-  restore     Restauration d'un backup .db.gpg
-  status      État services, disque, healthcheck
-  logs        Dernières lignes (app|worker|backup)
-  restart     Redémarre app + worker
-  stop        Arrête app + worker
-  start       Démarre app + worker
-  migrate     prisma migrate deploy
-  menu        Menu interactif
-  help        Cette aide
+Commandes générales :
+  install       Installation / réinstallation complète (root)
+  configure     Assistant complet (toutes les étapes)
+  summary       Récap accès (IP, status, config)
+  update        Mise à jour code + deps sélectives + migrations
+  backup        Backup SQLite chiffré (+ rsync offsite si configuré)
+  restore       Restauration d'un backup .db.gpg
+  status        État services, disque, healthcheck
+  logs          Dernières lignes (app|worker|backup)
+  restart       Redémarre app + worker
+  stop / start  Arrête / démarre app + worker
+  migrate       prisma migrate deploy
+  help          Cette aide
+
+Configuration par section (rejouable à tout moment) :
+  access        WEB_ORIGIN, API_PORT, cookies / proxy
+  admin         Email + mot de passe admin ERP
+  site          Site public kouzia.com (CORS, /suivi, VITE_*)
+  mail          SMTP / IMAP
+  cloudflare    Token tunnel + service cloudflared
+  rsync         Cible backup offsite
 
 Exemples :
   kouziactl
+  kouziactl cloudflare
+  kouziactl admin
   kouziactl configure
-  kouziactl summary
   kouziactl update --git
 EOF
+}
+
+run_configure_section() {
+  bash "${SCRIPT_DIR}/configure.sh" "$1" "$@"
 }
 
 run_cmd() {
@@ -64,9 +76,19 @@ run_cmd() {
       KOUZIA_FORCE_INSTALL=1 bash "${SCRIPT_DIR}/install.sh" --yes "$@"
       ;;
     configure|config|wizard)
-      bash "${SCRIPT_DIR}/configure.sh" "$@"
+      bash "${SCRIPT_DIR}/configure.sh" all "$@"
       ;;
-    summary|access)
+    access|admin|site|public|mail|email|smtp|cloudflare|tunnel|rsync)
+      # Alias
+      local section="$cmd"
+      case "$cmd" in
+        public) section="site" ;;
+        email|smtp) section="mail" ;;
+        tunnel) section="cloudflare" ;;
+      esac
+      bash "${SCRIPT_DIR}/configure.sh" "$section" "$@"
+      ;;
+    summary|access-summary)
       bash "${SCRIPT_DIR}/configure.sh" --summary-only
       ;;
     update|deploy)
@@ -131,6 +153,37 @@ prompt_restore() {
   run_cmd restore "$f"
 }
 
+show_config_menu() {
+  while true; do
+    echo ""
+    echo "${C_BOLD}── Configuration ──${C_RESET}"
+    echo "  1) Assistant complet"
+    echo "  2) Accès admin (WEB_ORIGIN / port)"
+    echo "  3) Compte admin (email / mot de passe)"
+    echo "  4) Site kouzia.com"
+    echo "  5) Email SMTP / IMAP"
+    echo "  6) Cloudflare Tunnel"
+    echo "  7) Rsync offsite"
+    echo "  8) Récap"
+    echo "  b) Retour"
+    echo -n "Choix: "
+    local c
+    read -r c
+    case "$c" in
+      1) run_cmd configure ;;
+      2) run_cmd access ;;
+      3) run_cmd admin ;;
+      4) run_cmd site ;;
+      5) run_cmd mail ;;
+      6) run_cmd cloudflare ;;
+      7) run_cmd rsync ;;
+      8) run_cmd summary ;;
+      b|B|q|Q) return ;;
+      *) warn "Choix invalide" ;;
+    esac
+  done
+}
+
 show_menu() {
   while true; do
     echo ""
@@ -138,7 +191,7 @@ show_menu() {
     echo "${C_BOLD}  KouziaCRM  -  menu Alpine CT${C_RESET}"
     echo "${C_BOLD}══════════════════════════════════════${C_RESET}"
     echo "  1) Installer / réinstaller"
-    echo "  2) Configurer (.env / Cloudflare / rsync)"
+    echo "  2) Configuration (sous-menu)"
     echo "  3) Récap accès (IP / status)"
     echo "  4) Mettre à jour (incrémental)"
     echo "  5) Mettre à jour + git pull"
@@ -163,7 +216,7 @@ show_menu() {
         [[ "$conf" == "y" || "$conf" == "Y" ]] || { warn "Annulé."; continue; }
         run_cmd install
         ;;
-      2) run_cmd configure ;;
+      2) show_config_menu ;;
       3) run_cmd summary ;;
       4) run_cmd update ;;
       5) run_cmd update --git ;;

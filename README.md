@@ -140,7 +140,8 @@ Puis :
 | Commande | Rôle |
 |----------|------|
 | `kouziactl` / menu | Install, config, update, backup… |
-| `kouziactl configure` | Assistant .env + Cloudflare + rsync + récap IP |
+| `kouziactl configure` | Assistant complet |
+| `kouziactl access` / `admin` / `site` / `mail` / `cloudflare` / `rsync` | Reconfigurer une section seule |
 | `kouziactl summary` | Affiche IP LAN, URL, status |
 | `kouziactl update` | Update incrémental (npm/build seulement si besoin) |
 | `kouziactl update --git` | `git pull` + update |
