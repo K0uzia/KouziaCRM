@@ -125,12 +125,12 @@ export type SettingsTabId =
   | "legal";
 
 export const SETTINGS_TABS: Array<{ id: SettingsTabId; label: string }> = [
-  { id: "general", label: "Général" },
-  { id: "email", label: "Emails & Messagerie" },
+  { id: "general", label: "Identité" },
+  { id: "email", label: "Emails" },
   { id: "payments", label: "Paiements" },
   { id: "reminders", label: "Rappels" },
-  { id: "identity", label: "Identité & Documents" },
+  { id: "identity", label: "Charte PDF" },
   { id: "numbering", label: "Numérotation" },
-  { id: "declarations", label: "Déclarations" },
-  { id: "legal", label: "Conditions générales" },
+  { id: "declarations", label: "Fiscalité" },
+  { id: "legal", label: "Mentions légales" },
 ];

@@ -570,9 +570,9 @@ export function SettingsPage() {
   }
 
   const SaveBar = ({ onSave }: { onSave: () => void }) => (
-    <div className="flex justify-end border-t border-[var(--border)] pt-4">
+    <div className="sticky bottom-0 z-10 -mx-1 flex justify-end border-t border-[var(--border)] bg-[var(--bg)]/95 px-1 py-3 backdrop-blur-sm">
       <Button type="button" disabled={busy} onClick={() => void onSave()}>
-        {busy ? "Enregistrement…" : "Enregistrer"}
+        {busy ? "Enregistrement…" : "Enregistrer cet onglet"}
       </Button>
     </div>
   );
@@ -581,7 +581,7 @@ export function SettingsPage() {
     <div>
       <PageHeader
         title="Paramètres"
-        subtitle="Configuration par onglet : identité, emails Hostinger, paiements, charte"
+        subtitle="Un onglet = un thème. Enregistrez avant de changer d'onglet."
         actions={busy ? <span className="text-xs text-[var(--muted)]">Enregistrement…</span> : null}
       />
 
@@ -590,7 +590,13 @@ export function SettingsPage() {
 
         <div className="min-w-0 flex-1 space-y-4">
           {tab === "general" ? (
-            <Card className="space-y-4 border border-[var(--border)] p-5">
+            <Card className="space-y-5 border border-[var(--border)] p-5">
+              <div>
+                <h2 className="text-base font-semibold">Identité de l&apos;entreprise</h2>
+                <p className="mt-1 text-xs text-[var(--muted)]">
+                  SIREN, adresse, contacts. Utilisé sur les PDF et le portail client.
+                </p>
+              </div>
               <div className="flex flex-wrap gap-2">
                 <Input
                   className="min-w-[240px] flex-1"
@@ -645,74 +651,86 @@ export function SettingsPage() {
                     onChange={(e) => setForm({ ...form, vatIntraNumber: e.target.value || null })}
                   />
                 </Field>
-                <Field label="Email de contact">
-                  <Input
-                    type="email"
-                    value={form.email ?? ""}
-                    onChange={(e) => setForm({ ...form, email: e.target.value || null })}
-                  />
-                </Field>
-                <Field label="Téléphone">
-                  <Input
-                    value={form.phone ?? ""}
-                    onChange={(e) => setForm({ ...form, phone: e.target.value || null })}
-                  />
-                </Field>
-                <Field label="Site web">
-                  <Input
-                    value={form.website ?? ""}
-                    onChange={(e) => setForm({ ...form, website: e.target.value || null })}
-                  />
-                </Field>
-                <Field label="URL du portail client">
-                  <Input
-                    className="sm:col-span-2"
-                    placeholder="https://kouzia.com/suivi"
-                    value={form.clientPortalUrl ?? ""}
-                    onChange={(e) =>
-                      setForm({ ...form, clientPortalUrl: e.target.value || null })
-                    }
-                  />
-                </Field>
               </div>
-              {addressValue ? (
-                <AddressAutocomplete
-                  value={addressValue}
-                  onChange={(next) =>
-                    setForm({
-                      ...form,
-                      addressLine1: next.addressLine1,
-                      addressLine2: next.addressLine2 || null,
-                      postalCode: next.postalCode,
-                      city: next.city,
-                      country: next.country,
-                    })
-                  }
-                />
-              ) : null}
-              <div className="grid gap-4 sm:grid-cols-3">
-                <Field label="Assurance décennale : assureur">
-                  <Input
-                    value={form.decennaleInsurer ?? ""}
-                    onChange={(e) => setForm({ ...form, decennaleInsurer: e.target.value || null })}
-                  />
-                </Field>
-                <Field label="N° de police">
-                  <Input
-                    value={form.decennalePolicyNumber ?? ""}
-                    onChange={(e) =>
-                      setForm({ ...form, decennalePolicyNumber: e.target.value || null })
+
+              <div className="border-t border-[var(--border)] pt-5">
+                <h3 className="mb-3 text-sm font-semibold">Coordonnées</h3>
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <Field label="Email de contact">
+                    <Input
+                      type="email"
+                      value={form.email ?? ""}
+                      onChange={(e) => setForm({ ...form, email: e.target.value || null })}
+                    />
+                  </Field>
+                  <Field label="Téléphone">
+                    <Input
+                      value={form.phone ?? ""}
+                      onChange={(e) => setForm({ ...form, phone: e.target.value || null })}
+                    />
+                  </Field>
+                  <Field label="Site web">
+                    <Input
+                      value={form.website ?? ""}
+                      onChange={(e) => setForm({ ...form, website: e.target.value || null })}
+                    />
+                  </Field>
+                  <Field label="URL du portail client">
+                    <Input
+                      placeholder="https://kouzia.fr/suivi"
+                      value={form.clientPortalUrl ?? ""}
+                      onChange={(e) =>
+                        setForm({ ...form, clientPortalUrl: e.target.value || null })
+                      }
+                    />
+                  </Field>
+                </div>
+              </div>
+
+              <div className="border-t border-[var(--border)] pt-5">
+                {addressValue ? (
+                  <AddressAutocomplete
+                    value={addressValue}
+                    onChange={(next) =>
+                      setForm({
+                        ...form,
+                        addressLine1: next.addressLine1,
+                        addressLine2: next.addressLine2 || null,
+                        postalCode: next.postalCode,
+                        city: next.city,
+                        country: next.country,
+                      })
                     }
                   />
-                </Field>
-                <Field label="Zone de couverture">
-                  <Input
-                    value={form.decennaleCoverageZone ?? ""}
-                    onChange={(e) =>
-                      setForm({ ...form, decennaleCoverageZone: e.target.value || null })
-                    }
-                  />
-                </Field>
+                ) : null}
+              </div>
+
+              <div className="border-t border-[var(--border)] pt-5">
+                <h3 className="mb-3 text-sm font-semibold">Assurance (optionnel)</h3>
+                <div className="grid gap-4 sm:grid-cols-3">
+                  <Field label="Décennale : assureur">
+                    <Input
+                      value={form.decennaleInsurer ?? ""}
+                      onChange={(e) => setForm({ ...form, decennaleInsurer: e.target.value || null })}
+                    />
+                  </Field>
+                  <Field label="N° de police">
+                    <Input
+                      value={form.decennalePolicyNumber ?? ""}
+                      onChange={(e) =>
+                        setForm({ ...form, decennalePolicyNumber: e.target.value || null })
+                      }
+                    />
+                  </Field>
+                  <Field label="Zone de couverture">
+                    <Input
+                      value={form.decennaleCoverageZone ?? ""}
+                      onChange={(e) =>
+                        setForm({ ...form, decennaleCoverageZone: e.target.value || null })
+                      }
+                    />
+                  </Field>
+                </div>
               </div>
               <label className="flex items-center gap-2 text-sm">
                 <input
@@ -1547,8 +1565,15 @@ export function SettingsPage() {
 
           {tab === "legal" ? (
             <section className="space-y-4">
-              <div className="flex items-center justify-between gap-2">
-                <h2 className="text-base font-semibold">Conditions générales (PDF)</h2>
+              <div className="flex flex-wrap items-start justify-between gap-2">
+                <div>
+                  <h2 className="text-base font-semibold">Mentions légales (PDF)</h2>
+                  <p className="mt-1 max-w-xl text-xs text-[var(--muted)]">
+                    Affichées en bas des devis et factures. La clause sur la facturation
+                    électronique EI (jusqu&apos;au 1er sept. 2027) est ajoutée automatiquement
+                    au démarrage si absente.
+                  </p>
+                </div>
                 <Button
                   type="button"
                   variant="secondary"
