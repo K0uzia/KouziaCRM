@@ -91,8 +91,9 @@ Général :
   install / configure / summary / status / help
 
 Mise à jour :
-  update            Incrémental (code déjà sur le CT, pas de git pull)
-  update --git      git pull puis incrémental
+  update            git pull (si .git) + incrémental + migrate + SPA
+  update --no-git   sans git pull (code déjà sur le CT)
+  update --force    force npm ci + rebuild SPA
 
 Config (rejouable) :
   access | admin | site | mail | cloudflare | rsync
@@ -101,10 +102,7 @@ Services / data :
   start | stop | restart | logs [app|worker|backup]
   backup | restore | migrate
 
-Différence maj :
-  incrémentale  = applique le code déjà présent (rsync/manuel),
-                  npm/build seulement si lock ou front a changé
-  + git pull    = récupère d'abord origin/main, puis même logique
+Défaut update = git pull si dépôt présent, puis npm/build si changé.
 EOF
 }
 
@@ -240,30 +238,23 @@ show_update_menu() {
     menu_clear_hint
     menu_box "Mise à jour"
     echo ""
-    echo "  ${C_BOLD}Incrémentale${C_RESET}"
-    echo "    Utilise le code déjà sur le CT (après rsync ou édité à la main)."
-    echo "    → npm ci seulement si package-lock a changé"
-    echo "    → rebuild SPA seulement si le front a changé"
-    echo "    → migrations Prisma toujours"
-    echo "    → pas de git pull"
+    echo "  ${C_BOLD}Recommandé${C_RESET} : une seule commande fait tout"
+    echo "    backup → arrêt services → git pull → npm si besoin"
+    echo "    → prisma migrate → rebuild SPA si besoin → restart"
     echo ""
-    echo "  ${C_BOLD}+ git pull${C_RESET}"
-    echo "    git pull --ff-only sur origin, puis exactement la même logique."
-    echo "    → à utiliser si le CT suit le dépôt GitHub"
-    echo ""
-    menu_item "1" "Incrémentale" "code déjà là (rsync / local)"
-    menu_item "2" "git pull + incrémentale" "récupère GitHub puis applique"
-    menu_item "3" "Forcer npm + rebuild" "update --force (deps + SPA)"
+    menu_item "1" "Mettre à jour" "GitHub + migrate + SPA (défaut)"
+    menu_item "2" "Local seulement" "sans git pull (rsync / édition manuelle)"
+    menu_item "3" "Forcer tout" "npm ci + rebuild SPA même sans diff"
     menu_back
     menu_prompt
     local c
     read -r c
     case "$c" in
-      1) run_cmd update; pause_enter ;;
-      2) run_cmd update --git; pause_enter ;;
+      1|"") run_cmd update --git; pause_enter ;;
+      2) run_cmd update --no-git; pause_enter ;;
       3)
-        if confirm_yn "Forcer npm ci + rebuild SPA ?"; then
-          run_cmd update --force
+        if confirm_yn "Forcer npm ci + rebuild SPA + git pull ?"; then
+          run_cmd update --git --force
           pause_enter
         fi
         ;;
@@ -347,7 +338,7 @@ show_menu() {
     menu_item "3" "Récap accès" "IP, URLs, status court"
 
     menu_section "Mise à jour & données"
-    menu_item "4" "Mise à jour…" "incrémentale ou + git pull"
+    menu_item "4" "Mettre à jour" "git pull + migrate + SPA (1 geste)"
     menu_item "5" "Sauvegardes…" "backup / restore / rsync"
 
     menu_section "Exploitation"
@@ -368,7 +359,7 @@ show_menu() {
         ;;
       2) show_config_menu ;;
       3) run_cmd summary; pause_enter ;;
-      4) show_update_menu ;;
+      4) run_cmd update --git; pause_enter ;;
       5) show_backup_menu ;;
       6) show_services_menu ;;
       7|h|H) usage; pause_enter ;;

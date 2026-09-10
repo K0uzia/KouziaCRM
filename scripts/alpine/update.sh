@@ -25,21 +25,31 @@ SKIP_BACKUP=0
 FORCE_DEPS=0
 FORCE_WEB=0
 FORCE_ALL=0
+GIT_EXPLICIT=0
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --git) DO_GIT=1; shift ;;
+    --git) DO_GIT=1; GIT_EXPLICIT=1; shift ;;
+    --no-git) DO_GIT=0; GIT_EXPLICIT=1; shift ;;
     --skip-backup) SKIP_BACKUP=1; shift ;;
     --force-deps) FORCE_DEPS=1; shift ;;
     --force-web) FORCE_WEB=1; shift ;;
     --force) FORCE_ALL=1; FORCE_DEPS=1; FORCE_WEB=1; shift ;;
     -h|--help)
-      echo "Usage: update.sh [--git] [--skip-backup] [--force-deps] [--force-web] [--force]"
+      echo "Usage: update.sh [--git|--no-git] [--skip-backup] [--force-deps] [--force-web] [--force]"
+      echo "  Défaut : git pull si $KOUZIA_APP_DIR/.git existe."
       exit 0
       ;;
     *) die "Option inconnue: $1" ;;
   esac
 done
+
+# Par défaut : pull GitHub si le CT suit le dépôt (évite 3 commandes manuelles).
+if [[ "$GIT_EXPLICIT" -eq 0 ]]; then
+  if [[ -d "${KOUZIA_APP_DIR}/.git" ]]; then
+    DO_GIT=1
+  fi
+fi
 
 require_root
 require_cmd curl sqlite3 npm npx
@@ -47,6 +57,11 @@ disk_guard "$KOUZIA_APP_DIR" 400
 [[ -f "${KOUZIA_APP_DIR}/package.json" ]] || die "App introuvable dans $KOUZIA_APP_DIR (lancer install.sh d'abord)."
 
 log "=== KouziaCRM : mise à jour ==="
+if [[ "$DO_GIT" -eq 1 ]]; then
+  log "Mode : git pull + incrémental"
+else
+  log "Mode : incrémental local (pas de git pull)"
+fi
 
 # --- 1. Backup pré-update ---
 if [[ "$SKIP_BACKUP" -eq 0 ]]; then
