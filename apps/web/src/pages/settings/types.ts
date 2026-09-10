@@ -76,6 +76,9 @@ export type PublicSettings = {
   depositPercent3Bps: number;
   paymentButtonLeadDays: number;
   projectMilestoneMidBps: number;
+  moduleBankEnabled: boolean;
+  moduleSubscriptionsEnabled: boolean;
+  moduleMerchantApiEnabled: boolean;
   reminderDepositMinus7Days: number;
   reminderDepositMinus1Days: number;
   reminderDepositPlus3Days: number;

@@ -12,6 +12,7 @@ import {
   faPlus,
 } from "@fortawesome/free-solid-svg-icons";
 import { api, formatEUR } from "@/lib/api";
+import { useFeatures } from "@/lib/features";
 import {
   invoiceStatusLabel,
   quoteStatusLabel,
@@ -49,7 +50,12 @@ type SearchResult = {
   services: SearchService[];
 };
 
-const NAV_ITEMS = [
+const NAV_ITEMS: Array<{
+  label: string;
+  to: string;
+  keywords: string;
+  feature?: "moduleBankEnabled" | "moduleSubscriptionsEnabled";
+}> = [
   { label: "Accueil", to: "/", keywords: "dashboard home" },
   { label: "Clients", to: "/clients", keywords: "activité contact" },
   { label: "Messages", to: "/inbox", keywords: "email mail activité" },
@@ -59,8 +65,18 @@ const NAV_ITEMS = [
   { label: "Encaissements", to: "/payments", keywords: "paiement facturation" },
   { label: "Livre de recettes", to: "/receipts", keywords: "registre facturation" },
   { label: "Tarifs", to: "/services", keywords: "prestation catalogue offre" },
-  { label: "Abonnements", to: "/abonnements", keywords: "récurrent mrr offre" },
-  { label: "Virements reçus", to: "/banque", keywords: "revolut banque finances" },
+  {
+    label: "Abonnements",
+    to: "/abonnements",
+    keywords: "récurrent mrr offre",
+    feature: "moduleSubscriptionsEnabled",
+  },
+  {
+    label: "Virements reçus",
+    to: "/banque",
+    keywords: "revolut banque finances",
+    feature: "moduleBankEnabled",
+  },
   { label: "Démarches à faire", to: "/obligations", keywords: "urssaf cfe finances" },
   { label: "Historique URSSAF", to: "/urssaf", keywords: "cotisations finances" },
   { label: "Réglages", to: "/settings", keywords: "entreprise" },
@@ -112,6 +128,10 @@ export function CommandPalette({
   onOpenChange: (v: boolean) => void;
 }) {
   const navigate = useNavigate();
+  const features = useFeatures();
+  const navItems = NAV_ITEMS.filter(
+    (item) => !item.feature || features[item.feature],
+  );
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<SearchResult>(EMPTY_RESULT);
   const [searching, setSearching] = useState(false);
@@ -272,7 +292,7 @@ export function CommandPalette({
           {!hasQuery ? (
             <>
               <Command.Group heading="Aller à" className={GROUP_CLASS}>
-                {NAV_ITEMS.map((item) => (
+                {navItems.map((item) => (
                   <Command.Item
                     key={item.to}
                     value={`${item.label} ${item.keywords}`}

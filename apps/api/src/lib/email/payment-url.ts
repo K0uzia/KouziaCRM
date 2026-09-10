@@ -56,6 +56,12 @@ export async function resolveInvoicePaymentUrl(
 
   if (milestone?.checkoutUrl) return milestone.checkoutUrl;
 
+  const { getCompanySettings } = await import("@/lib/company.js");
+  const settings = await getCompanySettings();
+  if (!settings.moduleMerchantApiEnabled) {
+    return null;
+  }
+
   if (
     milestone &&
     milestone.status !== MilestoneStatus.PAID &&

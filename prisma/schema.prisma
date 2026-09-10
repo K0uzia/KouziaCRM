@@ -351,6 +351,12 @@ model CompanySettings {
   reminderDepositPlus3Enabled  Boolean @default(true)
   reminderDepositPlus10Enabled Boolean @default(true)
 
+  /// Modules ERP (affichage nav + pages). Banque off par défaut (Revolut Pro sans API).
+  moduleBankEnabled          Boolean @default(false)
+  moduleSubscriptionsEnabled Boolean @default(true)
+  /// API Merchant Revolut (liens auto). Off = coller un lien Revolut Pro à la main.
+  moduleMerchantApiEnabled   Boolean @default(false)
+
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 }

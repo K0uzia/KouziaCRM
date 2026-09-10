@@ -1,8 +1,10 @@
 import { useEffect, useState, type FormEvent } from "react";
+import { Navigate } from "react-router-dom";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faPlus, faPlay, faPause, faStop, faPen, faSync } from "@fortawesome/free-solid-svg-icons";
 import { toast } from "sonner";
 import { api, formatEUR, formatDate } from "@/lib/api";
+import { useFeatures } from "@/lib/features";
 import { Button } from "@/components/ui/Button";
 import { Card, EmptyState, PageHeader, Badge } from "@/components/ui/Card";
 import { Modal } from "@/components/ui/Modal";
@@ -58,6 +60,7 @@ const emptyForm = {
 };
 
 export function SubscriptionsPage() {
+  const { moduleSubscriptionsEnabled, loading: featuresLoading } = useFeatures();
   const [rows, setRows] = useState<Subscription[]>([]);
   const [clients, setClients] = useState<Client[]>([]);
   const [services, setServices] = useState<Service[]>([]);
@@ -244,6 +247,10 @@ export function SubscriptionsPage() {
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Erreur");
     }
+  }
+
+  if (!featuresLoading && !moduleSubscriptionsEnabled) {
+    return <Navigate to="/services" replace />;
   }
 
   return (

@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, Navigate } from "react-router-dom";
 import { toast } from "sonner";
 import { api, formatEUR } from "@/lib/api";
+import { useFeatures } from "@/lib/features";
 import { bankStatusLabel, formatDate } from "@/lib/format";
 import { Button } from "@/components/ui/Button";
 import { Badge, Card, EmptyState, PageHeader } from "@/components/ui/Card";
@@ -70,6 +71,7 @@ function statusTone(status: BankTx["status"]): "green" | "amber" | "neutral" | "
 }
 
 export function BankPage() {
+  const { moduleBankEnabled, loading: featuresLoading } = useFeatures();
   const [data, setData] = useState<BankList | null>(null);
   const [fees, setFees] = useState<BankTx[]>([]);
   const [logs, setLogs] = useState<SyncLog[]>([]);
@@ -286,6 +288,10 @@ export function BankPage() {
       : null;
   const manualOverpay = manualDelta !== null && manualDelta > 0;
   const manualPartial = manualDelta !== null && manualDelta < 0;
+
+  if (!featuresLoading && !moduleBankEnabled) {
+    return <Navigate to="/settings?tab=payments" replace />;
+  }
 
   return (
     <div>

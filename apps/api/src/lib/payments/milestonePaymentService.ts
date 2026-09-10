@@ -131,11 +131,18 @@ export async function activateMilestoneCheckout(
     throw new MilestonePaymentError("Ce jalon est déjà réglé ou annulé", 409);
   }
 
-  if (milestone.checkoutUrl && milestone.revolutOrderId) {
+  if (milestone.checkoutUrl) {
     return milestone;
   }
 
   const settings = await getCompanySettings();
+  if (!settings.moduleMerchantApiEnabled) {
+    throw new MilestonePaymentError(
+      "API Merchant désactivée. Collez un lien Revolut Pro sur le jalon (Paramètres > Paiements).",
+      400,
+    );
+  }
+
   const quoteRef = milestone.quote.number ?? "brouillon";
   const depositTotal =
     (await prisma.paymentMilestone.count({ where: { quoteId: milestone.quoteId } })) ||
@@ -181,6 +188,87 @@ export async function activateMilestoneCheckout(
       quoteNumber: quoteRef,
       amountCents: milestone.amountCents,
       checkoutUrl: order.checkoutUrl,
+      depositIndex: milestone.position,
+      depositTotal,
+      label: milestone.label,
+    });
+    await mailEnqueue({
+      to: clientEmail,
+      subject: content.subject,
+      text: content.text,
+      html: content.html,
+      clientId: milestone.quote.clientId,
+      documentId: milestone.quoteId,
+      documentNumber: quoteRef,
+      kind: "deposit_checkout",
+      bodyTextForMessage: content.text,
+    });
+  }
+
+  return updated;
+}
+
+/** Colle un lien de paiement Revolut Pro (sans API Merchant) et envoie l'email optionnel. */
+export async function setManualMilestonePaymentLink(
+  milestoneId: string,
+  checkoutUrl: string,
+  opts: { sendEmail?: boolean } = {},
+) {
+  let url: URL;
+  try {
+    url = new URL(checkoutUrl.trim());
+  } catch {
+    throw new MilestonePaymentError("URL de paiement invalide", 400);
+  }
+  if (url.protocol !== "https:") {
+    throw new MilestonePaymentError("Le lien doit être en https://", 400);
+  }
+
+  const milestone = await prisma.paymentMilestone.findUniqueOrThrow({
+    where: { id: milestoneId },
+    include: { quote: { include: { client: true } } },
+  });
+
+  if (
+    milestone.status === MilestoneStatus.PAID ||
+    milestone.status === MilestoneStatus.CANCELLED
+  ) {
+    throw new MilestonePaymentError("Ce jalon est déjà réglé ou annulé", 409);
+  }
+
+  const settings = await getCompanySettings();
+  const updated = await prisma.paymentMilestone.update({
+    where: { id: milestone.id },
+    data: {
+      checkoutUrl: url.toString(),
+      revolutOrderId: null,
+      status:
+        milestone.status === MilestoneStatus.PENDING ||
+        milestone.status === MilestoneStatus.OVERDUE ||
+        milestone.status === MilestoneStatus.FAILED
+          ? MilestoneStatus.DUE
+          : milestone.status,
+    },
+    include: { quote: { include: { client: true } } },
+  });
+
+  const clientEmail = decryptOptional(milestone.quote.client.emailEncrypted);
+  const quoteRef = milestone.quote.number ?? "brouillon";
+  const depositTotal =
+    (await prisma.paymentMilestone.count({ where: { quoteId: milestone.quoteId } })) ||
+    2;
+
+  if (opts.sendEmail !== false && clientEmail) {
+    const brand = buildEmailBrand(settings);
+    const content = renderDepositCheckoutEmail({
+      brand,
+      settings,
+      brandPrimaryColor: settings.brandPrimaryColor,
+      clientFirstName: milestone.quote.client.firstName,
+      clientName: milestone.quote.client.displayName,
+      quoteNumber: quoteRef,
+      amountCents: milestone.amountCents,
+      checkoutUrl: url.toString(),
       depositIndex: milestone.position,
       depositTotal,
       label: milestone.label,
@@ -266,6 +354,7 @@ export async function onQuoteAcceptedByClient(quoteId: string) {
 
 export async function activateDueMilestoneCheckouts(): Promise<number> {
   const settings = await getCompanySettings();
+  if (!settings.moduleMerchantApiEnabled) return 0;
   const leadDays = settings.paymentButtonLeadDays ?? 7;
   const threshold = new Date();
   threshold.setDate(threshold.getDate() + leadDays);

@@ -11,14 +11,19 @@ import { useAuth } from "@/lib/auth";
 import { CommandPalette } from "@/components/CommandPalette";
 import { NewMailPill } from "@/components/NewMailPill";
 import { useNewMailAlert } from "@/hooks/useNewMailAlert";
-import { getHubFromPath, HUBS, SUB_NAV } from "@/lib/navigation";
+import { getHubFromPath, HUBS, SUB_NAV, filterSubNav } from "@/lib/navigation";
+import { useFeatures } from "@/lib/features";
 
 export function AppLayout() {
   const { logout } = useAuth();
   const [paletteOpen, setPaletteOpen] = useState(false);
   const { pathname } = useLocation();
+  const features = useFeatures();
   const hub = getHubFromPath(pathname);
-  const subNav = hub && hub !== "home" ? SUB_NAV[hub] : null;
+  const subNav =
+    hub && hub !== "home"
+      ? filterSubNav(SUB_NAV[hub], features)
+      : null;
   const {
     visible: newMailVisible,
     unreadCount,

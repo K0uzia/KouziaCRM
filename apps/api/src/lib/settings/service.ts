@@ -268,6 +268,9 @@ export type PaymentsPatch = {
   depositPercent3Bps?: number;
   paymentButtonLeadDays?: number;
   projectMilestoneMidBps?: number;
+  moduleBankEnabled?: boolean;
+  moduleSubscriptionsEnabled?: boolean;
+  moduleMerchantApiEnabled?: boolean;
 };
 
 export async function savePaymentsTab(
@@ -335,6 +338,15 @@ export async function savePaymentsTab(
         : {}),
       ...(patch.projectMilestoneMidBps !== undefined
         ? { projectMilestoneMidBps: patch.projectMilestoneMidBps }
+        : {}),
+      ...(patch.moduleBankEnabled !== undefined
+        ? { moduleBankEnabled: patch.moduleBankEnabled }
+        : {}),
+      ...(patch.moduleSubscriptionsEnabled !== undefined
+        ? { moduleSubscriptionsEnabled: patch.moduleSubscriptionsEnabled }
+        : {}),
+      ...(patch.moduleMerchantApiEnabled !== undefined
+        ? { moduleMerchantApiEnabled: patch.moduleMerchantApiEnabled }
         : {}),
     },
     "payments",

@@ -517,6 +517,30 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
     }
   }
 
+  async function savePaymentLink(
+    milestoneId: string,
+    checkoutUrl: string,
+    sendEmail: boolean,
+  ) {
+    setBusyId(`link-${milestoneId}`);
+    try {
+      await api(`/api/quotes/${id}/milestones/${milestoneId}/payment-link`, {
+        method: "POST",
+        body: JSON.stringify({ checkoutUrl, sendEmail }),
+      });
+      toast.success(
+        sendEmail
+          ? "Lien enregistré et email d'encaissement envoyé"
+          : "Lien de paiement enregistré",
+      );
+      await load();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Erreur");
+    } finally {
+      setBusyId(null);
+    }
+  }
+
   async function generateDeposit(milestoneId: string) {
     setBusyId(milestoneId);
     try {
@@ -703,6 +727,7 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
           onGenerateAcompte={(mid) => void generateDeposit(mid)}
           onGenerateSolde={(force) => void generateSolde(Boolean(force))}
           onManualPay={(mid) => void manualPayMilestone(mid)}
+          onSavePaymentLink={(mid, url, send) => savePaymentLink(mid, url, send)}
         />
       ) : null}
 

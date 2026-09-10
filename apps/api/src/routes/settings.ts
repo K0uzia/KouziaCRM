@@ -241,6 +241,9 @@ export const settingsRoutes: FastifyPluginAsync = async (app) => {
       depositPercent3Bps: z.number().int().min(0).max(10000).optional(),
       paymentButtonLeadDays: z.number().int().min(0).max(30).optional(),
       projectMilestoneMidBps: z.number().int().min(1000).max(9000).optional(),
+      moduleBankEnabled: z.boolean().optional(),
+      moduleSubscriptionsEnabled: z.boolean().optional(),
+      moduleMerchantApiEnabled: z.boolean().optional(),
     });
     const parsed = schema.safeParse(request.body);
     if (!parsed.success) {

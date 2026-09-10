@@ -14,6 +14,7 @@ import {
   type PublicSettings,
   type SettingsTabId,
 } from "@/pages/settings/types";
+import { useFeatures } from "@/lib/features";
 
 type Checklist = {
   id: string;
@@ -99,6 +100,7 @@ export function SettingsPage() {
     next.set("tab", id);
     setParams(next, { replace: true });
   };
+  const { refresh: refreshFeatures } = useFeatures();
 
   const [settings, setSettings] = useState<PublicSettings | null>(null);
   const [form, setForm] = useState<PublicSettings | null>(null);
@@ -167,11 +169,14 @@ export function SettingsPage() {
         body: JSON.stringify(body),
       });
       setSettings(updated);
-      setForm(updated);
+      setForm(withTwoDepositMilestones(updated));
       setSmtpPass("");
       setImapPass("");
       setRevolutKey("");
       setRevolutWebhook("");
+      if (path.includes("/payments")) {
+        await refreshFeatures();
+      }
       toast.success("Enregistré");
       if (path.includes("numbering") || body && typeof body === "object" && "invoiceNumberTemplate" in (body as object)) {
         const prev = await api<{ previews: NumberingPreview[] }>("/api/numbering/preview");
@@ -306,6 +311,9 @@ export function SettingsPage() {
       depositPercent2Bps: form.depositPercent2Bps,
       depositPercent3Bps: 0,
       paymentButtonLeadDays: form.paymentButtonLeadDays,
+      moduleBankEnabled: form.moduleBankEnabled,
+      moduleSubscriptionsEnabled: form.moduleSubscriptionsEnabled,
+      moduleMerchantApiEnabled: form.moduleMerchantApiEnabled,
     });
   }
 
@@ -955,6 +963,94 @@ export function SettingsPage() {
           {tab === "payments" ? (
             <div className="space-y-4">
               <Card className="space-y-4 border border-[var(--border)] p-5">
+                <h3 className="text-sm font-semibold">Modules affichés</h3>
+                <p className="text-xs text-[var(--muted)]">
+                  Masquez ce que vous ne pouvez pas utiliser (ex. banque Revolut Pro sans API).
+                  Les clients, devis, factures et mails restent toujours disponibles.
+                </p>
+                <label className="flex items-start gap-3 text-sm">
+                  <input
+                    type="checkbox"
+                    className="mt-1"
+                    checked={form.moduleBankEnabled ?? false}
+                    onChange={(e) =>
+                      setForm({ ...form, moduleBankEnabled: e.target.checked })
+                    }
+                  />
+                  <span>
+                    <span className="font-medium">Banque / virements sync</span>
+                    <span className="mt-0.5 block text-xs text-[var(--muted)]">
+                      Nécessite Revolut Business API. Laissez désactivé avec Revolut Pro.
+                    </span>
+                  </span>
+                </label>
+                <label className="flex items-start gap-3 text-sm">
+                  <input
+                    type="checkbox"
+                    className="mt-1"
+                    checked={form.moduleSubscriptionsEnabled ?? true}
+                    onChange={(e) =>
+                      setForm({
+                        ...form,
+                        moduleSubscriptionsEnabled: e.target.checked,
+                      })
+                    }
+                  />
+                  <span>
+                    <span className="font-medium">Abonnements / maintenance</span>
+                    <span className="mt-0.5 block text-xs text-[var(--muted)]">
+                      Contrats mensuels récurrents.
+                    </span>
+                  </span>
+                </label>
+                <label className="flex items-start gap-3 text-sm">
+                  <input
+                    type="checkbox"
+                    className="mt-1"
+                    checked={form.moduleMerchantApiEnabled ?? false}
+                    onChange={(e) =>
+                      setForm({
+                        ...form,
+                        moduleMerchantApiEnabled: e.target.checked,
+                      })
+                    }
+                  />
+                  <span>
+                    <span className="font-medium">API Merchant Revolut (liens auto)</span>
+                    <span className="mt-0.5 block text-xs text-[var(--muted)]">
+                      Réservé au Merchant Business. Avec Pro : désactivé, collez les Payment
+                      Links à la main sur chaque devis.
+                    </span>
+                  </span>
+                </label>
+              </Card>
+
+              {!form.moduleMerchantApiEnabled ? (
+                <Card className="space-y-2 border border-[var(--border)] bg-[var(--primary-soft)]/40 p-5">
+                  <h3 className="text-sm font-semibold">Paiements prestations (Revolut Pro)</h3>
+                  <ol className="list-decimal space-y-1.5 pl-5 text-xs leading-relaxed text-[var(--muted)]">
+                    <li>Devis dans l&apos;ERP → le client valide sur /suivi.</li>
+                    <li>
+                      Dans l&apos;app Revolut Pro : Payment Link du montant de l&apos;acompte
+                      (ex. 30 %), libellé = n° devis.
+                    </li>
+                    <li>
+                      Sur le devis ERP : coller le lien → Envoyer au client (email + portail).
+                    </li>
+                    <li>
+                      Paiement reçu dans Revolut → Marquer payé dans l&apos;ERP, puis livrer /
+                      facturer le solde de la même façon.
+                    </li>
+                  </ol>
+                  <p className="text-xs text-[var(--muted)]">
+                    Alternative : virement SEPA sur l&apos;IBAN ci-dessous (affiché sur les
+                    factures PDF). Tiime reste optionnel pour la e-facture 2026, pas pour
+                    l&apos;encaissement client.
+                  </p>
+                </Card>
+              ) : null}
+
+              <Card className="space-y-4 border border-[var(--border)] p-5">
                 <h3 className="text-sm font-semibold">Coordonnées bancaires (virement)</h3>
                 <div className="grid gap-4 sm:grid-cols-2">
                   <Field label="Titulaire">
@@ -986,6 +1082,7 @@ export function SettingsPage() {
                 </div>
               </Card>
 
+              {form.moduleMerchantApiEnabled ? (
               <Card className="space-y-4 border border-[var(--border)] p-5">
                 <div className="flex flex-wrap items-center gap-2">
                   <h3 className="text-sm font-semibold">Revolut Merchant (encaissement en ligne)</h3>
@@ -1038,6 +1135,7 @@ export function SettingsPage() {
                   Tester la connexion API
                 </Button>
               </Card>
+              ) : null}
 
               <Card className="space-y-4 border border-[var(--border)] p-5">
                 <h3 className="text-sm font-semibold">Échéancier d&apos;acomptes</h3>

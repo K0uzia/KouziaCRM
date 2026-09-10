@@ -1,7 +1,9 @@
+import { useState } from "react";
 import { Link } from "react-router-dom";
 import { formatEUR } from "@/lib/api";
 import { Button } from "@/components/ui/Button";
 import { Badge, Card } from "@/components/ui/Card";
+import { Input } from "@/components/ui/Field";
 
 export type MarketMilestone = {
   id: string;
@@ -72,17 +74,26 @@ export function MarketTimeline({
   onGenerateAcompte,
   onGenerateSolde,
   onManualPay,
+  onSavePaymentLink,
   busyId,
+  allowManualLink = true,
 }: {
   market: MarketView;
   onGenerateAcompte: (milestoneId: string) => void;
   onGenerateSolde: (force?: boolean) => void;
   onManualPay?: (milestoneId: string) => void;
+  onSavePaymentLink?: (
+    milestoneId: string,
+    checkoutUrl: string,
+    sendEmail: boolean,
+  ) => Promise<void> | void;
   busyId?: string | null;
+  allowManualLink?: boolean;
 }) {
   const { progress, milestones, balance } = market;
   const hasPending = balance.pendingMilestones.length > 0;
   const maxPos = Math.max(...milestones.map((x) => x.position), 0);
+  const [drafts, setDrafts] = useState<Record<string, string>>({});
 
   return (
     <Card className="overflow-hidden">
@@ -106,6 +117,13 @@ export function MarketTimeline({
             Facture de solde
           </Button>
         </div>
+        {allowManualLink ? (
+          <p className="mt-3 rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--bg)] px-3 py-2 text-xs leading-relaxed text-[var(--muted)]">
+            Revolut Pro : créez un <strong className="text-[var(--text)]">Payment Link</strong>{" "}
+            dans l&apos;app (montant = jalon), collez l&apos;URL ici, puis envoyez au client.
+            Quand il a payé : Marquer payé.
+          </p>
+        ) : null}
         <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-[var(--bg)]">
           <div
             className="h-full rounded-full bg-[var(--primary)]"
@@ -127,77 +145,118 @@ export function MarketTimeline({
             m.status !== "PAID" &&
             m.status !== "CANCELLED" &&
             !isSolde;
+          const canLink =
+            allowManualLink &&
+            onSavePaymentLink &&
+            m.status !== "PAID" &&
+            m.status !== "CANCELLED";
+          const draft = drafts[m.id] ?? m.checkoutUrl ?? "";
 
           return (
-            <li
-              key={m.id}
-              className="flex flex-wrap items-center gap-3 px-5 py-3.5"
-            >
-              <div className="min-w-0 flex-1">
-                <div className="flex flex-wrap items-center gap-2">
-                  <p className="text-sm font-medium">
-                    {m.label}
-                    <span className="ml-1.5 font-normal text-[var(--muted)]">
-                      {(m.percentBps / 100).toFixed(0)} %
-                    </span>
+            <li key={m.id} className="space-y-3 px-5 py-3.5">
+              <div className="flex flex-wrap items-center gap-3">
+                <div className="min-w-0 flex-1">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <p className="text-sm font-medium">
+                      {m.label}
+                      <span className="ml-1.5 font-normal text-[var(--muted)]">
+                        {(m.percentBps / 100).toFixed(0)} %
+                      </span>
+                    </p>
+                    <Badge tone={statusTone(m.status)}>{statusLabel(m.status)}</Badge>
+                  </div>
+                  <p className="mt-0.5 text-xs text-[var(--muted)]">
+                    {formatEUR(m.amountCents)}
+                    {m.triggerText ? ` · ${m.triggerText}` : ""}
+                    {m.dueDate
+                      ? ` · échéance ${new Date(m.dueDate).toLocaleDateString("fr-FR")}`
+                      : ""}
                   </p>
-                  <Badge tone={statusTone(m.status)}>{statusLabel(m.status)}</Badge>
+                  {m.checkoutUrl ? (
+                    <a
+                      href={m.checkoutUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="mt-1 inline-block text-xs text-[var(--primary)] hover:underline"
+                    >
+                      Lien de paiement
+                    </a>
+                  ) : null}
+                  {m.invoice?.number ? (
+                    <Link
+                      to={`/invoices/${m.invoice.id}`}
+                      className="mt-1 ml-2 inline-block font-mono text-xs text-[var(--primary)] hover:underline"
+                    >
+                      {m.invoice.number}
+                    </Link>
+                  ) : null}
                 </div>
-                <p className="mt-0.5 text-xs text-[var(--muted)]">
-                  {formatEUR(m.amountCents)}
-                  {m.triggerText ? ` · ${m.triggerText}` : ""}
-                  {m.dueDate
-                    ? ` · échéance ${new Date(m.dueDate).toLocaleDateString("fr-FR")}`
-                    : ""}
-                </p>
-                {m.checkoutUrl ? (
-                  <a
-                    href={m.checkoutUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="mt-1 inline-block text-xs text-[var(--primary)] hover:underline"
+
+                {canManualPay ? (
+                  <Button
+                    variant="secondary"
+                    className="h-8 shrink-0 px-3 text-xs"
+                    disabled={busyId === `pay-${m.id}`}
+                    onClick={() => onManualPay(m.id)}
                   >
-                    Lien de paiement Revolut
-                  </a>
+                    Marquer payé
+                  </Button>
                 ) : null}
-                {m.invoice?.number ? (
-                  <Link
-                    to={`/invoices/${m.invoice.id}`}
-                    className="mt-1 inline-block font-mono text-xs text-[var(--primary)] hover:underline"
+                {canInvoice ? (
+                  <Button
+                    className="h-8 shrink-0 px-3 text-xs"
+                    disabled={busyId === m.id}
+                    onClick={() => onGenerateAcompte(m.id)}
                   >
-                    {m.invoice.number}
-                  </Link>
+                    Facturer
+                  </Button>
+                ) : null}
+                {isSolde && m.status === "PENDING" && !m.invoiceId ? (
+                  <Button
+                    variant="secondary"
+                    className="h-8 shrink-0 px-3 text-xs"
+                    disabled={busyId === "solde"}
+                    onClick={() => onGenerateSolde(!hasPending)}
+                  >
+                    Solde
+                  </Button>
                 ) : null}
               </div>
 
-              {canManualPay ? (
-                <Button
-                  variant="secondary"
-                  className="h-8 shrink-0 px-3 text-xs"
-                  disabled={busyId === `pay-${m.id}`}
-                  onClick={() => onManualPay(m.id)}
-                >
-                  Marquer payé
-                </Button>
-              ) : null}
-              {canInvoice ? (
-                <Button
-                  className="h-8 shrink-0 px-3 text-xs"
-                  disabled={busyId === m.id}
-                  onClick={() => onGenerateAcompte(m.id)}
-                >
-                  Facturer
-                </Button>
-              ) : null}
-              {isSolde && m.status === "PENDING" && !m.invoiceId ? (
-                <Button
-                  variant="secondary"
-                  className="h-8 shrink-0 px-3 text-xs"
-                  disabled={busyId === "solde"}
-                  onClick={() => onGenerateSolde(!hasPending)}
-                >
-                  Solde
-                </Button>
+              {canLink ? (
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                  <Input
+                    className="py-2 text-xs"
+                    placeholder="https://revolut.me/… ou lien Payment Link"
+                    value={draft}
+                    onChange={(e) =>
+                      setDrafts((prev) => ({ ...prev, [m.id]: e.target.value }))
+                    }
+                  />
+                  <div className="flex shrink-0 gap-2">
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      className="h-9 px-3 text-xs"
+                      disabled={busyId === `link-${m.id}` || !draft.trim()}
+                      onClick={() =>
+                        void onSavePaymentLink?.(m.id, draft.trim(), false)
+                      }
+                    >
+                      Enregistrer
+                    </Button>
+                    <Button
+                      type="button"
+                      className="h-9 px-3 text-xs"
+                      disabled={busyId === `link-${m.id}` || !draft.trim()}
+                      onClick={() =>
+                        void onSavePaymentLink?.(m.id, draft.trim(), true)
+                      }
+                    >
+                      Envoyer au client
+                    </Button>
+                  </div>
+                </div>
               ) : null}
             </li>
           );
