@@ -57,7 +57,7 @@ export function FolderSidebar({ folders, selectedId, onSelect, onSync, onCompose
           Écrire
         </Button>
       </div>
-      <nav aria-label="Dossiers" className="flex-1 space-y-0.5 overflow-y-auto">
+      <nav aria-label="Dossiers" className="custom-scrollbar flex-1 space-y-0.5 overflow-y-auto">
         {folders.map((folder) => (
           <button
             key={folder.id}

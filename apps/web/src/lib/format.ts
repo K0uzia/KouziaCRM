@@ -5,6 +5,23 @@ export function formatEUR(cents: number): string {
   }).format(cents / 100);
 }
 
+/** Affichage téléphone FR : 07 78 55 18 25 (sinon inchangé). */
+export function formatPhoneFr(phone: string | null | undefined): string {
+  if (!phone) return "";
+  const trimmed = phone.trim();
+  const digits = trimmed.replace(/\D/g, "");
+  let local = digits;
+  if (digits.length === 11 && digits.startsWith("33")) {
+    local = `0${digits.slice(2)}`;
+  } else if (digits.length === 12 && digits.startsWith("330")) {
+    local = `0${digits.slice(3)}`;
+  }
+  if (local.length === 10 && local.startsWith("0")) {
+    return local.replace(/(\d{2})(?=\d)/g, "$1 ").trim();
+  }
+  return trimmed;
+}
+
 export function formatDate(value: string | Date | null | undefined): string {
   if (!value) return " - ";
   return new Date(value).toLocaleDateString("fr-FR", {

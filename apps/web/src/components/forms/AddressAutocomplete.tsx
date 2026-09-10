@@ -42,6 +42,12 @@ function isFrance(country: string): boolean {
   return country === "FRANCE";
 }
 
+function isAddressFilled(value: AddressValue): boolean {
+  return Boolean(
+    value.addressLine1.trim() && value.postalCode.trim() && value.city.trim(),
+  );
+}
+
 /**
  * Bloc adresse avec autocomplétion BAN + résolution ville via code postal.
  * Dégrade en saisie manuelle si les APIs gov sont injoignables.
@@ -60,8 +66,11 @@ export function AddressAutocomplete({
   const [open, setOpen] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  /** Après choix d'une suggestion : ne pas rouvrir la liste tant que l'utilisateur ne retape pas. */
-  const lockSuggestionsRef = useRef(false);
+  /**
+   * Recherche uniquement après une frappe utilisateur.
+   * Evite de rouvrir la liste au focus / remount / patch parent.
+   */
+  const allowSearchRef = useRef(false);
 
   const patch = useCallback(
     (partial: Partial<AddressValue>) => {
@@ -103,14 +112,9 @@ export function AddressAutocomplete({
     // eslint-disable-next-line react-hooks/exhaustive-deps -- on ne re-patch que si city vide
   }, [value.postalCode, value.country]);
 
-  // Autocomplétion adresse (uniquement si l'utilisateur tape, pas après sélection)
+  // Autocomplétion : uniquement si l'utilisateur vient de taper dans le champ adresse
   useEffect(() => {
-    if (!isFrance(value.country)) {
-      setSuggestions([]);
-      setOpen(false);
-      return;
-    }
-    if (lockSuggestionsRef.current) {
+    if (!isFrance(value.country) || !allowSearchRef.current) {
       setSuggestions([]);
       setOpen(false);
       return;
@@ -123,7 +127,7 @@ export function AddressAutocomplete({
     }
     if (debounceRef.current) clearTimeout(debounceRef.current);
     debounceRef.current = setTimeout(() => {
-      if (lockSuggestionsRef.current) return;
+      if (!allowSearchRef.current) return;
       abortRef.current?.abort();
       const ac = new AbortController();
       abortRef.current = ac;
@@ -132,7 +136,7 @@ export function AddressAutocomplete({
         signal: ac.signal,
       })
         .then(({ suggestions: list, unavailable }) => {
-          if (ac.signal.aborted || lockSuggestionsRef.current) return;
+          if (ac.signal.aborted || !allowSearchRef.current) return;
           if (unavailable) {
             setApiWarning("Service d'adresses temporairement indisponible : saisie manuelle.");
             setSuggestions([]);
@@ -154,10 +158,17 @@ export function AddressAutocomplete({
     };
   }, [value.addressLine1, value.postalCode, value.country]);
 
-  function selectSuggestion(s: AdresseSuggestion) {
-    lockSuggestionsRef.current = true;
+  function closeSuggestions() {
+    allowSearchRef.current = false;
     abortRef.current?.abort();
     if (debounceRef.current) clearTimeout(debounceRef.current);
+    setSuggestions([]);
+    setOpen(false);
+    setHighlight(-1);
+  }
+
+  function selectSuggestion(s: AdresseSuggestion) {
+    closeSuggestions();
     patch({
       addressLine1: s.name,
       postalCode: s.postcode,
@@ -167,9 +178,6 @@ export function AddressAutocomplete({
       addressLon: s.lon,
       addressManualConfirmed: false,
     });
-    setSuggestions([]);
-    setOpen(false);
-    setHighlight(-1);
   }
 
   function onAddressKeyDown(e: React.KeyboardEvent) {
@@ -205,13 +213,21 @@ export function AddressAutocomplete({
           <Input
             value={value.addressLine1}
             onChange={(e) => {
-              lockSuggestionsRef.current = false;
+              allowSearchRef.current = true;
               patch({
                 addressLine1: e.target.value,
                 addressCityCode: "",
                 addressLat: null,
                 addressLon: null,
               });
+            }}
+            onFocus={() => {
+              // Adresse déjà complète (ex. retour sur la page) : ne pas rouvrir.
+              if (isAddressFilled(value) || value.addressLat != null) {
+                allowSearchRef.current = false;
+                setOpen(false);
+                setSuggestions([]);
+              }
             }}
             onKeyDown={onAddressKeyDown}
             onBlur={() => {
@@ -267,7 +283,9 @@ export function AddressAutocomplete({
           <Input
             value={value.postalCode}
             onChange={(e) => {
-              lockSuggestionsRef.current = false;
+              allowSearchRef.current = false;
+              setOpen(false);
+              setSuggestions([]);
               patch({
                 postalCode: e.target.value,
                 addressCityCode: "",

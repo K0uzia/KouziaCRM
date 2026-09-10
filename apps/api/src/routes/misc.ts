@@ -277,6 +277,7 @@ export const miscRoutes: FastifyPluginAsync = async (app) => {
       take,
       messages: messages.map((m) => ({
         id: m.id,
+        messageId: m.messageId,
         threadId: m.threadId,
         folderId: m.folderId,
         subject: m.subject,

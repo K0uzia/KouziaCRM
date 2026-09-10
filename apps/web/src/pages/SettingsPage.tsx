@@ -119,6 +119,9 @@ export function SettingsPage() {
   const [clauseModal, setClauseModal] = useState<LegalClause | "new" | null>(null);
   const [clauseForm, setClauseForm] = useState({ title: "", body: "", kind: "CUSTOM" });
   const [imapTest, setImapTest] = useState<string | null>(null);
+  const [identitySection, setIdentitySection] = useState<
+    "legal" | "contact" | "address" | "extra"
+  >("legal");
 
   const d = form?.emailDefaults;
 
@@ -157,7 +160,7 @@ export function SettingsPage() {
       addressCityCode: "",
       addressLat: null,
       addressLon: null,
-      addressManualConfirmed: true,
+      addressManualConfirmed: false,
     };
   }, [form]);
 
@@ -339,10 +342,6 @@ export function SettingsPage() {
       brandPrimaryColor: form.brandPrimaryColor,
       brandSecondaryColor: form.brandSecondaryColor,
       pdfFooterText: form.pdfFooterText,
-      vatMention: form.vatMention,
-      latePenaltiesText: form.latePenaltiesText,
-      earlyPaymentDiscountText: form.earlyPaymentDiscountText,
-      paymentConditions: form.paymentConditions,
     });
   }
 
@@ -570,12 +569,19 @@ export function SettingsPage() {
   }
 
   const SaveBar = ({ onSave }: { onSave: () => void }) => (
-    <div className="sticky bottom-0 z-10 -mx-1 flex justify-end border-t border-[var(--border)] bg-[var(--bg)]/95 px-1 py-3 backdrop-blur-sm">
+    <div className="mt-4 flex justify-end border-t border-[var(--border)] bg-[var(--surface)] pt-4">
       <Button type="button" disabled={busy} onClick={() => void onSave()}>
         {busy ? "Enregistrement…" : "Enregistrer cet onglet"}
       </Button>
     </div>
   );
+
+  const identitySections = [
+    { id: "legal" as const, label: "Entreprise" },
+    { id: "contact" as const, label: "Contacts" },
+    { id: "address" as const, label: "Adresse" },
+    { id: "extra" as const, label: "Assurance & suivi" },
+  ];
 
   return (
     <div>
@@ -597,64 +603,84 @@ export function SettingsPage() {
                   SIREN, adresse, contacts. Utilisé sur les PDF et le portail client.
                 </p>
               </div>
-              <div className="flex flex-wrap gap-2">
-                <Input
-                  className="min-w-[240px] flex-1"
-                  placeholder="SIREN ou URL data.inpi.fr/entreprises/…"
-                  value={inpiQuery}
-                  onChange={(e) => setInpiQuery(e.target.value)}
-                />
-                <Button type="button" variant="secondary" disabled={busy} onClick={() => void importInpi()}>
-                  Importer INPI / open data
-                </Button>
-              </div>
-              <div className="grid gap-4 sm:grid-cols-2">
-                <Field label="Nom légal">
-                  <Input
-                    value={form.legalName}
-                    onChange={(e) => setForm({ ...form, legalName: e.target.value })}
-                  />
-                </Field>
-                <Field label="Nom commercial">
-                  <Input
-                    value={form.tradeName ?? ""}
-                    onChange={(e) => setForm({ ...form, tradeName: e.target.value || null })}
-                  />
-                </Field>
-                <Field label="Forme juridique">
-                  <Input
-                    placeholder="EI"
-                    value={form.legalForm ?? ""}
-                    onChange={(e) => setForm({ ...form, legalForm: e.target.value || null })}
-                  />
-                </Field>
-                <Field label="RCS / RNE">
-                  <Input
-                    placeholder="RNE / non inscrit RCS"
-                    value={form.rcsMention ?? ""}
-                    onChange={(e) => setForm({ ...form, rcsMention: e.target.value || null })}
-                  />
-                </Field>
-                <Field label="SIREN">
-                  <Input value={form.siren} onChange={(e) => setForm({ ...form, siren: e.target.value })} />
-                </Field>
-                <Field label="SIRET">
-                  <Input value={form.siret} onChange={(e) => setForm({ ...form, siret: e.target.value })} />
-                </Field>
-                <Field label="APE">
-                  <Input value={form.apeCode} onChange={(e) => setForm({ ...form, apeCode: e.target.value })} />
-                </Field>
-                <Field label="N° TVA intracom">
-                  <Input
-                    placeholder="Franchise de base : laisser vide"
-                    value={form.vatIntraNumber ?? ""}
-                    onChange={(e) => setForm({ ...form, vatIntraNumber: e.target.value || null })}
-                  />
-                </Field>
+              <div className="flex flex-wrap gap-1 border-b border-[var(--border)] pb-3">
+                {identitySections.map((s) => (
+                  <button
+                    key={s.id}
+                    type="button"
+                    onClick={() => setIdentitySection(s.id)}
+                    className={`rounded-[var(--radius-sm)] px-3 py-1.5 text-sm font-medium transition ${
+                      identitySection === s.id
+                        ? "bg-[var(--primary-soft)] text-[var(--primary)]"
+                        : "text-[var(--muted)] hover:bg-[var(--surface-hover)] hover:text-[var(--text)]"
+                    }`}
+                  >
+                    {s.label}
+                  </button>
+                ))}
               </div>
 
-              <div className="border-t border-[var(--border)] pt-5">
-                <h3 className="mb-3 text-sm font-semibold">Coordonnées</h3>
+              {identitySection === "legal" ? (
+                <div className="space-y-4">
+                  <div className="flex flex-wrap gap-2">
+                    <Input
+                      className="min-w-[240px] flex-1"
+                      placeholder="SIREN ou URL data.inpi.fr/entreprises/…"
+                      value={inpiQuery}
+                      onChange={(e) => setInpiQuery(e.target.value)}
+                    />
+                    <Button type="button" variant="secondary" disabled={busy} onClick={() => void importInpi()}>
+                      Importer INPI / open data
+                    </Button>
+                  </div>
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <Field label="Nom légal">
+                      <Input
+                        value={form.legalName}
+                        onChange={(e) => setForm({ ...form, legalName: e.target.value })}
+                      />
+                    </Field>
+                    <Field label="Nom commercial">
+                      <Input
+                        value={form.tradeName ?? ""}
+                        onChange={(e) => setForm({ ...form, tradeName: e.target.value || null })}
+                      />
+                    </Field>
+                    <Field label="Forme juridique">
+                      <Input
+                        placeholder="EI"
+                        value={form.legalForm ?? ""}
+                        onChange={(e) => setForm({ ...form, legalForm: e.target.value || null })}
+                      />
+                    </Field>
+                    <Field label="RCS / RNE">
+                      <Input
+                        placeholder="RNE / non inscrit RCS"
+                        value={form.rcsMention ?? ""}
+                        onChange={(e) => setForm({ ...form, rcsMention: e.target.value || null })}
+                      />
+                    </Field>
+                    <Field label="SIREN">
+                      <Input value={form.siren} onChange={(e) => setForm({ ...form, siren: e.target.value })} />
+                    </Field>
+                    <Field label="SIRET">
+                      <Input value={form.siret} onChange={(e) => setForm({ ...form, siret: e.target.value })} />
+                    </Field>
+                    <Field label="APE">
+                      <Input value={form.apeCode} onChange={(e) => setForm({ ...form, apeCode: e.target.value })} />
+                    </Field>
+                    <Field label="N° TVA intracom">
+                      <Input
+                        placeholder="Franchise de base : laisser vide"
+                        value={form.vatIntraNumber ?? ""}
+                        onChange={(e) => setForm({ ...form, vatIntraNumber: e.target.value || null })}
+                      />
+                    </Field>
+                  </div>
+                </div>
+              ) : null}
+
+              {identitySection === "contact" ? (
                 <div className="grid gap-4 sm:grid-cols-2">
                   <Field label="Email de contact">
                     <Input
@@ -685,10 +711,10 @@ export function SettingsPage() {
                     />
                   </Field>
                 </div>
-              </div>
+              ) : null}
 
-              <div className="border-t border-[var(--border)] pt-5">
-                {addressValue ? (
+              {identitySection === "address" ? (
+                addressValue ? (
                   <AddressAutocomplete
                     value={addressValue}
                     onChange={(next) =>
@@ -702,46 +728,48 @@ export function SettingsPage() {
                       })
                     }
                   />
-                ) : null}
-              </div>
+                ) : null
+              ) : null}
 
-              <div className="border-t border-[var(--border)] pt-5">
-                <h3 className="mb-3 text-sm font-semibold">Assurance (optionnel)</h3>
-                <div className="grid gap-4 sm:grid-cols-3">
-                  <Field label="Décennale : assureur">
-                    <Input
-                      value={form.decennaleInsurer ?? ""}
-                      onChange={(e) => setForm({ ...form, decennaleInsurer: e.target.value || null })}
-                    />
-                  </Field>
-                  <Field label="N° de police">
-                    <Input
-                      value={form.decennalePolicyNumber ?? ""}
+              {identitySection === "extra" ? (
+                <div className="space-y-4">
+                  <div className="grid gap-4 sm:grid-cols-3">
+                    <Field label="Décennale : assureur">
+                      <Input
+                        value={form.decennaleInsurer ?? ""}
+                        onChange={(e) => setForm({ ...form, decennaleInsurer: e.target.value || null })}
+                      />
+                    </Field>
+                    <Field label="N° de police">
+                      <Input
+                        value={form.decennalePolicyNumber ?? ""}
+                        onChange={(e) =>
+                          setForm({ ...form, decennalePolicyNumber: e.target.value || null })
+                        }
+                      />
+                    </Field>
+                    <Field label="Zone de couverture">
+                      <Input
+                        value={form.decennaleCoverageZone ?? ""}
+                        onChange={(e) =>
+                          setForm({ ...form, decennaleCoverageZone: e.target.value || null })
+                        }
+                      />
+                    </Field>
+                  </div>
+                  <label className="flex items-center gap-2 text-sm">
+                    <input
+                      type="checkbox"
+                      checked={form.publicTrackingShowAmounts}
                       onChange={(e) =>
-                        setForm({ ...form, decennalePolicyNumber: e.target.value || null })
+                        setForm({ ...form, publicTrackingShowAmounts: e.target.checked })
                       }
                     />
-                  </Field>
-                  <Field label="Zone de couverture">
-                    <Input
-                      value={form.decennaleCoverageZone ?? ""}
-                      onChange={(e) =>
-                        setForm({ ...form, decennaleCoverageZone: e.target.value || null })
-                      }
-                    />
-                  </Field>
+                    Afficher les montants sur le suivi public client
+                  </label>
                 </div>
-              </div>
-              <label className="flex items-center gap-2 text-sm">
-                <input
-                  type="checkbox"
-                  checked={form.publicTrackingShowAmounts}
-                  onChange={(e) =>
-                    setForm({ ...form, publicTrackingShowAmounts: e.target.checked })
-                  }
-                />
-                Afficher les montants sur le suivi public client
-              </label>
+              ) : null}
+
               <SaveBar onSave={saveGeneral} />
             </Card>
           ) : null}
@@ -1334,34 +1362,6 @@ export function SettingsPage() {
                   />
                 </div>
               </Field>
-              <Field label="Mention TVA">
-                <Textarea
-                  rows={2}
-                  value={form.vatMention}
-                  onChange={(e) => setForm({ ...form, vatMention: e.target.value })}
-                />
-              </Field>
-              <Field label="Conditions de paiement">
-                <Textarea
-                  rows={2}
-                  value={form.paymentConditions}
-                  onChange={(e) => setForm({ ...form, paymentConditions: e.target.value })}
-                />
-              </Field>
-              <Field label="Pénalités de retard">
-                <Textarea
-                  rows={3}
-                  value={form.latePenaltiesText}
-                  onChange={(e) => setForm({ ...form, latePenaltiesText: e.target.value })}
-                />
-              </Field>
-              <Field label="Escompte paiement anticipé">
-                <Textarea
-                  rows={2}
-                  value={form.earlyPaymentDiscountText}
-                  onChange={(e) => setForm({ ...form, earlyPaymentDiscountText: e.target.value })}
-                />
-              </Field>
               <Field label="Pied de page PDF">
                 <Textarea
                   rows={2}
@@ -1369,6 +1369,17 @@ export function SettingsPage() {
                   onChange={(e) => setForm({ ...form, pdfFooterText: e.target.value || null })}
                 />
               </Field>
+              <p className="rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--bg)] px-3 py-2 text-xs text-[var(--muted)]">
+                Mentions TVA, paiement, pénalités : onglet{" "}
+                <button
+                  type="button"
+                  className="font-medium text-[var(--primary)] hover:underline"
+                  onClick={() => setTab("legal")}
+                >
+                  Mentions légales
+                </button>
+                .
+              </p>
               <SaveBar onSave={saveIdentity} />
             </Card>
           ) : null}
@@ -1706,6 +1717,7 @@ function PayoutBeneficiaryCard() {
   }
 
   if (!status) return null;
+  if (!status.enabled) return null;
 
   return (
     <Card className="space-y-4 border border-[var(--border)] p-5">
@@ -1715,13 +1727,6 @@ function PayoutBeneficiaryCard() {
           ? `Compte enregistré : ${status.beneficiaryLabel}. Titulaire et IBAN chiffrés.`
           : "Aucun compte enregistré."}
       </p>
-      {!status.enabled ? (
-        <p className="text-sm text-[var(--warning)]">
-          Fonction désactivée :{" "}
-          <code className="rounded bg-[var(--surface-raised)] px-1">REVOLUT_PAYOUT_ENABLED=true</code>{" "}
-          dans le .env.
-        </p>
-      ) : null}
       <form onSubmit={save} className="grid gap-4 sm:grid-cols-2">
         <Field label="Libellé">
           <Input value={label} onChange={(e) => setLabel(e.target.value)} required />

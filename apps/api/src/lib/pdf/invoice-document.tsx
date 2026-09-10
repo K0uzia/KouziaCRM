@@ -477,14 +477,16 @@ export function InvoiceDocument({ company, client, invoice }: InvoicePdfData) {
             Document émis dans le cadre de la micro-entreprise - activité libérale non
             réglementée (BNC).
           </Text>
-          {company.vatMention ? <Text>{company.vatMention}</Text> : null}
-          {!isQuote && company.paymentConditions ? (
+          {!(invoice.legalClauses?.length) && company.vatMention ? (
+            <Text>{company.vatMention}</Text>
+          ) : null}
+          {!(invoice.legalClauses?.length) && !isQuote && company.paymentConditions ? (
             <Text>Conditions de paiement : {company.paymentConditions}</Text>
           ) : null}
-          {!isQuote && company.latePenaltiesText ? (
+          {!(invoice.legalClauses?.length) && !isQuote && company.latePenaltiesText ? (
             <Text>{company.latePenaltiesText}</Text>
           ) : null}
-          {!isQuote && company.earlyPaymentDiscountText ? (
+          {!(invoice.legalClauses?.length) && !isQuote && company.earlyPaymentDiscountText ? (
             <Text>{company.earlyPaymentDiscountText}</Text>
           ) : null}
           {company.decennaleInsurer ? (

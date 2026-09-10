@@ -1,6 +1,7 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
+import { formatPhoneFr } from "@/lib/format";
 import { Button } from "@/components/ui/Button";
 import { Field, Input, Textarea } from "@/components/ui/Field";
 import {
@@ -104,7 +105,7 @@ export function clientToForm(c: Client): ClientFormData {
     lastName: c.lastName ?? "",
     companyName: c.companyName ?? "",
     email: c.email ?? "",
-    phone: c.phone ?? "",
+    phone: formatPhoneFr(c.phone),
     siret: c.siret ?? "",
     siren: c.siren ?? "",
     apeCode: c.apeCode ?? "",
@@ -299,7 +300,20 @@ export function ClientFormEditor({
           <Input type="email" value={form.email} onChange={(e) => set("email", e.target.value)} />
         </Field>
         <Field label="Téléphone">
-          <Input value={form.phone} onChange={(e) => set("phone", e.target.value)} />
+          <Input
+            value={form.phone}
+            onChange={(e) => {
+              const digits = e.target.value.replace(/\D/g, "").slice(0, 10);
+              const formatted =
+                digits.length === 0
+                  ? ""
+                  : digits.replace(/(\d{2})(?=\d)/g, "$1 ").trim();
+              set("phone", formatted);
+            }}
+            inputMode="tel"
+            autoComplete="tel"
+            placeholder="06 12 34 56 78"
+          />
         </Field>
       </div>
 

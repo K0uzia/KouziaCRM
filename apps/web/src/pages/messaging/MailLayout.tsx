@@ -20,6 +20,7 @@ export type MailFolderItem = {
 
 export type MailMessageItem = {
   id: string;
+  messageId?: string;
   threadId: string;
   subject: string;
   snippet: string;
@@ -153,8 +154,7 @@ export function MailLayout() {
     navigate("/inbox");
   }
 
-  async function bulkDelete() {
-    const ids = [...selectedIds];
+  async function bulkDelete(ids = [...selectedIds]) {
     if (ids.length === 0) return;
     try {
       await api("/api/emails/messages/bulk-delete", {
@@ -167,9 +167,39 @@ export function MailLayout() {
       );
       if (deletedCurrent) backToList();
       await refresh();
-      toast.success("Messages déplacés vers la corbeille");
+      toast.success(
+        ids.length === 1
+          ? "Message déplacé vers la corbeille"
+          : "Messages déplacés vers la corbeille",
+      );
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Suppression impossible");
+    }
+  }
+
+  function replyToMessage(msg: MailMessageItem) {
+    openCompose({
+      threadId: msg.threadId,
+      inReplyTo: msg.messageId,
+      subject: msg.subject.startsWith("Re:") ? msg.subject : `Re: ${msg.subject}`,
+      to: msg.fromAddress,
+      body: `\n\n---\nLe ${msg.receivedAt}, ${msg.fromAddress} a écrit :\n> ${msg.snippet}`,
+    });
+  }
+
+  async function toggleRead(msg: MailMessageItem) {
+    const read = !msg.isRead;
+    try {
+      await api("/api/emails/messages/bulk-flags", {
+        method: "POST",
+        body: JSON.stringify({ messageIds: [msg.id], read }),
+      });
+      setMessages((prev) =>
+        prev.map((m) => (m.id === msg.id ? { ...m, isRead: read } : m)),
+      );
+      await refresh();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Impossible de changer le statut");
     }
   }
 
@@ -184,9 +214,9 @@ export function MailLayout() {
         </div>
       ) : null}
 
-      <div className="flex min-h-0 flex-1 overflow-hidden bg-[var(--surface)]">
+      <div className="flex min-h-0 flex-1 overflow-hidden bg-[var(--bg)]">
         <div
-          className={`w-full shrink-0 border-r border-[var(--border)] md:block md:w-60 ${
+          className={`w-full shrink-0 border-r border-[var(--border)] bg-[var(--bg)] md:block md:w-60 ${
             !isReading && mobileFoldersOpen ? "block" : "hidden md:block"
           } ${isReading ? "hidden md:block" : ""}`}
         >
@@ -206,7 +236,7 @@ export function MailLayout() {
 
         {!isReading ? (
           <div
-            className={`min-w-0 flex-1 flex-col ${mobileFoldersOpen ? "hidden md:flex" : "flex"}`}
+            className={`min-w-0 flex-1 flex-col bg-[var(--bg)] ${mobileFoldersOpen ? "hidden md:flex" : "flex"}`}
           >
             <MessageList
               messages={messages}
@@ -245,10 +275,13 @@ export function MailLayout() {
               audience={audience}
               audienceCounts={audienceCounts}
               onAudienceChange={setAudience}
+              onReply={replyToMessage}
+              onDelete={(msg) => void bulkDelete([msg.id])}
+              onToggleRead={(msg) => void toggleRead(msg)}
             />
           </div>
         ) : (
-          <div className="flex min-w-0 flex-1 flex-col">
+          <div className="flex min-w-0 flex-1 flex-col bg-[var(--bg)]">
             <ReadingPane
               threadId={threadId ?? null}
               focusMessageId={selectedMessageId}

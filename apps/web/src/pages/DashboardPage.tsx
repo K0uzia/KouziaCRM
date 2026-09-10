@@ -202,6 +202,11 @@ export function DashboardPage() {
             Nouveau devis
           </Button>
         </Link>
+        <Link to="/clients?new=1">
+          <Button variant="secondary" className="h-9 px-4 text-xs">
+            Nouveau client
+          </Button>
+        </Link>
         <Link to="/payments">
           <Button className="h-9 px-4 text-xs">Encaisser</Button>
         </Link>
@@ -219,15 +224,15 @@ export function DashboardPage() {
           >
             Virer mon salaire
           </Button>
-        ) : (
-          <Link to="/settings">
+        ) : payoutEnabled ? (
+          <Link to="/settings?tab=payments">
             <Button variant="ghost" className="h-9 px-4 text-xs">
               {!payoutHasBeneficiary
                 ? "Configurer mon virement"
                 : "Activer virement salaire"}
             </Button>
           </Link>
-        )}
+        ) : null}
       </div>
 
       <ObligationsReminder />

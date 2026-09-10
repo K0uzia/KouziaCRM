@@ -45,13 +45,9 @@ export function AppLayout() {
   }, []);
 
   return (
-    <div
-      className={`flex flex-col bg-[var(--bg)] ${isMailWorkspace ? "h-dvh overflow-hidden" : "min-h-screen"}`}
-    >
-      <header className="sticky top-0 z-40 border-b border-[var(--border)] bg-[var(--bg)]/90 backdrop-blur-md">
-        <div
-          className={`mx-auto flex h-14 items-center gap-3 px-4 sm:px-6 ${isMailWorkspace ? "" : "max-w-7xl"}`}
-        >
+    <div className="flex h-dvh flex-col overflow-hidden bg-[var(--bg)]">
+      <header className="z-40 shrink-0 border-b border-[var(--border)] bg-[var(--bg)]/90 backdrop-blur-md">
+        <div className="mx-auto flex h-14 max-w-7xl items-center gap-3 px-4 sm:px-6">
           <Link to="/" className="flex shrink-0 items-center gap-2.5">
             <div className="flex h-9 w-9 items-center justify-center rounded-[var(--radius-sm)] bg-gradient-to-br from-[var(--gradient-from)] to-[var(--gradient-to)] text-sm font-bold text-white">
               K
@@ -139,9 +135,7 @@ export function AppLayout() {
 
         {subNav ? (
           <div className="border-t border-[var(--border)]">
-            <div
-              className={`mx-auto flex gap-1 overflow-x-auto px-4 py-2 no-scrollbar sm:px-6 ${isMailWorkspace ? "" : "max-w-7xl"}`}
-            >
+            <div className="mx-auto flex max-w-7xl gap-1 overflow-x-auto px-4 py-2 no-scrollbar sm:px-6">
               {subNav.map((item) => (
                 <NavLink
                   key={item.to}
@@ -163,7 +157,9 @@ export function AppLayout() {
       </header>
 
       <main
-        className={`min-w-0 flex-1 ${isMailWorkspace ? "min-h-0 overflow-hidden" : "overflow-x-hidden"}`}
+        className={`custom-scrollbar min-h-0 min-w-0 flex-1 ${
+          isMailWorkspace ? "overflow-hidden" : "overflow-y-auto overflow-x-hidden"
+        }`}
       >
         <div
           className={

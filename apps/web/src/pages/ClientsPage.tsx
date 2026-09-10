@@ -4,7 +4,7 @@ import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faPlus, faPaperPlane, faEnvelope } from "@fortawesome/free-solid-svg-icons";
 import { toast } from "sonner";
 import { api, formatEUR } from "@/lib/api";
-import { formatDate } from "@/lib/format";
+import { formatDate, formatPhoneFr } from "@/lib/format";
 import { Button } from "@/components/ui/Button";
 import { Badge, Card, PageHeader } from "@/components/ui/Card";
 import { Modal } from "@/components/ui/Modal";
@@ -97,7 +97,7 @@ export function ClientsPage() {
       cell: (c) => (
         <div className="text-[var(--muted)]">
           <div className="truncate">{c.email ?? "-"}</div>
-          <div className="text-xs">{c.phone ?? ""}</div>
+          <div className="text-xs">{formatPhoneFr(c.phone)}</div>
         </div>
       ),
     },
@@ -130,15 +130,19 @@ export function ClientsPage() {
     {
       name: "",
       grow: 0,
-      width: "9rem",
+      width: "220px",
+      minWidth: "220px",
       right: true,
-      style: { whiteSpace: "nowrap" },
+      ignoreRowClick: true,
+      allowOverflow: true,
+      button: true,
+      style: { overflow: "visible", whiteSpace: "nowrap" },
       cell: (c) => (
-        <div className="flex justify-end gap-1">
+        <div className="flex shrink-0 justify-end gap-1.5">
           {c.email ? (
             <Button
-              variant="ghost"
-              className="h-8 px-2 text-xs"
+              variant="secondary"
+              className="h-8 shrink-0 px-2.5 text-xs"
               onClick={() =>
                 navigate(`/inbox/compose?clientId=${encodeURIComponent(c.id)}&to=${encodeURIComponent(c.email ?? "")}`)
               }
@@ -148,8 +152,8 @@ export function ClientsPage() {
             </Button>
           ) : null}
           <Button
-            variant="ghost"
-            className="h-8 px-2 text-xs"
+            variant="secondary"
+            className="h-8 shrink-0 px-2.5 text-xs"
             onClick={() => {
               setEditing(c);
               setModal("edit");
@@ -364,9 +368,24 @@ export function ClientDetailPage() {
           <p className="text-xs font-medium text-[var(--muted)]">
             Code de suivi (identifiant public)
           </p>
-          <p className="mt-1 font-mono text-xl font-semibold text-[var(--primary)]">
-            {client.clientNumber ?? "Non attribué"}
-          </p>
+          <div className="mt-1 flex flex-wrap items-center gap-2">
+            <p className="font-mono text-xl font-semibold text-[var(--primary)]">
+              {client.clientNumber ?? "Non attribué"}
+            </p>
+            {client.clientNumber ? (
+              <Button
+                type="button"
+                variant="ghost"
+                className="h-8 px-2 text-xs"
+                onClick={() => {
+                  void navigator.clipboard.writeText(client.clientNumber!);
+                  toast.success("Code de suivi copié");
+                }}
+              >
+                Copier
+              </Button>
+            ) : null}
+          </div>
           <p className="mt-1 text-xs text-[var(--muted)]">
             Identifiant client immuable, utilisé pour le suivi public (kouzia.fr/suivi).
           </p>
@@ -545,7 +564,7 @@ export function ClientDetailPage() {
             </div>
             <div>
               <dt className="text-[var(--muted)]">Téléphone</dt>
-              <dd>{client.phone ?? " - "}</dd>
+              <dd>{formatPhoneFr(client.phone) || " - "}</dd>
             </div>
             {client.type === "B2B" ? (
               <div>
