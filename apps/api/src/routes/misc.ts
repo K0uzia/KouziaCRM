@@ -186,7 +186,20 @@ export const miscRoutes: FastifyPluginAsync = async (app) => {
   app.get("/api/emails/sync-status", async (request, reply) => {
     await requireAuth(request, reply);
     if (reply.sent) return;
-    return (await getMailSyncStatus()) ?? { connected: false, idleActive: false };
+    const status = (await getMailSyncStatus()) ?? {
+      connected: false,
+      idleActive: false,
+      lastSyncAt: null,
+      lastError: null,
+    };
+    const inbox = await prisma.mailFolder.findFirst({
+      where: { role: "INBOX", isVirtual: false },
+      select: { unreadCount: true },
+    });
+    return {
+      ...status,
+      inboxUnreadCount: inbox?.unreadCount ?? 0,
+    };
   });
 
   app.get("/api/emails/messages", async (request, reply) => {

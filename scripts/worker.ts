@@ -50,7 +50,7 @@ async function runImapIfDue() {
   try {
     if (!(await isImapConfigured())) return;
     const settings = await getCompanySettings();
-    const intervalMin = Math.min(60, Math.max(1, settings.imapPollIntervalMinutes || 15));
+    const intervalMin = Math.min(60, Math.max(1, settings.imapPollIntervalMinutes || 2));
     const state = await prisma.mailSyncStatus.findUnique({ where: { id: "default" } });
     if (
       state?.lastSyncAt &&

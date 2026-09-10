@@ -81,9 +81,11 @@ export async function startIdleWorker(): Promise<void> {
   })();
 }
 
-/** Fallback poll toutes les 60 s si IDLE indisponible */
+/** Fallback poll si IDLE indisponible (évite de doubler le sync quand IDLE tourne). */
 export async function runMailPollFallback(): Promise<void> {
   if (!(await isImapConfigured())) return;
+  const status = await prisma.mailSyncStatus.findUnique({ where: { id: "default" } });
+  if (status?.idleActive) return;
   try {
     await runMailSync();
   } catch (err) {

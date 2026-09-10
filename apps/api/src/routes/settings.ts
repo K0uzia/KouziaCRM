@@ -118,7 +118,7 @@ export const settingsRoutes: FastifyPluginAsync = async (app) => {
       imapUser: z.string().optional().nullable(),
       imapPass: z.string().optional().nullable(),
       imapMailbox: z.string().optional().nullable(),
-      imapPollIntervalMinutes: z.number().int().min(5).max(120).optional(),
+      imapPollIntervalMinutes: z.number().int().min(1).max(60).optional(),
       attachmentMaxFileMb: z.number().int().min(1).max(200).optional(),
       attachmentMaxMessageMb: z.number().int().min(1).max(500).optional(),
     });

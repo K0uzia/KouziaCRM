@@ -886,11 +886,11 @@ export function SettingsPage() {
                       onChange={(e) => setForm({ ...form, imapMailbox: e.target.value })}
                     />
                   </Field>
-                  <Field label="Intervalle de polling (min)">
+                  <Field label="Intervalle de polling (min)" hint="1 à 60. Avec IDLE IMAP actif, les mails arrivent en quasi temps réel.">
                     <Input
                       type="number"
-                      min={5}
-                      max={120}
+                      min={1}
+                      max={60}
                       value={form.imapPollIntervalMinutes}
                       onChange={(e) =>
                         setForm({ ...form, imapPollIntervalMinutes: Number(e.target.value) })

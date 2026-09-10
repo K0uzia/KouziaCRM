@@ -5,6 +5,7 @@ import {
   faMagnifyingGlass,
   faGear,
   faRightFromBracket,
+  faEnvelope,
 } from "@fortawesome/free-solid-svg-icons";
 import { useAuth } from "@/lib/auth";
 import { CommandPalette } from "@/components/CommandPalette";
@@ -18,7 +19,11 @@ export function AppLayout() {
   const { pathname } = useLocation();
   const hub = getHubFromPath(pathname);
   const subNav = hub && hub !== "home" ? SUB_NAV[hub] : null;
-  const { visible: newMailVisible, dismiss: dismissNewMail } = useNewMailAlert();
+  const {
+    visible: newMailVisible,
+    unreadCount,
+    dismiss: dismissNewMail,
+  } = useNewMailAlert();
   const isMailWorkspace =
     pathname === "/inbox" ||
     (pathname.startsWith("/inbox/") && !pathname.startsWith("/inbox/compose"));
@@ -71,6 +76,29 @@ export function AppLayout() {
           </nav>
 
           <div className="flex shrink-0 items-center gap-0.5">
+            <NavLink
+              to="/inbox"
+              className={({ isActive }) =>
+                `relative rounded-[var(--radius-sm)] p-2 transition ${
+                  isActive || pathname.startsWith("/inbox")
+                    ? "text-[var(--primary)]"
+                    : "text-[var(--muted)] hover:bg-[var(--surface-hover)] hover:text-[var(--text)]"
+                }`
+              }
+              aria-label={
+                unreadCount > 0
+                  ? `Boîte mail (${unreadCount} non lus)`
+                  : "Boîte mail"
+              }
+              title="Boîte mail"
+            >
+              <FontAwesomeIcon icon={faEnvelope} className="h-4 w-4" />
+              {unreadCount > 0 ? (
+                <span className="absolute right-0.5 top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-[var(--danger)] px-1 text-[9px] font-bold leading-none text-white">
+                  {unreadCount > 99 ? "99+" : unreadCount}
+                </span>
+              ) : null}
+            </NavLink>
             <button
               type="button"
               onClick={() => setPaletteOpen(true)}
@@ -144,7 +172,11 @@ export function AppLayout() {
       </main>
 
       <CommandPalette open={paletteOpen} onOpenChange={setPaletteOpen} />
-      <NewMailPill visible={newMailVisible} onDismiss={dismissNewMail} />
+      <NewMailPill
+        visible={newMailVisible}
+        unreadCount={unreadCount}
+        onDismiss={dismissNewMail}
+      />
     </div>
   );
 }

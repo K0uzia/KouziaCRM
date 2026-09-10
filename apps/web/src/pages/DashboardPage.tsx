@@ -316,9 +316,16 @@ export function DashboardPage() {
               Répartition des encaissements
             </h2>
             <Select
-              className="w-auto"
+              className="w-auto min-w-[7.5rem] cursor-pointer appearance-none bg-[var(--surface-raised)] py-1.5 pl-3 pr-8 text-xs font-medium shadow-none"
               value={scope}
               onChange={(e) => setScope(e.target.value)}
+              aria-label="Période du graphique"
+              style={{
+                backgroundImage:
+                  "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%236b7280' d='M3 4.5L6 8l3-3.5'/%3E%3C/svg%3E\")",
+                backgroundRepeat: "no-repeat",
+                backgroundPosition: "right 0.6rem center",
+              }}
             >
               <option value="week">Semaine</option>
               <option value="month">Mois</option>
