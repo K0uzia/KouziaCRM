@@ -296,9 +296,11 @@ export async function syncFolder(folderId: string): Promise<{ imported: number; 
         }
 
         const participants = Array.from(new Set([fromAddress, ...toAddresses, ...ccAddresses]));
-        const clientId = await findClientIdByEmail(fromAddress);
         const direction =
           folder.role === MailFolderRole.SENT ? EmailDirection.OUTBOUND : EmailDirection.INBOUND;
+        const clientLookupAddress =
+          direction === EmailDirection.OUTBOUND ? (toAddresses[0] ?? fromAddress) : fromAddress;
+        const clientId = await findClientIdByEmail(clientLookupAddress);
 
         const threadId = await resolveThreadId({
           messageId: mid,
@@ -606,6 +608,23 @@ export async function deleteMessages(
     }
   }
   return { deleted };
+}
+
+/** Supprime définitivement tous les messages du dossier Corbeille. */
+export async function emptyTrashFolder(): Promise<{ deleted: number }> {
+  const trash = await prisma.mailFolder.findFirst({
+    where: { role: MailFolderRole.TRASH, isVirtual: false },
+  });
+  if (!trash) return { deleted: 0 };
+  const rows = await prisma.emailMessage.findMany({
+    where: { folderId: trash.id },
+    select: { id: true },
+  });
+  if (rows.length === 0) return { deleted: 0 };
+  return deleteMessages(
+    rows.map((r) => r.id),
+    true,
+  );
 }
 
 export type MessageListFilter = {

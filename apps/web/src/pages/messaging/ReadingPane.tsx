@@ -12,7 +12,7 @@ import { Button } from "@/components/ui/Button";
 import { MessageBody } from "@/pages/messaging/MessageBody";
 import { AttachmentList } from "@/pages/messaging/AttachmentList";
 import { QuoteValidationBlock } from "@/pages/messaging/QuoteValidationBlock";
-import { formatDate } from "@/lib/format";
+import { formatDate, formatTime } from "@/lib/format";
 import { senderLabel } from "@kouziacrm/email-sender";
 
 type Props = {
@@ -255,7 +255,7 @@ export function ReadingPane({
         ) : null}
       </div>
 
-      <div className="flex-1 overflow-y-auto p-4 md:px-8">
+      <div className="custom-scrollbar flex-1 overflow-y-auto p-4 md:px-8">
         <h2 className="text-lg font-semibold">{thread.subject}</h2>
         <QuoteValidationBlock
           threadId={thread.id}
@@ -287,10 +287,10 @@ export function ReadingPane({
                     {sender !== msg.fromAddress ? (
                       <span className="font-normal text-[var(--muted)]"> · {msg.fromAddress}</span>
                     ) : null}
-                    {" · "}
-                    {formatDate(msg.receivedAt)}
                   </span>
                   <span className="text-xs text-[var(--muted)]">
+                    {formatDate(msg.receivedAt)} · {formatTime(msg.receivedAt)}
+                    {" · "}
                     {msg.direction === "OUTBOUND" ? "Envoyé" : "Reçu"}
                     {!msg.isRead ? " · Non lu" : ""}
                   </span>

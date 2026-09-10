@@ -16,6 +16,7 @@ import {
   countMessagesByAudience,
   deleteMessage,
   deleteMessages,
+  emptyTrashFolder,
   getMailFoldersWithCounts,
   getMailSyncStatus,
   moveMessageToFolder,
@@ -275,23 +276,63 @@ export const miscRoutes: FastifyPluginAsync = async (app) => {
       audienceCounts,
       skip,
       take,
-      messages: messages.map((m) => ({
-        id: m.id,
-        messageId: m.messageId,
-        threadId: m.threadId,
-        folderId: m.folderId,
-        subject: m.subject,
-        snippet: m.snippet ?? m.subject.slice(0, 120),
-        fromAddress: m.fromAddress,
-        fromName: m.fromName,
-        receivedAt: m.receivedAt,
-        isRead: m.isRead,
-        isStarred: m.isStarred,
-        hasAttachments: m.hasAttachments,
-        direction: m.direction,
-        thread: m.thread,
-        folder: m.folder,
-      })),
+      messages: await Promise.all(
+        messages.map(async (m) => {
+          let toAddresses: string[] = [];
+          try {
+            toAddresses = JSON.parse(m.toAddresses || "[]") as string[];
+          } catch {
+            toAddresses = [];
+          }
+          let client = m.thread?.client ?? null;
+          if (!client) {
+            const lookup =
+              m.direction === EmailDirection.OUTBOUND
+                ? toAddresses[0] ?? ""
+                : m.fromAddress;
+            if (lookup) {
+              const clientId = await findClientIdByEmail(lookup);
+              if (clientId) {
+                client = await prisma.client.findUnique({
+                  where: { id: clientId },
+                  select: { id: true, displayName: true },
+                });
+                if (client) {
+                  await prisma.emailThread
+                    .update({
+                      where: { id: m.threadId },
+                      data: { clientId: client.id },
+                    })
+                    .catch(() => undefined);
+                }
+              }
+            }
+          }
+          return {
+            id: m.id,
+            messageId: m.messageId,
+            threadId: m.threadId,
+            folderId: m.folderId,
+            subject: m.subject,
+            snippet: m.snippet ?? m.subject.slice(0, 120),
+            fromAddress: m.fromAddress,
+            fromName: m.fromName,
+            toAddresses,
+            receivedAt: m.receivedAt,
+            isRead: m.isRead,
+            isStarred: m.isStarred,
+            hasAttachments: m.hasAttachments,
+            direction: m.direction,
+            thread: m.thread
+              ? {
+                  ...m.thread,
+                  client,
+                }
+              : undefined,
+            folder: m.folder,
+          };
+        }),
+      ),
     };
   });
 
@@ -425,6 +466,13 @@ export const miscRoutes: FastifyPluginAsync = async (app) => {
       return reply.code(400).send({ error: parsed.error.flatten() });
     }
     const result = await deleteMessages(parsed.data.messageIds, parsed.data.permanent === true);
+    return { ok: true, deleted: result.deleted };
+  });
+
+  app.post("/api/emails/trash/empty", async (request, reply) => {
+    await requireAuth(request, reply);
+    if (reply.sent) return;
+    const result = await emptyTrashFolder();
     return { ok: true, deleted: result.deleted };
   });
 

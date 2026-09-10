@@ -31,6 +31,15 @@ export function formatDate(value: string | Date | null | undefined): string {
   });
 }
 
+/** Heure locale HH:MM */
+export function formatTime(value: string | Date | null | undefined): string {
+  if (!value) return "";
+  return new Date(value).toLocaleTimeString("fr-FR", {
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
 export const statusLabel: Record<string, string> = {
   DRAFT: "Brouillon",
   ISSUED: "Émis",

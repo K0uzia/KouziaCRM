@@ -6,10 +6,11 @@ import {
   faEnvelopeOpen,
   faMagnifyingGlass,
   faReply,
+  faStar,
   faTrash,
 } from "@fortawesome/free-solid-svg-icons";
 import type { MailMessageItem } from "@/pages/messaging/MailLayout";
-import { formatDate } from "@/lib/format";
+import { formatDate, formatTime } from "@/lib/format";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Field";
 import { senderLabel } from "@kouziacrm/email-sender";
@@ -26,12 +27,18 @@ type Props = {
   selectedIds: Set<string>;
   onSelect: (id: string) => void;
   onToggleSelect: (id: string) => void;
+  onSelectAll: (ids: string[]) => void;
+  onClearSelection: () => void;
   onBulkRead: (read: boolean) => void;
   onBulkDelete: () => void;
+  onBulkStar?: (starred: boolean) => void;
   onOpenFolders: () => void;
   onReply: (msg: MailMessageItem) => void;
   onDelete: (msg: MailMessageItem) => void;
   onToggleRead: (msg: MailMessageItem) => void;
+  onToggleStar: (msg: MailMessageItem) => void;
+  isTrashFolder?: boolean;
+  onEmptyTrash?: () => void;
 };
 
 type CtxMenu = {
@@ -39,6 +46,31 @@ type CtxMenu = {
   x: number;
   y: number;
 };
+
+function primaryLabel(msg: MailMessageItem): string {
+  const clientName = msg.thread?.client?.displayName;
+  if (msg.direction === "OUTBOUND") {
+    const to = msg.toAddresses?.[0] ?? "";
+    if (clientName) return clientName;
+    if (to) return senderLabel(null, to);
+    return "Destinataire inconnu";
+  }
+  return senderLabel(msg.fromName, msg.fromAddress);
+}
+
+function secondaryAddress(msg: MailMessageItem): string | null {
+  if (msg.direction === "OUTBOUND") {
+    const to = msg.toAddresses?.[0];
+    if (!to) return null;
+    // Sous le nom client / libellé : l'email destinataire
+    const label = primaryLabel(msg);
+    if (label.toLowerCase() === to.toLowerCase()) return null;
+    return to;
+  }
+  const label = senderLabel(msg.fromName, msg.fromAddress);
+  if (label.toLowerCase() === msg.fromAddress.toLowerCase()) return null;
+  return msg.fromAddress;
+}
 
 export function MessageList({
   messages,
@@ -52,12 +84,18 @@ export function MessageList({
   selectedIds,
   onSelect,
   onToggleSelect,
+  onSelectAll,
+  onClearSelection,
   onBulkRead,
   onBulkDelete,
+  onBulkStar,
   onOpenFolders,
   onReply,
   onDelete,
   onToggleRead,
+  onToggleStar,
+  isTrashFolder,
+  onEmptyTrash,
 }: Props) {
   const filters: Array<{ id: "all" | "clients" | "external"; label: string }> = [
     { id: "all", label: "Tous" },
@@ -66,6 +104,9 @@ export function MessageList({
   ];
   const [ctx, setCtx] = useState<CtxMenu | null>(null);
   const ctxRef = useRef<HTMLDivElement | null>(null);
+  const allIds = messages.map((m) => m.id);
+  const allSelected = allIds.length > 0 && allIds.every((id) => selectedIds.has(id));
+  const someSelected = selectedIds.size > 0 && !allSelected;
 
   useEffect(() => {
     if (!ctx) return;
@@ -93,7 +134,7 @@ export function MessageList({
     label: string,
     icon: typeof faReply,
     onClick: () => void,
-    tone: "default" | "danger" = "default",
+    tone: "default" | "danger" | "active" = "default",
   ) {
     return (
       <button
@@ -103,7 +144,9 @@ export function MessageList({
         className={`flex h-8 w-8 items-center justify-center rounded-[var(--radius-sm)] transition ${
           tone === "danger"
             ? "text-[var(--danger)] hover:bg-[var(--danger-soft)]"
-            : "text-[var(--muted)] hover:bg-[var(--surface-hover)] hover:text-[var(--text)]"
+            : tone === "active"
+              ? "text-[var(--warning)] hover:bg-[var(--warning-soft)]"
+              : "text-[var(--muted)] hover:bg-[var(--surface-hover)] hover:text-[var(--text)]"
         }`}
         onClick={(e) => {
           e.stopPropagation();
@@ -161,16 +204,47 @@ export function MessageList({
             onChange={(e) => onSearchChange(e.target.value)}
           />
         </div>
+        <div className="mt-2 flex flex-wrap items-center gap-2">
+          <label className="inline-flex items-center gap-2 text-xs text-[var(--muted)]">
+            <input
+              type="checkbox"
+              checked={allSelected}
+              ref={(el) => {
+                if (el) el.indeterminate = someSelected;
+              }}
+              onChange={() => {
+                if (allSelected) onClearSelection();
+                else onSelectAll(allIds);
+              }}
+              aria-label="Tout sélectionner"
+            />
+            Tout sélectionner
+          </label>
+          {isTrashFolder && onEmptyTrash ? (
+            <Button variant="danger" className="h-8 px-3 text-xs" onClick={onEmptyTrash}>
+              Vider la corbeille
+            </Button>
+          ) : null}
+        </div>
         {selectedIds.size > 0 ? (
           <div className="mt-2 flex flex-wrap gap-2">
-            <Button variant="secondary" onClick={() => onBulkRead(true)}>
+            <Button variant="secondary" className="h-8 text-xs" onClick={() => onBulkRead(true)}>
               Lu
             </Button>
-            <Button variant="secondary" onClick={() => onBulkRead(false)}>
+            <Button variant="secondary" className="h-8 text-xs" onClick={() => onBulkRead(false)}>
               Non lu
             </Button>
-            <Button variant="danger" onClick={onBulkDelete}>
-              Supprimer
+            {onBulkStar ? (
+              <Button
+                variant="secondary"
+                className="h-8 text-xs"
+                onClick={() => onBulkStar(true)}
+              >
+                Favoris
+              </Button>
+            ) : null}
+            <Button variant="danger" className="h-8 text-xs" onClick={onBulkDelete}>
+              {isTrashFolder ? "Supprimer définitivement" : "Supprimer"}
             </Button>
           </div>
         ) : null}
@@ -178,8 +252,12 @@ export function MessageList({
       </div>
       <ul className="custom-scrollbar flex-1 overflow-y-auto">
         {messages.map((msg) => {
-          const name = senderLabel(msg.fromName, msg.fromAddress);
+          const name = primaryLabel(msg);
+          const addr = secondaryAddress(msg);
           const clientName = msg.thread?.client?.displayName;
+          const showClientTag =
+            Boolean(clientName) &&
+            (msg.direction !== "OUTBOUND" || clientName !== name);
           return (
             <li key={msg.id}>
               <div
@@ -213,8 +291,24 @@ export function MessageList({
                           aria-label="Non lu"
                         />
                       ) : null}
-                      <span className="truncate text-sm">{name}</span>
-                      {clientName ? (
+                      {msg.isStarred ? (
+                        <FontAwesomeIcon
+                          icon={faStar}
+                          className="h-3 w-3 shrink-0 text-[var(--warning)]"
+                          aria-label="Favori"
+                        />
+                      ) : null}
+                      <span className="truncate text-sm">
+                        {msg.direction === "OUTBOUND" ? (
+                          <>
+                            <span className="font-normal text-[var(--muted)]">À : </span>
+                            {name}
+                          </>
+                        ) : (
+                          name
+                        )}
+                      </span>
+                      {showClientTag ? (
                         <>
                           <span className="shrink-0 text-xs font-normal text-[var(--muted)]">
                             -
@@ -224,14 +318,24 @@ export function MessageList({
                           </span>
                         </>
                       ) : null}
+                      {clientName && msg.direction === "OUTBOUND" && !showClientTag ? (
+                        <span className="inline-block shrink-0 rounded bg-teal-100 px-1.5 py-0.5 text-xs font-normal text-teal-800 dark:bg-teal-950/50 dark:text-teal-200">
+                          Client
+                        </span>
+                      ) : null}
                     </span>
-                    <time className="shrink-0 text-xs font-normal text-[var(--muted)] group-hover:opacity-0">
-                      {formatDate(msg.receivedAt)}
+                    <time className="shrink-0 text-right text-xs font-normal text-[var(--muted)] group-hover:opacity-0">
+                      <span className="block">{formatDate(msg.receivedAt)}</span>
+                      <span className="block tabular-nums">{formatTime(msg.receivedAt)}</span>
                     </time>
                   </div>
-                  {msg.fromAddress ? (
+                  {addr ? (
                     <p className="truncate text-xs font-normal text-[var(--muted)]">
-                      &lt;{msg.fromAddress}&gt;
+                      {msg.direction === "OUTBOUND" ? (
+                        <>À &lt;{addr}&gt;</>
+                      ) : (
+                        <>&lt;{addr}&gt;</>
+                      )}
                     </p>
                   ) : null}
                   <p className="truncate text-sm">
@@ -240,7 +344,15 @@ export function MessageList({
                   </p>
                 </button>
                 <div className="flex shrink-0 items-center gap-0.5 opacity-0 transition group-hover:opacity-100 focus-within:opacity-100">
-                  {actionBtn("Répondre", faReply, () => onReply(msg))}
+                  {actionBtn(
+                    msg.isStarred ? "Retirer des favoris" : "Ajouter aux favoris",
+                    faStar,
+                    () => onToggleStar(msg),
+                    msg.isStarred ? "active" : "default",
+                  )}
+                  {msg.direction !== "OUTBOUND"
+                    ? actionBtn("Répondre", faReply, () => onReply(msg))
+                    : null}
                   {actionBtn(
                     msg.isRead ? "Marquer non lu" : "Marquer lu",
                     msg.isRead ? faEnvelope : faEnvelopeOpen,
@@ -258,10 +370,10 @@ export function MessageList({
         <div
           ref={ctxRef}
           role="menu"
-          className="fixed z-50 min-w-[180px] rounded-[var(--radius)] border border-[var(--border)] bg-[var(--surface)] py-1 shadow-[var(--shadow)]"
+          className="fixed z-50 min-w-[180px] rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--surface-raised)] py-1 shadow-[var(--shadow-sm)]"
           style={{
             left: Math.min(ctx.x, window.innerWidth - 200),
-            top: Math.min(ctx.y, window.innerHeight - 160),
+            top: Math.min(ctx.y, window.innerHeight - 180),
           }}
         >
           {(
@@ -270,16 +382,19 @@ export function MessageList({
                 label: "Ouvrir",
                 run: () => onSelect(ctx.msg.id),
               },
+              ...(ctx.msg.direction !== "OUTBOUND"
+                ? [{ label: "Répondre", run: () => onReply(ctx.msg) }]
+                : []),
               {
-                label: "Répondre",
-                run: () => onReply(ctx.msg),
+                label: ctx.msg.isStarred ? "Retirer des favoris" : "Ajouter aux favoris",
+                run: () => onToggleStar(ctx.msg),
               },
               {
                 label: ctx.msg.isRead ? "Marquer non lu" : "Marquer lu",
                 run: () => onToggleRead(ctx.msg),
               },
               {
-                label: "Supprimer",
+                label: isTrashFolder ? "Supprimer définitivement" : "Supprimer",
                 run: () => onDelete(ctx.msg),
                 danger: true,
               },

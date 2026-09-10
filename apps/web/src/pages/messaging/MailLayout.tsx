@@ -26,6 +26,7 @@ export type MailMessageItem = {
   snippet: string;
   fromAddress: string;
   fromName?: string | null;
+  toAddresses?: string[];
   receivedAt: string;
   isRead: boolean;
   isStarred: boolean;
@@ -154,12 +155,12 @@ export function MailLayout() {
     navigate("/inbox");
   }
 
-  async function bulkDelete(ids = [...selectedIds]) {
+  async function bulkDelete(ids = [...selectedIds], permanent = false) {
     if (ids.length === 0) return;
     try {
       await api("/api/emails/messages/bulk-delete", {
         method: "POST",
-        body: JSON.stringify({ messageIds: ids }),
+        body: JSON.stringify({ messageIds: ids, permanent }),
       });
       setSelectedIds(new Set());
       const deletedCurrent = messages.some(
@@ -168,9 +169,13 @@ export function MailLayout() {
       if (deletedCurrent) backToList();
       await refresh();
       toast.success(
-        ids.length === 1
-          ? "Message déplacé vers la corbeille"
-          : "Messages déplacés vers la corbeille",
+        permanent
+          ? ids.length === 1
+            ? "Message supprimé définitivement"
+            : "Messages supprimés définitivement"
+          : ids.length === 1
+            ? "Message déplacé vers la corbeille"
+            : "Messages déplacés vers la corbeille",
       );
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Suppression impossible");
@@ -178,11 +183,15 @@ export function MailLayout() {
   }
 
   function replyToMessage(msg: MailMessageItem) {
+    const to =
+      msg.direction === "OUTBOUND"
+        ? msg.toAddresses?.[0] ?? msg.fromAddress
+        : msg.fromAddress;
     openCompose({
       threadId: msg.threadId,
       inReplyTo: msg.messageId,
       subject: msg.subject.startsWith("Re:") ? msg.subject : `Re: ${msg.subject}`,
-      to: msg.fromAddress,
+      to,
       body: `\n\n---\nLe ${msg.receivedAt}, ${msg.fromAddress} a écrit :\n> ${msg.snippet}`,
     });
   }
@@ -202,6 +211,64 @@ export function MailLayout() {
       toast.error(e instanceof Error ? e.message : "Impossible de changer le statut");
     }
   }
+
+  async function toggleStar(msg: MailMessageItem) {
+    const starred = !msg.isStarred;
+    try {
+      await api("/api/emails/messages/bulk-flags", {
+        method: "POST",
+        body: JSON.stringify({ messageIds: [msg.id], starred }),
+      });
+      setMessages((prev) =>
+        prev.map((m) => (m.id === msg.id ? { ...m, isStarred: starred } : m)),
+      );
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Impossible de changer le favori");
+    }
+  }
+
+  async function bulkStar(starred: boolean) {
+    const ids = [...selectedIds];
+    if (ids.length === 0) return;
+    try {
+      await api("/api/emails/messages/bulk-flags", {
+        method: "POST",
+        body: JSON.stringify({ messageIds: ids, starred }),
+      });
+      setMessages((prev) =>
+        prev.map((m) => (selectedIds.has(m.id) ? { ...m, isStarred: starred } : m)),
+      );
+      setSelectedIds(new Set());
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Impossible de changer les favoris");
+    }
+  }
+
+  async function emptyTrash() {
+    if (!window.confirm("Vider la corbeille ? Les messages seront définitivement supprimés.")) {
+      return;
+    }
+    try {
+      const res = await api<{ deleted: number }>("/api/emails/trash/empty", {
+        method: "POST",
+        body: "{}",
+      });
+      setSelectedIds(new Set());
+      await refresh();
+      toast.success(
+        res.deleted > 0
+          ? `Corbeille vidée (${res.deleted} message(s))`
+          : "Corbeille déjà vide",
+      );
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Impossible de vider la corbeille");
+    }
+  }
+
+  const selectedFolder = [...folders, ...virtualFolders].find((f) => f.id === selectedFolderId);
+  const isTrashFolder =
+    selectedFolder?.role === "TRASH" ||
+    selectedFolder?.displayName?.toLowerCase().includes("corbeille") === true;
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -257,6 +324,8 @@ export function MailLayout() {
                   return next;
                 });
               }}
+              onSelectAll={(ids) => setSelectedIds(new Set(ids))}
+              onClearSelection={() => setSelectedIds(new Set())}
               onBulkRead={(read) => {
                 void api("/api/emails/messages/bulk-flags", {
                   method: "POST",
@@ -270,14 +339,18 @@ export function MailLayout() {
                   })
                   .catch((e: Error) => toast.error(e.message));
               }}
-              onBulkDelete={() => void bulkDelete()}
+              onBulkDelete={() => void bulkDelete(undefined, isTrashFolder)}
+              onBulkStar={(starred) => void bulkStar(starred)}
               onOpenFolders={() => setMobileFoldersOpen(true)}
               audience={audience}
               audienceCounts={audienceCounts}
               onAudienceChange={setAudience}
               onReply={replyToMessage}
-              onDelete={(msg) => void bulkDelete([msg.id])}
+              onDelete={(msg) => void bulkDelete([msg.id], isTrashFolder)}
               onToggleRead={(msg) => void toggleRead(msg)}
+              onToggleStar={(msg) => void toggleStar(msg)}
+              isTrashFolder={isTrashFolder}
+              onEmptyTrash={() => void emptyTrash()}
             />
           </div>
         ) : (

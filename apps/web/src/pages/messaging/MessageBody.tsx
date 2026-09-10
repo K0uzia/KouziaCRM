@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useMemo, type ReactNode } from "react";
 import {
   buildEmailSrcDoc,
   sanitizeEmailHtml,
@@ -40,6 +40,74 @@ function bindIframeResize(iframe: HTMLIFrameElement) {
   }
 }
 
+function linkify(text: string): ReactNode[] {
+  const re = /https?:\/\/[^\s<>"']+/g;
+  const nodes: ReactNode[] = [];
+  let last = 0;
+  let match: RegExpExecArray | null;
+  let key = 0;
+  while ((match = re.exec(text))) {
+    if (match.index > last) {
+      nodes.push(text.slice(last, match.index));
+    }
+    let url = match[0];
+    let trailing = "";
+    const trimmed = url.replace(/[),.;:!?\]]+$/, "");
+    if (trimmed.length < url.length) {
+      trailing = url.slice(trimmed.length);
+      url = trimmed;
+    }
+    nodes.push(
+      <a
+        key={`u-${key++}`}
+        href={url}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="break-all text-[var(--primary)] underline decoration-[var(--primary)]/40 underline-offset-2 hover:decoration-[var(--primary)]"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {url}
+      </a>,
+    );
+    if (trailing) nodes.push(trailing);
+    last = match.index + match[0].length;
+  }
+  if (last < text.length) nodes.push(text.slice(last));
+  return nodes;
+}
+
+function PlainTextBody({ text }: { text: string }) {
+  const lines = useMemo(() => text.replace(/\r\n/g, "\n").split("\n"), [text]);
+
+  return (
+    <div className="mt-3 space-y-0.5 rounded-[var(--radius)] border border-[var(--border)] bg-[var(--surface-raised)] px-4 py-3.5 text-[15px] leading-relaxed text-[var(--text)]">
+      {lines.map((line, i) => {
+        const quoteMatch = /^(>+)\s?(.*)$/.exec(line);
+        if (quoteMatch) {
+          const depth = quoteMatch[1]!.length;
+          return (
+            <p
+              key={i}
+              className="border-l-2 border-[var(--border-strong)] pl-3 text-[var(--muted)]"
+              style={{ marginLeft: Math.min(depth - 1, 3) * 8 }}
+            >
+              {quoteMatch[2] ? linkify(quoteMatch[2]) : "\u00A0"}
+            </p>
+          );
+        }
+        if (!line.trim()) {
+          return <div key={i} className="h-2.5" aria-hidden />;
+        }
+        return (
+          <p key={i} className="whitespace-pre-wrap break-words">
+            {linkify(line)}
+          </p>
+        );
+      })}
+    </div>
+  );
+}
+
 export function MessageBody({ bodyText, bodyHtml, allowRemoteImages = true }: Props) {
   const srcDoc = useMemo(() => {
     if (!bodyHtml?.trim()) return null;
@@ -59,16 +127,19 @@ export function MessageBody({ bodyText, bodyHtml, allowRemoteImages = true }: Pr
         sandbox="allow-same-origin allow-popups allow-popups-to-escape-sandbox"
         srcDoc={srcDoc}
         referrerPolicy="no-referrer"
-        className="mt-4 block w-full border-0 bg-white [color-scheme:light]"
+        className="mt-4 block w-full rounded-[var(--radius)] border border-[var(--border)] bg-white [color-scheme:light]"
         style={{ colorScheme: "light", width: "100%", height: 480, minHeight: 320 }}
         onLoad={(event) => bindIframeResize(event.currentTarget)}
       />
     );
   }
 
-  return (
-    <pre className="mt-4 whitespace-pre-wrap font-[family-name:var(--font)]">
-      {bodyText?.trim() ? bodyText : "Aucun contenu texte pour ce message."}
-    </pre>
-  );
+  const plain = bodyText?.trim();
+  if (!plain) {
+    return (
+      <p className="mt-3 text-sm text-[var(--muted)]">Aucun contenu texte pour ce message.</p>
+    );
+  }
+
+  return <PlainTextBody text={plain} />;
 }
