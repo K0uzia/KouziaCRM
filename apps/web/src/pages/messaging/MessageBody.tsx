@@ -10,22 +10,38 @@ type Props = {
   allowRemoteImages?: boolean;
 };
 
-/** HTML « riche » : tables, images, styles inline, etc. Sinon on préfère le texte. */
-function isRichHtml(html: string): boolean {
-  if (/<(img|table|style|font|center|blockquote)\b/i.test(html)) return true;
-  if (/\sstyle\s*=/i.test(html)) return true;
-  if (/<(td|th|tr)\b/i.test(html)) return true;
-  const linkCount = (html.match(/<a\s/gi) ?? []).length;
-  if (linkCount > 2) return true;
+/**
+ * Newsletter / template HTML (layout table + images).
+ * Une simple réponse avec <blockquote> ou styles inline n'en est PAS une.
+ */
+function isLayoutHeavyHtml(html: string): boolean {
+  const imgCount = (html.match(/<img[\s>]/gi) ?? []).length;
+  const hasLayoutTable =
+    /<table[\s>]/i.test(html) && /<(td|th)[\s>]/i.test(html);
+  if (hasLayoutTable && imgCount >= 1) return true;
+  if (imgCount >= 3) return true;
+  if (hasLayoutTable && html.length > 8_000) return true;
   return false;
 }
 
-function htmlTextLength(html: string): number {
+function htmlToPlainText(html: string): string {
   return html
-    .replace(/<style[\s\S]*?<\/style>/gi, " ")
-    .replace(/<[^>]+>/g, " ")
-    .replace(/\s+/g, " ")
-    .trim().length;
+    .replace(/\r\n/g, "\n")
+    .replace(/<style[\s\S]*?<\/style>/gi, "")
+    .replace(/<script[\s\S]*?<\/script>/gi, "")
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<\/(p|div|tr|h[1-6]|li|blockquote)>/gi, "\n")
+    .replace(/<hr[^>]*>/gi, "\n---\n")
+    .replace(/<[^>]+>/g, "")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">")
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&amp;/gi, "&")
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
 }
 
 function resizeIframe(iframe: HTMLIFrameElement) {
@@ -34,7 +50,7 @@ function resizeIframe(iframe: HTMLIFrameElement) {
   const height = Math.max(
     doc.documentElement.scrollHeight,
     doc.body?.scrollHeight ?? 0,
-    200,
+    160,
   );
   iframe.style.height = `${height}px`;
 }
@@ -55,9 +71,7 @@ function linkify(text: string): ReactNode[] {
   let match: RegExpExecArray | null;
   let key = 0;
   while ((match = re.exec(text))) {
-    if (match.index > last) {
-      nodes.push(text.slice(last, match.index));
-    }
+    if (match.index > last) nodes.push(text.slice(last, match.index));
     let url = match[0];
     let trailing = "";
     const trimmed = url.replace(/[),.;:!?\]]+$/, "");
@@ -71,7 +85,7 @@ function linkify(text: string): ReactNode[] {
         href={url}
         target="_blank"
         rel="noopener noreferrer"
-        className="break-all text-[var(--primary)] underline decoration-[var(--primary)]/40 underline-offset-2 hover:decoration-[var(--primary)]"
+        className="break-all text-[var(--primary)] underline decoration-[var(--primary)]/35 underline-offset-2 hover:decoration-[var(--primary)]"
         onClick={(e) => e.stopPropagation()}
       >
         {url}
@@ -84,91 +98,153 @@ function linkify(text: string): ReactNode[] {
   return nodes;
 }
 
-function PlainTextBody({ text }: { text: string }) {
-  const lines = useMemo(() => text.replace(/\r\n/g, "\n").split("\n"), [text]);
+function isQuoteLine(line: string): boolean {
+  if (/^>/.test(line)) return true;
+  if (/^(-{2,}|_{2,})\s*$/.test(line)) return true;
+  if (/^On .+ wrote:\s*$/i.test(line)) return true;
+  if (/^Le .+ a écrit\s*:\s*$/i.test(line)) return true;
+  if (/^From:\s+/i.test(line)) return true;
+  if (/^-{5,}Original Message-{5,}/i.test(line)) return true;
+  return false;
+}
+
+/**
+ * Rendu type client mail : corps + citations en retrait, sans iframe.
+ */
+function ConversationBody({ text }: { text: string }) {
+  const blocks = useMemo(() => {
+    const lines = text.replace(/\r\n/g, "\n").split("\n");
+    const out: Array<{ quote: boolean; lines: string[] }> = [];
+    for (const line of lines) {
+      const quote = isQuoteLine(line) || (out.length > 0 && out[out.length - 1]!.quote && /^>/.test(line));
+      // Une ligne vide après du quote reste dans le quote si la suivante est quote
+      const last = out[out.length - 1];
+      if (last && last.quote === quote) {
+        last.lines.push(line);
+      } else if (last && !line.trim() && last.quote) {
+        last.lines.push(line);
+      } else {
+        out.push({ quote, lines: [line] });
+      }
+    }
+    return out;
+  }, [text]);
 
   return (
-    <div className="mt-3 space-y-0.5 rounded-[var(--radius)] border border-[var(--border)] bg-[var(--surface-raised)] px-4 py-3.5 text-[15px] leading-relaxed text-[var(--text)]">
-      {lines.map((line, i) => {
-        const quoteMatch = /^(>+)\s?(.*)$/.exec(line);
-        if (quoteMatch) {
-          const depth = quoteMatch[1]!.length;
+    <div className="mt-3 space-y-3 text-[15px] leading-relaxed text-[var(--text)]">
+      {blocks.map((block, bi) => {
+        const content = block.lines.map((line, i) => {
+          const display = line.replace(/^>\s?/, "");
+          if (!line.trim()) {
+            return <div key={i} className="h-2" aria-hidden />;
+          }
           return (
-            <p
-              key={i}
-              className="border-l-2 border-[var(--border-strong)] pl-3 text-[var(--muted)]"
-              style={{ marginLeft: Math.min(depth - 1, 3) * 8 }}
-            >
-              {quoteMatch[2] ? linkify(quoteMatch[2]) : "\u00A0"}
+            <p key={i} className="whitespace-pre-wrap break-words">
+              {linkify(display)}
             </p>
           );
-        }
-        if (!line.trim()) {
-          return <div key={i} className="h-2.5" aria-hidden />;
+        });
+        if (block.quote) {
+          return (
+            <div
+              key={bi}
+              className="border-l-2 border-[var(--border-strong)] pl-3 text-[13px] text-[var(--muted)]"
+            >
+              {content}
+            </div>
+          );
         }
         return (
-          <p key={i} className="whitespace-pre-wrap break-words">
-            {linkify(line)}
-          </p>
+          <div key={bi} className="space-y-0.5">
+            {content}
+          </div>
         );
       })}
     </div>
   );
 }
 
-export function MessageBody({ bodyText, bodyHtml, allowRemoteImages = true }: Props) {
-  const plainFromText = bodyText?.trim() ?? "";
-  const plainFromHtml =
-    !plainFromText && bodyHtml?.trim() && !isRichHtml(bodyHtml)
-      ? bodyHtml
-          .replace(/<br\s*\/?>/gi, "\n")
-          .replace(/<\/p>/gi, "\n")
-          .replace(/<[^>]+>/g, "")
-          .replace(/&nbsp;/gi, " ")
-          .replace(/&lt;/gi, "<")
-          .replace(/&gt;/gi, ">")
-          .replace(/&amp;/gi, "&")
-          .trim()
-      : "";
-  const plain = plainFromText || plainFromHtml;
-
+function IframeBody({
+  html,
+  allowRemoteImages,
+}: {
+  html: string;
+  allowRemoteImages: boolean;
+}) {
   const srcDoc = useMemo(() => {
-    if (plain && bodyHtml?.trim() && !isRichHtml(bodyHtml)) {
-      return null;
-    }
-    if (plain && !bodyHtml?.trim()) {
-      return null;
-    }
-    if (!bodyHtml?.trim()) return null;
     try {
-      const safe = sanitizeEmailHtml(bodyHtml, { allowRemoteImages });
-      if (!safe.trim() || htmlTextLength(safe) === 0) return null;
-      if (plain && !isRichHtml(safe)) return null;
+      const safe = sanitizeEmailHtml(html, { allowRemoteImages });
+      if (!safe.trim()) return null;
       return buildEmailSrcDoc(safe, { allowRemoteImages });
     } catch {
       return null;
     }
-  }, [bodyHtml, allowRemoteImages, plain]);
+  }, [html, allowRemoteImages]);
 
-  if (srcDoc) {
+  if (!srcDoc) return null;
+
+  return (
+    <iframe
+      title="Corps du message"
+      sandbox="allow-same-origin allow-popups allow-popups-to-escape-sandbox"
+      srcDoc={srcDoc}
+      referrerPolicy="no-referrer"
+      className="mt-3 block w-full rounded-[var(--radius)] border border-[var(--border)] bg-white [color-scheme:light]"
+      style={{ colorScheme: "light", width: "100%", height: 320, minHeight: 120 }}
+      onLoad={(event) => bindIframeResize(event.currentTarget)}
+    />
+  );
+}
+
+/**
+ * Affichage corps email façon boîte mail :
+ * 1. text/plain prioritaire (réponses, conversations)
+ * 2. HTML simple → converti en texte
+ * 3. HTML layout (newsletter) → iframe isolé
+ */
+export function MessageBody({
+  bodyText,
+  bodyHtml,
+  allowRemoteImages = true,
+}: Props) {
+  const decision = useMemo(() => {
+    const plain = (bodyText ?? "").trim();
+    const html = (bodyHtml ?? "").trim();
+
+    // 1. Texte brut présent → toujours conversation (jamais d'iframe)
+    if (plain) {
+      return { mode: "text" as const, text: plain };
+    }
+
+    if (!html) {
+      return { mode: "empty" as const };
+    }
+
+    // 2. HTML lourd (newsletter) → iframe
+    if (isLayoutHeavyHtml(html)) {
+      return { mode: "iframe" as const, html };
+    }
+
+    // 3. HTML simple / réponse → texte extrait
+    const extracted = htmlToPlainText(html);
+    if (extracted) {
+      return { mode: "text" as const, text: extracted };
+    }
+
+    return { mode: "empty" as const };
+  }, [bodyText, bodyHtml]);
+
+  if (decision.mode === "text") {
+    return <ConversationBody text={decision.text} />;
+  }
+
+  if (decision.mode === "iframe") {
     return (
-      <iframe
-        title="Corps du message"
-        sandbox="allow-same-origin allow-popups allow-popups-to-escape-sandbox"
-        srcDoc={srcDoc}
-        referrerPolicy="no-referrer"
-        className="mt-4 block w-full rounded-[var(--radius)] border border-[var(--border)] bg-white [color-scheme:light]"
-        style={{ colorScheme: "light", width: "100%", height: 480, minHeight: 200 }}
-        onLoad={(event) => bindIframeResize(event.currentTarget)}
-      />
+      <IframeBody html={decision.html} allowRemoteImages={allowRemoteImages} />
     );
   }
 
-  if (!plain) {
-    return (
-      <p className="mt-3 text-sm text-[var(--muted)]">Aucun contenu texte pour ce message.</p>
-    );
-  }
-
-  return <PlainTextBody text={plain} />;
+  return (
+    <p className="mt-3 text-sm text-[var(--muted)]">Aucun contenu pour ce message.</p>
+  );
 }
