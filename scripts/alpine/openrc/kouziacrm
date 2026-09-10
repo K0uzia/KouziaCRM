@@ -1,0 +1,38 @@
+#!/sbin/openrc-run
+# OpenRC : API KouziaCRM (sert aussi la SPA en production)
+# conf.d : /etc/conf.d/kouziacrm
+
+description="KouziaCRM API + SPA"
+
+: "${KOUZIA_APP_DIR:=/opt/kouziacrm}"
+: "${KOUZIA_USER:=kouzia}"
+: "${KOUZIA_GROUP:=kouzia}"
+
+name="kouziacrm"
+command="${KOUZIA_APP_DIR}/node_modules/.bin/tsx"
+command_args="--env-file=${KOUZIA_APP_DIR}/.env --tsconfig apps/api/tsconfig.json apps/api/src/index.ts"
+command_user="${KOUZIA_USER}:${KOUZIA_GROUP}"
+directory="${KOUZIA_APP_DIR}"
+pidfile="/run/${RC_SVCNAME}.pid"
+command_background=true
+
+output_log="/var/log/kouzia/app.log"
+error_log="/var/log/kouzia/app.err"
+
+depend() {
+  need net
+  after firewall
+}
+
+start_pre() {
+  checkpath -d -o "${KOUZIA_USER}:${KOUZIA_GROUP}" -m 0750 /var/log/kouzia
+  checkpath -d -o "${KOUZIA_USER}:${KOUZIA_GROUP}" -m 0750 "${KOUZIA_APP_DIR}/data"
+  if [ ! -x "$command" ]; then
+    eerror "tsx introuvable: $command (npm ci requis dans $KOUZIA_APP_DIR)"
+    return 1
+  fi
+  if [ ! -f "${KOUZIA_APP_DIR}/.env" ]; then
+    eerror ".env manquant: ${KOUZIA_APP_DIR}/.env"
+    return 1
+  fi
+}

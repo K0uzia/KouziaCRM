@@ -70,6 +70,14 @@ export function getApiPort(): number {
   return Number(process.env.API_PORT ?? 3001);
 }
 
+/** Cookie Secure : respecte COOKIE_SECURE explicitement (false OK en HTTP LAN même en production). */
+export function getCookieSecure(): boolean {
+  const v = process.env.COOKIE_SECURE?.trim().toLowerCase();
+  if (v === "true" || v === "1") return true;
+  if (v === "false" || v === "0") return false;
+  return process.env.NODE_ENV === "production";
+}
+
 /** true seulement derrière un reverse-proxy de confiance (Tunnel, nginx). */
 export function getTrustProxy(): boolean {
   const v = process.env.TRUST_PROXY?.trim().toLowerCase();

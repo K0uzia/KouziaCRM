@@ -1,0 +1,10 @@
+# Exemple crontab (si vous n'utilisez pas /etc/periodic/daily d'Alpine)
+#
+# Backup quotidien 02:15
+# 15 2 * * * /opt/kouziacrm/scripts/alpine/backup.sh >> /var/log/kouzia/backup-cron.log 2>&1
+#
+# Healthcheck horaire (alerte simple si API down)
+# 5 * * * * curl -fsS http://127.0.0.1:3000/api/health >/dev/null || logger -t kouzia "API down"
+#
+# Test restore mensuel (rappel log uniquement)
+# 0 9 1 * * logger -t kouzia "Rappel: tester kouziactl restore ce mois-ci"

@@ -1,0 +1,21 @@
+# Fichiers exclus du rsync code → CT (ne jamais écraser data / secrets / deps)
+node_modules/
+.git/
+data/
+.env
+.env.*
+!.env.example
+*.db
+*.db-*
+*.db-journal
+.deploy-state/
+.tools/
+.cursor/
+coverage/
+dist/
+apps/web/dist/
+*.log
+.DS_Store
+.pgdata/
+Export_*.pdf
+agent-transcripts/

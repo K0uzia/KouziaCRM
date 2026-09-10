@@ -7,7 +7,7 @@ import helmet from "@fastify/helmet";
 import rateLimit from "@fastify/rate-limit";
 import fastifyStatic from "@fastify/static";
 import multipart from "@fastify/multipart";
-import { getAllowedOrigins, getTrustProxy } from "@/lib/env.js";
+import { getAllowedOrigins, getCookieSecure, getTrustProxy } from "@/lib/env.js";
 import { originGuardPlugin } from "@/plugins/origin-guard.js";
 import { authRoutes } from "@/routes/auth.js";
 import { clientsRoutes } from "@/routes/clients.js";
@@ -64,9 +64,21 @@ export async function buildApp(opts: BuildAppOptions = {}): Promise<FastifyInsta
   setJsonSerializer(app);
   registerErrorHandler(app);
 
+  // Headers « HTTPS only » (COOP, OAC, HSTS) : ne jamais les envoyer en HTTP LAN.
+  // Sinon Chrome ignore COOP et spam la console (origine IP non « trustworthy »).
+  // Priorité à WEB_ORIGIN : http:// → headers off, même si COOKIE_SECURE est mal réglé.
+  const webOrigin = (process.env.WEB_ORIGIN ?? "").trim().toLowerCase();
+  const httpsMode = webOrigin.startsWith("https://")
+    ? true
+    : webOrigin.startsWith("http://")
+      ? false
+      : getCookieSecure();
   await app.register(helmet, {
     referrerPolicy: { policy: "no-referrer" },
-    // SPA servie par l'API: CSP permissive pour assets same-origin + inline styles Tailwind.
+    hsts: httpsMode,
+    crossOriginOpenerPolicy: httpsMode ? { policy: "same-origin" } : false,
+    // false = désactivé ; true activerait le header (voir helmet originAgentCluster switch)
+    originAgentCluster: httpsMode === true,
     contentSecurityPolicy: {
       directives: {
         defaultSrc: ["'self'"],
@@ -85,6 +97,7 @@ export async function buildApp(opts: BuildAppOptions = {}): Promise<FastifyInsta
         frameAncestors: ["'self'"],
         baseUri: ["'self'"],
         formAction: ["'self'"],
+        upgradeInsecureRequests: null,
       },
     },
   });
