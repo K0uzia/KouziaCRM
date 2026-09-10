@@ -10,14 +10,22 @@ type Props = {
   allowRemoteImages?: boolean;
 };
 
-function htmlHasVisibleContent(html: string): boolean {
-  if (/<img[\s>]/i.test(html) || /<table[\s>]/i.test(html)) return true;
-  const text = html
+/** HTML « riche » : tables, images, styles inline, etc. Sinon on préfère le texte. */
+function isRichHtml(html: string): boolean {
+  if (/<(img|table|style|font|center|blockquote)\b/i.test(html)) return true;
+  if (/\sstyle\s*=/i.test(html)) return true;
+  if (/<(td|th|tr)\b/i.test(html)) return true;
+  const linkCount = (html.match(/<a\s/gi) ?? []).length;
+  if (linkCount > 2) return true;
+  return false;
+}
+
+function htmlTextLength(html: string): number {
+  return html
     .replace(/<style[\s\S]*?<\/style>/gi, " ")
     .replace(/<[^>]+>/g, " ")
     .replace(/\s+/g, " ")
-    .trim();
-  return text.length > 0;
+    .trim().length;
 }
 
 function resizeIframe(iframe: HTMLIFrameElement) {
@@ -26,7 +34,7 @@ function resizeIframe(iframe: HTMLIFrameElement) {
   const height = Math.max(
     doc.documentElement.scrollHeight,
     doc.body?.scrollHeight ?? 0,
-    320,
+    200,
   );
   iframe.style.height = `${height}px`;
 }
@@ -109,16 +117,38 @@ function PlainTextBody({ text }: { text: string }) {
 }
 
 export function MessageBody({ bodyText, bodyHtml, allowRemoteImages = true }: Props) {
+  const plainFromText = bodyText?.trim() ?? "";
+  const plainFromHtml =
+    !plainFromText && bodyHtml?.trim() && !isRichHtml(bodyHtml)
+      ? bodyHtml
+          .replace(/<br\s*\/?>/gi, "\n")
+          .replace(/<\/p>/gi, "\n")
+          .replace(/<[^>]+>/g, "")
+          .replace(/&nbsp;/gi, " ")
+          .replace(/&lt;/gi, "<")
+          .replace(/&gt;/gi, ">")
+          .replace(/&amp;/gi, "&")
+          .trim()
+      : "";
+  const plain = plainFromText || plainFromHtml;
+
   const srcDoc = useMemo(() => {
+    if (plain && bodyHtml?.trim() && !isRichHtml(bodyHtml)) {
+      return null;
+    }
+    if (plain && !bodyHtml?.trim()) {
+      return null;
+    }
     if (!bodyHtml?.trim()) return null;
     try {
       const safe = sanitizeEmailHtml(bodyHtml, { allowRemoteImages });
-      if (!safe.trim() || !htmlHasVisibleContent(safe)) return null;
+      if (!safe.trim() || htmlTextLength(safe) === 0) return null;
+      if (plain && !isRichHtml(safe)) return null;
       return buildEmailSrcDoc(safe, { allowRemoteImages });
     } catch {
       return null;
     }
-  }, [bodyHtml, allowRemoteImages]);
+  }, [bodyHtml, allowRemoteImages, plain]);
 
   if (srcDoc) {
     return (
@@ -128,13 +158,12 @@ export function MessageBody({ bodyText, bodyHtml, allowRemoteImages = true }: Pr
         srcDoc={srcDoc}
         referrerPolicy="no-referrer"
         className="mt-4 block w-full rounded-[var(--radius)] border border-[var(--border)] bg-white [color-scheme:light]"
-        style={{ colorScheme: "light", width: "100%", height: 480, minHeight: 320 }}
+        style={{ colorScheme: "light", width: "100%", height: 480, minHeight: 200 }}
         onLoad={(event) => bindIframeResize(event.currentTarget)}
       />
     );
   }
 
-  const plain = bodyText?.trim();
   if (!plain) {
     return (
       <p className="mt-3 text-sm text-[var(--muted)]">Aucun contenu texte pour ce message.</p>

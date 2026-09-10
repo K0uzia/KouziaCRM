@@ -36,7 +36,14 @@ export type MailMessageItem = {
     id: string;
     subject: string;
     unreadCount?: number;
-    client?: { id: string; displayName: string } | null;
+    client?: {
+      id: string;
+      displayName: string;
+      firstName?: string | null;
+      lastName?: string | null;
+      companyName?: string | null;
+      type?: string | null;
+    } | null;
   };
 };
 

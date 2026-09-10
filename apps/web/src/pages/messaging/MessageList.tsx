@@ -47,29 +47,46 @@ type CtxMenu = {
   y: number;
 };
 
-function primaryLabel(msg: MailMessageItem): string {
-  const clientName = msg.thread?.client?.displayName;
+function personLabel(msg: MailMessageItem): string {
+  const c = msg.thread?.client;
+  if (c) {
+    const full = [c.firstName, c.lastName].filter(Boolean).join(" ").trim();
+    if (full) return full;
+    if (c.displayName?.trim()) return c.displayName.trim();
+  }
   if (msg.direction === "OUTBOUND") {
     const to = msg.toAddresses?.[0] ?? "";
-    if (clientName) return clientName;
-    if (to) return senderLabel(null, to);
-    return "Destinataire inconnu";
+    return to ? senderLabel(null, to) : "Destinataire inconnu";
   }
   return senderLabel(msg.fromName, msg.fromAddress);
 }
 
-function secondaryAddress(msg: MailMessageItem): string | null {
-  if (msg.direction === "OUTBOUND") {
-    const to = msg.toAddresses?.[0];
-    if (!to) return null;
-    // Sous le nom client / libellé : l'email destinataire
-    const label = primaryLabel(msg);
-    if (label.toLowerCase() === to.toLowerCase()) return null;
-    return to;
+function companyTag(msg: MailMessageItem): string | null {
+  const c = msg.thread?.client;
+  if (!c) return null;
+  const company = c.companyName?.trim();
+  if (company) return company;
+  // B2B sans companyName : displayName si différent du nom personne
+  if (c.type === "B2B" && c.displayName) {
+    const person = [c.firstName, c.lastName].filter(Boolean).join(" ").trim();
+    if (person && c.displayName !== person) return c.displayName;
   }
-  const label = senderLabel(msg.fromName, msg.fromAddress);
-  if (label.toLowerCase() === msg.fromAddress.toLowerCase()) return null;
-  return msg.fromAddress;
+  return null;
+}
+
+function contactEmail(msg: MailMessageItem): string | null {
+  if (msg.direction === "OUTBOUND") {
+    return msg.toAddresses?.[0] ?? null;
+  }
+  return msg.fromAddress || null;
+}
+
+function ClientTag({ label }: { label: string }) {
+  return (
+    <span className="inline-block shrink-0 rounded bg-teal-100 px-1.5 py-0.5 text-xs font-normal text-teal-800 dark:bg-teal-950/50 dark:text-teal-200">
+      {label}
+    </span>
+  );
 }
 
 export function MessageList({
@@ -252,12 +269,11 @@ export function MessageList({
       </div>
       <ul className="custom-scrollbar flex-1 overflow-y-auto">
         {messages.map((msg) => {
-          const name = primaryLabel(msg);
-          const addr = secondaryAddress(msg);
-          const clientName = msg.thread?.client?.displayName;
-          const showClientTag =
-            Boolean(clientName) &&
-            (msg.direction !== "OUTBOUND" || clientName !== name);
+          const name = personLabel(msg);
+          const email = contactEmail(msg);
+          const tag = companyTag(msg);
+          const emailDiffers =
+            Boolean(email) && name.toLowerCase() !== email!.toLowerCase();
           return (
             <li key={msg.id}>
               <div
@@ -284,64 +300,59 @@ export function MessageList({
                   onClick={() => onSelect(msg.id)}
                 >
                   <div className="flex items-start justify-between gap-2">
-                    <span className="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-0.5">
-                      {!msg.isRead ? (
-                        <span
-                          className="size-1.5 shrink-0 rounded-full bg-[var(--primary)]"
-                          aria-label="Non lu"
-                        />
-                      ) : null}
-                      {msg.isStarred ? (
-                        <FontAwesomeIcon
-                          icon={faStar}
-                          className="h-3 w-3 shrink-0 text-[var(--warning)]"
-                          aria-label="Favori"
-                        />
-                      ) : null}
-                      <span className="truncate text-sm">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-0.5">
+                        {!msg.isRead ? (
+                          <span
+                            className="size-1.5 shrink-0 rounded-full bg-[var(--primary)]"
+                            aria-label="Non lu"
+                          />
+                        ) : null}
+                        {msg.isStarred ? (
+                          <FontAwesomeIcon
+                            icon={faStar}
+                            className="h-3 w-3 shrink-0 text-[var(--warning)]"
+                            aria-label="Favori"
+                          />
+                        ) : null}
                         {msg.direction === "OUTBOUND" ? (
-                          <>
+                          <span className="min-w-0 truncate text-sm">
                             <span className="font-normal text-[var(--muted)]">À : </span>
                             {name}
-                          </>
+                            {emailDiffers ? (
+                              <span className="font-normal text-[var(--muted)]">
+                                {" "}
+                                &lt;{email}&gt;
+                              </span>
+                            ) : null}
+                          </span>
                         ) : (
-                          name
+                          <span className="truncate text-sm">{name}</span>
                         )}
-                      </span>
-                      {showClientTag ? (
-                        <>
-                          <span className="shrink-0 text-xs font-normal text-[var(--muted)]">
-                            -
-                          </span>
-                          <span className="inline-block shrink-0 rounded bg-teal-100 px-1.5 py-0.5 text-xs font-normal text-teal-800 dark:bg-teal-950/50 dark:text-teal-200">
-                            {clientName}
-                          </span>
-                        </>
+                        {tag ? (
+                          <>
+                            <span className="shrink-0 text-xs font-normal text-[var(--muted)]">
+                              -
+                            </span>
+                            <ClientTag label={tag} />
+                          </>
+                        ) : null}
+                      </div>
+                      {msg.direction !== "OUTBOUND" && emailDiffers ? (
+                        <p className="truncate text-xs font-normal text-[var(--muted)]">
+                          &lt;{email}&gt;
+                        </p>
                       ) : null}
-                      {clientName && msg.direction === "OUTBOUND" && !showClientTag ? (
-                        <span className="inline-block shrink-0 rounded bg-teal-100 px-1.5 py-0.5 text-xs font-normal text-teal-800 dark:bg-teal-950/50 dark:text-teal-200">
-                          Client
-                        </span>
-                      ) : null}
-                    </span>
-                    <time className="shrink-0 text-right text-xs font-normal text-[var(--muted)] group-hover:opacity-0">
+                      <p className="truncate text-sm">
+                        <span className="font-normal text-[var(--muted)]">Sujet : </span>
+                        {msg.subject || "(sans objet)"}
+                      </p>
+                    </div>
+                    <time className="shrink-0 text-right text-xs font-normal text-[var(--muted)]">
                       <span className="block">{formatDate(msg.receivedAt)}</span>
                       <span className="block tabular-nums">{formatTime(msg.receivedAt)}</span>
                     </time>
                   </div>
-                  {addr ? (
-                    <p className="truncate text-xs font-normal text-[var(--muted)]">
-                      {msg.direction === "OUTBOUND" ? (
-                        <>À &lt;{addr}&gt;</>
-                      ) : (
-                        <>&lt;{addr}&gt;</>
-                      )}
-                    </p>
-                  ) : null}
-                  <p className="truncate text-sm">
-                    <span className="font-normal text-[var(--muted)]">Sujet : </span>
-                    {msg.subject || "(sans objet)"}
-                  </p>
                 </button>
                 <div className="flex shrink-0 items-center gap-0.5 opacity-0 transition group-hover:opacity-100 focus-within:opacity-100">
                   {actionBtn(

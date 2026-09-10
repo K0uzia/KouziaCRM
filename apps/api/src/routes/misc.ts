@@ -254,7 +254,16 @@ export const miscRoutes: FastifyPluginAsync = async (app) => {
               subject: true,
               clientId: true,
               unreadCount: true,
-              client: { select: { id: true, displayName: true } },
+              client: {
+                select: {
+                  id: true,
+                  displayName: true,
+                  firstName: true,
+                  lastName: true,
+                  companyName: true,
+                  type: true,
+                },
+              },
             },
           },
           folder: { select: { id: true, displayName: true, role: true } },
@@ -295,7 +304,14 @@ export const miscRoutes: FastifyPluginAsync = async (app) => {
               if (clientId) {
                 client = await prisma.client.findUnique({
                   where: { id: clientId },
-                  select: { id: true, displayName: true },
+                  select: {
+                    id: true,
+                    displayName: true,
+                    firstName: true,
+                    lastName: true,
+                    companyName: true,
+                    type: true,
+                  },
                 });
                 if (client) {
                   await prisma.emailThread
