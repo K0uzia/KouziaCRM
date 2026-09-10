@@ -33,6 +33,46 @@ function envelopeFrom(raw: unknown): EnvelopeLike {
   return raw as EnvelopeLike;
 }
 
+/**
+ * Vrai PJ IMAP : disposition attachment / filename.
+ * Un multipart text+html a des childNodes mais PAS de pièce jointe.
+ */
+function bodyStructureHasRealAttachment(node: unknown): boolean {
+  if (!node || typeof node !== "object") return false;
+  const n = node as {
+    type?: string;
+    disposition?: string | { type?: string } | null;
+    dispositionParameters?: { filename?: string } | null;
+    parameters?: { name?: string } | null;
+    childNodes?: unknown[];
+  };
+  const disposition =
+    typeof n.disposition === "string"
+      ? n.disposition.toLowerCase()
+      : n.disposition?.type?.toLowerCase();
+  if (disposition === "attachment") return true;
+  if (n.dispositionParameters?.filename) return true;
+
+  const type = (n.type ?? "").toLowerCase();
+  const named = Boolean(n.parameters?.name);
+  // Partie binaire/fichier nommée (PDF, zip…), hors text/multipart/message
+  if (
+    named &&
+    type &&
+    type !== "multipart" &&
+    type !== "text" &&
+    type !== "message"
+  ) {
+    return true;
+  }
+  if (type === "application" && named) return true;
+
+  if (Array.isArray(n.childNodes)) {
+    return n.childNodes.some(bodyStructureHasRealAttachment);
+  }
+  return false;
+}
+
 /** Certains serveurs (ex. Dovecot) renvoient BAD sur FETCH si la plage UID est vide. */
 function hasUidRange(mailbox: { uidNext?: bigint | number | null; exists?: number }, fromUid: number): boolean {
   if ((mailbox.exists ?? 0) === 0) return false;
@@ -249,11 +289,7 @@ export async function syncFolder(folderId: string): Promise<{ imported: number; 
         const receivedAt = env.date || new Date();
         const isRead = hasImapFlag(msg.flags, "Seen");
         const isStarred = hasImapFlag(msg.flags, "Flagged");
-        const hasAttachments = Boolean(
-          msg.bodyStructure &&
-            typeof msg.bodyStructure === "object" &&
-            "childNodes" in (msg.bodyStructure as object),
-        );
+        const hasAttachments = bodyStructureHasRealAttachment(msg.bodyStructure);
 
         const existing = await prisma.emailMessage.findFirst({
           where: { folderId: folder.id, imapUid: uid },
@@ -264,11 +300,17 @@ export async function syncFolder(folderId: string): Promise<{ imported: number; 
           if (
             existing.isRead !== mergedRead ||
             existing.isStarred !== isStarred ||
-            existing.orphaned
+            existing.orphaned ||
+            (!existing.bodyFetched && existing.hasAttachments !== hasAttachments)
           ) {
             await prisma.emailMessage.update({
               where: { id: existing.id },
-              data: { isRead: mergedRead, isStarred, orphaned: false },
+              data: {
+                isRead: mergedRead,
+                isStarred,
+                orphaned: false,
+                ...(!existing.bodyFetched ? { hasAttachments } : {}),
+              },
             });
             updated++;
           }
@@ -349,6 +391,7 @@ export async function syncFolder(folderId: string): Promise<{ imported: number; 
 
     updated += await reconcileOrphanedMessages(folder.id, client);
     updated += await orphanUidsMissingOnServer(folder.id, client, mailbox.exists ?? 0);
+    updated += await repairAttachmentFlagsForFolder(folder.id, client);
 
     if (startUid === 1 && maxUid === folder.highestUid) {
       const status = await client.status(folder.imapPath, { unseen: true });
@@ -403,6 +446,54 @@ async function orphanUidsMissingOnServer(
     data: { orphaned: true },
   });
   return result.count;
+}
+
+/** Corrige les faux positifs PJ (multipart texte sans fichier). */
+async function repairAttachmentFlagsForFolder(
+  folderId: string,
+  client: ImapFlow,
+): Promise<number> {
+  let fixed = 0;
+
+  const cleared = await prisma.emailMessage.updateMany({
+    where: {
+      folderId,
+      bodyFetched: true,
+      hasAttachments: true,
+      attachments: { none: {} },
+    },
+    data: { hasAttachments: false },
+  });
+  fixed += cleared.count;
+
+  const suspects = await prisma.emailMessage.findMany({
+    where: {
+      folderId,
+      hasAttachments: true,
+      bodyFetched: false,
+      orphaned: false,
+      imapUid: { not: null },
+    },
+    select: { id: true, imapUid: true },
+    take: 300,
+  });
+  if (suspects.length === 0) return fixed;
+
+  const byUid = new Map(suspects.map((s) => [s.imapUid!, s.id]));
+  const uidQuery = suspects.map((s) => s.imapUid!).join(",");
+  for await (const msg of client.fetch(uidQuery, { uid: true, bodyStructure: true }, { uid: true })) {
+    const uid = toImapInt(msg.uid);
+    const id = byUid.get(uid);
+    if (!id) continue;
+    if (!bodyStructureHasRealAttachment(msg.bodyStructure)) {
+      await prisma.emailMessage.update({
+        where: { id },
+        data: { hasAttachments: false },
+      });
+      fixed++;
+    }
+  }
+  return fixed;
 }
 
 export async function syncAllFolders(): Promise<{

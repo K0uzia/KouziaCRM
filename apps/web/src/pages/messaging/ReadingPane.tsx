@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import {
   faArrowLeft,
+  faPaperclip,
   faReply,
   faStar,
   faTrash,
@@ -31,7 +32,11 @@ type Props = {
   onRead?: (messageIds: string[]) => void;
 };
 
-type MessageBodyPayload = { bodyText: string | null; bodyHtml: string | null };
+type MessageBodyPayload = {
+  bodyText: string | null;
+  bodyHtml: string | null;
+  attachments?: Array<{ id: string; filename: string; mimeType: string; sizeBytes: number }>;
+};
 
 type ThreadMessage = {
   id: string;
@@ -45,6 +50,7 @@ type ThreadMessage = {
   bodyHtml?: string | null;
   isRead: boolean;
   isStarred: boolean;
+  hasAttachments?: boolean;
   direction: string;
   attachments: Array<{ id: string; filename: string; mimeType: string; sizeBytes: number }>;
 };
@@ -142,6 +148,18 @@ export function ReadingPane({
               `/api/emails/messages/${focus}/body?allowRemoteImages=true`,
             );
             setBodies((b) => ({ ...b, [focus]: body }));
+            if (body.attachments) {
+              setThread((t) =>
+                t
+                  ? {
+                      ...t,
+                      messages: t.messages.map((m) =>
+                        m.id === focus ? { ...m, attachments: body.attachments ?? m.attachments } : m,
+                      ),
+                    }
+                  : t,
+              );
+            }
             setBodyError(null);
           } catch (e) {
             if (!seeded[focus]) {
@@ -169,6 +187,18 @@ export function ReadingPane({
         `/api/emails/messages/${id}/body?allowRemoteImages=true`,
       );
       setBodies((b) => ({ ...b, [id]: body }));
+      if (body.attachments) {
+        setThread((t) =>
+          t
+            ? {
+                ...t,
+                messages: t.messages.map((m) =>
+                  m.id === id ? { ...m, attachments: body.attachments ?? m.attachments } : m,
+                ),
+              }
+            : t,
+        );
+      }
       await api(`/api/emails/messages/${id}/flags`, {
         method: "PATCH",
         body: JSON.stringify({ read: true }),
@@ -293,10 +323,19 @@ export function ReadingPane({
                     {" · "}
                     {msg.direction === "OUTBOUND" ? "Envoyé" : "Reçu"}
                     {!msg.isRead ? " · Non lu" : ""}
+                    {msg.attachments.length > 0 || msg.hasAttachments ? (
+                      <>
+                        {" · "}
+                        <FontAwesomeIcon icon={faPaperclip} className="h-3 w-3" aria-hidden />
+                        {msg.attachments.length > 0
+                          ? ` ${msg.attachments.length} PJ`
+                          : " Pièce(s) jointe(s)"}
+                      </>
+                    ) : null}
                   </span>
                 </button>
                 {open && body ? (
-                  <div className="border-t border-[var(--border)] px-4 pb-4">
+                  <div className="border-t border-[var(--border)] px-4 pb-4 pt-3">
                     {msg.attachments.length > 0 ? (
                       <AttachmentList attachments={msg.attachments} />
                     ) : null}

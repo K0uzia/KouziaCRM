@@ -97,9 +97,3 @@ export function buildFolderOverrides(settings: {
     CUSTOM: null,
   };
 }
-
-export const VIRTUAL_FOLDERS = [
-  { id: "virtual:unread", role: "CUSTOM" as const, displayName: "Non lus", filter: "unread" as const },
-  { id: "virtual:starred", role: "CUSTOM" as const, displayName: "Favoris", filter: "starred" as const },
-  { id: "virtual:attachments", role: "CUSTOM" as const, displayName: "Avec pièces jointes", filter: "attachments" as const },
-] as const;

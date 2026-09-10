@@ -20,6 +20,13 @@ export async function fetchMessageBody(
   });
 
   if (message.bodyFetched && (message.bodyText || message.bodyHtml)) {
+    const realHasAttachments = message.attachments.length > 0;
+    if (message.hasAttachments !== realHasAttachments) {
+      await prisma.emailMessage.update({
+        where: { id: message.id },
+        data: { hasAttachments: realHasAttachments },
+      });
+    }
     return {
       bodyText: message.bodyText,
       bodyHtml: message.bodyHtml
@@ -129,7 +136,7 @@ export async function fetchMessageBody(
       snippet,
       fromName: message.fromName || parsedFromName,
       bodyFetched: true,
-      hasAttachments: hasAttachments || message.hasAttachments,
+      hasAttachments,
       rawHeaders: JSON.stringify(parsed.headers || {}),
     },
   });
@@ -139,6 +146,16 @@ export async function fetchMessageBody(
       where: { id: message.threadId },
       data: { hasAttachments: true },
     });
+  } else if (message.hasAttachments) {
+    const stillHas = await prisma.emailMessage.count({
+      where: { threadId: message.threadId, hasAttachments: true, id: { not: message.id } },
+    });
+    if (stillHas === 0) {
+      await prisma.emailThread.update({
+        where: { id: message.threadId },
+        data: { hasAttachments: false },
+      });
+    }
   }
 
   await resetRemindersForMatchedDocuments(message.subject, bodyText);

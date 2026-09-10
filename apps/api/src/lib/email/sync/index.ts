@@ -12,7 +12,6 @@ import {
   type MessageListFilter,
 } from "@/lib/email/sync/folder-sync.js";
 import { getMailSyncStatus, updateMailSyncStatus } from "@/lib/email/sync/sync-status.js";
-import { MailFolderRole } from "@prisma/client";
 import { prisma } from "@/lib/prisma.js";
 
 export {
@@ -80,7 +79,6 @@ export async function countMessagesByAudience(
 
 export async function getMailFoldersWithCounts() {
   const folders = await discoverAndEnsureFolders();
-  const inbox = folders.find((f) => f.role === MailFolderRole.INBOX);
   return {
     folders: folders.map((f) => ({
       id: f.id,
@@ -90,11 +88,13 @@ export async function getMailFoldersWithCounts() {
       unreadCount: f.unreadCount,
       isVirtual: f.isVirtual,
     })),
-    virtualFolders: [
-      { id: "virtual:unread", displayName: "Non lus", role: "CUSTOM", unreadCount: inbox?.unreadCount ?? 0 },
-      { id: "virtual:starred", displayName: "Favoris", role: "CUSTOM" },
-      { id: "virtual:attachments", displayName: "Avec pièces jointes", role: "CUSTOM" },
-    ],
+    /** Conservé pour compat clients anciens ; les filtres sont désormais côté liste. */
+    virtualFolders: [] as Array<{
+      id: string;
+      displayName: string;
+      role: string;
+      unreadCount?: number;
+    }>,
     syncStatus: await getMailSyncStatus(),
   };
 }

@@ -8,6 +8,7 @@ import { ReadingPane } from "@/pages/messaging/ReadingPane";
 import { ComposeModal } from "@/pages/messaging/ComposeModal";
 import { useInboxSync } from "@/pages/messaging/useInboxSync";
 import { useMailNotifications } from "@/pages/messaging/useMailNotifications";
+import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 
 export type MailFolderItem = {
   id: string;
@@ -60,7 +61,6 @@ export function MailLayout() {
   const isReading = Boolean(threadId);
 
   const [folders, setFolders] = useState<MailFolderItem[]>([]);
-  const [virtualFolders, setVirtualFolders] = useState<MailFolderItem[]>([]);
   const [syncStatus, setSyncStatus] = useState<SyncStatus | null>(null);
   const [selectedFolderId, setSelectedFolderId] = useState<string>("");
   const [selectedMessageId, setSelectedMessageId] = useState<string | null>(null);
@@ -68,6 +68,7 @@ export function MailLayout() {
   const [total, setTotal] = useState(0);
   const [search, setSearch] = useState("");
   const [audience, setAudience] = useState<"all" | "clients" | "external">("all");
+  const [viewFilter, setViewFilter] = useState<"all" | "unread" | "starred" | "attachments">("all");
   const [audienceCounts, setAudienceCounts] = useState<{ all: number; clients: number; external: number } | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [composeOpen, setComposeOpen] = useState(false);
@@ -80,6 +81,8 @@ export function MailLayout() {
     body?: string;
   }>({});
   const [mobileFoldersOpen, setMobileFoldersOpen] = useState(false);
+  const [emptyTrashOpen, setEmptyTrashOpen] = useState(false);
+  const [emptyTrashBusy, setEmptyTrashBusy] = useState(false);
   const selectedFolderIdRef = useRef(selectedFolderId);
   selectedFolderIdRef.current = selectedFolderId;
   const messagesLoadGen = useRef(0);
@@ -88,31 +91,35 @@ export function MailLayout() {
   const loadFolders = useCallback(async () => {
     const data = await api<{
       folders: MailFolderItem[];
-      virtualFolders: MailFolderItem[];
       syncStatus: SyncStatus;
     }>("/api/emails/folders");
     setFolders(data.folders);
-    setVirtualFolders(data.virtualFolders);
     setSyncStatus(data.syncStatus);
-    if (!selectedFolderIdRef.current) {
+    const current = selectedFolderIdRef.current;
+    if (!current || current.startsWith("virtual:")) {
       const inbox = data.folders.find((f) => f.role === "INBOX");
       if (inbox) setSelectedFolderId(inbox.id);
-      else if (data.virtualFolders[0]) setSelectedFolderId(data.virtualFolders[0].id);
+      else if (data.folders[0]) setSelectedFolderId(data.folders[0].id);
+      if (current?.startsWith("virtual:")) {
+        const v = current.replace("virtual:", "");
+        if (v === "unread" || v === "starred" || v === "attachments") {
+          setViewFilter(v);
+        }
+      }
     }
   }, []);
 
   const loadMessages = useCallback(async () => {
     const folderId = selectedFolderIdRef.current;
-    if (!folderId) return;
+    if (!folderId || folderId.startsWith("virtual:")) return;
     const gen = ++messagesLoadGen.current;
     const params = new URLSearchParams();
-    if (folderId.startsWith("virtual:")) {
-      params.set("virtual", folderId.replace("virtual:", ""));
-    } else {
-      params.set("folderId", folderId);
-    }
+    params.set("folderId", folderId);
     if (search.trim()) params.set("q", search.trim());
     if (audience !== "all") params.set("audience", audience);
+    if (viewFilter === "unread") params.set("unread", "true");
+    if (viewFilter === "starred") params.set("starred", "true");
+    if (viewFilter === "attachments") params.set("hasAttachments", "true");
     params.set("take", "50");
     const data = await api<{
       messages: MailMessageItem[];
@@ -123,7 +130,7 @@ export function MailLayout() {
     setMessages(data.messages);
     setTotal(data.total);
     setAudienceCounts(data.audienceCounts);
-  }, [selectedFolderId, search, audience]);
+  }, [selectedFolderId, search, audience, viewFilter]);
 
   const refresh = useCallback(async () => {
     await loadFolders();
@@ -272,16 +279,15 @@ export function MailLayout() {
     }
   }
 
-  async function emptyTrash() {
-    if (!window.confirm("Vider la corbeille ? Les messages seront définitivement supprimés.")) {
-      return;
-    }
+  async function confirmEmptyTrash() {
+    setEmptyTrashBusy(true);
     try {
       const res = await api<{ deleted: number }>("/api/emails/trash/empty", {
         method: "POST",
         body: "{}",
       });
       setSelectedIds(new Set());
+      setEmptyTrashOpen(false);
       await refresh();
       toast.success(
         res.deleted > 0
@@ -290,10 +296,12 @@ export function MailLayout() {
       );
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Impossible de vider la corbeille");
+    } finally {
+      setEmptyTrashBusy(false);
     }
   }
 
-  const selectedFolder = [...folders, ...virtualFolders].find((f) => f.id === selectedFolderId);
+  const selectedFolder = folders.find((f) => f.id === selectedFolderId);
   const isTrashFolder =
     selectedFolder?.role === "TRASH" ||
     selectedFolder?.displayName?.toLowerCase().includes("corbeille") === true;
@@ -316,11 +324,12 @@ export function MailLayout() {
           } ${isReading ? "hidden md:block" : ""}`}
         >
           <FolderSidebar
-            folders={[...folders, ...virtualFolders]}
+            folders={folders}
             selectedId={selectedFolderId}
             onSelect={(id) => {
               setSelectedFolderId(id);
               setSelectedMessageId(null);
+              setViewFilter("all");
               setMobileFoldersOpen(false);
               if (threadId) navigate("/inbox");
             }}
@@ -373,12 +382,14 @@ export function MailLayout() {
               audience={audience}
               audienceCounts={audienceCounts}
               onAudienceChange={setAudience}
+              viewFilter={viewFilter}
+              onViewFilterChange={setViewFilter}
               onReply={replyToMessage}
               onDelete={(msg) => void bulkDelete([msg.id], isTrashFolder)}
               onToggleRead={(msg) => void toggleRead(msg)}
               onToggleStar={(msg) => void toggleStar(msg)}
               isTrashFolder={isTrashFolder}
-              onEmptyTrash={() => void emptyTrash()}
+              onEmptyTrash={() => setEmptyTrashOpen(true)}
             />
           </div>
         ) : (
@@ -428,6 +439,19 @@ export function MailLayout() {
           setComposeOpen(false);
           void refresh();
         }}
+      />
+
+      <ConfirmDialog
+        open={emptyTrashOpen}
+        title="Vider la corbeille ?"
+        message="Tous les messages de la corbeille seront définitivement supprimés. Cette action est irréversible."
+        confirmLabel="Vider la corbeille"
+        danger
+        busy={emptyTrashBusy}
+        onClose={() => {
+          if (!emptyTrashBusy) setEmptyTrashOpen(false);
+        }}
+        onConfirm={() => void confirmEmptyTrash()}
       />
     </div>
   );

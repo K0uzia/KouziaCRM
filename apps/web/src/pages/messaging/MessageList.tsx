@@ -5,6 +5,7 @@ import {
   faEnvelope,
   faEnvelopeOpen,
   faMagnifyingGlass,
+  faPaperclip,
   faReply,
   faStar,
   faTrash,
@@ -23,6 +24,8 @@ type Props = {
   audience: "all" | "clients" | "external";
   audienceCounts: { all: number; clients: number; external: number } | null;
   onAudienceChange: (v: "all" | "clients" | "external") => void;
+  viewFilter: "all" | "unread" | "starred" | "attachments";
+  onViewFilterChange: (v: "all" | "unread" | "starred" | "attachments") => void;
   selectedId: string | null;
   selectedIds: Set<string>;
   onSelect: (id: string) => void;
@@ -97,6 +100,8 @@ export function MessageList({
   audience,
   audienceCounts,
   onAudienceChange,
+  viewFilter,
+  onViewFilterChange,
   selectedId,
   selectedIds,
   onSelect,
@@ -118,6 +123,15 @@ export function MessageList({
     { id: "all", label: "Tous" },
     { id: "clients", label: "Clients" },
     { id: "external", label: "Externes" },
+  ];
+  const viewFilters: Array<{
+    id: "all" | "unread" | "starred" | "attachments";
+    label: string;
+  }> = [
+    { id: "all", label: "Tous les messages" },
+    { id: "unread", label: "Non lus" },
+    { id: "starred", label: "Favoris" },
+    { id: "attachments", label: "Pièces jointes" },
   ];
   const [ctx, setCtx] = useState<CtxMenu | null>(null);
   const ctxRef = useRef<HTMLDivElement | null>(null);
@@ -208,6 +222,22 @@ export function MessageList({
               </button>
             );
           })}
+        </div>
+        <div className="mb-2 flex flex-wrap gap-1" role="group" aria-label="Filtres du dossier">
+          {viewFilters.map((f) => (
+            <button
+              key={f.id}
+              type="button"
+              className={`rounded-full px-3 py-1 text-xs ${
+                viewFilter === f.id
+                  ? "bg-[var(--surface-raised)] font-medium text-[var(--text)] ring-1 ring-[var(--border)]"
+                  : "text-[var(--muted)] hover:bg-[var(--surface-muted)] hover:text-[var(--text)]"
+              }`}
+              onClick={() => onViewFilterChange(f.id)}
+            >
+              {f.label}
+            </button>
+          ))}
         </div>
         <div className="relative">
           <FontAwesomeIcon
@@ -313,6 +343,13 @@ export function MessageList({
                             icon={faStar}
                             className="h-3 w-3 shrink-0 text-[var(--warning)]"
                             aria-label="Favori"
+                          />
+                        ) : null}
+                        {msg.hasAttachments ? (
+                          <FontAwesomeIcon
+                            icon={faPaperclip}
+                            className="h-3 w-3 shrink-0 text-[var(--muted)]"
+                            aria-label="Pièce jointe"
                           />
                         ) : null}
                         {msg.direction === "OUTBOUND" ? (
