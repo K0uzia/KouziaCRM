@@ -327,7 +327,10 @@ export function MessageList({
                             ) : null}
                           </span>
                         ) : (
-                          <span className="truncate text-sm">{name}</span>
+                          <span className="min-w-0 truncate text-sm">
+                            <span className="font-normal text-[var(--muted)]">De : </span>
+                            {name}
+                          </span>
                         )}
                         {tag ? (
                           <>

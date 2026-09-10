@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
@@ -80,6 +80,10 @@ export function MailLayout() {
     body?: string;
   }>({});
   const [mobileFoldersOpen, setMobileFoldersOpen] = useState(false);
+  const selectedFolderIdRef = useRef(selectedFolderId);
+  selectedFolderIdRef.current = selectedFolderId;
+  const messagesLoadGen = useRef(0);
+  const refreshTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const loadFolders = useCallback(async () => {
     const data = await api<{
@@ -90,20 +94,22 @@ export function MailLayout() {
     setFolders(data.folders);
     setVirtualFolders(data.virtualFolders);
     setSyncStatus(data.syncStatus);
-    if (!selectedFolderId) {
+    if (!selectedFolderIdRef.current) {
       const inbox = data.folders.find((f) => f.role === "INBOX");
       if (inbox) setSelectedFolderId(inbox.id);
       else if (data.virtualFolders[0]) setSelectedFolderId(data.virtualFolders[0].id);
     }
-  }, [selectedFolderId]);
+  }, []);
 
   const loadMessages = useCallback(async () => {
-    if (!selectedFolderId) return;
+    const folderId = selectedFolderIdRef.current;
+    if (!folderId) return;
+    const gen = ++messagesLoadGen.current;
     const params = new URLSearchParams();
-    if (selectedFolderId.startsWith("virtual:")) {
-      params.set("virtual", selectedFolderId.replace("virtual:", ""));
+    if (folderId.startsWith("virtual:")) {
+      params.set("virtual", folderId.replace("virtual:", ""));
     } else {
-      params.set("folderId", selectedFolderId);
+      params.set("folderId", folderId);
     }
     if (search.trim()) params.set("q", search.trim());
     if (audience !== "all") params.set("audience", audience);
@@ -113,6 +119,7 @@ export function MailLayout() {
       total: number;
       audienceCounts: { all: number; clients: number; external: number };
     }>(`/api/emails/messages?${params}`);
+    if (gen !== messagesLoadGen.current) return;
     setMessages(data.messages);
     setTotal(data.total);
     setAudienceCounts(data.audienceCounts);
@@ -123,6 +130,14 @@ export function MailLayout() {
     await loadMessages();
   }, [loadFolders, loadMessages]);
 
+  /** Évite les rafales focus + lastSyncAt + sync manuelle qui font clignoter la liste. */
+  const scheduleRefresh = useCallback(() => {
+    if (refreshTimer.current) clearTimeout(refreshTimer.current);
+    refreshTimer.current = setTimeout(() => {
+      void refresh().catch((e: Error) => toast.error(e.message));
+    }, 400);
+  }, [refresh]);
+
   useEffect(() => {
     void loadFolders().catch((e: Error) => toast.error(e.message));
   }, [loadFolders]);
@@ -131,8 +146,14 @@ export function MailLayout() {
     void loadMessages().catch((e: Error) => toast.error(e.message));
   }, [loadMessages]);
 
-  useInboxSync(refresh);
-  useMailNotifications(refresh, syncStatus);
+  useEffect(() => {
+    return () => {
+      if (refreshTimer.current) clearTimeout(refreshTimer.current);
+    };
+  }, []);
+
+  useInboxSync(scheduleRefresh);
+  useMailNotifications(scheduleRefresh, syncStatus);
 
   async function syncNow() {
     try {
