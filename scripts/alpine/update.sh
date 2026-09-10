@@ -155,14 +155,18 @@ fi
 install_kouziactl_link "${KOUZIA_APP_DIR}/scripts/alpine/kouziactl" /usr/local/bin/kouziactl
 
 log "Redémarrage services…"
+# Worker après health : évite le lock SQLite pendant le boot API (tsx + migrations soft).
+service_safe kouziacrm-worker stop
 service_safe kouziacrm start
-service_safe kouziacrm-worker start
-sleep 1
+sleep 2
 if ! wait_health; then
   warn "Healthcheck KO. Logs :"
   tail -n 40 "${KOUZIA_LOG_DIR}/app.log" 2>/dev/null || true
+  tail -n 20 "${KOUZIA_LOG_DIR}/app.err" 2>/dev/null || true
   die "Mise à jour terminée mais API unhealthy."
 fi
+service_safe kouziacrm-worker start
+ok "Worker démarré après health OK"
 
 # --- 7. Persister empreintes ---
 state_set "package-lock" "$NEW_LOCK"

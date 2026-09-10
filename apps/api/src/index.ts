@@ -8,20 +8,22 @@ async function main() {
   assertSecurityEnv();
 
   await enableWal();
+
+  // Écouter tôt : le healthcheck OpenRC / kouziactl ne doit pas attendre
+  // hydrate + backfill (surtout sous lock SQLite avec le worker).
+  const app = await buildApp();
+  const port = getApiPort();
+  await app.listen({ port, host: "0.0.0.0" });
+  app.log.info(`API KouziaCRM sur :${port}`);
+
   try {
     await hydrateSettingsFromEnv();
     const { backfillClientEmailHashes } = await import("@/lib/clients/backfill-email-hash.js");
     const n = await backfillClientEmailHashes();
-    if (n > 0) console.log(`[boot] emailHash backfill: ${n} client(s)`);
+    if (n > 0) app.log.info(`[boot] emailHash backfill: ${n} client(s)`);
   } catch (err) {
-    console.warn("[boot] hydrateSettingsFromEnv:", err);
+    app.log.warn({ err }, "[boot] hydrateSettingsFromEnv / backfill");
   }
-
-  const app = await buildApp();
-
-  const port = getApiPort();
-  await app.listen({ port, host: "0.0.0.0" });
-  app.log.info(`API KouziaCRM sur :${port}`);
 }
 
 main().catch((err) => {

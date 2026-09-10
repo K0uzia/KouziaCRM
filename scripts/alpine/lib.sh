@@ -132,17 +132,29 @@ state_set() {
 }
 
 wait_health() {
-  local url="${1:-$KOUZIA_HEALTH_URL}"
-  local tries="${2:-30}"
+  local env_port
+  env_port="$(grep -E '^API_PORT=' "${KOUZIA_APP_DIR}/.env" 2>/dev/null | tail -1 | cut -d= -f2- | tr -d '"' || true)"
+  local port="${env_port:-$KOUZIA_API_PORT}"
+  local url="${1:-http://127.0.0.1:${port}/api/health}"
+  local tries="${2:-90}"
   local i
+  local err=""
   for ((i = 1; i <= tries; i++)); do
-    if curl -fsS "$url" >/dev/null 2>&1; then
+    # -4 : forcer IPv4 (Alpine / curl peut tenter ::1 et échouer)
+    if err="$(curl -4 -fsS --connect-timeout 2 --max-time 5 "$url" 2>&1)"; then
       ok "Healthcheck: $url"
       return 0
     fi
     sleep 1
   done
   warn "Healthcheck timeout après ${tries}s: $url"
+  if [[ -n "$err" ]]; then
+    warn "Dernière erreur curl : $err"
+  fi
+  # Diagnostic rapide
+  if command -v ss >/dev/null 2>&1; then
+    ss -lnt 2>/dev/null | grep -E ":${port}\\b" || warn "Aucun process en écoute sur :${port}"
+  fi
   return 1
 }
 

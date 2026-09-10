@@ -38,10 +38,16 @@ done
 echo ""
 
 echo "${C_BOLD}Health${C_RESET}"
-if curl -fsS "http://127.0.0.1:${PORT}/api/health" >/dev/null 2>&1; then
-  ok "API http://127.0.0.1:${PORT}/api/health"
+HEALTH_URL="http://127.0.0.1:${PORT}/api/health"
+if out="$(curl -4 -fsS --connect-timeout 2 --max-time 5 "$HEALTH_URL" 2>&1)"; then
+  ok "API $HEALTH_URL → $out"
 else
-  warn "API ne répond pas (http://127.0.0.1:${PORT}/api/health)"
+  warn "API ne répond pas ($HEALTH_URL)"
+  [[ -n "$out" ]] && warn "curl: $out"
+  if command -v ss >/dev/null 2>&1; then
+    echo "  Écoute :"
+    ss -lntp 2>/dev/null | grep -E ":${PORT}\\b" || echo "  (rien sur :${PORT})"
+  fi
 fi
 echo ""
 

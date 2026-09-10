@@ -151,9 +151,11 @@ run_cmd() {
       ;;
     restart)
       require_root
+      service_safe kouziacrm-worker stop
       service_safe kouziacrm restart
-      service_safe kouziacrm-worker restart
+      sleep 2
       wait_health
+      service_safe kouziacrm-worker start
       ;;
     stop)
       require_root
@@ -163,8 +165,9 @@ run_cmd() {
     start)
       require_root
       service_safe kouziacrm start
-      service_safe kouziacrm-worker start
+      sleep 2
       wait_health
+      service_safe kouziacrm-worker start
       ;;
     migrate)
       require_cmd npx
@@ -176,8 +179,9 @@ run_cmd() {
         die "migrate deploy échoué"
       fi
       service_safe kouziacrm start
-      service_safe kouziacrm-worker start
+      sleep 2
       wait_health || warn "API unhealthy après migrate"
+      service_safe kouziacrm-worker start
       ;;
     menu) show_menu ;;
     help|-h|--help) usage ;;
