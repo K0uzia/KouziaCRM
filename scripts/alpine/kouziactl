@@ -170,11 +170,16 @@ run_cmd() {
       ;;
     migrate)
       require_cmd npx
-      if [[ "$(id -u)" -eq 0 ]]; then
-        run_as_app "cd '$KOUZIA_APP_DIR' && npx prisma migrate deploy"
+      require_root
+      stop_app_stack
+      if run_as_app "cd '$KOUZIA_APP_DIR' && npx prisma migrate deploy"; then
+        ok "migrate deploy OK"
       else
-        (cd "$KOUZIA_APP_DIR" && npx prisma migrate deploy)
+        die "migrate deploy échoué"
       fi
+      service_safe kouziacrm start
+      service_safe kouziacrm-worker start
+      wait_health || warn "API unhealthy après migrate"
       ;;
     menu) show_menu ;;
     help|-h|--help) usage ;;

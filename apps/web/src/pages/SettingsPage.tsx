@@ -1027,25 +1027,30 @@ export function SettingsPage() {
 
               {!form.moduleMerchantApiEnabled ? (
                 <Card className="space-y-2 border border-[var(--border)] bg-[var(--primary-soft)]/40 p-5">
-                  <h3 className="text-sm font-semibold">Paiements prestations (Revolut Pro)</h3>
+                  <h3 className="text-sm font-semibold">Paiements B2B (pro, restos, assos)</h3>
+                  <p className="text-xs leading-relaxed text-[var(--muted)]">
+                    Pour des clients professionnels, le plus simple reste le{" "}
+                    <strong className="text-[var(--text)]">virement SEPA</strong> sur
+                    l&apos;IBAN Revolut Pro (affiché sur le PDF). Référence = n° de facture.
+                  </p>
                   <ol className="list-decimal space-y-1.5 pl-5 text-xs leading-relaxed text-[var(--muted)]">
-                    <li>Devis dans l&apos;ERP → le client valide sur /suivi.</li>
+                    <li>Devis dans l&apos;ERP → validation client sur /suivi.</li>
                     <li>
-                      Dans l&apos;app Revolut Pro : Payment Link du montant de l&apos;acompte
-                      (ex. 30 %), libellé = n° devis.
+                      Émettre la facture d&apos;acompte (ou coller un Payment Link Revolut si
+                      le client préfère payer en ligne).
                     </li>
                     <li>
-                      Sur le devis ERP : coller le lien → Envoyer au client (email + portail).
+                      Le client vire → vous voyez le crédit dans Revolut →{" "}
+                      <strong className="text-[var(--text)]">Marquer payé</strong> / enregistrer
+                      l&apos;encaissement dans l&apos;ERP.
                     </li>
-                    <li>
-                      Paiement reçu dans Revolut → Marquer payé dans l&apos;ERP, puis livrer /
-                      facturer le solde de la même façon.
-                    </li>
+                    <li>Livraison → facture de solde, même logique.</li>
                   </ol>
                   <p className="text-xs text-[var(--muted)]">
-                    Alternative : virement SEPA sur l&apos;IBAN ci-dessous (affiché sur les
-                    factures PDF). Tiime reste optionnel pour la e-facture 2026, pas pour
-                    l&apos;encaissement client.
+                    Tiime (ou une autre PA) servira surtout pour la{" "}
+                    <strong className="text-[var(--text)]">facture électronique B2B 2026</strong>
+                    , pas pour remplacer le CRM. Laissez l&apos;activité B2C désactivée dans
+                    Déclarations si vous ne facturez pas de particuliers.
                   </p>
                 </Card>
               ) : null}

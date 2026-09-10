@@ -119,9 +119,10 @@ export function MarketTimeline({
         </div>
         {allowManualLink ? (
           <p className="mt-3 rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--bg)] px-3 py-2 text-xs leading-relaxed text-[var(--muted)]">
-            Revolut Pro : créez un <strong className="text-[var(--text)]">Payment Link</strong>{" "}
-            dans l&apos;app (montant = jalon), collez l&apos;URL ici, puis envoyez au client.
-            Quand il a payé : Marquer payé.
+            Clients pro : en général{" "}
+            <strong className="text-[var(--text)]">virement SEPA</strong> (IBAN sur la
+            facture) puis Marquer payé. Optionnel : coller un Payment Link Revolut Pro si le
+            client veut payer en ligne.
           </p>
         ) : null}
         <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-[var(--bg)]">

@@ -58,7 +58,10 @@ if [[ "$SKIP_BACKUP" -eq 0 ]]; then
   fi
 fi
 
-# --- 2. Code ---
+# --- 2. Arrêt tôt (libère SQLite + évite chown pendant écriture) ---
+stop_app_stack
+
+# --- 3. Code ---
 if [[ "$DO_GIT" -eq 1 ]]; then
   [[ -d "${KOUZIA_APP_DIR}/.git" ]] || die "--git demandé mais pas de dépôt git dans $KOUZIA_APP_DIR"
   log "git pull…"
@@ -66,17 +69,26 @@ if [[ "$DO_GIT" -eq 1 ]]; then
 else
   log "Pas de git pull (code déjà en place ou poussé via rsync). Utiliser --git si besoin."
 fi
-chown -R "${KOUZIA_USER}:${KOUZIA_GROUP}" "$KOUZIA_APP_DIR"
-# Préserver ownership data / .env
-chown -R "${KOUZIA_USER}:${KOUZIA_GROUP}" "$KOUZIA_DATA_DIR"
-[[ -f "${KOUZIA_APP_DIR}/.env" ]] && chown "${KOUZIA_USER}:${KOUZIA_GROUP}" "${KOUZIA_APP_DIR}/.env"
 
-# --- 3. Détection changements ---
+# Ownership léger (évite chown -R de tout node_modules à chaque update)
+log "Permissions data / .env…"
+chown -R "${KOUZIA_USER}:${KOUZIA_GROUP}" "$KOUZIA_DATA_DIR" "$KOUZIA_STATE_DIR" 2>/dev/null || true
+[[ -f "${KOUZIA_APP_DIR}/.env" ]] && chown "${KOUZIA_USER}:${KOUZIA_GROUP}" "${KOUZIA_APP_DIR}/.env" || true
+# Sources app (sans node_modules)
+chown -R "${KOUZIA_USER}:${KOUZIA_GROUP}" \
+  "${KOUZIA_APP_DIR}/apps" \
+  "${KOUZIA_APP_DIR}/packages" \
+  "${KOUZIA_APP_DIR}/prisma" \
+  "${KOUZIA_APP_DIR}/scripts" \
+  2>/dev/null || true
+
+# --- 4. Détection changements ---
+log "Calcul des empreintes…"
 NEW_LOCK="$(file_sha256 "${KOUZIA_APP_DIR}/package-lock.json")"
 OLD_LOCK="$(state_get package-lock)"
 NEW_SCHEMA="$(file_sha256 "${KOUZIA_APP_DIR}/prisma/schema.prisma")"
 OLD_SCHEMA="$(state_get prisma-schema)"
-NEW_WEB="$(tree_sha256 "$KOUZIA_APP_DIR" apps/web/src apps/web/index.html apps/web/vite.config.ts apps/web/tailwind.config.ts apps/web/package.json packages/kouzia-forms)"
+NEW_WEB="$(tree_sha256 "$KOUZIA_APP_DIR" apps/web/src apps/web/index.html apps/web/vite.config.ts apps/web/package.json packages/kouzia-forms)"
 OLD_WEB="$(state_get web)"
 
 NEED_DEPS=0
@@ -84,17 +96,21 @@ NEED_WEB=0
 NEED_PRISMA_GEN=0
 
 [[ "$FORCE_DEPS" -eq 1 || "$NEW_LOCK" != "$OLD_LOCK" ]] && NEED_DEPS=1
-[[ "$FORCE_WEB" -eq 1 || "$NEW_WEB" != "$OLD_WEB" ]] && NEED_WEB=1
+[[ "$FORCE_WEB" -eq 1 || "$NEW_WEB" != "$OLD_WEB" || "$NEW_WEB" == "error" || -z "$OLD_WEB" ]] && NEED_WEB=1
 [[ "$FORCE_ALL" -eq 1 || "$NEW_SCHEMA" != "$OLD_SCHEMA" || "$NEED_DEPS" -eq 1 ]] && NEED_PRISMA_GEN=1
+
+# Première update réussie jamais enregistrée → forcer SPA + prisma gen
+if [[ ! -f "${KOUZIA_STATE_DIR}/last-update" ]]; then
+  log "Aucune update précédente réussie : force generate + rebuild SPA."
+  NEED_WEB=1
+  NEED_PRISMA_GEN=1
+fi
 
 log "Décision :"
 echo "  deps (npm ci)     : $([[ $NEED_DEPS -eq 1 ]] && echo OUI || echo non)"
 echo "  prisma generate   : $([[ $NEED_PRISMA_GEN -eq 1 ]] && echo OUI || echo non)"
 echo "  build SPA         : $([[ $NEED_WEB -eq 1 ]] && echo OUI || echo non)"
 echo "  migrate deploy    : toujours"
-
-# --- 4. Arrêt pour migrate (SQLite : API + worker doivent libérer le lock) ---
-stop_app_stack
 
 # --- 5. Dépendances ---
 if [[ "$NEED_DEPS" -eq 1 ]]; then
@@ -121,7 +137,6 @@ else
 fi
 
 # --- 6. Restart + health ---
-# S'assurer que /usr/local/bin/kouziactl pointe toujours sur le dépôt
 install_kouziactl_link "${KOUZIA_APP_DIR}/scripts/alpine/kouziactl" /usr/local/bin/kouziactl
 
 log "Redémarrage services…"
@@ -141,6 +156,7 @@ state_set "web" "$NEW_WEB"
 printf '%s\n' "$(date '+%Y-%m-%dT%H:%M:%S%z')" > "${KOUZIA_STATE_DIR}/last-update"
 chown "${KOUZIA_USER}:${KOUZIA_GROUP}" "${KOUZIA_STATE_DIR}/last-update" 2>/dev/null || true
 
-ok "Mise à jour terminée sans rebuild inutile."
+ok "Mise à jour terminée."
 echo "  DB : $KOUZIA_DB_PATH"
 echo "  Status : kouziactl status"
+echo "  UI : hard refresh navigateur (Ctrl+Shift+R) si cache"

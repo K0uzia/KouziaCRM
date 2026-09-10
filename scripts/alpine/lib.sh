@@ -95,20 +95,27 @@ file_sha256() {
 
 tree_sha256() {
   # Empreinte stable d'un arbre de fichiers (chemins relatifs triés).
+  # Compatible BusyBox Alpine (pas de xargs -r GNU).
   local root="$1"
   shift
   if [[ ! -d "$root" ]]; then
     echo "missing"
-    return
+    return 0
   fi
   (
-    cd "$root"
-    find "$@" -type f 2>/dev/null \
-      | LC_ALL=C sort \
-      | xargs -r sha256sum 2>/dev/null \
-      | sha256sum \
-      | awk '{print $1}'
-  )
+    set +e
+    cd "$root" || {
+      echo "missing"
+      exit 0
+    }
+    local list
+    list="$(find "$@" -type f 2>/dev/null | LC_ALL=C sort)"
+    if [[ -z "${list}" ]]; then
+      echo "empty"
+      exit 0
+    fi
+    printf '%s\n' "${list}" | xargs sha256sum 2>/dev/null | sha256sum | awk '{print $1}'
+  ) || echo "error"
 }
 
 state_get() {
