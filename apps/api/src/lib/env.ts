@@ -54,19 +54,45 @@ function withLoopbackAliases(origin: string): string[] {
   }
 }
 
+/** Origines HTTP : :3000 (API) et :80 (collage Tailscale sans port) sont toutes deux acceptées. */
+function withHttpPortAliases(origin: string): string[] {
+  const bases = withLoopbackAliases(origin);
+  const extra: string[] = [];
+  for (const o of bases) {
+    try {
+      const u = new URL(o);
+      if (u.protocol !== "http:") continue;
+      if (u.port === "3000") {
+        const bare = new URL(o);
+        bare.port = "";
+        extra.push(bare.origin);
+      } else if (u.port === "") {
+        const withApi = new URL(o);
+        withApi.port = "3000";
+        extra.push(withApi.origin);
+      }
+    } catch {
+      /* ignore */
+    }
+  }
+  return [...bases, ...extra];
+}
+
+function addOrigins(set: Set<string>, raw: string | undefined): void {
+  if (!raw) return;
+  for (const part of raw.split(/[,\s]+/)) {
+    const origin = part.trim();
+    if (!origin) continue;
+    for (const o of withHttpPortAliases(origin)) set.add(o);
+  }
+}
+
 /** Origines autorisées (admin LAN, admin Tailscale, site public). */
 export function getAllowedOrigins(): string[] {
-  const primary = getCorsOrigin();
-  const publicOrigin = process.env.PUBLIC_WEB_ORIGIN?.trim();
-  const tailscaleOrigin = process.env.TAILSCALE_ORIGIN?.trim();
   const set = new Set<string>();
-  for (const o of withLoopbackAliases(primary)) set.add(o);
-  if (publicOrigin) {
-    for (const o of withLoopbackAliases(publicOrigin)) set.add(o);
-  }
-  if (tailscaleOrigin) {
-    for (const o of withLoopbackAliases(tailscaleOrigin)) set.add(o);
-  }
+  addOrigins(set, getCorsOrigin());
+  addOrigins(set, process.env.PUBLIC_WEB_ORIGIN);
+  addOrigins(set, process.env.TAILSCALE_ORIGIN);
   return Array.from(set);
 }
 

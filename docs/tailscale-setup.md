@@ -81,8 +81,8 @@ Assistant complet (`kouziactl configure`) : Tailscale est proposé **après** Cl
 
 1. App Tailscale installée, **même compte** que le CT, VPN **allumé** (icône dans la barre).
    Sans ça, `100.x` et `*.ts.net` n'existent pas : page blanche / timeout.
-2. Navigateur : l'URL **complète** `TAILSCALE_ORIGIN` (MagicDNS **et le port**, ex. `http://erpkouziadev.tail5c0259.ts.net:3000`).
-   L'IP seule `http://100.71.138.16` (sans `:3000`) n'écoute rien (pas de :80).
+2. Navigateur : `http://erpkouziadev.tail5c0259.ts.net:3000` (**http**, **avec le port**).
+   L'app copie le MagicDNS **sans** `:3000` : sans Serve sur le port 80, Chrome tape le :80 et échoue (pareil pour l'IPv4).
 3. Bookmark / « Ajouter à l'écran d'accueil »
 4. Login ERP (email + mot de passe admin)
 

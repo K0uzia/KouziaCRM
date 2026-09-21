@@ -35,11 +35,16 @@ describe("getAllowedOrigins", () => {
     );
   });
 
-  it("ignore TAILSCALE_ORIGIN vide", () => {
+  it("ajoute l'alias :80 si TAILSCALE_ORIGIN est en :3000", () => {
     process.env.WEB_ORIGIN = "http://192.168.1.50:3000";
     process.env.PUBLIC_WEB_ORIGIN = "";
-    process.env.TAILSCALE_ORIGIN = "  ";
+    process.env.TAILSCALE_ORIGIN = "http://kouzia.tailnet-abc.ts.net:3000";
     const origins = getAllowedOrigins();
-    expect(origins).toEqual(["http://192.168.1.50:3000"]);
+    expect(origins).toEqual(
+      expect.arrayContaining([
+        "http://kouzia.tailnet-abc.ts.net:3000",
+        "http://kouzia.tailnet-abc.ts.net",
+      ]),
+    );
   });
 });

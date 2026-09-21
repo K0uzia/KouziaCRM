@@ -769,25 +769,38 @@ wait_tailscale_running() {
   return 1
 }
 
-# Userspace (pas de tun) : le :API_PORT n'est pas joignable sur 100.x sans Serve.
+# Userspace (pas de tun) : sans Serve, ni 100.x ni MagicDNS n'atteignent l'API.
+# L'app Tailscale copie hostname/IP SANS port (navigateur = :80). Il faut donc :80 et :API_PORT.
 tailscale_enable_local_proxy() {
   local port="$1"
   local target="http://127.0.0.1:${port}"
-  echo "  Mode userspace : Tailscale Serve proxy ${target} (indispensable sans /dev/net/tun)"
+  local ok_any=0
+  echo "  Mode userspace : Tailscale Serve → ${target}"
   if tailscale serve --bg --yes --http="${port}" "${target}" 2>/tmp/kouzia-ts-serve.err; then
     ok "Serve HTTP :${port} → ${target}"
+    ok_any=1
+  else
+    warn "Serve HTTP :${port} a échoué :"
+    sed 's/^/    /' /tmp/kouzia-ts-serve.err 2>/dev/null || true
+  fi
+  if tailscale serve --bg --yes --http=80 "${target}" 2>/tmp/kouzia-ts-serve.err; then
+    ok "Serve HTTP :80 → ${target} (collage MagicDNS/IP sans port)"
+    ok_any=1
+  else
+    warn "Serve HTTP :80 a échoué :"
+    sed 's/^/    /' /tmp/kouzia-ts-serve.err 2>/dev/null || true
+  fi
+  if [[ "$ok_any" -eq 1 ]]; then
     tailscale serve status 2>/dev/null | sed 's/^/    /' || true
     return 0
   fi
-  warn "Serve HTTP :${port} a échoué :"
-  sed 's/^/    /' /tmp/kouzia-ts-serve.err 2>/dev/null || true
-  echo "  Tentative HTTPS 443 (ouvrir https://<MagicDNS> sans port)…"
+  echo "  Tentative HTTPS 443…"
   if tailscale serve --bg --yes "${target}" 2>/tmp/kouzia-ts-serve.err; then
     ok "Serve HTTPS 443 → ${target}"
     tailscale serve status 2>/dev/null | sed 's/^/    /' || true
     return 2
   fi
-  warn "Serve indisponible. Passe le TUN au CT (docs/tailscale-setup.md) ou vérifie : tailscale serve status"
+  warn "Serve indisponible. Passe le TUN au CT (docs/tailscale-setup.md)"
   sed 's/^/    /' /tmp/kouzia-ts-serve.err 2>/dev/null || true
   return 1
 }
@@ -921,8 +934,11 @@ configure_tailscale() {
   [[ -n "$ts_ip" ]] && echo "  IP Tailscale  : ${ts_ip}"
   [[ -n "$ts_dns" ]] && echo "  MagicDNS      : ${ts_dns}"
   echo "  Bookmark tel. : ${ts_origin_def:-"(indisponible)"}"
-  echo "  ${C_YELLOW}Important${C_RESET} : ouvrir depuis un appareil avec l'app Tailscale connectée"
-  echo "  (même compte). URL complète avec le port, pas l'IP seule (rien en :80)."
+  echo "  ${C_YELLOW}Important${C_RESET} : l'app Tailscale copie le hostname/IP SANS port."
+  echo "  Navigateur = port 80. Ouvre http://… (pas https) :"
+  echo "    http://${ts_dns:-<MagicDNS>}"
+  echo "    http://${ts_dns:-<MagicDNS>}:${api_port}"
+  echo "  Samsung : désactiver DNS privé (Paramètres → Connexions → DNS privé = Désactivé)."
   echo ""
 
   ask ts_origin "TAILSCALE_ORIGIN (CORS téléphone)" "$(env_get TAILSCALE_ORIGIN "$ts_origin_def")"
