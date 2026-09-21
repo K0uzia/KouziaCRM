@@ -65,6 +65,7 @@ L'assistant :
 
 1. Active le dépôt Alpine `community` si besoin, installe `apk add tailscale`
 2. Si `/dev/net/tun` est absent (CT unprivileged) : `TAILSCALED_OPTS="--tun=userspace-networking"`
+   et **Tailscale Serve** (`--http=$API_PORT` → `http://127.0.0.1:$API_PORT`). Sans ça, `100.x:3000` ne répond pas.
 3. Démarre le service OpenRC `tailscale`
 4. Auth :
    - **URL de login** (défaut) : ouvre le lien `https://login.tailscale.com/a/…` sur le PC ou le téléphone déjà connecté
@@ -78,12 +79,16 @@ Assistant complet (`kouziactl configure`) : Tailscale est proposé **après** Cl
 
 ## 3. Téléphone
 
-1. VPN Tailscale allumé (icône dans la barre)
-2. Navigateur : l'URL affichée en `TAILSCALE_ORIGIN` (MagicDNS, port de l'API)
+1. App Tailscale installée, **même compte** que le CT, VPN **allumé** (icône dans la barre).
+   Sans ça, `100.x` et `*.ts.net` n'existent pas : page blanche / timeout.
+2. Navigateur : l'URL **complète** `TAILSCALE_ORIGIN` (MagicDNS **et le port**, ex. `http://erpkouziadev.tail5c0259.ts.net:3000`).
+   L'IP seule `http://100.71.138.16` (sans `:3000`) n'écoute rien (pas de :80).
 3. Bookmark / « Ajouter à l'écran d'accueil »
-4. Login ERP (email + mot de passe admin) : Tailscale authentifie l'appareil, pas le compte métier
+4. Login ERP (email + mot de passe admin)
 
-À la maison en Wi-Fi, l'URL LAN (`WEB_ORIGIN`) continue de marcher si tu ne l'as pas remplacée.
+Ne teste pas l'IP Tailscale depuis un PC sans l'app Tailscale : ça ne route pas. Le LAN `http://192.168.1.45:3000` reste le Wi-Fi maison.
+
+À la maison en Wi-Fi, l'URL LAN continue de marcher seulement si `WEB_ORIGIN` n'a pas été remplacé par MagicDNS.
 
 ## 4. Vérifications
 
@@ -103,7 +108,7 @@ tailscale status
 
 ## 5. Option Proxmox : `/dev/net/tun` (hors script)
 
-Le mode userspace suffit : l'API écoute déjà `0.0.0.0`. Pour le mode kernel (un peu plus léger) :
+Le mode userspace **ne suffit pas** tout seul pour ouvrir `100.x:3000` : le wizard pose aussi `tailscale serve`. Pour le mode kernel (plus simple, pas de Serve) :
 
 Sur l'**hôte** Proxmox, fichier `/etc/pve/lxc/<ID>.conf` :
 
@@ -140,6 +145,18 @@ Redémarrer après changement : `kouziactl restart` (le wizard le fait déjà).
 **NeedsLogin / URL de login qui ne s'affiche pas**  
 `rc-service tailscale status`, logs : `kouziactl logs tailscale`. Relancer `kouziactl tailscale`.
 
+**Page blanche / timeout sur 100.x ou MagicDNS**  
+1. L'app Tailscale doit être connectée **sur l'appareil qui ouvre le navigateur** (même tailnet).
+2. URL avec le port : `http://<magic>.ts.net:3000`, pas l'IP seule.
+3. CT unprivileged (userspace) : sans `tailscale serve`, `:3000` n'est pas joignable. Sur le CT :
+
+```bash
+tailscale serve --bg --yes --http=3000 http://127.0.0.1:3000
+tailscale serve status
+```
+
+Puis relancer `kouziactl tailscale` (après update) ou ouvrir l'URL MagicDNS. Alternative : passer `/dev/net/tun` au CT (section 5).
+
 **tun / operation not permitted**  
 CT unprivileged sans `/dev/net/tun` : le wizard doit poser `--tun=userspace-networking`. Vérifier `/etc/conf.d/tailscale`. Sinon passer le TUN (section 5).
 
@@ -165,8 +182,8 @@ Le callback OAuth public reste `{PUBLIC_API_ORIGIN}/api/google/calendar/callback
 **Conflit avec Cloudflare Tunnel**  
 Aucun, s'ils gardent leurs rôles : Tunnel = public (`127.0.0.1`), Tailscale = admin. Ne pas arrêter `cloudflared`.
 
-**Funnel / Serve HTTPS**  
-Hors scope. `tailscale funnel` publierait l'ERP sur Internet : à éviter.
+**Funnel**  
+`tailscale funnel` publierait l'ERP sur Internet : à éviter. `tailscale serve` (tailnet only) est le proxy userspace, pas le Funnel.
 
 ## Références code
 

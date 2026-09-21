@@ -85,15 +85,13 @@ if [[ "$DO_GIT" -eq 1 ]]; then
   [[ -d "${KOUZIA_APP_DIR}/.git" ]] || die "--git demandé mais pas de dépôt git dans $KOUZIA_APP_DIR"
   log "git pull…"
   # npm install (fallback musl / Alpine) réécrit souvent le lock. Le dépôt GitHub fait foi.
-  if ! git -C "$KOUZIA_APP_DIR" diff --quiet HEAD -- package-lock.json 2>/dev/null \
-    || ! git -C "$KOUZIA_APP_DIR" diff --cached --quiet -- package-lock.json 2>/dev/null; then
-    warn "package-lock.json local modifié : reset sur HEAD avant pull"
-    run_as_app "cd '$KOUZIA_APP_DIR' && git checkout HEAD -- package-lock.json"
-  fi
+  # git en root : -c safe.directory (le CT appartient à kouzia, pas à root).
+  git_in_app checkout HEAD -- package-lock.json 2>/dev/null || true
+  chown "${KOUZIA_USER}:${KOUZIA_GROUP}" "${KOUZIA_APP_DIR}/package-lock.json" 2>/dev/null || true
   if ! run_as_app "cd '$KOUZIA_APP_DIR' && git pull --ff-only"; then
     echo "  git status :"
-    git -C "$KOUZIA_APP_DIR" status --short | sed 's/^/    /' || true
-    die "git pull échoué (fichiers locaux). Jeter un fichier : git checkout HEAD -- <fichier> puis kouziactl update"
+    git_in_app status --short | sed 's/^/    /' || true
+    die "git pull échoué (fichiers locaux). En root : git -c safe.directory=$KOUZIA_APP_DIR -C $KOUZIA_APP_DIR checkout HEAD -- <fichier> puis kouziactl update"
   fi
 else
   log "Pas de git pull (code déjà en place ou poussé via rsync). Utiliser --git si besoin."

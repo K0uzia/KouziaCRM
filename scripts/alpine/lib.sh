@@ -68,6 +68,11 @@ run_as_app() {
   fi
 }
 
+# git dans le dépôt app : OK en root (safe.directory) sans toucher git config.
+git_in_app() {
+  git -c "safe.directory=${KOUZIA_APP_DIR}" -C "$KOUZIA_APP_DIR" "$@"
+}
+
 ensure_dirs() {
   mkdir -p \
     "$KOUZIA_APP_DIR" \

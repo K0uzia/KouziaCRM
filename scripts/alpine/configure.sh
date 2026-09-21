@@ -769,6 +769,29 @@ wait_tailscale_running() {
   return 1
 }
 
+# Userspace (pas de tun) : le :API_PORT n'est pas joignable sur 100.x sans Serve.
+tailscale_enable_local_proxy() {
+  local port="$1"
+  local target="http://127.0.0.1:${port}"
+  echo "  Mode userspace : Tailscale Serve proxy ${target} (indispensable sans /dev/net/tun)"
+  if tailscale serve --bg --yes --http="${port}" "${target}" 2>/tmp/kouzia-ts-serve.err; then
+    ok "Serve HTTP :${port} → ${target}"
+    tailscale serve status 2>/dev/null | sed 's/^/    /' || true
+    return 0
+  fi
+  warn "Serve HTTP :${port} a échoué :"
+  sed 's/^/    /' /tmp/kouzia-ts-serve.err 2>/dev/null || true
+  echo "  Tentative HTTPS 443 (ouvrir https://<MagicDNS> sans port)…"
+  if tailscale serve --bg --yes "${target}" 2>/tmp/kouzia-ts-serve.err; then
+    ok "Serve HTTPS 443 → ${target}"
+    tailscale serve status 2>/dev/null | sed 's/^/    /' || true
+    return 2
+  fi
+  warn "Serve indisponible. Passe le TUN au CT (docs/tailscale-setup.md) ou vérifie : tailscale serve status"
+  sed 's/^/    /' /tmp/kouzia-ts-serve.err 2>/dev/null || true
+  return 1
+}
+
 configure_tailscale() {
   local standalone="${1:-0}"
   local api_port
@@ -870,10 +893,23 @@ configure_tailscale() {
     fi
   fi
 
-  local ts_ip ts_dns ts_origin_def ts_origin
+  local ts_ip ts_dns ts_origin_def ts_origin serve_https=0
   ts_ip="$(tailscale ip -4 2>/dev/null | head -1 || true)"
   ts_dns="$(tailscale_dns_name || true)"
-  if [[ -n "$ts_dns" ]]; then
+
+  if [[ "$userspace" -eq 1 ]]; then
+    local serve_rc=0
+    tailscale_enable_local_proxy "$api_port" || serve_rc=$?
+    if [[ "$serve_rc" -eq 2 ]]; then
+      serve_https=1
+    elif [[ "$serve_rc" -ne 0 ]]; then
+      echo "  Sans Serve, l'IP 100.x:${api_port} restera injoignable en userspace."
+    fi
+  fi
+
+  if [[ "$serve_https" -eq 1 && -n "$ts_dns" ]]; then
+    ts_origin_def="https://${ts_dns}"
+  elif [[ -n "$ts_dns" ]]; then
     ts_origin_def="http://${ts_dns}:${api_port}"
   elif [[ -n "$ts_ip" ]]; then
     ts_origin_def="http://${ts_ip}:${api_port}"
@@ -885,6 +921,8 @@ configure_tailscale() {
   [[ -n "$ts_ip" ]] && echo "  IP Tailscale  : ${ts_ip}"
   [[ -n "$ts_dns" ]] && echo "  MagicDNS      : ${ts_dns}"
   echo "  Bookmark tel. : ${ts_origin_def:-"(indisponible)"}"
+  echo "  ${C_YELLOW}Important${C_RESET} : ouvrir depuis un appareil avec l'app Tailscale connectée"
+  echo "  (même compte). URL complète avec le port, pas l'IP seule (rien en :80)."
   echo ""
 
   ask ts_origin "TAILSCALE_ORIGIN (CORS téléphone)" "$(env_get TAILSCALE_ORIGIN "$ts_origin_def")"
@@ -896,6 +934,10 @@ configure_tailscale() {
     env_set WEB_ORIGIN "$ts_origin"
     echo "  → WEB_ORIGIN=${ts_origin}"
     echo "  → PUBLIC_API_ORIGIN inchangé ($(env_get PUBLIC_API_ORIGIN "(vide)"))"
+    if [[ "$ts_origin" == https://* ]]; then
+      env_set COOKIE_SECURE "true"
+      echo "  → COOKIE_SECURE=true (admin en HTTPS Tailscale Serve)"
+    fi
   fi
 
   if [[ -n "$(env_get CLOUDFLARE_TUNNEL_TOKEN "")" ]] || [[ "$(env_get TRUST_PROXY "false")" == "true" ]]; then
