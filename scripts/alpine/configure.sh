@@ -474,7 +474,7 @@ configure_access() {
   api_port="$(env_get API_PORT "$KOUZIA_API_PORT")"
   def_origin="$(env_get WEB_ORIGIN "http://${lan_ip}:${api_port}")"
   # Si l'ancien défaut était un HTTPS inventé, proposer l'IP LAN
-  if [[ "$def_origin" == https://gestion.* ]] || [[ "$def_origin" == "https://gestion.kouzia.fr" ]]; then
+  if [[ "$def_origin" == https://gestion.* ]] || [[ "$def_origin" == "https://api.kouzia.com" ]]; then
     def_origin="http://${lan_ip}:${api_port}"
   fi
 
@@ -997,26 +997,32 @@ configure_google_calendar() {
 
   pub="$(env_get PUBLIC_API_ORIGIN "")"
   echo "  PUBLIC_API_ORIGIN actuel : ${pub:-"(vide)"}"
-  echo "  Obligatoire : URL HTTPS du tunnel Cloudflare (webhooks + callback OAuth)."
-  echo "  Interdit : IP LAN, localhost, URL Tailscale (.ts.net)."
+  echo "  URL attendue : https://api.kouzia.com (sous-domaine sous kouzia.com)."
+  echo "  ERP admin = LAN uniquement. Interdit ici : IP LAN, localhost, Tailscale."
+  local pub_default="$pub"
   if [[ -z "$pub" ]] \
     || [[ "$pub" == http://192.* ]] \
     || [[ "$pub" == http://10.* ]] \
     || [[ "$pub" == http://172.* ]] \
     || [[ "$pub" == *"ts.net"* ]] \
     || [[ "$pub" == http://localhost* ]] \
-    || [[ "$pub" == http://127.* ]]; then
-    warn "PUBLIC_API_ORIGIN semble invalide pour OAuth Google."
+    || [[ "$pub" == http://127.* ]] \
+    || [[ "$pub" != https://* ]]; then
+    warn "La valeur actuelle ne convient PAS à OAuth Google. Remplace-la."
+    pub_default="https://api.kouzia.com"
   fi
-  ask pub "PUBLIC_API_ORIGIN (HTTPS Cloudflare)" "$pub"
+  ask pub "PUBLIC_API_ORIGIN (HTTPS Cloudflare)" "$pub_default"
   pub="${pub%/}"
   if [[ -z "$pub" ]]; then
     warn "PUBLIC_API_ORIGIN vide : OAuth Google impossible."
     return 1
   fi
-  if [[ "$pub" != https://* ]]; then
-    warn "Sans HTTPS public, Google refusera souvent le redirect. Continuer seulement si tu sais ce que tu fais."
-    if ! yesno "Continuer avec ${pub} ?" "n"; then
+  if [[ "$pub" != https://* ]] \
+    || [[ "$pub" == *"ts.net"* ]] \
+    || [[ "$pub" == http://192.* ]] \
+    || [[ "$pub" == http://10.* ]]; then
+    warn "URL invalide pour le callback Google : ${pub}"
+    if ! yesno "Continuer quand même (déconseillé) ?" "n"; then
       return 1
     fi
   fi
@@ -1024,12 +1030,20 @@ configure_google_calendar() {
 
   redirect="${pub}/api/google/calendar/callback"
   echo ""
-  echo "  URI de redirection à ajouter dans Google Cloud Console :"
-  echo "    ${C_BOLD}${redirect}${C_RESET}"
-  echo "  (APIs et services → Identifiants → client Web → URI de redirection autorisés)"
+  echo "  ┌─ Où coller cette URI ? ─────────────────────────────────"
+  echo "  │ Google Cloud Console (navigateur) :"
+  echo "  │   APIs et services → Identifiants → ton client « Application Web »"
+  echo "  │   → URI de redirection autorisés → Ajouter → Enregistrer"
+  echo "  │"
+  echo "  │ URI exacte :"
+  echo "  │   ${C_BOLD}${redirect}${C_RESET}"
+  echo "  └────────────────────────────────────────────────────────"
+  echo "  (Ce n'est PAS à coller dans le .env : Kouzia la calcule toute seule.)"
   echo ""
   if ! yesno "Cette URI est déjà enregistrée dans Google Cloud ?" "y"; then
-    echo "  Ajoute-la, crée le client OAuth, puis relance : kouziactl google"
+    echo "  1) Ouvre Google Cloud → Identifiants → client Web"
+    echo "  2) Ajoute l'URI ci-dessus → Enregistrer"
+    echo "  3) Relance : kouziactl google"
     return 0
   fi
 

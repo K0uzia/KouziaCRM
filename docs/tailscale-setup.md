@@ -30,7 +30,7 @@ PC maison (Wi-Fi)
 |----------|------|---------|
 | `WEB_ORIGIN` | URL admin que tu tapes le plus souvent (CORS + cookies + retour OAuth Google) | `http://192.168.1.50:3000` |
 | `TAILSCALE_ORIGIN` | Origine MagicDNS (CORS téléphone), **en plus** de `WEB_ORIGIN` | `http://kouzia.tailnet-xxxx.ts.net:3000` |
-| `PUBLIC_API_ORIGIN` | URL **HTTPS Cloudflare** uniquement (jamais Tailscale, jamais LAN) | `https://gestion.kouzia.fr` |
+| `PUBLIC_API_ORIGIN` | URL **HTTPS Cloudflare** uniquement (jamais Tailscale, jamais LAN) | `https://api.kouzia.com` |
 | `PUBLIC_WEB_ORIGIN` | Site public (CORS `/api/public/*`) | `https://kouzia.com` |
 | `COOKIE_SECURE` | `false` (admin en HTTP LAN / MagicDNS) | `false` |
 | `TRUST_PROXY` | `true` si Cloudflare Tunnel est actif | `true` |
@@ -124,7 +124,7 @@ Redémarrer le CT, puis `kouziactl tailscale` : le script détecte le TUN et n'a
 ```bash
 WEB_ORIGIN="http://192.168.1.50:3000"
 TAILSCALE_ORIGIN="http://kouzia.tailnet-xxxx.ts.net:3000"
-PUBLIC_API_ORIGIN="https://gestion.kouzia.fr"
+PUBLIC_API_ORIGIN="https://api.kouzia.com"
 PUBLIC_WEB_ORIGIN="https://kouzia.com"
 COOKIE_SECURE="false"
 TRUST_PROXY="true"
@@ -135,7 +135,7 @@ Si l'ERP est ouvert **surtout** via MagicDNS (téléphone + PC avec Tailscale) :
 ```bash
 WEB_ORIGIN="http://kouzia.tailnet-xxxx.ts.net:3000"
 TAILSCALE_ORIGIN="http://kouzia.tailnet-xxxx.ts.net:3000"
-PUBLIC_API_ORIGIN="https://gestion.kouzia.fr"
+PUBLIC_API_ORIGIN="https://api.kouzia.com"
 ```
 
 Redémarrer après changement : `kouziactl restart` (le wizard le fait déjà).

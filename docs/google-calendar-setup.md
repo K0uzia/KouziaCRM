@@ -8,17 +8,50 @@ avec des rappels téléphone (Samsung Calendar sync Google). Pas d'agenda dans l
 
 ## Prérequis côté Kouzia
 
-- API joignable à une URL **HTTPS publique** (Cloudflare Tunnel) : `PUBLIC_API_ORIGIN`
-  (ex. `https://gestion.kouzia.fr`). **Pas** une IP LAN, **pas** une URL Tailscale (`.ts.net`).
-- Front admin : `WEB_ORIGIN` = l'URL que tu tapes dans le navigateur (LAN ou MagicDNS Tailscale).
-  Après OAuth, Google revient sur `{PUBLIC_API_ORIGIN}/api/google/calendar/callback` (Cloudflare),
+Domaine réel du projet : **`kouzia.com`** (Hostinger + Cloudflare Tunnel).
+Ne pas inventer d'autres domaines (`.fr`, etc.).
+
+| Rôle | URL |
+|------|-----|
+| Site public /suivi | `https://kouzia.com` (`PUBLIC_WEB_ORIGIN`) |
+| API publique (webhooks, OAuth Google) | `https://api.kouzia.com` (`PUBLIC_API_ORIGIN`) |
+| Admin ERP | `http://192.168.1.52:3000` (`WEB_ORIGIN`, LAN uniquement) |
+
+### Créer le sous-domaine `api.kouzia.com` (une fois)
+
+Oui : il faut **un** sous-domaine sous kouzia.com. Pas Zero Trust payant obligatoire
+si ton tunnel Cloudflare existe déjà ; le hostname public du tunnel = `api.kouzia.com`.
+
+1. **Cloudflare** (même compte que le tunnel) → Zero Trust / Tunnels → ton tunnel →
+   **Public Hostname** :
+   - Hostname : `api.kouzia.com`
+   - Service : `http://127.0.0.1:3000`
+   - Enregistrer (Cloudflare propose souvent le DNS automatiquement si le domaine
+     est chez Cloudflare).
+
+2. **Hostinger** (si le DNS de `kouzia.com` est encore géré dans hPanel) →
+   **Domaines** → `kouzia.com` → **DNS / Zone DNS** → Ajouter :
+   - Type : **CNAME**
+   - Nom : `api`
+   - Cible : celle indiquée par Cloudflare pour le tunnel
+     (souvent `<id>.cfargotunnel.com`, ou laisse Cloudflare gérer le record
+     si tu as délégué les nameservers).
+   - TTL : défaut
+
+3. Test :
+   ```bash
+   curl -sI https://api.kouzia.com/api/health
+   ```
+   Doit répondre **200**. Ensuite seulement : Google OAuth.
+
+- API joignable à `PUBLIC_API_ORIGIN=https://api.kouzia.com` (**Pas** d'IP LAN, **pas** de `.ts.net`).
+- Front admin : `WEB_ORIGIN` = l'URL LAN que tu tapes (`http://192.168.1.52:3000`).
+  Après OAuth, Google revient sur `{PUBLIC_API_ORIGIN}/api/google/calendar/callback`,
   puis Kouzia redirige vers `{WEB_ORIGIN}/settings?tab=declarations`.
-  Pour connecter Google **depuis le téléphone**, `WEB_ORIGIN` doit être l'URL Tailscale
+  Pour connecter Google **depuis le téléphone**, `WEB_ORIGIN` = MagicDNS Tailscale
   (voir `docs/tailscale-setup.md`). Sinon fais l'OAuth depuis le PC maison.
-- Variables à renseigner dans `.env` après création du client OAuth :
-  - `GOOGLE_CLIENT_ID`
-  - `GOOGLE_CLIENT_SECRET`
-  - optionnel : `GOOGLE_REDIRECT_URI` (sinon dérivé de `PUBLIC_API_ORIGIN`)
+- Variables OAuth dans `.env` : `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`
+  (optionnel : `GOOGLE_REDIRECT_URI`).
 
 URI de redirection **exacte** attendue par Kouzia :
 
@@ -30,7 +63,7 @@ Exemples :
 
 | Environnement | URI de redirection |
 |---------------|--------------------|
-| Prod | `https://gestion.kouzia.fr/api/google/calendar/callback` |
+| Prod | `https://api.kouzia.com/api/google/calendar/callback` |
 | Local | `http://localhost:3001/api/google/calendar/callback` |
 
 Tu peux enregistrer **les deux** URI sur le même client OAuth Web.
@@ -50,23 +83,52 @@ Tu peux enregistrer **les deux** URI sur le même client OAuth Web.
 
 Sans cette étape, la connexion OAuth aboutit mais la sync des événements échoue.
 
-## 3. Écran de consentement OAuth
+## 3. Écran de consentement OAuth (Google Auth Platform)
 
-1. **APIs et services** → **Écran de consentement OAuth**
-2. Type d'utilisateur : **Externe** (compte Gmail perso) → Créer
-3. Remplir le minimum :
-   - Nom de l'application : `KouziaCRM`
-   - E-mail d'assistance utilisateur : ton Gmail
-   - E-mail de contact développeur : ton Gmail
-4. Enregistrer
-5. Onglet **Champs d'application (Scopes)** → Ajouter :
-   - `https://www.googleapis.com/auth/calendar.events` (créer / modifier / supprimer des événements)
-   - `openid` et `email` (affichage du compte connecté dans Paramètres)
-6. Onglet **Utilisateurs de test** → **Ajouter des utilisateurs** → ton adresse Gmail
-   (obligatoire tant que l'app est en mode **Test** ; sinon « Accès bloqué »)
-7. Revenir au résumé → laisser le statut **Testing** (suffisant pour un usage solo)
+Google a remplacé l'ancien écran unique à onglets. Aujourd'hui c'est
+**APIs et services** → **Google Auth Platform** (parfois encore libellé
+« Écran de consentement OAuth » dans le menu).
 
-Publication en production Google n'est pas nécessaire pour un usage personnel avec utilisateurs de test.
+Si tu vois **Get started** / **Commencer** : lance le wizard une fois
+(type **Externe**, nom `KouziaCRM`, ton Gmail).
+
+Ensuite, trois pages séparées (menu de gauche Auth Platform) :
+
+### 3a. Branding (identité)
+
+- Nom de l'application : `KouziaCRM`
+- E-mail d'assistance / contact développeur : ton Gmail
+- Enregistrer
+
+### 3b. Audience (qui peut se connecter) ← le plus important
+
+1. Type d'utilisateurs : **Externe**
+2. Statut de publication : laisser **Testing** / **Test** (pas In production)
+3. Section **Test users** / **Utilisateurs de test** → **Add users** / **Ajouter**
+4. Ajoute **ton adresse Gmail** (celle avec laquelle tu cliqueras « Connecter Google Agenda »)
+
+Sans ton Gmail dans cette liste, Google affiche « Accès bloqué » / app non vérifiée
+tant que le projet reste en Test. Publication en production Google **n'est pas**
+nécessaire pour un usage solo.
+
+### 3c. Data Access (scopes) ← plus un onglet « Champs d'application »
+
+1. **Add or remove scopes** / **Ajouter ou supprimer des champs d'application**
+2. Filtre ou coche :
+   - `https://www.googleapis.com/auth/calendar.events`
+     (créer / modifier / supprimer des événements Agenda)
+   - `openid` et `…/auth/userinfo.email` (ou `email`)
+     (afficher le compte connecté dans Paramètres → Fiscalité)
+3. **Update** / **Mettre à jour** puis Enregistrer
+
+Astuce : seuls les scopes des APIs **activées** apparaissent dans la liste.
+Si `calendar.events` est absent, reviens à l'étape 2 (activer Google Calendar API),
+ou colle l'URI du scope dans la zone « Manually add scopes » / ajout manuel.
+
+Note : Kouzia demande déjà ces scopes au moment du bouton « Connecter ».
+Les déclarer ici évite les surprises et prépare l'écran de consentement.
+Publication / vérification Google reste inutile en mode Test + utilisateurs de test.
+
 
 ## 4. Créer le client OAuth « Application Web »
 
@@ -74,7 +136,7 @@ Publication en production Google n'est pas nécessaire pour un usage personnel a
 2. Type d'application : **Application Web**
 3. Nom : `KouziaCRM Web`
 4. **URI de redirection autorisés** → Ajouter :
-   - `https://gestion.kouzia.fr/api/google/calendar/callback` (prod)
+   - `https://api.kouzia.com/api/google/calendar/callback` (prod)
    - `http://localhost:3001/api/google/calendar/callback` (dev)
 5. Créer
 6. Copier :
@@ -91,14 +153,16 @@ Sur le CT Alpine (recommandé) :
 kouziactl google
 ```
 
-L'assistant demande `PUBLIC_API_ORIGIN`, affiche l'URI de redirection à coller
-dans Google Cloud, puis enregistre `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET`
-et redémarre l'API. Alias : `kouziactl agenda`.
+L'assistant demande `PUBLIC_API_ORIGIN` (**HTTPS Cloudflare**, jamais l'IP LAN),
+affiche l'URI de redirection à coller **dans Google Cloud** (Identifiants →
+client Web → URI de redirection autorisés), puis enregistre
+`GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` et redémarre l'API.
+Alias : `kouziactl agenda`.
 
 Sinon, à la main dans `.env` :
 
 ```bash
-PUBLIC_API_ORIGIN="https://gestion.kouzia.fr"
+PUBLIC_API_ORIGIN="https://api.kouzia.com"
 # Dev local :
 # PUBLIC_API_ORIGIN="http://localhost:3001"
 # Jamais une URL Tailscale ni une IP LAN ici (webhooks + callback OAuth).
@@ -108,8 +172,7 @@ GOOGLE_CLIENT_SECRET="GOCSPX-xxxxx"
 # Optionnel si différent de {PUBLIC_API_ORIGIN}/api/google/calendar/callback :
 # GOOGLE_REDIRECT_URI="http://localhost:3001/api/google/calendar/callback"
 
-WEB_ORIGIN="https://gestion.kouzia.fr"
-# Prod LAN : WEB_ORIGIN="http://192.168.1.50:3000"
+WEB_ORIGIN="http://192.168.1.52:3000"
 # Prod téléphone Tailscale : WEB_ORIGIN="http://kouzia.tailnet-xxxx.ts.net:3000"
 # Dev : WEB_ORIGIN="http://localhost:5173"
 ```
@@ -151,8 +214,9 @@ Pas de slash final en trop, `http` vs `https` strict.
 `PUBLIC_API_ORIGIN` = hostname Cloudflare, pas MagicDNS Tailscale.
 
 **Accès bloqué / app non vérifiée**  
-Compte Gmail pas dans **Utilisateurs de test**, ou mauvais projet sélectionné.
-
+Compte Gmail pas dans **Audience → Test users**, ou mauvais projet sélectionné.
+L'ancien onglet « Utilisateurs de test » n'existe plus : c'est la page **Audience**
+du Google Auth Platform. Ne passe pas en « In production » pour un usage solo.
 **Connecté mais pas d'événements**  
 Calendar API non activée, ou worker / sync non passés : bouton **Synchroniser maintenant**.
 
@@ -160,6 +224,18 @@ Calendar API non activée, ou worker / sync non passés : bouton **Synchroniser 
 Révoquer l'accès KouziaCRM dans
 [https://myaccount.google.com/permissions](https://myaccount.google.com/permissions),
 puis reconnecter (Kouzia demande `prompt=consent` + `access_type=offline`).
+
+**DNS_PROBE_FINISHED_NXDOMAIN sur le hostname (ex. api.kouzia.com)**  
+Le nom d'exemple de la doc n'existe pas automatiquement. Tu dois avoir un
+**hostname public Cloudflare Tunnel** réel (Zero Trust → Tunnels → Public Hostname)
+qui pointe vers `http://127.0.0.1:3000` sur le CT. Puis :
+1. `PUBLIC_API_ORIGIN=https://TON-HOSTNAME` (celui qui répond dans le navigateur)
+2. Même URI de redirect dans Google Cloud
+3. `kouziactl restart` puis reconnecter Google
+
+Test rapide : `curl -sI https://TON-HOSTNAME/api/health` doit répondre 200.
+Si tu n'as pas encore de hostname API : `kouziactl cloudflare` + créer l'hostname
+dans le panneau Cloudflare avant de retester OAuth.
 
 **Après Google, le navigateur va sur une IP LAN injoignable**  
 Le callback Cloudflare a réussi, puis Kouzia redirige vers `WEB_ORIGIN`.
