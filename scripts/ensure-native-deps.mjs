@@ -35,8 +35,11 @@ function lightningcssPlatformPackage() {
 }
 
 function ensureLightningcss() {
-  // Runtime Docker : pas de build Vite, lightningcss inutile.
-  if (process.env.NODE_ENV === "production") {
+  // Runtime Docker (vite absent) : pas de build SPA, lightningcss inutile.
+  // Le CT Alpine build la SPA même avec NODE_ENV=production.
+  const viteRoot = join(root, "node_modules", "vite");
+  const viteWeb = join(root, "apps", "web", "node_modules", "vite");
+  if (!existsSync(viteRoot) && !existsSync(viteWeb)) {
     return;
   }
   const pkg = lightningcssPlatformPackage();

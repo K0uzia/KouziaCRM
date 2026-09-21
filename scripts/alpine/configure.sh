@@ -1117,7 +1117,7 @@ EOF
 maybe_rebuild_web() {
   if [[ "$NEED_WEB_REBUILD" -eq 1 ]]; then
     log "VITE_PUBLIC_SITE_URL a changé : rebuild SPA…"
-    run_as_app "cd '$KOUZIA_APP_DIR' && npm run build -w @kouziacrm/web" \
+    build_spa "$KOUZIA_APP_DIR" \
       || warn "Build SPA échoué (redirections legacy peuvent rester anciennes)."
   fi
 }

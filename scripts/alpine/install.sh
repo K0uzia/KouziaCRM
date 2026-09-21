@@ -109,8 +109,8 @@ if [[ -n "$SEED_FROM_DIR" ]]; then
     --exclude-from="${SCRIPT_DIR}/conf/rsync-exclude.txt" \
     "${SEED_FROM_DIR}/" "${KOUZIA_APP_DIR}/"
 elif [[ -d "${KOUZIA_APP_DIR}/.git" ]]; then
-  log "Dépôt déjà présent, git pull…"
-  run_as_app "cd '$KOUZIA_APP_DIR' && git fetch --depth 1 origin '$REPO_BRANCH' && git checkout '$REPO_BRANCH' && git pull --ff-only origin '$REPO_BRANCH'"
+  log "Dépôt déjà présent, synchronisation git…"
+  git_sync_from_origin "$REPO_BRANCH"
 elif [[ -f "${KOUZIA_APP_DIR}/package.json" ]]; then
   log "Code déjà présent (sans .git), conservation."
 else
@@ -214,8 +214,7 @@ if [[ "$SKIP_SEED" -eq 0 ]]; then
   fi
   run_as_app "cd '$KOUZIA_APP_DIR' && npm run db:seed" || warn "Seed échoué (compte admin déjà présent ?). Continuer."
 fi
-log "Build SPA…"
-run_as_app "cd '$KOUZIA_APP_DIR' && npm run build -w @kouziacrm/web"
+build_spa "$KOUZIA_APP_DIR"
 
 # Empreintes pour update incrémental
 state_set "package-lock" "$(file_sha256 "${KOUZIA_APP_DIR}/package-lock.json")"

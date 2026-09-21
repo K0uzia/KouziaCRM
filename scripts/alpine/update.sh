@@ -94,14 +94,9 @@ if [[ "$DO_GIT" -eq 1 ]]; then
   [[ -d "${KOUZIA_APP_DIR}/.git" ]] || die "--git demandé mais pas de dépôt git dans $KOUZIA_APP_DIR"
   log "git pull…"
   # npm install (fallback musl / Alpine) réécrit souvent le lock. Le dépôt GitHub fait foi.
-  # git en root : -c safe.directory (le CT appartient à kouzia, pas à root).
   git_in_app checkout HEAD -- package-lock.json 2>/dev/null || true
   chown "${KOUZIA_USER}:${KOUZIA_GROUP}" "${KOUZIA_APP_DIR}/package-lock.json" 2>/dev/null || true
-  if ! run_as_app "cd '$KOUZIA_APP_DIR' && git pull --ff-only"; then
-    echo "  git status :"
-    git_in_app status --short | sed 's/^/    /' || true
-    die "git pull échoué (fichiers locaux). En root : git -c safe.directory=$KOUZIA_APP_DIR -C $KOUZIA_APP_DIR checkout HEAD -- <fichier> puis kouziactl update"
-  fi
+  git_sync_from_origin "${KOUZIA_REPO_BRANCH:-main}"
 else
   log "Pas de git pull (code déjà en place ou poussé via rsync). Utiliser --git si besoin."
 fi
@@ -166,8 +161,7 @@ log "prisma migrate deploy…"
 prisma_migrate_deploy "$KOUZIA_APP_DIR"
 
 if [[ "$NEED_WEB" -eq 1 ]]; then
-  log "Build SPA…"
-  run_as_app "cd '$KOUZIA_APP_DIR' && npm run build -w @kouziacrm/web"
+  build_spa "$KOUZIA_APP_DIR"
 else
   ok "front inchangé : skip build SPA"
 fi

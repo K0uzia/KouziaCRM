@@ -73,6 +73,36 @@ git_in_app() {
   git -c "safe.directory=${KOUZIA_APP_DIR}" -C "$KOUZIA_APP_DIR" "$@"
 }
 
+# Aligne le code du CT sur origin/$branch (GitHub = source de vérité).
+# Conservé : .env, data/ (gitignore). Écrasé : commits locaux, lockfile musl, etc.
+git_sync_from_origin() {
+  local branch="${1:-main}"
+  [[ -d "${KOUZIA_APP_DIR}/.git" ]] || die "Pas de dépôt git dans $KOUZIA_APP_DIR"
+
+  log "git fetch origin/${branch}…"
+  run_as_app "cd '$KOUZIA_APP_DIR' && git fetch --depth 1 origin '+${branch}:refs/remotes/origin/${branch}'" \
+    || die "git fetch origin/${branch} échoué."
+
+  if ! git_in_app diff --quiet || ! git_in_app diff --cached --quiet; then
+    warn "Modifications locales suivies (ex. package-lock) : écrasées par origin/${branch}."
+  fi
+  if ! git_in_app merge-base --is-ancestor HEAD "origin/${branch}" 2>/dev/null; then
+    warn "Branche locale divergée de origin/${branch} : reset dur (commits locaux du CT ignorés)."
+  fi
+
+  run_as_app "cd '$KOUZIA_APP_DIR' && (git show-ref --verify --quiet 'refs/heads/${branch}' && git checkout -f '${branch}' || git checkout -f -B '${branch}' 'origin/${branch}') && git reset --hard 'origin/${branch}'" \
+    || die "git reset origin/${branch} échoué."
+
+  ok "HEAD = $(git_in_app rev-parse --short HEAD) (origin/${branch})"
+}
+
+# SPA production : Vite seul. tsc -b casse si node_modules partiel (types react-router).
+build_spa() {
+  local dir="${1:-$KOUZIA_APP_DIR}"
+  log "Build SPA (vite)…"
+  run_as_app "cd '$dir' && npm run build:spa -w @kouziacrm/web"
+}
+
 ensure_dirs() {
   mkdir -p \
     "$KOUZIA_APP_DIR" \
@@ -233,15 +263,16 @@ install_kouziactl_link() {
   ok "Commande kouziactl → $target"
 }
 
-# npm ci strict ; fallback npm install si lockfile / plateforme (ex. Alpine musl + npm 11).
+# npm ci strict ; fallback propre si lockfile / plateforme (ex. Alpine musl + npm 11).
+# --include=dev : vite/typescript indispensables au build SPA, même si NODE_ENV=production.
 npm_ci_or_install() {
   local dir="${1:-$KOUZIA_APP_DIR}"
   log "npm ci dans $dir…"
-  if run_as_app "cd '$dir' && npm ci"; then
+  if run_as_app "cd '$dir' && npm ci --include=dev"; then
     ok "npm ci terminé"
     return 0
   fi
-  warn "npm ci a échoué : fallback npm install (lockfile / plateforme)."
-  run_as_app "cd '$dir' && npm install"
+  warn "npm ci a échoué : fallback npm install propre (lockfile / plateforme)."
+  run_as_app "cd '$dir' && rm -rf node_modules apps/*/node_modules packages/*/node_modules && npm install --include=dev"
   ok "npm install terminé"
 }
