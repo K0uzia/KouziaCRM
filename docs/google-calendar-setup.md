@@ -19,24 +19,24 @@ Ne pas inventer d'autres domaines (`.fr`, etc.).
 
 ### Créer le sous-domaine `api.kouzia.com` (une fois)
 
-Oui : il faut **un** sous-domaine sous kouzia.com. Pas Zero Trust payant obligatoire
-si ton tunnel Cloudflare existe déjà ; le hostname public du tunnel = `api.kouzia.com`.
+Oui : il faut **un** sous-domaine sous kouzia.com. L'UI Cloudflare a changé :
+il n'y a plus forcément un onglet nommé « Public Hostname ».
 
-1. **Cloudflare** (même compte que le tunnel) → Zero Trust / Tunnels → ton tunnel →
-   **Public Hostname** :
-   - Hostname : `api.kouzia.com`
-   - Service : `http://127.0.0.1:3000`
-   - Enregistrer (Cloudflare propose souvent le DNS automatiquement si le domaine
-     est chez Cloudflare).
+1. [Cloudflare Dashboard](https://dash.cloudflare.com/) → **Networking** → **Tunnels**
+   (ou Zero Trust → Networks → Tunnels) → **ouvre ton tunnel** (clique le nom).
+2. Section **Routes** → **Add route** / **Ajouter une route**.
+3. Type : **Published application** / **Application publiée**
+   (pas « Private network », pas CIDR, pas « Add replica », pas « Refresh token »).
+4. Remplir :
+   - **Hostname** : sous-domaine `api`, domaine `kouzia.com` → `api.kouzia.com`
+   - **Service URL** : `http://127.0.0.1:3000`
+5. **Add route** / Enregistrer.
+   Cloudflare crée en général le DNS CNAME tout seul si `kouzia.com` est
+   dans le même compte Cloudflare.
 
-2. **Hostinger** (si le DNS de `kouzia.com` est encore géré dans hPanel) →
-   **Domaines** → `kouzia.com` → **DNS / Zone DNS** → Ajouter :
-   - Type : **CNAME**
-   - Nom : `api`
-   - Cible : celle indiquée par Cloudflare pour le tunnel
-     (souvent `<id>.cfargotunnel.com`, ou laisse Cloudflare gérer le record
-     si tu as délégué les nameservers).
-   - TTL : défaut
+Si le DNS est encore chez **Hostinger** (hPanel → Domaines → `kouzia.com` → DNS) :
+- Type **CNAME**, nom `api`, cible = `<id-du-tunnel>.cfargotunnel.com`
+  (visible sur la fiche du tunnel Cloudflare).
 
 3. Test :
    ```bash

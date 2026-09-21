@@ -611,10 +611,10 @@ configure_cloudflare() {
   local api_port
   api_port="$(env_get API_PORT "$KOUZIA_API_PORT")"
   section "Cloudflare Tunnel (pour exposer l'API à kouzia.com)" \
-    "Dans Zero Trust → Networks → Tunnels → ton tunnel :
-  1. Public hostname → ex. api.kouzia.com (ou le hostname que kouzia.com utilisera)
-  2. Service : http://127.0.0.1:${api_port}
-  3. Copier le token (ou la commande d'install) depuis le panneau"
+    "Dans Cloudflare → Networking → Tunnels → ton tunnel :
+  1. Routes → Add route → type « Published application » (pas private/CIDR)
+  2. Hostname : api.kouzia.com  |  Service : http://127.0.0.1:${api_port}
+  3. Copier le token (Install as a service / eyJ…) pour le CT"
 
   if [[ "$standalone" != "1" ]]; then
     if [[ "${PROFILE:-lan}" != "tunnel" ]]; then

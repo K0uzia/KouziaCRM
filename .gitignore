@@ -57,3 +57,8 @@ Export_*.pdf
 
 # outils locaux (Mailpit binaire, etc.)
 .tools/
+
+# CT Alpine (npm / état de déploiement, jamais versionnés)
+.cache/
+.npm/
+.deploy-state/

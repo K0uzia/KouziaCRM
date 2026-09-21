@@ -81,25 +81,32 @@ git_in_app() {
   git -c "safe.directory=${KOUZIA_APP_DIR}" -C "$KOUZIA_APP_DIR" "$@"
 }
 
-# Aligne le code du CT sur origin/$branch (GitHub = source de vérité).
-# Conservé : .env, data/ (gitignore). Écrasé : commits locaux, lockfile musl, etc.
+# Aligne le code du CT sur GitHub (source de vérité).
+# Un `git pull --ff-only` casse dès qu'il y a force-push, clone shallow, ou
+# un commit local (lockfile npm). Ici : fetch + reset dur. Conservé : .env, data/.
 git_sync_from_origin() {
   local branch="${1:-main}"
   [[ -d "${KOUZIA_APP_DIR}/.git" ]] || die "Pas de dépôt git dans $KOUZIA_APP_DIR"
 
-  log "git fetch origin/${branch}…"
-  run_as_app "cd '$KOUZIA_APP_DIR' && git fetch --depth 1 origin '+${branch}:refs/remotes/origin/${branch}'" \
+  log "Synchronisation git → origin/${branch} (reset, GitHub fait foi)…"
+  git_in_app fetch --depth 1 origin "+${branch}:refs/remotes/origin/${branch}" \
     || die "git fetch origin/${branch} échoué."
 
-  if ! git_in_app diff --quiet || ! git_in_app diff --cached --quiet; then
-    warn "Modifications locales suivies (ex. package-lock) : écrasées par origin/${branch}."
-  fi
-  if ! git_in_app merge-base --is-ancestor HEAD "origin/${branch}" 2>/dev/null; then
-    warn "Branche locale divergée de origin/${branch} : reset dur (commits locaux du CT ignorés)."
-  fi
+  # -B : crée ou repositionne UNIQUEMENT $branch sur origin/$branch, puis s'y place.
+  # Pas de reset FETCH_HEAD sur HEAD courant (risque de bouger une autre branche).
+  git_in_app checkout -f -B "$branch" "origin/${branch}" \
+    || git_in_app checkout -f -B "$branch" FETCH_HEAD \
+    || die "Impossible de placer ${branch} sur origin/${branch}."
 
-  run_as_app "cd '$KOUZIA_APP_DIR' && (git show-ref --verify --quiet 'refs/heads/${branch}' && git checkout -f '${branch}' || git checkout -f -B '${branch}' 'origin/${branch}') && git reset --hard 'origin/${branch}'" \
-    || die "git reset origin/${branch} échoué."
+  chown -R "${KOUZIA_USER}:${KOUZIA_GROUP}" \
+    "${KOUZIA_APP_DIR}/.git" \
+    "${KOUZIA_APP_DIR}/apps" \
+    "${KOUZIA_APP_DIR}/packages" \
+    "${KOUZIA_APP_DIR}/prisma" \
+    "${KOUZIA_APP_DIR}/scripts" \
+    "${KOUZIA_APP_DIR}/package.json" \
+    "${KOUZIA_APP_DIR}/package-lock.json" \
+    2>/dev/null || true
 
   ok "HEAD = $(git_in_app rev-parse --short HEAD) (origin/${branch})"
 }

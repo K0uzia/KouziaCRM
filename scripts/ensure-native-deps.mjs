@@ -85,11 +85,11 @@ function ensureViteNatives() {
     removeNativePkg("@rollup/rollup-linux-x64-gnu");
     removeNativePkg("lightningcss-linux-x64-gnu");
     removeNativePkg("@tailwindcss/oxide-linux-x64-gnu");
-    ensureNativePkg("@rollup/rollup-linux-x64-musl", pkgVersion("rollup"));
+    ensureNativePkg("@rollup/rollup-linux-x64-musl", pkgVersion("rollup") || "4.62.5");
     ensureNativePkg("lightningcss-linux-x64-musl", pkgVersion("lightningcss") || "1.32.0");
     ensureNativePkg(
       "@tailwindcss/oxide-linux-x64-musl",
-      pkgVersion("@tailwindcss/oxide") || pkgVersion("tailwindcss"),
+      pkgVersion("@tailwindcss/oxide") || pkgVersion("tailwindcss") || "4.3.3",
     );
     return;
   }
