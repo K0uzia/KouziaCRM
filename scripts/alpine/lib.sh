@@ -19,6 +19,12 @@ KOUZIA_RETENTION_DAYS="${KOUZIA_RETENTION_DAYS:-30}"
 KOUZIA_API_PORT="${KOUZIA_API_PORT:-3000}"
 KOUZIA_HEALTH_URL="${KOUZIA_HEALTH_URL:-http://127.0.0.1:${KOUZIA_API_PORT}/api/health}"
 
+# Alpine = musl. npm 11 / detect-libc se trompent parfois en LXC et installent
+# des .node glibc (rollup, lightningcss, oxide) → Bus error au `vite build`.
+if [[ -f /etc/alpine-release ]]; then
+  export npm_config_libc=musl
+fi
+
 # Couleurs (désactivées si non-TTY)
 if [[ -t 1 ]]; then
   C_RESET=$'\033[0m'
@@ -61,10 +67,12 @@ load_rsync_conf() {
 }
 
 run_as_app() {
+  local prefix=""
+  [[ -f /etc/alpine-release ]] && prefix="export npm_config_libc=musl; "
   if [[ "$(id -u)" -eq 0 ]]; then
-    su -s /bin/bash "$KOUZIA_USER" -c "$*"
+    su -s /bin/bash "$KOUZIA_USER" -c "${prefix}$*"
   else
-    bash -c "$*"
+    bash -c "${prefix}$*"
   fi
 }
 
@@ -268,11 +276,13 @@ install_kouziactl_link() {
 npm_ci_or_install() {
   local dir="${1:-$KOUZIA_APP_DIR}"
   log "npm ci dans $dir…"
-  if run_as_app "cd '$dir' && npm ci --include=dev"; then
+  local libc_args=()
+  [[ -f /etc/alpine-release ]] && libc_args=(--libc=musl)
+  if run_as_app "cd '$dir' && npm ci --include=dev ${libc_args[*]}"; then
     ok "npm ci terminé"
     return 0
   fi
   warn "npm ci a échoué : fallback npm install propre (lockfile / plateforme)."
-  run_as_app "cd '$dir' && rm -rf node_modules apps/*/node_modules packages/*/node_modules && npm install --include=dev"
+  run_as_app "cd '$dir' && rm -rf node_modules apps/*/node_modules packages/*/node_modules && npm install --include=dev ${libc_args[*]}"
   ok "npm install terminé"
 }

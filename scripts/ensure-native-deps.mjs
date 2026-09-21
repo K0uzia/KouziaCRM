@@ -5,27 +5,33 @@
  */
 import { execSync } from "node:child_process";
 import { createRequire } from "node:module";
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const require = createRequire(join(root, "package.json"));
 
+function isMusl() {
+  if (existsSync("/etc/alpine-release")) {
+    return true;
+  }
+  try {
+    const { MUSL, familySync } = require("detect-libc");
+    return familySync() === MUSL;
+  } catch {
+    return false;
+  }
+}
+
 function lightningcssPlatformPackage() {
   const parts = [process.platform, process.arch];
   if (process.platform === "linux") {
-    try {
-      const { MUSL, familySync } = require("detect-libc");
-      const family = familySync();
-      if (family === MUSL) {
-        parts.push("musl");
-      } else if (process.arch === "arm") {
-        parts.push("gnueabihf");
-      } else {
-        parts.push("gnu");
-      }
-    } catch {
+    if (isMusl()) {
+      parts.push("musl");
+    } else if (process.arch === "arm") {
+      parts.push("gnueabihf");
+    } else {
       parts.push("gnu");
     }
   } else if (process.platform === "win32") {
@@ -34,31 +40,66 @@ function lightningcssPlatformPackage() {
   return `lightningcss-${parts.join("-")}`;
 }
 
-function ensureLightningcss() {
-  // Runtime Docker (vite absent) : pas de build SPA, lightningcss inutile.
+function pkgVersion(name) {
+  const pkgPath = join(root, "node_modules", name, "package.json");
+  if (!existsSync(pkgPath)) {
+    return null;
+  }
+  return JSON.parse(readFileSync(pkgPath, "utf8")).version;
+}
+
+function removeNativePkg(pkg) {
+  const dest = join(root, "node_modules", pkg);
+  if (!existsSync(dest)) {
+    return;
+  }
+  rmSync(dest, { recursive: true, force: true });
+  console.log(`Retiré ${pkg} (binaire glibc incompatible musl).`);
+}
+
+function ensureNativePkg(pkg, version) {
+  if (!version) {
+    return;
+  }
+  if (existsSync(join(root, "node_modules", pkg))) {
+    return;
+  }
+  console.log(`Binaire natif manquant, installation de ${pkg}@${version}…`);
+  execSync(`npm install --no-save ${pkg}@${version}`, {
+    cwd: root,
+    stdio: "inherit",
+    env: { ...process.env, npm_config_libc: isMusl() ? "musl" : process.env.npm_config_libc },
+  });
+}
+
+function ensureViteNatives() {
+  // Runtime Docker (vite absent) : pas de build SPA, binaires Vite inutiles.
   // Le CT Alpine build la SPA même avec NODE_ENV=production.
   const viteRoot = join(root, "node_modules", "vite");
   const viteWeb = join(root, "apps", "web", "node_modules", "vite");
   if (!existsSync(viteRoot) && !existsSync(viteWeb)) {
     return;
   }
-  const pkg = lightningcssPlatformPackage();
-  if (existsSync(join(root, "node_modules", pkg))) {
+
+  if (isMusl() && process.arch === "x64") {
+    removeNativePkg("@rollup/rollup-linux-x64-gnu");
+    removeNativePkg("lightningcss-linux-x64-gnu");
+    removeNativePkg("@tailwindcss/oxide-linux-x64-gnu");
+    ensureNativePkg("@rollup/rollup-linux-x64-musl", pkgVersion("rollup"));
+    ensureNativePkg("lightningcss-linux-x64-musl", pkgVersion("lightningcss") || "1.32.0");
+    ensureNativePkg(
+      "@tailwindcss/oxide-linux-x64-musl",
+      pkgVersion("@tailwindcss/oxide") || pkgVersion("tailwindcss"),
+    );
     return;
   }
 
-  console.log(`Binaire natif lightningcss manquant, installation de ${pkg}…`);
-  execSync(`npm install --no-save ${pkg}@1.32.0`, {
-    cwd: root,
-    stdio: "inherit",
-  });
-
+  const pkg = lightningcssPlatformPackage();
+  ensureNativePkg(pkg, pkgVersion("lightningcss") || "1.32.0");
   if (!existsSync(join(root, "node_modules", pkg))) {
     console.error(`Échec : ${pkg} introuvable après installation.`);
     process.exit(1);
   }
-
-  console.log("lightningcss OK");
 }
 
 function patchReactPdfHyphenate() {
@@ -84,5 +125,5 @@ function patchReactPdfHyphenate() {
   }
 }
 
-ensureLightningcss();
+ensureViteNatives();
 patchReactPdfHyphenate();
