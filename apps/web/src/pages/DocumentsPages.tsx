@@ -12,7 +12,7 @@ import {
 } from "@/lib/format";
 import { Button } from "@/components/ui/Button";
 import { Badge, Card, PageHeader } from "@/components/ui/Card";
-import { Modal } from "@/components/ui/Modal";
+import { Modal, ModalActions } from "@/components/ui/Modal";
 import { DataTable, type TableColumn } from "@/components/ui/DataTable";
 import { DocumentFormEditor } from "@/components/documents/DocumentForm";
 import { DocumentNumberBadge } from "@/components/documents/DocumentNumberBadge";
@@ -205,6 +205,7 @@ function DocumentsListPage({
       grow: 0,
       width: "5.5rem",
       right: true,
+      button: true,
       style: { whiteSpace: "nowrap" },
       cell: (d) => (
         <Button
@@ -241,7 +242,7 @@ function DocumentsListPage({
             key={s}
             type="button"
             onClick={() => setStatusFilter(s)}
-            className={`rounded-md px-2.5 py-1 text-xs font-medium transition ${
+            className={`ui-chip rounded-md px-3 text-xs font-medium transition ${
               statusFilter === s
                 ? "bg-[var(--primary)] text-white"
                 : "bg-[var(--surface)] text-[var(--muted)] ring-1 ring-[var(--border)] hover:text-[var(--text)]"
@@ -629,7 +630,7 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
               <>
                 <a
                   href={`/api/invoices/${doc.id}/pdf`}
-                  className="inline-flex h-10 shrink-0 items-center whitespace-nowrap rounded-[var(--radius)] border border-[var(--border-strong)] bg-[var(--surface)] px-4 text-sm font-medium hover:bg-[var(--surface-raised)]"
+                  className="inline-flex min-h-11 shrink-0 items-center whitespace-nowrap rounded-[var(--radius)] border border-[var(--border-strong)] bg-[var(--surface)] px-4 text-sm font-medium hover:bg-[var(--surface-raised)]"
                 >
                   PDF
                 </a>
@@ -734,7 +735,8 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
       <div className="grid gap-4 lg:grid-cols-3">
         <Card className="space-y-4 p-5 lg:col-span-2">
           <h2 className="text-sm font-semibold">Lignes</h2>
-          <table className="w-full text-sm">
+          <div className="ui-table-wrap max-md:overflow-visible">
+          <table className="ui-table ui-table-stack w-full text-sm">
             <thead className="text-[var(--muted)]">
               <tr>
                 <th className="pb-2 text-left font-medium">Description</th>
@@ -746,7 +748,7 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
             <tbody>
               {(doc.lines ?? []).map((l, i) => (
                 <tr key={i} className="border-t border-[var(--border)]">
-                  <td className="py-2.5 pr-4">
+                  <td className="py-2.5 pr-4" data-label="Description">
                     <div className="space-y-1.5">
                       <div className="flex flex-wrap items-center gap-2">
                         <span className="font-medium">{l.description}</span>
@@ -765,17 +767,18 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
                       ) : null}
                     </div>
                   </td>
-                  <td className="w-16 py-2.5 text-right tabular-nums">{String(l.quantity)}</td>
-                  <td className="w-28 py-2.5 text-right tabular-nums">
+                  <td className="w-16 py-2.5 text-right tabular-nums" data-label="Qté">{String(l.quantity)}</td>
+                  <td className="w-28 py-2.5 text-right tabular-nums" data-label="P.U. HT">
                     {formatEUR(l.unitPriceCents)}
                   </td>
-                  <td className="w-28 py-2.5 text-right tabular-nums font-medium">
+                  <td className="w-28 py-2.5 text-right tabular-nums font-medium" data-label="Total">
                     {formatEUR(l.lineTotalCents)}
                   </td>
                 </tr>
               ))}
             </tbody>
           </table>
+          </div>
           {(doc.lines ?? []).some((l) => l.isSubscription) ? (
             <div className="rounded-[var(--radius)] border border-[var(--border)] bg-[var(--bg)] p-3 text-sm">
               <p className="font-medium">Récurrence mensuelle</p>
@@ -1065,7 +1068,7 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
             </p>
           )}
 
-          <div className="flex justify-end gap-2 border-t border-[var(--border)] pt-4">
+          <ModalActions>
             <Button
               type="button"
               variant="secondary"
@@ -1081,7 +1084,7 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
                   ? "Émettre et envoyer"
                   : "Émettre sans email"}
             </Button>
-          </div>
+          </ModalActions>
         </div>
       </Modal>
 
@@ -1166,7 +1169,7 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
               placeholder="Budget trop élevé, projet reporté, concurrent retenu…"
             />
           </Field>
-          <div className="flex justify-end gap-2">
+          <ModalActions>
             <Button
               type="button"
               variant="secondary"
@@ -1183,7 +1186,7 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
             >
               {rejectBusy ? "…" : "Enregistrer le refus"}
             </Button>
-          </div>
+          </ModalActions>
         </div>
       </Modal>
 

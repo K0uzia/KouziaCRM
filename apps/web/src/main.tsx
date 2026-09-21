@@ -13,7 +13,13 @@ createRoot(document.getElementById("root")!).render(
       <AuthProvider>
         <FeaturesProvider>
           <App />
-          <Toaster richColors position="bottom-center" theme="dark" />
+          <Toaster
+            richColors
+            position="bottom-center"
+            theme="dark"
+            offset="max(1rem, env(safe-area-inset-bottom))"
+            toastOptions={{ className: "max-w-[calc(100vw-2rem)]" }}
+          />
         </FeaturesProvider>
       </AuthProvider>
     </BrowserRouter>

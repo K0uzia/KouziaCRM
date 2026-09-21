@@ -176,7 +176,7 @@ export function CompanyLookup({
         }
         error={inputError ?? errors?.siren ?? errors?.siret}
       >
-        <div className="flex items-center gap-2">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
           <Input
             className="min-w-0 flex-1"
             value={value.siret || value.siren}
@@ -201,7 +201,7 @@ export function CompanyLookup({
           />
           <Button
             type="button"
-            className="shrink-0"
+            className="w-full shrink-0 sm:w-auto"
             disabled={disabled || busy}
             onClick={() => {
               lastLookedUp.current = null;

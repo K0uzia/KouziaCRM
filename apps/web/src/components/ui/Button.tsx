@@ -24,7 +24,7 @@ export function Button({
   return (
     <button
       type="button"
-      className={`inline-flex h-10 shrink-0 items-center justify-center gap-2 whitespace-nowrap rounded-[var(--radius)] border px-4 text-sm font-medium transition disabled:cursor-not-allowed disabled:opacity-50 ${styles[variant]} ${className}`}
+      className={`inline-flex min-h-11 min-w-11 shrink-0 touch-manipulation items-center justify-center gap-2 whitespace-nowrap rounded-[var(--radius)] border px-4 text-sm font-medium transition disabled:cursor-not-allowed disabled:opacity-50 ${styles[variant]} ${className}`}
       {...props}
     >
       {children}

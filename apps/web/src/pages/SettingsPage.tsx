@@ -5,7 +5,7 @@ import { api } from "@/lib/api";
 import { Button } from "@/components/ui/Button";
 import { Card, PageHeader } from "@/components/ui/Card";
 import { Field, Input, Select, Textarea } from "@/components/ui/Field";
-import { Modal } from "@/components/ui/Modal";
+import { Modal, ModalActions } from "@/components/ui/Modal";
 import { AddressAutocomplete, type AddressValue } from "@/components/forms/AddressAutocomplete";
 import { SettingsTabNav } from "@/pages/settings/TabNav";
 import { SecretField } from "@/pages/settings/SecretField";
@@ -649,8 +649,8 @@ export function SettingsPage() {
   }
 
   const SaveBar = ({ onSave }: { onSave: () => void }) => (
-    <div className="mt-4 flex justify-end border-t border-[var(--border)] bg-[var(--surface)] pt-4">
-      <Button type="button" disabled={busy} onClick={() => void onSave()}>
+    <div className="sticky bottom-0 mt-4 flex justify-end border-t border-[var(--border)] bg-[var(--surface)] pt-4 pb-[max(0.5rem,env(safe-area-inset-bottom))]">
+      <Button type="button" disabled={busy} onClick={() => void onSave()} className="w-full sm:w-auto">
         {busy ? "Enregistrement…" : "Enregistrer cet onglet"}
       </Button>
     </div>
@@ -689,7 +689,7 @@ export function SettingsPage() {
                     key={s.id}
                     type="button"
                     onClick={() => setIdentitySection(s.id)}
-                    className={`rounded-[var(--radius-sm)] px-3 py-1.5 text-sm font-medium transition ${
+                    className={`ui-chip rounded-[var(--radius-sm)] px-3 text-sm font-medium transition ${
                       identitySection === s.id
                         ? "bg-[var(--primary-soft)] text-[var(--primary)]"
                         : "text-[var(--muted)] hover:bg-[var(--surface-hover)] hover:text-[var(--text)]"
@@ -1815,12 +1815,12 @@ export function SettingsPage() {
               onChange={(e) => setClauseForm({ ...clauseForm, body: e.target.value })}
             />
           </Field>
-          <div className="flex justify-end gap-2">
+          <ModalActions>
             <Button type="button" variant="secondary" onClick={() => setClauseModal(null)}>
               Annuler
             </Button>
             <Button type="submit">Enregistrer</Button>
-          </div>
+          </ModalActions>
         </form>
       </Modal>
     </div>
@@ -1891,8 +1891,8 @@ function PayoutBeneficiaryCard() {
         <Field label="IBAN">
           <Input value={iban} onChange={(e) => setIban(e.target.value)} required />
         </Field>
-        <div className="flex items-end justify-end sm:col-span-2">
-          <Button type="submit" disabled={busy}>
+        <div className="flex items-end sm:col-span-2 sm:justify-end">
+          <Button type="submit" disabled={busy} className="w-full sm:w-auto">
             {busy ? "Enregistrement…" : status.hasBeneficiary ? "Remplacer" : "Enregistrer"}
           </Button>
         </div>

@@ -2,6 +2,7 @@ import { useEffect, useState, type FormEvent } from "react";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { Button } from "@/components/ui/Button";
+import { ModalActions } from "@/components/ui/Modal";
 import { Field, Input, Select, Textarea } from "@/components/ui/Field";
 import type { Client } from "@/components/clients/ClientForm";
 
@@ -307,7 +308,7 @@ export function DocumentFormEditor({
               </Select>
             ) : null}
 
-            <div className="grid gap-2 sm:grid-cols-[1fr_88px_110px_36px]">
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-[1fr_88px_110px_44px]">
               <Input
                 required
                 placeholder="Description de la prestation"
@@ -317,6 +318,7 @@ export function DocumentFormEditor({
               <Input
                 required
                 type="number"
+                inputMode="decimal"
                 step="0.01"
                 min="0.01"
                 placeholder="Qté"
@@ -327,6 +329,7 @@ export function DocumentFormEditor({
               <Input
                 required
                 type="number"
+                inputMode="decimal"
                 step="0.01"
                 placeholder={line.isSubscription ? "€ / mois" : "Prix HT €"}
                 value={line.unitPriceEuros}
@@ -334,7 +337,7 @@ export function DocumentFormEditor({
               />
               <button
                 type="button"
-                className="text-sm text-[var(--muted)] hover:text-[var(--danger)]"
+                className="inline-flex min-h-11 min-w-11 items-center justify-center text-sm text-[var(--muted)] hover:text-[var(--danger)]"
                 onClick={() => removeLine(i)}
                 aria-label="Supprimer la ligne"
               >
@@ -449,7 +452,7 @@ export function DocumentFormEditor({
         />
       </Field>
 
-      <div className="flex justify-end gap-2 border-t border-[var(--border)] pt-4">
+      <ModalActions>
         <Button type="button" variant="secondary" onClick={onCancel} disabled={busy}>
           Annuler
         </Button>
@@ -462,7 +465,7 @@ export function DocumentFormEditor({
                 ? "Créer le devis"
                 : "Créer la facture"}
         </Button>
-      </div>
+      </ModalActions>
     </form>
   );
 }

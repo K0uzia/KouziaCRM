@@ -1,5 +1,5 @@
 import { Button } from "@/components/ui/Button";
-import { Modal } from "@/components/ui/Modal";
+import { Modal, ModalActions } from "@/components/ui/Modal";
 
 type ConfirmDialogProps = {
   open: boolean;
@@ -28,7 +28,7 @@ export function ConfirmDialog({
   return (
     <Modal open={open} onClose={busy ? () => undefined : onClose} title={title}>
       <p className="text-sm text-[var(--text)]">{message}</p>
-      <div className="mt-5 flex justify-end gap-2">
+      <ModalActions>
         <Button type="button" variant="secondary" disabled={busy} onClick={onClose}>
           {cancelLabel}
         </Button>
@@ -40,7 +40,7 @@ export function ConfirmDialog({
         >
           {busy ? "…" : confirmLabel}
         </Button>
-      </div>
+      </ModalActions>
     </Modal>
   );
 }

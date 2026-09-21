@@ -103,11 +103,11 @@ export function ClientEmailLink({
               onChange={(e) => setBody(e.target.value)}
             />
           </Field>
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <Link to={composeHref} className="link text-xs" onClick={() => setOpen(false)}>
+          <div className="flex flex-col-reverse gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
+            <Link to={composeHref} className="link inline-flex min-h-11 items-center text-sm" onClick={() => setOpen(false)}>
               Ouvrir dans Emails
             </Link>
-            <div className="flex gap-2">
+            <div className="flex flex-col-reverse gap-2 sm:flex-row [&_button]:w-full sm:[&_button]:w-auto">
               <Button type="button" variant="secondary" onClick={() => setOpen(false)}>
                 Annuler
               </Button>

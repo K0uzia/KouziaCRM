@@ -18,7 +18,7 @@ export function OnboardingPage() {
   }, [token, site]);
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-[var(--bg)] px-4">
+    <div className="flex min-h-dvh items-center justify-center bg-[var(--bg)] px-4">
       <p className="text-sm text-[var(--muted)]">Redirection vers le formulaire sécurisé…</p>
     </div>
   );

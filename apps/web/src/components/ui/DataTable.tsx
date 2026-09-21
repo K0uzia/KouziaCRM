@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import DataTableBase, {
   type TableColumn,
   type TableProps,
@@ -15,7 +15,7 @@ const customStyles: TableProps<never>["customStyles"] = {
   tableWrapper: {
     style: {
       width: "100%",
-      overflowX: "hidden",
+      overflowX: "auto",
     },
   },
   headRow: {
@@ -70,11 +70,14 @@ const customStyles: TableProps<never>["customStyles"] = {
       padding: "0.625rem 1rem",
       flexWrap: "wrap",
       gap: "0.5rem",
+      minHeight: "3.5rem",
     },
     pageButtonsStyle: {
-      borderRadius: "6px",
-      padding: "0.25rem 0.5rem",
+      borderRadius: "10px",
+      padding: "0.5rem",
       margin: "0 0.125rem",
+      minHeight: "44px",
+      minWidth: "44px",
       fill: "var(--primary)",
       color: "var(--primary)",
     },
@@ -101,7 +104,113 @@ export type DataTableProps<T> = {
   striped?: boolean;
   card?: boolean;
   maxHeight?: string;
+  renderMobileCard?: (row: T, index: number) => ReactNode;
 };
+
+function columnLabel<T>(col: TableColumn<T>): string {
+  if (typeof col.name === "string") return col.name;
+  return "";
+}
+
+function isActionColumn<T>(col: TableColumn<T>): boolean {
+  return Boolean(col.button) || columnLabel(col) === "";
+}
+
+function renderColumnCell<T>(col: TableColumn<T>, row: T, index: number): ReactNode {
+  if (col.cell) return col.cell(row, index, col, index);
+  if (typeof col.selector === "function") {
+    const value = col.selector(row, index);
+    if (value == null || value === "") return "-";
+    return String(value);
+  }
+  return null;
+}
+
+function DefaultMobileCard<T>({
+  row,
+  index,
+  columns,
+}: {
+  row: T;
+  index: number;
+  columns: TableColumn<T>[];
+}) {
+  const fields = columns.filter((c) => !isActionColumn(c));
+  const actions = columns.filter(isActionColumn);
+  const titleCol = fields[0];
+  const rest = fields.slice(1);
+
+  return (
+    <article className="min-w-0 rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--surface-glass)] p-4 shadow-[var(--shadow-card)]">
+      {titleCol ? (
+        <div className="min-w-0 text-sm font-semibold text-[var(--text)]">
+          {renderColumnCell(titleCol, row, index)}
+        </div>
+      ) : null}
+      {rest.length > 0 ? (
+        <dl className="mt-3 grid gap-2">
+          {rest.map((col, i) => {
+            const label = columnLabel(col) || `Champ ${i + 1}`;
+            return (
+              <div key={`${label}-${i}`} className="min-w-0">
+                <dt className="text-xs text-[var(--muted)]">{label}</dt>
+                <dd className="mt-0.5 min-w-0 break-words text-sm text-[var(--text)]">
+                  {renderColumnCell(col, row, index)}
+                </dd>
+              </div>
+            );
+          })}
+        </dl>
+      ) : null}
+      {actions.length > 0 ? (
+        <div className="mt-3 flex flex-wrap gap-2 [&_button]:h-auto [&_button]:min-h-11">
+          {actions.map((col, i) => (
+            <div key={i} className="min-w-0">
+              {renderColumnCell(col, row, index)}
+            </div>
+          ))}
+        </div>
+      ) : null}
+    </article>
+  );
+}
+
+function MobilePager({
+  page,
+  pageCount,
+  onPage,
+}: {
+  page: number;
+  pageCount: number;
+  onPage: (p: number) => void;
+}) {
+  if (pageCount <= 1) return null;
+  return (
+    <div className="flex items-center justify-between gap-2 pt-1">
+      <button
+        type="button"
+        className="inline-flex min-h-11 min-w-11 touch-manipulation items-center justify-center rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--surface-raised)] px-3 text-sm disabled:opacity-40"
+        disabled={page <= 1}
+        onClick={() => onPage(page - 1)}
+        aria-label="Page précédente"
+      >
+        Préc.
+      </button>
+      <span className="text-sm tabular-nums text-[var(--muted)]">
+        {page} / {pageCount}
+      </span>
+      <button
+        type="button"
+        className="inline-flex min-h-11 min-w-11 touch-manipulation items-center justify-center rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--surface-raised)] px-3 text-sm disabled:opacity-40"
+        disabled={page >= pageCount}
+        onClick={() => onPage(page + 1)}
+        aria-label="Page suivante"
+      >
+        Suiv.
+      </button>
+    </div>
+  );
+}
 
 export function DataTable<T>({
   columns,
@@ -115,8 +224,10 @@ export function DataTable<T>({
   striped = false,
   card = true,
   maxHeight,
+  renderMobileCard,
 }: DataTableProps<T>) {
   const [query, setQuery] = useState("");
+  const [mobilePage, setMobilePage] = useState(1);
 
   const filtered = useMemo(() => {
     if (!searchable) return data;
@@ -146,6 +257,12 @@ export function DataTable<T>({
     });
   }, [data, query, searchable]);
 
+  const pageCount = Math.max(1, Math.ceil(filtered.length / perPage));
+  const currentMobilePage = Math.min(mobilePage, pageCount);
+  const mobileRows = pagination
+    ? filtered.slice((currentMobilePage - 1) * perPage, currentMobilePage * perPage)
+    : filtered;
+
   const wrapper = (children: React.ReactNode) =>
     card ? (
       <div className="overflow-hidden rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--surface-glass)] shadow-[var(--shadow-card)] backdrop-blur-md">
@@ -156,14 +273,15 @@ export function DataTable<T>({
     );
 
   return (
-    <div className="space-y-3">
+    <div className="min-w-0 space-y-3">
       {searchable ? (
-        <div className="flex items-center gap-2 rounded-[var(--radius)] border border-[var(--border)] bg-[var(--surface-raised)] px-3 py-2">
+        <div className="flex min-h-11 items-center gap-2 rounded-[var(--radius)] border border-[var(--border)] bg-[var(--surface-raised)] px-3 py-1">
           <svg
             xmlns="http://www.w3.org/2000/svg"
             viewBox="0 0 20 20"
             fill="currentColor"
             className="h-4 w-4 shrink-0 text-[var(--muted)]"
+            aria-hidden
           >
             <path
               fillRule="evenodd"
@@ -174,33 +292,76 @@ export function DataTable<T>({
           <input
             type="search"
             value={query}
-            onChange={(e) => setQuery(e.target.value)}
+            onChange={(e) => {
+              setQuery(e.target.value);
+              setMobilePage(1);
+            }}
             placeholder={searchPlaceholder}
-            className="w-full border-0 bg-transparent text-sm outline-none placeholder:text-[var(--muted)]"
+            className="min-h-11 w-full min-w-0 border-0 bg-transparent text-sm outline-none placeholder:text-[var(--muted)]"
+            aria-label={searchPlaceholder}
           />
         </div>
       ) : null}
-      {wrapper(
-        <DataTableBase
-          columns={columns}
-          data={filtered}
-          customStyles={customStyles}
-          striped={striped}
-          pagination={pagination}
-          paginationPerPage={perPage}
-          paginationRowsPerPageOptions={[10, 25, 50, 100]}
-          paginationComponentOptions={{
-            rowsPerPageText: "lignes par page :",
-            rangeSeparatorText: "sur",
-            noRowsPerPage: false,
-            selectAllRowsItem: false,
-          }}
-          fixedHeader={Boolean(maxHeight)}
-          fixedHeaderScrollHeight={maxHeight ?? "100%"}
-          noDataComponent={<EmptyState title={emptyTitle} hint={emptyHint} />}
-          highlightOnHover
-          pointerOnHover
-        />,
+
+      {filtered.length === 0 ? (
+        <div className="overflow-hidden rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--surface-glass)]">
+          <EmptyState title={emptyTitle} hint={emptyHint} />
+        </div>
+      ) : (
+        <>
+          <div className="space-y-3 md:hidden">
+            {mobileRows.map((row, index) => {
+              const globalIndex = pagination
+                ? (currentMobilePage - 1) * perPage + index
+                : index;
+              const key =
+                row && typeof row === "object" && "id" in row
+                  ? String((row as { id: unknown }).id)
+                  : String(globalIndex);
+              return (
+                <div key={key}>
+                  {renderMobileCard ? (
+                    renderMobileCard(row, globalIndex)
+                  ) : (
+                    <DefaultMobileCard row={row} index={globalIndex} columns={columns} />
+                  )}
+                </div>
+              );
+            })}
+            {pagination ? (
+              <MobilePager
+                page={currentMobilePage}
+                pageCount={pageCount}
+                onPage={setMobilePage}
+              />
+            ) : null}
+          </div>
+
+          <div className="ui-table-wrap hidden min-w-0 md:block">
+            {wrapper(
+              <DataTableBase
+                columns={columns}
+                data={filtered}
+                customStyles={customStyles}
+                striped={striped}
+                pagination={pagination}
+                paginationPerPage={perPage}
+                paginationRowsPerPageOptions={[10, 25, 50, 100]}
+                paginationComponentOptions={{
+                  rowsPerPageText: "lignes par page :",
+                  rangeSeparatorText: "sur",
+                  noRowsPerPage: false,
+                  selectAllRowsItem: false,
+                }}
+                fixedHeader={Boolean(maxHeight)}
+                fixedHeaderScrollHeight={maxHeight ?? "100%"}
+                noDataComponent={<EmptyState title={emptyTitle} hint={emptyHint} />}
+                highlightOnHover
+                pointerOnHover
+              />,
+            )}
+          </div>
+        </>
       )}
     </div>
   );

@@ -4,7 +4,7 @@ import { toast } from "sonner";
 import { api, formatEUR, formatDate } from "@/lib/api";
 import { Button } from "@/components/ui/Button";
 import { Field, Input, Select, Textarea } from "@/components/ui/Field";
-import { Modal } from "@/components/ui/Modal";
+import { Modal, ModalActions } from "@/components/ui/Modal";
 
 type Eligibility = {
   allowed: boolean;
@@ -262,14 +262,14 @@ export function CreditNoteWizard({
                 </p>
               )}
 
-              <div className="flex justify-end gap-2">
+              <ModalActions>
                 <Button variant="secondary" onClick={onClose}>
                   Fermer
                 </Button>
                 {elig.allowed ? (
                   <Button onClick={goNextFromDiagnostic}>Continuer</Button>
                 ) : null}
-              </div>
+              </ModalActions>
             </div>
           ) : null}
 
@@ -299,7 +299,7 @@ export function CreditNoteWizard({
                   recette encaissée. Conservez la facture et vos CGV 10 ans.
                 </p>
               ) : null}
-              <div className="flex justify-between gap-2">
+              <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-between [&_button]:w-full sm:[&_button]:w-auto">
                 <Button variant="secondary" onClick={() => setStep(1)}>
                   Retour
                 </Button>
@@ -474,9 +474,9 @@ export function CreditNoteWizard({
                   Ligne négative déjà enregistrée (cohérente avec le virement).
                 </p>
               )}
-              <div className="flex justify-end gap-2">
+              <ModalActions>
                 <Button onClick={() => setStep(6)}>Suite URSSAF</Button>
-              </div>
+              </ModalActions>
             </div>
           ) : null}
 
@@ -520,7 +520,7 @@ export function CreditNoteWizard({
                   </p>
                 </div>
               ) : null}
-              <div className="flex justify-between gap-2">
+              <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-between [&_button]:w-full sm:[&_button]:w-auto">
                 <Button variant="secondary" onClick={() => setStep(5)}>
                   Retour
                 </Button>
@@ -557,11 +557,11 @@ export function CreditNoteWizard({
                   <span>{label}</span>
                 </label>
               ))}
-              <div className="flex flex-wrap justify-between gap-2">
+              <div className="flex flex-col-reverse gap-2 sm:flex-row sm:flex-wrap sm:justify-between [&_button]:w-full sm:[&_button]:w-auto">
                 <Button variant="secondary" onClick={() => setStep(6)}>
                   Retour
                 </Button>
-                <div className="flex flex-wrap gap-2">
+                <div className="flex flex-col-reverse gap-2 sm:flex-row sm:flex-wrap [&_button]:w-full sm:[&_button]:w-auto">
                   <Button variant="secondary" onClick={() => void saveChecklist()}>
                     Enregistrer checklist
                   </Button>

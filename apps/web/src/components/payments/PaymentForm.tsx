@@ -2,6 +2,7 @@ import { useState, type FormEvent } from "react";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { Button } from "@/components/ui/Button";
+import { ModalActions } from "@/components/ui/Modal";
 import { Field, Input, Select, Textarea } from "@/components/ui/Field";
 import { paymentMethodLabel } from "@/lib/format";
 
@@ -53,6 +54,7 @@ export function PaymentForm({
           <Input
             required
             type="number"
+            inputMode="decimal"
             step="0.01"
             min="0.01"
             value={amount}
@@ -78,14 +80,14 @@ export function PaymentForm({
       <Field label="Note">
         <Textarea rows={2} value={notes} onChange={(e) => setNotes(e.target.value)} />
       </Field>
-      <div className="flex justify-end gap-2 border-t border-[var(--border)] pt-4">
+      <ModalActions>
         <Button type="button" variant="secondary" onClick={onCancel} disabled={busy}>
           Annuler
         </Button>
         <Button type="submit" disabled={busy}>
           {busy ? "Enregistrement…" : "Enregistrer le paiement"}
         </Button>
-      </div>
+      </ModalActions>
     </form>
   );
 }

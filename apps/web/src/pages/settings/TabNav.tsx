@@ -39,7 +39,7 @@ export function SettingsTabNav({
   return (
     <>
       <nav
-        className="flex gap-1 overflow-x-auto pb-1 md:hidden"
+        className="flex gap-1 overflow-x-auto no-scrollbar pb-1 md:hidden"
         aria-label="Onglets paramètres"
       >
         {SETTINGS_TABS.map((tab) =>
@@ -47,7 +47,7 @@ export function SettingsTabNav({
             tab,
             active,
             onChange,
-            "shrink-0 rounded-[var(--radius-sm)] px-3 py-2 text-sm font-medium transition",
+            "ui-chip shrink-0 rounded-[var(--radius-sm)] px-3 text-sm font-medium transition",
           ),
         )}
       </nav>
@@ -67,7 +67,7 @@ export function SettingsTabNav({
                 tab,
                 active,
                 onChange,
-                "w-full rounded-[var(--radius-sm)] px-3 py-2 text-left text-sm font-medium transition",
+                "w-full min-h-11 rounded-[var(--radius-sm)] px-3 py-2 text-left text-sm font-medium transition",
               );
             })}
           </div>

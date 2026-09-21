@@ -64,10 +64,12 @@ html,
 body,
 #root {
   min-height: 100%;
+  min-height: 100dvh;
 }
 
 body {
   margin: 0;
+  overflow-x: hidden;
   font-family: var(--font);
   background-color: var(--bg);
   background-image:
@@ -78,10 +80,13 @@ body {
 }
 
 button,
+a,
+[role="button"],
 input,
 select,
 textarea {
   font: inherit;
+  touch-action: manipulation;
 }
 
 a {
@@ -133,6 +138,17 @@ a {
   outline-offset: 2px;
 }
 
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
 /* Cartes glassmorphism */
 .glass-card {
   background: var(--surface-glass);
@@ -158,6 +174,28 @@ a {
   max-width: 100%;
   overflow-x: auto;
   -webkit-overflow-scrolling: touch;
+  overscroll-behavior-x: contain;
+}
+
+.ui-swipe-hint {
+  position: relative;
+}
+
+.ui-swipe-hint::after {
+  content: "";
+  pointer-events: none;
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 2rem;
+  background: linear-gradient(to right, transparent, var(--bg));
+}
+
+@media (min-width: 768px) {
+  .ui-swipe-hint::after {
+    display: none;
+  }
 }
 
 .ui-table {
@@ -208,6 +246,67 @@ a {
   word-break: break-word;
   overflow: visible;
   text-overflow: unset;
+}
+
+@media (max-width: 767px) {
+  .ui-table-stack {
+    width: 100%;
+  }
+  .ui-table-stack thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+  }
+  .ui-table-stack tbody,
+  .ui-table-stack tr,
+  .ui-table-stack td {
+    display: block;
+    width: 100%;
+  }
+  .ui-table-stack tbody tr {
+    margin-bottom: 0.75rem;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    background: var(--surface-raised);
+    padding: 0.75rem 1rem;
+  }
+  .ui-table-stack tbody td {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 0.75rem;
+    border: 0;
+    padding: 0.4rem 0;
+    overflow: visible;
+    text-overflow: unset;
+    white-space: normal;
+    word-break: break-word;
+  }
+  .ui-table-stack tbody td::before {
+    content: attr(data-label);
+    color: var(--muted);
+    font-size: 0.75rem;
+    font-weight: 500;
+    flex: 0 0 38%;
+    max-width: 9rem;
+  }
+  .ui-table-stack tbody td.col-actions {
+    justify-content: flex-end;
+    padding-top: 0.75rem;
+  }
+  .ui-table-stack tbody td.col-actions::before {
+    content: none;
+  }
+}
+
+.ui-chip {
+  display: inline-flex;
+  min-height: 44px;
+  align-items: center;
+  justify-content: center;
+  touch-action: manipulation;
 }
 
 .no-scrollbar {
@@ -278,6 +377,11 @@ a {
   color: var(--text) !important;
   border: 1px solid var(--border);
   border-radius: 6px;
+  min-height: 44px;
+}
+.rdt_Pagination button {
+  min-height: 44px;
+  min-width: 44px;
 }
 .rdt_Pagination button svg {
   fill: var(--primary) !important;

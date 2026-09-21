@@ -164,7 +164,7 @@ function ObligationRow({
             href={item.officialUrl}
             target="_blank"
             rel="noreferrer"
-            className="inline-flex h-8 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-[var(--radius)] border border-[var(--border)] bg-[var(--surface)] px-3 text-xs font-medium text-[var(--text)] transition-colors hover:border-[var(--primary)]/40 hover:bg-[var(--primary-soft)] hover:text-[var(--primary)]"
+            className="inline-flex min-h-11 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-[var(--radius)] border border-[var(--border)] bg-[var(--surface)] px-3 text-sm font-medium text-[var(--text)] transition-colors hover:border-[var(--primary)]/40 hover:bg-[var(--primary-soft)] hover:text-[var(--primary)]"
           >
             Site officiel
             <FontAwesomeIcon icon={faArrowUpRightFromSquare} className="h-3 w-3 opacity-70" />
@@ -184,7 +184,7 @@ function ObligationRow({
         <Button
           type="button"
           variant="secondary"
-          className="h-8 px-3 text-xs"
+          className="px-3 text-sm"
           onClick={() => inputRef.current?.click()}
         >
           <FontAwesomeIcon icon={faPaperclip} className="h-3 w-3" />
@@ -192,7 +192,7 @@ function ObligationRow({
         </Button>
         {showConfirm && alertActive ? (
           <Button
-            className="h-8 px-3 text-xs"
+            className="px-3 text-sm"
             disabled={busy}
             onClick={() => onConfirm(item.id)}
           >

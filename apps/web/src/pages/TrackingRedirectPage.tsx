@@ -15,7 +15,7 @@ export function TrackingRedirectPage() {
   }, []);
 
   return (
-    <div className="flex min-h-screen items-center justify-center px-4 text-center text-sm text-[var(--muted)]">
+    <div className="flex min-h-dvh items-center justify-center px-4 text-center text-sm text-[var(--muted)]">
       Redirection vers l&apos;espace client…
     </div>
   );

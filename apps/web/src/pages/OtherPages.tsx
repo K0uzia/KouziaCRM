@@ -6,7 +6,7 @@ import { formatDate } from "@/lib/format";
 import { Button } from "@/components/ui/Button";
 import { Badge, Card, EmptyState, PageHeader } from "@/components/ui/Card";
 import { Field, Input, Select, Textarea } from "@/components/ui/Field";
-import { Modal } from "@/components/ui/Modal";
+import { Modal, ModalActions } from "@/components/ui/Modal";
 import {
   EMAIL_TEMPLATES,
   applyTemplate,
@@ -144,8 +144,8 @@ export function UrssafPage() {
             hint="Elles apparaissent ici dès que vous marquez une échéance comme payée."
           />
         ) : (
-          <div className="ui-table-wrap">
-            <table className="ui-table">
+          <div className="ui-table-wrap max-md:overflow-visible">
+            <table className="ui-table ui-table-stack">
               <thead>
                 <tr>
                   <th className="nowrap">Période</th>
@@ -159,16 +159,16 @@ export function UrssafPage() {
               <tbody>
                 {rows.map((r) => (
                   <tr key={r.id}>
-                    <td className="nowrap font-medium">{r.periodKey}</td>
-                    <td className="nowrap tabular-nums">{formatEUR(r.encaisseCents)}</td>
-                    <td className="nowrap tabular-nums">{formatEUR(r.amountDueCents)}</td>
-                    <td className="nowrap">
+                    <td className="nowrap font-medium" data-label="Période">{r.periodKey}</td>
+                    <td className="nowrap tabular-nums" data-label="Encaissé">{formatEUR(r.encaisseCents)}</td>
+                    <td className="nowrap tabular-nums" data-label="Dû">{formatEUR(r.amountDueCents)}</td>
+                    <td className="nowrap" data-label="Statut">
                       <Badge tone={r.status === "PAID" ? "green" : "amber"}>
                         {declStatusLabel[r.status] ?? r.status}
                       </Badge>
                     </td>
-                    <td className="nowrap">{formatDate(r.deadline)}</td>
-                    <td className="nowrap text-[var(--muted)]">{r.paymentRef ?? "-"}</td>
+                    <td className="nowrap" data-label="Échéance">{formatDate(r.deadline)}</td>
+                    <td className="nowrap text-[var(--muted)]" data-label="Référence">{r.paymentRef ?? "-"}</td>
                   </tr>
                 ))}
               </tbody>
@@ -195,7 +195,7 @@ export function UrssafPage() {
               placeholder="Numéro de télépaiement, référence de virement…"
             />
           </Field>
-          <div className="flex justify-end gap-2">
+          <ModalActions>
             <Button
               type="button"
               variant="secondary"
@@ -207,7 +207,7 @@ export function UrssafPage() {
             <Button type="button" disabled={busy} onClick={() => void markPaid()}>
               {busy ? "…" : "Enregistrer"}
             </Button>
-          </div>
+          </ModalActions>
         </div>
       </Modal>
     </div>
@@ -593,10 +593,10 @@ export function ComposePage() {
             <Field label="Message">
               <Textarea required rows={8} value={body} onChange={(e) => setBody(e.target.value)} />
             </Field>
-            <div className="flex justify-end gap-2">
+            <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end [&_a]:w-full sm:[&_a]:w-auto [&_button]:w-full sm:[&_button]:w-auto">
               <Link
                 to="/inbox"
-                className="inline-flex h-10 items-center rounded-[var(--radius)] border px-4 text-sm"
+                className="inline-flex min-h-11 items-center justify-center rounded-[var(--radius)] border px-4 text-sm"
               >
                 Annuler
               </Link>

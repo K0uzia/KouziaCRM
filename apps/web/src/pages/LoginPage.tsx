@@ -29,13 +29,13 @@ export function LoginPage() {
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center px-4">
+    <div className="flex min-h-dvh items-center justify-center px-4 py-6">
       <form
         onSubmit={onSubmit}
-        className="w-full max-w-sm space-y-5 rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--surface)] p-8 shadow-[var(--shadow-card)]"
+        className="w-full max-w-sm space-y-5 rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--surface)] p-5 shadow-[var(--shadow-card)] sm:p-8"
       >
         <div>
-          <p className="text-2xl font-semibold tracking-tight">Kouzia</p>
+          <p className="text-xl font-semibold tracking-tight sm:text-2xl">Kouzia</p>
           <p className="mt-1 text-sm text-[var(--muted)]">Connexion</p>
           {import.meta.env.DEV ? (
             <p className="mt-2 rounded-[var(--radius-sm)] bg-[var(--bg)] px-3 py-2 text-xs text-[var(--muted)]">

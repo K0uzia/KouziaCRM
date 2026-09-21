@@ -7,7 +7,7 @@ import { api, formatEUR, formatDate } from "@/lib/api";
 import { useFeatures } from "@/lib/features";
 import { Button } from "@/components/ui/Button";
 import { Card, EmptyState, PageHeader, Badge } from "@/components/ui/Card";
-import { Modal } from "@/components/ui/Modal";
+import { Modal, ModalActions } from "@/components/ui/Modal";
 import { Field, Input, Select } from "@/components/ui/Field";
 
 type SubscriptionStatus = "ACTIVE" | "PAUSED" | "ENDED";
@@ -327,8 +327,8 @@ export function SubscriptionsPage() {
             hint="Créez un contrat de maintenance mensuel : une facture sera émise automatiquement chaque mois."
           />
         ) : (
-          <div className="ui-table-wrap">
-            <table className="ui-table">
+          <div className="ui-table-wrap max-md:overflow-visible">
+            <table className="ui-table ui-table-stack">
               <thead>
                 <tr>
                   <th className="nowrap">Client</th>
@@ -345,19 +345,19 @@ export function SubscriptionsPage() {
                   const badge = statusBadge[s.status];
                   return (
                     <tr key={s.id}>
-                      <td className="nowrap">
+                      <td className="nowrap" data-label="Client">
                         <p className="font-medium">{s.client.displayName}</p>
                         <p className="text-xs text-[var(--muted)]">{s.service.name}</p>
                       </td>
-                      <td className="wrap">{s.label}</td>
-                      <td className="nowrap text-right tabular-nums font-medium">
+                      <td className="wrap" data-label="Libellé">{s.label}</td>
+                      <td className="nowrap text-right tabular-nums font-medium" data-label="Montant/mois">
                         {formatEUR(s.amountCents)}
                       </td>
-                      <td className="nowrap">{s.billingDay}</td>
-                      <td className="nowrap text-[var(--muted)]">
+                      <td className="nowrap" data-label="Jour">{s.billingDay}</td>
+                      <td className="nowrap text-[var(--muted)]" data-label="Prochaine facture">
                         {formatDate(s.nextInvoiceAt)}
                       </td>
-                      <td className="nowrap">
+                      <td className="nowrap" data-label="Statut">
                         <Badge tone={badge.tone}>{badge.label}</Badge>
                       </td>
                       <td className="col-actions">
@@ -365,8 +365,9 @@ export function SubscriptionsPage() {
                         {s.status !== "ENDED" ? (
                           <Button
                             variant="ghost"
-                            className="h-8 px-2 text-xs"
+                            className="px-2 text-xs"
                             onClick={() => openEdit(s)}
+                            aria-label="Modifier (libellé, jour)"
                             title="Modifier (libellé, jour)"
                           >
                             <FontAwesomeIcon icon={faPen} className="h-3 w-3" />
@@ -375,8 +376,9 @@ export function SubscriptionsPage() {
                         {s.status === "ACTIVE" ? (
                           <Button
                             variant="ghost"
-                            className="h-8 px-2 text-xs"
+                            className="px-2 text-xs"
                             onClick={() => openRevise(s)}
+                            aria-label="Réviser le montant (avenant)"
                             title="Réviser le montant (avenant)"
                           >
                             <FontAwesomeIcon icon={faSync} className="h-3 w-3" />
@@ -385,8 +387,9 @@ export function SubscriptionsPage() {
                         {s.status === "ACTIVE" ? (
                           <Button
                             variant="ghost"
-                            className="h-8 px-2 text-xs"
+                            className="px-2 text-xs"
                             onClick={() => void action(s.id, "pause")}
+                            aria-label="Suspendre"
                             title="Suspendre"
                           >
                             <FontAwesomeIcon icon={faPause} className="h-3 w-3" />
@@ -395,8 +398,9 @@ export function SubscriptionsPage() {
                         {s.status === "PAUSED" ? (
                           <Button
                             variant="ghost"
-                            className="h-8 px-2 text-xs"
+                            className="px-2 text-xs"
                             onClick={() => void action(s.id, "resume")}
+                            aria-label="Reprendre"
                             title="Reprendre"
                           >
                             <FontAwesomeIcon icon={faPlay} className="h-3 w-3" />
@@ -405,8 +409,9 @@ export function SubscriptionsPage() {
                         {s.status !== "ENDED" ? (
                           <Button
                             variant="ghost"
-                            className="h-8 px-2 text-xs"
+                            className="px-2 text-xs"
                             onClick={() => void action(s.id, "end")}
+                            aria-label="Clôturer"
                             title="Clôturer"
                           >
                             <FontAwesomeIcon icon={faStop} className="h-3 w-3" />
@@ -523,14 +528,14 @@ export function SubscriptionsPage() {
               ? "Édition administrative (libellé, jour de prélèvement). Pour changer le montant, utilisez le bouton Réviser (↻) : il émet un devis d'avenant au client et met à jour l'abonnement à l'acceptation."
               : "Une facture sera émise automatiquement chaque mois à cette date (numéro légal alloué, snapshot client figé). Si SMTP est configuré, le PDF sera envoyé au client."}
           </p>
-          <div className="flex justify-end gap-2 pt-2">
+          <ModalActions>
             <Button type="button" variant="secondary" onClick={() => setOpen(false)}>
               Annuler
             </Button>
             <Button type="submit" disabled={busy}>
               {busy ? "…" : editingId ? "Enregistrer" : "Créer"}
             </Button>
-          </div>
+          </ModalActions>
         </form>
       </Modal>
 
@@ -563,14 +568,14 @@ export function SubscriptionsPage() {
             Ex. ajout d'un site à gérer : le nouveau montant remplace l'ancien à l'acceptation du
             devis. Le mois en cours reste facturé à l'ancien montant ; le suivant l'est au nouveau.
           </p>
-          <div className="flex justify-end gap-2 border-t border-[var(--border)] pt-4">
+          <ModalActions>
             <Button type="button" variant="secondary" onClick={() => setReviseOpen(false)} disabled={reviseBusy}>
               Annuler
             </Button>
             <Button type="submit" disabled={reviseBusy}>
               {reviseBusy ? "Émission…" : "Émettre le devis au client"}
             </Button>
-          </div>
+          </ModalActions>
         </form>
       </Modal>
 
@@ -629,14 +634,14 @@ export function SubscriptionsPage() {
             />
             Active (proposée à la création d'un contrat)
           </label>
-          <div className="flex justify-end gap-2 pt-2">
+          <ModalActions>
             <Button type="button" variant="secondary" onClick={() => setOfferOpen(false)}>
               Annuler
             </Button>
             <Button type="submit" disabled={offerBusy}>
               {offerBusy ? "…" : "Enregistrer"}
             </Button>
-          </div>
+          </ModalActions>
         </form>
       </Modal>
     </div>

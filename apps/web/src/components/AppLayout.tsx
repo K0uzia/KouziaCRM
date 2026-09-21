@@ -6,6 +6,8 @@ import {
   faGear,
   faRightFromBracket,
   faEnvelope,
+  faBars,
+  faXmark,
 } from "@fortawesome/free-solid-svg-icons";
 import { useAuth } from "@/lib/auth";
 import { CommandPalette } from "@/components/CommandPalette";
@@ -14,9 +16,13 @@ import { useNewMailAlert } from "@/hooks/useNewMailAlert";
 import { getHubFromPath, HUBS, SUB_NAV, filterSubNav } from "@/lib/navigation";
 import { useFeatures } from "@/lib/features";
 
+const iconBtn =
+  "inline-flex min-h-11 min-w-11 shrink-0 touch-manipulation items-center justify-center rounded-[var(--radius-sm)] transition";
+
 export function AppLayout() {
   const { logout } = useAuth();
   const [paletteOpen, setPaletteOpen] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
   const { pathname } = useLocation();
   const features = useFeatures();
   const hub = getHubFromPath(pathname);
@@ -44,27 +50,66 @@ export function AppLayout() {
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
+  useEffect(() => {
+    setMenuOpen(false);
+  }, [pathname]);
+
+  useEffect(() => {
+    if (!menuOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setMenuOpen(false);
+    };
+    document.addEventListener("keydown", onKey);
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.removeEventListener("keydown", onKey);
+      document.body.style.overflow = "";
+    };
+  }, [menuOpen]);
+
   return (
-    <div className="flex h-dvh flex-col overflow-hidden bg-[var(--bg)]">
-      <header className="z-40 shrink-0 border-b border-[var(--border)] bg-[var(--bg)]/90 backdrop-blur-md">
-        <div className="mx-auto flex h-14 max-w-7xl items-center gap-3 px-4 sm:px-6">
-          <Link to="/" className="flex shrink-0 items-center gap-2.5">
+    <div className="flex h-dvh min-w-0 flex-col overflow-hidden bg-[var(--bg)]">
+      <header className="z-40 shrink-0 border-b border-[var(--border)] bg-[var(--bg)]/90 pt-[env(safe-area-inset-top)] backdrop-blur-md">
+        <div className="mx-auto flex h-14 max-w-7xl min-w-0 items-center gap-2 px-4 sm:gap-3 sm:px-6">
+          <Link
+            to="/"
+            className="flex min-h-11 shrink-0 items-center gap-2.5"
+            aria-label="Kouzia, accueil"
+          >
             <div className="flex h-9 w-9 items-center justify-center rounded-[var(--radius-sm)] bg-gradient-to-br from-[var(--gradient-from)] to-[var(--gradient-to)] text-sm font-bold text-white">
               K
             </div>
-            <span className="hidden font-bold tracking-tight text-[var(--text)] sm:inline">
+            <span className="hidden font-bold tracking-tight text-[var(--text)] md:inline">
               Kouzia
             </span>
           </Link>
 
-          <nav className="flex min-w-0 flex-1 items-center gap-0.5 overflow-x-auto no-scrollbar">
+          <button
+            type="button"
+            className={`${iconBtn} md:hidden ${
+              menuOpen
+                ? "text-[var(--primary)]"
+                : "text-[var(--muted)] hover:bg-[var(--surface-hover)] hover:text-[var(--text)]"
+            }`}
+            aria-label={menuOpen ? "Fermer le menu" : "Ouvrir le menu"}
+            aria-expanded={menuOpen}
+            aria-controls="mobile-hub-menu"
+            onClick={() => setMenuOpen((v) => !v)}
+          >
+            <FontAwesomeIcon icon={menuOpen ? faXmark : faBars} className="h-4 w-4" />
+          </button>
+
+          <nav
+            className="hidden min-w-0 flex-1 items-center gap-0.5 overflow-x-auto no-scrollbar md:flex"
+            aria-label="Navigation principale"
+          >
             {HUBS.map((item) => (
               <NavLink
                 key={item.id}
                 to={item.to}
                 end={item.id === "home"}
                 className={({ isActive }) =>
-                  `shrink-0 whitespace-nowrap rounded-[var(--radius-sm)] px-3 py-2 text-sm font-medium transition ${
+                  `inline-flex min-h-11 shrink-0 touch-manipulation items-center whitespace-nowrap rounded-[var(--radius-sm)] px-3 text-sm font-medium transition ${
                     isActive || hub === item.id
                       ? "bg-[var(--primary-soft)] text-[var(--primary)]"
                       : "text-[var(--muted)] hover:bg-[var(--surface-hover)] hover:text-[var(--text)]"
@@ -75,12 +120,13 @@ export function AppLayout() {
               </NavLink>
             ))}
           </nav>
+          <div className="min-w-0 flex-1 md:hidden" />
 
-          <div className="flex shrink-0 items-center gap-0.5">
+          <div className="flex shrink-0 items-center">
             <NavLink
               to="/inbox"
               className={({ isActive }) =>
-                `relative rounded-[var(--radius-sm)] p-2 transition ${
+                `relative ${iconBtn} ${
                   isActive || pathname.startsWith("/inbox")
                     ? "text-[var(--primary)]"
                     : "text-[var(--muted)] hover:bg-[var(--surface-hover)] hover:text-[var(--text)]"
@@ -103,7 +149,7 @@ export function AppLayout() {
             <button
               type="button"
               onClick={() => setPaletteOpen(true)}
-              className="rounded-[var(--radius-sm)] p-2 text-[var(--muted)] transition hover:bg-[var(--surface-hover)] hover:text-[var(--text)]"
+              className={`${iconBtn} text-[var(--muted)] hover:bg-[var(--surface-hover)] hover:text-[var(--text)]`}
               aria-label="Rechercher"
               title="Rechercher (⌘K)"
             >
@@ -112,7 +158,7 @@ export function AppLayout() {
             <NavLink
               to="/settings"
               className={({ isActive }) =>
-                `rounded-[var(--radius-sm)] p-2 transition ${
+                `${iconBtn} ${
                   isActive
                     ? "text-[var(--primary)]"
                     : "text-[var(--muted)] hover:bg-[var(--surface-hover)] hover:text-[var(--text)]"
@@ -125,7 +171,7 @@ export function AppLayout() {
             <button
               type="button"
               onClick={() => void logout()}
-              className="rounded-[var(--radius-sm)] p-2 text-[var(--muted)] transition hover:bg-[var(--surface-hover)] hover:text-[var(--text)]"
+              className={`${iconBtn} text-[var(--muted)] hover:bg-[var(--surface-hover)] hover:text-[var(--text)]`}
               aria-label="Sortir"
             >
               <FontAwesomeIcon icon={faRightFromBracket} className="h-4 w-4" />
@@ -133,28 +179,74 @@ export function AppLayout() {
           </div>
         </div>
 
-        {subNav ? (
-          <div className="border-t border-[var(--border)]">
-            <div className="mx-auto flex max-w-7xl gap-1 overflow-x-auto px-4 py-2 no-scrollbar sm:px-6">
-              {subNav.map((item) => (
-                <NavLink
-                  key={item.to}
-                  to={item.to}
-                  className={() =>
-                    `shrink-0 whitespace-nowrap rounded-full px-3.5 py-1.5 text-xs font-medium transition ${
-                      item.match(pathname)
-                        ? "bg-[var(--surface-hover)] text-[var(--text)] ring-1 ring-[var(--border-strong)]"
-                        : "text-[var(--muted)] hover:bg-[var(--surface-hover)] hover:text-[var(--text)]"
-                    }`
-                  }
-                >
-                  {item.label}
-                </NavLink>
+        {menuOpen ? (
+          <nav
+            id="mobile-hub-menu"
+            aria-label="Navigation principale"
+            className="border-t border-[var(--border)] bg-[var(--bg)] px-4 py-3 md:hidden"
+          >
+            <ul className="mx-auto max-w-7xl space-y-1">
+              {HUBS.map((item) => (
+                <li key={item.id}>
+                  <NavLink
+                    to={item.to}
+                    end={item.id === "home"}
+                    className={() =>
+                      `flex min-h-12 touch-manipulation items-center rounded-[var(--radius)] px-4 text-sm font-medium ${
+                        hub === item.id
+                          ? "bg-[var(--primary-soft)] text-[var(--primary)]"
+                          : "text-[var(--text)] hover:bg-[var(--surface-hover)]"
+                      }`
+                    }
+                  >
+                    {item.label}
+                  </NavLink>
+                </li>
               ))}
+            </ul>
+          </nav>
+        ) : null}
+
+        {subNav && !menuOpen ? (
+          <div className="border-t border-[var(--border)]">
+            <div className="relative mx-auto max-w-7xl">
+              <div
+                className="flex max-w-7xl gap-1 overflow-x-auto px-4 py-1 no-scrollbar sm:px-6"
+                aria-label="Sous-navigation"
+              >
+                {subNav.map((item) => (
+                  <NavLink
+                    key={item.to}
+                    to={item.to}
+                    className={() =>
+                      `inline-flex min-h-11 shrink-0 touch-manipulation items-center whitespace-nowrap rounded-full px-3.5 text-xs font-medium transition ${
+                        item.match(pathname)
+                          ? "bg-[var(--surface-hover)] text-[var(--text)] ring-1 ring-[var(--border-strong)]"
+                          : "text-[var(--muted)] hover:bg-[var(--surface-hover)] hover:text-[var(--text)]"
+                      }`
+                    }
+                  >
+                    {item.label}
+                  </NavLink>
+                ))}
+              </div>
+              <div
+                className="pointer-events-none absolute inset-y-0 right-0 w-8 bg-gradient-to-l from-[var(--bg)] to-transparent md:hidden"
+                aria-hidden
+              />
             </div>
           </div>
         ) : null}
       </header>
+
+      {menuOpen ? (
+        <button
+          type="button"
+          aria-label="Fermer le menu"
+          className="fixed inset-0 z-30 bg-[var(--text)]/20 md:hidden"
+          onClick={() => setMenuOpen(false)}
+        />
+      ) : null}
 
       <main
         className={`custom-scrollbar min-h-0 min-w-0 flex-1 ${
@@ -164,8 +256,8 @@ export function AppLayout() {
         <div
           className={
             isMailWorkspace
-              ? "flex h-full min-h-0 flex-col"
-              : "mx-auto max-w-7xl px-4 py-6 sm:px-6 sm:py-8"
+              ? "flex h-full min-h-0 min-w-0 flex-col"
+              : "mx-auto max-w-7xl min-w-0 px-4 py-4 sm:px-6 sm:py-8"
           }
         >
           <Outlet />

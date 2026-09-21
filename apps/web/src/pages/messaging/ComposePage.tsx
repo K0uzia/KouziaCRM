@@ -287,10 +287,10 @@ export function ComposePage() {
             <Field label="Message">
               <Textarea required rows={8} value={body} onChange={(e) => setBody(e.target.value)} />
             </Field>
-            <div className="flex justify-end gap-2">
+            <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end [&_a]:w-full sm:[&_a]:w-auto [&_button]:w-full sm:[&_button]:w-auto">
               <Link
                 to="/inbox"
-                className="inline-flex h-10 items-center rounded-[var(--radius)] border px-4 text-sm"
+                className="inline-flex min-h-11 items-center justify-center rounded-[var(--radius)] border px-4 text-sm"
               >
                 Annuler
               </Link>

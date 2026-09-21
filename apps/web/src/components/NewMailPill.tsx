@@ -22,7 +22,7 @@ export function NewMailPill({ visible, unreadCount = 0, onDismiss }: Props) {
     <Link
       to="/inbox"
       onClick={onDismiss}
-      className="fixed bottom-6 right-6 z-50 flex items-center gap-3 rounded-[var(--radius-lg)] border-2 border-[var(--primary)] bg-[var(--primary)] px-5 py-3.5 text-sm font-semibold text-white shadow-[0_12px_40px_-8px_rgba(0,0,0,0.35)] transition hover:brightness-110 animate-[pulse_2s_ease-in-out_infinite]"
+      className="fixed bottom-[max(1rem,env(safe-area-inset-bottom))] right-4 z-50 flex max-w-[calc(100vw-2rem)] items-center gap-3 rounded-[var(--radius-lg)] border-2 border-[var(--primary)] bg-[var(--primary)] px-4 py-3 text-sm font-semibold text-white shadow-[0_12px_40px_-8px_rgba(0,0,0,0.35)] transition hover:brightness-110 motion-safe:animate-[pulse_2s_ease-in-out_infinite] sm:bottom-[max(1.5rem,env(safe-area-inset-bottom))] sm:right-6 sm:px-5 sm:py-3.5"
       aria-label={label}
     >
       <span className="relative flex h-9 w-9 items-center justify-center rounded-full bg-white/20">

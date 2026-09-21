@@ -172,7 +172,7 @@ export function MessageList({
         type="button"
         title={label}
         aria-label={label}
-        className={`flex h-8 w-8 items-center justify-center rounded-[var(--radius-sm)] transition ${
+        className={`flex min-h-11 min-w-11 items-center justify-center rounded-[var(--radius-sm)] transition ${
           tone === "danger"
             ? "text-[var(--danger)] hover:bg-[var(--danger-soft)]"
             : tone === "active"
@@ -193,7 +193,7 @@ export function MessageList({
     <div className="flex h-full flex-col">
       <div className="border-b border-[var(--border)] p-3">
         <div className="mb-2 flex items-center gap-2 md:hidden">
-          <Button variant="secondary" className="h-9 px-3" onClick={onOpenFolders}>
+          <Button variant="secondary" className="px-3" onClick={onOpenFolders}>
             <FontAwesomeIcon icon={faBars} className="h-4 w-4" />
             Dossiers
           </Button>
@@ -210,7 +210,7 @@ export function MessageList({
               <button
                 key={f.id}
                 type="button"
-                className={`rounded-full px-3 py-1 text-xs ${
+                className={`ui-chip rounded-full px-3 text-xs ${
                   audience === f.id
                     ? "bg-[var(--primary)] text-white"
                     : "bg-[var(--surface-muted)] text-[var(--muted)] hover:text-[var(--text)]"
@@ -228,7 +228,7 @@ export function MessageList({
             <button
               key={f.id}
               type="button"
-              className={`rounded-full px-3 py-1 text-xs ${
+              className={`ui-chip rounded-full px-3 text-xs ${
                 viewFilter === f.id
                   ? "bg-[var(--surface-raised)] font-medium text-[var(--text)] ring-1 ring-[var(--border)]"
                   : "text-[var(--muted)] hover:bg-[var(--surface-muted)] hover:text-[var(--text)]"

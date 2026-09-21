@@ -1,6 +1,14 @@
-import { useEffect, type ReactNode } from "react";
+import { useEffect, useId, type ReactNode } from "react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faXmark } from "@fortawesome/free-solid-svg-icons";
+
+export function ModalActions({ children }: { children: ReactNode }) {
+  return (
+    <div className="sticky bottom-0 z-10 -mx-5 mt-4 flex flex-col-reverse gap-2 border-t border-[var(--border)] bg-[var(--surface)] px-5 py-4 pb-[max(1rem,env(safe-area-inset-bottom))] sm:-mx-6 sm:flex-row sm:justify-end sm:px-6 [&_button]:w-full sm:[&_button]:w-auto">
+      {children}
+    </div>
+  );
+}
 
 export function Modal({
   open,
@@ -8,6 +16,7 @@ export function Modal({
   title,
   description,
   children,
+  footer,
   wide = false,
 }: {
   open: boolean;
@@ -15,8 +24,12 @@ export function Modal({
   title: string;
   description?: string;
   children: ReactNode;
+  footer?: ReactNode;
   wide?: boolean;
 }) {
+  const titleId = useId();
+  const descId = useId();
+
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
@@ -43,26 +56,43 @@ export function Modal({
       <div
         role="dialog"
         aria-modal="true"
-        className={`relative z-10 flex max-h-[92vh] w-full flex-col overflow-hidden rounded-t-[var(--radius-lg)] border border-[var(--border)] bg-[var(--surface)] shadow-[var(--shadow)] sm:rounded-[var(--radius-lg)] ${
+        aria-labelledby={titleId}
+        aria-describedby={description ? descId : undefined}
+        className={`relative z-10 flex max-h-[92vh] w-full min-w-0 flex-col overflow-hidden rounded-t-[var(--radius-lg)] border border-[var(--border)] bg-[var(--surface)] pb-[env(safe-area-inset-bottom)] shadow-[var(--shadow)] sm:rounded-[var(--radius-lg)] ${
           wide ? "sm:max-w-3xl" : "sm:max-w-lg"
         }`}
       >
-        <header className="flex items-start justify-between gap-4 border-b border-[var(--border)] px-5 py-4 sm:px-6">
-          <div>
-            <h2 className="text-lg font-semibold tracking-tight">{title}</h2>
+        <div className="flex h-10 shrink-0 items-center justify-center sm:hidden" aria-hidden>
+          <div className="h-1 w-10 rounded-full bg-[var(--muted)]/40" />
+        </div>
+        <header className="flex shrink-0 items-start justify-between gap-3 border-b border-[var(--border)] px-5 py-3 sm:px-6 sm:py-4">
+          <div className="min-w-0">
+            <h2 id={titleId} className="text-lg font-semibold tracking-tight">
+              {title}
+            </h2>
             {description ? (
-              <p className="mt-1 text-sm text-[var(--muted)]">{description}</p>
+              <p id={descId} className="mt-1 text-sm text-[var(--muted)]">
+                {description}
+              </p>
             ) : null}
           </div>
           <button
             type="button"
             onClick={onClose}
-            className="rounded-[var(--radius-sm)] p-2 text-[var(--muted)] hover:bg-[var(--bg)] hover:text-[var(--text)]"
+            aria-label="Fermer"
+            className="inline-flex min-h-11 min-w-11 shrink-0 touch-manipulation items-center justify-center rounded-[var(--radius-sm)] text-[var(--muted)] hover:bg-[var(--bg)] hover:text-[var(--text)]"
           >
             <FontAwesomeIcon icon={faXmark} />
           </button>
         </header>
-        <div className="overflow-y-auto px-5 py-5 sm:px-6">{children}</div>
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 py-5 sm:px-6">
+          {children}
+        </div>
+        {footer ? (
+          <div className="shrink-0 border-t border-[var(--border)] bg-[var(--surface)] px-5 py-4 pb-[max(1rem,env(safe-area-inset-bottom))] sm:px-6">
+            {footer}
+          </div>
+        ) : null}
       </div>
     </div>
   );

@@ -62,7 +62,7 @@ export function AttachmentChips({ items, onRemove, onAddFiles, disabled }: Props
                 <span className="text-[var(--muted)]">{formatSize(item.sizeBytes)}</span>
                 <button
                   type="button"
-                  className="text-[var(--muted)] hover:text-[var(--text)]"
+                  className="inline-flex min-h-11 min-w-11 items-center justify-center text-[var(--muted)] hover:text-[var(--text)]"
                   disabled={disabled}
                   aria-label={`Retirer ${item.filename}`}
                   onClick={() => onRemove(item.id)}

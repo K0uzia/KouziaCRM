@@ -7,7 +7,7 @@ import { api, formatEUR } from "@/lib/api";
 import { formatDate, formatPhoneFr } from "@/lib/format";
 import { Button } from "@/components/ui/Button";
 import { Badge, Card, PageHeader } from "@/components/ui/Card";
-import { Modal } from "@/components/ui/Modal";
+import { Modal, ModalActions } from "@/components/ui/Modal";
 import { Field, Input } from "@/components/ui/Field";
 import { DataTable, type TableColumn } from "@/components/ui/DataTable";
 import {
@@ -202,7 +202,7 @@ export function ClientsPage() {
               <button
                 key={id}
                 type="button"
-                className={`rounded-full px-3 py-1 text-xs ${
+                className={`ui-chip rounded-full px-3 text-xs ${
                   correspondenceFilter === id
                     ? "bg-[var(--primary)] text-white"
                     : "bg-[var(--surface-muted)] text-[var(--muted)]"
@@ -289,7 +289,7 @@ export function ClientsPage() {
               onChange={(e) => setInviteEmail(e.target.value)}
             />
           </Field>
-          <div className="flex justify-end gap-2 border-t border-[var(--border)] pt-4">
+          <ModalActions>
             <Button
               type="button"
               variant="secondary"
@@ -301,7 +301,7 @@ export function ClientsPage() {
             <Button type="submit" disabled={inviteBusy}>
               {inviteBusy ? "Envoi..." : "Envoyer l'invitation"}
             </Button>
-          </div>
+          </ModalActions>
         </form>
       </Modal>
     </div>

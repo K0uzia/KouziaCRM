@@ -180,8 +180,8 @@ export function ReceiptsBookPage() {
         </div>
       </Modal>
 
-      <div className="mb-4 flex flex-wrap gap-3">
-        <Select className="w-auto" value={year} onChange={(e) => setYear(e.target.value)}>
+      <div className="mb-4 flex min-w-0 flex-col gap-3 sm:flex-row sm:flex-wrap">
+        <Select className="w-full sm:w-auto" value={year} onChange={(e) => setYear(e.target.value)}>
           {[thisYear, thisYear - 1, thisYear - 2].map((y) => (
             <option key={y} value={y}>
               {y}
@@ -189,7 +189,7 @@ export function ReceiptsBookPage() {
           ))}
         </Select>
         <Select
-          className="w-auto"
+          className="w-full sm:w-auto"
           value={quarter}
           onChange={(e) => {
             setQuarter(e.target.value);
@@ -203,7 +203,7 @@ export function ReceiptsBookPage() {
           <option value="4">T4</option>
         </Select>
         <Select
-          className="w-auto"
+          className="w-full sm:w-auto"
           value={month}
           onChange={(e) => {
             setMonth(e.target.value);
@@ -229,8 +229,8 @@ export function ReceiptsBookPage() {
           />
         ) : (
           <>
-            <div className="ui-table-wrap">
-              <table className="ui-table">
+            <div className="ui-table-wrap max-md:overflow-visible">
+              <table className="ui-table ui-table-stack">
                 <thead>
                   <tr>
                     <th className="nowrap">Date</th>
@@ -246,10 +246,10 @@ export function ReceiptsBookPage() {
                 <tbody>
                   {data.rows.map((r) => (
                     <tr key={r.id}>
-                      <td className="nowrap text-[var(--muted)]">
+                      <td className="nowrap text-[var(--muted)]" data-label="Date">
                         {formatDate(r.paidAt)}
                       </td>
-                      <td className="wrap">
+                      <td className="wrap" data-label="Facture">
                         {r.invoiceId ? (
                           <div className="flex flex-wrap items-center gap-1.5">
                             <Link to={`/invoices/${r.invoiceId}`}>
@@ -265,18 +265,18 @@ export function ReceiptsBookPage() {
                           <span className="text-xs text-[var(--muted)]">Sans facture</span>
                         )}
                       </td>
-                      <td className="nowrap font-mono text-xs text-[var(--muted)]">
+                      <td className="nowrap font-mono text-xs text-[var(--muted)]" data-label="Code client">
                         {r.clientNumber ?? "-"}
                       </td>
-                      <td className="truncate font-medium">{r.clientName}</td>
-                      <td className="wrap text-[var(--muted)]" title={r.nature}>
+                      <td className="truncate font-medium" data-label="Client">{r.clientName}</td>
+                      <td className="wrap text-[var(--muted)]" title={r.nature} data-label="Nature">
                         {r.nature}
                       </td>
-                      <td className="nowrap">{r.paymentMethodLabel}</td>
-                      <td className="nowrap text-right tabular-nums font-medium">
+                      <td className="nowrap" data-label="Règlement">{r.paymentMethodLabel}</td>
+                      <td className="nowrap text-right tabular-nums font-medium" data-label="Encaissé">
                         {formatEUR(r.amountCents)}
                       </td>
-                      <td className="nowrap text-right tabular-nums text-[var(--muted)]">
+                      <td className="nowrap text-right tabular-nums text-[var(--muted)]" data-label="Total facture">
                         {r.invoiceTotalCents != null ? formatEUR(r.invoiceTotalCents) : "-"}
                       </td>
                     </tr>

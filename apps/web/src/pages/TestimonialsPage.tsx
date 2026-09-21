@@ -85,7 +85,7 @@ export function TestimonialsPage() {
                   <Badge tone={statusTone[row.status]}>{statusLabel[row.status]}</Badge>
                 </div>
                 <p className="mt-3 whitespace-pre-wrap text-sm leading-relaxed">{row.body}</p>
-                <div className="mt-4 flex flex-wrap gap-2">
+                <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:flex-wrap [&_button]:w-full sm:[&_button]:w-auto">
                   {row.status !== "PUBLISHED" ? (
                     <Button
                       type="button"

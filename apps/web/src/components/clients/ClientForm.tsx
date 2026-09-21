@@ -3,6 +3,7 @@ import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { formatPhoneFr } from "@/lib/format";
 import { Button } from "@/components/ui/Button";
+import { ModalActions } from "@/components/ui/Modal";
 import { Field, Input, Textarea } from "@/components/ui/Field";
 import {
   AddressAutocomplete,
@@ -246,7 +247,7 @@ export function ClientFormEditor({
             key={t}
             type="button"
             onClick={() => set("type", t)}
-            className={`flex-1 rounded-lg px-3 py-2 text-sm font-medium transition ${
+            className={`min-h-11 flex-1 rounded-lg px-3 py-2 text-sm font-medium transition ${
               form.type === t
                 ? "bg-[var(--surface)] text-[var(--text)] shadow-sm"
                 : "text-[var(--muted)] hover:text-[var(--text)]"
@@ -340,14 +341,14 @@ export function ClientFormEditor({
         <Textarea value={form.notes} onChange={(e) => set("notes", e.target.value)} rows={3} />
       </Field>
 
-      <div className="flex justify-end gap-2 border-t border-[var(--border)] pt-4">
+      <ModalActions>
         <Button type="button" variant="secondary" onClick={onCancel} disabled={busy}>
           Annuler
         </Button>
         <Button type="submit" disabled={busy}>
           {busy ? "Enregistrement…" : "Enregistrer le client"}
         </Button>
-      </div>
+      </ModalActions>
     </form>
   );
 }

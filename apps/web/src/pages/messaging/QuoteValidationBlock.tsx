@@ -4,7 +4,7 @@ import { api, formatEUR } from "@/lib/api";
 import { formatDate } from "@/lib/format";
 import { Button } from "@/components/ui/Button";
 import { Field, Input } from "@/components/ui/Field";
-import { Modal } from "@/components/ui/Modal";
+import { Modal, ModalActions } from "@/components/ui/Modal";
 
 type PendingQuote = {
   id: string;
@@ -138,7 +138,7 @@ export function QuoteValidationBlock({
             />
           </Field>
         </div>
-        <div className="mt-5 flex justify-end gap-2">
+        <ModalActions>
           <Button type="button" variant="secondary" disabled={busy} onClick={() => setConfirmQuote(null)}>
             Annuler
           </Button>
@@ -149,7 +149,7 @@ export function QuoteValidationBlock({
           >
             {busy ? "Validation…" : "Confirmer la validation"}
           </Button>
-        </div>
+        </ModalActions>
       </Modal>
     </div>
   );

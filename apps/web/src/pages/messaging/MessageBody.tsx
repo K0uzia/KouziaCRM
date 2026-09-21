@@ -184,15 +184,17 @@ function IframeBody({
   if (!srcDoc) return null;
 
   return (
+    <div className="mt-3 w-full min-w-0 overflow-x-auto">
     <iframe
       title="Corps du message"
       sandbox="allow-same-origin allow-popups allow-popups-to-escape-sandbox"
       srcDoc={srcDoc}
       referrerPolicy="no-referrer"
-      className="mt-3 block w-full rounded-[var(--radius)] border border-[var(--border)] bg-white [color-scheme:light]"
+      className="block w-full min-w-0 rounded-[var(--radius)] border border-[var(--border)] bg-white [color-scheme:light]"
       style={{ colorScheme: "light", width: "100%", height: 320, minHeight: 120 }}
       onLoad={(event) => bindIframeResize(event.currentTarget)}
     />
+    </div>
   );
 }
 

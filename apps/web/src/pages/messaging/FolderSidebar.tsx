@@ -63,7 +63,7 @@ export function FolderSidebar({ folders, selectedId, onSelect, onSync, onCompose
             key={folder.id}
             type="button"
             onClick={() => onSelect(folder.id)}
-            className={`flex w-full items-center justify-between rounded-lg px-3 py-2 text-left text-sm transition-colors ${
+            className={`flex min-h-11 w-full items-center justify-between rounded-lg px-3 py-2 text-left text-sm transition-colors ${
               selectedId === folder.id
                 ? "bg-[var(--primary)]/10 font-medium text-[var(--primary)]"
                 : "hover:bg-[var(--surface-muted)]"

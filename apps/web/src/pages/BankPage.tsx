@@ -6,7 +6,7 @@ import { useFeatures } from "@/lib/features";
 import { bankStatusLabel, formatDate } from "@/lib/format";
 import { Button } from "@/components/ui/Button";
 import { Badge, Card, EmptyState, PageHeader } from "@/components/ui/Card";
-import { Modal } from "@/components/ui/Modal";
+import { Modal, ModalActions } from "@/components/ui/Modal";
 import { Field, Input, Select } from "@/components/ui/Field";
 
 type MatchSuggestion = {
@@ -355,7 +355,7 @@ export function BankPage() {
             key={id}
             type="button"
             onClick={() => setTab(id)}
-            className={`rounded-lg px-3 py-1.5 ${
+            className={`ui-chip rounded-lg px-3 ${
               tab === id
                 ? "bg-[var(--primary-soft)] text-[var(--primary)]"
                 : "bg-[var(--surface-raised)] text-[var(--muted)] ring-1 ring-[var(--border)] hover:bg-[var(--surface-hover)] hover:text-[var(--text)]"
@@ -375,7 +375,8 @@ export function BankPage() {
           {logs.length === 0 ? (
             <EmptyState title="Aucun log" hint="Lancez une synchronisation." />
           ) : (
-            <table className="w-full text-left text-sm">
+            <div className="ui-table-wrap max-md:overflow-visible">
+            <table className="ui-table ui-table-stack">
               <thead className="border-b border-[var(--border)] text-[var(--muted)]">
                 <tr>
                   <th className="px-4 py-3 font-medium">Début</th>
@@ -388,17 +389,18 @@ export function BankPage() {
               <tbody>
                 {logs.map((l) => (
                   <tr key={l.id} className="border-t border-[var(--border)]">
-                    <td className="px-4 py-3">{formatDate(l.startedAt)}</td>
-                    <td className="px-4 py-3 tabular-nums">{l.imported}</td>
-                    <td className="px-4 py-3 tabular-nums">{l.matchedAuto}</td>
-                    <td className="px-4 py-3 tabular-nums">{l.unmatched}</td>
-                    <td className="px-4 py-3 text-[var(--danger)]">
+                    <td className="px-4 py-3" data-label="Début">{formatDate(l.startedAt)}</td>
+                    <td className="px-4 py-3 tabular-nums" data-label="Import">{l.imported}</td>
+                    <td className="px-4 py-3 tabular-nums" data-label="Auto">{l.matchedAuto}</td>
+                    <td className="px-4 py-3 tabular-nums" data-label="File">{l.unmatched}</td>
+                    <td className="px-4 py-3 text-[var(--danger)]" data-label="Erreur">
                       {l.errorMessage ?? "-"}
                     </td>
                   </tr>
                 ))}
               </tbody>
             </table>
+            </div>
           )}
         </Card>
       ) : tab === "fees" ? (
@@ -409,7 +411,8 @@ export function BankPage() {
               hint="Ignorez une transaction avec la catégorie Frais bancaires."
             />
           ) : (
-            <table className="w-full text-left text-sm">
+            <div className="ui-table-wrap max-md:overflow-visible">
+            <table className="ui-table ui-table-stack">
               <thead className="border-b border-[var(--border)] text-[var(--muted)]">
                 <tr>
                   <th className="px-4 py-3 font-medium">Date</th>
@@ -420,15 +423,16 @@ export function BankPage() {
               <tbody>
                 {fees.map((t) => (
                   <tr key={t.id} className="border-t border-[var(--border)]">
-                    <td className="px-4 py-3">{formatDate(t.bookedAt)}</td>
-                    <td className="px-4 py-3">
+                    <td className="px-4 py-3" data-label="Date">{formatDate(t.bookedAt)}</td>
+                    <td className="px-4 py-3" data-label="Libellé">
                       {t.counterpartyName ?? t.reference ?? "-"}
                     </td>
-                    <td className="px-4 py-3 tabular-nums">{formatEUR(t.amountCents)}</td>
+                    <td className="px-4 py-3 tabular-nums" data-label="Montant">{formatEUR(t.amountCents)}</td>
                   </tr>
                 ))}
               </tbody>
             </table>
+            </div>
           )}
         </Card>
       ) : (
@@ -439,7 +443,8 @@ export function BankPage() {
               hint="Synchronisez Revolut pour importer les virements."
             />
           ) : (
-            <table className="w-full text-left text-sm">
+            <div className="ui-table-wrap max-md:overflow-visible">
+            <table className="ui-table ui-table-stack">
               <thead className="border-b border-[var(--border)] text-[var(--muted)]">
                 <tr>
                   <th className="px-4 py-3 font-medium">Date</th>
@@ -462,9 +467,9 @@ export function BankPage() {
                       if (t.status === "UNMATCHED") void openMatch(t);
                     }}
                   >
-                    <td className="px-4 py-3">{formatDate(t.bookedAt)}</td>
-                    <td className="px-4 py-3">{t.counterpartyName ?? "-"}</td>
-                    <td className="max-w-[220px] truncate px-4 py-3 text-[var(--muted)]">
+                    <td className="px-4 py-3" data-label="Date">{formatDate(t.bookedAt)}</td>
+                    <td className="px-4 py-3" data-label="Contrepartie">{t.counterpartyName ?? "-"}</td>
+                    <td className="max-w-[220px] truncate px-4 py-3 text-[var(--muted)]" data-label="Référence">
                       {t.reference ?? "-"}
                       {t.matchedInvoice?.number ? (
                         <>
@@ -479,10 +484,10 @@ export function BankPage() {
                         </>
                       ) : null}
                     </td>
-                    <td className="px-4 py-3 tabular-nums text-[var(--success)]">
+                    <td className="px-4 py-3 tabular-nums text-[var(--success)]" data-label="Montant">
                       {formatEUR(t.amountCents)}
                     </td>
-                    <td className="px-4 py-3">
+                    <td className="px-4 py-3" data-label="Statut">
                       <Badge tone={statusTone(t.status)}>
                         {bankStatusLabel[t.status] ?? t.status}
                       </Badge>
@@ -491,6 +496,7 @@ export function BankPage() {
                 ))}
               </tbody>
             </table>
+            </div>
           )}
         </Card>
       )}
@@ -616,7 +622,7 @@ export function BankPage() {
               )}
             </div>
 
-            <div className="flex flex-wrap gap-2 border-t border-[var(--border)] pt-4">
+            <div className="flex flex-col-reverse gap-2 border-t border-[var(--border)] pt-4 sm:flex-row sm:flex-wrap [&_button]:w-full sm:[&_button]:w-auto">
               <Button
                 type="button"
                 variant="secondary"
@@ -700,14 +706,14 @@ export function BankPage() {
               facture)
             </span>
           </label>
-          <div className="flex justify-end gap-2">
+          <ModalActions>
             <Button variant="secondary" type="button" onClick={() => setSimOpen(false)}>
               Annuler
             </Button>
             <Button type="button" disabled={simBusy} onClick={() => void simulateTransfer()}>
               {simBusy ? "…" : "Créer"}
             </Button>
-          </div>
+          </ModalActions>
         </div>
       </Modal>
     </div>

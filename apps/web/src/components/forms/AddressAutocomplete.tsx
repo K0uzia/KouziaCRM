@@ -244,13 +244,16 @@ export function AddressAutocomplete({
             <ul
               id={listId}
               role="listbox"
-              className="absolute z-20 mt-1 max-h-56 w-full overflow-auto rounded-[var(--radius)] border border-[var(--border)] bg-[var(--surface)] shadow-lg"
+              className="z-30 overflow-auto border border-[var(--border)] bg-[var(--surface)] shadow-lg max-sm:fixed max-sm:inset-x-0 max-sm:bottom-0 max-sm:max-h-[50vh] max-sm:rounded-t-[var(--radius-lg)] max-sm:pb-[env(safe-area-inset-bottom)] sm:absolute sm:mt-1 sm:max-h-56 sm:w-full sm:rounded-[var(--radius)]"
             >
+              <li className="flex h-10 items-center justify-center sm:hidden" aria-hidden>
+                <div className="h-1 w-10 rounded-full bg-[var(--muted)]/40" />
+              </li>
               {suggestions.map((s, i) => (
                 <li key={`${s.label}-${i}`} role="option" aria-selected={i === highlight}>
                   <button
                     type="button"
-                    className={`w-full px-3 py-2 text-left text-sm text-[var(--text)] ${
+                    className={`min-h-11 w-full px-4 py-3 text-left text-sm text-[var(--text)] ${
                       i === highlight
                         ? "bg-[var(--bg-subtle,var(--bg))] text-[var(--text)]"
                         : "hover:bg-[var(--bg-subtle,var(--bg))] hover:text-[var(--text)]"

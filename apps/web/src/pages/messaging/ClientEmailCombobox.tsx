@@ -64,14 +64,14 @@ export function ClientEmailCombobox({ value, onChange, disabled }: Props) {
         }}
       />
       {open && !disabled && (results.length > 0 || looksLikeEmail) ? (
-        <div className="absolute z-20 mt-1 w-full overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--surface)] shadow-lg">
+        <div className="z-20 overflow-hidden border border-[var(--border)] bg-[var(--surface)] shadow-lg max-sm:fixed max-sm:inset-x-0 max-sm:bottom-0 max-sm:max-h-[50vh] max-sm:rounded-t-[var(--radius-lg)] max-sm:pb-[env(safe-area-inset-bottom)] sm:absolute sm:mt-1 sm:w-full sm:rounded-lg">
           <Command shouldFilter={false}>
-            <Command.List className="max-h-56 overflow-y-auto p-1">
+            <Command.List className="max-h-[50vh] overflow-y-auto p-1 sm:max-h-56">
               {results.map((c) => (
                 <Command.Item
                   key={c.id}
                   value={`${c.id} ${c.email}`}
-                  className="flex cursor-pointer flex-col rounded-md px-2.5 py-2 text-sm data-[selected=true]:bg-[var(--primary-soft)]"
+                  className="flex min-h-12 cursor-pointer flex-col justify-center rounded-md px-3 py-3 text-sm data-[selected=true]:bg-[var(--primary-soft)]"
                   onMouseDown={(e) => e.preventDefault()}
                   onSelect={() => {
                     onChange(c.email ?? "", c);

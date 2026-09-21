@@ -232,7 +232,7 @@ export function ReadingPane({
 
   return (
     <div className="flex h-full flex-col">
-      <div className="flex flex-wrap items-center gap-2 border-b border-[var(--border)] p-3">
+      <div className="flex min-w-0 flex-wrap items-center gap-2 border-b border-[var(--border)] p-3">
         <Button variant="secondary" onClick={onBack}>
           <FontAwesomeIcon icon={faArrowLeft} className="h-4 w-4" />
           Retour

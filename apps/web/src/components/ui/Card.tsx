@@ -23,7 +23,7 @@ export function Badge({
 }) {
   return (
     <span
-      className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${tones[tone]} ${className}`}
+      className={`inline-flex items-center rounded-full px-2 py-1 text-xs font-medium ${tones[tone]} ${className}`}
     >
       {children}
     </span>
@@ -40,9 +40,9 @@ export function PageHeader({
   actions?: React.ReactNode;
 }) {
   return (
-    <div className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+    <div className="mb-6 flex flex-col gap-3 sm:mb-8 sm:flex-row sm:items-start sm:justify-between sm:gap-6">
       <div className="min-w-0">
-        <h1 className="text-2xl font-bold leading-tight tracking-tight text-[var(--text)] sm:text-3xl">
+        <h1 className="text-xl font-bold leading-tight tracking-tight text-[var(--text)] sm:text-2xl lg:text-3xl">
           {title}
         </h1>
         {subtitle ? (
@@ -50,7 +50,7 @@ export function PageHeader({
         ) : null}
       </div>
       {actions ? (
-        <div className="flex flex-wrap items-center gap-2 sm:max-w-[min(100%,28rem)] sm:justify-end">
+        <div className="flex w-full min-w-0 flex-col gap-2 sm:w-auto sm:max-w-[min(100%,28rem)] sm:flex-row sm:flex-wrap sm:items-center sm:justify-end [&_button]:w-full sm:[&_button]:w-auto">
           {actions}
         </div>
       ) : null}
@@ -103,7 +103,7 @@ export function KpiCard({
   className?: string;
 }) {
   return (
-    <Card className={`p-5 ${className}`}>
+    <Card className={`min-w-0 p-4 sm:p-5 ${className}`}>
       <div className="mb-4 flex items-start justify-between gap-2">
         <div
           className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-[var(--radius-sm)] ${iconTones[iconTone]}`}
@@ -121,7 +121,7 @@ export function KpiCard({
         ) : null}
       </div>
       <p className="text-sm text-[var(--muted)]">{label}</p>
-      <p className="mt-1 text-2xl font-bold tabular-nums tracking-tight text-[var(--text)] sm:text-[1.75rem]">
+      <p className="mt-1 break-words text-xl font-bold tabular-nums tracking-tight text-[var(--text)] sm:text-2xl">
         {value}
       </p>
       {hint ? <p className="mt-2 text-xs text-[var(--muted)]">{hint}</p> : null}

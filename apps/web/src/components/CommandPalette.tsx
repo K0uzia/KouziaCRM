@@ -93,7 +93,7 @@ const GROUP_CLASS =
   "px-1 [&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:py-1.5 [&_[cmdk-group-heading]]:text-xs [&_[cmdk-group-heading]]:font-medium [&_[cmdk-group-heading]]:text-[var(--muted)]";
 
 const ITEM_CLASS =
-  "flex cursor-pointer items-center gap-2.5 rounded-[var(--radius-sm)] px-2.5 py-2 text-sm text-[var(--text)] data-[selected=true]:bg-[var(--primary-soft)] data-[selected=true]:text-[var(--primary)]";
+  "flex min-h-12 cursor-pointer items-center gap-2.5 rounded-[var(--radius-sm)] px-3 py-3 text-sm text-[var(--text)] data-[selected=true]:bg-[var(--primary-soft)] data-[selected=true]:text-[var(--primary)]";
 
 function docIcon(type: SearchDocument["documentType"]) {
   if (type === "QUOTE") return faFileLines;
@@ -190,22 +190,22 @@ export function CommandPalette({
       label="Recherche"
       shouldFilter
       loop
-      className="fixed inset-0 z-50 flex items-start justify-center px-4 pt-[10vh]"
+      className="fixed inset-0 z-50 flex items-stretch justify-center sm:items-start sm:px-4 sm:pt-[10vh]"
     >
       <div
         className="fixed inset-0 bg-[var(--text)]/30 backdrop-blur-[2px]"
         onClick={() => onOpenChange(false)}
         aria-hidden
       />
-      <div className="relative z-10 w-full max-w-xl overflow-hidden rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--surface)] shadow-[var(--shadow)]">
+      <div className="relative z-10 flex h-full w-full min-w-0 max-w-xl flex-col overflow-hidden border-[var(--border)] bg-[var(--surface)] shadow-[var(--shadow)] max-sm:border-0 sm:h-auto sm:max-h-[min(80vh,40rem)] sm:rounded-[var(--radius-lg)] sm:border">
         <Command.Input
           value={query}
           onValueChange={setQuery}
           autoFocus
           placeholder="Client, facture, devis, tarif, page…"
-          className="w-full border-b border-[var(--border)] bg-transparent px-4 py-3.5 text-[15px] text-[var(--text)] outline-none placeholder:text-[var(--muted)]"
+          className="sticky top-0 z-10 w-full border-b border-[var(--border)] bg-[var(--surface)] px-4 py-3.5 pt-[max(0.875rem,env(safe-area-inset-top))] text-[15px] text-[var(--text)] outline-none placeholder:text-[var(--muted)]"
         />
-        <Command.List className="max-h-[62vh] overflow-y-auto p-2">
+        <Command.List className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-2 sm:max-h-[62vh] sm:flex-none">
           <Command.Empty className="px-3 py-8 text-center text-sm text-[var(--muted)]">
             {searching
               ? "Recherche…"
@@ -321,7 +321,7 @@ export function CommandPalette({
             </>
           ) : null}
         </Command.List>
-        <div className="flex items-center justify-between border-t border-[var(--border)] px-3 py-2 text-[11px] text-[var(--muted)]">
+        <div className="flex items-center justify-between border-t border-[var(--border)] px-3 py-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] text-[11px] text-[var(--muted)]">
           <span>↑↓ naviguer · ↵ ouvrir · esc fermer</span>
           {hasQuery && searching ? <span>Recherche…</span> : null}
         </div>

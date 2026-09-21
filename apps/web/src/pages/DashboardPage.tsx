@@ -196,37 +196,37 @@ export function DashboardPage() {
         subtitle={data.company.tradeName ?? data.company.legalName}
       />
 
-      <div className="flex flex-wrap gap-2">
-        <Link to="/quotes?new=1">
-          <Button variant="secondary" className="h-9 px-4 text-xs">
+      <div className="grid grid-cols-1 gap-2 sm:flex sm:flex-wrap">
+        <Link to="/quotes?new=1" className="min-w-0 sm:w-auto">
+          <Button variant="secondary" className="w-full px-4 text-sm sm:w-auto">
             Nouveau devis
           </Button>
         </Link>
-        <Link to="/clients?new=1">
-          <Button variant="secondary" className="h-9 px-4 text-xs">
+        <Link to="/clients?new=1" className="min-w-0 sm:w-auto">
+          <Button variant="secondary" className="w-full px-4 text-sm sm:w-auto">
             Nouveau client
           </Button>
         </Link>
-        <Link to="/payments">
-          <Button className="h-9 px-4 text-xs">Encaisser</Button>
+        <Link to="/payments" className="min-w-0 sm:w-auto">
+          <Button className="w-full px-4 text-sm sm:w-auto">Encaisser</Button>
         </Link>
-        <Link to="/invoices">
-          <Button variant="ghost" className="h-9 px-4 text-xs">
+        <Link to="/invoices" className="min-w-0 sm:w-auto">
+          <Button variant="ghost" className="w-full px-4 text-sm sm:w-auto">
             Factures
           </Button>
         </Link>
         {payoutEnabled && payoutHasBeneficiary ? (
           <Button
             variant="ghost"
-            className="h-9 px-4 text-xs"
+            className="w-full px-4 text-sm sm:w-auto"
             disabled={!cf || cf.resteNetCents <= 0}
             onClick={() => setPayoutConfirm(true)}
           >
             Virer mon salaire
           </Button>
         ) : payoutEnabled ? (
-          <Link to="/settings?tab=payments">
-            <Button variant="ghost" className="h-9 px-4 text-xs">
+          <Link to="/settings?tab=payments" className="min-w-0 sm:w-auto">
+            <Button variant="ghost" className="w-full px-4 text-sm sm:w-auto">
               {!payoutHasBeneficiary
                 ? "Configurer mon virement"
                 : "Activer virement salaire"}
@@ -315,13 +315,13 @@ export function DashboardPage() {
 
       {/* Graphique + stats rapides */}
       <div className="grid gap-4 lg:grid-cols-3">
-        <Card className="h-80 p-6 lg:col-span-2">
+        <Card className="h-80 min-w-0 overflow-hidden p-4 sm:p-6 lg:col-span-2">
           <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
             <h2 className="text-base font-semibold text-[var(--text)]">
               Répartition des encaissements
             </h2>
             <Select
-              className="w-auto min-w-[7.5rem] cursor-pointer appearance-none bg-[var(--surface-raised)] py-1.5 pl-3 pr-8 text-xs font-medium shadow-none"
+              className="w-full min-w-[7.5rem] cursor-pointer appearance-none bg-[var(--surface-raised)] py-2 pl-3 pr-8 text-sm font-medium shadow-none sm:w-auto"
               value={scope}
               onChange={(e) => setScope(e.target.value)}
               aria-label="Période du graphique"
@@ -390,7 +390,7 @@ export function DashboardPage() {
           <Button
             type="button"
             variant="secondary"
-            className="h-8 text-xs"
+            className="w-full text-sm sm:w-auto"
             disabled={remindersRunBusy}
             onClick={() => void runAllReminders()}
           >
@@ -441,8 +441,8 @@ export function DashboardPage() {
         ) : (
           <ul className="divide-y divide-[var(--border)] text-sm">
             {data.pendingWithBalance.map((inv) => (
-              <li key={inv.id} className="flex justify-between gap-4 py-3">
-                <Link to={`/invoices/${inv.id}`} className="hover:text-[var(--primary)]">
+              <li key={inv.id} className="flex min-w-0 justify-between gap-4 py-3">
+                <Link to={`/invoices/${inv.id}`} className="min-w-0 truncate hover:text-[var(--primary)]">
                   {inv.number} · {inv.displayName}
                 </Link>
                 <span className="tabular-nums font-medium">{formatEUR(inv.remaining)}</span>

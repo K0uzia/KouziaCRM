@@ -69,21 +69,30 @@ export function ComposeModal({ open, onClose, onSent, defaults = {} }: Props) {
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 p-4 sm:items-center"
+      className="fixed inset-0 z-50 flex items-end justify-center sm:items-center sm:p-6"
       role="dialog"
       aria-modal="true"
       aria-labelledby="compose-title"
     >
-      <div className="flex max-h-[90vh] w-full max-w-2xl flex-col rounded-xl bg-[var(--surface)] shadow-xl">
-        <div className="flex items-center justify-between border-b border-[var(--border)] px-4 py-3">
-          <h2 id="compose-title" className="font-semibold">
+      <button
+        type="button"
+        aria-label="Fermer"
+        className="absolute inset-0 bg-[var(--text)]/30 backdrop-blur-[2px]"
+        onClick={onClose}
+      />
+      <div className="relative z-10 flex max-h-[92vh] w-full min-w-0 flex-col overflow-hidden rounded-t-[var(--radius-lg)] border border-[var(--border)] bg-[var(--surface)] pb-[env(safe-area-inset-bottom)] shadow-[var(--shadow)] sm:max-w-2xl sm:rounded-[var(--radius-lg)]">
+        <div className="flex h-10 shrink-0 items-center justify-center sm:hidden" aria-hidden>
+          <div className="h-1 w-10 rounded-full bg-[var(--muted)]/40" />
+        </div>
+        <div className="flex shrink-0 items-center justify-between gap-3 border-b border-[var(--border)] px-4 py-2 sm:px-5 sm:py-3">
+          <h2 id="compose-title" className="min-w-0 truncate font-semibold">
             Nouveau message
           </h2>
-          <Button variant="secondary" onClick={onClose}>
+          <Button variant="secondary" onClick={onClose} aria-label="Fermer">
             Fermer
           </Button>
         </div>
-        <div className="space-y-3 overflow-y-auto p-4">
+        <div className="min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain p-4 sm:p-5">
           <Field label="À">
             <ClientEmailCombobox
               value={to}
@@ -131,7 +140,7 @@ export function ComposeModal({ open, onClose, onSent, defaults = {} }: Props) {
             />
           </Field>
         </div>
-        <div className="flex justify-end gap-2 border-t border-[var(--border)] p-4">
+        <div className="flex shrink-0 flex-col-reverse gap-2 border-t border-[var(--border)] px-4 py-4 sm:flex-row sm:justify-end sm:px-5 [&_button]:w-full sm:[&_button]:w-auto">
           <Button variant="secondary" onClick={onClose}>
             Annuler
           </Button>

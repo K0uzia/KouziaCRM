@@ -5,7 +5,7 @@ import { toast } from "sonner";
 import { api, formatEUR } from "@/lib/api";
 import { Button } from "@/components/ui/Button";
 import { Badge, Card, EmptyState, PageHeader } from "@/components/ui/Card";
-import { Modal } from "@/components/ui/Modal";
+import { Modal, ModalActions } from "@/components/ui/Modal";
 import { Field, Input, Select, Textarea } from "@/components/ui/Field";
 
 type Service = {
@@ -205,14 +205,14 @@ export function ServicesPage() {
             />
             Active (visible dans les devis)
           </label>
-          <div className="flex justify-end gap-2 pt-2">
+          <ModalActions>
             <Button type="button" variant="secondary" onClick={() => setOpen(false)}>
               Annuler
             </Button>
             <Button type="submit" disabled={busy}>
               {busy ? "…" : "Enregistrer"}
             </Button>
-          </div>
+          </ModalActions>
         </form>
       </Modal>
     </div>
