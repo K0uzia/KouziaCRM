@@ -977,74 +977,25 @@ configure_tailscale() {
 
 configure_google_calendar() {
   local standalone="${1:-0}"
-  local pub redirect client_id client_secret existing_redirect
+  local client_id client_secret redirect tunnel_base
 
-  section "Google Agenda (obligations → Calendar)" \
-    "Guide : ${KOUZIA_APP_DIR}/docs/google-calendar-setup.md
-  Prérequis Google Cloud (une seule fois) :
-  1. Projet + activer « Google Calendar API »
-  2. Écran de consentement OAuth (Externe) + ton Gmail en utilisateur de test
-  3. Client OAuth « Application Web » avec l'URI de redirection affichée plus bas
-  Les secrets vont dans .env. La connexion du compte Gmail se fait ensuite
-  dans l'ERP : Paramètres → Fiscalité → Connecter Google Agenda."
+  section "Google Agenda (login OAuth une fois)" \
+    "Méthode simple CT (recommandée) :
+  1. Autre terminal : cloudflared tunnel --url http://127.0.0.1:3000
+  2. Copier l'URL https://….trycloudflare.com affichée
+  3. Google Cloud → Identifiants → client Web → URI de redirection :
+       https://….trycloudflare.com/api/google/calendar/callback
+  4. Ici : coller ID + secret + cette même URI de callback
+  5. ERP LAN → Fiscalité → Connecter Google Agenda
+  6. Ctrl+C le tunnel quick. Plus besoin ensuite.
+
+  On ne touche PAS à PUBLIC_API_ORIGIN / kouzia.com / Hostinger."
 
   if [[ "$standalone" != "1" ]]; then
     if ! yesno "Configurer Google Agenda maintenant ?" "n"; then
       warn "Google Agenda skip. Plus tard : kouziactl google"
       return 0
     fi
-  fi
-
-  pub="$(env_get PUBLIC_API_ORIGIN "")"
-  echo "  PUBLIC_API_ORIGIN actuel : ${pub:-"(vide)"}"
-  echo "  URL attendue : https://api.kouzia.com (sous-domaine sous kouzia.com)."
-  echo "  ERP admin = LAN uniquement. Interdit ici : IP LAN, localhost, Tailscale."
-  local pub_default="$pub"
-  if [[ -z "$pub" ]] \
-    || [[ "$pub" == http://192.* ]] \
-    || [[ "$pub" == http://10.* ]] \
-    || [[ "$pub" == http://172.* ]] \
-    || [[ "$pub" == *"ts.net"* ]] \
-    || [[ "$pub" == http://localhost* ]] \
-    || [[ "$pub" == http://127.* ]] \
-    || [[ "$pub" != https://* ]]; then
-    warn "La valeur actuelle ne convient PAS à OAuth Google. Remplace-la."
-    pub_default="https://api.kouzia.com"
-  fi
-  ask pub "PUBLIC_API_ORIGIN (HTTPS Cloudflare)" "$pub_default"
-  pub="${pub%/}"
-  if [[ -z "$pub" ]]; then
-    warn "PUBLIC_API_ORIGIN vide : OAuth Google impossible."
-    return 1
-  fi
-  if [[ "$pub" != https://* ]] \
-    || [[ "$pub" == *"ts.net"* ]] \
-    || [[ "$pub" == http://192.* ]] \
-    || [[ "$pub" == http://10.* ]]; then
-    warn "URL invalide pour le callback Google : ${pub}"
-    if ! yesno "Continuer quand même (déconseillé) ?" "n"; then
-      return 1
-    fi
-  fi
-  env_set PUBLIC_API_ORIGIN "$pub"
-
-  redirect="${pub}/api/google/calendar/callback"
-  echo ""
-  echo "  ┌─ Où coller cette URI ? ─────────────────────────────────"
-  echo "  │ Google Cloud Console (navigateur) :"
-  echo "  │   APIs et services → Identifiants → ton client « Application Web »"
-  echo "  │   → URI de redirection autorisés → Ajouter → Enregistrer"
-  echo "  │"
-  echo "  │ URI exacte :"
-  echo "  │   ${C_BOLD}${redirect}${C_RESET}"
-  echo "  └────────────────────────────────────────────────────────"
-  echo "  (Ce n'est PAS à coller dans le .env : Kouzia la calcule toute seule.)"
-  echo ""
-  if ! yesno "Cette URI est déjà enregistrée dans Google Cloud ?" "y"; then
-    echo "  1) Ouvre Google Cloud → Identifiants → client Web"
-    echo "  2) Ajoute l'URI ci-dessus → Enregistrer"
-    echo "  3) Relance : kouziactl google"
-    return 0
   fi
 
   ask client_id "GOOGLE_CLIENT_ID (….apps.googleusercontent.com)" "$(env_get GOOGLE_CLIENT_ID "")"
@@ -1054,22 +1005,34 @@ configure_google_calendar() {
     return 1
   fi
 
-  env_set GOOGLE_CLIENT_ID "$client_id"
-  env_set GOOGLE_CLIENT_SECRET "$client_secret"
-
-  existing_redirect="$(env_get GOOGLE_REDIRECT_URI "")"
-  if [[ -n "$existing_redirect" ]]; then
-    echo "  GOOGLE_REDIRECT_URI custom : ${existing_redirect}"
-    if ! yesno "Le conserver (sinon dérivé de PUBLIC_API_ORIGIN) ?" "y"; then
-      env_set GOOGLE_REDIRECT_URI ""
-      echo "  → redirect = ${redirect}"
+  echo ""
+  echo "  URI de callback = URL du tunnel quick + /api/google/calendar/callback"
+  echo "  Exemple :"
+  echo "    https://xxxx.trycloudflare.com/api/google/calendar/callback"
+  echo ""
+  ask redirect "GOOGLE_REDIRECT_URI (URI complète de callback)" "$(env_get GOOGLE_REDIRECT_URI "")"
+  redirect="${redirect%/}"
+  if [[ -z "$redirect" ]]; then
+    warn "URI vide."
+    return 1
+  fi
+  if [[ "$redirect" != *"/api/google/calendar/callback" ]]; then
+    warn "L'URI doit se terminer par /api/google/calendar/callback"
+    if ! yesno "Continuer quand même ?" "n"; then
+      return 1
     fi
-  else
-    echo "  Redirect effectif : ${redirect}"
   fi
 
-  ok "Google OAuth enregistré dans .env"
-  echo "  Redémarrer l'API, puis : Paramètres → Fiscalité → Connecter Google Agenda"
+  env_set GOOGLE_CLIENT_ID "$client_id"
+  env_set GOOGLE_CLIENT_SECRET "$client_secret"
+  env_set GOOGLE_REDIRECT_URI "$redirect"
+
+  ok "Google OAuth enregistré (PUBLIC_API_ORIGIN inchangé)."
+  echo "  Checklist :"
+  echo "  [ ] Même URI dans Google Cloud (Identifiants → client Web)"
+  echo "  [ ] Tunnel quick encore ouvert (cloudflared tunnel --url …)"
+  echo "  [ ] Puis ERP : http://IP:3000/settings?tab=declarations → Connecter"
+  echo "  [ ] Après succès : Ctrl+C le tunnel quick"
 }
 
 configure_rsync() {
