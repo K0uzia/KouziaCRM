@@ -49,13 +49,17 @@ Ne crée pas un second compte : le CT et le téléphone doivent être sur le **m
 
 ## 2. Sur le CT : `kouziactl tailscale`
 
-En root dans le CT :
+Après un `kouziactl update` qui apporte Tailscale (ou une autre nouveauté),
+l'assistant **Nouveautés de configuration** propose de le régler tout de suite
+(défaut oui). Tu peux aussi le lancer sans attendre :
 
 ```bash
+kouziactl new-config
+# ou directement :
 kouziactl tailscale
 ```
 
-Menu : **Configuration → Tailscale**.
+Menu : **Configuration → Tailscale** (ou Mise à jour → Nouveautés config).
 
 L'assistant :
 
@@ -70,6 +74,7 @@ L'assistant :
 7. Option : copier cette URL dans `WEB_ORIGIN` (utile si tu ouvres surtout l'ERP au téléphone, y compris pour le retour OAuth Google). **Ne touche pas** `PUBLIC_API_ORIGIN`.
 
 Assistant complet (`kouziactl configure`) : Tailscale est proposé **après** Cloudflare, défaut **non** (install existante inchangée).
+`kouziactl update` : défaut **oui** pour une nouveauté encore vide (une seule fois ; « non » = plus tard via `kouziactl tailscale`).
 
 ## 3. Téléphone
 

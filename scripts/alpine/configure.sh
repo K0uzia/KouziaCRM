@@ -6,6 +6,7 @@
 #   kouziactl configure
 #   bash scripts/alpine/configure.sh
 #   bash scripts/alpine/configure.sh --summary-only
+#   bash scripts/alpine/configure.sh --post-update
 
 set -euo pipefail
 
@@ -16,6 +17,7 @@ source "${SCRIPT_DIR}/lib.sh"
 SUMMARY_ONLY=0
 SKIP_RESTART=0
 NEED_WEB_REBUILD=0
+POST_UPDATE=0
 # Section: all | access | admin | site | mail | cloudflare | tailscale | rsync
 SECTION="all"
 
@@ -23,6 +25,7 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --summary-only) SUMMARY_ONLY=1; shift ;;
     --skip-restart) SKIP_RESTART=1; shift ;;
+    --post-update) POST_UPDATE=1; shift ;;
     --section)
       SECTION="$2"
       shift 2
@@ -33,7 +36,7 @@ while [[ $# -gt 0 ]]; do
       ;;
     -h|--help)
       cat <<EOF
-Usage: configure.sh [section] [--skip-restart] [--summary-only]
+Usage: configure.sh [section] [--skip-restart] [--summary-only] [--post-update]
 
 Sections :
   all          Assistant complet (défaut)
@@ -45,11 +48,15 @@ Sections :
   tailscale    Client Tailscale (admin distant) + TAILSCALE_ORIGIN
   rsync        Cible backup offsite
 
+  --post-update  Propose les sections nouvelles non encore configurées
+                 (appelé par kouziactl update)
+
 Exemples :
   configure.sh
   configure.sh cloudflare
   configure.sh tailscale
   configure.sh --section admin
+  configure.sh --post-update
 EOF
       exit 0
       ;;
@@ -958,9 +965,114 @@ restart_stack() {
   wait_health || warn "Healthcheck KO après restart"
 }
 
+FEATURES_OFFERED="${KOUZIA_STATE_DIR}/features-offered"
+FEATURES_FILE="${SCRIPT_DIR}/conf/post-update-features"
+
+feature_offered_has() {
+  local id="$1"
+  [[ -f "$FEATURES_OFFERED" ]] && grep -qx "$id" "$FEATURES_OFFERED" 2>/dev/null
+}
+
+feature_offered_add() {
+  local id="$1"
+  mkdir -p "$KOUZIA_STATE_DIR"
+  touch "$FEATURES_OFFERED"
+  if ! grep -qx "$id" "$FEATURES_OFFERED" 2>/dev/null; then
+    printf '%s\n' "$id" >> "$FEATURES_OFFERED"
+  fi
+  chown "${KOUZIA_USER}:${KOUZIA_GROUP}" "$FEATURES_OFFERED" 2>/dev/null || true
+}
+
+feature_is_configured() {
+  local spec="$1"
+  case "$spec" in
+    env:*)
+      [[ -n "$(env_get "${spec#env:}" "")" ]]
+      ;;
+    service:*)
+      local svc="${spec#service:}"
+      service_exists "$svc" && rc-service "$svc" status >/dev/null 2>&1
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
+# Propose les sections listées dans conf/post-update-features si absentes du .env.
+run_post_update() {
+  require_root
+  [[ -f "$ENV_FILE" ]] || die ".env manquant: $ENV_FILE"
+  [[ -f "$FEATURES_FILE" ]] || {
+    warn "Pas de registre : $FEATURES_FILE"
+    return 0
+  }
+
+  local pending_ids=() pending_sections=() pending_labels=()
+  local fid fsection flabel fcheck
+  while IFS='|' read -r fid fsection flabel fcheck || [[ -n "${fid:-}" ]]; do
+    [[ -z "${fid:-}" || "$fid" =~ ^[[:space:]]*# ]] && continue
+    fid="${fid#"${fid%%[![:space:]]*}"}"
+    [[ -z "$fid" ]] && continue
+    if feature_is_configured "$fcheck"; then
+      feature_offered_add "$fid"
+      continue
+    fi
+    feature_offered_has "$fid" && continue
+    pending_ids+=("$fid")
+    pending_sections+=("$fsection")
+    pending_labels+=("$flabel")
+  done < "$FEATURES_FILE"
+
+  if [[ ${#pending_ids[@]} -eq 0 ]]; then
+    return 0
+  fi
+
+  echo ""
+  echo "${C_BOLD}═══ Nouveautés de configuration ═══${C_RESET}"
+  echo "  Cette mise à jour ajoute des réglages optionnels encore vides."
+  local i
+  for i in "${!pending_ids[@]}"; do
+    echo "  - ${pending_labels[$i]}  (kouziactl ${pending_sections[$i]})"
+  done
+  echo ""
+
+  if [[ ! -t 0 ]]; then
+    warn "Pas de TTY : config manuelle, ex. kouziactl ${pending_sections[0]}"
+    return 0
+  fi
+
+  local configured=0
+  for i in "${!pending_ids[@]}"; do
+    if yesno "Configurer maintenant : ${pending_labels[$i]} ?" "y"; then
+      if bash "${SCRIPT_DIR}/configure.sh" "${pending_sections[$i]}" --skip-restart; then
+        feature_offered_add "${pending_ids[$i]}"
+        configured=1
+      else
+        warn "Config « ${pending_sections[$i]} » incomplète. Relancer : kouziactl ${pending_sections[$i]}"
+      fi
+    else
+      feature_offered_add "${pending_ids[$i]}"
+      echo "  Plus tard : kouziactl ${pending_sections[$i]}"
+    fi
+  done
+
+  if [[ "$configured" -eq 1 ]]; then
+    SKIP_RESTART=0
+    restart_stack
+  fi
+}
+
 # --- main ---
 if [[ "$SUMMARY_ONLY" -eq 1 ]]; then
   print_summary
+  exit 0
+fi
+
+if [[ "$POST_UPDATE" -eq 1 ]]; then
+  [[ -d "$KOUZIA_APP_DIR" ]] || die "App absente: $KOUZIA_APP_DIR"
+  [[ -f "$ENV_FILE" ]] || die ".env manquant: $ENV_FILE (lancer l'install d'abord)"
+  run_post_update
   exit 0
 fi
 

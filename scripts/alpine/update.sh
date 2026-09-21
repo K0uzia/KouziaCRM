@@ -6,6 +6,7 @@
 #  - rebuild SPA seulement si le front / forms a changé
 #  - prisma generate si schéma changé, migrate deploy toujours
 #  - redémarrage OpenRC + healthcheck
+#  - propose les nouvelles configs encore vides (voir conf/post-update-features)
 #
 # Usage :
 #   kouziactl update
@@ -26,18 +27,21 @@ FORCE_DEPS=0
 FORCE_WEB=0
 FORCE_ALL=0
 GIT_EXPLICIT=0
+SKIP_POST_UPDATE=0
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --git) DO_GIT=1; GIT_EXPLICIT=1; shift ;;
     --no-git) DO_GIT=0; GIT_EXPLICIT=1; shift ;;
     --skip-backup) SKIP_BACKUP=1; shift ;;
+    --skip-config|--skip-post-update) SKIP_POST_UPDATE=1; shift ;;
     --force-deps) FORCE_DEPS=1; shift ;;
     --force-web) FORCE_WEB=1; shift ;;
     --force) FORCE_ALL=1; FORCE_DEPS=1; FORCE_WEB=1; shift ;;
     -h|--help)
-      echo "Usage: update.sh [--git|--no-git] [--skip-backup] [--force-deps] [--force-web] [--force]"
+      echo "Usage: update.sh [--git|--no-git] [--skip-backup] [--skip-config] [--force-deps] [--force-web] [--force]"
       echo "  Défaut : git pull si $KOUZIA_APP_DIR/.git existe."
+      echo "  Après update : propose les nouvelles configs (Tailscale, etc.) si encore vides."
       exit 0
       ;;
     *) die "Option inconnue: $1" ;;
@@ -80,7 +84,17 @@ stop_app_stack
 if [[ "$DO_GIT" -eq 1 ]]; then
   [[ -d "${KOUZIA_APP_DIR}/.git" ]] || die "--git demandé mais pas de dépôt git dans $KOUZIA_APP_DIR"
   log "git pull…"
-  run_as_app "cd '$KOUZIA_APP_DIR' && git pull --ff-only"
+  # npm install (fallback musl / Alpine) réécrit souvent le lock. Le dépôt GitHub fait foi.
+  if ! git -C "$KOUZIA_APP_DIR" diff --quiet HEAD -- package-lock.json 2>/dev/null \
+    || ! git -C "$KOUZIA_APP_DIR" diff --cached --quiet -- package-lock.json 2>/dev/null; then
+    warn "package-lock.json local modifié : reset sur HEAD avant pull"
+    run_as_app "cd '$KOUZIA_APP_DIR' && git checkout HEAD -- package-lock.json"
+  fi
+  if ! run_as_app "cd '$KOUZIA_APP_DIR' && git pull --ff-only"; then
+    echo "  git status :"
+    git -C "$KOUZIA_APP_DIR" status --short | sed 's/^/    /' || true
+    die "git pull échoué (fichiers locaux). Jeter un fichier : git checkout HEAD -- <fichier> puis kouziactl update"
+  fi
 else
   log "Pas de git pull (code déjà en place ou poussé via rsync). Utiliser --git si besoin."
 fi
@@ -179,3 +193,10 @@ ok "Mise à jour terminée."
 echo "  DB : $KOUZIA_DB_PATH"
 echo "  Status : kouziactl status"
 echo "  UI : hard refresh navigateur (Ctrl+Shift+R) si cache"
+
+# --- 8. Nouvelles configs (Tailscale, etc.) ---
+if [[ "$SKIP_POST_UPDATE" -eq 0 ]]; then
+  log "Nouveautés de configuration…"
+  bash "${SCRIPT_DIR}/configure.sh" --post-update \
+    || warn "Config post-update ignorée. Relancer : kouziactl new-config"
+fi

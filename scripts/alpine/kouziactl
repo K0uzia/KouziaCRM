@@ -93,8 +93,11 @@ Général :
 
 Mise à jour :
   update            git pull (si .git) + incrémental + migrate + SPA
+                    puis propose les nouvelles configs encore vides
   update --no-git   sans git pull (code déjà sur le CT)
   update --force    force npm ci + rebuild SPA
+  update --skip-config  sans assistant post-update
+  new-config        proposer les nouveautés (Tailscale, etc.) sans update
 
 Config (rejouable) :
   access | admin | site | mail | cloudflare | tailscale | rsync
@@ -132,6 +135,9 @@ run_cmd() {
       ;;
     update|deploy)
       bash "${SCRIPT_DIR}/update.sh" "$@"
+      ;;
+    new-config|post-update|whatsnew)
+      bash "${SCRIPT_DIR}/configure.sh" --post-update "$@"
       ;;
     backup)
       bash "${SCRIPT_DIR}/backup.sh" "$@"
@@ -250,10 +256,12 @@ show_update_menu() {
     echo "  ${C_BOLD}Recommandé${C_RESET} : une seule commande fait tout"
     echo "    backup → arrêt services → git pull → npm si besoin"
     echo "    → prisma migrate → rebuild SPA si besoin → restart"
+    echo "    → nouvelles configs si encore vides (Tailscale, etc.)"
     echo ""
     menu_item "1" "Mettre à jour" "GitHub + migrate + SPA (défaut)"
     menu_item "2" "Local seulement" "sans git pull (rsync / édition manuelle)"
     menu_item "3" "Forcer tout" "npm ci + rebuild SPA même sans diff"
+    menu_item "4" "Nouveautés config" "sections encore vides (ex. Tailscale)"
     menu_back
     menu_prompt
     local c
@@ -267,6 +275,7 @@ show_update_menu() {
           pause_enter
         fi
         ;;
+      4) run_cmd new-config; pause_enter ;;
       b|B|q|Q) return ;;
       *) warn "Choix invalide" ;;
     esac

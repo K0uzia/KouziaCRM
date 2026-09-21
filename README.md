@@ -145,7 +145,8 @@ Puis :
 | `kouziactl configure` | Assistant complet |
 | `kouziactl access` / `admin` / `site` / `mail` / `cloudflare` / `tailscale` / `rsync` | Reconfigurer une section seule |
 | `kouziactl summary` | Affiche IP LAN, URL, status |
-| `kouziactl update` | Update incrémental (npm/build seulement si besoin) |
+| `kouziactl update` | Update incrémental, puis nouveautés de config si encore vides |
+| `kouziactl new-config` | Proposer les sections nouvelles (ex. Tailscale) sans update |
 | `kouziactl update --git` | `git pull` + update |
 | `./scripts/alpine/deploy-rsync.sh user@ct` | Depuis le PC : rsync code + update distant |
 | `kouziactl backup` / `restore` | Backup GPG + rsync / restore |

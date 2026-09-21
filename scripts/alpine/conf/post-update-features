@@ -1,0 +1,12 @@
+# Nouvelles sections de config à proposer après `kouziactl update`.
+# Une ligne par fonctionnalité ajoutée après l'install initiale.
+# Ne pas y mettre cloudflare / rsync / mail (déjà dans l'assistant d'origine).
+#
+# Format : id|section_kouziactl|libellé|check
+# check :
+#   env:VAR     configuré si VAR non vide dans .env
+#   service:X   configuré si le service OpenRC X tourne
+#
+# Après ajout d'une section dans configure.sh, ajouter une ligne ici.
+
+tailscale|tailscale|Tailscale : admin ERP depuis le téléphone|env:TAILSCALE_ORIGIN
