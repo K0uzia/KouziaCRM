@@ -54,14 +54,18 @@ function withLoopbackAliases(origin: string): string[] {
   }
 }
 
-/** Origines autorisées (admin SPA + suivi public éventuel) */
+/** Origines autorisées (admin LAN, admin Tailscale, site public). */
 export function getAllowedOrigins(): string[] {
   const primary = getCorsOrigin();
   const publicOrigin = process.env.PUBLIC_WEB_ORIGIN?.trim();
+  const tailscaleOrigin = process.env.TAILSCALE_ORIGIN?.trim();
   const set = new Set<string>();
   for (const o of withLoopbackAliases(primary)) set.add(o);
   if (publicOrigin) {
     for (const o of withLoopbackAliases(publicOrigin)) set.add(o);
+  }
+  if (tailscaleOrigin) {
+    for (const o of withLoopbackAliases(tailscaleOrigin)) set.add(o);
   }
   return Array.from(set);
 }

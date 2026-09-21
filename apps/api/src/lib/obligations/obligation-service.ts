@@ -34,6 +34,10 @@ import {
   monthsActiveInCalendarYear,
   toBusinessStartLocal,
 } from "@/lib/company/business-start.js";
+import {
+  reconcileObligationCalendarEvents,
+  removeObligationCalendarEvent,
+} from "@/lib/google-calendar/reconcile.js";
 
 const CFE_EXEMPTION_CA_CENTS = 500_000; // 5 000 €
 const BANK_DEDICATED_THRESHOLD_CENTS = 1_000_000; // 10 000 €
@@ -749,6 +753,8 @@ export async function syncObligations(now = new Date()) {
       });
     }
   }
+
+  await reconcileObligationCalendarEvents();
 }
 
 function toView(
@@ -878,6 +884,8 @@ export async function confirmObligation(id: string, now = new Date()) {
     },
   });
 
+  await removeObligationCalendarEvent(id, obl.googleCalendarEventId);
+
   // Sync checklist flags when relevant
   const checklist = await getOrCreateChecklist();
   if (obl.type === ObligationType.ACTIVITY_QUESTIONNAIRE) {
@@ -945,6 +953,8 @@ export async function confirmObligation(id: string, now = new Date()) {
       },
     });
   }
+
+  await reconcileObligationCalendarEvents();
 
   return { obligation: updated, next };
 }

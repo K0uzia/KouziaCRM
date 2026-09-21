@@ -122,6 +122,12 @@ export function SettingsPage() {
   const [identitySection, setIdentitySection] = useState<
     "legal" | "contact" | "address" | "extra"
   >("legal");
+  const [googleStatus, setGoogleStatus] = useState<{
+    configured: boolean;
+    connected: boolean;
+    email: string | null;
+  } | null>(null);
+  const [googleBusy, setGoogleBusy] = useState(false);
 
   const d = form?.emailDefaults;
 
@@ -143,12 +149,84 @@ export function SettingsPage() {
     setImapPass("");
     setRevolutKey("");
     setRevolutWebhook("");
+    void loadGoogleStatus();
+  }
+
+  async function loadGoogleStatus() {
+    try {
+      const st = await api<{
+        configured: boolean;
+        connected: boolean;
+        email: string | null;
+      }>("/api/google/calendar/status");
+      setGoogleStatus(st);
+    } catch {
+      setGoogleStatus(null);
+    }
   }
 
   useEffect(() => {
     load().catch((e: Error) => toast.error(e.message));
   }, []);
 
+  useEffect(() => {
+    const google = params.get("google");
+    if (!google) return;
+    if (google === "ok") {
+      toast.success("Google Agenda connecté");
+      void loadGoogleStatus();
+    } else if (google === "error") {
+      toast.error("Connexion Google Agenda échouée");
+    }
+    const next = new URLSearchParams(params);
+    next.delete("google");
+    setParams(next, { replace: true });
+  }, [params, setParams]);
+
+  async function connectGoogleCalendar() {
+    setGoogleBusy(true);
+    try {
+      const { url } = await api<{ url: string }>("/api/google/calendar/auth-url");
+      window.location.href = url;
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Impossible d'ouvrir Google");
+      setGoogleBusy(false);
+    }
+  }
+
+  async function disconnectGoogleCalendar() {
+    setGoogleBusy(true);
+    try {
+      await api("/api/google/calendar/disconnect", { method: "POST" });
+      toast.success("Google Agenda déconnecté");
+      await loadGoogleStatus();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Déconnexion échouée");
+    } finally {
+      setGoogleBusy(false);
+    }
+  }
+
+  async function syncGoogleCalendar() {
+    setGoogleBusy(true);
+    try {
+      const res = await api<{ upserted: number; deleted: number; skipped: boolean }>(
+        "/api/google/calendar/sync",
+        { method: "POST" },
+      );
+      if (res.skipped) {
+        toast.message("Google Agenda non connecté");
+      } else {
+        toast.success(
+          `Agenda synchronisé : ${res.upserted} événement(s), ${res.deleted} supprimé(s)`,
+        );
+      }
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Sync échouée");
+    } finally {
+      setGoogleBusy(false);
+    }
+  }
   const addressValue: AddressValue | null = useMemo(() => {
     if (!form) return null;
     return {
@@ -358,6 +436,8 @@ export function SettingsPage() {
       incomeTaxReminderDay: form.incomeTaxReminderDay,
       businessStartDate: form.businessStartDate?.slice(0, 10) ?? null,
       rneRegistrationDate: form.rneRegistrationDate?.slice(0, 10) ?? null,
+      obligationReminderEmail: form.obligationReminderEmail,
+      obligationEmailRemindersEnabled: form.obligationEmailRemindersEnabled,
     });
   }
 
@@ -1551,6 +1631,80 @@ export function SettingsPage() {
                 />
                 Je facture des particuliers (rappel médiation)
               </label>
+
+              <div className="space-y-3 border-t border-[var(--border)] pt-4">
+                <div>
+                  <p className="text-sm font-medium">Google Agenda</p>
+                  <p className="mt-1 text-xs text-[var(--muted)]">
+                    Les échéances ouvertes créent un événement Google (rappels J-7, J-3, J-1,
+                    jour J à 9h). Pas de calendrier dans Kouzia : sync vers votre téléphone via
+                    Samsung / Google Agenda.
+                  </p>
+                </div>
+                <p className="text-sm">
+                  {googleStatus == null
+                    ? "Statut inconnu"
+                    : !googleStatus.configured
+                      ? "Non configuré côté serveur (GOOGLE_CLIENT_ID / SECRET)"
+                      : googleStatus.connected
+                        ? `Connecté${googleStatus.email ? ` : ${googleStatus.email}` : ""}`
+                        : "Non connecté"}
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  {googleStatus?.configured && !googleStatus.connected ? (
+                    <Button
+                      type="button"
+                      disabled={googleBusy}
+                      onClick={() => void connectGoogleCalendar()}
+                    >
+                      Connecter Google Agenda
+                    </Button>
+                  ) : null}
+                  {googleStatus?.connected ? (
+                    <>
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        disabled={googleBusy}
+                        onClick={() => void syncGoogleCalendar()}
+                      >
+                        Synchroniser maintenant
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        disabled={googleBusy}
+                        onClick={() => void disconnectGoogleCalendar()}
+                      >
+                        Déconnecter
+                      </Button>
+                    </>
+                  ) : null}
+                </div>
+                <Field label="Email rappels déclarations">
+                  <Input
+                    type="email"
+                    value={form.obligationReminderEmail}
+                    onChange={(e) =>
+                      setForm({ ...form, obligationReminderEmail: e.target.value })
+                    }
+                  />
+                </Field>
+                <label className="flex items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={form.obligationEmailRemindersEnabled}
+                    onChange={(e) =>
+                      setForm({
+                        ...form,
+                        obligationEmailRemindersEnabled: e.target.checked,
+                      })
+                    }
+                  />
+                  Envoyer des emails de rappel (J-7, J-3, J-1, jour J)
+                </label>
+              </div>
+
               {checklist ? (
                 <div className="border-t border-[var(--border)] pt-4">
                   <p className="mb-2 text-sm font-medium">Checklist post-création</p>

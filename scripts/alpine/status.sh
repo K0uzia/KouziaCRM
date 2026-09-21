@@ -17,17 +17,25 @@ echo "${C_BOLD}Accès ERP${C_RESET}"
 PORT="$(grep -E '^API_PORT=' "${KOUZIA_APP_DIR}/.env" 2>/dev/null | tail -1 | cut -d= -f2- | tr -d '"' || echo "$KOUZIA_API_PORT")"
 PORT="${PORT:-$KOUZIA_API_PORT}"
 WEB_ORIGIN="$(grep -E '^WEB_ORIGIN=' "${KOUZIA_APP_DIR}/.env" 2>/dev/null | tail -1 | cut -d= -f2- | tr -d '"' || true)"
+TS_ORIGIN="$(grep -E '^TAILSCALE_ORIGIN=' "${KOUZIA_APP_DIR}/.env" 2>/dev/null | tail -1 | cut -d= -f2- | tr -d '"' || true)"
+PUB_API="$(grep -E '^PUBLIC_API_ORIGIN=' "${KOUZIA_APP_DIR}/.env" 2>/dev/null | tail -1 | cut -d= -f2- | tr -d '"' || true)"
 echo "  Local : http://127.0.0.1:${PORT}"
 if command -v ip >/dev/null 2>&1; then
   ip -4 -o addr show scope global 2>/dev/null | awk '{print $4}' | cut -d/ -f1 | while read -r ip; do
     echo "  LAN   : http://${ip}:${PORT}"
   done
 fi
-[[ -n "$WEB_ORIGIN" ]] && echo "  Public: $WEB_ORIGIN"
+[[ -n "$WEB_ORIGIN" ]] && echo "  WEB_ORIGIN : $WEB_ORIGIN"
+[[ -n "$TS_ORIGIN" ]] && echo "  Tailscale  : $TS_ORIGIN"
+[[ -n "$PUB_API" ]] && echo "  API pub.   : $PUB_API"
+if command -v tailscale >/dev/null 2>&1; then
+  TS_IP="$(tailscale ip -4 2>/dev/null | head -1 || true)"
+  [[ -n "$TS_IP" ]] && echo "  TS IP      : http://${TS_IP}:${PORT}"
+fi
 echo ""
 
 echo "${C_BOLD}Services${C_RESET}"
-for svc in kouziacrm kouziacrm-worker cloudflared crond; do
+for svc in kouziacrm kouziacrm-worker cloudflared tailscale crond; do
   if service_exists "$svc"; then
     st="$(rc-service "$svc" status 2>&1 | head -1 || true)"
     echo "  $svc : $st"

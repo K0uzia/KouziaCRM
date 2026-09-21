@@ -11,6 +11,7 @@ const OMIT = new Set([
   "imapPassEncrypted",
   "revolutMerchantApiKeyEncrypted",
   "revolutWebhookSecretEncrypted",
+  "googleCalendarRefreshTokenEncrypted",
 ]);
 
 export type SettingsTabId =
@@ -29,12 +30,14 @@ export type PublicCompanySettings = Omit<
   | "imapPassEncrypted"
   | "revolutMerchantApiKeyEncrypted"
   | "revolutWebhookSecretEncrypted"
+  | "googleCalendarRefreshTokenEncrypted"
 > & {
   secrets: {
     smtpPass: { set: boolean; hint: string | null };
     imapPass: { set: boolean; hint: string | null };
     revolutMerchantApiKey: { set: boolean; hint: string | null };
     revolutWebhookSecret: { set: boolean; hint: string | null };
+    googleCalendarRefreshToken: { set: boolean; hint: string | null };
   };
   smtpEncryptionResolved: string;
   emailDefaults: typeof HOSTINGER_MAIL_DEFAULTS;
@@ -70,6 +73,7 @@ export function toPublicSettings(settings: CompanySettings): PublicCompanySettin
       | "imapPassEncrypted"
       | "revolutMerchantApiKeyEncrypted"
       | "revolutWebhookSecretEncrypted"
+      | "googleCalendarRefreshTokenEncrypted"
     >),
     secrets: {
       smtpPass: secretMeta(settings.smtpPassHint, settings.smtpPassEncrypted),
@@ -81,6 +85,10 @@ export function toPublicSettings(settings: CompanySettings): PublicCompanySettin
       revolutWebhookSecret: secretMeta(
         settings.revolutWebhookSecretHint,
         settings.revolutWebhookSecretEncrypted,
+      ),
+      googleCalendarRefreshToken: secretMeta(
+        settings.googleCalendarRefreshTokenHint,
+        settings.googleCalendarRefreshTokenEncrypted,
       ),
     },
     smtpEncryptionResolved: resolveSmtpEncryption({

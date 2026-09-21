@@ -39,7 +39,7 @@ Options:
   --app-dir DIR       Répertoire d'install (défaut: $KOUZIA_APP_DIR)
   --skip-seed         Ne pas exécuter le seed Prisma
   --no-start          Installer sans démarrer les services
-  --skip-wizard       Ne pas lancer l'assistant .env / Cloudflare / rsync
+  --skip-wizard       Ne pas lancer l'assistant .env / Cloudflare / Tailscale / rsync
   -h, --help          Aide
 
 Sans argument en terminal interactif : ouvre le menu kouziactl.
@@ -172,7 +172,9 @@ IMAP_PASS=""
 IMAP_MAILBOX="INBOX"
 
 # PUBLIC_WEB_ORIGIN / CLIENT_PORTAL_URL : site kouzia.com (assistant configure)
+# PUBLIC_API_ORIGIN : URL HTTPS Cloudflare (jamais LAN ni Tailscale)
 # CLOUDFLARE_TUNNEL_TOKEN=""
+# TAILSCALE_ORIGIN=""
 EOF
   chmod 640 "$ENV_FILE"
   chown "${KOUZIA_USER}:${KOUZIA_GROUP}" "$ENV_FILE"
@@ -180,7 +182,7 @@ EOF
   warn "Noter ADMIN_PASSWORD maintenant (affiché une seule fois) :"
   echo "    ADMIN_PASSWORD=${ADMIN_PASSWORD}"
   echo ""
-  warn "L'assistant post-install configurera WEB_ORIGIN / SMTP / Cloudflare / rsync."
+  warn "L'assistant post-install configurera WEB_ORIGIN / SMTP / Cloudflare / Tailscale / rsync."
 else
   ok ".env existant conservé."
 fi

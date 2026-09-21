@@ -6,6 +6,8 @@ import { processEmailOutbox } from "../apps/api/src/lib/email/mailer";
 import { expireQuotes, scheduleReminders } from "../apps/api/src/lib/reminders";
 import { generateDueSubscriptionInvoices } from "../apps/api/src/lib/subscriptions/subscription-service";
 import { sendDueReminders, sendDueDepositReminders } from "../apps/api/src/lib/reminders/send";
+import { syncObligations } from "../apps/api/src/lib/obligations/obligation-service";
+import { sendDueObligationEmails } from "../apps/api/src/lib/obligations/email-reminders";
 import { importTransactions } from "../apps/api/src/lib/revolut/importTransactions";
 import { activateDueMilestoneCheckouts } from "../apps/api/src/lib/payments/milestonePaymentService";
 import { getCompanySettings } from "../apps/api/src/lib/company";
@@ -18,8 +20,10 @@ async function runMaintenance() {
     const subscriptions = await generateDueSubscriptionInvoices();
     const remindersSent = await sendDueReminders();
     const depositRemindersSent = await sendDueDepositReminders();
+    await syncObligations();
+    const obligationEmails = await sendDueObligationEmails();
     console.log(
-      `[worker] maintenance: expired=${expired} remindersScheduled=${scheduled} subscriptionsInvoices=${subscriptions} remindersSent=${remindersSent} depositReminders=${depositRemindersSent}`,
+      `[worker] maintenance: expired=${expired} remindersScheduled=${scheduled} subscriptionsInvoices=${subscriptions} remindersSent=${remindersSent} depositReminders=${depositRemindersSent} obligationEmails=${obligationEmails}`,
     );
   } catch (err) {
     console.error(`[worker] maintenance error`, err);

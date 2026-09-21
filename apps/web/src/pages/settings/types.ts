@@ -87,11 +87,16 @@ export type PublicSettings = {
   reminderDepositMinus1Enabled: boolean;
   reminderDepositPlus3Enabled: boolean;
   reminderDepositPlus10Enabled: boolean;
+  googleCalendarEnabled: boolean;
+  googleCalendarConnectedEmail: string | null;
+  obligationReminderEmail: string;
+  obligationEmailRemindersEnabled: boolean;
   secrets: {
     smtpPass: SecretMeta;
     imapPass: SecretMeta;
     revolutMerchantApiKey: SecretMeta;
     revolutWebhookSecret: SecretMeta;
+    googleCalendarRefreshToken: SecretMeta;
   };
   emailDefaults: {
     smtpHost: string;

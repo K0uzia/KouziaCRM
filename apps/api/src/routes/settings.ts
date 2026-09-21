@@ -398,6 +398,8 @@ export const settingsRoutes: FastifyPluginAsync = async (app) => {
       incomeTaxReminderDay: z.number().int().min(1).max(28).optional(),
       businessStartDate: z.string().optional().nullable(),
       rneRegistrationDate: z.string().optional().nullable(),
+      obligationReminderEmail: z.string().email().optional(),
+      obligationEmailRemindersEnabled: z.boolean().optional(),
     });
     const parsed = schema.safeParse(request.body);
     if (!parsed.success) {

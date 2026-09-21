@@ -4,6 +4,7 @@
 #   kouziactl                 → menu interactif
 #   kouziactl <cmd>           → commande directe
 #   kouziactl cloudflare      → reconfigurer Cloudflare
+#   kouziactl tailscale       → reconfigurer Tailscale (admin distant)
 # PATH : symlink /usr/local/bin/kouziactl → ce fichier (install/update)
 
 set -euo pipefail
@@ -96,10 +97,10 @@ Mise à jour :
   update --force    force npm ci + rebuild SPA
 
 Config (rejouable) :
-  access | admin | site | mail | cloudflare | rsync
+  access | admin | site | mail | cloudflare | tailscale | rsync
 
 Services / data :
-  start | stop | restart | logs [app|worker|backup]
+  start | stop | restart | logs [app|worker|backup|tailscale]
   backup | restore | migrate
 
 Défaut update = git pull si dépôt présent, puis npm/build si changé.
@@ -116,12 +117,13 @@ run_cmd() {
     configure|config|wizard)
       bash "${SCRIPT_DIR}/configure.sh" all "$@"
       ;;
-    access|admin|site|public|mail|email|smtp|cloudflare|tunnel|rsync)
+    access|admin|site|public|mail|email|smtp|cloudflare|tunnel|tailscale|ts|rsync)
       local section="$cmd"
       case "$cmd" in
         public) section="site" ;;
         email|smtp) section="mail" ;;
         tunnel) section="cloudflare" ;;
+        ts) section="tailscale" ;;
       esac
       bash "${SCRIPT_DIR}/configure.sh" "$section" "$@"
       ;;
@@ -146,7 +148,8 @@ run_cmd() {
         app)    tail -n "${2:-80}" "${KOUZIA_LOG_DIR}/app.log" ;;
         worker) tail -n "${2:-80}" "${KOUZIA_LOG_DIR}/worker.log" ;;
         backup) tail -n "${2:-80}" "${KOUZIA_LOG_DIR}/backup.log" ;;
-        *) die "logs: app|worker|backup" ;;
+        tailscale|ts) tail -n "${2:-80}" /var/log/tailscaled.log ;;
+        *) die "logs: app|worker|backup|tailscale" ;;
       esac
       ;;
     restart)
@@ -208,16 +211,17 @@ show_config_menu() {
     menu_clear_hint
     menu_box "Configuration"
     menu_section "Tout d'un coup"
-    menu_item "1" "Assistant complet" "profil → accès → admin → site → mail → CF → rsync"
+    menu_item "1" "Assistant complet" "profil → accès → admin → site → mail → CF → TS → rsync"
     menu_section "Par section"
     menu_item "2" "Accès ERP" "WEB_ORIGIN, port, COOKIE_SECURE"
     menu_item "3" "Compte admin" "email + mot de passe (+ seed)"
     menu_item "4" "Site kouzia.com" "CORS public, /suivi, VITE_*"
     menu_item "5" "Email" "SMTP / IMAP"
     menu_item "6" "Cloudflare Tunnel" "token + service cloudflared"
-    menu_item "7" "Rsync offsite" "cible NAS / hôte distant"
+    menu_item "7" "Tailscale" "admin distant (téléphone)"
+    menu_item "8" "Rsync offsite" "cible NAS / hôte distant"
     menu_section "Info"
-    menu_item "8" "Récap config / IP" ""
+    menu_item "9" "Récap config / IP" ""
     menu_back
     menu_prompt
     local c
@@ -229,8 +233,9 @@ show_config_menu() {
       4) run_cmd site; pause_enter ;;
       5) run_cmd mail; pause_enter ;;
       6) run_cmd cloudflare; pause_enter ;;
-      7) run_cmd rsync; pause_enter ;;
-      8) run_cmd summary; pause_enter ;;
+      7) run_cmd tailscale; pause_enter ;;
+      8) run_cmd rsync; pause_enter ;;
+      9) run_cmd summary; pause_enter ;;
       b|B|q|Q) return ;;
       *) warn "Choix invalide" ;;
     esac
@@ -301,6 +306,7 @@ show_services_menu() {
     menu_item "6" "Logs worker" ""
     menu_item "7" "Logs backup" ""
     menu_item "8" "Migrations Prisma" "migrate deploy seul"
+    menu_item "9" "Logs Tailscale" ""
     menu_back
     menu_prompt
     local c
@@ -314,6 +320,7 @@ show_services_menu() {
       6) run_cmd logs worker; pause_enter ;;
       7) run_cmd logs backup; pause_enter ;;
       8) run_cmd migrate; pause_enter ;;
+      9) run_cmd logs tailscale; pause_enter ;;
       b|B|q|Q) return ;;
       *) warn "Choix invalide" ;;
     esac

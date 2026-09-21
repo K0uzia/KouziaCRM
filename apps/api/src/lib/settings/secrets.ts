@@ -5,6 +5,7 @@ const SECRET_FIELD_NAMES = [
   "imapPassEncrypted",
   "revolutMerchantApiKeyEncrypted",
   "revolutWebhookSecretEncrypted",
+  "googleCalendarRefreshTokenEncrypted",
 ] as const;
 
 export type SecretFieldName = (typeof SECRET_FIELD_NAMES)[number];

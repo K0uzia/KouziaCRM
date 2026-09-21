@@ -351,6 +351,15 @@ model CompanySettings {
   reminderDepositPlus3Enabled  Boolean @default(true)
   reminderDepositPlus10Enabled Boolean @default(true)
 
+  /// Google Calendar (OAuth) : sync événements obligations vers Agenda
+  googleCalendarRefreshTokenEncrypted String?
+  googleCalendarRefreshTokenHint      String?
+  googleCalendarConnectedEmail        String?
+  googleCalendarEnabled               Boolean @default(false)
+  /// Destinataire emails de rappel obligations (hors ClientEmailEvent)
+  obligationReminderEmail             String  @default("kouziaeffa.pro@gmail.com")
+  obligationEmailRemindersEnabled     Boolean @default(true)
+
   /// Modules ERP (affichage nav + pages). Banque off par défaut (Revolut Pro sans API).
   moduleBankEnabled          Boolean @default(false)
   moduleSubscriptionsEnabled Boolean @default(true)
@@ -415,14 +424,30 @@ model Obligation {
   attachmentPath String?
   attachmentName String?
   attachmentMime String?
+  /// Id événement Google Calendar (sync Agenda)
+  googleCalendarEventId String?
   createdAt      DateTime         @default(now())
   updatedAt      DateTime         @updatedAt
+  reminderLogs   ObligationReminderLog[]
 
   @@unique([type, period])
   @@index([status])
   @@index([dueDate])
   @@index([type])
   @@index([completedAt])
+}
+
+/// Idempotence des emails de rappel obligations (J-7, J-3, J-1, jour J)
+model ObligationReminderLog {
+  id           String     @id @default(cuid())
+  obligationId String
+  obligation   Obligation @relation(fields: [obligationId], references: [id], onDelete: Cascade)
+  /// j7 | j3 | j1 | j0
+  stage        String
+  sentAt       DateTime   @default(now())
+
+  @@unique([obligationId, stage])
+  @@index([sentAt])
 }
 
 /// Checklist démarches post-création (une seule ligne)

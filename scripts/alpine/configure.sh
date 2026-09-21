@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Assistant post-install : profil d'accès, admin, site kouzia.com, SMTP,
-# Cloudflare (optionnel), rsync offsite, récap IP/status.
+# Cloudflare (optionnel), Tailscale (optionnel), rsync offsite, récap IP/status.
 #
 # Usage :
 #   kouziactl configure
@@ -16,7 +16,7 @@ source "${SCRIPT_DIR}/lib.sh"
 SUMMARY_ONLY=0
 SKIP_RESTART=0
 NEED_WEB_REBUILD=0
-# Section: all | access | admin | site | mail | cloudflare | rsync
+# Section: all | access | admin | site | mail | cloudflare | tailscale | rsync
 SECTION="all"
 
 while [[ $# -gt 0 ]]; do
@@ -27,7 +27,7 @@ while [[ $# -gt 0 ]]; do
       SECTION="$2"
       shift 2
       ;;
-    all|access|admin|site|public|mail|email|smtp|cloudflare|tunnel|rsync)
+    all|access|admin|site|public|mail|email|smtp|cloudflare|tunnel|tailscale|ts|rsync)
       SECTION="$1"
       shift
       ;;
@@ -42,11 +42,13 @@ Sections :
   site         PUBLIC_WEB_ORIGIN, CLIENT_PORTAL_URL, VITE_PUBLIC_SITE_URL
   mail         SMTP / IMAP
   cloudflare   Token tunnel + service cloudflared
+  tailscale    Client Tailscale (admin distant) + TAILSCALE_ORIGIN
   rsync        Cible backup offsite
 
 Exemples :
   configure.sh
   configure.sh cloudflare
+  configure.sh tailscale
   configure.sh --section admin
 EOF
       exit 0
@@ -59,6 +61,7 @@ case "$SECTION" in
   public) SECTION="site" ;;
   email|smtp) SECTION="mail" ;;
   tunnel) SECTION="cloudflare" ;;
+  ts) SECTION="tailscale" ;;
 esac
 
 ENV_FILE="${KOUZIA_APP_DIR}/.env"
@@ -336,9 +339,10 @@ section() {
 }
 
 print_access() {
-  local port web_origin
+  local port web_origin ts_origin
   port="$(env_get API_PORT "$KOUZIA_API_PORT")"
   web_origin="$(env_get WEB_ORIGIN "")"
+  ts_origin="$(env_get TAILSCALE_ORIGIN "")"
   local IPS=()
   local ip
   while IFS= read -r ip; do
@@ -358,6 +362,16 @@ print_access() {
   if [[ -n "$web_origin" ]]; then
     echo "  WEB_ORIGIN (CORS)  : ${web_origin}"
   fi
+  if [[ -n "$ts_origin" ]]; then
+    echo "  TAILSCALE_ORIGIN   : ${ts_origin}"
+  fi
+  if command -v tailscale >/dev/null 2>&1; then
+    local ts_ip ts_dns
+    ts_ip="$(tailscale ip -4 2>/dev/null | head -1 || true)"
+    ts_dns="$(tailscale_dns_name || true)"
+    [[ -n "$ts_ip" ]] && echo "  Tailscale IP       : http://${ts_ip}:${port}"
+    [[ -n "$ts_dns" ]] && echo "  Tailscale MagicDNS : http://${ts_dns}:${port}"
+  fi
   echo "  Healthcheck        : http://127.0.0.1:${port}/api/health"
   echo ""
 }
@@ -376,20 +390,26 @@ print_summary() {
   echo "  Mode cookies       : COOKIE_SECURE=$(env_get COOKIE_SECURE)  TRUST_PROXY=$(env_get TRUST_PROXY)"
   echo "  Admin ERP          : ${admin_email}"
   echo "  Site public        : $(env_get PUBLIC_WEB_ORIGIN)"
+  echo "  API publique       : $(env_get PUBLIC_API_ORIGIN)"
   echo "  Portail /suivi     : $(env_get CLIENT_PORTAL_URL)"
   echo "  SMTP               : $(env_get SMTP_HOST):$(env_get SMTP_PORT) ($(env_get SMTP_USER))"
   echo "  IMAP               : $(env_get IMAP_HOST) ($(env_get IMAP_USER))"
   if [[ -n "$tunnel_token" ]]; then
     echo "  Cloudflare Tunnel  : token présent"
   else
-    echo "  Cloudflare Tunnel  : non (API joignable seulement en LAN)"
+    echo "  Cloudflare Tunnel  : non (API publique seulement si exposée autrement)"
+  fi
+  if command -v tailscale >/dev/null 2>&1; then
+    echo "  Tailscale          : $(tailscale_backend_state 2>/dev/null || echo installé)"
+  else
+    echo "  Tailscale          : non installé"
   fi
   echo "  Rsync offsite      : ${rsync_target:-non (backups locaux seulement)}"
   echo "  Backups locaux     : $KOUZIA_BACKUP_DIR"
   echo ""
 
   echo "${C_BOLD}═══ Services ═══${C_RESET}"
-  for svc in kouziacrm kouziacrm-worker cloudflared crond; do
+  for svc in kouziacrm kouziacrm-worker cloudflared tailscale crond; do
     if service_exists "$svc"; then
       st="$(rc-service "$svc" status 2>&1 | head -1 || true)"
       echo "  $svc : $st"
@@ -416,6 +436,7 @@ choose_profile() {
   echo "     → Admin en http://IP:port  |  pas de HTTPS  |  kouzia.com ne joindra l'API que si elle est exposée autrement"
   echo "  2) LAN + Cloudflare Tunnel"
   echo "     → Admin en LAN HTTP  |  API joignable depuis Internet via tunnel (pour kouzia.com / webhooks)"
+  echo "     → Tailscale (téléphone) se configure ensuite, optionnel, sans toucher au tunnel"
   echo ""
   local choice
   ask choice "Choix" "1"
@@ -446,7 +467,16 @@ configure_access() {
   env_set WEB_ORIGIN "$web_origin"
   env_set WEB_DIST "${KOUZIA_APP_DIR}/apps/web/dist"
   env_set NODE_ENV "production"
-  env_set PUBLIC_API_ORIGIN "$web_origin"
+  # PUBLIC_API_ORIGIN = URL HTTPS Cloudflare (webhooks / OAuth / kouzia.com).
+  # Ne jamais l'écraser avec l'URL LAN ou Tailscale.
+  local existing_pub
+  existing_pub="$(env_get PUBLIC_API_ORIGIN "")"
+  if [[ -z "$existing_pub" ]]; then
+    env_set PUBLIC_API_ORIGIN "$web_origin"
+    echo "  → PUBLIC_API_ORIGIN initialisé (était vide) : ${web_origin}"
+  else
+    echo "  → PUBLIC_API_ORIGIN conservé : ${existing_pub}"
+  fi
 
   if [[ "$PROFILE" == "tunnel" ]]; then
     env_set COOKIE_SECURE "false"
@@ -643,6 +673,232 @@ EOF
   echo "  Si ça reste Down : vérifie le hostname → http://127.0.0.1:${api_port}"
 }
 
+# --- Tailscale (admin distant) ---
+
+tailscale_status_json() {
+  tailscale status --json 2>/dev/null || echo "{}"
+}
+
+tailscale_json_field() {
+  local field="$1"
+  FIELD="$field" node -e '
+let s = {};
+try { s = JSON.parse(require("fs").readFileSync(0, "utf8")); } catch { /* ignore */ }
+let v = s;
+for (const p of String(process.env.FIELD || "").split(".")) {
+  v = v == null ? undefined : v[p];
+}
+if (v == null || v === "") process.exit(0);
+process.stdout.write(String(v));
+'
+}
+
+tailscale_backend_state() {
+  tailscale_status_json | tailscale_json_field BackendState
+}
+
+tailscale_dns_name() {
+  local n
+  n="$(tailscale_status_json | tailscale_json_field Self.DNSName)"
+  n="${n%.}"
+  printf '%s' "$n"
+}
+
+tailscale_auth_url() {
+  tailscale_status_json | tailscale_json_field AuthURL
+}
+
+ensure_apk_community() {
+  local repos=/etc/apk/repositories
+  [[ -f "$repos" ]] || return 1
+  if grep -qE '^[[:space:]]*[^#].*/community' "$repos"; then
+    return 0
+  fi
+  if grep -qE '^[[:space:]]*#.*/community' "$repos"; then
+    sed -i -E 's|^[[:space:]]*#(.*community.*)|\1|' "$repos"
+    return 0
+  fi
+  local main
+  main="$(grep -E '^[[:space:]]*[^#].*/main' "$repos" | head -1 | awk '{$1=$1;print}' || true)"
+  if [[ -n "$main" ]]; then
+    echo "${main%/main}/community" >> "$repos"
+    return 0
+  fi
+  warn "Dépôt community introuvable dans $repos"
+  return 1
+}
+
+tailscale_set_userspace() {
+  local enable="$1"
+  local conf=/etc/conf.d/tailscale
+  mkdir -p /etc/conf.d
+  if [[ ! -f "$conf" ]]; then
+    printf '%s\n' "# Généré par kouziactl tailscale" > "$conf"
+  fi
+  if grep -qE '^[[:space:]]*#?[[:space:]]*TAILSCALED_OPTS=' "$conf"; then
+    sed -i -E '/^[[:space:]]*#?[[:space:]]*TAILSCALED_OPTS=/d' "$conf"
+  fi
+  if [[ "$enable" == "1" ]]; then
+    echo 'TAILSCALED_OPTS="--tun=userspace-networking"' >> "$conf"
+    ok "Mode userspace (pas de /dev/net/tun dans le CT)"
+  else
+    echo '# TAILSCALED_OPTS=' >> "$conf"
+    ok "Mode kernel (/dev/net/tun présent)"
+  fi
+}
+
+wait_tailscale_running() {
+  local tries="${1:-90}"
+  local i state=""
+  for ((i = 1; i <= tries; i++)); do
+    state="$(tailscale_backend_state)"
+    if [[ "$state" == "Running" ]]; then
+      ok "Tailscale Running"
+      return 0
+    fi
+    sleep 2
+  done
+  warn "Tailscale pas Running (état: ${state:-inconnu})"
+  return 1
+}
+
+configure_tailscale() {
+  local standalone="${1:-0}"
+  local api_port
+  api_port="$(env_get API_PORT "$KOUZIA_API_PORT")"
+
+  section "Tailscale (admin ERP depuis le téléphone)" \
+    "Le tunnel Cloudflare reste pour kouzia.com / webhooks / OAuth Google.
+  Tailscale n'expose PAS l'ERP sur Internet : seuls tes appareils du tailnet joignent l'admin.
+  --accept-dns=false est obligatoire (sinon MagicDNS casse SMTP et Cloudflare)."
+
+  if [[ "$standalone" != "1" ]]; then
+    if ! yesno "Configurer Tailscale maintenant (accès admin distant) ?" "n"; then
+      warn "Tailscale skip. Relancer : kouziactl tailscale"
+      return 0
+    fi
+  fi
+
+  log "Dépôt community + paquet tailscale…"
+  if ! ensure_apk_community; then
+    warn "Active community dans /etc/apk/repositories puis relance kouziactl tailscale"
+    return 1
+  fi
+  apk update >/dev/null || true
+  if ! apk add --no-cache tailscale; then
+    warn "apk add tailscale a échoué."
+    return 1
+  fi
+  ok "tailscale $(tailscale version 2>/dev/null | head -1 || echo OK)"
+
+  local userspace=0
+  if [[ ! -c /dev/net/tun ]]; then
+    userspace=1
+    echo "  /dev/net/tun absent (CT unprivileged typique) → userspace-networking"
+    echo "  Option Proxmox : docs/tailscale-setup.md (passer le TUN au CT)"
+  fi
+  tailscale_set_userspace "$userspace"
+
+  rc-update add tailscale default 2>/dev/null || true
+  if ! rc-service tailscale restart && ! rc-service tailscale start; then
+    warn "Échec démarrage tailscale. Journal :"
+    tail -n 30 /var/log/tailscaled.log 2>/dev/null || true
+    return 1
+  fi
+  sleep 2
+
+  local state
+  state="$(tailscale_backend_state)"
+  echo "  État actuel : ${state:-inconnu}"
+
+  if [[ "$state" != "Running" ]]; then
+    echo ""
+    echo "  Auth Tailscale :"
+    echo "  1) Ouvrir l'URL de login (défaut)"
+    echo "  2) Coller une auth key (tskey-auth-…, admin Tailscale → Settings → Keys)"
+    local mode
+    ask mode "Mode" "1"
+    if [[ "$mode" == "2" ]]; then
+      local authkey=""
+      ask authkey "Auth key (tskey-auth-…)" ""
+      if [[ -z "$authkey" ]]; then
+        warn "Auth key vide, skip login."
+      else
+        if ! tailscale up --accept-dns=false --auth-key="$authkey"; then
+          warn "tailscale up --auth-key a échoué"
+          return 1
+        fi
+      fi
+    else
+      echo "  Demande d'URL de login…"
+      tailscale up --accept-dns=false --timeout=8s >/tmp/kouzia-ts-up.out 2>&1 || true
+      local url
+      url="$(tailscale_auth_url)"
+      if [[ -z "$url" ]]; then
+        url="$(grep -Eo 'https://login\.tailscale\.com/[^[:space:]]+' /tmp/kouzia-ts-up.out 2>/dev/null | head -1 || true)"
+      fi
+      if [[ -n "$url" ]]; then
+        echo ""
+        echo "  ${C_BOLD}Ouvre cette URL sur un appareil déjà connecté à Tailscale (PC ou téléphone) :${C_RESET}"
+        echo "    ${url}"
+        echo ""
+      else
+        warn "URL de login introuvable. Essaie : tailscale up --accept-dns=false"
+        cat /tmp/kouzia-ts-up.out 2>/dev/null | sed 's/^/    /' || true
+      fi
+      echo "  En attente du login (3 min max)…"
+      if ! wait_tailscale_running 90; then
+        warn "Pas encore connecté. Relancer : kouziactl tailscale"
+        return 1
+      fi
+    fi
+  else
+    log "Déjà Running : on force --accept-dns=false"
+    tailscale up --accept-dns=false >/dev/null 2>&1 || true
+  fi
+
+  if [[ "$(tailscale_backend_state)" != "Running" ]]; then
+    if ! wait_tailscale_running 30; then
+      return 1
+    fi
+  fi
+
+  local ts_ip ts_dns ts_origin_def ts_origin
+  ts_ip="$(tailscale ip -4 2>/dev/null | head -1 || true)"
+  ts_dns="$(tailscale_dns_name || true)"
+  if [[ -n "$ts_dns" ]]; then
+    ts_origin_def="http://${ts_dns}:${api_port}"
+  elif [[ -n "$ts_ip" ]]; then
+    ts_origin_def="http://${ts_ip}:${api_port}"
+  else
+    ts_origin_def=""
+  fi
+
+  echo ""
+  [[ -n "$ts_ip" ]] && echo "  IP Tailscale  : ${ts_ip}"
+  [[ -n "$ts_dns" ]] && echo "  MagicDNS      : ${ts_dns}"
+  echo "  Bookmark tel. : ${ts_origin_def:-"(indisponible)"}"
+  echo ""
+
+  ask ts_origin "TAILSCALE_ORIGIN (CORS téléphone)" "$(env_get TAILSCALE_ORIGIN "$ts_origin_def")"
+  if [[ -n "$ts_origin" ]]; then
+    env_set TAILSCALE_ORIGIN "$ts_origin"
+  fi
+
+  if [[ -n "$ts_origin" ]] && yesno "Utiliser cette URL comme WEB_ORIGIN (canonique téléphone + retour Google OAuth) ?" "n"; then
+    env_set WEB_ORIGIN "$ts_origin"
+    echo "  → WEB_ORIGIN=${ts_origin}"
+    echo "  → PUBLIC_API_ORIGIN inchangé ($(env_get PUBLIC_API_ORIGIN "(vide)"))"
+  fi
+
+  if [[ -n "$(env_get CLOUDFLARE_TUNNEL_TOKEN "")" ]] || [[ "$(env_get TRUST_PROXY "false")" == "true" ]]; then
+    env_set TRUST_PROXY "true"
+    echo "  → TRUST_PROXY=true (tunnel Cloudflare conservé)"
+  fi
+
+  ok "Tailscale prêt. App téléphone : même compte, pas d'exit node, ouvrir TAILSCALE_ORIGIN."
+}
+
 configure_rsync() {
   section "6/6  Backup rsync offsite" \
     "Les backups locaux tournent déjà chaque jour dans $KOUZIA_BACKUP_DIR.
@@ -733,6 +989,7 @@ run_full_wizard() {
   configure_public_site
   configure_mail
   configure_cloudflare 0
+  configure_tailscale 0
   configure_rsync
   maybe_rebuild_web
   restart_stack
@@ -799,6 +1056,10 @@ run_section() {
       ;;
     cloudflare)
       configure_cloudflare 1
+      DO_RESTART=1
+      ;;
+    tailscale)
+      configure_tailscale 1
       DO_RESTART=1
       ;;
     rsync)

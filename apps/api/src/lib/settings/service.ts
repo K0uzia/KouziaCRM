@@ -432,6 +432,8 @@ export type DeclarationsPatch = {
   incomeTaxReminderDay?: number;
   businessStartDate?: Date | null;
   rneRegistrationDate?: Date | null;
+  obligationReminderEmail?: string;
+  obligationEmailRemindersEnabled?: boolean;
 };
 
 export async function saveDeclarationsTab(

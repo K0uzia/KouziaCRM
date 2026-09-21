@@ -134,14 +134,16 @@ Sans menu (non interactif) : `bash /opt/kouziacrm/scripts/alpine/install.sh --ye
 Puis :
 
 1. Éditer `/opt/kouziacrm/.env` (`WEB_ORIGIN`, SMTP, IMAP).
-2. Cloudflare Tunnel → `http://127.0.0.1:3000`.
-3. Optionnel : `/etc/kouzia/rsync.env` pour pousser les backups chiffrés hors du CT.
+2. Cloudflare Tunnel → `http://127.0.0.1:3000` (site public, webhooks, OAuth Google).
+3. Optionnel : `kouziactl tailscale` pour l'admin depuis le téléphone
+   ([guide](docs/tailscale-setup.md)).
+4. Optionnel : `/etc/kouzia/rsync.env` pour pousser les backups chiffrés hors du CT.
 
 | Commande | Rôle |
 |----------|------|
 | `kouziactl` / menu | Install, config, update, backup… |
 | `kouziactl configure` | Assistant complet |
-| `kouziactl access` / `admin` / `site` / `mail` / `cloudflare` / `rsync` | Reconfigurer une section seule |
+| `kouziactl access` / `admin` / `site` / `mail` / `cloudflare` / `tailscale` / `rsync` | Reconfigurer une section seule |
 | `kouziactl summary` | Affiche IP LAN, URL, status |
 | `kouziactl update` | Update incrémental (npm/build seulement si besoin) |
 | `kouziactl update --git` | `git pull` + update |
@@ -231,6 +233,12 @@ mv data/kouziacrm.db data/kouziacrm.db.broken
 mv data/kouziacrm.db.restore data/kouziacrm.db
 docker compose start app worker
 ```
+
+## Documentation ops
+
+- [Délivrabilité email (SPF / DKIM / DMARC)](docs/email-deliverability.md)
+- [Google Calendar : projet Cloud, API, OAuth Web](docs/google-calendar-setup.md)
+- [Tailscale : admin ERP depuis le téléphone](docs/tailscale-setup.md)
 
 ## Sécurité
 

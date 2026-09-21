@@ -48,6 +48,10 @@ export function emailKindLabel(kind: string): string {
     access: "Identifiants de suivi",
     onboarding: "Invitation onboarding",
     custom: "Message",
+    obligation_reminder_j7: "Rappel obligation J-7",
+    obligation_reminder_j3: "Rappel obligation J-3",
+    obligation_reminder_j1: "Rappel obligation J-1",
+    obligation_reminder_j0: "Rappel obligation jour J",
   };
   return labels[kind] ?? kind;
 }

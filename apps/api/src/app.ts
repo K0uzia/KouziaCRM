@@ -25,6 +25,7 @@ import { bankRoutes } from "@/routes/bank.js";
 import { payoutsRoutes } from "@/routes/payouts.js";
 import { webhooksRevolutRoutes } from "@/routes/webhooks-revolut.js";
 import { testimonialsRoutes } from "@/routes/testimonials.js";
+import { googleCalendarRoutes } from "@/routes/google-calendar.js";
 import { registerErrorHandler, setJsonSerializer } from "@/lib/http.js";
 import { ensureDefaultLegalClauses } from "@/lib/company/legal-clauses.js";
 
@@ -147,6 +148,7 @@ export async function buildApp(opts: BuildAppOptions = {}): Promise<FastifyInsta
   await app.register(payoutsRoutes);
   await app.register(webhooksRevolutRoutes);
   await app.register(testimonialsRoutes);
+  await app.register(googleCalendarRoutes);
 
   app.get("/api/health", async () => ({ ok: true }));
 
