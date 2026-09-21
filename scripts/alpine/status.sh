@@ -27,6 +27,12 @@ if command -v ip >/dev/null 2>&1; then
 fi
 [[ -n "$WEB_ORIGIN" ]] && echo "  WEB_ORIGIN : $WEB_ORIGIN"
 [[ -n "$TS_ORIGIN" ]] && echo "  Tailscale  : $TS_ORIGIN"
+GOOGLE_ID="$(grep -E '^GOOGLE_CLIENT_ID=' "${KOUZIA_APP_DIR}/.env" 2>/dev/null | tail -1 | cut -d= -f2- | tr -d '"' || true)"
+if [[ -n "$GOOGLE_ID" ]]; then
+  echo "  Google     : OAuth configuré (Fiscalité → Connecter)"
+else
+  echo "  Google     : non (kouziactl google)"
+fi
 [[ -n "$PUB_API" ]] && echo "  API pub.   : $PUB_API"
 if command -v tailscale >/dev/null 2>&1; then
   TS_IP="$(tailscale ip -4 2>/dev/null | head -1 || true)"

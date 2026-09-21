@@ -18,7 +18,7 @@ SUMMARY_ONLY=0
 SKIP_RESTART=0
 NEED_WEB_REBUILD=0
 POST_UPDATE=0
-# Section: all | access | admin | site | mail | cloudflare | tailscale | rsync
+# Section: all | access | admin | site | mail | cloudflare | google | tailscale | rsync
 SECTION="all"
 
 while [[ $# -gt 0 ]]; do
@@ -30,7 +30,7 @@ while [[ $# -gt 0 ]]; do
       SECTION="$2"
       shift 2
       ;;
-    all|access|admin|site|public|mail|email|smtp|cloudflare|tunnel|tailscale|ts|rsync)
+    all|access|admin|site|public|mail|email|smtp|cloudflare|tunnel|google|calendar|agenda|gcal|tailscale|ts|rsync)
       SECTION="$1"
       shift
       ;;
@@ -45,6 +45,7 @@ Sections :
   site         PUBLIC_WEB_ORIGIN, CLIENT_PORTAL_URL, VITE_PUBLIC_SITE_URL
   mail         SMTP / IMAP
   cloudflare   Token tunnel + service cloudflared
+  google       Google Agenda OAuth (GOOGLE_CLIENT_ID / SECRET)
   tailscale    Client Tailscale (admin distant) + TAILSCALE_ORIGIN
   rsync        Cible backup offsite
 
@@ -54,6 +55,7 @@ Sections :
 Exemples :
   configure.sh
   configure.sh cloudflare
+  configure.sh google
   configure.sh tailscale
   configure.sh --section admin
   configure.sh --post-update
@@ -68,6 +70,7 @@ case "$SECTION" in
   public) SECTION="site" ;;
   email|smtp) SECTION="mail" ;;
   tunnel) SECTION="cloudflare" ;;
+  calendar|agenda|gcal) SECTION="google" ;;
   ts) SECTION="tailscale" ;;
 esac
 
@@ -384,10 +387,12 @@ print_access() {
 }
 
 print_summary() {
-  local port admin_email tunnel_token rsync_target
+  local port admin_email tunnel_token rsync_target pub_api g_redirect
   port="$(env_get API_PORT "$KOUZIA_API_PORT")"
   admin_email="$(env_get ADMIN_EMAIL "")"
   tunnel_token="$(env_get CLOUDFLARE_TUNNEL_TOKEN "")"
+  pub_api="$(env_get PUBLIC_API_ORIGIN "")"
+  g_redirect="$(env_get GOOGLE_REDIRECT_URI "")"
   load_rsync_conf
   rsync_target="${KOUZIA_RSYNC_TARGET:-}"
 
@@ -397,7 +402,7 @@ print_summary() {
   echo "  Mode cookies       : COOKIE_SECURE=$(env_get COOKIE_SECURE)  TRUST_PROXY=$(env_get TRUST_PROXY)"
   echo "  Admin ERP          : ${admin_email}"
   echo "  Site public        : $(env_get PUBLIC_WEB_ORIGIN)"
-  echo "  API publique       : $(env_get PUBLIC_API_ORIGIN)"
+  echo "  API publique       : ${pub_api}"
   echo "  Portail /suivi     : $(env_get CLIENT_PORTAL_URL)"
   echo "  SMTP               : $(env_get SMTP_HOST):$(env_get SMTP_PORT) ($(env_get SMTP_USER))"
   echo "  IMAP               : $(env_get IMAP_HOST) ($(env_get IMAP_USER))"
@@ -410,6 +415,12 @@ print_summary() {
     echo "  Tailscale          : $(tailscale_backend_state 2>/dev/null || echo installé)"
   else
     echo "  Tailscale          : non installé"
+  fi
+  if [[ -n "$(env_get GOOGLE_CLIENT_ID "")" && -n "$(env_get GOOGLE_CLIENT_SECRET "")" ]]; then
+    echo "  Google Agenda      : OAuth configuré (connecter le compte dans Fiscalité)"
+    echo "  Redirect Google    : ${g_redirect:-${pub_api%/}/api/google/calendar/callback}"
+  else
+    echo "  Google Agenda      : non (kouziactl google)"
   fi
   echo "  Rsync offsite      : ${rsync_target:-non (backups locaux seulement)}"
   echo "  Backups locaux     : $KOUZIA_BACKUP_DIR"
@@ -964,6 +975,89 @@ configure_tailscale() {
   ok "Tailscale prêt. App téléphone : même compte, pas d'exit node, ouvrir TAILSCALE_ORIGIN."
 }
 
+configure_google_calendar() {
+  local standalone="${1:-0}"
+  local pub redirect client_id client_secret existing_redirect
+
+  section "Google Agenda (obligations → Calendar)" \
+    "Guide : ${KOUZIA_APP_DIR}/docs/google-calendar-setup.md
+  Prérequis Google Cloud (une seule fois) :
+  1. Projet + activer « Google Calendar API »
+  2. Écran de consentement OAuth (Externe) + ton Gmail en utilisateur de test
+  3. Client OAuth « Application Web » avec l'URI de redirection affichée plus bas
+  Les secrets vont dans .env. La connexion du compte Gmail se fait ensuite
+  dans l'ERP : Paramètres → Fiscalité → Connecter Google Agenda."
+
+  if [[ "$standalone" != "1" ]]; then
+    if ! yesno "Configurer Google Agenda maintenant ?" "n"; then
+      warn "Google Agenda skip. Plus tard : kouziactl google"
+      return 0
+    fi
+  fi
+
+  pub="$(env_get PUBLIC_API_ORIGIN "")"
+  echo "  PUBLIC_API_ORIGIN actuel : ${pub:-"(vide)"}"
+  echo "  Obligatoire : URL HTTPS du tunnel Cloudflare (webhooks + callback OAuth)."
+  echo "  Interdit : IP LAN, localhost, URL Tailscale (.ts.net)."
+  if [[ -z "$pub" ]] \
+    || [[ "$pub" == http://192.* ]] \
+    || [[ "$pub" == http://10.* ]] \
+    || [[ "$pub" == http://172.* ]] \
+    || [[ "$pub" == *"ts.net"* ]] \
+    || [[ "$pub" == http://localhost* ]] \
+    || [[ "$pub" == http://127.* ]]; then
+    warn "PUBLIC_API_ORIGIN semble invalide pour OAuth Google."
+  fi
+  ask pub "PUBLIC_API_ORIGIN (HTTPS Cloudflare)" "$pub"
+  pub="${pub%/}"
+  if [[ -z "$pub" ]]; then
+    warn "PUBLIC_API_ORIGIN vide : OAuth Google impossible."
+    return 1
+  fi
+  if [[ "$pub" != https://* ]]; then
+    warn "Sans HTTPS public, Google refusera souvent le redirect. Continuer seulement si tu sais ce que tu fais."
+    if ! yesno "Continuer avec ${pub} ?" "n"; then
+      return 1
+    fi
+  fi
+  env_set PUBLIC_API_ORIGIN "$pub"
+
+  redirect="${pub}/api/google/calendar/callback"
+  echo ""
+  echo "  URI de redirection à ajouter dans Google Cloud Console :"
+  echo "    ${C_BOLD}${redirect}${C_RESET}"
+  echo "  (APIs et services → Identifiants → client Web → URI de redirection autorisés)"
+  echo ""
+  if ! yesno "Cette URI est déjà enregistrée dans Google Cloud ?" "y"; then
+    echo "  Ajoute-la, crée le client OAuth, puis relance : kouziactl google"
+    return 0
+  fi
+
+  ask client_id "GOOGLE_CLIENT_ID (….apps.googleusercontent.com)" "$(env_get GOOGLE_CLIENT_ID "")"
+  ask_secret client_secret "GOOGLE_CLIENT_SECRET" "$(env_get GOOGLE_CLIENT_SECRET "")"
+  if [[ -z "$client_id" || -z "$client_secret" ]]; then
+    warn "ID client ou secret vide."
+    return 1
+  fi
+
+  env_set GOOGLE_CLIENT_ID "$client_id"
+  env_set GOOGLE_CLIENT_SECRET "$client_secret"
+
+  existing_redirect="$(env_get GOOGLE_REDIRECT_URI "")"
+  if [[ -n "$existing_redirect" ]]; then
+    echo "  GOOGLE_REDIRECT_URI custom : ${existing_redirect}"
+    if ! yesno "Le conserver (sinon dérivé de PUBLIC_API_ORIGIN) ?" "y"; then
+      env_set GOOGLE_REDIRECT_URI ""
+      echo "  → redirect = ${redirect}"
+    fi
+  else
+    echo "  Redirect effectif : ${redirect}"
+  fi
+
+  ok "Google OAuth enregistré dans .env"
+  echo "  Redémarrer l'API, puis : Paramètres → Fiscalité → Connecter Google Agenda"
+}
+
 configure_rsync() {
   section "6/6  Backup rsync offsite" \
     "Les backups locaux tournent déjà chaque jour dans $KOUZIA_BACKUP_DIR.
@@ -1159,6 +1253,7 @@ run_full_wizard() {
   configure_public_site
   configure_mail
   configure_cloudflare 0
+  configure_google_calendar 0
   configure_tailscale 0
   configure_rsync
   maybe_rebuild_web
@@ -1226,6 +1321,10 @@ run_section() {
       ;;
     cloudflare)
       configure_cloudflare 1
+      DO_RESTART=1
+      ;;
+    google)
+      configure_google_calendar 1
       DO_RESTART=1
       ;;
     tailscale)

@@ -10,3 +10,4 @@
 # Après ajout d'une section dans configure.sh, ajouter une ligne ici.
 
 tailscale|tailscale|Tailscale : admin ERP depuis le téléphone|env:TAILSCALE_ORIGIN
+google|google|Google Agenda : OAuth Calendar (obligations)|env:GOOGLE_CLIENT_ID

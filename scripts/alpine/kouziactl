@@ -4,6 +4,7 @@
 #   kouziactl                 → menu interactif
 #   kouziactl <cmd>           → commande directe
 #   kouziactl cloudflare      → reconfigurer Cloudflare
+#   kouziactl google          → Google Agenda (OAuth)
 #   kouziactl tailscale       → reconfigurer Tailscale (admin distant)
 # PATH : symlink /usr/local/bin/kouziactl → ce fichier (install/update)
 
@@ -97,10 +98,10 @@ Mise à jour :
   update --no-git   sans git pull (code déjà sur le CT)
   update --force    force npm ci + rebuild SPA
   update --skip-config  sans assistant post-update
-  new-config        proposer les nouveautés (Tailscale, etc.) sans update
+  new-config        proposer les nouveautés (Tailscale, Google Agenda, etc.) sans update
 
 Config (rejouable) :
-  access | admin | site | mail | cloudflare | tailscale | rsync
+  access | admin | site | mail | cloudflare | google | tailscale | rsync
 
 Services / data :
   start | stop | restart | logs [app|worker|backup|tailscale]
@@ -120,12 +121,13 @@ run_cmd() {
     configure|config|wizard)
       bash "${SCRIPT_DIR}/configure.sh" all "$@"
       ;;
-    access|admin|site|public|mail|email|smtp|cloudflare|tunnel|tailscale|ts|rsync)
+    access|admin|site|public|mail|email|smtp|cloudflare|tunnel|google|calendar|agenda|gcal|tailscale|ts|rsync)
       local section="$cmd"
       case "$cmd" in
         public) section="site" ;;
         email|smtp) section="mail" ;;
         tunnel) section="cloudflare" ;;
+        calendar|agenda|gcal) section="google" ;;
         ts) section="tailscale" ;;
       esac
       bash "${SCRIPT_DIR}/configure.sh" "$section" "$@"
@@ -217,17 +219,18 @@ show_config_menu() {
     menu_clear_hint
     menu_box "Configuration"
     menu_section "Tout d'un coup"
-    menu_item "1" "Assistant complet" "profil → accès → admin → site → mail → CF → TS → rsync"
+    menu_item "1" "Assistant complet" "profil → accès → admin → site → mail → CF → Google → TS → rsync"
     menu_section "Par section"
     menu_item "2" "Accès ERP" "WEB_ORIGIN, port, COOKIE_SECURE"
     menu_item "3" "Compte admin" "email + mot de passe (+ seed)"
     menu_item "4" "Site kouzia.com" "CORS public, /suivi, VITE_*"
     menu_item "5" "Email" "SMTP / IMAP"
     menu_item "6" "Cloudflare Tunnel" "token + service cloudflared"
-    menu_item "7" "Tailscale" "admin distant (téléphone)"
-    menu_item "8" "Rsync offsite" "cible NAS / hôte distant"
+    menu_item "7" "Google Agenda" "OAuth Calendar (obligations)"
+    menu_item "8" "Tailscale" "admin distant (téléphone)"
+    menu_item "9" "Rsync offsite" "cible NAS / hôte distant"
     menu_section "Info"
-    menu_item "9" "Récap config / IP" ""
+    menu_item "10" "Récap config / IP" ""
     menu_back
     menu_prompt
     local c
@@ -239,9 +242,10 @@ show_config_menu() {
       4) run_cmd site; pause_enter ;;
       5) run_cmd mail; pause_enter ;;
       6) run_cmd cloudflare; pause_enter ;;
-      7) run_cmd tailscale; pause_enter ;;
-      8) run_cmd rsync; pause_enter ;;
-      9) run_cmd summary; pause_enter ;;
+      7) run_cmd google; pause_enter ;;
+      8) run_cmd tailscale; pause_enter ;;
+      9) run_cmd rsync; pause_enter ;;
+      10) run_cmd summary; pause_enter ;;
       b|B|q|Q) return ;;
       *) warn "Choix invalide" ;;
     esac
@@ -261,7 +265,7 @@ show_update_menu() {
     menu_item "1" "Mettre à jour" "GitHub + migrate + SPA (défaut)"
     menu_item "2" "Local seulement" "sans git pull (rsync / édition manuelle)"
     menu_item "3" "Forcer tout" "npm ci + rebuild SPA même sans diff"
-    menu_item "4" "Nouveautés config" "sections encore vides (ex. Tailscale)"
+    menu_item "4" "Nouveautés config" "sections encore vides (Tailscale, Google…)"
     menu_back
     menu_prompt
     local c

@@ -79,6 +79,15 @@ fi
 
 # --- 2. Arrêt tôt (libère SQLite + évite chown pendant écriture) ---
 stop_app_stack
+STACK_STOPPED=1
+trap '
+  ec=$?
+  if [[ $ec -ne 0 && "${STACK_STOPPED:-0}" -eq 1 && "${STACK_RESTARTED:-0}" -eq 0 ]]; then
+    warn "Échec update (code $ec) : redémarrage des services pour ne pas laisser l'\''app arrêtée…"
+    service_safe kouziacrm start || true
+    service_safe kouziacrm-worker start || true
+  fi
+' EXIT
 
 # --- 3. Code ---
 if [[ "$DO_GIT" -eq 1 ]]; then
@@ -170,6 +179,7 @@ log "Redémarrage services…"
 # Worker après health : évite le lock SQLite pendant le boot API (tsx + migrations soft).
 service_safe kouziacrm-worker stop
 service_safe kouziacrm start
+STACK_RESTARTED=1
 sleep 2
 if ! wait_health; then
   warn "Healthcheck KO. Logs :"

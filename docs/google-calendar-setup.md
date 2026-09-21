@@ -85,7 +85,17 @@ Ne jamais committer ces valeurs (uniquement `.env` local / secrets serveur).
 
 ## 5. Brancher KouziaCRM
 
-Dans `.env` :
+Sur le CT Alpine (recommandé) :
+
+```bash
+kouziactl google
+```
+
+L'assistant demande `PUBLIC_API_ORIGIN`, affiche l'URI de redirection à coller
+dans Google Cloud, puis enregistre `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET`
+et redémarre l'API. Alias : `kouziactl agenda`.
+
+Sinon, à la main dans `.env` :
 
 ```bash
 PUBLIC_API_ORIGIN="https://gestion.kouzia.fr"
@@ -104,7 +114,7 @@ WEB_ORIGIN="https://gestion.kouzia.fr"
 # Dev : WEB_ORIGIN="http://localhost:5173"
 ```
 
-Redémarrer API + worker (`make dev` ou services prod).
+Redémarrer API + worker (`make dev` ou `kouziactl restart` en prod).
 
 Puis dans l'ERP :
 
