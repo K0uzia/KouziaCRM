@@ -467,7 +467,9 @@ choose_profile() {
 
 configure_access() {
   section "2/6  Accès admin (WEB_ORIGIN + port)" \
-    "WEB_ORIGIN = l'URL exacte que tu tapes dans le navigateur pour l'ERP (CORS + cookies). Pas un faux domaine."
+    "WEB_ORIGIN = l'URL exacte que tu tapes dans le navigateur pour l'ERP (CORS + cookies + retour Google OAuth).
+  Sur PC Wi-Fi : http://IP_LAN:port (ex. http://192.168.1.52:3000).
+  Ne mets PAS le MagicDNS Tailscale ici (NXDOMAIN sur Windows) : utilise le menu Tailscale pour TAILSCALE_ORIGIN."
 
   local lan_ip api_port def_origin
   lan_ip="$(primary_ip)"
@@ -957,14 +959,19 @@ configure_tailscale() {
     env_set TAILSCALE_ORIGIN "$ts_origin"
   fi
 
-  if [[ -n "$ts_origin" ]] && yesno "Utiliser cette URL comme WEB_ORIGIN (canonique téléphone + retour Google OAuth) ?" "n"; then
+  if [[ -n "$ts_origin" ]] && yesno "Utiliser cette URL comme WEB_ORIGIN ? (NON recommandé : MagicDNS casse le retour Google OAuth sur PC Windows)" "n"; then
     env_set WEB_ORIGIN "$ts_origin"
     echo "  → WEB_ORIGIN=${ts_origin}"
     echo "  → PUBLIC_API_ORIGIN inchangé ($(env_get PUBLIC_API_ORIGIN "(vide)"))"
+    echo "  ${C_YELLOW}Attention${C_RESET} : le retour OAuth Google utilise WEB_ORIGIN."
+    echo "  Sur PC Wi-Fi, préfère WEB_ORIGIN=http://IP_LAN:port (menu Accès ERP)."
     if [[ "$ts_origin" == https://* ]]; then
       env_set COOKIE_SECURE "true"
       echo "  → COOKIE_SECURE=true (admin en HTTPS Tailscale Serve)"
     fi
+  else
+    echo "  → WEB_ORIGIN conservé : $(env_get WEB_ORIGIN "(vide)")"
+    echo "  → TAILSCALE_ORIGIN sert au CORS téléphone uniquement (bon)."
   fi
 
   if [[ -n "$(env_get CLOUDFLARE_TUNNEL_TOKEN "")" ]] || [[ "$(env_get TRUST_PROXY "false")" == "true" ]]; then
@@ -980,16 +987,16 @@ configure_google_calendar() {
   local client_id client_secret redirect tunnel_base
 
   section "Google Agenda (login OAuth une fois)" \
-    "Méthode simple CT (recommandée) :
-  1. Autre terminal : cloudflared tunnel --url http://127.0.0.1:3000
-  2. Copier l'URL https://….trycloudflare.com affichée
+    "Option B (recommandée, permanente) :
+  1. Tunnel Cloudflare Published Application → https://api.kouzia.com → http://127.0.0.1:PORT
+  2. DNS Cloudflare : CNAME api → <tunnel-id>.cfargotunnel.com (Proxied)
   3. Google Cloud → Identifiants → client Web → URI de redirection :
-       https://….trycloudflare.com/api/google/calendar/callback
-  4. Ici : coller ID + secret + cette même URI de callback
-  5. ERP LAN → Fiscalité → Connecter Google Agenda
-  6. Ctrl+C le tunnel quick. Plus besoin ensuite.
+       https://api.kouzia.com/api/google/calendar/callback
+  4. Ici : coller ID + secret + cette même URI
+  5. WEB_ORIGIN = URL LAN du PC (menu Accès ERP), PAS le MagicDNS Tailscale
+  6. ERP LAN → Fiscalité → Connecter Google Agenda
 
-  On ne touche PAS à PUBLIC_API_ORIGIN / kouzia.com / Hostinger."
+  On ne touche PAS au site kouzia.com (Hostinger)."
 
   if [[ "$standalone" != "1" ]]; then
     if ! yesno "Configurer Google Agenda maintenant ?" "n"; then
@@ -1006,11 +1013,11 @@ configure_google_calendar() {
   fi
 
   echo ""
-  echo "  URI de callback = URL du tunnel quick + /api/google/calendar/callback"
-  echo "  Exemple :"
-  echo "    https://xxxx.trycloudflare.com/api/google/calendar/callback"
+  echo "  URI de callback (option B) :"
+  echo "    https://api.kouzia.com/api/google/calendar/callback"
+  echo "  (doit être identique dans Google Cloud → Identifiants)"
   echo ""
-  ask redirect "GOOGLE_REDIRECT_URI (URI complète de callback)" "$(env_get GOOGLE_REDIRECT_URI "")"
+  ask redirect "GOOGLE_REDIRECT_URI (URI complète de callback)" "$(env_get GOOGLE_REDIRECT_URI "https://api.kouzia.com/api/google/calendar/callback")"
   redirect="${redirect%/}"
   if [[ -z "$redirect" ]]; then
     warn "URI vide."
@@ -1027,12 +1034,21 @@ configure_google_calendar() {
   env_set GOOGLE_CLIENT_SECRET "$client_secret"
   env_set GOOGLE_REDIRECT_URI "$redirect"
 
+  local web_origin
+  web_origin="$(env_get WEB_ORIGIN "")"
+  if [[ "$web_origin" == *".ts.net"* ]]; then
+    warn "WEB_ORIGIN pointe vers MagicDNS Tailscale (${web_origin})."
+    warn "Le retour OAuth Google échouera sur PC Windows (NXDOMAIN)."
+    echo "  Corrige avec : kouziactl → Configuration → 2 Accès ERP"
+    echo "  Exemple : http://$(primary_ip):$(env_get API_PORT 3000)"
+  fi
+
   ok "Google OAuth enregistré (PUBLIC_API_ORIGIN inchangé)."
   echo "  Checklist :"
   echo "  [ ] Même URI dans Google Cloud (Identifiants → client Web)"
-  echo "  [ ] Tunnel quick encore ouvert (cloudflared tunnel --url …)"
-  echo "  [ ] Puis ERP : http://IP:3000/settings?tab=declarations → Connecter"
-  echo "  [ ] Après succès : Ctrl+C le tunnel quick"
+  echo "  [ ] WEB_ORIGIN = URL LAN (pas Tailscale) pour le retour navigateur"
+  echo "  [ ] Google Calendar API activée sur le projet Cloud"
+  echo "  [ ] ERP : http://IP:3000/settings?tab=declarations → Connecter"
 }
 
 configure_rsync() {

@@ -8,6 +8,7 @@ import { prisma } from "@/lib/prisma.js";
 import { getAuthedCalendarClient } from "@/lib/google-calendar/oauth.js";
 import {
   deleteObligationEvent,
+  formatGoogleApiError,
   upsertObligationEvent,
 } from "@/lib/google-calendar/events.js";
 
@@ -69,8 +70,8 @@ export async function reconcileObligationCalendarEvents(): Promise<ReconcileResu
 
     return { upserted, deleted, skipped: false };
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    console.error("[google-calendar] reconcile failed", err);
+    const message = formatGoogleApiError(err);
+    console.error("[google-calendar] reconcile failed", message, err);
     return { upserted: 0, deleted: 0, skipped: false, error: message };
   }
 }

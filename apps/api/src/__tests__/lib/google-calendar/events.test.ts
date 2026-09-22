@@ -4,6 +4,7 @@ import {
   buildObligationDescription,
   dueDateYmd,
   eventStartIso,
+  nextDayYmd,
   OBLIGATION_EVENT_REMINDERS,
 } from "@/lib/google-calendar/events.js";
 import {
@@ -12,7 +13,7 @@ import {
 } from "@/lib/obligations/email-reminders.js";
 
 describe("google-calendar event payload", () => {
-  it("construit un événement à 9h Europe/Paris avec 4 rappels popup", () => {
+  it("construit un événement journée entière Europe/Paris avec 4 rappels popup", () => {
     const due = new Date("2026-04-15T12:00:00.000Z");
     const ymd = dueDateYmd(due);
     const payload = buildObligationEventPayload({
@@ -27,14 +28,15 @@ describe("google-calendar event payload", () => {
     });
 
     expect(payload.summary).toBe("Déclaration URSSAF : mars 2026");
-    expect(payload.start?.dateTime).toBe(eventStartIso(due));
-    expect(payload.start?.dateTime).toBe(`${ymd}T09:00:00`);
-    expect(payload.start?.timeZone).toBe("Europe/Paris");
-    expect(payload.end?.dateTime).toBe(`${ymd}T09:30:00`);
+    expect(payload.start?.date).toBe(ymd);
+    expect(payload.end?.date).toBe(nextDayYmd(ymd));
+    expect(payload.start?.dateTime).toBeUndefined();
     expect(payload.reminders?.useDefault).toBe(false);
     expect(payload.reminders?.overrides).toEqual(OBLIGATION_EVENT_REMINDERS);
     expect(payload.reminders?.overrides).toHaveLength(4);
     expect(payload.description).toContain("https://autoentrepreneur.urssaf.fr");
+    // helpers horaires encore exportés (compat)
+    expect(eventStartIso(due)).toBe(`${ymd}T09:00:00`);
   });
 });
 
