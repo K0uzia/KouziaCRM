@@ -11,7 +11,7 @@ import {
   getGoogleAuthUrl,
   isGoogleCalendarConnected,
 } from "@/lib/google-calendar/oauth.js";
-import { reconcileObligationCalendarEvents } from "@/lib/google-calendar/reconcile.js";
+import { syncObligations } from "@/lib/obligations/obligation-service.js";
 
 export const googleCalendarRoutes: FastifyPluginAsync = async (app) => {
   app.get("/api/google/calendar/status", async (request, reply) => {
@@ -40,7 +40,11 @@ export const googleCalendarRoutes: FastifyPluginAsync = async (app) => {
     return { url: getGoogleAuthUrl() };
   });
 
-  /** Callback OAuth : pas de requireAuth (redirect navigateur Google). */
+  /**
+   * Callback OAuth : pas de requireAuth (redirect navigateur Google).
+   * Après échange du code : régénère les obligations (toutes les dates de
+   * déclaration) puis crée / met à jour les événements Google avant redirect.
+   */
   app.get("/api/google/calendar/callback", async (request, reply) => {
     const q = request.query as { code?: string; error?: string };
     const base = `${webAdminOrigin()}/settings?tab=declarations`;
@@ -52,8 +56,16 @@ export const googleCalendarRoutes: FastifyPluginAsync = async (app) => {
     }
     try {
       await exchangeGoogleCode(q.code.trim());
-      void reconcileObligationCalendarEvents();
-      return reply.redirect(`${base}&google=ok`);
+      const result = await syncObligations();
+      if (result.error) {
+        console.error("[google-calendar] sync after OAuth failed", result.error);
+        return reply.redirect(
+          `${base}&google=ok&upserted=0&syncError=1`,
+        );
+      }
+      return reply.redirect(
+        `${base}&google=ok&upserted=${result.upserted}&deleted=${result.deleted}`,
+      );
     } catch (err) {
       console.error("[google-calendar] OAuth callback failed", err);
       return reply.redirect(`${base}&google=error`);
@@ -67,10 +79,11 @@ export const googleCalendarRoutes: FastifyPluginAsync = async (app) => {
     return { ok: true };
   });
 
+  /** Régénère les obligations puis aligne Google Calendar. */
   app.post("/api/google/calendar/sync", async (request, reply) => {
     await requireAuth(request, reply);
     if (reply.sent) return;
-    const result = await reconcileObligationCalendarEvents();
+    const result = await syncObligations();
     if (result.error) {
       return reply.code(502).send({ error: result.error, ...result });
     }

@@ -754,7 +754,8 @@ export async function syncObligations(now = new Date()) {
     }
   }
 
-  await reconcileObligationCalendarEvents();
+  // Régénère / aligne les événements Google sur toutes les échéances ouvertes.
+  return reconcileObligationCalendarEvents();
 }
 
 function toView(

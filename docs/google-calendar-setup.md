@@ -75,5 +75,10 @@ Le CT garde le refresh token : plus besoin de tunnel pour la sync quotidienne.
 
 ## Après connexion
 
-Paramètres → Fiscalité → **Synchroniser maintenant** (optionnel).
+À la connexion, Kouzia régénère les obligations (URSSAF, CFE, impôts, etc.) puis crée les
+événements Google pour chaque échéance ouverte. Le toast indique le nombre d’événements.
+
+Si aucun événement n’apparaît : Paramètres → Fiscalité → **Synchroniser maintenant**, et
+vérifier qu’il existe des déclarations ouvertes (date de début d’activité renseignée).
+
 Emails de rappel J-7/J-3/J-1 : SMTP + worker, indépendants de Google.

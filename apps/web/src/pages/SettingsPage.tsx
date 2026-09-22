@@ -173,13 +173,30 @@ export function SettingsPage() {
     const google = params.get("google");
     if (!google) return;
     if (google === "ok") {
-      toast.success("Google Agenda connecté");
+      const upserted = Number(params.get("upserted") ?? "0");
+      const syncError = params.get("syncError") === "1";
       void loadGoogleStatus();
+      if (syncError) {
+        toast.error(
+          "Google Agenda connecté, mais la création des événements a échoué. Réessayez via Synchroniser maintenant.",
+        );
+      } else if (Number.isFinite(upserted) && upserted > 0) {
+        toast.success(
+          `Google Agenda connecté : ${upserted} événement(s) créé(s) / mis à jour`,
+        );
+      } else {
+        toast.success(
+          "Google Agenda connecté (aucune échéance ouverte à synchroniser)",
+        );
+      }
     } else if (google === "error") {
       toast.error("Connexion Google Agenda échouée");
     }
     const next = new URLSearchParams(params);
     next.delete("google");
+    next.delete("upserted");
+    next.delete("deleted");
+    next.delete("syncError");
     setParams(next, { replace: true });
   }, [params, setParams]);
 
@@ -1636,9 +1653,10 @@ export function SettingsPage() {
                 <div>
                   <p className="text-sm font-medium">Google Agenda</p>
                   <p className="mt-1 text-xs text-[var(--muted)]">
-                    Les échéances ouvertes créent un événement Google (rappels J-7, J-3, J-1,
-                    jour J à 9h). Pas de calendrier dans Kouzia : sync vers votre téléphone via
-                    Samsung / Google Agenda.
+                    À la connexion (et via Synchroniser), Kouzia recalcule toutes les dates de
+                    déclaration ouvertes puis crée les événements Google (rappels J-7, J-3,
+                    J-1, jour J à 9h). Pas de calendrier dans Kouzia : sync vers votre
+                    téléphone via Samsung / Google Agenda.
                   </p>
                 </div>
                 <p className="text-sm">
