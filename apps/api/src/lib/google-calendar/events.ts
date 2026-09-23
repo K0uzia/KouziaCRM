@@ -74,10 +74,11 @@ export type ObligationEventInput = {
 
 /**
  * Événement Google à 9h Europe/Paris (créneau 30 min).
+ * Marqué avec extendedProperties.private pour éviter les doublons à la sync.
  * Les rappels popup sont appliqués ensuite via patch (plus fiable que insert).
  */
 export function buildObligationEventPayload(
-  input: ObligationEventInput,
+  input: ObligationEventInput & { obligationId?: string },
 ): calendar_v3.Schema$Event {
   const summaryBase = (input.label || "Obligation KouziaCRM").slice(0, 1000);
   const summary =
@@ -85,7 +86,7 @@ export function buildObligationEventPayload(
       ? `Ouverture : ${summaryBase}`.slice(0, 1024)
       : `Échéance : ${summaryBase}`.slice(0, 1024);
   const description = (input.description || "").slice(0, 8000);
-  return {
+  const event: calendar_v3.Schema$Event = {
     summary,
     description,
     start: {
@@ -95,6 +96,27 @@ export function buildObligationEventPayload(
     end: {
       dateTime: eventEndIso(input.at),
       timeZone: TZ,
+    },
+  };
+  if (input.obligationId) {
+    event.extendedProperties = {
+      private: {
+        kouziaObligationId: input.obligationId,
+        kouziaKind: input.kind,
+      },
+    };
+  }
+  return event;
+}
+
+export function kouziaPrivateProps(
+  obligationId: string,
+  kind: ObligationEventKind,
+): NonNullable<calendar_v3.Schema$Event["extendedProperties"]> {
+  return {
+    private: {
+      kouziaObligationId: obligationId,
+      kouziaKind: kind,
     },
   };
 }
@@ -233,6 +255,68 @@ async function patchEventReminders(
   }
 }
 
+/** Retrouve un événement Kouzia déjà créé (évite les doublons si l'id DB est perdu). */
+export async function findExistingKouziaEventId(
+  calendar: calendar_v3.Calendar,
+  obligationId: string,
+  kind: ObligationEventKind,
+): Promise<string | null> {
+  try {
+    const res = await calendar.events.list({
+      calendarId: "primary",
+      privateExtendedProperty: [
+        `kouziaObligationId=${obligationId}`,
+        `kouziaKind=${kind}`,
+      ],
+      singleEvents: true,
+      maxResults: 5,
+      showDeleted: false,
+    });
+    const items = (res.data.items ?? []).filter((e) => e.id && e.status !== "cancelled");
+    if (items.length === 0) return null;
+    // Garder le plus récent, supprimer les doublons éventuels
+    const [keep, ...dupes] = items.sort((a, b) => {
+      const ta = a.updated ? Date.parse(a.updated) : 0;
+      const tb = b.updated ? Date.parse(b.updated) : 0;
+      return tb - ta;
+    });
+    for (const d of dupes) {
+      if (d.id) {
+        console.warn(
+          `[google-calendar] suppression doublon ${kind} ${d.id} (obligation ${obligationId})`,
+        );
+        await deleteObligationEvent(calendar, d.id);
+      }
+    }
+    return keep.id ?? null;
+  } catch (err) {
+    console.warn(
+      `[google-calendar] recherche événement existant échouée (${kind})`,
+      formatGoogleApiError(err),
+    );
+    return null;
+  }
+}
+
+async function patchEventBody(
+  calendar: calendar_v3.Calendar,
+  eventId: string,
+  body: calendar_v3.Schema$Event,
+): Promise<string | null> {
+  try {
+    const updated = await calendar.events.patch({
+      calendarId: "primary",
+      eventId,
+      requestBody: body,
+    });
+    return updated.data.id ?? eventId;
+  } catch (err) {
+    const status = httpStatus(err);
+    if (status === 404 || status === 410) return null;
+    throw err;
+  }
+}
+
 async function insertEventThenReminders(
   calendar: calendar_v3.Calendar,
   body: calendar_v3.Schema$Event,
@@ -240,11 +324,11 @@ async function insertEventThenReminders(
   obligationId: string,
   kind: ObligationEventKind,
 ): Promise<string> {
-  // 1) Insert sans overrides (évite le 400 observé sur certains comptes)
   const created = await calendar.events.insert({
     calendarId: "primary",
     requestBody: {
       ...body,
+      extendedProperties: kouziaPrivateProps(obligationId, kind),
       reminders: { useDefault: true },
     },
   });
@@ -254,7 +338,6 @@ async function insertEventThenReminders(
     );
   }
   const eventId = created.data.id;
-  // 2) Appliquer les rappels Kouzia via patch
   const ok = await patchEventReminders(calendar, eventId, reminders);
   if (!ok) {
     console.warn(
@@ -271,7 +354,7 @@ export type UpsertObligationEventsResult = {
 
 /**
  * Crée / met à jour l'événement d'échéance et, si la fenêtre a un début distinct,
- * l'événement d'ouverture.
+ * l'événement d'ouverture. Idempotent : ne recrée pas si l'event existe déjà.
  */
 export async function upsertObligationEvents(
   calendar: calendar_v3.Calendar,
@@ -299,14 +382,14 @@ export async function upsertObligationEvents(
       kind: "due",
     }),
     kind: "due",
+    obligationId: obligation.id,
   });
-  const dueReminders = remindersForKind("due");
 
   const dueEventId = await upsertSingleEvent(
     calendar,
     obligation.googleCalendarEventId,
     dueBody,
-    dueReminders,
+    remindersForKind("due"),
     obligation.id,
     "due",
   );
@@ -319,6 +402,9 @@ export async function upsertObligationEvents(
     if (obligation.googleCalendarOpenEventId) {
       await deleteObligationEvent(calendar, obligation.googleCalendarOpenEventId);
     }
+    // Nettoyer un éventuel doublon open marqué
+    const strayOpen = await findExistingKouziaEventId(calendar, obligation.id, "open");
+    if (strayOpen) await deleteObligationEvent(calendar, strayOpen);
     return { dueEventId, openEventId: null };
   }
 
@@ -333,6 +419,7 @@ export async function upsertObligationEvents(
       kind: "open",
     }),
     kind: "open",
+    obligationId: obligation.id,
   });
   const openEventId = await upsertSingleEvent(
     calendar,
@@ -346,6 +433,10 @@ export async function upsertObligationEvents(
   return { dueEventId, openEventId };
 }
 
+/**
+ * Met à jour l'événement existant, sinon le retrouve via extendedProperties,
+ * sinon le crée. Ne crée jamais un doublon volontairement.
+ */
 async function upsertSingleEvent(
   calendar: calendar_v3.Calendar,
   existingId: string | null | undefined,
@@ -354,44 +445,114 @@ async function upsertSingleEvent(
   obligationId: string,
   kind: ObligationEventKind,
 ): Promise<string> {
-  if (existingId) {
+  const bodyWithMark: calendar_v3.Schema$Event = {
+    ...body,
+    extendedProperties: kouziaPrivateProps(obligationId, kind),
+  };
+
+  let eventId = existingId?.trim() || null;
+
+  if (!eventId) {
+    eventId = await findExistingKouziaEventId(calendar, obligationId, kind);
+  }
+
+  if (eventId) {
     try {
-      const updated = await calendar.events.update({
-        calendarId: "primary",
-        eventId: existingId,
-        requestBody: {
-          ...body,
-          reminders: {
-            useDefault: false,
-            overrides: reminders.map((r) => ({
-              method: r.method,
-              minutes: r.minutes,
-            })),
-          },
-        },
-      });
-      if (updated.data.id) return updated.data.id;
+      // Patch du corps (sans rappels) puis patch rappels : évite le 400 full-update
+      const patchedId = await patchEventBody(calendar, eventId, bodyWithMark);
+      if (patchedId) {
+        await patchEventReminders(calendar, patchedId, reminders);
+        // Au cas où des doublons existent encore pour cette obligation
+        const again = await findExistingKouziaEventId(calendar, obligationId, kind);
+        return again ?? patchedId;
+      }
+      // 404 : l'id stocké est mort, chercher / créer
+      eventId = await findExistingKouziaEventId(calendar, obligationId, kind);
+      if (eventId) {
+        const revived = await patchEventBody(calendar, eventId, bodyWithMark);
+        if (revived) {
+          await patchEventReminders(calendar, revived, reminders);
+          return revived;
+        }
+      }
     } catch (err: unknown) {
       const status = httpStatus(err);
-      if (status !== 404 && status !== 400) throw err;
+      if (status !== 400) throw err;
       console.warn(
-        `[google-calendar] update ${kind} ${status} pour ${obligationId}, recréation`,
+        `[google-calendar] patch ${kind} 400 pour ${obligationId}, tentative insert si absent`,
         formatGoogleApiError(err),
       );
-      if (status === 400) {
-        // Ancien événement incompatible : supprimer puis recréer
-        await deleteObligationEvent(calendar, existingId);
-      }
+      const found = await findExistingKouziaEventId(calendar, obligationId, kind);
+      if (found) return found;
+    }
+  }
+
+  // Dernière chance avant insert : re-scan (course / sync parallèle)
+  const preexisting = await findExistingKouziaEventId(calendar, obligationId, kind);
+  if (preexisting) {
+    const patched = await patchEventBody(calendar, preexisting, bodyWithMark);
+    if (patched) {
+      await patchEventReminders(calendar, patched, reminders);
+      return patched;
+    }
+  }
+
+  // Anciens events sans extendedProperties : même titre + même jour
+  const legacy = await findLegacyEventBySummaryAndDay(
+    calendar,
+    bodyWithMark.summary ?? "",
+    bodyWithMark.start?.dateTime?.slice(0, 10) ?? "",
+  );
+  if (legacy) {
+    const patched = await patchEventBody(calendar, legacy, bodyWithMark);
+    if (patched) {
+      await patchEventReminders(calendar, patched, reminders);
+      return patched;
     }
   }
 
   return insertEventThenReminders(
     calendar,
-    body,
+    bodyWithMark,
     reminders,
     obligationId,
     kind,
   );
+}
+
+/** Events créés avant le marquage kouzia* : match titre + jour. */
+async function findLegacyEventBySummaryAndDay(
+  calendar: calendar_v3.Calendar,
+  summary: string,
+  ymd: string,
+): Promise<string | null> {
+  if (!summary || !YMD_RE.test(ymd)) return null;
+  try {
+    const res = await calendar.events.list({
+      calendarId: "primary",
+      q: summary,
+      singleEvents: true,
+      maxResults: 15,
+      timeMin: `${ymd}T00:00:00Z`,
+      timeMax: `${nextDayYmd(ymd)}T00:00:00Z`,
+      showDeleted: false,
+    });
+    const matches = (res.data.items ?? []).filter((e) => {
+      if (!e.id || e.status === "cancelled") return false;
+      if (e.summary !== summary) return false;
+      const start =
+        e.start?.dateTime?.slice(0, 10) ?? e.start?.date?.slice(0, 10) ?? "";
+      return start === ymd;
+    });
+    if (matches.length === 0) return null;
+    const [keep, ...dupes] = matches;
+    for (const d of dupes) {
+      if (d.id) await deleteObligationEvent(calendar, d.id);
+    }
+    return keep.id ?? null;
+  } catch {
+    return null;
+  }
 }
 
 /** @deprecated Préférer upsertObligationEvents (ouverture + échéance). */

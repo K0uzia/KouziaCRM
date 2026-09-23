@@ -245,13 +245,29 @@ async function ensureUrssafObligation(settings: CompanySettings, now = new Date(
   if (plans.length === 0) return null;
 
   const keepKeys = plans.map((p) => p.periodKey);
-  await prisma.obligation.deleteMany({
+  const toDrop = await prisma.obligation.findMany({
     where: {
       type: ObligationType.URSSAF_DECLARATION,
       status: { not: ObligationStatus.DONE },
       period: { notIn: keepKeys },
     },
+    select: {
+      id: true,
+      googleCalendarEventId: true,
+      googleCalendarOpenEventId: true,
+    },
   });
+  for (const obl of toDrop) {
+    await removeObligationCalendarEvent(obl.id, {
+      dueId: obl.googleCalendarEventId,
+      openId: obl.googleCalendarOpenEventId,
+    });
+  }
+  if (toDrop.length > 0) {
+    await prisma.obligation.deleteMany({
+      where: { id: { in: toDrop.map((o) => o.id) } },
+    });
+  }
 
   let last: Obligation | null = null;
   for (const plan of plans) {

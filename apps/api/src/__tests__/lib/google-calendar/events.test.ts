@@ -30,6 +30,7 @@ describe("google-calendar event payload", () => {
         kind: "due",
       }),
       kind: "due",
+      obligationId: "obl_1",
     });
 
     expect(payload.summary).toBe("Échéance : Déclaration URSSAF : mars 2026");
@@ -37,6 +38,10 @@ describe("google-calendar event payload", () => {
     expect(payload.start?.timeZone).toBe("Europe/Paris");
     expect(payload.end?.dateTime).toBe(`${ymd}T09:30:00`);
     expect(payload.reminders).toBeUndefined();
+    expect(payload.extendedProperties?.private).toEqual({
+      kouziaObligationId: "obl_1",
+      kouziaKind: "due",
+    });
     expect(payload.description).toContain("https://autoentrepreneur.urssaf.fr");
     expect(payload.description).toContain("Échéance / clôture");
     expect(eventStartIso(due)).toBe(`${ymd}T09:00:00`);
