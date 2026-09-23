@@ -885,7 +885,10 @@ export async function confirmObligation(id: string, now = new Date()) {
     },
   });
 
-  await removeObligationCalendarEvent(id, obl.googleCalendarEventId);
+  await removeObligationCalendarEvent(id, {
+    dueId: obl.googleCalendarEventId,
+    openId: obl.googleCalendarOpenEventId,
+  });
 
   // Sync checklist flags when relevant
   const checklist = await getOrCreateChecklist();

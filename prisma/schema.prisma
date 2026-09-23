@@ -424,8 +424,10 @@ model Obligation {
   attachmentPath String?
   attachmentName String?
   attachmentMime String?
-  /// Id événement Google Calendar (sync Agenda)
+  /// Id événement Google Calendar (échéance / clôture)
   googleCalendarEventId String?
+  /// Id événement Google Calendar (ouverture de la fenêtre déclarative)
+  googleCalendarOpenEventId String?
   createdAt      DateTime         @default(now())
   updatedAt      DateTime         @updatedAt
   reminderLogs   ObligationReminderLog[]

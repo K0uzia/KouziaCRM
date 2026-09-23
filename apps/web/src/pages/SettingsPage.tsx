@@ -1653,10 +1653,11 @@ export function SettingsPage() {
                 <div>
                   <p className="text-sm font-medium">Google Agenda</p>
                   <p className="mt-1 text-xs text-[var(--muted)]">
-                    À la connexion (et via Synchroniser), Kouzia recalcule toutes les dates de
-                    déclaration ouvertes puis crée les événements Google (rappels J-7, J-3,
-                    J-1, jour J à 9h). Pas de calendrier dans Kouzia : sync vers votre
-                    téléphone via Samsung / Google Agenda.
+                    À la connexion (et via Synchroniser), Kouzia recalcule les
+                    obligations ouvertes puis crée deux événements Google par
+                    démarche : ouverture de la fenêtre et échéance / clôture (9h
+                    Europe/Paris, rappels J-7, J-3, J-1, jour J sur l&apos;échéance).
+                    Les emails de rappel (ci-dessous) sont indépendants de Google.
                   </p>
                 </div>
                 <p className="text-sm">

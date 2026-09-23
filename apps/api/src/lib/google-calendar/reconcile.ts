@@ -4,12 +4,13 @@ import {
   officialLinkForObligationType,
   resolveOfficialLinks,
 } from "@/lib/obligations/links.js";
+import { resolveObligationWindow } from "@/lib/obligations/window.js";
 import { prisma } from "@/lib/prisma.js";
 import { getAuthedCalendarClient } from "@/lib/google-calendar/oauth.js";
 import {
   deleteObligationEvent,
   formatGoogleApiError,
-  upsertObligationEvent,
+  upsertObligationEvents,
 } from "@/lib/google-calendar/events.js";
 
 export type ReconcileResult = {
@@ -20,8 +21,8 @@ export type ReconcileResult = {
 };
 
 /**
- * Aligne les événements Google avec les obligations ouvertes.
- * No-op si Google non connecté. Ne lance pas : log + retour d'erreur.
+ * Aligne les événements Google avec les obligations ouvertes
+ * (ouverture de fenêtre + échéance / clôture).
  */
 export async function reconcileObligationCalendarEvents(): Promise<ReconcileResult> {
   try {
@@ -39,7 +40,10 @@ export async function reconcileObligationCalendarEvents(): Promise<ReconcileResu
     const doneWithEvent = await prisma.obligation.findMany({
       where: {
         status: ObligationStatus.DONE,
-        googleCalendarEventId: { not: null },
+        OR: [
+          { googleCalendarEventId: { not: null } },
+          { googleCalendarOpenEventId: { not: null } },
+        ],
       },
     });
 
@@ -48,22 +52,41 @@ export async function reconcileObligationCalendarEvents(): Promise<ReconcileResu
 
     for (const obl of open) {
       const url = officialLinkForObligationType(obl.type, links);
-      const eventId = await upsertObligationEvent(calendar, obl, url);
-      if (eventId !== obl.googleCalendarEventId) {
+      const window = resolveObligationWindow(obl, settings);
+      const { dueEventId, openEventId } = await upsertObligationEvents(
+        calendar,
+        obl,
+        url,
+        window,
+      );
+      if (
+        dueEventId !== obl.googleCalendarEventId ||
+        openEventId !== obl.googleCalendarOpenEventId
+      ) {
         await prisma.obligation.update({
           where: { id: obl.id },
-          data: { googleCalendarEventId: eventId },
+          data: {
+            googleCalendarEventId: dueEventId,
+            googleCalendarOpenEventId: openEventId,
+          },
         });
       }
       upserted += 1;
     }
 
     for (const obl of doneWithEvent) {
-      if (!obl.googleCalendarEventId) continue;
-      await deleteObligationEvent(calendar, obl.googleCalendarEventId);
+      if (obl.googleCalendarEventId) {
+        await deleteObligationEvent(calendar, obl.googleCalendarEventId);
+      }
+      if (obl.googleCalendarOpenEventId) {
+        await deleteObligationEvent(calendar, obl.googleCalendarOpenEventId);
+      }
       await prisma.obligation.update({
         where: { id: obl.id },
-        data: { googleCalendarEventId: null },
+        data: {
+          googleCalendarEventId: null,
+          googleCalendarOpenEventId: null,
+        },
       });
       deleted += 1;
     }
@@ -76,22 +99,40 @@ export async function reconcileObligationCalendarEvents(): Promise<ReconcileResu
   }
 }
 
-/** Supprime l'événement Google d'une obligation confirmée. */
+/** Supprime les événements Google d'une obligation (ouverture + échéance). */
 export async function removeObligationCalendarEvent(
   obligationId: string,
-  eventId: string | null | undefined,
+  ids: {
+    dueId?: string | null;
+    openId?: string | null;
+  },
 ): Promise<void> {
-  if (!eventId) return;
+  const dueId = ids.dueId;
+  const openId = ids.openId;
+  if (!dueId && !openId) {
+    await prisma.obligation.update({
+      where: { id: obligationId },
+      data: {
+        googleCalendarEventId: null,
+        googleCalendarOpenEventId: null,
+      },
+    });
+    return;
+  }
   try {
     const calendar = await getAuthedCalendarClient();
     if (calendar) {
-      await deleteObligationEvent(calendar, eventId);
+      if (dueId) await deleteObligationEvent(calendar, dueId);
+      if (openId) await deleteObligationEvent(calendar, openId);
     }
   } catch (err) {
     console.error("[google-calendar] delete event failed", err);
   }
   await prisma.obligation.update({
     where: { id: obligationId },
-    data: { googleCalendarEventId: null },
+    data: {
+      googleCalendarEventId: null,
+      googleCalendarOpenEventId: null,
+    },
   });
 }

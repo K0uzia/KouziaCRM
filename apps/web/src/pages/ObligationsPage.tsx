@@ -142,6 +142,9 @@ function ObligationRow({
           {item.amountCents != null ? ` · ${formatEUR(item.amountCents)}` : ""}
           {item.period ? ` · ${item.period}` : ""}
         </p>
+        <p className="mt-0.5 text-xs text-[var(--muted)]">
+          Rappels email (si activés) : J-7, J-3, J-1 et jour J avant la clôture
+        </p>
         {item.notes ? (
           <p className="mt-0.5 text-xs text-[var(--muted)]">{item.notes}</p>
         ) : null}

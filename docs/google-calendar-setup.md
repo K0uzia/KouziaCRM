@@ -75,10 +75,13 @@ Le CT garde le refresh token : plus besoin de tunnel pour la sync quotidienne.
 
 ## Après connexion
 
-À la connexion, Kouzia régénère les obligations (URSSAF, CFE, impôts, etc.) puis crée les
-événements Google pour chaque échéance ouverte. Le toast indique le nombre d’événements.
+À la connexion, Kouzia régénère les obligations (URSSAF, CFE, impôts, etc.) puis crée
+deux événements Google par démarche ouverte : **ouverture** de la fenêtre et
+**échéance / clôture** (9h Europe/Paris, rappels popup J-7 / J-3 / J-1 / jour J sur
+l'échéance). Le toast compte les obligations synchronisées (pas le nombre brut d'events).
 
 Si aucun événement n’apparaît : Paramètres → Fiscalité → **Synchroniser maintenant**, et
 vérifier qu’il existe des déclarations ouvertes (date de début d’activité renseignée).
 
-Emails de rappel J-7/J-3/J-1 : SMTP + worker, indépendants de Google.
+Emails de rappel J-7/J-3/J-1/jour J : SMTP + worker + case cochée dans Déclarations,
+indépendants de Google.

@@ -428,7 +428,11 @@ export const settingsRoutes: FastifyPluginAsync = async (app) => {
       },
       actorOf(request),
     );
-    if (businessStartDate !== undefined || rneRegistrationDate !== undefined) {
+    if (
+      businessStartDate !== undefined ||
+      rneRegistrationDate !== undefined ||
+      parsed.data.urssafPeriodicity !== undefined
+    ) {
       await syncObligations();
     }
     return serialize(updated);

@@ -4,16 +4,21 @@ import type { Obligation } from "@prisma/client";
 const TZ = "Europe/Paris";
 const YMD_RE = /^\d{4}-\d{2}-\d{2}$/;
 
-/**
- * Rappels : email pour les délais longs (plus fiable que popup J-7),
- * popup pour J-1 / jour J. Max 5 overrides, minutes 0-40320.
- */
-export const OBLIGATION_EVENT_REMINDERS: calendar_v3.Schema$EventReminder[] = [
-  { method: "email", minutes: 7 * 24 * 60 },
-  { method: "email", minutes: 3 * 24 * 60 },
+/** Rappels popup échéance : J-7, J-3, J-1, jour J (à 9h Europe/Paris). */
+export const OBLIGATION_DUE_REMINDERS: calendar_v3.Schema$EventReminder[] = [
+  { method: "popup", minutes: 7 * 24 * 60 },
+  { method: "popup", minutes: 3 * 24 * 60 },
   { method: "popup", minutes: 1 * 24 * 60 },
   { method: "popup", minutes: 0 },
 ];
+
+/** Rappel popup ouverture : le jour J à 9h. */
+export const OBLIGATION_OPEN_REMINDERS: calendar_v3.Schema$EventReminder[] = [
+  { method: "popup", minutes: 0 },
+];
+
+/** @deprecated Alias historique des rappels d'échéance. */
+export const OBLIGATION_EVENT_REMINDERS = OBLIGATION_DUE_REMINDERS;
 
 /** Date locale YYYY-MM-DD (Europe/Paris), via formatToParts (fiable sur Alpine/musl). */
 export function dueDateYmd(dueDate: Date): string {
@@ -50,53 +55,62 @@ export function nextDayYmd(ymd: string): string {
   return `${yy}-${mm}-${dd}`;
 }
 
-/** @deprecated Conservé pour les tests / anciens appels ; les syncs utilisent des journées entières. */
-export function eventStartIso(dueDate: Date): string {
-  const ymd = dueDateYmd(dueDate);
-  return `${ymd}T09:00:00`;
+export function eventStartIso(at: Date): string {
+  return `${dueDateYmd(at)}T09:00:00`;
 }
 
-/** @deprecated Voir eventStartIso. */
-export function eventEndIso(dueDate: Date): string {
-  const ymd = dueDateYmd(dueDate);
-  return `${ymd}T09:30:00`;
+export function eventEndIso(at: Date): string {
+  return `${dueDateYmd(at)}T09:30:00`;
 }
+
+export type ObligationEventKind = "due" | "open";
 
 export type ObligationEventInput = {
   label: string;
-  dueDate: Date;
+  at: Date;
   description: string;
+  kind: ObligationEventKind;
 };
 
 /**
- * Payload Google Calendar : journée entière + rappels.
- * Objets start/end volontairement minimalistes (pas de dateTime/timeZone: null).
+ * Événement Google à 9h Europe/Paris (créneau 30 min).
+ * Les rappels popup sont appliqués ensuite via patch (plus fiable que insert).
  */
 export function buildObligationEventPayload(
   input: ObligationEventInput,
-  opts?: { withReminders?: boolean },
 ): calendar_v3.Schema$Event {
-  const ymd = dueDateYmd(input.dueDate);
-  const summary = (input.label || "Obligation KouziaCRM").slice(0, 1024);
+  const summaryBase = (input.label || "Obligation KouziaCRM").slice(0, 1000);
+  const summary =
+    input.kind === "open"
+      ? `Ouverture : ${summaryBase}`.slice(0, 1024)
+      : `Échéance : ${summaryBase}`.slice(0, 1024);
   const description = (input.description || "").slice(0, 8000);
-  const event: calendar_v3.Schema$Event = {
+  return {
     summary,
     description,
-    start: { date: ymd },
-    end: { date: nextDayYmd(ymd) },
+    start: {
+      dateTime: eventStartIso(input.at),
+      timeZone: TZ,
+    },
+    end: {
+      dateTime: eventEndIso(input.at),
+      timeZone: TZ,
+    },
   };
-  if (opts?.withReminders !== false) {
-    event.reminders = {
-      useDefault: false,
-      overrides: OBLIGATION_EVENT_REMINDERS.map((r) => ({
-        method: r.method,
-        minutes: r.minutes,
-      })),
-    };
-  } else {
-    event.reminders = { useDefault: true };
-  }
-  return event;
+}
+
+/** @deprecated Ancienne API (dueDate only) : mappe vers kind=due. */
+export function buildObligationEventPayloadLegacy(input: {
+  label: string;
+  dueDate: Date;
+  description: string;
+}): calendar_v3.Schema$Event {
+  return buildObligationEventPayload({
+    label: input.label,
+    at: input.dueDate,
+    description: input.description,
+    kind: "due",
+  });
 }
 
 export function buildObligationDescription(opts: {
@@ -104,17 +118,33 @@ export function buildObligationDescription(opts: {
   type: string;
   period: string;
   officialUrl: string;
+  kind: ObligationEventKind;
 }): string {
+  const role =
+    opts.kind === "open"
+      ? "Ouverture de la fenêtre déclarative"
+      : "Échéance / clôture (dernier délai)";
+  const reminderHint =
+    opts.kind === "open"
+      ? "Rappel Google : jour J à 9h."
+      : "Rappels Google : J-7, J-3, J-1, jour J à 9h.";
   const lines = [
     opts.label,
+    role,
     `Type : ${opts.type}`,
     `Période : ${opts.period}`,
     "",
     `Démarche officielle : ${opts.officialUrl}`,
     "",
-    "Événement synchronisé depuis KouziaCRM (rappels J-7, J-3, J-1, jour J).",
+    `Événement synchronisé depuis KouziaCRM. ${reminderHint}`,
   ];
   return lines.join("\n");
+}
+
+export function remindersForKind(
+  kind: ObligationEventKind,
+): calendar_v3.Schema$EventReminder[] {
+  return kind === "open" ? OBLIGATION_OPEN_REMINDERS : OBLIGATION_DUE_REMINDERS;
 }
 
 /** Message lisible depuis une GaxiosError Google. */
@@ -174,110 +204,218 @@ function httpStatus(err: unknown): number | undefined {
   );
 }
 
-async function insertEventWithFallback(
+async function patchEventReminders(
   calendar: calendar_v3.Calendar,
-  fullBody: calendar_v3.Schema$Event,
-  obligationId: string,
-): Promise<string> {
-  const attempts: Array<{ label: string; body: calendar_v3.Schema$Event }> = [
-    { label: "with-reminders", body: fullBody },
-    {
-      label: "default-reminders",
-      body: {
-        summary: fullBody.summary,
-        description: fullBody.description,
-        start: { date: fullBody.start?.date },
-        end: { date: fullBody.end?.date },
-        reminders: { useDefault: true },
+  eventId: string,
+  reminders: calendar_v3.Schema$EventReminder[],
+): Promise<boolean> {
+  try {
+    await calendar.events.patch({
+      calendarId: "primary",
+      eventId,
+      requestBody: {
+        reminders: {
+          useDefault: false,
+          overrides: reminders.map((r) => ({
+            method: r.method,
+            minutes: r.minutes,
+          })),
+        },
       },
-    },
-    {
-      label: "minimal",
-      body: {
-        summary: fullBody.summary,
-        start: { date: fullBody.start?.date },
-        end: { date: fullBody.end?.date },
-      },
-    },
-  ];
-
-  let lastErr: unknown;
-  for (const attempt of attempts) {
-    try {
-      const created = await calendar.events.insert({
-        calendarId: "primary",
-        requestBody: attempt.body,
-      });
-      if (!created.data.id) {
-        throw new Error(
-          `Création événement Google échouée pour obligation ${obligationId} (${attempt.label})`,
-        );
-      }
-      if (attempt.label !== "with-reminders") {
-        console.warn(
-          `[google-calendar] insert OK via fallback "${attempt.label}" pour ${obligationId}`,
-        );
-      }
-      return created.data.id;
-    } catch (err) {
-      lastErr = err;
-      const status = httpStatus(err);
-      console.error(
-        `[google-calendar] insert failed (${attempt.label})`,
-        formatGoogleApiError(err),
-        "payload=",
-        JSON.stringify(attempt.body),
-      );
-      if (status !== 400) throw err;
-    }
+    });
+    return true;
+  } catch (err) {
+    console.warn(
+      `[google-calendar] patch reminders failed for ${eventId}`,
+      formatGoogleApiError(err),
+    );
+    return false;
   }
-  throw lastErr;
 }
 
-export async function upsertObligationEvent(
+async function insertEventThenReminders(
+  calendar: calendar_v3.Calendar,
+  body: calendar_v3.Schema$Event,
+  reminders: calendar_v3.Schema$EventReminder[],
+  obligationId: string,
+  kind: ObligationEventKind,
+): Promise<string> {
+  // 1) Insert sans overrides (évite le 400 observé sur certains comptes)
+  const created = await calendar.events.insert({
+    calendarId: "primary",
+    requestBody: {
+      ...body,
+      reminders: { useDefault: true },
+    },
+  });
+  if (!created.data.id) {
+    throw new Error(
+      `Création événement Google échouée (${kind}) pour obligation ${obligationId}`,
+    );
+  }
+  const eventId = created.data.id;
+  // 2) Appliquer les rappels Kouzia via patch
+  const ok = await patchEventReminders(calendar, eventId, reminders);
+  if (!ok) {
+    console.warn(
+      `[google-calendar] événement ${kind} créé sans rappels custom (${obligationId})`,
+    );
+  }
+  return eventId;
+}
+
+export type UpsertObligationEventsResult = {
+  dueEventId: string;
+  openEventId: string | null;
+};
+
+/**
+ * Crée / met à jour l'événement d'échéance et, si la fenêtre a un début distinct,
+ * l'événement d'ouverture.
+ */
+export async function upsertObligationEvents(
   calendar: calendar_v3.Calendar,
   obligation: Pick<
     Obligation,
-    "id" | "label" | "dueDate" | "type" | "period" | "googleCalendarEventId"
+    | "id"
+    | "label"
+    | "dueDate"
+    | "type"
+    | "period"
+    | "googleCalendarEventId"
+    | "googleCalendarOpenEventId"
   >,
   officialUrl: string,
-): Promise<string> {
-  const body = buildObligationEventPayload({
+  window: { opensAt: Date; closesAt: Date },
+): Promise<UpsertObligationEventsResult> {
+  const dueBody = buildObligationEventPayload({
     label: obligation.label,
-    dueDate: obligation.dueDate,
+    at: window.closesAt,
     description: buildObligationDescription({
       label: obligation.label,
       type: obligation.type,
       period: obligation.period,
       officialUrl,
+      kind: "due",
     }),
+    kind: "due",
   });
+  const dueReminders = remindersForKind("due");
 
-  if (obligation.googleCalendarEventId) {
+  const dueEventId = await upsertSingleEvent(
+    calendar,
+    obligation.googleCalendarEventId,
+    dueBody,
+    dueReminders,
+    obligation.id,
+    "due",
+  );
+
+  const openYmd = dueDateYmd(window.opensAt);
+  const closeYmd = dueDateYmd(window.closesAt);
+  const needOpen = openYmd !== closeYmd;
+
+  if (!needOpen) {
+    if (obligation.googleCalendarOpenEventId) {
+      await deleteObligationEvent(calendar, obligation.googleCalendarOpenEventId);
+    }
+    return { dueEventId, openEventId: null };
+  }
+
+  const openBody = buildObligationEventPayload({
+    label: obligation.label,
+    at: window.opensAt,
+    description: buildObligationDescription({
+      label: obligation.label,
+      type: obligation.type,
+      period: obligation.period,
+      officialUrl,
+      kind: "open",
+    }),
+    kind: "open",
+  });
+  const openEventId = await upsertSingleEvent(
+    calendar,
+    obligation.googleCalendarOpenEventId,
+    openBody,
+    remindersForKind("open"),
+    obligation.id,
+    "open",
+  );
+
+  return { dueEventId, openEventId };
+}
+
+async function upsertSingleEvent(
+  calendar: calendar_v3.Calendar,
+  existingId: string | null | undefined,
+  body: calendar_v3.Schema$Event,
+  reminders: calendar_v3.Schema$EventReminder[],
+  obligationId: string,
+  kind: ObligationEventKind,
+): Promise<string> {
+  if (existingId) {
     try {
       const updated = await calendar.events.update({
         calendarId: "primary",
-        eventId: obligation.googleCalendarEventId,
-        requestBody: body,
+        eventId: existingId,
+        requestBody: {
+          ...body,
+          reminders: {
+            useDefault: false,
+            overrides: reminders.map((r) => ({
+              method: r.method,
+              minutes: r.minutes,
+            })),
+          },
+        },
       });
       if (updated.data.id) return updated.data.id;
     } catch (err: unknown) {
       const status = httpStatus(err);
-      if (status !== 404) {
-        // Update d'un ancien événement horodaté peut échouer : on recrée.
-        if (status === 400) {
-          console.warn(
-            `[google-calendar] update 400 pour ${obligation.id}, recréation`,
-            formatGoogleApiError(err),
-          );
-        } else {
-          throw err;
-        }
+      if (status !== 404 && status !== 400) throw err;
+      console.warn(
+        `[google-calendar] update ${kind} ${status} pour ${obligationId}, recréation`,
+        formatGoogleApiError(err),
+      );
+      if (status === 400) {
+        // Ancien événement incompatible : supprimer puis recréer
+        await deleteObligationEvent(calendar, existingId);
       }
     }
   }
 
-  return insertEventWithFallback(calendar, body, obligation.id);
+  return insertEventThenReminders(
+    calendar,
+    body,
+    reminders,
+    obligationId,
+    kind,
+  );
+}
+
+/** @deprecated Préférer upsertObligationEvents (ouverture + échéance). */
+export async function upsertObligationEvent(
+  calendar: calendar_v3.Calendar,
+  obligation: Pick<
+    Obligation,
+    | "id"
+    | "label"
+    | "dueDate"
+    | "type"
+    | "period"
+    | "googleCalendarEventId"
+    | "googleCalendarOpenEventId"
+  >,
+  officialUrl: string,
+): Promise<string> {
+  const result = await upsertObligationEvents(
+    calendar,
+    obligation,
+    officialUrl,
+    { opensAt: obligation.dueDate, closesAt: obligation.dueDate },
+  );
+  return result.dueEventId;
 }
 
 export async function deleteObligationEvent(
