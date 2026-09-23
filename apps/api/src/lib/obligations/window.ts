@@ -1,6 +1,9 @@
 import type { CompanySettings, Obligation, ObligationType } from "@prisma/client";
 import { getBusinessStartLocal } from "@/lib/company/business-start.js";
-import { quarterBounds } from "@/lib/finance/urssaf-echeance.js";
+import {
+  quarterBounds,
+  urssafOfficialQuarterlyDeadline,
+} from "@/lib/finance/urssaf-echeance.js";
 
 export type ObligationWindow = {
   opensAt: Date;
@@ -52,7 +55,7 @@ export function resolveObligationWindow(
         const y = Number(quarterly[1]);
         const q = Number(quarterly[2]);
         const periodEnd = quarterBounds(y, q).end;
-        const standardClose = urssafClosesAt(periodEnd);
+        const standardClose = urssafOfficialQuarterlyDeadline(periodEnd);
         const closesAt = endOfDay(new Date(obl.dueDate));
         let opensAt = startOfDay(new Date(y, q * 3, 1, 0, 0, 0, 0));
         if (activityStart && closesAt.getTime() > standardClose.getTime()) {
@@ -107,7 +110,7 @@ export function resolveObligationWindow(
   return { opensAt, closesAt };
 }
 
-/** Échéance URSSAF (15 du mois suivant la fin de période). */
+/** Échéance URSSAF mensuelle (15 du mois suivant la fin de période). */
 export function urssafClosesAt(periodEnd: Date, deadlineDay = 15): Date {
   const day = Math.min(28, Math.max(1, deadlineDay));
   return endOfDay(new Date(periodEnd.getFullYear(), periodEnd.getMonth() + 1, day));

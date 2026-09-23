@@ -63,6 +63,55 @@ export function quarterBounds(year: number, quarter: number, deadlineDay = 5): Q
 }
 
 /**
+ * Échéance officielle micro-entrepreneur trimestrielle :
+ * dernier jour du mois suivant la fin du trimestre, reporté au lundi si weekend
+ * (ex. T2 2027 → 31/07 samedi → 02/08 ; T4 2026 → 31/01 dimanche → 01/02).
+ */
+export function urssafOfficialQuarterlyDeadline(periodEnd: Date): Date {
+  const last = new Date(
+    periodEnd.getFullYear(),
+    periodEnd.getMonth() + 2,
+    0,
+    23,
+    59,
+    59,
+    999,
+  );
+  return nextBusinessDayEnd(last);
+}
+
+/** Trimestre civil avec deadline officielle (fin de mois / jour ouvré). */
+export function quarterBoundsOfficial(year: number, quarter: number): QuarterRef {
+  const base = quarterBounds(year, quarter);
+  return {
+    ...base,
+    deadline: urssafOfficialQuarterlyDeadline(base.end),
+  };
+}
+
+function nextBusinessDayEnd(d: Date): Date {
+  const out = new Date(d.getFullYear(), d.getMonth(), d.getDate(), 23, 59, 59, 999);
+  const dow = out.getDay();
+  if (dow === 6) out.setDate(out.getDate() + 2);
+  else if (dow === 0) out.setDate(out.getDate() + 1);
+  return out;
+}
+
+/** Prochaine échéance trimestrielle officielle >= `from` (pour délai 90 j 1re décla). */
+export function nextOfficialQuarterlyDeadlineOnOrAfter(from: Date): Date {
+  let year = from.getFullYear();
+  let quarter = 1;
+  for (let i = 0; i < 12; i += 1) {
+    const q = ((quarter - 1) % 4) + 1;
+    const y = year + Math.floor((quarter - 1) / 4);
+    const deadline = urssafOfficialQuarterlyDeadline(quarterBounds(y, q).end);
+    if (deadline.getTime() >= from.getTime()) return deadline;
+    quarter += 1;
+  }
+  return urssafOfficialQuarterlyDeadline(quarterBounds(year + 1, 4).end);
+}
+
+/**
  * Période à déclarer / payer en cours (M-1 mensuel, T-1 trimestriel)
  * + date limite dans le mois/trimestre d'échéance.
  */

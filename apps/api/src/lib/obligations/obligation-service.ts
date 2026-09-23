@@ -9,11 +9,12 @@ import { prisma } from "@/lib/prisma.js";
 import { getCompanySettings, invalidateCompanySettingsCache } from "@/lib/company.js";
 import { monthLabelFr, calendarDaysBetween } from "@/lib/finance/dates.js";
 import {
-  previousMonth,
-  previousQuarter,
   quarterBounds,
+  quarterBoundsOfficial,
   currentQuarter,
   currentMonth,
+  nextOfficialQuarterlyDeadlineOnOrAfter,
+  urssafOfficialQuarterlyDeadline,
 } from "@/lib/finance/urssaf-echeance.js";
 import { computeSocialChargesForEncaisse } from "@/lib/publicodes.js";
 import {
@@ -44,8 +45,10 @@ const BANK_DEDICATED_THRESHOLD_CENTS = 1_000_000; // 10 000 €
 const FIRST_URSSAF_GRACE_DAYS = 90;
 const ACTIVITY_QUESTIONNAIRE_DAYS = 30;
 const URGENCY_WINDOW_DAYS = 7;
-/** Micro-entreprise : déclaration URSSAF avant le 15 du mois suivant */
-const URSSAF_DEADLINE_DAY = 15;
+/** Mensuel : échéance le 15 du mois suivant. Trimestriel : fin de mois officielle. */
+const URSSAF_MONTHLY_DEADLINE_DAY = 15;
+/** Nombre de périodes URSSAF ouvertes à planifier (aligné calendrier autoentrepreneur). */
+const URSSAF_OPEN_PERIODS_AHEAD = 4;
 
 export type ObligationView = {
   id: string;
@@ -101,15 +104,16 @@ function addDays(d: Date, days: number): Date {
 }
 
 function urssafDeadlineForPeriod(periodEnd: Date): Date {
-  return urssafClosesAt(periodEnd, URSSAF_DEADLINE_DAY);
+  return urssafClosesAt(periodEnd, URSSAF_MONTHLY_DEADLINE_DAY);
 }
 
-/** 1re déclaration URSSAF : délai 90 j après début d'activité, échéance au 15 suivant. */
+/** 1re déclaration URSSAF : délai 90 j après début d'activité, puis prochaine échéance officielle. */
 async function applyFirstUrssafGrace(
   settings: CompanySettings,
   periodStart: Date,
   baseDueDate: Date,
   label: string,
+  periodicity: UrssafPeriodicity,
 ): Promise<{ dueDate: Date; label: string }> {
   if (!settings.businessStartDate) return { dueDate: baseDueDate, label };
 
@@ -128,13 +132,18 @@ async function applyFirstUrssafGrace(
     return { dueDate: baseDueDate, label: stripped };
   }
 
-  let dueDate = endOfDay(
-    new Date(grace.getFullYear(), grace.getMonth(), URSSAF_DEADLINE_DAY),
-  );
-  if (dueDate.getTime() < grace.getTime()) {
+  let dueDate: Date;
+  if (periodicity === UrssafPeriodicity.QUARTERLY) {
+    dueDate = nextOfficialQuarterlyDeadlineOnOrAfter(grace);
+  } else {
     dueDate = endOfDay(
-      new Date(grace.getFullYear(), grace.getMonth() + 1, URSSAF_DEADLINE_DAY),
+      new Date(grace.getFullYear(), grace.getMonth(), URSSAF_MONTHLY_DEADLINE_DAY),
     );
+    if (dueDate.getTime() < grace.getTime()) {
+      dueDate = endOfDay(
+        new Date(grace.getFullYear(), grace.getMonth() + 1, URSSAF_MONTHLY_DEADLINE_DAY),
+      );
+    }
   }
 
   if (label.includes("1re déclaration")) {
@@ -144,6 +153,127 @@ async function applyFirstUrssafGrace(
     ? `${label.replace(" (1re période)", "")} (1re déclaration, délai 90 j)`
     : `${label} (1re déclaration, délai 90 j)`;
   return { dueDate, label: nextLabel };
+}
+
+type UrssafPeriodPlan = {
+  periodKey: string;
+  periodStart: Date;
+  periodEnd: Date;
+  label: string;
+  baseDueDate: Date;
+};
+
+/**
+ * Périodes URSSAF à afficher : à partir du 1er mois/trimestre d'activité,
+ * jusqu'à URSSAF_OPEN_PERIODS_AHEAD échéances encore pertinentes (pas trop anciennes).
+ */
+function planUrssafPeriods(
+  settings: CompanySettings,
+  now: Date,
+): UrssafPeriodPlan[] {
+  const activityStart = getBusinessStartLocal(settings.businessStartDate)!;
+  const out: UrssafPeriodPlan[] = [];
+  const horizon = addDays(now, 400);
+  const staleBefore = addDays(now, -45);
+
+  if (settings.urssafPeriodicity === UrssafPeriodicity.QUARTERLY) {
+    let year = activityStart.getFullYear();
+    let quarter = Math.floor(activityStart.getMonth() / 3) + 1;
+    for (let i = 0; i < 16 && out.length < URSSAF_OPEN_PERIODS_AHEAD; i += 1) {
+      const q = quarterBoundsOfficial(year, quarter);
+      const clipped = clipPeriodToActivity(q.start, q.end, settings.businessStartDate);
+      if (clipped && q.deadline.getTime() >= staleBefore.getTime() && q.start.getTime() <= horizon.getTime()) {
+        const isFirstPeriod =
+          out.length === 0 && q.start.getTime() <= activityStart.getTime();
+        const label = isFirstPeriod
+          ? `Déclaration URSSAF : ${q.label} (1re période)`
+          : `Déclaration URSSAF : ${q.label}`;
+        out.push({
+          periodKey: q.periodKey,
+          periodStart: clipped.start,
+          periodEnd: clipped.end,
+          label,
+          baseDueDate: q.deadline,
+        });
+      }
+      quarter += 1;
+      if (quarter > 4) {
+        quarter = 1;
+        year += 1;
+      }
+    }
+    return out;
+  }
+
+  let year = activityStart.getFullYear();
+  let month = activityStart.getMonth() + 1;
+  for (let i = 0; i < 18 && out.length < URSSAF_OPEN_PERIODS_AHEAD; i += 1) {
+    const start = new Date(year, month - 1, 1, 0, 0, 0, 0);
+    const end = new Date(year, month, 0, 23, 59, 59, 999);
+    const clipped = clipPeriodToActivity(start, end, settings.businessStartDate);
+    if (clipped) {
+      const periodKey = `${year}-${String(month).padStart(2, "0")}`;
+      const baseDueDate = urssafDeadlineForPeriod(end);
+      const isFirst = out.length === 0;
+      const label = isFirst
+        ? `Déclaration URSSAF : ${monthLabelFr(year, month)} (1re période)`
+        : `Déclaration URSSAF : ${monthLabelFr(year, month)}`;
+      if (baseDueDate.getTime() >= staleBefore.getTime()) {
+        out.push({
+          periodKey,
+          periodStart: clipped.start,
+          periodEnd: clipped.end,
+          label,
+          baseDueDate,
+        });
+      }
+    }
+    month += 1;
+    if (month > 12) {
+      month = 1;
+      year += 1;
+    }
+  }
+  return out;
+}
+
+/** Déclarations URSSAF ouvertes (mensuel ou trimestriel) selon calendrier officiel. */
+async function ensureUrssafObligation(settings: CompanySettings, now = new Date()) {
+  if (!settings.businessStartDate) return null;
+
+  const plans = planUrssafPeriods(settings, now);
+  if (plans.length === 0) return null;
+
+  const keepKeys = plans.map((p) => p.periodKey);
+  await prisma.obligation.deleteMany({
+    where: {
+      type: ObligationType.URSSAF_DECLARATION,
+      status: { not: ObligationStatus.DONE },
+      period: { notIn: keepKeys },
+    },
+  });
+
+  let last: Obligation | null = null;
+  for (const plan of plans) {
+    const { dueDate, label } = await applyFirstUrssafGrace(
+      settings,
+      plan.periodStart,
+      plan.baseDueDate,
+      plan.label,
+      settings.urssafPeriodicity,
+    );
+    const encaisse = await sumEncaisseBetween(plan.periodStart, plan.periodEnd);
+    const { totalCents } = computeSocialChargesForEncaisse(encaisse);
+    last = await upsertObligation({
+      type: ObligationType.URSSAF_DECLARATION,
+      period: plan.periodKey,
+      dueDate,
+      label,
+      amountCents: totalCents,
+      notes: encaisse === 0 ? "CA encaissé de la période : 0 €" : null,
+    });
+  }
+  return last;
 }
 
 export function computeDisplayStatus(
@@ -296,87 +426,6 @@ async function upsertObligation(data: {
   });
 }
 
-/** Première échéance URSSAF après création (délai 90 j) ou période courante due. */
-async function ensureUrssafObligation(settings: CompanySettings, now = new Date()) {
-  if (!settings.businessStartDate) return null;
-
-  const periodicity = settings.urssafPeriodicity;
-
-  let periodKey: string;
-  let periodStart: Date;
-  let periodEnd: Date;
-  let label: string;
-  let dueDate: Date;
-
-  if (periodicity === UrssafPeriodicity.QUARTERLY) {
-    const q = previousQuarter(now);
-    const withDay = quarterBounds(q.year, q.quarter, URSSAF_DEADLINE_DAY);
-    periodKey = withDay.periodKey;
-    periodStart = withDay.start;
-    periodEnd = withDay.end;
-    label = `Déclaration URSSAF : ${withDay.label}`;
-    dueDate = withDay.deadline;
-  } else {
-    const prev = previousMonth(now);
-    periodKey = `${prev.year}-${String(prev.month).padStart(2, "0")}`;
-    periodStart = prev.start;
-    periodEnd = prev.end;
-    label = `Déclaration URSSAF : ${monthLabelFr(prev.year, prev.month)}`;
-    dueDate = urssafDeadlineForPeriod(periodEnd);
-  }
-
-  const clipped = clipPeriodToActivity(periodStart, periodEnd, settings.businessStartDate);
-  if (!clipped) {
-    const activityStart = getBusinessStartLocal(settings.businessStartDate)!;
-    if (now.getTime() < activityStart.getTime()) {
-      if (periodicity === UrssafPeriodicity.QUARTERLY) {
-        const q = Math.floor(activityStart.getMonth() / 3) + 1;
-        const first = quarterBounds(activityStart.getFullYear(), q, URSSAF_DEADLINE_DAY);
-        periodKey = first.periodKey;
-        periodStart = activityStart.getTime() > first.start.getTime() ? activityStart : first.start;
-        periodEnd = first.end;
-        label = `Déclaration URSSAF : ${first.label} (1re période)`;
-        dueDate = first.deadline;
-      } else {
-        const y = activityStart.getFullYear();
-        const m = activityStart.getMonth() + 1;
-        periodKey = `${y}-${String(m).padStart(2, "0")}`;
-        periodStart = activityStart;
-        periodEnd = new Date(y, m, 0, 23, 59, 59, 999);
-        label = `Déclaration URSSAF : ${monthLabelFr(y, m)} (1re période)`;
-        dueDate = urssafDeadlineForPeriod(periodEnd);
-      }
-    } else {
-      return null;
-    }
-  } else {
-    periodStart = clipped.start;
-    periodEnd = clipped.end;
-  }
-
-  ({ dueDate, label } = await applyFirstUrssafGrace(settings, periodStart, dueDate, label));
-
-  const encaisse = await sumEncaisseBetween(periodStart, periodEnd);
-  const { totalCents } = computeSocialChargesForEncaisse(encaisse);
-
-  await prisma.obligation.deleteMany({
-    where: {
-      type: ObligationType.URSSAF_DECLARATION,
-      status: { not: ObligationStatus.DONE },
-      period: { not: periodKey },
-    },
-  });
-
-  return upsertObligation({
-    type: ObligationType.URSSAF_DECLARATION,
-    period: periodKey,
-    dueDate,
-    label,
-    amountCents: totalCents,
-    notes: encaisse === 0 ? "CA encaissé de la période : 0 €" : null,
-  });
-}
-
 async function ensureNextUrssafAfter(
   settings: CompanySettings,
   completedPeriod: string,
@@ -392,7 +441,7 @@ async function ensureNextUrssafAfter(
       quarter = 1;
       year += 1;
     }
-    const next = quarterBounds(year, quarter, URSSAF_DEADLINE_DAY);
+    const next = quarterBoundsOfficial(year, quarter);
     const clipped = clipPeriodToActivity(next.start, next.end, settings.businessStartDate);
     if (!clipped) return null;
     const encaisse = await sumEncaisseBetween(clipped.start, clipped.end);
@@ -555,7 +604,7 @@ async function ensureCfeInitial(settings: CompanySettings) {
     dueDate: endOfDay(new Date(year, 11, 31)),
     label: `Déclaration initiale CFE (${year})`,
     amountCents: null,
-    notes: "À déposer avant le 31 décembre de l'année de création",
+    notes: "Formulaire 1447-C-INT (impôts), distinct de la déclaration URSSAF de CA. À déposer avant le 31 décembre de l'année de création",
   });
 }
 
@@ -687,11 +736,9 @@ async function normalizeOpenUrssafDueDates(settings: CompanySettings) {
         new Date(year, month, 0, 23, 59, 59, 999),
       );
     } else if (quarterly) {
-      dueDate = quarterBounds(
-        Number(quarterly[1]),
-        Number(quarterly[2]),
-        URSSAF_DEADLINE_DAY,
-      ).deadline;
+      dueDate = urssafOfficialQuarterlyDeadline(
+        quarterBounds(Number(quarterly[1]), Number(quarterly[2])).end,
+      );
     }
     if (!dueDate) continue;
 
@@ -710,6 +757,7 @@ async function normalizeOpenUrssafDueDates(settings: CompanySettings) {
       periodStart,
       dueDate,
       o.label,
+      settings.urssafPeriodicity,
     );
     const patch: { dueDate?: Date; label?: string } = {};
     if (o.dueDate.getTime() !== adjusted.getTime()) patch.dueDate = adjusted;
