@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(node .claude/skills/web-audit/scripts/check-repo.mjs)",
+      "Bash(node .claude/skills/web-audit/scripts/check-dist.mjs *)",
+      "Bash(npm run build -w @kouziacrm/web)",
+      "Bash(npx vitest run*)",
+      "Bash(npx prisma generate)"
+    ]
+  }
+}
