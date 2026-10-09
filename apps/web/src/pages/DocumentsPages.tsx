@@ -19,6 +19,10 @@ import { DocumentNumberBadge } from "@/components/documents/DocumentNumberBadge"
 import { InvoiceTypeBadge } from "@/components/documents/InvoiceTypeBadge";
 import { MarketTimeline, type MarketView } from "@/components/documents/MarketTimeline";
 import { AcceptanceProofs } from "@/components/documents/AcceptanceProofs";
+import {
+  ManualPaymentDialog,
+  type ManualPaymentInput,
+} from "@/components/payments/ManualPaymentDialog";
 import { PaymentForm } from "@/components/payments/PaymentForm";
 import { Field, Input, Textarea } from "@/components/ui/Field";
 import { ClientEmailLink } from "@/components/clients/ClientEmailLink";
@@ -245,7 +249,7 @@ function DocumentsListPage({
             onClick={() => setStatusFilter(s)}
             className={`ui-chip rounded-md px-3 text-xs font-medium transition ${
               statusFilter === s
-                ? "bg-[var(--primary)] text-white"
+                ? "bg-[var(--primary)] text-[var(--primary-fg)]"
                 : "bg-[var(--surface)] text-[var(--muted)] ring-1 ring-[var(--border)] hover:text-[var(--text)]"
             }`}
           >
@@ -313,6 +317,7 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
   const [market, setMarket] = useState<MarketView | null>(null);
   const [linked, setLinked] = useState<Doc[]>([]);
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [payingMilestoneId, setPayingMilestoneId] = useState<string | null>(null);
   const [issueOpen, setIssueOpen] = useState(false);
   const [issueBusy, setIssueBusy] = useState(false);
   const [resendBusy, setResendBusy] = useState(false);
@@ -497,20 +502,15 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
     }
   }
 
-  async function manualPayMilestone(milestoneId: string) {
-    const reference = window.prompt("Référence du virement ou chèque (optionnel) :") ?? "";
-    const notes = window.prompt("Commentaire interne (optionnel) :") ?? "";
+  async function manualPayMilestone(milestoneId: string, input: ManualPaymentInput) {
     setBusyId(`pay-${milestoneId}`);
     try {
       await api(`/api/quotes/${id}/milestones/${milestoneId}/pay-manual`, {
         method: "POST",
-        body: JSON.stringify({
-          method: "BANK_TRANSFER",
-          reference: reference || null,
-          notes: notes || null,
-        }),
+        body: JSON.stringify(input),
       });
       toast.success("Acompte marqué comme payé");
+      setPayingMilestoneId(null);
       await load();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Erreur");
@@ -728,10 +728,17 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
           busyId={busyId}
           onGenerateAcompte={(mid) => void generateDeposit(mid)}
           onGenerateSolde={(force) => void generateSolde(Boolean(force))}
-          onManualPay={(mid) => void manualPayMilestone(mid)}
+          onManualPay={(mid) => setPayingMilestoneId(mid)}
           onSavePaymentLink={(mid, url, send) => savePaymentLink(mid, url, send)}
         />
       ) : null}
+      <ManualPaymentDialog
+        open={Boolean(payingMilestoneId)}
+        label={market?.milestones.find((m) => m.id === payingMilestoneId)?.label ?? ""}
+        busy={busyId === `pay-${payingMilestoneId}`}
+        onConfirm={(input) => payingMilestoneId && void manualPayMilestone(payingMilestoneId, input)}
+        onClose={() => setPayingMilestoneId(null)}
+      />
 
       <div className="grid gap-4 lg:grid-cols-3">
         <Card className="space-y-4 p-5 lg:col-span-2">

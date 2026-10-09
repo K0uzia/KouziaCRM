@@ -203,7 +203,7 @@ export function AddressAutocomplete({
       <p className="text-sm font-medium">Adresse de facturation</p>
 
       {apiWarning ? (
-        <p className="rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:bg-amber-950/40 dark:text-amber-100">
+        <p className="rounded-[var(--radius-sm)] border border-[var(--warning)]/30 bg-[var(--warning-soft)] px-3 py-2 text-xs text-[var(--warning)]">
           {apiWarning}
         </p>
       ) : null}

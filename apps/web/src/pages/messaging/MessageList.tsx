@@ -212,8 +212,8 @@ export function MessageList({
                 type="button"
                 className={`ui-chip rounded-full px-3 text-xs ${
                   audience === f.id
-                    ? "bg-[var(--primary)] text-white"
-                    : "bg-[var(--surface-muted)] text-[var(--muted)] hover:text-[var(--text)]"
+                    ? "bg-[var(--primary)] text-[var(--primary-fg)]"
+                    : "bg-[var(--surface-hover)] text-[var(--muted)] hover:text-[var(--text)]"
                 }`}
                 onClick={() => onAudienceChange(f.id)}
               >
@@ -231,7 +231,7 @@ export function MessageList({
               className={`ui-chip rounded-full px-3 text-xs ${
                 viewFilter === f.id
                   ? "bg-[var(--surface-raised)] font-medium text-[var(--text)] ring-1 ring-[var(--border)]"
-                  : "text-[var(--muted)] hover:bg-[var(--surface-muted)] hover:text-[var(--text)]"
+                  : "text-[var(--muted)] hover:bg-[var(--surface-hover)] hover:text-[var(--text)]"
               }`}
               onClick={() => onViewFilterChange(f.id)}
             >
@@ -310,7 +310,7 @@ export function MessageList({
                 className={`group flex items-center gap-2 border-b border-[var(--border)] px-3 py-2.5 ${
                   selectedId === msg.id
                     ? "bg-[var(--primary)]/5"
-                    : "hover:bg-[var(--surface-muted)]"
+                    : "hover:bg-[var(--surface-hover)]"
                 } ${!msg.isRead ? "font-semibold" : ""}`}
                 onContextMenu={(e) => {
                   e.preventDefault();

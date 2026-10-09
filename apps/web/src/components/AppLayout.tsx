@@ -76,11 +76,19 @@ export function AppLayout() {
             className="flex min-h-11 shrink-0 items-center gap-2.5"
             aria-label="Kouzia, accueil"
           >
-            <div className="flex h-9 w-9 items-center justify-center rounded-[var(--radius-sm)] bg-gradient-to-br from-[var(--gradient-from)] to-[var(--gradient-to)] text-sm font-bold text-white">
-              K
-            </div>
-            <span className="hidden font-bold tracking-tight text-[var(--text)] md:inline">
-              Kouzia
+            {/* Même marque que kouzia.com (favicon) */}
+            <svg viewBox="0 0 32 32" className="h-9 w-9 shrink-0" aria-hidden>
+              <rect width="32" height="32" rx="7" fill="var(--surface-raised)" />
+              <path
+                d="M10 7v18M10 17l9-10M13 14l7 11"
+                stroke="var(--primary)"
+                strokeWidth="3"
+                fill="none"
+                strokeLinecap="round"
+              />
+            </svg>
+            <span className="hidden font-display text-lg font-semibold tracking-wide text-[var(--text)] md:inline">
+              Kouzia <span className="text-[var(--primary)]">ERP</span>
             </span>
           </Link>
 
@@ -141,7 +149,7 @@ export function AppLayout() {
             >
               <FontAwesomeIcon icon={faEnvelope} className="h-4 w-4" />
               {unreadCount > 0 ? (
-                <span className="absolute right-0.5 top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-[var(--danger)] px-1 text-[9px] font-bold leading-none text-white">
+                <span className="absolute right-0.5 top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-[var(--danger)] px-1 text-[0.5625rem] font-bold leading-none text-[var(--bg)]">
                   {unreadCount > 99 ? "99+" : unreadCount}
                 </span>
               ) : null}

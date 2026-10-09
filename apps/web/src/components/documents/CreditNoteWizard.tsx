@@ -241,7 +241,7 @@ export function CreditNoteWizard({
               </ul>
 
               {!elig.allowed ? (
-                <div className="space-y-3 rounded-[var(--radius)] border border-[var(--danger)]/40 bg-red-50 p-4 text-[var(--danger)]">
+                <div className="space-y-3 rounded-[var(--radius)] border border-[var(--danger)]/40 bg-[var(--danger-soft)] p-4 text-[var(--danger)]">
                   <p className="font-medium">{elig.message}</p>
                   {elig.alternative ? (
                     <p className="text-[var(--text)]">{elig.alternative}</p>

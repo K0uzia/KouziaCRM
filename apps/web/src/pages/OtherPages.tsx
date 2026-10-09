@@ -263,7 +263,7 @@ export function InboxPage() {
             </Button>
             <Link
               to="/inbox/compose"
-              className="inline-flex h-10 items-center rounded-[var(--radius)] bg-[var(--primary)] px-4 text-sm font-medium text-white"
+              className="inline-flex h-10 items-center rounded-[var(--radius)] bg-[var(--primary)] px-4 text-sm font-semibold text-[var(--primary-fg)]"
             >
               Écrire
             </Link>

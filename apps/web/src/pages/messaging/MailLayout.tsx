@@ -312,7 +312,7 @@ export function MailLayout() {
       {syncStatus && !syncStatus.connected && syncStatus.lastError ? (
         <div
           role="status"
-          className="shrink-0 border-b border-amber-300 bg-amber-50 px-4 py-2 text-sm text-amber-900"
+          className="shrink-0 border-b border-[var(--warning)]/30 bg-[var(--warning-soft)] px-4 py-2 text-sm text-[var(--warning)]"
         >
           Connexion à la boîte perdue : reconnexion en cours… ({syncStatus.lastError})
         </div>

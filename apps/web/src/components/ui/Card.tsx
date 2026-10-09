@@ -9,7 +9,7 @@ const tones = {
   amber: "bg-[var(--warning-soft)] text-[var(--warning)]",
   red: "bg-[var(--danger-soft)] text-[var(--danger)]",
   blue: "bg-[var(--info-soft)] text-[var(--info)]",
-  violet: "bg-[var(--primary-soft)] text-[var(--primary)]",
+  violet: "bg-[var(--accent-2-soft)] text-[var(--accent-2)]",
 } as const;
 
 export function Badge({
@@ -66,14 +66,14 @@ export function Card({
   className?: string;
 }) {
   return (
-    <div className={`glass-card ${className}`}>
+    <div className={`ui-card ${className}`}>
       {children}
     </div>
   );
 }
 
 const iconTones: Record<string, string> = {
-  purple: "bg-[var(--primary-soft)] text-[var(--primary)]",
+  purple: "bg-[var(--accent-2-soft)] text-[var(--accent-2)]",
   green: "bg-[var(--success-soft)] text-[var(--success)]",
   blue: "bg-[var(--info-soft)] text-[var(--info)]",
   orange: "bg-[var(--orange-soft)] text-[var(--orange)]",

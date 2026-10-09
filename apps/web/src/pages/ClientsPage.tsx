@@ -205,8 +205,8 @@ export function ClientsPage() {
                 type="button"
                 className={`ui-chip rounded-full px-3 text-xs ${
                   correspondenceFilter === id
-                    ? "bg-[var(--primary)] text-white"
-                    : "bg-[var(--surface-muted)] text-[var(--muted)]"
+                    ? "bg-[var(--primary)] text-[var(--primary-fg)]"
+                    : "bg-[var(--surface-hover)] text-[var(--muted)]"
                 }`}
                 onClick={() => setCorrespondenceFilter(id)}
               >

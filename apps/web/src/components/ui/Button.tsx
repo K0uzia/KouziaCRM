@@ -3,7 +3,7 @@ import type { ButtonHTMLAttributes, ReactNode } from "react";
 type Variant = "primary" | "secondary" | "ghost" | "danger";
 
 const styles: Record<Variant, string> = {
-  primary: "btn-gradient border-transparent shadow-[var(--shadow-sm)]",
+  primary: "btn-accent shadow-[var(--shadow-sm)]",
   secondary:
     "bg-[var(--surface-raised)] text-[var(--text)] border-[var(--border)] hover:bg-[var(--surface-hover)]",
   ghost:

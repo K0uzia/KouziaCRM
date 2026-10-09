@@ -31,8 +31,8 @@ export default function RevenueChart({ data }: { data: RevenuePoint[] }) {
       <BarChart data={data} barCategoryGap="18%" barGap={2}>
         <defs>
           <linearGradient id="barCa" x1="0" y1="1" x2="0" y2="0">
-            <stop offset="0%" stopColor="#7c3aed" />
-            <stop offset="100%" stopColor="#a5b4fc" />
+            <stop offset="0%" stopColor="var(--primary)" />
+            <stop offset="100%" stopColor="var(--primary-hover)" />
           </linearGradient>
         </defs>
         <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
@@ -64,16 +64,16 @@ export default function RevenueChart({ data }: { data: RevenuePoint[] }) {
           wrapperStyle={{ fontSize: 12, color: "var(--muted)", paddingTop: 8 }}
         />
         <Bar dataKey="ca" fill="url(#barCa)" name="Encaissé" radius={[6, 6, 0, 0]} maxBarSize={28} />
-        <Bar dataKey="urssaf" fill="#fb7185" name="URSSAF" radius={[6, 6, 0, 0]} maxBarSize={28} />
-        <Bar dataKey="salaire" fill="#34d399" name="Salaire" radius={[6, 6, 0, 0]} maxBarSize={28} />
+        <Bar dataKey="urssaf" fill="var(--danger)" name="URSSAF" radius={[6, 6, 0, 0]} maxBarSize={28} />
+        <Bar dataKey="salaire" fill="var(--success)" name="Salaire" radius={[6, 6, 0, 0]} maxBarSize={28} />
         <Bar
           dataKey="tresorerie"
-          fill="#60a5fa"
+          fill="var(--info)"
           name="Trésorerie"
           radius={[6, 6, 0, 0]}
           maxBarSize={28}
         />
-        <Bar dataKey="cfe" fill="#fbbf24" name="CFE" radius={[6, 6, 0, 0]} maxBarSize={28} />
+        <Bar dataKey="cfe" fill="var(--accent-2)" name="CFE" radius={[6, 6, 0, 0]} maxBarSize={28} />
       </BarChart>
     </ResponsiveContainer>
   );

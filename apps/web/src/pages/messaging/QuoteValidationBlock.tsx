@@ -71,7 +71,7 @@ export function QuoteValidationBlock({
         <>
           <p className="text-sm font-semibold text-teal-900">Devis en attente de validation</p>
           {quoteConfirmationHint ? (
-            <p className="mt-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+            <p className="mt-2 rounded-[var(--radius-sm)] border border-[var(--warning)]/30 bg-[var(--warning-soft)] px-3 py-2 text-sm text-[var(--warning)]">
               Ce fil contient une formulation de validation (ex. « je valide », « bon pour accord »).
               Vérifiez le message du client, puis validez le devis ci-dessous.
             </p>
@@ -80,7 +80,7 @@ export function QuoteValidationBlock({
             {pendingQuotes.map((q) => (
               <li
                 key={q.id}
-                className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-teal-100 bg-white px-3 py-2 text-sm"
+                className="flex flex-wrap items-center justify-between gap-2 rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--surface-raised)] px-3 py-2 text-sm"
               >
                 <span>
                   {q.number ?? "Sans numéro"} · {formatEUR(q.totalCents)}

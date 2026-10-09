@@ -66,7 +66,7 @@ export function FolderSidebar({ folders, selectedId, onSelect, onSync, onCompose
             className={`flex min-h-11 w-full items-center justify-between rounded-lg px-3 py-2 text-left text-sm transition-colors ${
               selectedId === folder.id
                 ? "bg-[var(--primary)]/10 font-medium text-[var(--primary)]"
-                : "hover:bg-[var(--surface-muted)]"
+                : "hover:bg-[var(--surface-hover)]"
             }`}
           >
             <span className="flex items-center gap-2 truncate">
@@ -74,7 +74,7 @@ export function FolderSidebar({ folders, selectedId, onSelect, onSync, onCompose
               {folderLabel(folder)}
             </span>
             {(folder.unreadCount ?? 0) > 0 ? (
-              <span className="ml-2 rounded-full bg-[var(--primary)] px-2 py-0.5 text-xs text-white">
+              <span className="ml-2 rounded-full bg-[var(--primary)] px-2 py-0.5 text-xs font-semibold text-[var(--primary-fg)]">
                 {folder.unreadCount}
               </span>
             ) : null}
