@@ -11,7 +11,8 @@ import {
 } from "@fortawesome/free-solid-svg-icons";
 import { useAuth } from "@/lib/auth";
 import { CommandPalette } from "@/components/CommandPalette";
-import { NewMailPill } from "@/components/NewMailPill";
+import { NotificationBell } from "@/components/NotificationBell";
+import { NotificationsProvider } from "@/lib/notifications";
 import { MoreMenu } from "@/components/ui/MoreMenu";
 import { useNewMailAlert } from "@/hooks/useNewMailAlert";
 import {
@@ -145,11 +146,7 @@ export function AppLayout() {
   const { pathname } = useLocation();
   const features = useFeatures();
   const { item: current, section: currentSection } = locate(pathname);
-  const {
-    visible: newMailVisible,
-    unreadCount,
-    dismiss: dismissNewMail,
-  } = useNewMailAlert();
+  const { unreadCount } = useNewMailAlert();
   const isMailWorkspace =
     pathname === "/inbox" ||
     (pathname.startsWith("/inbox/") && !pathname.startsWith("/inbox/compose"));
@@ -205,6 +202,7 @@ export function AppLayout() {
   ];
 
   return (
+    <NotificationsProvider>
     <div className="flex h-dvh min-w-0 overflow-hidden bg-[var(--bg)]">
       <a
         href="#contenu"
@@ -303,6 +301,7 @@ export function AppLayout() {
             >
               <FontAwesomeIcon icon={faMagnifyingGlass} className="h-4 w-4" />
             </button>
+            <NotificationBell />
             <MoreMenu
               items={createItems}
               label={<span className="hidden sm:inline">Créer</span>}
@@ -371,11 +370,7 @@ export function AppLayout() {
       </div>
 
       <CommandPalette open={paletteOpen} onOpenChange={setPaletteOpen} />
-      <NewMailPill
-        visible={newMailVisible && !pathname.startsWith("/inbox")}
-        unreadCount={unreadCount}
-        onDismiss={dismissNewMail}
-      />
     </div>
+    </NotificationsProvider>
   );
 }

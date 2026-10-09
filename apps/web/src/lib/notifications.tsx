@@ -1,0 +1,230 @@
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
+import { useNavigate } from "react-router-dom";
+import { toast } from "sonner";
+import { api } from "@/lib/api";
+
+export type NotificationKind = "mail" | "quote_accepted" | "quote_rejected" | "payment" | "testimonial";
+
+export type NotificationItem = {
+  id: string;
+  kind: NotificationKind;
+  title: string;
+  body: string;
+  href: string;
+  at: string;
+};
+
+type Feed = { items: NotificationItem[]; serverTime: string };
+
+const POLL_MS = 10_000;
+const SEEN_KEY = "kouzia.notifications.seenAt";
+const SOUND_KEY = "kouzia.notifications.sound";
+
+// Préférences légères du poste : stockage navigateur, protégé (navigation privée, quota).
+function readPref(key: string): string | null {
+  try {
+    return localStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+function writePref(key: string, value: string) {
+  try {
+    localStorage.setItem(key, value);
+  } catch {
+    /* préférence non persistée : sans conséquence */
+  }
+}
+
+/** Petit carillon à deux notes, généré à la volée (aucun fichier audio). */
+function useChime() {
+  const ctxRef = useRef<AudioContext | null>(null);
+
+  useEffect(() => {
+    // Les navigateurs n'autorisent l'audio qu'après une interaction : on prépare le contexte au premier clic.
+    const unlock = () => {
+      if (!ctxRef.current) {
+        const Ctor = window.AudioContext ?? (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+        if (Ctor) ctxRef.current = new Ctor();
+      }
+      void ctxRef.current?.resume();
+    };
+    window.addEventListener("pointerdown", unlock, { once: true });
+    window.addEventListener("keydown", unlock, { once: true });
+    return () => {
+      window.removeEventListener("pointerdown", unlock);
+      window.removeEventListener("keydown", unlock);
+    };
+  }, []);
+
+  return useCallback((kind: NotificationKind) => {
+    const ctx = ctxRef.current;
+    if (!ctx || ctx.state !== "running") return;
+    const notes = kind === "quote_rejected" ? [660, 494] : kind === "mail" ? [784, 988] : [659, 880, 1047];
+    notes.forEach((freq, i) => {
+      const t = ctx.currentTime + i * 0.12;
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = "sine";
+      osc.frequency.value = freq;
+      gain.gain.setValueAtTime(0.0001, t);
+      gain.gain.exponentialRampToValueAtTime(0.18, t + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.35);
+      osc.connect(gain).connect(ctx.destination);
+      osc.start(t);
+      osc.stop(t + 0.4);
+    });
+  }, []);
+}
+
+type Ctx = {
+  items: NotificationItem[];
+  unread: number;
+  /** Date de dernière lecture (ISO) : une notification plus récente est non lue. */
+  seenAt: string;
+  markAllRead: () => void;
+  soundEnabled: boolean;
+  setSoundEnabled: (v: boolean) => void;
+  desktopPermission: NotificationPermission | "unsupported";
+  requestDesktop: () => Promise<void>;
+  open: (item: NotificationItem) => void;
+};
+
+const NotificationsCtx = createContext<Ctx | null>(null);
+
+export function NotificationsProvider({ children }: { children: ReactNode }) {
+  const navigate = useNavigate();
+  const chime = useChime();
+  const [items, setItems] = useState<NotificationItem[]>([]);
+  const [seenAt, setSeenAt] = useState<string>(() => readPref(SEEN_KEY) ?? new Date(0).toISOString());
+  const [soundEnabled, setSoundState] = useState(() => readPref(SOUND_KEY) !== "off");
+  const [desktopPermission, setDesktopPermission] = useState<NotificationPermission | "unsupported">(() =>
+    typeof Notification === "undefined" ? "unsupported" : Notification.permission,
+  );
+  const cursor = useRef<string | null>(null);
+  const itemsRef = useRef<NotificationItem[]>([]);
+  itemsRef.current = items;
+  const soundRef = useRef(soundEnabled);
+  soundRef.current = soundEnabled;
+
+  const open = useCallback(
+    (item: NotificationItem) => {
+      navigate(item.href);
+    },
+    [navigate],
+  );
+
+  const announce = useCallback(
+    (fresh: NotificationItem[]) => {
+      // Au plus 3 toasts par vague, le reste est dans la cloche.
+      fresh.slice(0, 3).forEach((item) => {
+        const show = item.kind === "quote_rejected" ? toast.warning : item.kind === "mail" ? toast.message : toast.success;
+        show(item.title, {
+          id: item.id,
+          description: item.body,
+          duration: 8000,
+          action: { label: "Ouvrir", onClick: () => navigate(item.href) },
+        });
+      });
+      if (soundRef.current) chime(fresh[0].kind);
+      if (typeof Notification !== "undefined" && Notification.permission === "granted") {
+        fresh.slice(0, 3).forEach((item) => {
+          const n = new Notification(item.title, { body: item.body, tag: item.id, icon: "/favicon.svg" });
+          n.onclick = () => {
+            window.focus();
+            navigate(item.href);
+            n.close();
+          };
+        });
+      }
+    },
+    [chime, navigate],
+  );
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function first() {
+      const feed = await api<Feed>("/api/notifications/feed");
+      if (cancelled) return;
+      setItems(feed.items);
+      cursor.current = feed.serverTime;
+    }
+
+    async function poll() {
+      if (!cursor.current) return;
+      const feed = await api<Feed>(`/api/notifications/feed?since=${encodeURIComponent(cursor.current)}`);
+      if (cancelled) return;
+      cursor.current = feed.serverTime;
+      if (feed.items.length === 0) return;
+      const known = new Set(itemsRef.current.map((i) => i.id));
+      const fresh = feed.items.filter((i) => !known.has(i.id));
+      if (fresh.length === 0) return;
+      itemsRef.current = [...fresh, ...itemsRef.current].slice(0, 50);
+      setItems(itemsRef.current);
+      announce(fresh);
+    }
+
+    first().catch(() => undefined);
+    const id = setInterval(() => void poll().catch(() => undefined), POLL_MS);
+    // Retour sur l'onglet : rattrapage immédiat plutôt qu'au prochain cycle.
+    const onVisible = () => {
+      if (document.visibilityState === "visible") void poll().catch(() => undefined);
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+  }, [announce]);
+
+  const value = useMemo<Ctx>(
+    () => ({
+      items,
+      seenAt,
+      unread: items.filter((i) => i.at > seenAt).length,
+      markAllRead: () => {
+        const now = new Date().toISOString();
+        setSeenAt(now);
+        writePref(SEEN_KEY, now);
+      },
+      soundEnabled,
+      setSoundEnabled: (v) => {
+        setSoundState(v);
+        writePref(SOUND_KEY, v ? "on" : "off");
+      },
+      desktopPermission,
+      requestDesktop: async () => {
+        if (typeof Notification === "undefined") return;
+        const result = await Notification.requestPermission();
+        setDesktopPermission(result);
+        if (result === "granted") {
+          new Notification("Notifications activées", {
+            body: "Vous serez prévenu des nouveaux messages, devis et paiements.",
+            icon: "/favicon.svg",
+          });
+        }
+      },
+      open,
+    }),
+    [items, seenAt, soundEnabled, desktopPermission, open],
+  );
+
+  return <NotificationsCtx.Provider value={value}>{children}</NotificationsCtx.Provider>;
+}
+
+export function useNotifications(): Ctx {
+  const ctx = useContext(NotificationsCtx);
+  if (!ctx) throw new Error("useNotifications hors NotificationsProvider");
+  return ctx;
+}
