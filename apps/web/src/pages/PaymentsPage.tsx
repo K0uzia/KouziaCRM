@@ -3,9 +3,10 @@ import { Link } from "react-router-dom";
 import { toast } from "sonner";
 import { api, formatEUR } from "@/lib/api";
 import { formatDate, paymentMethodLabel } from "@/lib/format";
-import { Badge, Card, PageHeader } from "@/components/ui/Card";
+import { Badge, PageHeader } from "@/components/ui/Card";
 import { Modal } from "@/components/ui/Modal";
 import { Button } from "@/components/ui/Button";
+import { StatStrip } from "@/components/ui/StatStrip";
 import { DataTable, type TableColumn } from "@/components/ui/DataTable";
 import { PaymentForm } from "@/components/payments/PaymentForm";
 import { Select } from "@/components/ui/Field";
@@ -151,20 +152,19 @@ export function PaymentsPage() {
         }
       />
 
-      <div className="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-3 sm:gap-4 [&>*:first-child]:col-span-2 sm:[&>*:first-child]:col-span-1">
-        <Card className="p-4">
-          <p className="text-xs text-[var(--muted)]">Encaissé ce mois</p>
-          <p className="mt-1 text-2xl font-semibold tabular-nums">{formatEUR(totalMonth)}</p>
-        </Card>
-        <Card className="p-4">
-          <p className="text-xs text-[var(--muted)]">Paiements enregistrés</p>
-          <p className="mt-1 text-2xl font-semibold tabular-nums">{payments.length}</p>
-        </Card>
-        <Card className="p-4">
-          <p className="text-xs text-[var(--muted)]">Factures à encaisser</p>
-          <p className="mt-1 text-2xl font-semibold tabular-nums">{openInvoices.length}</p>
-        </Card>
-      </div>
+      <StatStrip
+        className="mb-6"
+        items={[
+          { label: "Encaissé ce mois", value: formatEUR(totalMonth), tone: "success" },
+          { label: "Paiements enregistrés", value: String(payments.length) },
+          {
+            label: "Factures à encaisser",
+            value: String(openInvoices.length),
+            hint: openInvoices.length ? "en attente de règlement" : "tout est réglé",
+            tone: openInvoices.length ? "primary" : "default",
+          },
+        ]}
+      />
 
       <DataTable
         columns={columns}

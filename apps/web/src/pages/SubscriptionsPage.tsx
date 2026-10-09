@@ -10,6 +10,8 @@ import { Card, EmptyState, PageHeader, Badge } from "@/components/ui/Card";
 import { Modal, ModalActions } from "@/components/ui/Modal";
 import { Field, Input, Select } from "@/components/ui/Field";
 import { useCreateParam } from "@/lib/use-create-param";
+import { StatStrip } from "@/components/ui/StatStrip";
+import { Tabs, useTabParam } from "@/components/ui/Tabs";
 
 type SubscriptionStatus = "ACTIVE" | "PAUSED" | "ENDED";
 
@@ -252,6 +254,8 @@ export function SubscriptionsPage() {
     }
   }
 
+  const [tab, setTab] = useTabParam(["contrats", "offres"] as const, "contrats");
+
   if (!featuresLoading && !moduleSubscriptionsEnabled) {
     return <Navigate to="/services" replace />;
   }
@@ -260,176 +264,208 @@ export function SubscriptionsPage() {
     <div>
       <PageHeader
         title="Abonnements"
-        subtitle="Contrats de maintenance mensuels récurrents"
+        subtitle="Contrats de maintenance mensuels : une facture est émise automatiquement chaque mois."
         actions={
-          <Button onClick={openCreate}>
-            <FontAwesomeIcon icon={faPlus} className="h-3.5 w-3.5" />
-            Nouvel abonnement
-          </Button>
+          <>
+            <Button variant="secondary" onClick={openCreateOffer}>
+              <FontAwesomeIcon icon={faPlus} className="h-3.5 w-3.5" aria-hidden />
+              Nouvelle offre
+            </Button>
+            <Button onClick={openCreate}>
+              <FontAwesomeIcon icon={faPlus} className="h-3.5 w-3.5" aria-hidden />
+              Nouvel abonnement
+            </Button>
+          </>
         }
       />
 
-      <Card className="mb-6">
-        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[var(--border)] px-5 py-4">
-          <div>
-            <h2 className="text-base font-semibold text-[var(--text)]">Offres abonnement</h2>
-            <p className="text-xs text-[var(--muted)]">
-              Tarifs mensuels réutilisables pour créer un contrat client
-            </p>
-          </div>
-          <Button variant="secondary" onClick={openCreateOffer}>
-            <FontAwesomeIcon icon={faPlus} className="h-3.5 w-3.5" />
-            Nouvelle offre
-          </Button>
-        </div>
-        {offers.length === 0 ? (
-          <EmptyState
-            title="Aucune offre abonnement"
-            hint="Définissez vos forfaits mensuels (maintenance, hébergement, etc.) avant de créer un contrat."
-          />
-        ) : (
-          <div className="divide-y divide-[var(--border)]">
-            {offers.map((o) => (
-              <div
-                key={o.id}
-                className="flex flex-wrap items-center justify-between gap-4 px-5 py-4 hover:bg-[var(--surface-hover)]"
-              >
-                <div className="min-w-0">
-                  <p className="font-medium text-[var(--text)]">{o.name}</p>
-                  {o.description ? (
-                    <p className="mt-1 text-sm text-[var(--muted)]">{o.description}</p>
-                  ) : null}
-                  <p className="mt-1 text-xs text-[var(--muted)]">
-                    Facturation le {o.defaultBillingDay ?? 1} de chaque mois
-                  </p>
-                </div>
-                <div className="flex items-center gap-4">
-                  <div className="text-right">
-                    <p className="text-lg font-semibold tabular-nums">{formatEUR(o.unitPriceCents)}</p>
-                    <p className="text-xs text-[var(--muted)]">HT / mois</p>
-                  </div>
-                  {!o.active ? <Badge tone="red">Inactive</Badge> : null}
-                  <Button
-                    variant="ghost"
-                    className="h-8 px-3 text-xs"
-                    onClick={() => openEditOffer(o)}
-                  >
-                    Modifier
-                  </Button>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </Card>
+      {rows.length > 0 ? (
+        <StatStrip
+          className="mb-6"
+          items={(() => {
+            const active = rows.filter((r) => r.status === "ACTIVE");
+            const next = active
+              .map((r) => r.nextInvoiceAt)
+              .filter(Boolean)
+              .sort()[0];
+            return [
+              {
+                label: "Revenu mensuel récurrent",
+                value: formatEUR(active.reduce((acc, r) => acc + r.amountCents, 0)),
+                hint: "HT, contrats actifs",
+                tone: "success" as const,
+              },
+              { label: "Contrats actifs", value: String(active.length) },
+              { label: "Suspendus", value: String(rows.filter((r) => r.status === "PAUSED").length) },
+              { label: "Prochaine facture", value: next ? formatDate(next) : "-" },
+            ];
+          })()}
+        />
+      ) : null}
 
-      <Card>
-        {rows.length === 0 ? (
-          <EmptyState
-            title="Aucun abonnement"
-            hint="Créez un contrat de maintenance mensuel : une facture sera émise automatiquement chaque mois."
-          />
+      <Tabs
+        label="Abonnements"
+        value={tab}
+        onChange={setTab}
+        tabs={[
+          { id: "contrats", label: "Contrats clients", count: rows.length },
+          { id: "offres", label: "Offres", count: offers.length },
+        ]}
+      >
+        {tab === "contrats" ? (
+            <Card className="overflow-hidden">
+              {rows.length === 0 ? (
+                <EmptyState
+                  title="Aucun abonnement"
+                  hint="Créez un contrat de maintenance mensuel : une facture sera émise automatiquement chaque mois."
+                />
+              ) : (
+                <div className="ui-table-wrap max-md:overflow-visible">
+                  <table className="ui-table ui-table-stack">
+                    <thead>
+                      <tr>
+                        <th className="nowrap">Client</th>
+                        <th className="wrap">Libellé</th>
+                        <th className="nowrap text-right">Montant/mois</th>
+                        <th className="nowrap">Jour</th>
+                        <th className="nowrap">Prochaine facture</th>
+                        <th className="nowrap">Statut</th>
+                        <th className="col-actions" />
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {rows.map((s) => {
+                        const badge = statusBadge[s.status];
+                        return (
+                          <tr key={s.id}>
+                            <td className="nowrap" data-label="Client">
+                              <p className="font-medium">{s.client.displayName}</p>
+                              <p className="text-xs text-[var(--muted)]">{s.service.name}</p>
+                            </td>
+                            <td className="wrap" data-label="Libellé">{s.label}</td>
+                            <td className="nowrap text-right tabular-nums font-medium" data-label="Montant/mois">
+                              {formatEUR(s.amountCents)}
+                            </td>
+                            <td className="nowrap" data-label="Jour">{s.billingDay}</td>
+                            <td className="nowrap text-[var(--muted)]" data-label="Prochaine facture">
+                              {formatDate(s.nextInvoiceAt)}
+                            </td>
+                            <td className="nowrap" data-label="Statut">
+                              <Badge tone={badge.tone}>{badge.label}</Badge>
+                            </td>
+                            <td className="col-actions">
+                              <div className="flex justify-end gap-1">
+                              {s.status !== "ENDED" ? (
+                                <Button
+                                  variant="ghost"
+                                  className="px-2 text-xs"
+                                  onClick={() => openEdit(s)}
+                                  aria-label="Modifier (libellé, jour)"
+                                  title="Modifier (libellé, jour)"
+                                >
+                                  <FontAwesomeIcon icon={faPen} className="h-3 w-3" />
+                                </Button>
+                              ) : null}
+                              {s.status === "ACTIVE" ? (
+                                <Button
+                                  variant="ghost"
+                                  className="px-2 text-xs"
+                                  onClick={() => openRevise(s)}
+                                  aria-label="Réviser le montant (avenant)"
+                                  title="Réviser le montant (avenant)"
+                                >
+                                  <FontAwesomeIcon icon={faSync} className="h-3 w-3" />
+                                </Button>
+                              ) : null}
+                              {s.status === "ACTIVE" ? (
+                                <Button
+                                  variant="ghost"
+                                  className="px-2 text-xs"
+                                  onClick={() => void action(s.id, "pause")}
+                                  aria-label="Suspendre"
+                                  title="Suspendre"
+                                >
+                                  <FontAwesomeIcon icon={faPause} className="h-3 w-3" />
+                                </Button>
+                              ) : null}
+                              {s.status === "PAUSED" ? (
+                                <Button
+                                  variant="ghost"
+                                  className="px-2 text-xs"
+                                  onClick={() => void action(s.id, "resume")}
+                                  aria-label="Reprendre"
+                                  title="Reprendre"
+                                >
+                                  <FontAwesomeIcon icon={faPlay} className="h-3 w-3" />
+                                </Button>
+                              ) : null}
+                              {s.status !== "ENDED" ? (
+                                <Button
+                                  variant="ghost"
+                                  className="px-2 text-xs"
+                                  onClick={() => void action(s.id, "end")}
+                                  aria-label="Clôturer"
+                                  title="Clôturer"
+                                >
+                                  <FontAwesomeIcon icon={faStop} className="h-3 w-3" />
+                                </Button>
+                              ) : null}
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+                </div>
+              )}
+            </Card>
+
         ) : (
-          <div className="ui-table-wrap max-md:overflow-visible">
-            <table className="ui-table ui-table-stack">
-              <thead>
-                <tr>
-                  <th className="nowrap">Client</th>
-                  <th className="wrap">Libellé</th>
-                  <th className="nowrap text-right">Montant/mois</th>
-                  <th className="nowrap">Jour</th>
-                  <th className="nowrap">Prochaine facture</th>
-                  <th className="nowrap">Statut</th>
-                  <th className="col-actions" />
-                </tr>
-              </thead>
-              <tbody>
-                {rows.map((s) => {
-                  const badge = statusBadge[s.status];
-                  return (
-                    <tr key={s.id}>
-                      <td className="nowrap" data-label="Client">
-                        <p className="font-medium">{s.client.displayName}</p>
-                        <p className="text-xs text-[var(--muted)]">{s.service.name}</p>
-                      </td>
-                      <td className="wrap" data-label="Libellé">{s.label}</td>
-                      <td className="nowrap text-right tabular-nums font-medium" data-label="Montant/mois">
-                        {formatEUR(s.amountCents)}
-                      </td>
-                      <td className="nowrap" data-label="Jour">{s.billingDay}</td>
-                      <td className="nowrap text-[var(--muted)]" data-label="Prochaine facture">
-                        {formatDate(s.nextInvoiceAt)}
-                      </td>
-                      <td className="nowrap" data-label="Statut">
-                        <Badge tone={badge.tone}>{badge.label}</Badge>
-                      </td>
-                      <td className="col-actions">
-                        <div className="flex justify-end gap-1">
-                        {s.status !== "ENDED" ? (
-                          <Button
-                            variant="ghost"
-                            className="px-2 text-xs"
-                            onClick={() => openEdit(s)}
-                            aria-label="Modifier (libellé, jour)"
-                            title="Modifier (libellé, jour)"
-                          >
-                            <FontAwesomeIcon icon={faPen} className="h-3 w-3" />
-                          </Button>
+            <Card className="overflow-hidden">
+              {offers.length === 0 ? (
+                <EmptyState
+                  title="Aucune offre abonnement"
+                  hint="Définissez vos forfaits mensuels (maintenance, hébergement, etc.) avant de créer un contrat."
+                />
+              ) : (
+                <div className="divide-y divide-[var(--border)]">
+                  {offers.map((o) => (
+                    <div
+                      key={o.id}
+                      className="flex flex-wrap items-center justify-between gap-4 px-5 py-4 hover:bg-[var(--surface-hover)]"
+                    >
+                      <div className="min-w-0">
+                        <p className="font-medium text-[var(--text)]">{o.name}</p>
+                        {o.description ? (
+                          <p className="mt-1 text-sm text-[var(--muted)]">{o.description}</p>
                         ) : null}
-                        {s.status === "ACTIVE" ? (
-                          <Button
-                            variant="ghost"
-                            className="px-2 text-xs"
-                            onClick={() => openRevise(s)}
-                            aria-label="Réviser le montant (avenant)"
-                            title="Réviser le montant (avenant)"
-                          >
-                            <FontAwesomeIcon icon={faSync} className="h-3 w-3" />
-                          </Button>
-                        ) : null}
-                        {s.status === "ACTIVE" ? (
-                          <Button
-                            variant="ghost"
-                            className="px-2 text-xs"
-                            onClick={() => void action(s.id, "pause")}
-                            aria-label="Suspendre"
-                            title="Suspendre"
-                          >
-                            <FontAwesomeIcon icon={faPause} className="h-3 w-3" />
-                          </Button>
-                        ) : null}
-                        {s.status === "PAUSED" ? (
-                          <Button
-                            variant="ghost"
-                            className="px-2 text-xs"
-                            onClick={() => void action(s.id, "resume")}
-                            aria-label="Reprendre"
-                            title="Reprendre"
-                          >
-                            <FontAwesomeIcon icon={faPlay} className="h-3 w-3" />
-                          </Button>
-                        ) : null}
-                        {s.status !== "ENDED" ? (
-                          <Button
-                            variant="ghost"
-                            className="px-2 text-xs"
-                            onClick={() => void action(s.id, "end")}
-                            aria-label="Clôturer"
-                            title="Clôturer"
-                          >
-                            <FontAwesomeIcon icon={faStop} className="h-3 w-3" />
-                          </Button>
-                        ) : null}
+                        <p className="mt-1 text-xs text-[var(--muted)]">
+                          Facturation le {o.defaultBillingDay ?? 1} de chaque mois
+                        </p>
                       </div>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-          </div>
+                      <div className="flex items-center gap-4">
+                        <div className="text-right">
+                          <p className="text-lg font-semibold tabular-nums">{formatEUR(o.unitPriceCents)}</p>
+                          <p className="text-xs text-[var(--muted)]">HT / mois</p>
+                        </div>
+                        {!o.active ? <Badge tone="red">Inactive</Badge> : null}
+                        <Button
+                          variant="ghost"
+                          className="h-8 px-3 text-xs"
+                          onClick={() => openEditOffer(o)}
+                        >
+                          Modifier
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </Card>
+
         )}
-      </Card>
+      </Tabs>
 
       <Modal
         open={open}

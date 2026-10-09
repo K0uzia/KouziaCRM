@@ -243,15 +243,17 @@ h3 {
 }
 
 .ui-table thead {
-  background: var(--surface-raised);
   border-bottom: 1px solid var(--border);
   color: var(--muted);
+  background: var(--bg-subtle);
 }
 
 .ui-table th {
-  padding: 0.75rem 1rem;
-  font-weight: 500;
-  font-size: 0.8125rem;
+  padding: 0.625rem 1rem;
+  font-weight: 600;
+  font-size: 0.6875rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -267,7 +269,7 @@ h3 {
 }
 
 .ui-table tbody tr:hover td {
-  background: var(--surface-hover);
+  background: var(--surface-raised);
 }
 
 .ui-table td.nowrap,

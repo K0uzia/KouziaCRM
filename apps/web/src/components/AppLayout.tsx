@@ -350,7 +350,7 @@ export function AppLayout() {
                 }`}
               >
                 <FontAwesomeIcon icon={item.icon} className="h-4 w-4" aria-hidden />
-                <span className="max-w-full truncate px-1">{item.id === "dashboard" ? "Accueil" : item.id === "inbox" ? "Messages" : item.label}</span>
+                <span className="max-w-full truncate tracking-tight">{item.id === "dashboard" ? "Accueil" : item.id === "inbox" ? "Messages" : item.label}</span>
                 {item.badge === "unread" && unreadCount > 0 ? (
                   <span className="absolute right-[calc(50%-1.25rem)] top-2 h-2 w-2 rounded-full bg-[var(--primary)]" aria-label={`${unreadCount} non lus`} />
                 ) : null}

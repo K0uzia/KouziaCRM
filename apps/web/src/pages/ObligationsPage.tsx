@@ -14,6 +14,7 @@ import type { IconDefinition } from "@fortawesome/fontawesome-svg-core";
 import { toast } from "sonner";
 import { api, formatEUR, formatDate } from "@/lib/api";
 import { Button } from "@/components/ui/Button";
+import { StatStrip } from "@/components/ui/StatStrip";
 import { Card, PageHeader } from "@/components/ui/Card";
 
 export type ObligationItem = {
@@ -128,49 +129,49 @@ function ObligationRow({
     }
   }
 
+  const iconBtn =
+    "inline-flex min-h-10 min-w-10 items-center justify-center rounded-[var(--radius-sm)] border border-[var(--border)] text-[var(--muted)] transition-colors hover:border-[var(--border-strong)] hover:text-[var(--text)]";
+
   return (
-    <div className="flex flex-wrap items-start gap-3 border-b border-[var(--border)] py-4 last:border-0">
-      <div
-        className={`mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-[var(--bg)] ${tone}`}
-      >
-        <FontAwesomeIcon icon={iconFor(item.type)} className="h-4 w-4" />
+    <div className="flex flex-col gap-3 border-b border-[var(--border)] py-4 last:border-0 sm:flex-row sm:items-center">
+      <div className="flex min-w-0 flex-1 items-start gap-3">
+        <div className={`mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-[var(--radius-sm)] bg-[var(--bg-subtle)] ${tone}`}>
+          <FontAwesomeIcon icon={iconFor(item.type)} className="h-4 w-4" aria-hidden />
+        </div>
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <p className="text-sm font-medium">{item.label}</p>
+            <span className={`text-xs font-medium ${tone}`}>{statusLabel(item)}</span>
+          </div>
+          <p className="mt-0.5 text-xs text-[var(--muted)]">
+            Du {formatDate(item.windowStart)} au {formatDate(item.windowEnd)}
+            {item.amountCents != null ? ` · ${formatEUR(item.amountCents)}` : ""}
+          </p>
+          {item.notes ? <p className="mt-0.5 text-xs text-[var(--muted)]">{item.notes}</p> : null}
+          {item.hasAttachment ? (
+            <a
+              href={`/api/obligations/${item.id}/attachment`}
+              target="_blank"
+              rel="noreferrer"
+              className="link mt-1 inline-flex items-center gap-1.5 text-xs"
+            >
+              <FontAwesomeIcon icon={faFilePdf} className="h-3 w-3" aria-hidden />
+              {item.attachmentName ?? "Justificatif PDF"}
+            </a>
+          ) : null}
+        </div>
       </div>
-      <div className="min-w-0 flex-1">
-        <p className="text-sm font-medium">{item.label}</p>
-        <p className="text-xs text-[var(--muted)]">
-          Du {formatDate(item.windowStart)} au {formatDate(item.windowEnd)}
-          {item.amountCents != null ? ` · ${formatEUR(item.amountCents)}` : ""}
-          {item.period ? ` · ${item.period}` : ""}
-        </p>
-        <p className="mt-0.5 text-xs text-[var(--muted)]">
-          Rappels email (si activés) : J-7, J-3, J-1 et jour J avant la clôture
-        </p>
-        {item.notes ? (
-          <p className="mt-0.5 text-xs text-[var(--muted)]">{item.notes}</p>
-        ) : null}
-        <p className={`mt-0.5 text-xs font-medium ${tone}`}>{statusLabel(item)}</p>
-        {item.hasAttachment ? (
-          <a
-            href={`/api/obligations/${item.id}/attachment`}
-            target="_blank"
-            rel="noreferrer"
-            className="link mt-1 inline-flex items-center gap-1.5 text-xs"
-          >
-            <FontAwesomeIcon icon={faFilePdf} className="h-3 w-3" />
-            {item.attachmentName ?? "Justificatif PDF"}
-          </a>
-        ) : null}
-      </div>
-      <div className="flex flex-wrap gap-2">
+      <div className="flex shrink-0 items-center gap-2 pl-12 sm:pl-0">
         {showConfirm && item.officialUrl ? (
           <a
             href={item.officialUrl}
             target="_blank"
             rel="noreferrer"
-            className="inline-flex min-h-11 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-[var(--radius)] border border-[var(--border)] bg-[var(--surface)] px-3 text-sm font-medium text-[var(--text)] transition-colors hover:border-[var(--primary)]/40 hover:bg-[var(--primary-soft)] hover:text-[var(--primary)]"
+            className={iconBtn}
+            aria-label={`Site officiel : ${item.label} (nouvel onglet)`}
+            title="Site officiel"
           >
-            Site officiel
-            <FontAwesomeIcon icon={faArrowUpRightFromSquare} className="h-3 w-3 opacity-70" />
+            <FontAwesomeIcon icon={faArrowUpRightFromSquare} className="h-3.5 w-3.5" aria-hidden />
           </a>
         ) : null}
         <input
@@ -184,22 +185,18 @@ function ObligationRow({
             e.target.value = "";
           }}
         />
-        <Button
+        <button
           type="button"
-          variant="secondary"
-          className="px-3 text-sm"
+          className={iconBtn}
+          aria-label={item.hasAttachment ? `Remplacer le justificatif : ${item.label}` : `Joindre un justificatif : ${item.label}`}
+          title={item.hasAttachment ? "Remplacer le PDF" : "Joindre un PDF"}
           onClick={() => inputRef.current?.click()}
         >
-          <FontAwesomeIcon icon={faPaperclip} className="h-3 w-3" />
-          {item.hasAttachment ? "Remplacer PDF" : "Joindre PDF"}
-        </Button>
+          <FontAwesomeIcon icon={faPaperclip} className="h-3.5 w-3.5" aria-hidden />
+        </button>
         {showConfirm && alertActive ? (
-          <Button
-            className="px-3 text-sm"
-            disabled={busy}
-            onClick={() => onConfirm(item.id)}
-          >
-            <FontAwesomeIcon icon={faCheck} className="h-3 w-3" />
+          <Button className="min-h-10 px-3 text-sm" disabled={busy} onClick={() => onConfirm(item.id)}>
+            <FontAwesomeIcon icon={faCheck} className="h-3 w-3" aria-hidden />
             {item.confirmLabel}
           </Button>
         ) : null}
@@ -257,35 +254,19 @@ export function ObligationsPage() {
         </ul>
       ) : null}
 
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <Card className="p-4">
-          <p className="text-xs text-[var(--muted)]">En retard</p>
-          <p className="mt-1 text-xl font-semibold tabular-nums text-[var(--danger)]">
-            {data.summary.late}
-          </p>
-        </Card>
-        <Card className="p-4">
-          <p className="text-xs text-[var(--muted)]">Urgentes</p>
-          <p className="mt-1 text-xl font-semibold tabular-nums text-[var(--warning)]">
-            {data.summary.urgent}
-          </p>
-        </Card>
-        <Card className="p-4">
-          <p className="text-xs text-[var(--muted)]">Ouvertes</p>
-          <p className="mt-1 text-xl font-semibold tabular-nums text-[var(--primary)]">
-            {data.summary.open}
-          </p>
-        </Card>
-        <Card className="p-4">
-          <p className="text-xs text-[var(--muted)]">Pas encore ouvertes</p>
-          <p className="mt-1 text-xl font-semibold tabular-nums">{data.summary.upcoming}</p>
-        </Card>
-      </div>
+      <StatStrip
+        items={[
+          { label: "En retard", value: String(data.summary.late), tone: data.summary.late ? "danger" : "default" },
+          { label: "Urgentes", value: String(data.summary.urgent), tone: data.summary.urgent ? "warning" : "default" },
+          { label: "Ouvertes", value: String(data.summary.open), tone: data.summary.open ? "primary" : "default" },
+          { label: "À venir", value: String(data.summary.upcoming), hint: "fenêtre pas encore ouverte" },
+        ]}
+      />
 
       <Card className="p-5">
         <h2 className="mb-1 text-sm font-semibold">À traiter</h2>
         <p className="mb-3 text-xs text-[var(--muted)]">
-          L&apos;alerte démarre à la date d&apos;ouverture. Confirmez après déclaration ou paiement.
+          L&apos;alerte démarre à l&apos;ouverture de chaque fenêtre. Rappels par email (si activés) à J-7, J-3, J-1 et le jour de clôture. Confirmez après déclaration ou paiement.
         </p>
         {data.items.length === 0 ? (
           <p className="text-sm text-[var(--muted)]">Rien en cours.</p>

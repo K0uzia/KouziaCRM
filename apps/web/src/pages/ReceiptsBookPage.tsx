@@ -11,6 +11,7 @@ import { toast } from "sonner";
 import { api, formatEUR, formatDate } from "@/lib/api";
 import { Button } from "@/components/ui/Button";
 import { Card, EmptyState, PageHeader } from "@/components/ui/Card";
+import { StatStrip } from "@/components/ui/StatStrip";
 import { Select } from "@/components/ui/Field";
 import { Modal } from "@/components/ui/Modal";
 import { DocumentNumberBadge } from "@/components/documents/DocumentNumberBadge";
@@ -180,48 +181,64 @@ export function ReceiptsBookPage() {
         </div>
       </Modal>
 
-      <div className="mb-4 flex min-w-0 flex-col gap-3 sm:flex-row sm:flex-wrap">
-        <Select aria-label="Année" className="w-full sm:w-auto" value={year} onChange={(e) => setYear(e.target.value)}>
-          {[thisYear, thisYear - 1, thisYear - 2].map((y) => (
-            <option key={y} value={y}>
-              {y}
-            </option>
-          ))}
-        </Select>
-        <Select
-          aria-label="Trimestre"
-          className="w-full sm:w-auto"
-          value={quarter}
-          onChange={(e) => {
-            setQuarter(e.target.value);
-            setMonth("ALL");
-          }}
-        >
-          <option value="ALL">Toute l&apos;année</option>
-          <option value="1">T1</option>
-          <option value="2">T2</option>
-          <option value="3">T3</option>
-          <option value="4">T4</option>
-        </Select>
-        <Select
-          aria-label="Mois"
-          className="w-full sm:w-auto"
-          value={month}
-          onChange={(e) => {
-            setMonth(e.target.value);
-            if (e.target.value !== "ALL") setQuarter("ALL");
-          }}
-        >
-          <option value="ALL">Tous les mois</option>
-          {Array.from({ length: 12 }, (_, i) => (
-            <option key={i + 1} value={String(i + 1)}>
-              {new Date(2000, i, 1).toLocaleString("fr-FR", { month: "long" })}
-            </option>
-          ))}
-        </Select>
-      </div>
+      {data && data.rows.length > 0 ? (
+        <StatStrip
+          className="mb-6"
+          items={[
+            { label: "Encaissé sur la période", value: formatEUR(data.totalCents), tone: "success" },
+            { label: "Encaissements", value: String(data.rows.length) },
+            {
+              label: "Montant moyen",
+              value: formatEUR(Math.round(data.totalCents / data.rows.length)),
+            },
+          ]}
+        />
+      ) : null}
 
       <Card className="overflow-hidden">
+        <div className="flex flex-col gap-3 border-b border-[var(--border)] p-3 sm:flex-row sm:items-center sm:justify-between sm:p-4">
+          <h2 className="text-sm font-semibold">Registre chronologique</h2>
+          <div className="grid min-w-0 grid-cols-3 gap-2 sm:flex sm:flex-wrap sm:items-center [&_select]:min-w-0">
+            <Select aria-label="Année" className="min-h-10 w-auto py-1.5 text-sm" value={year} onChange={(e) => setYear(e.target.value)}>
+              {[thisYear, thisYear - 1, thisYear - 2].map((y) => (
+                <option key={y} value={y}>
+                  {y}
+                </option>
+              ))}
+            </Select>
+            <Select
+              aria-label="Trimestre"
+              className="min-h-10 w-auto py-1.5 text-sm"
+              value={quarter}
+              onChange={(e) => {
+                setQuarter(e.target.value);
+                setMonth("ALL");
+              }}
+            >
+              <option value="ALL">Toute l&apos;année</option>
+              <option value="1">T1</option>
+              <option value="2">T2</option>
+              <option value="3">T3</option>
+              <option value="4">T4</option>
+            </Select>
+            <Select
+              aria-label="Mois"
+              className="min-h-10 w-auto py-1.5 text-sm"
+              value={month}
+              onChange={(e) => {
+                setMonth(e.target.value);
+                if (e.target.value !== "ALL") setQuarter("ALL");
+              }}
+            >
+              <option value="ALL">Tous les mois</option>
+              {Array.from({ length: 12 }, (_, i) => (
+                <option key={i + 1} value={String(i + 1)}>
+                  {new Date(2000, i, 1).toLocaleString("fr-FR", { month: "long" })}
+                </option>
+              ))}
+            </Select>
+          </div>
+        </div>
         {loading ? (
           <p className="p-8 text-sm text-[var(--muted)]">Chargement…</p>
         ) : !data || data.rows.length === 0 ? (
