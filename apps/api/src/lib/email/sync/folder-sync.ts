@@ -24,6 +24,7 @@ type EnvelopeLike = {
   subject?: string;
   date?: Date;
   from?: Array<{ address?: string; name?: string }>;
+  replyTo?: Array<{ address?: string; name?: string }>;
   to?: Array<{ address?: string; name?: string }>;
   cc?: Array<{ address?: string; name?: string }>;
 };
@@ -282,6 +283,8 @@ export async function syncFolder(folderId: string): Promise<{ imported: number; 
           env.from?.[0]?.name?.toLowerCase() ||
           "unknown";
         const fromName = env.from?.[0]?.name?.trim() || null;
+        const replyToRaw = env.replyTo?.[0]?.address?.trim().toLowerCase() || null;
+        const replyToAddress = replyToRaw && replyToRaw !== fromAddress ? replyToRaw : null;
         const toAddresses = parseAddressList(env.to);
         const ccAddresses = parseAddressList(env.cc);
         const subject = env.subject || "(sans objet)";
@@ -337,12 +340,18 @@ export async function syncFolder(folderId: string): Promise<{ imported: number; 
           continue;
         }
 
-        const participants = Array.from(new Set([fromAddress, ...toAddresses, ...ccAddresses]));
         const direction =
           folder.role === MailFolderRole.SENT ? EmailDirection.OUTBOUND : EmailDirection.INBOUND;
-        const clientLookupAddress =
-          direction === EmailDirection.OUTBOUND ? (toAddresses[0] ?? fromAddress) : fromAddress;
-        const clientId = await findClientIdByEmail(clientLookupAddress);
+        const inboundReplyTo = direction === EmailDirection.INBOUND ? replyToAddress : null;
+        const participants = Array.from(
+          new Set([fromAddress, ...(inboundReplyTo ? [inboundReplyTo] : []), ...toAddresses, ...ccAddresses]),
+        );
+        // Formulaire du site (Web3Forms) : le prospect est dans Reply-To, pas dans From.
+        const clientId =
+          direction === EmailDirection.OUTBOUND
+            ? await findClientIdByEmail(toAddresses[0] ?? fromAddress)
+            : ((inboundReplyTo ? await findClientIdByEmail(inboundReplyTo) : null) ??
+              (await findClientIdByEmail(fromAddress)));
 
         const threadId = await resolveThreadId({
           messageId: mid,
@@ -363,6 +372,7 @@ export async function syncFolder(folderId: string): Promise<{ imported: number; 
             inReplyTo,
             fromAddress,
             fromName,
+            replyToAddress: inboundReplyTo,
             toAddresses: JSON.stringify(toAddresses),
             ccAddresses: ccAddresses.length ? JSON.stringify(ccAddresses) : null,
             subject,

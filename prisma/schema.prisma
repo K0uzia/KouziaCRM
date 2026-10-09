@@ -1025,6 +1025,8 @@ model EmailMessage {
   referencesHeader String?
   fromAddress   String
   fromName      String?
+  /// Reply-To d'un message entrant quand il diffère du From (formulaire Web3Forms : le prospect).
+  replyToAddress String?
   toAddresses   String            // JSON string[]
   ccAddresses   String?           // JSON string[]
   subject       String

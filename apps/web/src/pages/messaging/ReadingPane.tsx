@@ -25,6 +25,7 @@ type Props = {
     messageId: string;
     subject: string;
     fromAddress: string;
+    replyToAddress?: string | null;
     receivedAt: string;
     snippet: string;
   }) => void;
@@ -43,6 +44,7 @@ type ThreadMessage = {
   messageId: string;
   fromAddress: string;
   fromName?: string | null;
+  replyToAddress?: string | null;
   subject: string;
   receivedAt: string;
   snippet?: string | null;
@@ -260,6 +262,7 @@ export function ReadingPane({
                     ? thread.subject
                     : `Re: ${thread.subject}`,
                   fromAddress: latest.fromAddress,
+                  replyToAddress: latest.replyToAddress,
                   receivedAt: latest.receivedAt,
                   snippet: latest.snippet ?? "",
                 })

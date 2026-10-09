@@ -295,32 +295,34 @@ export const miscRoutes: FastifyPluginAsync = async (app) => {
           }
           let client = m.thread?.client ?? null;
           if (!client) {
-            const lookup =
+            // Entrant : Reply-To d'abord (formulaire Web3Forms), puis From.
+            const lookups =
               m.direction === EmailDirection.OUTBOUND
-                ? toAddresses[0] ?? ""
-                : m.fromAddress;
-            if (lookup) {
-              const clientId = await findClientIdByEmail(lookup);
-              if (clientId) {
-                client = await prisma.client.findUnique({
-                  where: { id: clientId },
-                  select: {
-                    id: true,
-                    displayName: true,
-                    firstName: true,
-                    lastName: true,
-                    companyName: true,
-                    type: true,
-                  },
-                });
-                if (client) {
-                  await prisma.emailThread
-                    .update({
-                      where: { id: m.threadId },
-                      data: { clientId: client.id },
-                    })
-                    .catch(() => undefined);
-                }
+                ? [toAddresses[0] ?? ""]
+                : [m.replyToAddress ?? "", m.fromAddress];
+            let clientId: string | null = null;
+            for (const lookup of lookups) {
+              if (lookup && !clientId) clientId = await findClientIdByEmail(lookup);
+            }
+            if (clientId) {
+              client = await prisma.client.findUnique({
+                where: { id: clientId },
+                select: {
+                  id: true,
+                  displayName: true,
+                  firstName: true,
+                  lastName: true,
+                  companyName: true,
+                  type: true,
+                },
+              });
+              if (client) {
+                await prisma.emailThread
+                  .update({
+                    where: { id: m.threadId },
+                    data: { clientId: client.id },
+                  })
+                  .catch(() => undefined);
               }
             }
           }
@@ -333,6 +335,7 @@ export const miscRoutes: FastifyPluginAsync = async (app) => {
             snippet: m.snippet ?? m.subject.slice(0, 120),
             fromAddress: m.fromAddress,
             fromName: m.fromName,
+            replyToAddress: m.replyToAddress,
             toAddresses,
             receivedAt: m.receivedAt,
             isRead: m.isRead,

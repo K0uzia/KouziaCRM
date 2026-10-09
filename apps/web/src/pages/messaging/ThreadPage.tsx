@@ -39,6 +39,7 @@ export function ThreadPage() {
       id: string;
       messageId: string;
       fromAddress: string;
+      replyToAddress?: string | null;
       fromName?: string | null;
       toAddresses?: string[];
       bodyText: string | null;
@@ -69,6 +70,7 @@ export function ThreadPage() {
   const lastMessage = thread.messages[thread.messages.length - 1];
   const ourAddress = lastOutbound?.fromAddress?.toLowerCase() ?? "";
   const replyTo =
+    lastInbound?.replyToAddress ||
     lastInbound?.fromAddress ||
     (lastOutbound?.toAddresses?.[0] ?? "") ||
     (thread.participants ?? []).find((p) => p && p.toLowerCase() !== ourAddress) ||

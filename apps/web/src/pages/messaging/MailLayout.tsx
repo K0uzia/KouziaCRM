@@ -26,6 +26,7 @@ export type MailMessageItem = {
   subject: string;
   snippet: string;
   fromAddress: string;
+  replyToAddress?: string | null;
   fromName?: string | null;
   toAddresses?: string[];
   receivedAt: string;
@@ -221,7 +222,7 @@ export function MailLayout() {
     const to =
       msg.direction === "OUTBOUND"
         ? msg.toAddresses?.[0] ?? msg.fromAddress
-        : msg.fromAddress;
+        : msg.replyToAddress || msg.fromAddress;
     openCompose({
       threadId: msg.threadId,
       inReplyTo: msg.messageId,
@@ -403,7 +404,7 @@ export function MailLayout() {
                   threadId: msg.threadId,
                   inReplyTo: msg.messageId,
                   subject: msg.subject.startsWith("Re:") ? msg.subject : `Re: ${msg.subject}`,
-                  to: msg.fromAddress,
+                  to: msg.replyToAddress || msg.fromAddress,
                   body: `\n\n---\nLe ${msg.receivedAt}, ${msg.fromAddress} a écrit :\n> ${msg.snippet}`,
                 });
               }}
