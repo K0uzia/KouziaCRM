@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+import fs from "node:fs/promises";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   InvoiceDocumentType,
@@ -332,6 +334,26 @@ describe("décision du client sur un devis", () => {
     expect(accepted.quoteStatus).toBe(QuoteStatus.ACCEPTED);
     expect(accepted.quoteSignerName).toBe("Camille Dupont");
     expect(accepted.status).toBe(InvoiceStatus.ISSUED);
+  });
+
+  it("archive la preuve de signature : IP, navigateur, PDF signé et empreinte", async () => {
+    const quoteId = await issuedQuote();
+    await acceptQuoteByClient(quoteId, "Camille Dupont", {
+      context: { ipAddress: "203.0.113.7", userAgent: "Mozilla/5.0 Test" },
+    });
+
+    const audit = await prisma.quoteAcceptanceAudit.findFirstOrThrow({ where: { quoteId } });
+    expect(audit.source).toBe("PORTAL");
+    expect(audit.ipAddress).toBe("203.0.113.7");
+    expect(audit.userAgent).toBe("Mozilla/5.0 Test");
+    expect(audit.pdfPath).toMatch(/^signed-quotes\/.+\.pdf$/);
+    expect(audit.pdfSha256).toMatch(/^[0-9a-f]{64}$/);
+
+    const { signedQuoteAbsolutePath } = await import("@/lib/invoices/acceptance-proof.js");
+    const abs = signedQuoteAbsolutePath(audit.pdfPath!);
+    const pdf = await fs.readFile(abs);
+    expect(createHash("sha256").update(pdf).digest("hex")).toBe(audit.pdfSha256);
+    await fs.rm(abs, { force: true });
   });
 
   it("crée un acompte et un solde à l'émission, sans jalon intermédiaire", async () => {

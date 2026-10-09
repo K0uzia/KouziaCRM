@@ -1,0 +1,62 @@
+import { useEffect, useState } from "react";
+import { api } from "@/lib/api";
+
+type AcceptanceProof = {
+  id: string;
+  signerName: string;
+  source: string;
+  userEmail: string | null;
+  ipAddress: string | null;
+  userAgent: string | null;
+  pdfSha256: string | null;
+  pdfPath: string | null;
+  createdAt: string;
+};
+
+const SOURCE_LABEL: Record<string, string> = {
+  PORTAL: "espace client",
+  THREAD: "réponse par e-mail",
+  ADMIN: "administration",
+};
+
+/** Preuves de signature d'un devis : horodatage, IP, navigateur, empreinte et PDF archivé. */
+export function AcceptanceProofs({ quoteId }: { quoteId: string }) {
+  const [proofs, setProofs] = useState<AcceptanceProof[]>([]);
+
+  useEffect(() => {
+    api<AcceptanceProof[]>(`/api/quotes/${quoteId}/acceptances`)
+      .then(setProofs)
+      .catch(() => setProofs([]));
+  }, [quoteId]);
+
+  if (proofs.length === 0) return null;
+
+  return (
+    <div className="space-y-2 border-t border-[var(--border)] pt-3 text-xs">
+      <p className="font-medium text-[var(--text)]">Preuve de signature</p>
+      {proofs.map((p) => (
+        <div key={p.id} className="space-y-0.5 text-[var(--muted)]">
+          <p>
+            {new Date(p.createdAt).toLocaleString("fr-FR")} · {SOURCE_LABEL[p.source] ?? p.source}
+            {p.userEmail ? ` (${p.userEmail})` : ""}
+          </p>
+          {p.ipAddress ? <p>IP : {p.ipAddress}</p> : null}
+          {p.userAgent ? <p className="break-all">Navigateur : {p.userAgent}</p> : null}
+          {p.pdfSha256 ? (
+            <p className="break-all font-mono">SHA-256 : {p.pdfSha256}</p>
+          ) : null}
+          {p.pdfPath ? (
+            <a
+              href={`/api/quotes/${quoteId}/acceptances/${p.id}/pdf`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="link"
+            >
+              PDF signé archivé
+            </a>
+          ) : null}
+        </div>
+      ))}
+    </div>
+  );
+}

@@ -1007,6 +1007,12 @@ model QuoteAcceptanceAudit {
   thread     EmailThread? @relation(fields: [threadId], references: [id], onDelete: SetNull)
   userId     String?
   userEmail  String?
+  /// Preuve de signature (portail) : IP et navigateur du signataire.
+  ipAddress  String?
+  userAgent  String?
+  /// PDF du devis signé, archivé dans data/uploads, et son empreinte SHA-256 (hex).
+  pdfPath    String?
+  pdfSha256  String?
   createdAt  DateTime     @default(now())
 
   @@index([quoteId])

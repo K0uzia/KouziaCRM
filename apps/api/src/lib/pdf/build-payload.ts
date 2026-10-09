@@ -106,6 +106,10 @@ export function buildInvoicePdfPayload({
       billingDay: l.billingDay,
     })),
     legalClauses: (legalClauses ?? []).map((c) => ({ title: c.title, body: c.body })),
+    acceptance:
+      invoice.quoteStatus === "ACCEPTED" && invoice.quoteSignerName && invoice.quoteDecidedAt
+        ? { signerName: invoice.quoteSignerName, acceptedAt: invoice.quoteDecidedAt }
+        : null,
   };
 }
 

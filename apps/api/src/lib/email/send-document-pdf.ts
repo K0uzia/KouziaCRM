@@ -1,13 +1,7 @@
 import { InvoiceDocumentType, InvoiceStatus } from "@prisma/client";
-import { prisma } from "@/lib/prisma";
-import { decryptOptional } from "@/lib/crypto";
-import { getCompanySettings } from "@/lib/company";
-import { listActiveLegalClauses } from "@/lib/company/legal-clauses";
 import { isSmtpConfigured } from "@/lib/email/smtp";
 import { mailEnqueue } from "@/lib/email/mailer";
-import { buildInvoicePdfPayload, type ClientSnapshot } from "@/lib/pdf/build-payload";
-import { enrichCompanyForPdf } from "@/lib/pdf/brand-assets";
-import { renderInvoicePdf } from "@/lib/pdf/render";
+import { loadDocumentForPdf, renderLoadedDocumentPdf } from "@/lib/pdf/document-pdf";
 import { resolveClientPortalUrl } from "@/lib/email/portal-url.js";
 import { resolveInvoicePaymentUrl } from "@/lib/email/payment-url.js";
 
@@ -24,6 +18,8 @@ export type SendDocumentPdfOptions = {
   /** Si false, n'envoie pas (émission seule). Défaut true. */
   send?: boolean;
   threadId?: string;
+  /** PDF déjà rendu (ex. devis signé archivé), joint tel quel au lieu d'être régénéré. */
+  pdf?: Buffer;
   extraAttachments?: Array<{
     filename: string;
     contentBase64: string;
@@ -47,73 +43,16 @@ export async function sendDocumentPdf(
   }
 
   try {
-    const [companyRaw, legalClauses, invoice] = await Promise.all([
-      getCompanySettings(),
-      listActiveLegalClauses(),
-      prisma.invoice.findUnique({
-        where: { id: documentId },
-        include: {
-          client: true,
-          lines: { orderBy: { position: "asc" } },
-          creditedInvoice: true,
-          quote: true,
-          sourceMilestone: true,
-          milestones: { orderBy: { position: "asc" } },
-          payments: { orderBy: { paidAt: "asc" } },
-        },
-      }),
-    ]);
-    const company = await enrichCompanyForPdf(companyRaw);
-
-    if (!invoice || !invoice.number) {
+    const doc = await loadDocumentForPdf(documentId);
+    if (!doc) {
       return { sent: false, reason: "not_found" };
     }
-
-    const email = decryptOptional(invoice.client.emailEncrypted);
-    if (!email) {
+    const { companyRaw, invoice, email, snapshot } = doc;
+    if (!email || !invoice.number) {
       return { sent: false, reason: "no_email" };
     }
 
-    const snapshot =
-      (invoice.clientSnapshot as ClientSnapshot | null) ??
-      ({
-        displayName: invoice.client.displayName,
-        type: invoice.client.type,
-        email,
-        phone: decryptOptional(invoice.client.phoneEncrypted),
-        siret: decryptOptional(invoice.client.siretEncrypted),
-        addressLine1: invoice.client.addressLine1,
-        addressLine2: invoice.client.addressLine2,
-        postalCode: invoice.client.postalCode,
-        city: invoice.client.city,
-        country: invoice.client.country,
-      } satisfies ClientSnapshot);
-
-    let balanceSummary = null;
-    if (invoice.invoiceType === "SOLDE" && invoice.quoteId) {
-      const { computeBalanceSummary } = await import(
-        "@/lib/invoices/documentFlowService.js"
-      );
-      const s = await computeBalanceSummary(invoice.quoteId);
-      balanceSummary = {
-        marketTotalCents: s.marketTotalCents,
-        quoteNumber: s.quoteNumber,
-        acomptes: s.acomptes.map((a) => ({
-          number: a.number,
-          amountCents: a.amountCents,
-          paid: a.paid,
-          label: a.label,
-          deductedCents: a.deductedCents,
-        })),
-        balanceDueCents: invoice.totalCents,
-      };
-    }
-
-    const pdf = await renderInvoicePdf({
-      company,
-      client: snapshot,
-      invoice: buildInvoicePdfPayload({ invoice, legalClauses, balanceSummary }),
-    });
+    const pdf = opts.pdf ?? (await renderLoadedDocumentPdf(doc));
 
     const isQuote = invoice.documentType === InvoiceDocumentType.QUOTE;
     const isCredit = invoice.documentType === InvoiceDocumentType.CREDIT_NOTE;

@@ -18,6 +18,7 @@ import { DocumentFormEditor } from "@/components/documents/DocumentForm";
 import { DocumentNumberBadge } from "@/components/documents/DocumentNumberBadge";
 import { InvoiceTypeBadge } from "@/components/documents/InvoiceTypeBadge";
 import { MarketTimeline, type MarketView } from "@/components/documents/MarketTimeline";
+import { AcceptanceProofs } from "@/components/documents/AcceptanceProofs";
 import { PaymentForm } from "@/components/payments/PaymentForm";
 import { Field, Input, Textarea } from "@/components/ui/Field";
 import { ClientEmailLink } from "@/components/clients/ClientEmailLink";
@@ -874,6 +875,7 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
                 ) : null}
               </div>
             ) : null}
+            {isQuote && doc.quoteStatus === "ACCEPTED" ? <AcceptanceProofs quoteId={doc.id} /> : null}
             {!isQuote && doc.quoteId ? (
               <div className="flex justify-between gap-2 border-t border-[var(--border)] pt-3">
                 <span className="text-[var(--muted)]">Projet</span>

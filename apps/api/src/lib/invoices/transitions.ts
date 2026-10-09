@@ -229,13 +229,23 @@ export type QuoteAcceptanceActor = {
   userEmail?: string | null;
 };
 
+/** Contexte technique du signataire (portail) conservé comme preuve. */
+export type QuoteAcceptanceContext = {
+  ipAddress?: string | null;
+  userAgent?: string | null;
+};
+
 async function logQuoteAcceptance(
   quoteId: string,
   signerName: string,
   source: QuoteAcceptanceSource,
-  opts: { threadId?: string | null; actor?: QuoteAcceptanceActor } = {},
+  opts: {
+    threadId?: string | null;
+    actor?: QuoteAcceptanceActor;
+    context?: QuoteAcceptanceContext;
+  } = {},
 ) {
-  await prisma.quoteAcceptanceAudit.create({
+  return prisma.quoteAcceptanceAudit.create({
     data: {
       quoteId,
       signerName: signerName.trim(),
@@ -243,6 +253,8 @@ async function logQuoteAcceptance(
       threadId: opts.threadId ?? null,
       userId: opts.actor?.userId ?? null,
       userEmail: opts.actor?.userEmail ?? null,
+      ipAddress: opts.context?.ipAddress?.slice(0, 64) || null,
+      userAgent: opts.context?.userAgent?.slice(0, 512) || null,
     },
   });
 }
@@ -305,7 +317,12 @@ export async function rejectQuote(quoteId: string, reason?: string) {
 export async function acceptQuoteByClient(
   quoteId: string,
   signerName: string,
-  audit: { source?: QuoteAcceptanceSource; threadId?: string | null; actor?: QuoteAcceptanceActor } = {},
+  audit: {
+    source?: QuoteAcceptanceSource;
+    threadId?: string | null;
+    actor?: QuoteAcceptanceActor;
+    context?: QuoteAcceptanceContext;
+  } = {},
 ) {
   const updated = await prisma.$transaction(async (tx) => {
     await loadPendingQuote(tx, quoteId);
@@ -323,15 +340,20 @@ export async function acceptQuoteByClient(
     return result;
   });
 
-  await logQuoteAcceptance(quoteId, signerName, audit.source ?? "PORTAL", {
+  const acceptance = await logQuoteAcceptance(quoteId, signerName, audit.source ?? "PORTAL", {
     threadId: audit.threadId,
     actor: audit.actor,
+    context: audit.context,
   });
 
   const { onQuoteAcceptedByClient } = await import(
     "@/lib/payments/milestonePaymentService.js"
   );
   await onQuoteAcceptedByClient(quoteId);
+
+  // Après l'échéancier : le PDF archivé porte les dates d'acompte.
+  const { recordQuoteAcceptanceProof } = await import("@/lib/invoices/acceptance-proof.js");
+  await recordQuoteAcceptanceProof(acceptance.id, quoteId);
 
   return updated;
 }

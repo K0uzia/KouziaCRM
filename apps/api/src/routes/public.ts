@@ -337,7 +337,12 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
       try {
         const updated =
           parsed.data.decision === "ACCEPT"
-            ? await acceptQuoteByClient(quote.id, parsed.data.signerName as string)
+            ? await acceptQuoteByClient(quote.id, parsed.data.signerName as string, {
+                context: {
+                  ipAddress: request.ip,
+                  userAgent: request.headers["user-agent"] ?? null,
+                },
+              })
             : await rejectQuote(quote.id, parsed.data.reason);
         return { quoteStatus: updated.quoteStatus };
       } catch (e) {

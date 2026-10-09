@@ -166,6 +166,8 @@ export type InvoicePdfData = {
       reference?: string | null;
       status?: string;
     }>;
+    /** Devis accepté : nom saisi en « Bon pour accord » et date de la décision. */
+    acceptance?: { signerName: string; acceptedAt: Date } | null;
     lines: Array<{
       description: string;
       quantity: number;
@@ -415,6 +417,17 @@ export function InvoiceDocument({ company, client, invoice }: InvoicePdfData) {
                 {m.triggerText}
               </Text>
             ))}
+          </View>
+        ) : null}
+
+        {isQuote && invoice.acceptance ? (
+          <View style={styles.paymentBox}>
+            <Text style={styles.h2}>Bon pour accord</Text>
+            <Text style={{ marginTop: 4 }}>
+              Devis accepté en ligne par{" "}
+              <Text style={{ fontFamily: "Helvetica-Bold" }}>{invoice.acceptance.signerName}</Text>{" "}
+              le {fmtDate(invoice.acceptance.acceptedAt)} (signature électronique simple).
+            </Text>
           </View>
         ) : null}
 

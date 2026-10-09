@@ -21,6 +21,8 @@ import {
   acceptQuoteFromThread,
   QuoteDecisionError,
 } from "@/lib/invoices/transitions.js";
+import { signedQuoteAbsolutePath } from "@/lib/invoices/acceptance-proof.js";
+import fs from "node:fs/promises";
 
 function actorOf(request: { user?: { id: string; email: string } }) {
   return {
@@ -39,6 +41,49 @@ function flowError(reply: import("fastify").FastifyReply, e: unknown) {
 }
 
 export const quotesMarketRoutes: FastifyPluginAsync = async (app) => {
+  // Preuves de signature d'un devis (plus récente en premier).
+  app.get<{ Params: { id: string } }>("/api/quotes/:id/acceptances", async (request, reply) => {
+    await requireAuth(request, reply);
+    if (reply.sent) return;
+    return prisma.quoteAcceptanceAudit.findMany({
+      where: { quoteId: request.params.id },
+      orderBy: { createdAt: "desc" },
+      select: {
+        id: true,
+        signerName: true,
+        source: true,
+        userEmail: true,
+        ipAddress: true,
+        userAgent: true,
+        pdfSha256: true,
+        pdfPath: true,
+        createdAt: true,
+      },
+    });
+  });
+
+  app.get<{ Params: { id: string; auditId: string } }>(
+    "/api/quotes/:id/acceptances/:auditId/pdf",
+    async (request, reply) => {
+      await requireAuth(request, reply);
+      if (reply.sent) return;
+      const audit = await prisma.quoteAcceptanceAudit.findFirst({
+        where: { id: request.params.auditId, quoteId: request.params.id },
+        select: { pdfPath: true },
+      });
+      if (!audit?.pdfPath) return reply.code(404).send({ error: "PDF signé introuvable" });
+      try {
+        const pdf = await fs.readFile(signedQuoteAbsolutePath(audit.pdfPath));
+        return reply
+          .header("Content-Type", "application/pdf")
+          .header("Content-Disposition", `inline; filename="${audit.pdfPath.split("/").pop()}"`)
+          .send(pdf);
+      } catch {
+        return reply.code(404).send({ error: "PDF signé introuvable" });
+      }
+    },
+  );
+
   app.get<{ Params: { id: string } }>("/api/quotes/:id/market", async (request, reply) => {
     await requireAuth(request, reply);
     if (reply.sent) return;
