@@ -18,10 +18,17 @@ export function MoreMenu({
   items,
   label = "Plus",
   icon = true,
+  variant = "secondary",
+  leading,
+  ariaLabel,
 }: {
   items: MoreMenuItem[];
   label?: ReactNode;
   icon?: boolean;
+  variant?: "primary" | "secondary" | "ghost";
+  leading?: ReactNode;
+  /** Nom accessible quand le libellé visible est masqué sur petit écran. */
+  ariaLabel?: string;
 }) {
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
@@ -57,9 +64,11 @@ export function MoreMenu({
         type="button"
         aria-expanded={open}
         aria-controls={panelId}
+        aria-label={ariaLabel}
         onClick={() => setOpen((v) => !v)}
-        className={buttonClass("secondary", "w-full")}
+        className={buttonClass(variant, "w-full")}
       >
+        {leading}
         {icon ? <FontAwesomeIcon icon={faEllipsis} className="h-4 w-4" aria-hidden /> : null}
         {label}
       </button>

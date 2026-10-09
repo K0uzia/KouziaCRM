@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/Button";
 import { Card, EmptyState, PageHeader, Badge } from "@/components/ui/Card";
 import { Modal, ModalActions } from "@/components/ui/Modal";
 import { Field, Input, Select } from "@/components/ui/Field";
+import { useCreateParam } from "@/lib/use-create-param";
 
 type SubscriptionStatus = "ACTIVE" | "PAUSED" | "ENDED";
 
@@ -155,6 +156,8 @@ export function SubscriptionsPage() {
     });
     setOpen(true);
   }
+
+  useCreateParam(openCreate);
 
   function openEdit(s: Subscription) {
     setEditingId(s.id);

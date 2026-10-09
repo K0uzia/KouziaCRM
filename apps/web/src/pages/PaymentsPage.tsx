@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { toast } from "sonner";
 import { api, formatEUR } from "@/lib/api";
@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/Button";
 import { DataTable, type TableColumn } from "@/components/ui/DataTable";
 import { PaymentForm } from "@/components/payments/PaymentForm";
 import { Select } from "@/components/ui/Field";
+import { useCreateParam } from "@/lib/use-create-param";
 
 type Payment = {
   id: string;
@@ -128,6 +129,13 @@ export function PaymentsPage() {
     },
   ];
 
+  const openCreate = useCallback(() => setOpen(true), []);
+  useCreateParam(openCreate);
+  // Facture présélectionnée : la première à encaisser, dès que la liste est chargée.
+  useEffect(() => {
+    if (open && !invoiceId && openInvoices[0]) setInvoiceId(openInvoices[0].id);
+  }, [open, invoiceId, openInvoices]);
+
   return (
     <div>
       <PageHeader
@@ -135,10 +143,7 @@ export function PaymentsPage() {
         subtitle="Qui a payé, et combien"
         actions={
           <Button
-            onClick={() => {
-              setInvoiceId(openInvoices[0]?.id ?? "");
-              setOpen(true);
-            }}
+            onClick={openCreate}
             disabled={openInvoices.length === 0}
           >
             Enregistrer un paiement
