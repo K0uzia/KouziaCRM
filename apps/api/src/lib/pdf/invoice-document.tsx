@@ -131,6 +131,16 @@ function createStyles(primary: string, secondary: string) {
     grandLabel: { fontSize: 10, fontFamily: "Helvetica-Bold" },
     grandValue: { fontSize: 13, fontFamily: "Helvetica-Bold" },
     vat: { marginTop: 4, fontSize: 7.5, color: MUTED, textAlign: "right" },
+    settled: {
+      marginTop: 8,
+      paddingVertical: 6,
+      paddingHorizontal: 10,
+      borderWidth: 1.5,
+      borderColor: "#15803d",
+      backgroundColor: "#f0fdf4",
+      alignItems: "center",
+    },
+    settledTitle: { fontSize: 10, fontFamily: "Helvetica-Bold", color: "#15803d", letterSpacing: 1.2 },
     milestone: {
       flexDirection: "row",
       borderBottomWidth: 1,
@@ -292,6 +302,15 @@ export function InvoiceDocument({ company, client, invoice }: InvoicePdfData) {
     ]);
   }
 
+  // Règlements : facture acquittée (vaut reçu) ou reste dû.
+  const paidCents = (invoice.payments ?? []).reduce((s, p) => s + p.amountCents, 0);
+  const showSettlement = !isQuote && !isCredit && paidCents > 0;
+  const settled = showSettlement && paidCents >= invoice.totalCents;
+  const lastPaidAt = (invoice.payments ?? []).reduce<Date | null>(
+    (d, p) => (!d || p.paidAt > d ? p.paidAt : d),
+    null,
+  );
+
   const hasDiscount =
     invoice.discountType &&
     invoice.discountType !== "NONE" &&
@@ -444,6 +463,26 @@ export function InvoiceDocument({ company, client, invoice }: InvoicePdfData) {
             <Text style={styles.grandValue}>{fmtMoney(invoice.totalCents)}</Text>
           </View>
           {company.vatMention ? <Text style={styles.vat}>{company.vatMention}</Text> : null}
+          {showSettlement && !settled ? (
+            <>
+              <View style={styles.totalLine}>
+                <Text style={styles.muted}>Déjà réglé</Text>
+                <Text>- {fmtMoney(paidCents)}</Text>
+              </View>
+              <View style={[styles.totalLine, { borderTopWidth: 1, borderColor: LINE }]}>
+                <Text style={styles.strong}>Reste dû</Text>
+                <Text style={styles.strong}>{fmtMoney(invoice.totalCents - paidCents)}</Text>
+              </View>
+            </>
+          ) : null}
+          {settled ? (
+            <View style={styles.settled}>
+              <Text style={styles.settledTitle}>FACTURE ACQUITTÉE</Text>
+              <Text style={{ fontSize: 8, color: "#14532d" }}>
+                {lastPaidAt ? `Réglée le ${fmtDate(lastPaidAt)}. ` : ""}Ce document vaut reçu.
+              </Text>
+            </View>
+          ) : null}
         </View>
 
         {invoice.lines.some((l) => l.isSubscription) ? (
@@ -519,11 +558,11 @@ export function InvoiceDocument({ company, client, invoice }: InvoicePdfData) {
           </View>
         ) : null}
 
-        {!isQuote && !isCredit && company.bankIban ? (
+        {!isQuote && !isCredit && !settled && company.bankIban ? (
           <View style={styles.payBox} wrap={false}>
             <Text style={styles.h2}>Règlement par virement</Text>
             <Text>
-              Merci de régler <Text style={styles.strong}>{fmtMoney(invoice.totalCents)}</Text> en indiquant
+              Merci de régler <Text style={styles.strong}>{fmtMoney(invoice.totalCents - paidCents)}</Text> en indiquant
               la référence <Text style={styles.strong}>{invoice.number}</Text>.
             </Text>
             <View style={{ flexDirection: "row", gap: 24, marginTop: 6 }}>

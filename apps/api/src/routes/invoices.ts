@@ -118,6 +118,8 @@ const paySchema = z.object({
   method: z.nativeEnum(PaymentMethod).optional(),
   reference: z.string().optional().nullable(),
   notes: z.string().optional().nullable(),
+  /** Reçu envoyé au client (facture PDF à jour du paiement). Par défaut : oui. */
+  notifyClient: z.boolean().optional(),
 });
 
 function defaultQuoteValidUntil(): Date {
@@ -827,7 +829,13 @@ export const invoicesRoutes: FastifyPluginAsync = async (app) => {
       const { onInvoicePaidForProject } = await import("@/lib/projects/lifecycle.js");
       await onInvoicePaidForProject(id);
     }
-    return reply.code(201).send(payment);
+    let receipt: { sent: boolean; reason: string | null } | null = null;
+    if (parsed.data.notifyClient !== false) {
+      const { sendPaymentReceipt } = await import("@/lib/email/payment-receipt.js");
+      const r = await sendPaymentReceipt(id, amountCents);
+      receipt = { sent: r.sent, reason: r.reason ?? null };
+    }
+    return reply.code(201).send({ ...payment, receipt });
   });
 
   app.get<{ Params: { id: string } }>(

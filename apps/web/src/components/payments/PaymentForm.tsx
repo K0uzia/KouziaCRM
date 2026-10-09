@@ -22,23 +22,39 @@ export function PaymentForm({
   const [method, setMethod] = useState("BANK_TRANSFER");
   const [reference, setReference] = useState("");
   const [notes, setNotes] = useState("");
+  const [notifyClient, setNotifyClient] = useState(true);
   const [busy, setBusy] = useState(false);
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
     setBusy(true);
     try {
-      await api(`/api/invoices/${invoiceId}/pay`, {
-        method: "POST",
-        body: JSON.stringify({
-          amountEuros: Number(amount),
-          paidAt,
-          method,
-          reference: reference || null,
-          notes: notes || null,
-        }),
-      });
-      toast.success("Paiement enregistré");
+      const res = await api<{ receipt: { sent: boolean; reason: string | null } | null }>(
+        `/api/invoices/${invoiceId}/pay`,
+        {
+          method: "POST",
+          body: JSON.stringify({
+            amountEuros: Number(amount),
+            paidAt,
+            method,
+            reference: reference || null,
+            notes: notes || null,
+            notifyClient,
+          }),
+        },
+      );
+      if (!notifyClient) toast.success("Paiement enregistré");
+      else if (res.receipt?.sent) toast.success("Paiement enregistré, reçu envoyé au client");
+      else
+        toast.success(
+          `Paiement enregistré (reçu non envoyé : ${
+            res.receipt?.reason === "smtp_off"
+              ? "SMTP non configuré"
+              : res.receipt?.reason === "no_email"
+                ? "adresse client manquante"
+                : "envoi impossible"
+          })`,
+        );
       onSuccess();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Erreur");
@@ -80,6 +96,20 @@ export function PaymentForm({
       <Field label="Note">
         <Textarea rows={2} value={notes} onChange={(e) => setNotes(e.target.value)} />
       </Field>
+      <label className="flex items-start gap-2 text-sm">
+        <input
+          type="checkbox"
+          className="mt-0.5"
+          checked={notifyClient}
+          onChange={(e) => setNotifyClient(e.target.checked)}
+        />
+        <span>
+          Envoyer le reçu au client
+          <span className="block text-xs text-[var(--muted)]">
+            Email avec la facture à jour en PDF (acquittée si elle est soldée).
+          </span>
+        </span>
+      </label>
       <ModalActions>
         <Button type="button" variant="secondary" onClick={onCancel} disabled={busy}>
           Annuler

@@ -213,6 +213,7 @@ export const quotesMarketRoutes: FastifyPluginAsync = async (app) => {
         method: z.enum(["BANK_TRANSFER", "CHECK", "CASH", "OTHER"]),
         reference: z.string().max(120).optional().nullable(),
         notes: z.string().max(500).optional().nullable(),
+        notifyClient: z.boolean().optional(),
       });
       const parsed = schema.safeParse(request.body ?? {});
       if (!parsed.success) {
@@ -224,6 +225,7 @@ export const quotesMarketRoutes: FastifyPluginAsync = async (app) => {
           method: parsed.data.method as PaymentMethod,
           reference: parsed.data.reference,
           notes: parsed.data.notes,
+          notifyClient: parsed.data.notifyClient,
         });
         return updated;
       } catch (e) {

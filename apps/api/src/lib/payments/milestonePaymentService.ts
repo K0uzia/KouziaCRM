@@ -542,6 +542,8 @@ export async function markMilestonePaidManually(opts: {
   method: PaymentMethod;
   reference?: string | null;
   notes?: string | null;
+  /** Reçu envoyé au client. Par défaut : oui. */
+  notifyClient?: boolean;
 }) {
   const milestoneBefore = await prisma.paymentMilestone.findUniqueOrThrow({
     where: { id: opts.milestoneId },
@@ -602,13 +604,20 @@ export async function markMilestonePaidManually(opts: {
     });
   });
 
-  await notifyDepositPaid(opts.milestoneId);
+  await notifyDepositPaid(opts.milestoneId, { online: false, notifyClient: opts.notifyClient !== false });
   const { startProjectForQuote } = await import("@/lib/projects/lifecycle.js");
   await startProjectForQuote(updated.quoteId);
   return updated;
 }
 
-export async function notifyDepositPaid(milestoneId: string) {
+/**
+ * Acompte réglé : reçu au client (facture d'acompte en PDF, acquittée) et, pour un
+ * paiement en ligne, alerte à l'administrateur.
+ */
+export async function notifyDepositPaid(
+  milestoneId: string,
+  opts: { online?: boolean; notifyClient?: boolean } = {},
+) {
   const milestone = await prisma.paymentMilestone.findUnique({
     where: { id: milestoneId },
     include: { quote: { include: { client: true } } },
@@ -620,7 +629,10 @@ export async function notifyDepositPaid(milestoneId: string) {
   const clientEmail = decryptOptional(milestone.quote.client.emailEncrypted);
   const quoteRef = milestone.quote.number ?? "";
 
-  if (clientEmail) {
+  if (opts.notifyClient !== false && clientEmail && milestone.invoiceId) {
+    const { sendPaymentReceipt } = await import("@/lib/email/payment-receipt.js");
+    await sendPaymentReceipt(milestone.invoiceId, milestone.amountCents);
+  } else if (opts.notifyClient !== false && clientEmail) {
     const content = renderDepositPaidEmail({
       brand,
       settings,
@@ -643,7 +655,8 @@ export async function notifyDepositPaid(milestoneId: string) {
     });
   }
 
-  const adminEmail = settings.email?.trim();
+  // Paiement saisi à la main : l'administrateur le sait déjà.
+  const adminEmail = opts.online === false ? null : settings.email?.trim();
   if (adminEmail) {
     const content = renderDepositFailedAdminEmail({
       brand,

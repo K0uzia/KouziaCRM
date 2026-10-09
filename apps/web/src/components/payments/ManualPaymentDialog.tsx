@@ -7,6 +7,8 @@ export type ManualPaymentInput = {
   method: "BANK_TRANSFER" | "CHECK" | "CASH" | "OTHER";
   reference: string | null;
   notes: string | null;
+  /** Reçu (facture acquittée en PDF) envoyé au client. */
+  notifyClient: boolean;
 };
 
 const METHODS: Array<{ value: ManualPaymentInput["method"]; label: string }> = [
@@ -33,17 +35,19 @@ export function ManualPaymentDialog({
   const [method, setMethod] = useState<ManualPaymentInput["method"]>("BANK_TRANSFER");
   const [reference, setReference] = useState("");
   const [notes, setNotes] = useState("");
+  const [notifyClient, setNotifyClient] = useState(true);
 
   useEffect(() => {
     if (!open) return;
     setMethod("BANK_TRANSFER");
     setReference("");
     setNotes("");
+    setNotifyClient(true);
   }, [open]);
 
   function submit(e: FormEvent) {
     e.preventDefault();
-    onConfirm({ method, reference: reference.trim() || null, notes: notes.trim() || null });
+    onConfirm({ method, reference: reference.trim() || null, notes: notes.trim() || null, notifyClient });
   }
 
   return (
@@ -69,6 +73,18 @@ export function ManualPaymentDialog({
         <Field label="Commentaire interne" hint="Non visible par le client (facultatif).">
           <Textarea maxLength={500} value={notes} onChange={(e) => setNotes(e.target.value)} />
         </Field>
+        <label className="flex items-start gap-2 text-sm">
+          <input
+            type="checkbox"
+            className="mt-0.5"
+            checked={notifyClient}
+            onChange={(e) => setNotifyClient(e.target.checked)}
+          />
+          <span>
+            Envoyer le reçu au client
+            <span className="block text-xs text-[var(--muted)]">Email avec la facture acquittée en PDF.</span>
+          </span>
+        </label>
         <ModalActions>
           <Button variant="secondary" disabled={busy} onClick={onClose}>
             Annuler

@@ -40,10 +40,23 @@ export function AcceptanceProofs({ quoteId }: { quoteId: string }) {
             {new Date(p.createdAt).toLocaleString("fr-FR")} · {SOURCE_LABEL[p.source] ?? p.source}
             {p.userEmail ? ` (${p.userEmail})` : ""}
           </p>
-          {p.ipAddress ? <p>IP : {p.ipAddress}</p> : null}
-          {p.userAgent ? <p className="break-all">Navigateur : {p.userAgent}</p> : null}
-          {p.pdfSha256 ? (
-            <p className="break-all font-mono">SHA-256 : {p.pdfSha256}</p>
+          {p.ipAddress || p.userAgent || p.pdfSha256 ? (
+            <details>
+              <summary className="cursor-pointer hover:text-[var(--text)]">Détails techniques</summary>
+              <div className="mt-1 space-y-0.5">
+                {p.ipAddress ? <p>IP : {p.ipAddress}</p> : null}
+                {p.userAgent ? <p className="break-all">Navigateur : {p.userAgent}</p> : null}
+                {p.pdfSha256 ? (
+                  <p className="break-all">
+                    Empreinte du PDF signé :{" "}
+                    <span className="font-mono">{p.pdfSha256}</span>
+                    <span className="block">
+                      Code unique du fichier archivé : en cas de litige, il prouve que le devis signé n&apos;a pas été modifié.
+                    </span>
+                  </p>
+                ) : null}
+              </div>
+            </details>
           ) : null}
           {p.pdfPath ? (
             <a

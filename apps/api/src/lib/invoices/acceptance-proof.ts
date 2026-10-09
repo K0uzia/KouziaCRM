@@ -57,8 +57,6 @@ export async function recordQuoteAcceptanceProof(
       `Nous avons bien reçu votre accord sur le devis {{numero}}, validé au nom de « ${audit.signerName} » le ${fmtDateTime(audit.createdAt)}.`,
       "Vous trouverez ci-joint le devis signé. Conservez-le avec cet e-mail.",
       "",
-      `Empreinte SHA-256 du document : ${pdfSha256}`,
-      "",
       `La suite du projet est consultable dans votre espace client : ${await resolveClientPortalUrl()}`,
       "",
       signature,
