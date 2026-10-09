@@ -15,7 +15,7 @@ import {
 import { toast } from "sonner";
 import { api, formatEUR } from "@/lib/api";
 import { formatDate } from "@/lib/format";
-import { Button } from "@/components/ui/Button";
+import { Button, ButtonLink } from "@/components/ui/Button";
 import { Card, KpiCard, PageHeader, StatRow } from "@/components/ui/Card";
 import { Select } from "@/components/ui/Field";
 import { ObligationsReminder } from "@/components/obligations/ObligationsReminder";
@@ -191,47 +191,34 @@ export function DashboardPage() {
 
   return (
     <div className="space-y-8">
-      <PageHeader
-        title="Accueil"
-        subtitle={data.company.tradeName ?? data.company.legalName}
-      />
+      <PageHeader title="Accueil" />
 
-      <div className="grid grid-cols-1 gap-2 sm:flex sm:flex-wrap">
-        <Link to="/quotes?new=1" className="min-w-0 sm:w-auto">
-          <Button variant="secondary" className="w-full px-4 text-sm sm:w-auto">
-            Nouveau devis
-          </Button>
-        </Link>
-        <Link to="/clients?new=1" className="min-w-0 sm:w-auto">
-          <Button variant="secondary" className="w-full px-4 text-sm sm:w-auto">
-            Nouveau client
-          </Button>
-        </Link>
-        <Link to="/payments" className="min-w-0 sm:w-auto">
-          <Button className="w-full px-4 text-sm sm:w-auto">Encaisser</Button>
-        </Link>
-        <Link to="/invoices" className="min-w-0 sm:w-auto">
-          <Button variant="ghost" className="w-full px-4 text-sm sm:w-auto">
-            Factures
-          </Button>
-        </Link>
+      {/* Actions rapides : principale en premier, 2 colonnes sur mobile. */}
+      <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap">
+        <ButtonLink to="/payments" className="col-span-2 sm:col-span-1">
+          Encaisser
+        </ButtonLink>
+        <ButtonLink to="/quotes?new=1" variant="secondary">
+          Nouveau devis
+        </ButtonLink>
+        <ButtonLink to="/clients?new=1" variant="secondary">
+          Nouveau client
+        </ButtonLink>
+        <ButtonLink to="/invoices" variant="ghost">
+          Factures
+        </ButtonLink>
         {payoutEnabled && payoutHasBeneficiary ? (
           <Button
             variant="ghost"
-            className="w-full px-4 text-sm sm:w-auto"
             disabled={!cf || cf.resteNetCents <= 0}
             onClick={() => setPayoutConfirm(true)}
           >
             Virer mon salaire
           </Button>
         ) : payoutEnabled ? (
-          <Link to="/settings?tab=payments" className="min-w-0 sm:w-auto">
-            <Button variant="ghost" className="w-full px-4 text-sm sm:w-auto">
-              {!payoutHasBeneficiary
-                ? "Configurer mon virement"
-                : "Activer virement salaire"}
-            </Button>
-          </Link>
+          <ButtonLink to="/settings?tab=payments" variant="ghost">
+            {!payoutHasBeneficiary ? "Configurer mon virement" : "Activer virement salaire"}
+          </ButtonLink>
         ) : null}
       </div>
 
@@ -258,7 +245,7 @@ export function DashboardPage() {
       ) : null}
 
       {/* KPI : 6 cartes sur une ligne (desktop) */}
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+      <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-3 xl:grid-cols-6">
         <KpiCard
           label="Encaissé"
           value={formatEUR(cf.totalEncaisseCents)}

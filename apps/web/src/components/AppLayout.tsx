@@ -94,7 +94,7 @@ export function AppLayout() {
 
           <button
             type="button"
-            className={`${iconBtn} md:hidden ${
+            className={`${iconBtn} lg:hidden ${
               menuOpen
                 ? "text-[var(--primary)]"
                 : "text-[var(--muted)] hover:bg-[var(--surface-hover)] hover:text-[var(--text)]"
@@ -108,7 +108,7 @@ export function AppLayout() {
           </button>
 
           <nav
-            className="hidden min-w-0 flex-1 items-center gap-0.5 overflow-x-auto no-scrollbar md:flex"
+            className="hidden min-w-0 flex-1 items-center gap-0.5 overflow-x-auto no-scrollbar lg:flex"
             aria-label="Navigation principale"
           >
             {HUBS.map((item) => (
@@ -128,7 +128,7 @@ export function AppLayout() {
               </NavLink>
             ))}
           </nav>
-          <div className="min-w-0 flex-1 md:hidden" />
+          <div className="min-w-0 flex-1 lg:hidden" />
 
           <div className="flex shrink-0 items-center">
             <NavLink
@@ -191,7 +191,7 @@ export function AppLayout() {
           <nav
             id="mobile-hub-menu"
             aria-label="Navigation principale"
-            className="border-t border-[var(--border)] bg-[var(--bg)] px-4 py-3 md:hidden"
+            className="border-t border-[var(--border)] bg-[var(--bg)] px-4 py-3 lg:hidden"
           >
             <ul className="mx-auto max-w-7xl space-y-1">
               {HUBS.map((item) => (
@@ -218,28 +218,32 @@ export function AppLayout() {
         {subNav && !menuOpen ? (
           <div className="border-t border-[var(--border)]">
             <div className="relative mx-auto max-w-7xl">
-              <div
-                className="flex max-w-7xl gap-1 overflow-x-auto px-4 py-1 no-scrollbar sm:px-6"
+              <nav
+                className="flex max-w-7xl gap-1 overflow-x-auto px-4 no-scrollbar sm:px-6"
                 aria-label="Sous-navigation"
               >
-                {subNav.map((item) => (
-                  <NavLink
-                    key={item.to}
-                    to={item.to}
-                    className={() =>
-                      `inline-flex min-h-11 shrink-0 touch-manipulation items-center whitespace-nowrap rounded-full px-3.5 text-xs font-medium transition ${
-                        item.match(pathname)
-                          ? "bg-[var(--surface-hover)] text-[var(--text)] ring-1 ring-[var(--border-strong)]"
-                          : "text-[var(--muted)] hover:bg-[var(--surface-hover)] hover:text-[var(--text)]"
-                      }`
-                    }
-                  >
-                    {item.label}
-                  </NavLink>
-                ))}
-              </div>
+                {subNav.map((item) => {
+                  const active = item.match(pathname);
+                  return (
+                    <NavLink
+                      key={item.to}
+                      to={item.to}
+                      aria-current={active ? "page" : undefined}
+                      className={() =>
+                        `inline-flex min-h-11 shrink-0 touch-manipulation items-center whitespace-nowrap border-b-2 px-3 text-sm font-medium transition-colors ${
+                          active
+                            ? "border-[var(--primary)] text-[var(--text)]"
+                            : "border-transparent text-[var(--muted)] hover:text-[var(--text)]"
+                        }`
+                      }
+                    >
+                      {item.label}
+                    </NavLink>
+                  );
+                })}
+              </nav>
               <div
-                className="pointer-events-none absolute inset-y-0 right-0 w-8 bg-gradient-to-l from-[var(--bg)] to-transparent md:hidden"
+                className="pointer-events-none absolute inset-y-0 right-0 w-8 bg-gradient-to-l from-[var(--bg)] to-transparent lg:hidden"
                 aria-hidden
               />
             </div>
@@ -251,7 +255,7 @@ export function AppLayout() {
         <button
           type="button"
           aria-label="Fermer le menu"
-          className="fixed inset-0 z-30 bg-[var(--text)]/20 md:hidden"
+          className="fixed inset-0 z-30 bg-[var(--text)]/20 lg:hidden"
           onClick={() => setMenuOpen(false)}
         />
       ) : null}

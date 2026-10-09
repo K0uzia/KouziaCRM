@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/Button";
 import { Badge, Card, PageHeader } from "@/components/ui/Card";
 import { Modal, ModalActions } from "@/components/ui/Modal";
 import { Field, Input } from "@/components/ui/Field";
+import { FilterChips } from "@/components/ui/FilterChips";
 import { DataTable, type TableColumn } from "@/components/ui/DataTable";
 import {
   ClientFormEditor,
@@ -192,28 +193,17 @@ export function ClientsPage() {
         </Card>
       ) : (
         <>
-          <div className="mb-3 flex flex-wrap gap-2">
-            {(
-              [
-                ["all", "Tous"],
-                ["with", "Ayant une correspondance"],
-                ["without", "Sans échange"],
-              ] as const
-            ).map(([id, label]) => (
-              <button
-                key={id}
-                type="button"
-                className={`ui-chip rounded-full px-3 text-xs ${
-                  correspondenceFilter === id
-                    ? "bg-[var(--primary)] text-[var(--primary-fg)]"
-                    : "bg-[var(--surface-hover)] text-[var(--muted)]"
-                }`}
-                onClick={() => setCorrespondenceFilter(id)}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
+          <FilterChips
+            className="mb-3"
+            label="Filtrer les clients"
+            value={correspondenceFilter}
+            onChange={setCorrespondenceFilter}
+            options={[
+              { id: "all", label: "Tous" },
+              { id: "with", label: "Avec échanges" },
+              { id: "without", label: "Sans échange" },
+            ]}
+          />
           <DataTable
           columns={columns}
           data={clients}

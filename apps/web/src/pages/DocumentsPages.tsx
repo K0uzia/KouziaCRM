@@ -13,6 +13,7 @@ import {
 import { Button } from "@/components/ui/Button";
 import { Badge, Card, PageHeader } from "@/components/ui/Card";
 import { Modal, ModalActions } from "@/components/ui/Modal";
+import { FilterChips } from "@/components/ui/FilterChips";
 import { DataTable, type TableColumn } from "@/components/ui/DataTable";
 import { DocumentFormEditor } from "@/components/documents/DocumentForm";
 import { DocumentNumberBadge } from "@/components/documents/DocumentNumberBadge";
@@ -241,22 +242,13 @@ function DocumentsListPage({
         }
       />
 
-      <div className="mb-4 flex flex-wrap items-center gap-2">
-        {filters.map((s) => (
-          <button
-            key={s}
-            type="button"
-            onClick={() => setStatusFilter(s)}
-            className={`ui-chip rounded-md px-3 text-xs font-medium transition ${
-              statusFilter === s
-                ? "bg-[var(--primary)] text-[var(--primary-fg)]"
-                : "bg-[var(--surface)] text-[var(--muted)] ring-1 ring-[var(--border)] hover:text-[var(--text)]"
-            }`}
-          >
-            {s === "ALL" ? "Tous" : labels[s] ?? s}
-          </button>
-        ))}
-      </div>
+      <FilterChips
+        className="mb-4"
+        label={isQuote ? "Filtrer les devis par statut" : "Filtrer les factures par statut"}
+        value={statusFilter}
+        onChange={setStatusFilter}
+        options={filters.map((s) => ({ id: s, label: s === "ALL" ? "Tous" : labels[s] ?? s }))}
+      />
 
       {loading ? (
         <Card>

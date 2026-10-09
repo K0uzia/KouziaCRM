@@ -50,7 +50,7 @@ export function PageHeader({
         ) : null}
       </div>
       {actions ? (
-        <div className="flex w-full min-w-0 flex-col gap-2 sm:w-auto sm:max-w-[min(100%,28rem)] sm:flex-row sm:flex-wrap sm:items-center sm:justify-end [&_button]:w-full sm:[&_button]:w-auto">
+        <div className="flex w-full min-w-0 flex-wrap items-center gap-2 sm:w-auto sm:max-w-[min(100%,32rem)] sm:justify-end [&>*]:flex-[1_1_9rem] sm:[&>*]:flex-none">
           {actions}
         </div>
       ) : null}
@@ -103,10 +103,10 @@ export function KpiCard({
   className?: string;
 }) {
   return (
-    <Card className={`min-w-0 p-4 sm:p-5 ${className}`}>
-      <div className="mb-4 flex items-start justify-between gap-2">
+    <Card className={`min-w-0 p-3.5 sm:p-5 ${className}`}>
+      <div className="mb-3 flex items-start justify-between gap-2 sm:mb-4">
         <div
-          className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-[var(--radius-sm)] ${iconTones[iconTone]}`}
+          className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-[var(--radius-sm)] sm:h-10 sm:w-10 ${iconTones[iconTone]}`}
         >
           <FontAwesomeIcon icon={icon} className="h-4 w-4" />
         </div>
@@ -120,8 +120,8 @@ export function KpiCard({
           </span>
         ) : null}
       </div>
-      <p className="text-sm text-[var(--muted)]">{label}</p>
-      <p className="mt-1 break-words text-xl font-bold tabular-nums tracking-tight text-[var(--text)] sm:text-2xl">
+      <p className="text-xs text-[var(--muted)] sm:text-sm">{label}</p>
+      <p className="mt-1 break-words text-lg font-bold tabular-nums tracking-tight text-[var(--text)] sm:text-2xl">
         {value}
       </p>
       {hint ? <p className="mt-2 text-xs text-[var(--muted)]">{hint}</p> : null}
@@ -150,7 +150,7 @@ export function StatRow({
         <FontAwesomeIcon icon={icon} className="h-3.5 w-3.5" />
       </div>
       <div className="min-w-0 flex-1">
-        <p className="text-sm text-[var(--muted)]">{label}</p>
+        <p className="text-xs text-[var(--muted)] sm:text-sm">{label}</p>
         <p className="font-semibold tabular-nums text-[var(--text)]">{value}</p>
       </div>
     </div>
@@ -170,7 +170,7 @@ export function StatCard({
 }) {
   return (
     <Card className={`p-5 ${className}`}>
-      <p className="text-sm text-[var(--muted)]">{label}</p>
+      <p className="text-xs text-[var(--muted)] sm:text-sm">{label}</p>
       <p className="mt-2 text-2xl font-bold tabular-nums text-[var(--text)]">{value}</p>
     </Card>
   );
