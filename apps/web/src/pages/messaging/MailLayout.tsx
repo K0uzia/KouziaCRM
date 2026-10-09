@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { toast } from "sonner";
+import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
+import { faEnvelope } from "@fortawesome/free-solid-svg-icons";
+import { ButtonLink } from "@/components/ui/Button";
 import { api } from "@/lib/api";
 import { FolderSidebar } from "@/pages/messaging/FolderSidebar";
 import { MessageList } from "@/pages/messaging/MessageList";
@@ -134,7 +137,13 @@ export function MailLayout() {
   }, [selectedFolderId, search, audience, viewFilter]);
 
   /** Même erreur venant des dossiers et des messages : un seul toast (id stable). */
+  const [notConfigured, setNotConfigured] = useState(false);
   const notifyLoadError = useCallback((e: Error) => {
+    // Boîte non connectée : état dédié à l'écran plutôt qu'un toast d'erreur.
+    if (/IMAP non configur/i.test(e.message)) {
+      setNotConfigured(true);
+      return;
+    }
     toast.error(e.message, { id: "mail-load-error" });
   }, []);
 
@@ -311,6 +320,26 @@ export function MailLayout() {
   const isTrashFolder =
     selectedFolder?.role === "TRASH" ||
     selectedFolder?.displayName?.toLowerCase().includes("corbeille") === true;
+
+  if (notConfigured && folders.length === 0) {
+    return (
+      <div className="flex h-full items-center justify-center p-6">
+        <div className="ui-card max-w-md p-8 text-center">
+          <span className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-[var(--primary-soft)] text-[var(--primary)]">
+            <FontAwesomeIcon icon={faEnvelope} className="h-5 w-5" aria-hidden />
+          </span>
+          <h1 className="mt-4 text-lg font-semibold">Boîte mail non connectée</h1>
+          <p className="mt-2 text-sm text-[var(--muted)]">
+            Renseignez le serveur IMAP et le mot de passe de votre adresse pour retrouver vos échanges
+            clients ici, rattachés automatiquement à chaque fiche.
+          </p>
+          <ButtonLink to="/settings?tab=email" className="mt-6">
+            Configurer la messagerie
+          </ButtonLink>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="flex h-full min-h-0 flex-col">

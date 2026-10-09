@@ -91,48 +91,45 @@ export function UrssafPage() {
   return (
     <div className="space-y-5">
       <PageHeader
-        title="Historique URSSAF"
-        subtitle="Ce que vous avez déclaré, et ce qui reste à régler"
+        title="URSSAF"
+        subtitle="Déclarations de chiffre d'affaires et cotisations sociales, période par période."
       />
 
       {echeance ? (
-        <Card
-          className={`p-5 ${
-            echeance.status === "late" ? "border-[var(--danger)]/40" : ""
-          }`}
-        >
-          <div className="flex flex-wrap items-start justify-between gap-3">
+        <Card className={`overflow-hidden ${echeance.status === "late" ? "border-[var(--danger)]/50" : ""}`}>
+          <div className="flex flex-col gap-3 border-b border-[var(--border)] p-5 sm:flex-row sm:items-center sm:justify-between">
             <div>
-              <p className="text-xs text-[var(--muted)]">Échéance en cours</p>
-              <p className="mt-1 text-base font-semibold">{echeance.periodLabel}</p>
-              <p className="mt-1 text-sm text-[var(--muted)]">
-                {formatEUR(echeance.encaisseCents)} encaissés · à déclarer avant le{" "}
-                {formatDate(echeance.deadline)}
-              </p>
-              {echeance.paidAt ? (
-                <p className="mt-1 text-xs text-[var(--success)]">
-                  Réglée le {formatDate(echeance.paidAt)}
-                </p>
-              ) : null}
+              <p className="text-xs font-semibold uppercase tracking-[0.08em] text-[var(--muted)]">Échéance en cours</p>
+              <h2 className="mt-1 text-lg font-semibold first-letter:uppercase">{echeance.periodLabel}</h2>
             </div>
-            <div className="text-right">
-              <p className="tabular-nums text-lg font-semibold">
-                {formatEUR(echeance.amountDueCents)}
-              </p>
-              {!settled ? (
-                <Button className="mt-2" onClick={() => setMarkOpen(true)}>
-                  Marquer comme payée
-                </Button>
-              ) : (
-                <Badge tone="green">
-                  {echeance.status === "paid" ? "Réglée" : "Rien à payer"}
-                </Badge>
-              )}
-            </div>
+            {!settled ? (
+              <Button onClick={() => setMarkOpen(true)}>Marquer comme payée</Button>
+            ) : (
+              <Badge tone="green">{echeance.status === "paid" ? `Réglée le ${formatDate(echeance.paidAt)}` : "Rien à payer"}</Badge>
+            )}
           </div>
+          <dl className="grid grid-cols-1 gap-px bg-[var(--border)] sm:grid-cols-3">
+            <div className="bg-[var(--surface)] p-5">
+              <dt className="text-xs text-[var(--muted)]">Chiffre d'affaires encaissé</dt>
+              <dd className="mt-1 font-display text-xl font-semibold tabular-nums">{formatEUR(echeance.encaisseCents)}</dd>
+            </div>
+            <div className="bg-[var(--surface)] p-5">
+              <dt className="text-xs text-[var(--muted)]">Cotisations à payer</dt>
+              <dd className="mt-1 font-display text-xl font-semibold tabular-nums text-[var(--primary)]">
+                {formatEUR(echeance.amountDueCents)}
+              </dd>
+            </div>
+            <div className="bg-[var(--surface)] p-5">
+              <dt className="text-xs text-[var(--muted)]">À déclarer avant le</dt>
+              <dd className={`mt-1 font-display text-xl font-semibold ${echeance.status === "late" ? "text-[var(--danger)]" : ""}`}>
+                {formatDate(echeance.deadline)}
+              </dd>
+            </div>
+          </dl>
         </Card>
       ) : null}
 
+      <h2 className="pt-2 text-sm font-semibold">Historique des déclarations</h2>
       <Card>
         {loading ? (
           <p className="p-4 text-sm text-[var(--muted)]">Chargement…</p>

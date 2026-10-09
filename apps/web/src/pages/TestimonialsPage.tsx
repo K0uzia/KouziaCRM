@@ -1,9 +1,12 @@
 import { useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { formatDate } from "@/lib/format";
 import { Button } from "@/components/ui/Button";
 import { Badge, Card, EmptyState, PageHeader } from "@/components/ui/Card";
+import { Avatar } from "@/components/ui/Avatar";
+import { Tabs, useTabParam } from "@/components/ui/Tabs";
 
 type AdminTestimonial = {
   id: string;
@@ -58,68 +61,82 @@ export function TestimonialsPage() {
     }
   }
 
+  const [tab, setTab] = useTabParam(["PENDING", "PUBLISHED", "REJECTED"] as const, "PENDING");
+  const count = (st: AdminTestimonial["status"]) => rows.filter((r) => r.status === st).length;
+  const visible = rows.filter((r) => r.status === tab);
+
   return (
     <div>
       <PageHeader
         title="Avis clients"
-        subtitle="Les avis envoyés depuis le suivi. Publiez ceux que vous souhaitez afficher sur kouzia.com."
+        subtitle="Avis laissés par vos clients depuis leur espace de suivi. Seuls les avis publiés apparaissent sur kouzia.com."
       />
 
-      {rows.length === 0 ? (
-        <EmptyState title="Aucun avis pour le moment" />
-      ) : (
-        <ul className="space-y-4">
-          {rows.map((row) => (
-            <li key={row.id}>
-              <Card className="p-5">
-                <div className="flex flex-wrap items-start justify-between gap-3">
-                  <div>
-                    <p className="font-semibold">{row.authorName}</p>
-                    <p className="mt-0.5 text-xs text-[var(--muted)]">
-                      {row.client.displayName}
-                      {row.client.clientNumber ? ` · ${row.client.clientNumber}` : ""}
-                      {" · "}
-                      {formatDate(row.createdAt)}
-                    </p>
+      <Tabs
+        label="Avis par statut"
+        value={tab}
+        onChange={setTab}
+        tabs={[
+          { id: "PENDING", label: "À relire", count: count("PENDING") },
+          { id: "PUBLISHED", label: "Publiés", count: count("PUBLISHED") },
+          { id: "REJECTED", label: "Non publiés", count: count("REJECTED") },
+        ]}
+      >
+        {visible.length === 0 ? (
+          <Card>
+            <EmptyState
+              title={tab === "PENDING" ? "Aucun avis à relire" : tab === "PUBLISHED" ? "Aucun avis publié" : "Aucun avis écarté"}
+              hint={
+                tab === "PENDING"
+                  ? "Vos clients peuvent laisser un avis depuis leur espace de suivi, une fois un projet avancé."
+                  : undefined
+              }
+            />
+          </Card>
+        ) : (
+          <ul className="grid gap-4 lg:grid-cols-2">
+            {visible.map((row) => (
+              <li key={row.id}>
+                <Card className="flex h-full flex-col p-5">
+                  <div className="flex items-start gap-3">
+                    <Avatar name={row.authorName} />
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate font-semibold">{row.authorName}</p>
+                      <p className="mt-0.5 truncate text-xs text-[var(--muted)]">
+                        <Link to={`/clients/${row.client.id}`} className="hover:text-[var(--primary)]">
+                          {row.client.displayName}
+                        </Link>
+                        {" · "}
+                        {formatDate(row.createdAt)}
+                      </p>
+                    </div>
+                    <Badge tone={statusTone[row.status]}>{statusLabel[row.status]}</Badge>
                   </div>
-                  <Badge tone={statusTone[row.status]}>{statusLabel[row.status]}</Badge>
-                </div>
-                <p className="mt-3 whitespace-pre-wrap text-sm leading-relaxed">{row.body}</p>
-                <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:flex-wrap [&_button]:w-full sm:[&_button]:w-auto">
-                  {row.status !== "PUBLISHED" ? (
-                    <Button
-                      type="button"
-                      disabled={busyId === row.id}
-                      onClick={() => void act(row.id, "publish")}
-                    >
-                      Publier
-                    </Button>
-                  ) : (
-                    <Button
-                      type="button"
-                      variant="secondary"
-                      disabled={busyId === row.id}
-                      onClick={() => void act(row.id, "unpublish")}
-                    >
-                      Retirer du site
-                    </Button>
-                  )}
-                  {row.status !== "REJECTED" && row.status !== "PUBLISHED" ? (
-                    <Button
-                      type="button"
-                      variant="secondary"
-                      disabled={busyId === row.id}
-                      onClick={() => void act(row.id, "reject")}
-                    >
-                      Ne pas publier
-                    </Button>
-                  ) : null}
-                </div>
-              </Card>
-            </li>
-          ))}
-        </ul>
-      )}
+                  <blockquote className="mt-4 flex-1 whitespace-pre-wrap border-l-2 border-[var(--primary)]/60 pl-4 text-sm leading-relaxed">
+                    {row.body}
+                  </blockquote>
+                  <div className="mt-5 flex flex-wrap justify-end gap-2 border-t border-[var(--border)] pt-4">
+                    {row.status !== "REJECTED" && row.status !== "PUBLISHED" ? (
+                      <Button variant="ghost" disabled={busyId === row.id} onClick={() => void act(row.id, "reject")}>
+                        Ne pas publier
+                      </Button>
+                    ) : null}
+                    {row.status !== "PUBLISHED" ? (
+                      <Button disabled={busyId === row.id} onClick={() => void act(row.id, "publish")}>
+                        Publier sur le site
+                      </Button>
+                    ) : (
+                      <Button variant="secondary" disabled={busyId === row.id} onClick={() => void act(row.id, "unpublish")}>
+                        Retirer du site
+                      </Button>
+                    )}
+                  </div>
+                </Card>
+              </li>
+            ))}
+          </ul>
+        )}
+      </Tabs>
     </div>
   );
 }

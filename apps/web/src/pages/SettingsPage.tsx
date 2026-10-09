@@ -683,8 +683,8 @@ export function SettingsPage() {
   return (
     <div>
       <PageHeader
-        title="Paramètres"
-        subtitle="Un onglet = un thème. Enregistrez avant de changer d'onglet."
+        title="Réglages"
+        subtitle="Entreprise, facturation et communication. Chaque section s'enregistre séparément."
         actions={busy ? <span className="text-xs text-[var(--muted)]">Enregistrement…</span> : null}
       />
 
@@ -700,16 +700,17 @@ export function SettingsPage() {
                   SIREN, adresse, contacts. Utilisé sur les PDF et le portail client.
                 </p>
               </div>
-              <div className="flex flex-wrap gap-1 border-b border-[var(--border)] pb-3">
+              <div role="group" aria-label="Sous-sections" className="-mx-5 flex gap-1 overflow-x-auto border-b border-[var(--border)] px-5 no-scrollbar">
                 {identitySections.map((s) => (
                   <button
                     key={s.id}
                     type="button"
                     onClick={() => setIdentitySection(s.id)}
-                    className={`ui-chip rounded-[var(--radius-sm)] px-3 text-sm font-medium transition ${
+                    aria-pressed={identitySection === s.id}
+                    className={`-mb-px inline-flex min-h-11 shrink-0 items-center border-b-2 px-3 text-sm transition-colors ${
                       identitySection === s.id
-                        ? "bg-[var(--primary-soft)] text-[var(--primary)]"
-                        : "text-[var(--muted)] hover:bg-[var(--surface-hover)] hover:text-[var(--text)]"
+                        ? "border-[var(--primary)] font-medium text-[var(--text)]"
+                        : "border-transparent text-[var(--muted)] hover:text-[var(--text)]"
                     }`}
                   >
                     {s.label}
