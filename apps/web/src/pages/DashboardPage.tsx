@@ -1,27 +1,28 @@
-import { lazy, Suspense, useEffect, useMemo, useState } from "react";
+import { lazy, Suspense, useEffect, useMemo, useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
+import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import {
-  faCoins,
-  faWallet,
-  faBuildingColumns,
-  faFileInvoiceDollar,
-  faUsers,
-  faStar,
-  faFilePen,
+  faArrowRight,
   faBell,
+  faClipboardCheck,
+  faFileInvoice,
+  faFilePen,
   faLandmark,
-  faMoneyBillWave,
 } from "@fortawesome/free-solid-svg-icons";
+import type { IconDefinition } from "@fortawesome/fontawesome-svg-core";
 import { toast } from "sonner";
 import { api, formatEUR } from "@/lib/api";
 import { formatDate } from "@/lib/format";
+import { useAuth } from "@/lib/auth";
 import { Button, ButtonLink } from "@/components/ui/Button";
-import { Card, KpiCard, PageHeader, StatRow } from "@/components/ui/Card";
-import { Select } from "@/components/ui/Field";
-import { ObligationsReminder } from "@/components/obligations/ObligationsReminder";
+import { Card } from "@/components/ui/Card";
+import { Segmented } from "@/components/ui/Segmented";
+import { StatStrip } from "@/components/ui/StatStrip";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 
 const RevenueChart = lazy(() => import("@/components/dashboard/RevenueChart"));
+
+type Scope = "week" | "month" | "year";
 
 type DashboardData = {
   company: { legalName: string; tradeName: string | null };
@@ -71,23 +72,76 @@ type ReminderRow = {
   client: { id: string; displayName: string; clientNumber?: string | null };
 };
 
-type MrrData = {
-  mrrCents: number;
-  arrCents: number;
-  activeCount: number;
+type MrrData = { mrrCents: number; arrCents: number; activeCount: number };
+
+type CfeObligation = { label: string; dueDate: string; amountCents: number | null };
+
+type ObligationsSummary = {
+  summary: { late: number; urgent: number; open: number; upcoming: number; pending: number };
+  nextDue: { label: string; displayStatus: string; daysLate: number | null; daysRemaining: number | null } | null;
 };
 
-type CfeObligation = {
-  label: string;
-  dueDate: string;
-  amountCents: number | null;
+const SCOPE_LABEL: Record<Scope, string> = {
+  week: "cette semaine",
+  month: "ce mois-ci",
+  year: "cette année",
 };
+
+function greeting(): string {
+  const h = new Date().getHours();
+  return h < 18 ? "Bonjour" : "Bonsoir";
+}
+
+/** Ligne de la colonne « À traiter » : icône d'état, texte, action à droite. */
+function TodoRow({
+  icon,
+  tone,
+  title,
+  detail,
+  action,
+}: {
+  icon: IconDefinition;
+  tone: "danger" | "warning" | "primary" | "muted";
+  title: ReactNode;
+  detail?: ReactNode;
+  action?: ReactNode;
+}) {
+  const toneCls = {
+    danger: "bg-[var(--danger-soft)] text-[var(--danger)]",
+    warning: "bg-[var(--warning-soft)] text-[var(--warning)]",
+    primary: "bg-[var(--primary-soft)] text-[var(--primary)]",
+    muted: "bg-[var(--surface-hover)] text-[var(--muted)]",
+  }[tone];
+  return (
+    <li className="flex items-center gap-3 py-3">
+      <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-[var(--radius-sm)] ${toneCls}`}>
+        <FontAwesomeIcon icon={icon} className="h-3.5 w-3.5" aria-hidden />
+      </span>
+      <div className="min-w-0 flex-1">
+        <div className="truncate text-sm font-medium">{title}</div>
+        {detail ? <div className="truncate text-xs text-[var(--muted)]">{detail}</div> : null}
+      </div>
+      {action ? <div className="shrink-0">{action}</div> : null}
+    </li>
+  );
+}
+
+function SectionTitle({ children, action }: { children: ReactNode; action?: ReactNode }) {
+  return (
+    <div className="flex min-h-11 items-center justify-between gap-3 border-b border-[var(--border)] px-5">
+      <h2 className="text-sm font-semibold">{children}</h2>
+      {action}
+    </div>
+  );
+}
 
 export function DashboardPage() {
-  const [scope, setScope] = useState("month");
+  const { user } = useAuth();
+  const [scope, setScope] = useState<Scope>("month");
   const [data, setData] = useState<DashboardData | null>(null);
   const [reminders, setReminders] = useState<ReminderRow[]>([]);
   const [mrr, setMrr] = useState<MrrData | null>(null);
+  const [obligations, setObligations] = useState<ObligationsSummary | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [payoutEnabled, setPayoutEnabled] = useState(false);
@@ -113,24 +167,21 @@ export function DashboardPage() {
       api<{ items: Array<{ type: string; label: string; dueDate: string; amountCents: number | null; displayStatus: string }> }>(
         "/api/obligations",
       ).catch(() => ({ items: [] })),
+      api<ObligationsSummary>("/api/obligations/summary").catch(() => null),
     ])
-      .then(([d, r, m, p, ob]) => {
-        if (!cancelled) {
-          setData(d);
-          setReminders(r);
-          if (m) setMrr(m);
-          setPayoutEnabled(p.enabled);
-          setPayoutHasBeneficiary(p.hasBeneficiary);
-          const cfe = ob.items
-            .filter((i) => i.type === "CFE_PAYMENT" && i.displayStatus !== "DONE")
-            .sort((a, b) => a.dueDate.localeCompare(b.dueDate))[0];
-          setCfeObligation(
-            cfe
-              ? { label: cfe.label, dueDate: cfe.dueDate, amountCents: cfe.amountCents }
-              : null,
-          );
-          setError(null);
-        }
+      .then(([d, r, m, p, ob, os]) => {
+        if (cancelled) return;
+        setData(d);
+        setReminders(r);
+        setMrr(m);
+        setPayoutEnabled(p.enabled);
+        setPayoutHasBeneficiary(p.hasBeneficiary);
+        setObligations(os);
+        const cfe = ob.items
+          .filter((i) => i.type === "CFE_PAYMENT" && i.displayStatus !== "DONE")
+          .sort((a, b) => a.dueDate.localeCompare(b.dueDate))[0];
+        setCfeObligation(cfe ? { label: cfe.label, dueDate: cfe.dueDate, amountCents: cfe.amountCents } : null);
+        setError(null);
       })
       .catch((e: Error) => {
         if (!cancelled) setError(e.message);
@@ -150,9 +201,7 @@ export function DashboardPage() {
         "/api/reminders/run",
         { method: "POST", body: "{}" },
       );
-      toast.success(
-        `Relances : ${res.enqueued} enfilée(s), ${res.sent} envoyée(s)`,
-      );
+      toast.success(`Relances : ${res.enqueued} enfilée(s), ${res.sent} envoyée(s)`);
       if (res.errors.length) toast.error(res.errors.join(" · "));
       setReminders(await api<ReminderRow[]>("/api/reminders/pending"));
     } catch (e) {
@@ -179,265 +228,250 @@ export function DashboardPage() {
     }
   }
 
-  if (loading && !data) return <p className="text-sm text-[var(--muted)]">Chargement…</p>;
-  if (error || !data) return <p className="text-sm text-[var(--danger)]">{error ?? "Erreur"}</p>;
+  const firstName = (user?.name ?? "").split(/\s+/)[0];
+  const today = new Date().toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long" });
 
-  const cf = data.cashflow;
-  const echeanceDue =
-    data.echeance &&
-    data.echeance.status !== "PAID" &&
-    data.echeance.amountDueCents > 0;
-  const pendingTotal = data.pendingWithBalance.reduce((s, i) => s + i.remaining, 0);
-
-  return (
-    <div className="space-y-8">
-      <PageHeader title="Accueil" />
-
-      {/* Actions rapides : principale en premier, 2 colonnes sur mobile. */}
-      <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap">
-        <ButtonLink to="/payments" className="col-span-2 sm:col-span-1">
-          Encaisser
-        </ButtonLink>
-        <ButtonLink to="/quotes?new=1" variant="secondary">
-          Nouveau devis
-        </ButtonLink>
-        <ButtonLink to="/clients?new=1" variant="secondary">
-          Nouveau client
-        </ButtonLink>
-        <ButtonLink to="/invoices" variant="ghost">
-          Factures
-        </ButtonLink>
+  const header = (
+    <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+      <div className="min-w-0">
+        <p className="text-sm capitalize text-[var(--muted)]">{today}</p>
+        <h1 className="mt-1 text-2xl font-semibold tracking-tight sm:text-3xl">
+          {greeting()}
+          {firstName ? ` ${firstName}` : ""}
+        </h1>
+      </div>
+      <div className="flex flex-wrap items-center gap-2">
+        <Segmented
+          label="Période des indicateurs"
+          value={scope}
+          onChange={setScope}
+          options={[
+            { id: "week", label: "Semaine" },
+            { id: "month", label: "Mois" },
+            { id: "year", label: "Année" },
+          ]}
+        />
         {payoutEnabled && payoutHasBeneficiary ? (
           <Button
-            variant="ghost"
-            disabled={!cf || cf.resteNetCents <= 0}
+            variant="secondary"
+            disabled={!data || data.cashflow.resteNetCents <= 0}
             onClick={() => setPayoutConfirm(true)}
           >
             Virer mon salaire
           </Button>
         ) : payoutEnabled ? (
-          <ButtonLink to="/settings?tab=payments" variant="ghost">
-            {!payoutHasBeneficiary ? "Configurer mon virement" : "Activer virement salaire"}
+          <ButtonLink to="/settings?tab=payments" variant="secondary">
+            Configurer mon virement
           </ButtonLink>
         ) : null}
       </div>
+    </div>
+  );
 
-      <ObligationsReminder />
-
-      {echeanceDue ? (
-        <Card className="border-[var(--warning)]/30 p-4">
-          <p className="text-xs font-medium text-[var(--warning)]">Échéance URSSAF</p>
-          <p className="mt-1 text-sm text-[var(--text)]">
-            {data.echeance.periodLabel} :{" "}
-            <span className="font-semibold tabular-nums">
-              {formatEUR(data.echeance.amountDueCents)}
-            </span>
-            {" · "}
-            échéance {formatDate(data.echeance.deadline)}
-          </p>
-          <Link
-            to="/urssaf"
-            className="mt-2 inline-block text-xs font-medium text-[var(--primary)] hover:underline"
-          >
-            Voir déclarations
-          </Link>
-        </Card>
-      ) : null}
-
-      {/* KPI : 6 cartes sur une ligne (desktop) */}
-      <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-3 xl:grid-cols-6">
-        <KpiCard
-          label="Encaissé"
-          value={formatEUR(cf.totalEncaisseCents)}
-          icon={faCoins}
-          iconTone="green"
-        />
-        <KpiCard
-          label="Reste net"
-          value={formatEUR(cf.resteNetCents)}
-          icon={faWallet}
-          iconTone="purple"
-        />
-        <KpiCard
-          label="URSSAF"
-          value={formatEUR(cf.urssafCents)}
-          icon={faBuildingColumns}
-          iconTone="blue"
-        />
-        <KpiCard
-          label="À encaisser"
-          value={formatEUR(pendingTotal)}
-          icon={faFileInvoiceDollar}
-          iconTone="orange"
-        />
-        <KpiCard
-          label="CFE & Trésorerie"
-          value={formatEUR(cf.cfeCents + cf.tresorerieCents)}
-          icon={faLandmark}
-          iconTone="blue"
-          hint={
-            cf.cfeCents > 0 || cfeObligation
-              ? `CFE ${formatEUR(cf.cfeCents)}${
-                  cfeObligation
-                    ? ` · échéance ${formatDate(cfeObligation.dueDate)}`
-                    : ""
-                }`
-              : undefined
-          }
-          footer={
-            cf.cfeCents <= 0 && !cfeObligation ? (
-              <Link to="/settings" className="text-xs font-medium text-[var(--primary)] hover:underline">
-                Renseigner
-              </Link>
-            ) : undefined
-          }
-        />
-        <KpiCard
-          label="Salaire disponible"
-          value={formatEUR(cf.resteNetCents)}
-          icon={faMoneyBillWave}
-          iconTone="purple"
-        />
+  if (loading && !data) {
+    return (
+      <div>
+        {header}
+        <div className="ui-card h-28 animate-pulse" aria-busy="true" aria-label="Chargement des indicateurs" />
       </div>
-
-      {/* Graphique + stats rapides */}
-      <div className="grid gap-4 lg:grid-cols-3">
-        <Card className="h-80 min-w-0 overflow-hidden p-4 sm:p-6 lg:col-span-2">
-          <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-            <h2 className="text-base font-semibold text-[var(--text)]">
-              Répartition des encaissements
-            </h2>
-            <Select
-              className="w-full min-w-[7.5rem] cursor-pointer appearance-none bg-[var(--surface-raised)] py-2 pl-3 pr-8 text-sm font-medium shadow-none sm:w-auto"
-              value={scope}
-              onChange={(e) => setScope(e.target.value)}
-              aria-label="Période du graphique"
-              style={{
-                backgroundImage:
-                  "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%236b7280' d='M3 4.5L6 8l3-3.5'/%3E%3C/svg%3E\")",
-                backgroundRepeat: "no-repeat",
-                backgroundPosition: "right 0.6rem center",
-              }}
-            >
-              <option value="week">Semaine</option>
-              <option value="month">Mois</option>
-              <option value="year">Année</option>
-            </Select>
-          </div>
-          <div className="h-[calc(100%-2.75rem)]">
-            <Suspense
-              fallback={
-                <div className="h-full animate-pulse rounded-[var(--radius-sm)] bg-[var(--surface-hover)]" />
-              }
-            >
-              <RevenueChart data={data.chart} />
-            </Suspense>
-          </div>
-        </Card>
-
-        <Card className="p-5">
-          <h2 className="mb-1 text-base font-semibold text-[var(--text)]">En un coup d'oeil</h2>
-          <p className="mb-2 text-xs text-[var(--muted)]">Indicateurs complémentaires</p>
-          <div className="divide-y divide-[var(--border)]">
-            {mrr && mrr.activeCount > 0 ? (
-              <StatRow
-                icon={faUsers}
-                label="Abonnements actifs"
-                value={mrr.activeCount}
-                iconTone="blue"
-              />
-            ) : null}
-            <StatRow
-              icon={faFilePen}
-              label="Brouillons"
-              value={data.drafts}
-              iconTone="purple"
-            />
-            <StatRow
-              icon={faBell}
-              label="Relances en attente"
-              value={reminders.length}
-              iconTone="orange"
-            />
-            {mrr && mrr.mrrCents > 0 ? (
-              <StatRow
-                icon={faStar}
-                label="Revenus récurrents"
-                value={formatEUR(mrr.mrrCents)}
-                iconTone="green"
-              />
-            ) : null}
-          </div>
+    );
+  }
+  if (error || !data) {
+    return (
+      <div>
+        {header}
+        <Card className="p-5 text-sm text-[var(--danger)]" role="alert">
+          Impossible de charger le tableau de bord : {error ?? "erreur inconnue"}
         </Card>
       </div>
+    );
+  }
 
-      <Card className="p-5">
-        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-          <h2 className="text-base font-semibold">Relances automatiques</h2>
-          <Button
-            type="button"
-            variant="secondary"
-            className="w-full text-sm sm:w-auto"
-            disabled={remindersRunBusy}
-            onClick={() => void runAllReminders()}
-          >
-            {remindersRunBusy ? "Exécution…" : "Exécuter les rappels maintenant"}
-          </Button>
-        </div>
-        {reminders.length === 0 ? (
-          <p className="text-sm text-[var(--muted)]">Aucune relance en attente.</p>
-        ) : (
-          <ul className="divide-y divide-[var(--border)] text-sm">
-            {reminders.map((r) => (
-              <li key={r.id} className="flex flex-wrap items-center justify-between gap-3 py-3">
-                <div>
-                  <Link
-                    to={
-                      r.documentType === "QUOTE" ? `/quotes/${r.id}` : `/invoices/${r.id}`
-                    }
-                    className="font-medium hover:text-[var(--primary)]"
-                  >
-                    {r.number ?? "Document"} · {r.client.displayName}
-                  </Link>
-                  <p className="text-xs text-[var(--muted)]">
-                    {r.documentType === "QUOTE" ? "Devis" : "Facture"} ·{" "}
-                    {r.reminderCount} relance(s)
-                  </p>
+  const cf = data.cashflow;
+  const echeanceDue = data.echeance && data.echeance.status !== "PAID" && data.echeance.amountDueCents > 0;
+  const pendingTotal = data.pendingWithBalance.reduce((s, i) => s + i.remaining, 0);
+  const os = obligations?.summary;
+  const obligationAlerts = os ? os.late + os.urgent + os.open : 0;
+
+  const todoCount =
+    obligationAlerts + (echeanceDue ? 1 : 0) + reminders.length + data.pendingWithBalance.length;
+
+  return (
+    <div>
+      {header}
+
+      <StatStrip
+        className={loading ? "opacity-60" : ""}
+        items={[
+          { label: `Encaissé ${SCOPE_LABEL[scope]}`, value: formatEUR(cf.totalEncaisseCents), tone: "primary" },
+          {
+            label: "À encaisser",
+            value: formatEUR(pendingTotal),
+            hint: `${data.pendingWithBalance.length} facture${data.pendingWithBalance.length > 1 ? "s" : ""} ouverte${data.pendingWithBalance.length > 1 ? "s" : ""}`,
+          },
+          { label: "Reste net", value: formatEUR(cf.resteNetCents), hint: "salaire disponible", tone: "success" },
+          {
+            label: "URSSAF provisionnée",
+            value: formatEUR(cf.urssafCents),
+            hint: echeanceDue ? `${formatEUR(data.echeance.amountDueCents)} dus le ${formatDate(data.echeance.deadline)}` : undefined,
+          },
+        ]}
+      />
+
+      <div className="mt-6 grid gap-6 xl:grid-cols-[minmax(0,1fr)_24rem]">
+        <div className="min-w-0 space-y-6">
+          <Card className="min-w-0 overflow-hidden">
+            <SectionTitle>Répartition des encaissements</SectionTitle>
+            <div className="h-72 p-3 sm:p-5">
+              <Suspense fallback={<div className="h-full animate-pulse rounded-[var(--radius-sm)] bg-[var(--surface-hover)]" />}>
+                <RevenueChart data={data.chart} />
+              </Suspense>
+            </div>
+          </Card>
+
+          <Card className="overflow-hidden">
+            <SectionTitle>Trésorerie et prévisions</SectionTitle>
+            <dl className="grid grid-cols-2 gap-px bg-[var(--border)] sm:grid-cols-4">
+              {[
+                {
+                  label: "CFE et trésorerie",
+                  value: formatEUR(cf.cfeCents + cf.tresorerieCents),
+                  hint: cfeObligation ? `CFE due le ${formatDate(cfeObligation.dueDate)}` : null,
+                },
+                { label: "Brouillons", value: String(data.drafts), hint: data.drafts ? "à finaliser" : null},
+                {
+                  label: "Abonnements actifs",
+                  value: mrr ? String(mrr.activeCount) : "0",
+                  hint: mrr && mrr.mrrCents > 0 ? `${formatEUR(mrr.mrrCents)} / mois` : null,
+                },
+                { label: "Relances en attente", value: String(reminders.length), hint: null },
+              ].map((s) => (
+                <div key={s.label} className="bg-[var(--surface)] p-4">
+                  <dt className="text-xs text-[var(--muted)]">{s.label}</dt>
+                  <dd className="mt-1 text-lg font-semibold tabular-nums">{s.value}</dd>
+                  {s.hint ? <dd className="text-xs text-[var(--muted)]">{s.hint}</dd> : null}
                 </div>
-                <Button
-                  className="h-8 px-3 text-xs"
-                  onClick={() => void sendReminder(r.id)}
-                >
-                  Envoyer
-                </Button>
-              </li>
-            ))}
-          </ul>
-        )}
-      </Card>
-
-      <Card className="p-5">
-        <h2 className="mb-3 text-base font-semibold">Factures à encaisser</h2>
-        {data.pendingWithBalance.length === 0 ? (
-          <p className="text-sm text-[var(--muted)]">
-            Aucune facture en attente.{" "}
-            <Link to="/invoices" className="text-[var(--primary)] hover:underline">
-              Voir les factures
-            </Link>
-          </p>
-        ) : (
-          <ul className="divide-y divide-[var(--border)] text-sm">
-            {data.pendingWithBalance.map((inv) => (
-              <li key={inv.id} className="flex min-w-0 justify-between gap-4 py-3">
-                <Link to={`/invoices/${inv.id}`} className="min-w-0 truncate hover:text-[var(--primary)]">
-                  {inv.number} · {inv.displayName}
+              ))}
+            </dl>
+            {cf.cfeCents <= 0 && !cfeObligation ? (
+              <p className="border-t border-[var(--border)] px-5 py-3 text-xs text-[var(--muted)]">
+                Montant de CFE non renseigné.{" "}
+                <Link to="/settings" className="link">
+                  Le renseigner dans les réglages
                 </Link>
-                <span className="tabular-nums font-medium">{formatEUR(inv.remaining)}</span>
-              </li>
-            ))}
-          </ul>
-        )}
-      </Card>
+              </p>
+            ) : null}
+          </Card>
+        </div>
+
+        {/* À traiter */}
+        <Card className="order-first h-fit overflow-hidden xl:order-none">
+          <SectionTitle
+            action={
+              <span className="rounded-full bg-[var(--surface-hover)] px-2 text-xs font-medium tabular-nums leading-6 text-[var(--muted)]">
+                {todoCount}
+              </span>
+            }
+          >
+            À traiter
+          </SectionTitle>
+          {todoCount === 0 ? (
+            <p className="px-5 py-8 text-center text-sm text-[var(--muted)]">Rien en attente. Tout est à jour.</p>
+          ) : (
+            <ul className="divide-y divide-[var(--border)] px-5">
+              {os && obligationAlerts > 0 ? (
+                <TodoRow
+                  icon={faClipboardCheck}
+                  tone={os.late > 0 ? "danger" : os.urgent > 0 ? "warning" : "primary"}
+                  title={
+                    os.late > 0
+                      ? `${os.late} démarche${os.late > 1 ? "s" : ""} en retard`
+                      : `${obligationAlerts} démarche${obligationAlerts > 1 ? "s" : ""} à faire`
+                  }
+                  detail={obligations?.nextDue?.label}
+                  action={
+                    <Link to="/obligations" className="link inline-flex min-h-11 items-center gap-1 text-sm">
+                      Voir <FontAwesomeIcon icon={faArrowRight} className="h-3 w-3" aria-hidden />
+                    </Link>
+                  }
+                />
+              ) : null}
+              {echeanceDue ? (
+                <TodoRow
+                  icon={faLandmark}
+                  tone="warning"
+                  title={`URSSAF ${data.echeance.periodLabel} : ${formatEUR(data.echeance.amountDueCents)}`}
+                  detail={`À déclarer avant le ${formatDate(data.echeance.deadline)}`}
+                  action={
+                    <Link to="/urssaf" className="link inline-flex min-h-11 items-center gap-1 text-sm">
+                      Déclarer <FontAwesomeIcon icon={faArrowRight} className="h-3 w-3" aria-hidden />
+                    </Link>
+                  }
+                />
+              ) : null}
+              {reminders.map((r) => (
+                <TodoRow
+                  key={`rem-${r.id}`}
+                  icon={faBell}
+                  tone="warning"
+                  title={
+                    <Link
+                      to={r.documentType === "QUOTE" ? `/quotes/${r.id}` : `/invoices/${r.id}`}
+                      className="hover:text-[var(--primary)]"
+                    >
+                      Relancer {r.client.displayName}
+                    </Link>
+                  }
+                  detail={`${r.documentType === "QUOTE" ? "Devis" : "Facture"} ${r.number ?? ""} · ${r.reminderCount} relance${r.reminderCount > 1 ? "s" : ""} déjà envoyée${r.reminderCount > 1 ? "s" : ""}`}
+                  action={
+                    <Button variant="secondary" className="min-h-9 px-3 text-xs" onClick={() => void sendReminder(r.id)}>
+                      Envoyer
+                    </Button>
+                  }
+                />
+              ))}
+              {data.pendingWithBalance.map((inv) => (
+                <TodoRow
+                  key={`inv-${inv.id}`}
+                  icon={faFileInvoice}
+                  tone="primary"
+                  title={
+                    <Link to={`/invoices/${inv.id}`} className="hover:text-[var(--primary)]">
+                      {inv.displayName}
+                    </Link>
+                  }
+                  detail={`Facture ${inv.number ?? ""} à encaisser`}
+                  action={<span className="text-sm font-semibold tabular-nums">{formatEUR(inv.remaining)}</span>}
+                />
+              ))}
+              {data.drafts > 0 ? (
+                <TodoRow
+                  icon={faFilePen}
+                  tone="muted"
+                  title={`${data.drafts} brouillon${data.drafts > 1 ? "s" : ""} à finaliser`}
+                  action={
+                    <Link to="/quotes" className="link inline-flex min-h-11 items-center gap-1 text-sm">
+                      Voir <FontAwesomeIcon icon={faArrowRight} className="h-3 w-3" aria-hidden />
+                    </Link>
+                  }
+                />
+              ) : null}
+            </ul>
+          )}
+          {reminders.length > 0 ? (
+            <div className="border-t border-[var(--border)] px-5 py-3">
+              <Button
+                variant="ghost"
+                className="w-full text-sm"
+                disabled={remindersRunBusy}
+                onClick={() => void runAllReminders()}
+              >
+                {remindersRunBusy ? "Exécution…" : "Envoyer toutes les relances prévues"}
+              </Button>
+            </div>
+          ) : null}
+        </Card>
+      </div>
 
       <ConfirmDialog
         open={payoutConfirm}

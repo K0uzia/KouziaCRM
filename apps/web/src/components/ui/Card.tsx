@@ -75,12 +75,13 @@ export function PageHeader({
 export function Card({
   children,
   className = "",
-}: {
+  ...rest
+}: React.HTMLAttributes<HTMLDivElement> & {
   children: React.ReactNode;
   className?: string;
 }) {
   return (
-    <div className={`ui-card ${className}`}>
+    <div className={`ui-card ${className}`} {...rest}>
       {children}
     </div>
   );
