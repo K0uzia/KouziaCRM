@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { Link } from "react-router-dom";
 
 export type StatItem = {
   label: string;
@@ -6,6 +7,8 @@ export type StatItem = {
   /** Ligne secondaire (contexte, échéance). */
   hint?: ReactNode;
   tone?: "default" | "primary" | "success" | "warning" | "danger";
+  /** Écran détaillé : la case devient un lien. */
+  to?: string;
 };
 
 const toneClass: Record<NonNullable<StatItem["tone"]>, string> = {
@@ -16,28 +19,44 @@ const toneClass: Record<NonNullable<StatItem["tone"]>, string> = {
   danger: "text-[var(--danger)]",
 };
 
-/** Bandeau d'indicateurs dans une seule carte, séparés par des filets (2 colonnes en mobile). */
+const cols: Record<number, string> = {
+  2: "grid-cols-2",
+  3: "grid-cols-2 sm:grid-cols-3",
+  4: "grid-cols-2 lg:grid-cols-4",
+  5: "grid-cols-2 sm:grid-cols-3 xl:grid-cols-5",
+  6: "grid-cols-2 sm:grid-cols-3 2xl:grid-cols-6",
+};
+
+/** Bandeau d'indicateurs dans une seule carte ; les filets sont l'espace d'1 px entre cases. */
 export function StatStrip({ items, className = "" }: { items: StatItem[]; className?: string }) {
   return (
     <dl
-      className={`ui-card grid grid-cols-2 overflow-hidden ${
-        items.length >= 4 ? "lg:grid-cols-4" : items.length === 3 ? "sm:grid-cols-3" : ""
-      } ${className}`}
+      className={`ui-card grid gap-px overflow-hidden bg-[var(--border)] ${cols[items.length] ?? cols[4]} ${className}`}
     >
-      {items.map((s, i) => (
-        <div
-          key={s.label}
-          className={`min-w-0 border-[var(--border)] p-4 sm:p-5 ${i % 2 === 1 ? "border-l" : ""} ${
-            i >= 2 ? "border-t lg:border-t-0" : ""
-          } ${items.length >= 4 && i % 4 !== 0 ? "lg:border-l" : ""}`}
-        >
-          <dt className="truncate text-xs font-medium text-[var(--muted)] sm:text-sm">{s.label}</dt>
-          <dd className={`mt-1.5 font-display text-xl font-semibold tabular-nums tracking-tight sm:text-2xl ${toneClass[s.tone ?? "default"]}`}>
-            {s.value}
-          </dd>
-          {s.hint ? <dd className="mt-1 truncate text-xs text-[var(--muted)]">{s.hint}</dd> : null}
-        </div>
-      ))}
+      {items.map((s) => {
+        const content = (
+          <>
+            <dt className="truncate text-xs font-medium text-[var(--muted)] sm:text-sm">{s.label}</dt>
+            <dd
+              className={`mt-1.5 font-display text-xl font-semibold tabular-nums tracking-tight sm:text-2xl ${toneClass[s.tone ?? "default"]}`}
+            >
+              {s.value}
+            </dd>
+            {s.hint ? <dd className="mt-1 truncate text-xs text-[var(--muted)]">{s.hint}</dd> : null}
+          </>
+        );
+        return (
+          <div
+            key={s.label}
+            className={`relative min-w-0 bg-[var(--surface)] p-4 sm:p-5 ${s.to ? "transition-colors hover:bg-[var(--surface-raised)]" : ""}`}
+          >
+            {content}
+            {s.to ? (
+              <Link to={s.to} className="absolute inset-0 rounded-[inherit]" aria-label={`${s.label} : voir le détail`} />
+            ) : null}
+          </div>
+        );
+      })}
     </dl>
   );
 }

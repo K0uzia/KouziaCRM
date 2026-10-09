@@ -402,6 +402,7 @@ export const miscRoutes: FastifyPluginAsync = async (app) => {
       id: t.id,
       subject: t.subject,
       lastMessageAt: t.lastMessageAt,
+      unreadCount: t.unreadCount,
       hasAttachments: t.hasAttachments,
       client: t.client,
       preview: t.messages[0]?.bodyText?.slice(0, 140) ?? "",

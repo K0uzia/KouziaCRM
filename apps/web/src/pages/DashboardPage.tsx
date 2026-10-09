@@ -3,11 +3,14 @@ import { Link } from "react-router-dom";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import {
   faArrowRight,
-  faBell,
   faClipboardCheck,
   faFileInvoice,
   faFilePen,
+  faFileSignature,
   faLandmark,
+  faPenToSquare,
+  faUserPlus,
+  faWallet,
 } from "@fortawesome/free-solid-svg-icons";
 import type { IconDefinition } from "@fortawesome/fontawesome-svg-core";
 import { toast } from "sonner";
@@ -73,6 +76,17 @@ type ReminderRow = {
 };
 
 type MrrData = { mrrCents: number; arrCents: number; activeCount: number };
+
+type ThreadRow = {
+  id: string;
+  subject: string;
+  lastMessageAt: string;
+  unreadCount?: number;
+  client: { id: string; displayName: string } | null;
+  lastFrom: string;
+  preview: string;
+  direction: string | null;
+};
 
 type CfeObligation = { label: string; dueDate: string; amountCents: number | null };
 
@@ -150,6 +164,13 @@ export function DashboardPage() {
   const [payoutBusy, setPayoutBusy] = useState(false);
   const [cfeObligation, setCfeObligation] = useState<CfeObligation | null>(null);
   const [remindersRunBusy, setRemindersRunBusy] = useState(false);
+  const [threads, setThreads] = useState<ThreadRow[] | null>(null);
+
+  useEffect(() => {
+    api<ThreadRow[]>("/api/emails")
+      .then((rows) => setThreads(rows.slice(0, 5)))
+      .catch(() => setThreads(null));
+  }, []);
 
   const url = useMemo(() => `/api/dashboard?scope=${scope}`, [scope]);
 
@@ -268,10 +289,36 @@ export function DashboardPage() {
     </div>
   );
 
+  const quickActions = (
+    <div className="mb-6 grid grid-cols-2 gap-2 sm:flex sm:flex-wrap">
+      <ButtonLink to="/payments?new=1" className="col-span-2 sm:col-span-1">
+        <FontAwesomeIcon icon={faWallet} className="h-3.5 w-3.5" aria-hidden />
+        Encaisser
+      </ButtonLink>
+      <ButtonLink to="/quotes?new=1" variant="secondary">
+        <FontAwesomeIcon icon={faFileSignature} className="h-3.5 w-3.5" aria-hidden />
+        Nouveau devis
+      </ButtonLink>
+      <ButtonLink to="/invoices?new=1" variant="secondary">
+        <FontAwesomeIcon icon={faFileInvoice} className="h-3.5 w-3.5" aria-hidden />
+        Nouvelle facture
+      </ButtonLink>
+      <ButtonLink to="/clients?new=1" variant="secondary">
+        <FontAwesomeIcon icon={faUserPlus} className="h-3.5 w-3.5" aria-hidden />
+        Nouveau client
+      </ButtonLink>
+      <ButtonLink to="/inbox/compose" variant="secondary">
+        <FontAwesomeIcon icon={faPenToSquare} className="h-3.5 w-3.5" aria-hidden />
+        Écrire un mail
+      </ButtonLink>
+    </div>
+  );
+
   if (loading && !data) {
     return (
       <div>
         {header}
+        {quickActions}
         <div className="ui-card h-28 animate-pulse" aria-busy="true" aria-label="Chargement des indicateurs" />
       </div>
     );
@@ -293,28 +340,37 @@ export function DashboardPage() {
   const os = obligations?.summary;
   const obligationAlerts = os ? os.late + os.urgent + os.open : 0;
 
-  const todoCount =
-    obligationAlerts + (echeanceDue ? 1 : 0) + reminders.length + data.pendingWithBalance.length;
+
+  const unreadThreads = (threads ?? []).filter((t) => (t.unreadCount ?? 0) > 0).length;
 
   return (
     <div>
       {header}
+      {quickActions}
 
       <StatStrip
         className={loading ? "opacity-60" : ""}
         items={[
-          { label: `Encaissé ${SCOPE_LABEL[scope]}`, value: formatEUR(cf.totalEncaisseCents), tone: "primary" },
+          { label: `Encaissé ${SCOPE_LABEL[scope]}`, value: formatEUR(cf.totalEncaisseCents), tone: "primary", to: "/receipts" },
           {
             label: "À encaisser",
             value: formatEUR(pendingTotal),
             hint: `${data.pendingWithBalance.length} facture${data.pendingWithBalance.length > 1 ? "s" : ""} ouverte${data.pendingWithBalance.length > 1 ? "s" : ""}`,
+            to: "/invoices",
           },
-          { label: "Reste net", value: formatEUR(cf.resteNetCents), hint: "salaire disponible", tone: "success" },
           {
             label: "URSSAF provisionnée",
             value: formatEUR(cf.urssafCents),
-            hint: echeanceDue ? `${formatEUR(data.echeance.amountDueCents)} dus le ${formatDate(data.echeance.deadline)}` : undefined,
+            hint: echeanceDue ? `${formatEUR(data.echeance.amountDueCents)} dus le ${formatDate(data.echeance.deadline)}` : "à jour",
+            to: "/urssaf",
           },
+          {
+            label: "CFE et trésorerie",
+            value: formatEUR(cf.cfeCents + cf.tresorerieCents),
+            hint: cfeObligation ? `CFE due le ${formatDate(cfeObligation.dueDate)}` : cf.cfeCents > 0 ? `dont CFE ${formatEUR(cf.cfeCents)}` : "CFE non renseignée",
+          },
+          { label: "Reste net", value: formatEUR(cf.resteNetCents), hint: "après URSSAF et provisions", tone: "success" },
+          { label: "Salaire disponible", value: formatEUR(cf.resteNetCents), hint: "versable ce mois-ci", tone: "success" },
         ]}
       />
 
@@ -329,148 +385,217 @@ export function DashboardPage() {
             </div>
           </Card>
 
+          <div className="grid gap-6 lg:grid-cols-2">
+            <Card className="overflow-hidden">
+              <SectionTitle
+                action={
+                  <Link to="/invoices" className="link min-h-11 content-center text-sm">
+                    Toutes
+                  </Link>
+                }
+              >
+                Factures à encaisser
+              </SectionTitle>
+              {data.pendingWithBalance.length === 0 ? (
+                <p className="px-5 py-8 text-center text-sm text-[var(--muted)]">Aucune facture en attente de paiement.</p>
+              ) : (
+                <ul className="divide-y divide-[var(--border)]">
+                  {data.pendingWithBalance.map((inv) => (
+                    <li key={inv.id}>
+                      <Link
+                        to={`/invoices/${inv.id}`}
+                        className="flex min-h-12 items-center justify-between gap-3 px-5 py-2.5 text-sm hover:bg-[var(--surface-raised)]"
+                      >
+                        <span className="min-w-0">
+                          <span className="block truncate font-medium">{inv.displayName}</span>
+                          <span className="font-mono text-xs text-[var(--muted)]">{inv.number}</span>
+                        </span>
+                        <span className="shrink-0 font-semibold tabular-nums">{formatEUR(inv.remaining)}</span>
+                      </Link>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </Card>
+
+            <Card className="overflow-hidden">
+              <SectionTitle>Relances automatiques</SectionTitle>
+              {reminders.length === 0 ? (
+                <p className="px-5 py-6 text-center text-sm text-[var(--muted)]">Aucune relance en attente.</p>
+              ) : (
+                <ul className="divide-y divide-[var(--border)]">
+                  {reminders.map((r) => (
+                    <li key={r.id} className="flex items-center justify-between gap-3 px-5 py-2.5 text-sm">
+                      <Link
+                        to={r.documentType === "QUOTE" ? `/quotes/${r.id}` : `/invoices/${r.id}`}
+                        className="min-w-0 hover:text-[var(--primary)]"
+                      >
+                        <span className="block truncate font-medium">{r.client.displayName}</span>
+                        <span className="text-xs text-[var(--muted)]">
+                          {r.documentType === "QUOTE" ? "Devis" : "Facture"} {r.number ?? ""} · {r.reminderCount} relance
+                          {r.reminderCount > 1 ? "s" : ""}
+                        </span>
+                      </Link>
+                      <Button variant="secondary" className="min-h-9 shrink-0 px-3 text-xs" onClick={() => void sendReminder(r.id)}>
+                        Envoyer
+                      </Button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              <div className="border-t border-[var(--border)] px-5 py-3">
+                <Button variant="ghost" className="w-full text-sm" disabled={remindersRunBusy} onClick={() => void runAllReminders()}>
+                  {remindersRunBusy ? "Exécution…" : "Exécuter les rappels maintenant"}
+                </Button>
+              </div>
+            </Card>
+          </div>
+        </div>
+
+        <div className="order-first space-y-6 xl:order-none">
           <Card className="overflow-hidden">
-            <SectionTitle>Trésorerie et prévisions</SectionTitle>
-            <dl className="grid grid-cols-2 gap-px bg-[var(--border)] sm:grid-cols-4">
+            <SectionTitle
+              action={
+                <span className="rounded-full bg-[var(--surface-hover)] px-2 text-xs font-medium tabular-nums leading-6 text-[var(--muted)]">
+                  {obligationAlerts + (echeanceDue ? 1 : 0) + (data.drafts > 0 ? 1 : 0)}
+                </span>
+              }
+            >
+              À traiter
+            </SectionTitle>
+            {obligationAlerts === 0 && !echeanceDue && data.drafts === 0 ? (
+              <p className="px-5 py-6 text-center text-sm text-[var(--muted)]">Rien en attente. Tout est à jour.</p>
+            ) : (
+              <ul className="divide-y divide-[var(--border)] px-5">
+                {os && obligationAlerts > 0 ? (
+                  <TodoRow
+                    icon={faClipboardCheck}
+                    tone={os.late > 0 ? "danger" : os.urgent > 0 ? "warning" : "primary"}
+                    title={
+                      os.late > 0
+                        ? `${os.late} démarche${os.late > 1 ? "s" : ""} en retard`
+                        : `${obligationAlerts} démarche${obligationAlerts > 1 ? "s" : ""} à faire`
+                    }
+                    detail={obligations?.nextDue?.label}
+                    action={
+                      <Link to="/obligations" className="link inline-flex min-h-11 items-center gap-1 text-sm">
+                        Voir <FontAwesomeIcon icon={faArrowRight} className="h-3 w-3" aria-hidden />
+                      </Link>
+                    }
+                  />
+                ) : null}
+                {echeanceDue ? (
+                  <TodoRow
+                    icon={faLandmark}
+                    tone="warning"
+                    title={`URSSAF ${data.echeance.periodLabel} : ${formatEUR(data.echeance.amountDueCents)}`}
+                    detail={`À déclarer avant le ${formatDate(data.echeance.deadline)}`}
+                    action={
+                      <Link to="/urssaf" className="link inline-flex min-h-11 items-center gap-1 text-sm">
+                        Déclarer <FontAwesomeIcon icon={faArrowRight} className="h-3 w-3" aria-hidden />
+                      </Link>
+                    }
+                  />
+                ) : null}
+                {data.drafts > 0 ? (
+                  <TodoRow
+                    icon={faFilePen}
+                    tone="muted"
+                    title={`${data.drafts} brouillon${data.drafts > 1 ? "s" : ""} à finaliser`}
+                    action={
+                      <Link to="/quotes" className="link inline-flex min-h-11 items-center gap-1 text-sm">
+                        Voir <FontAwesomeIcon icon={faArrowRight} className="h-3 w-3" aria-hidden />
+                      </Link>
+                    }
+                  />
+                ) : null}
+              </ul>
+            )}
+          </Card>
+
+          <Card className="overflow-hidden">
+            <SectionTitle
+              action={
+                <Link to="/inbox" className="link inline-flex min-h-11 items-center gap-1 text-sm">
+                  Ouvrir <FontAwesomeIcon icon={faArrowRight} className="h-3 w-3" aria-hidden />
+                </Link>
+              }
+            >
+              <span className="inline-flex items-center gap-2">
+                Messagerie
+                {unreadThreads > 0 ? (
+                  <span className="rounded-full bg-[var(--primary)] px-1.5 text-[0.6875rem] font-semibold leading-5 text-[var(--primary-fg)]">
+                    {unreadThreads} non lu{unreadThreads > 1 ? "s" : ""}
+                  </span>
+                ) : null}
+              </span>
+            </SectionTitle>
+            {threads === null ? (
+              <div className="px-5 py-6 text-center text-sm text-[var(--muted)]">
+                <p>Boîte mail non connectée.</p>
+                <Link to="/settings?tab=email" className="link mt-1 inline-block">
+                  Configurer la messagerie
+                </Link>
+              </div>
+            ) : threads.length === 0 ? (
+              <p className="px-5 py-6 text-center text-sm text-[var(--muted)]">Aucun échange pour le moment.</p>
+            ) : (
+              <ul className="divide-y divide-[var(--border)]">
+                {threads.map((t) => {
+                  const unread = (t.unreadCount ?? 0) > 0;
+                  return (
+                    <li key={t.id}>
+                      <Link to={`/inbox/${t.id}`} className="flex gap-3 px-5 py-3 hover:bg-[var(--surface-raised)]">
+                        <span
+                          className={`mt-1.5 h-2 w-2 shrink-0 rounded-full ${unread ? "bg-[var(--primary)]" : "bg-transparent"}`}
+                          aria-label={unread ? "non lu" : undefined}
+                        />
+                        <span className="min-w-0 flex-1">
+                          <span className="flex items-baseline justify-between gap-2">
+                            <span className={`truncate text-sm ${unread ? "font-semibold" : ""}`}>
+                              {t.client?.displayName ?? t.lastFrom}
+                            </span>
+                            <span className="shrink-0 text-xs text-[var(--muted)]">{formatDate(t.lastMessageAt)}</span>
+                          </span>
+                          <span className="block truncate text-xs text-[var(--muted)]">{t.subject}</span>
+                        </span>
+                      </Link>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </Card>
+
+          <Card className="overflow-hidden">
+            <SectionTitle>En un coup d'œil</SectionTitle>
+            <dl className="divide-y divide-[var(--border)] px-5 text-sm">
               {[
                 {
-                  label: "CFE et trésorerie",
-                  value: formatEUR(cf.cfeCents + cf.tresorerieCents),
-                  hint: cfeObligation ? `CFE due le ${formatDate(cfeObligation.dueDate)}` : null,
+                  label: "Revenus récurrents",
+                  value: mrr && mrr.mrrCents > 0 ? `${formatEUR(mrr.mrrCents)} / mois` : "Aucun",
+                  to: "/abonnements",
                 },
-                { label: "Brouillons", value: String(data.drafts), hint: data.drafts ? "à finaliser" : null},
-                {
-                  label: "Abonnements actifs",
-                  value: mrr ? String(mrr.activeCount) : "0",
-                  hint: mrr && mrr.mrrCents > 0 ? `${formatEUR(mrr.mrrCents)} / mois` : null,
-                },
-                { label: "Relances en attente", value: String(reminders.length), hint: null },
-              ].map((s) => (
-                <div key={s.label} className="bg-[var(--surface)] p-4">
-                  <dt className="text-xs text-[var(--muted)]">{s.label}</dt>
-                  <dd className="mt-1 text-lg font-semibold tabular-nums">{s.value}</dd>
-                  {s.hint ? <dd className="text-xs text-[var(--muted)]">{s.hint}</dd> : null}
+                { label: "Abonnements actifs", value: String(mrr?.activeCount ?? 0), to: "/abonnements" },
+                { label: "Brouillons", value: String(data.drafts), to: "/quotes" },
+                { label: "Relances en attente", value: String(reminders.length), to: null },
+              ].map((row) => (
+                <div key={row.label} className="flex min-h-11 items-center justify-between gap-3">
+                  <dt className="text-[var(--muted)]">{row.label}</dt>
+                  <dd className="font-semibold tabular-nums">
+                    {row.to ? (
+                      <Link to={row.to} className="hover:text-[var(--primary)]">
+                        {row.value}
+                      </Link>
+                    ) : (
+                      row.value
+                    )}
+                  </dd>
                 </div>
               ))}
             </dl>
-            {cf.cfeCents <= 0 && !cfeObligation ? (
-              <p className="border-t border-[var(--border)] px-5 py-3 text-xs text-[var(--muted)]">
-                Montant de CFE non renseigné.{" "}
-                <Link to="/settings" className="link">
-                  Le renseigner dans les réglages
-                </Link>
-              </p>
-            ) : null}
           </Card>
         </div>
-
-        {/* À traiter */}
-        <Card className="order-first h-fit overflow-hidden xl:order-none">
-          <SectionTitle
-            action={
-              <span className="rounded-full bg-[var(--surface-hover)] px-2 text-xs font-medium tabular-nums leading-6 text-[var(--muted)]">
-                {todoCount}
-              </span>
-            }
-          >
-            À traiter
-          </SectionTitle>
-          {todoCount === 0 ? (
-            <p className="px-5 py-8 text-center text-sm text-[var(--muted)]">Rien en attente. Tout est à jour.</p>
-          ) : (
-            <ul className="divide-y divide-[var(--border)] px-5">
-              {os && obligationAlerts > 0 ? (
-                <TodoRow
-                  icon={faClipboardCheck}
-                  tone={os.late > 0 ? "danger" : os.urgent > 0 ? "warning" : "primary"}
-                  title={
-                    os.late > 0
-                      ? `${os.late} démarche${os.late > 1 ? "s" : ""} en retard`
-                      : `${obligationAlerts} démarche${obligationAlerts > 1 ? "s" : ""} à faire`
-                  }
-                  detail={obligations?.nextDue?.label}
-                  action={
-                    <Link to="/obligations" className="link inline-flex min-h-11 items-center gap-1 text-sm">
-                      Voir <FontAwesomeIcon icon={faArrowRight} className="h-3 w-3" aria-hidden />
-                    </Link>
-                  }
-                />
-              ) : null}
-              {echeanceDue ? (
-                <TodoRow
-                  icon={faLandmark}
-                  tone="warning"
-                  title={`URSSAF ${data.echeance.periodLabel} : ${formatEUR(data.echeance.amountDueCents)}`}
-                  detail={`À déclarer avant le ${formatDate(data.echeance.deadline)}`}
-                  action={
-                    <Link to="/urssaf" className="link inline-flex min-h-11 items-center gap-1 text-sm">
-                      Déclarer <FontAwesomeIcon icon={faArrowRight} className="h-3 w-3" aria-hidden />
-                    </Link>
-                  }
-                />
-              ) : null}
-              {reminders.map((r) => (
-                <TodoRow
-                  key={`rem-${r.id}`}
-                  icon={faBell}
-                  tone="warning"
-                  title={
-                    <Link
-                      to={r.documentType === "QUOTE" ? `/quotes/${r.id}` : `/invoices/${r.id}`}
-                      className="hover:text-[var(--primary)]"
-                    >
-                      Relancer {r.client.displayName}
-                    </Link>
-                  }
-                  detail={`${r.documentType === "QUOTE" ? "Devis" : "Facture"} ${r.number ?? ""} · ${r.reminderCount} relance${r.reminderCount > 1 ? "s" : ""} déjà envoyée${r.reminderCount > 1 ? "s" : ""}`}
-                  action={
-                    <Button variant="secondary" className="min-h-9 px-3 text-xs" onClick={() => void sendReminder(r.id)}>
-                      Envoyer
-                    </Button>
-                  }
-                />
-              ))}
-              {data.pendingWithBalance.map((inv) => (
-                <TodoRow
-                  key={`inv-${inv.id}`}
-                  icon={faFileInvoice}
-                  tone="primary"
-                  title={
-                    <Link to={`/invoices/${inv.id}`} className="hover:text-[var(--primary)]">
-                      {inv.displayName}
-                    </Link>
-                  }
-                  detail={`Facture ${inv.number ?? ""} à encaisser`}
-                  action={<span className="text-sm font-semibold tabular-nums">{formatEUR(inv.remaining)}</span>}
-                />
-              ))}
-              {data.drafts > 0 ? (
-                <TodoRow
-                  icon={faFilePen}
-                  tone="muted"
-                  title={`${data.drafts} brouillon${data.drafts > 1 ? "s" : ""} à finaliser`}
-                  action={
-                    <Link to="/quotes" className="link inline-flex min-h-11 items-center gap-1 text-sm">
-                      Voir <FontAwesomeIcon icon={faArrowRight} className="h-3 w-3" aria-hidden />
-                    </Link>
-                  }
-                />
-              ) : null}
-            </ul>
-          )}
-          {reminders.length > 0 ? (
-            <div className="border-t border-[var(--border)] px-5 py-3">
-              <Button
-                variant="ghost"
-                className="w-full text-sm"
-                disabled={remindersRunBusy}
-                onClick={() => void runAllReminders()}
-              >
-                {remindersRunBusy ? "Exécution…" : "Envoyer toutes les relances prévues"}
-              </Button>
-            </div>
-          ) : null}
-        </Card>
       </div>
 
       <ConfirmDialog
