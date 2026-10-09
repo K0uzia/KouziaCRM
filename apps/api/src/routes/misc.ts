@@ -35,6 +35,8 @@ import {
   saveComposeDraftAttachment,
 } from "@/lib/email/compose-attachments.js";
 import { ATTACHMENT_DEFAULTS } from "@/lib/settings/defaults.js";
+import { htmlSignatureToPlain } from "@/lib/email/signature.js";
+import { escapeHtml } from "@/lib/email/layout.js";
 
 export const miscRoutes: FastifyPluginAsync = async (app) => {
   app.get("/api/dashboard", async (request, reply) => {
@@ -894,15 +896,17 @@ export const miscRoutes: FastifyPluginAsync = async (app) => {
     const settings = await getCompanySettings();
     const signature = settings.emailSignatureHtml?.trim();
     const bodyWithSignature =
-      signature && !threadId
-        ? `${body}\n\n-- \n${signature.replace(/<[^>]+>/g, "")}`
-        : body;
+      signature && !threadId ? `${body}\n\n-- \n${htmlSignatureToPlain(signature)}` : body;
 
     const { outboxId, messageId } = await mailEnqueue({
       to,
       subject,
       text: bodyWithSignature,
-      html: html ?? (signature ? `<p>${body.replace(/\n/g, "<br>")}</p><hr><div>${signature}</div>` : undefined),
+      html:
+        html ??
+        (signature && !threadId
+          ? `<div style="font-family:Arial,Helvetica,sans-serif;font-size:15px;line-height:1.6;color:#1f2433;">${escapeHtml(body).replace(/\n/g, "<br>")}</div><hr style="border:0;border-top:1px solid #e3e6ee;margin:18px 0;"><div style="font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#5b6478;">${signature}</div>`
+          : undefined),
       cc: cc ? [cc] : undefined,
       bcc: bcc ? [bcc] : undefined,
       threadId: resolvedThreadId,

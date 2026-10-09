@@ -6,94 +6,160 @@ import {
   View,
   StyleSheet,
   Image,
+  Font,
 } from "@react-pdf/renderer";
 import type { PdfCompanySettings } from "@/lib/pdf/brand-assets";
 import type { ClientSnapshot } from "@/lib/invoices/transitions";
-import { centsToEuros } from "@/lib/money";
+import { formatEUR } from "@/lib/money";
+import { readableOn, resolveBrandColors } from "@/lib/brand";
+
+/**
+ * Charte Kouzia adaptée à l'impression : fond blanc, encre nuit, ambre en aplats
+ * (jamais en texte sur blanc, contraste insuffisant). Polices standard PDF (WinAnsi) :
+ * pas de caractère hors de cet encodage (espace fine, signe moins typographique…).
+ */
+// Pas de césure automatique : « docu-ment », « fac-ture » nuisent à la lecture d'un document légal.
+Font.registerHyphenationCallback((word) => [word]);
+
+const INK = "#0b1020";
+const TEXT = "#1f2433";
+const MUTED = "#5b6478";
+const LINE = "#e3e6ee";
+const SOFT = "#f5f6fa";
 
 function createStyles(primary: string, secondary: string) {
   return StyleSheet.create({
     page: {
-      paddingTop: 36,
-      paddingBottom: 40,
+      paddingTop: 34,
+      paddingBottom: 56,
       paddingHorizontal: 40,
-      fontSize: 10,
+      fontSize: 9.5,
       fontFamily: "Helvetica",
-      color: "#0f172a",
+      color: TEXT,
     },
+    accent: { position: "absolute", top: 0, left: 0, right: 0, height: 6, backgroundColor: primary },
     header: {
-      marginBottom: 22,
-      paddingBottom: 14,
-      borderBottomWidth: 2,
-      borderBottomColor: primary,
-    },
-    headerRow: {
       flexDirection: "row",
       justifyContent: "space-between",
       alignItems: "flex-start",
-      gap: 16,
+      gap: 24,
+      marginBottom: 22,
     },
-    logo: { width: 72, height: 72, objectFit: "contain" },
-    brand: { fontSize: 22, fontFamily: "Helvetica-Bold", color: primary },
-    muted: { color: "#64748b", marginTop: 2 },
-    row: { flexDirection: "row", justifyContent: "space-between", gap: 24 },
-    block: { flex: 1 },
+    logo: { width: 64, height: 64, objectFit: "contain", marginBottom: 8 },
+    brand: { fontSize: 18, lineHeight: 1.2, fontFamily: "Helvetica-Bold", color: secondary, marginBottom: 5 },
+    muted: { color: MUTED, fontSize: 8.5, lineHeight: 1.45 },
+    docBlock: { alignItems: "flex-end", minWidth: 190 },
+    docKind: {
+      fontSize: 8,
+      fontFamily: "Helvetica-Bold",
+      letterSpacing: 1.5,
+      color: MUTED,
+    },
+    docNumber: { fontSize: 17, lineHeight: 1.2, fontFamily: "Helvetica-Bold", color: secondary, marginTop: 3 },
+    docMeta: { marginTop: 8, alignItems: "flex-end" },
+    metaRow: { flexDirection: "row", gap: 6, marginTop: 1.5 },
+    metaLabel: { color: MUTED, fontSize: 8.5 },
+    metaValue: { fontSize: 8.5, fontFamily: "Helvetica-Bold", color: INK },
+    parties: { flexDirection: "row", gap: 16, marginBottom: 18 },
+    party: {
+      flex: 1,
+      padding: 12,
+      backgroundColor: SOFT,
+      borderLeftWidth: 3,
+      borderLeftColor: primary,
+    },
+    partyTitle: {
+      fontSize: 7.5,
+      fontFamily: "Helvetica-Bold",
+      letterSpacing: 1.2,
+      color: MUTED,
+      marginBottom: 5,
+    },
+    partyName: { fontSize: 11, fontFamily: "Helvetica-Bold", color: INK, marginBottom: 2 },
     h2: {
-      fontSize: 11,
+      fontSize: 10,
       fontFamily: "Helvetica-Bold",
       marginBottom: 6,
       color: secondary,
     },
-    table: { marginTop: 22, borderTopWidth: 1, borderColor: "#e2e8f0" },
+    section: { marginTop: 18 },
+    box: { padding: 12, borderWidth: 1, borderColor: LINE, backgroundColor: SOFT },
+    table: { marginTop: 4 },
     tr: {
       flexDirection: "row",
       borderBottomWidth: 1,
-      borderColor: "#e2e8f0",
-      paddingVertical: 7,
+      borderColor: LINE,
+      paddingVertical: 8,
+      paddingHorizontal: 8,
     },
     th: {
+      flexDirection: "row",
+      backgroundColor: secondary,
+      color: readableOn(secondary),
       fontFamily: "Helvetica-Bold",
-      color: "#475569",
-      backgroundColor: "#f8fafc",
+      fontSize: 8,
+      letterSpacing: 0.6,
+      paddingVertical: 7,
+      paddingHorizontal: 8,
     },
-    colDesc: { flex: 3 },
-    colQty: { flex: 1, textAlign: "right" },
-    colPrice: { flex: 1.2, textAlign: "right" },
-    colTotal: { flex: 1.2, textAlign: "right" },
-    colPayDate: { flex: 1.4 },
-    colPayMethod: { flex: 1.2 },
-    colPayRef: { flex: 1.2 },
+    colDesc: { flex: 3.4, paddingRight: 10 },
+    colQty: { flex: 0.6, textAlign: "right" },
+    colPrice: { flex: 1.3, textAlign: "right" },
+    colTotal: { flex: 1.3, textAlign: "right", fontFamily: "Helvetica-Bold" },
+    colPayDate: { flex: 1.2 },
+    colPayMethod: { flex: 1.4 },
+    colPayRef: { flex: 1.4 },
     colPayAmount: { flex: 1, textAlign: "right" },
-    totals: { marginTop: 16, alignItems: "flex-end" },
+    lineNote: { marginTop: 3, fontSize: 8, lineHeight: 1.4, color: MUTED },
+    totals: { marginTop: 14, alignSelf: "flex-end", width: 240 },
     totalLine: {
       flexDirection: "row",
-      justifyContent: "flex-end",
-      gap: 24,
-      marginTop: 4,
+      justifyContent: "space-between",
+      paddingVertical: 4,
+      paddingHorizontal: 10,
     },
-    paymentBox: {
+    grandTotal: {
+      flexDirection: "row",
+      justifyContent: "space-between",
+      alignItems: "center",
+      marginTop: 4,
+      paddingVertical: 9,
+      paddingHorizontal: 10,
+      backgroundColor: primary,
+      color: readableOn(primary),
+    },
+    grandLabel: { fontSize: 10, fontFamily: "Helvetica-Bold" },
+    grandValue: { fontSize: 13, fontFamily: "Helvetica-Bold" },
+    vat: { marginTop: 4, fontSize: 7.5, color: MUTED, textAlign: "right" },
+    milestone: {
+      flexDirection: "row",
+      borderBottomWidth: 1,
+      borderColor: LINE,
+      paddingVertical: 6,
+      paddingHorizontal: 8,
+      gap: 8,
+    },
+    payBox: {
       marginTop: 18,
       padding: 12,
       borderWidth: 1,
-      borderColor: primary,
-      backgroundColor: "#f8fafc",
-      borderRadius: 4,
+      borderColor: LINE,
+      borderLeftWidth: 3,
+      borderLeftColor: primary,
     },
+    strong: { fontFamily: "Helvetica-Bold", color: INK },
     legal: {
-      marginTop: 28,
-      paddingTop: 12,
+      marginTop: 24,
+      paddingTop: 10,
       borderTopWidth: 1,
-      borderColor: "#e2e8f0",
-      fontSize: 8,
-      color: "#64748b",
-      lineHeight: 1.4,
+      borderColor: LINE,
+      fontSize: 7.5,
+      color: MUTED,
+      lineHeight: 1.45,
     },
-    badge: {
-      marginTop: 4,
-      fontSize: 13,
-      fontFamily: "Helvetica-Bold",
-      color: secondary,
-    },
+    footerRule: { position: "absolute", bottom: 34, left: 40, right: 40, height: 1, backgroundColor: LINE },
+    footerLeft: { position: "absolute", bottom: 22, left: 40, fontSize: 7.5, color: MUTED },
+    footerRight: { position: "absolute", bottom: 22, left: 40, right: 40, fontSize: 7.5, color: MUTED, textAlign: "right" },
   });
 }
 
@@ -107,10 +173,11 @@ function fmtDate(d: Date) {
 }
 
 function fmtMoney(cents: number) {
-  return new Intl.NumberFormat("fr-FR", {
-    style: "currency",
-    currency: "EUR",
-  }).format(centsToEuros(cents));
+  return formatEUR(cents);
+}
+
+function fmtQty(q: number) {
+  return Number.isInteger(q) ? String(q) : String(q).replace(".", ",");
 }
 
 export type InvoicePdfData = {
@@ -181,8 +248,7 @@ export type InvoicePdfData = {
 };
 
 export function InvoiceDocument({ company, client, invoice }: InvoicePdfData) {
-  const primary = company.brandPrimaryColor || "#0f766e";
-  const secondary = company.brandSecondaryColor || "#0f172a";
+  const { primary, secondary } = resolveBrandColors(company);
   const styles = createStyles(primary, secondary);
 
   const isCredit = invoice.documentType === "CREDIT_NOTE";
@@ -198,6 +264,7 @@ export function InvoiceDocument({ company, client, invoice }: InvoicePdfData) {
         : isSolde
           ? "FACTURE DE SOLDE"
           : "FACTURE";
+  const brandName = company.tradeName ?? company.legalName;
 
   const legalFormLine = [
     company.legalName,
@@ -207,246 +274,232 @@ export function InvoiceDocument({ company, client, invoice }: InvoicePdfData) {
     .filter(Boolean)
     .join(" - ");
 
+  const meta: Array<[string, string]> = [["Date d'émission", fmtDate(invoice.issueDate)]];
+  if (!isQuote && invoice.serviceDate) meta.push(["Date de la prestation", fmtDate(invoice.serviceDate)]);
+  if (isQuote && invoice.validUntil) meta.push(["Valable jusqu'au", fmtDate(invoice.validUntil)]);
+  if (!isQuote && invoice.dueDate) meta.push(["Échéance", fmtDate(invoice.dueDate)]);
+  if (invoice.purchaseOrderRef) meta.push(["Bon de commande", invoice.purchaseOrderRef]);
+  if (invoice.quoteNumber) {
+    meta.push([
+      "Réf. devis",
+      `${invoice.quoteNumber}${invoice.quoteIssueDate ? ` du ${fmtDate(invoice.quoteIssueDate)}` : ""}`,
+    ]);
+  }
+  if (invoice.creditedInvoiceNumber) {
+    meta.push([
+      "Facture d'origine",
+      `${invoice.creditedInvoiceNumber}${invoice.creditedInvoiceIssueDate ? ` du ${fmtDate(invoice.creditedInvoiceIssueDate)}` : ""}`,
+    ]);
+  }
+
+  const hasDiscount =
+    invoice.discountType &&
+    invoice.discountType !== "NONE" &&
+    invoice.subtotalCents !== invoice.totalCents;
+
   return (
-    <Document>
+    <Document title={`${title} ${invoice.number}`} author={brandName} creator={brandName}>
       <Page size="A4" style={styles.page}>
+        <View style={styles.accent} fixed />
+
         <View style={styles.header}>
-          <View style={styles.headerRow}>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.brand}>
-                {company.tradeName ?? company.legalName}
-              </Text>
-              <Text>{legalFormLine}</Text>
-              <Text style={styles.muted}>
-                {company.addressLine1}
-                {company.addressLine2 ? `, ${company.addressLine2}` : ""}
-              </Text>
-              <Text style={styles.muted}>
-                {company.postalCode} {company.city} - {company.country}
-              </Text>
-              <Text style={styles.muted}>
-                SIREN {company.siren} · SIRET {company.siret} · APE{" "}
-                {company.apeCode}
-              </Text>
-              {company.vatIntraNumber ? (
-                <Text style={styles.muted}>TVA intra : {company.vatIntraNumber}</Text>
-              ) : null}
-              {company.website ? (
-                <Text style={styles.muted}>{company.website}</Text>
-              ) : null}
-            </View>
+          <View style={{ flex: 1 }}>
             {company.brandLogoDataUrl ? (
               <Image src={company.brandLogoDataUrl} style={styles.logo} />
             ) : null}
+            <Text style={styles.brand}>{brandName}</Text>
+            <Text style={styles.muted}>{legalFormLine}</Text>
+            <Text style={styles.muted}>
+              {company.addressLine1}
+              {company.addressLine2 ? `, ${company.addressLine2}` : ""}
+            </Text>
+            <Text style={styles.muted}>
+              {company.postalCode} {company.city} - {company.country}
+            </Text>
+            <Text style={styles.muted}>
+              SIRET {company.siret} · APE {company.apeCode}
+            </Text>
+            {company.vatIntraNumber ? (
+              <Text style={styles.muted}>TVA intra : {company.vatIntraNumber}</Text>
+            ) : null}
+            {[company.email, company.phone, company.website].filter(Boolean).length > 0 ? (
+              <Text style={styles.muted}>
+                {[company.email, company.phone, company.website].filter(Boolean).join(" · ")}
+              </Text>
+            ) : null}
+          </View>
+          <View style={styles.docBlock}>
+            <Text style={styles.docKind}>{title}</Text>
+            <Text style={styles.docNumber}>N° {invoice.number}</Text>
+            <View style={styles.docMeta}>
+              {meta.map(([label, value]) => (
+                <View key={label} style={styles.metaRow}>
+                  <Text style={styles.metaLabel}>{label}</Text>
+                  <Text style={styles.metaValue}>{value}</Text>
+                </View>
+              ))}
+            </View>
           </View>
         </View>
 
-        <View style={styles.row}>
-          <View style={styles.block}>
-            <Text style={styles.h2}>Client</Text>
-            <Text>{client.displayName}</Text>
-            {client.siret && <Text>SIRET {client.siret}</Text>}
-            {client.addressLine1 && <Text>{client.addressLine1}</Text>}
-            {(client.postalCode || client.city) && (
-              <Text>
-                {[client.postalCode, client.city].filter(Boolean).join(" ")}
-              </Text>
-            )}
-            {client.email && <Text>{client.email}</Text>}
+        <View style={styles.parties}>
+          <View style={styles.party}>
+            <Text style={styles.partyTitle}>{isQuote ? "DESTINATAIRE" : "FACTURÉ À"}</Text>
+            <Text style={styles.partyName}>{client.displayName}</Text>
+            {client.addressLine1 ? <Text>{client.addressLine1}</Text> : null}
+            {client.postalCode || client.city ? (
+              <Text>{[client.postalCode, client.city].filter(Boolean).join(" ")}</Text>
+            ) : null}
+            {client.siret ? <Text style={styles.muted}>SIRET {client.siret}</Text> : null}
+            {client.email ? <Text style={styles.muted}>{client.email}</Text> : null}
           </View>
-          <View style={styles.block}>
-            <Text style={styles.badge}>
-              {title} n° {invoice.number}
-            </Text>
-            <Text>Date d&apos;émission : {fmtDate(invoice.issueDate)}</Text>
-            {!isQuote && invoice.serviceDate ? (
-              <Text>Date de la prestation : {fmtDate(invoice.serviceDate)}</Text>
-            ) : null}
-            {invoice.purchaseOrderRef ? (
-              <Text>Bon de commande : {invoice.purchaseOrderRef}</Text>
-            ) : null}
-            {isQuote && invoice.validUntil ? (
-              <Text>Valable jusqu&apos;au : {fmtDate(invoice.validUntil)}</Text>
-            ) : null}
-            {!isQuote && invoice.dueDate ? (
-              <Text>Échéance : {fmtDate(invoice.dueDate)}</Text>
-            ) : null}
-            {invoice.creditedInvoiceNumber && (
-              <Text>
-                Réf. facture d&apos;origine : {invoice.creditedInvoiceNumber}
-                {invoice.creditedInvoiceIssueDate
-                  ? ` du ${fmtDate(invoice.creditedInvoiceIssueDate)}`
-                  : ""}
-              </Text>
-            )}
-            {isCredit && invoice.nothingToPay ? (
-              <Text style={{ marginTop: 4, fontFamily: "Helvetica-Bold" }}>
-                Vous n&apos;avez rien à payer.
-              </Text>
-            ) : null}
-            {invoice.quoteNumber ? (
-              <Text>
-                Réf. devis : {invoice.quoteNumber}
-                {invoice.quoteIssueDate
-                  ? ` du ${fmtDate(invoice.quoteIssueDate)}`
-                  : ""}
-              </Text>
-            ) : null}
-            {isAcompte && invoice.milestoneTrigger ? (
-              <Text>Déclencheur : {invoice.milestoneTrigger}</Text>
-            ) : null}
-            {invoice.paymentTerms && <Text>Conditions : {invoice.paymentTerms}</Text>}
-          </View>
+          {(isAcompte && invoice.milestoneTrigger) || invoice.paymentTerms || (isCredit && invoice.nothingToPay) ? (
+            <View style={[styles.party, { borderLeftColor: LINE }]}>
+              <Text style={styles.partyTitle}>CONDITIONS</Text>
+              {invoice.paymentTerms ? <Text>{invoice.paymentTerms}</Text> : null}
+              {isAcompte && invoice.milestoneTrigger && invoice.milestoneTrigger !== invoice.paymentTerms ? (
+                <Text style={{ marginTop: 2 }}>Déclencheur : {invoice.milestoneTrigger}</Text>
+              ) : null}
+              {isCredit && invoice.nothingToPay ? (
+                <Text style={[styles.strong, { marginTop: 2 }]}>Vous n&apos;avez rien à payer.</Text>
+              ) : null}
+            </View>
+          ) : null}
         </View>
 
         {isSolde && invoice.balanceSummary ? (
-          <View
-            style={{ marginTop: 16, padding: 10, borderWidth: 1, borderColor: "#cfdad3" }}
-          >
+          <View style={[styles.box, { marginBottom: 16 }]}>
             <Text style={styles.h2}>Récapitulatif du marché</Text>
-            <Text style={{ marginTop: 4 }}>
-              Total du marché (devis {invoice.balanceSummary.quoteNumber ?? "?"}) :{" "}
-              {fmtMoney(invoice.balanceSummary.marketTotalCents)}
-            </Text>
+            <View style={styles.totalLine}>
+              <Text>Total du marché (devis {invoice.balanceSummary.quoteNumber ?? "?"})</Text>
+              <Text>{fmtMoney(invoice.balanceSummary.marketTotalCents)}</Text>
+            </View>
             {invoice.balanceSummary.acomptes.map((a, i) => (
-              <Text key={i} style={{ marginTop: 3 }}>
-                {a.paid
-                  ? `Acompte facturé et réglé (${a.number}) : -${fmtMoney(a.amountCents)}`
-                  : `Acompte facturé non réglé (${a.number}) : -${fmtMoney(a.amountCents)} (à encaisser sur cette facture)`}
-              </Text>
+              <View key={i} style={styles.totalLine}>
+                <Text style={{ flex: 1, paddingRight: 10 }}>
+                  {a.paid
+                    ? `Acompte facturé et réglé (${a.number})`
+                    : `Acompte facturé non réglé (${a.number}), à encaisser sur cette facture`}
+                </Text>
+                <Text>- {fmtMoney(a.amountCents)}</Text>
+              </View>
             ))}
-            <Text style={{ marginTop: 6, fontFamily: "Helvetica-Bold" }}>
-              Solde restant dû (cette facture) :{" "}
-              {fmtMoney(invoice.balanceSummary.balanceDueCents)}
-            </Text>
+            <View style={[styles.totalLine, { borderTopWidth: 1, borderColor: LINE, marginTop: 4 }]}>
+              <Text style={styles.strong}>Solde restant dû (cette facture)</Text>
+              <Text style={styles.strong}>{fmtMoney(invoice.balanceSummary.balanceDueCents)}</Text>
+            </View>
           </View>
         ) : null}
 
         <View style={styles.table}>
-          <View style={[styles.tr, styles.th]}>
-            <Text style={styles.colDesc}>Description</Text>
-            <Text style={styles.colQty}>Qté</Text>
-            <Text style={styles.colPrice}>P.U.</Text>
-            <Text style={styles.colTotal}>Total</Text>
+          <View style={styles.th} fixed>
+            <Text style={styles.colDesc}>DÉSIGNATION</Text>
+            <Text style={styles.colQty}>QTÉ</Text>
+            <Text style={styles.colPrice}>PRIX UNITAIRE</Text>
+            <Text style={[styles.colTotal, { fontFamily: "Helvetica-Bold" }]}>MONTANT</Text>
           </View>
           {invoice.lines.map((line, i) => (
-            <View key={i} style={styles.tr}>
+            <View
+              key={i}
+              style={[styles.tr, i % 2 === 1 ? { backgroundColor: SOFT } : {}]}
+              wrap={false}
+            >
               <View style={styles.colDesc}>
-                <Text>{line.description}</Text>
+                <Text style={{ color: INK }}>{line.description}</Text>
                 {line.isSubscription ? (
-                  <Text style={{ marginTop: 2, fontSize: 8, color: "#5a6f65" }}>
+                  <Text style={styles.lineNote}>
                     Abonnement mensuel, facturé chaque mois
-                    {line.billingDay ? ` le ${line.billingDay}` : ""}
-                    {" : "}
-                    {fmtMoney(line.unitPriceCents)}. Ce document inclut la 1re échéance.
+                    {line.billingDay ? ` le ${line.billingDay}` : ""} : {fmtMoney(line.unitPriceCents)}.
+                    Ce document inclut la 1re échéance.
                   </Text>
                 ) : null}
               </View>
-              <Text style={styles.colQty}>{line.quantity}</Text>
+              <Text style={styles.colQty}>{fmtQty(line.quantity)}</Text>
               <Text style={styles.colPrice}>{fmtMoney(line.unitPriceCents)}</Text>
               <Text style={styles.colTotal}>{fmtMoney(line.lineTotalCents)}</Text>
             </View>
           ))}
         </View>
 
-        <View style={styles.totals}>
-          {invoice.discountType &&
-          invoice.discountType !== "NONE" &&
-          invoice.subtotalCents !== invoice.totalCents ? (
+        <View style={styles.totals} wrap={false}>
+          {hasDiscount ? (
             <>
               <View style={styles.totalLine}>
-                <Text>Sous-total</Text>
+                <Text style={styles.muted}>Sous-total</Text>
                 <Text>{fmtMoney(invoice.subtotalCents)}</Text>
               </View>
               <View style={styles.totalLine}>
-                <Text>
+                <Text style={styles.muted}>
                   Remise
                   {invoice.discountType === "PERCENT"
-                    ? ` (${((invoice.discountValue ?? 0) / 100).toFixed(2)} %)`
+                    ? ` (${((invoice.discountValue ?? 0) / 100).toFixed(2).replace(".", ",")} %)`
                     : ""}
                 </Text>
-                <Text>
-                  −
-                  {fmtMoney(Math.max(0, invoice.subtotalCents - invoice.totalCents))}
-                </Text>
+                <Text>- {fmtMoney(Math.max(0, invoice.subtotalCents - invoice.totalCents))}</Text>
               </View>
             </>
           ) : null}
-          <View style={styles.totalLine}>
-            <Text style={{ fontFamily: "Helvetica-Bold" }}>Net à payer</Text>
-            <Text style={{ fontFamily: "Helvetica-Bold" }}>
-              {fmtMoney(invoice.totalCents)}
-            </Text>
+          <View style={styles.grandTotal}>
+            <Text style={styles.grandLabel}>{isCredit ? "Montant de l'avoir" : "Net à payer"}</Text>
+            <Text style={styles.grandValue}>{fmtMoney(invoice.totalCents)}</Text>
           </View>
-          {company.vatMention ? (
-            <Text style={{ marginTop: 3, fontSize: 8, color: "#5a6f65", textAlign: "right" }}>
-              {company.vatMention}
-            </Text>
-          ) : null}
+          {company.vatMention ? <Text style={styles.vat}>{company.vatMention}</Text> : null}
         </View>
 
         {invoice.lines.some((l) => l.isSubscription) ? (
-          <View
-            style={{
-              marginTop: 14,
-              padding: 8,
-              borderWidth: 1,
-              borderColor: "#cfdad3",
-              backgroundColor: "#f4f7f5",
-            }}
-          >
+          <View style={[styles.box, styles.section]} wrap={false}>
             <Text style={styles.h2}>Engagement d&apos;abonnement mensuel</Text>
             {invoice.lines
               .filter((l) => l.isSubscription)
               .map((l, i) => (
-                <Text key={i} style={{ marginTop: 4, lineHeight: 1.4 }}>
-                  {l.description} : {fmtMoney(l.unitPriceCents)} facturés automatiquement
-                  chaque mois
-                  {l.billingDay ? ` le ${l.billingDay}` : ""}
-                  . Le total de ce document inclut la 1re échéance ; les échéances suivantes
-                  feront l&apos;objet de factures séparées.
+                <Text key={i} style={{ marginTop: 2 }}>
+                  {l.description} : {fmtMoney(l.unitPriceCents)} facturés automatiquement chaque mois
+                  {l.billingDay ? ` le ${l.billingDay}` : ""}. Le total de ce document inclut la 1re
+                  échéance ; les échéances suivantes feront l&apos;objet de factures séparées.
                 </Text>
               ))}
           </View>
         ) : null}
 
         {isQuote && invoice.milestones && invoice.milestones.length > 0 ? (
-          <View style={{ marginTop: 20 }}>
+          <View style={styles.section} wrap={false}>
             <Text style={styles.h2}>Échéancier de paiement</Text>
             {invoice.milestones.map((m, i) => (
-              <Text key={i} style={{ marginTop: 3 }}>
-                {m.label} ({(m.percentBps / 100).toFixed(0)} %) : {fmtMoney(m.amountCents)}
-                {m.status ? ` - ${m.status}` : ""}
-                {m.dueDate ? ` - échéance ${fmtDate(m.dueDate)}` : ""}
-                {" - "}
-                {m.triggerText}
-              </Text>
+              <View key={i} style={styles.milestone}>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.strong}>
+                    {m.label} ({(m.percentBps / 100).toFixed(0)} %)
+                  </Text>
+                  <Text style={styles.muted}>
+                    {m.triggerText}
+                    {m.dueDate ? `, échéance ${fmtDate(m.dueDate)}` : ""}
+                    {m.status ? ` (${m.status})` : ""}
+                  </Text>
+                </View>
+                <Text style={styles.strong}>{fmtMoney(m.amountCents)}</Text>
+              </View>
             ))}
           </View>
         ) : null}
 
         {isQuote && invoice.acceptance ? (
-          <View style={styles.paymentBox}>
+          <View style={styles.payBox} wrap={false}>
             <Text style={styles.h2}>Bon pour accord</Text>
-            <Text style={{ marginTop: 4 }}>
-              Devis accepté en ligne par{" "}
-              <Text style={{ fontFamily: "Helvetica-Bold" }}>{invoice.acceptance.signerName}</Text>{" "}
-              le {fmtDate(invoice.acceptance.acceptedAt)} (signature électronique simple).
+            <Text>
+              Devis accepté par <Text style={styles.strong}>{invoice.acceptance.signerName}</Text> le{" "}
+              {fmtDate(invoice.acceptance.acceptedAt)} (signature électronique simple).
             </Text>
           </View>
         ) : null}
 
-        {!isQuote &&
-        !isCredit &&
-        invoice.payments &&
-        invoice.payments.length > 0 ? (
-          <View style={{ marginTop: 20 }}>
+        {!isQuote && !isCredit && invoice.payments && invoice.payments.length > 0 ? (
+          <View style={styles.section} wrap={false}>
             <Text style={styles.h2}>Règlements reçus</Text>
-            <View style={[styles.tr, styles.th, { marginTop: 6 }]}>
-              <Text style={styles.colPayDate}>Date</Text>
-              <Text style={styles.colPayMethod}>Moyen</Text>
-              <Text style={styles.colPayRef}>Référence</Text>
-              <Text style={styles.colPayAmount}>Montant</Text>
+            <View style={styles.th}>
+              <Text style={styles.colPayDate}>DATE</Text>
+              <Text style={styles.colPayMethod}>MOYEN</Text>
+              <Text style={styles.colPayRef}>RÉFÉRENCE</Text>
+              <Text style={styles.colPayAmount}>MONTANT</Text>
             </View>
             {invoice.payments.map((p, i) => (
               <View key={i} style={styles.tr}>
@@ -459,29 +512,32 @@ export function InvoiceDocument({ company, client, invoice }: InvoicePdfData) {
           </View>
         ) : null}
 
-        {invoice.notes && (
-          <View style={{ marginTop: 16 }}>
+        {invoice.notes ? (
+          <View style={styles.section}>
             <Text style={styles.h2}>Notes</Text>
             <Text>{invoice.notes}</Text>
           </View>
-        )}
+        ) : null}
 
         {!isQuote && !isCredit && company.bankIban ? (
-          <View style={styles.paymentBox}>
-            <Text style={styles.h2}>Réglement par virement</Text>
-            <Text style={{ marginTop: 4 }}>
-              Merci de régler {fmtMoney(invoice.totalCents)} par virement en indiquant la
-              référence{" "}
-              <Text style={{ fontFamily: "Helvetica-Bold" }}>{invoice.number}</Text>.
+          <View style={styles.payBox} wrap={false}>
+            <Text style={styles.h2}>Règlement par virement</Text>
+            <Text>
+              Merci de régler <Text style={styles.strong}>{fmtMoney(invoice.totalCents)}</Text> en indiquant
+              la référence <Text style={styles.strong}>{invoice.number}</Text>.
             </Text>
-            {company.bankAccountHolder ? (
-              <Text style={{ marginTop: 6 }}>Titulaire : {company.bankAccountHolder}</Text>
-            ) : null}
-            {company.bankName ? <Text>Banque : {company.bankName}</Text> : null}
-            <Text style={{ marginTop: 4, fontFamily: "Helvetica-Bold" }}>
-              IBAN : {formatIban(company.bankIban)}
-            </Text>
-            {company.bankBic ? <Text>BIC : {company.bankBic}</Text> : null}
+            <View style={{ flexDirection: "row", gap: 24, marginTop: 6 }}>
+              <View style={{ flex: 1 }}>
+                {company.bankAccountHolder ? (
+                  <Text style={styles.muted}>Titulaire : {company.bankAccountHolder}</Text>
+                ) : null}
+                {company.bankName ? <Text style={styles.muted}>Banque : {company.bankName}</Text> : null}
+              </View>
+              <View style={{ flex: 2 }}>
+                <Text style={styles.strong}>IBAN {formatIban(company.bankIban)}</Text>
+                {company.bankBic ? <Text style={styles.muted}>BIC {company.bankBic}</Text> : null}
+              </View>
+            </View>
           </View>
         ) : null}
 
@@ -521,7 +577,8 @@ export function InvoiceDocument({ company, client, invoice }: InvoicePdfData) {
           ) : null}
           {(invoice.legalClauses ?? []).map((c, i) => (
             <Text key={i} style={{ marginTop: 4 }}>
-              {c.title} : {c.body}
+              <Text style={{ fontFamily: "Helvetica-Bold" }}>{c.title} : </Text>
+              {c.body}
             </Text>
           ))}
           {!(invoice.legalClauses?.length) && company.suspensionClause ? (
@@ -537,6 +594,17 @@ export function InvoiceDocument({ company, client, invoice }: InvoicePdfData) {
             <Text style={{ marginTop: 6 }}>{company.pdfFooterText}</Text>
           ) : null}
         </View>
+
+        {/* Pas de lineHeight sur la page : hérité, il masque le numéro de page (bug react-pdf). */}
+        <View style={styles.footerRule} fixed />
+        <Text style={styles.footerLeft} fixed>
+          {`${brandName} · ${title.charAt(0)}${title.slice(1).toLowerCase()} ${invoice.number}`}
+        </Text>
+        <Text
+          style={styles.footerRight}
+          fixed
+          render={({ pageNumber, totalPages }) => `Page ${pageNumber} / ${totalPages}`}
+        />
       </Page>
     </Document>
   );

@@ -1,9 +1,7 @@
 import type { CompanySettings } from "@prisma/client";
-import { centsToEuros } from "@/lib/money.js";
-import {
-  renderPaymentButtonHtml,
-  type EmailBrand,
-} from "@/lib/email/templates.js";
+import { formatEUR } from "@/lib/money.js";
+import type { EmailBrand } from "@/lib/email/templates.js";
+import { renderEmailHtml } from "@/lib/email/layout.js";
 import { formatPlainTextSignature } from "@/lib/email/signature.js";
 
 export function buildEmailBrand(settings: CompanySettings): EmailBrand {
@@ -21,10 +19,7 @@ export function buildEmailBrand(settings: CompanySettings): EmailBrand {
 }
 
 function fmtEur(cents: number): string {
-  return new Intl.NumberFormat("fr-FR", {
-    style: "currency",
-    currency: "EUR",
-  }).format(centsToEuros(cents));
+  return formatEUR(cents);
 }
 
 function greeting(name?: string | null): string {
@@ -64,10 +59,12 @@ export function renderDepositCheckoutEmail(opts: {
     formatPlainTextSignature(opts.settings, opts.brand),
   ].join("\n");
 
-  const html = renderPaymentButtonHtml({
-    url: opts.checkoutUrl,
-    label: "Payer maintenant",
-    brandPrimaryColor: opts.brandPrimaryColor,
+  const html = renderEmailHtml({
+    text,
+    brand: opts.brand,
+    colors: { brandPrimaryColor: opts.brandPrimaryColor },
+    paymentUrl: opts.checkoutUrl,
+    paymentLabel: "Payer maintenant",
   });
 
   return { subject, text, html };

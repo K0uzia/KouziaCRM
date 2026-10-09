@@ -1,5 +1,6 @@
 import { EmailDirection, QuoteStatus } from "@prisma/client";
 import { prisma } from "@/lib/prisma.js";
+import { formatEUR } from "@/lib/money.js";
 
 export type NotificationKind = "mail" | "quote_accepted" | "quote_rejected" | "payment" | "testimonial";
 
@@ -20,7 +21,7 @@ const MAX_ITEMS = 30;
 const MAIL_RECENT_MS = 24 * 60 * 60 * 1000;
 
 function eur(cents: number): string {
-  return new Intl.NumberFormat("fr-FR", { style: "currency", currency: "EUR" }).format(cents / 100);
+  return formatEUR(cents);
 }
 
 /** Événements survenus après `since` (création en base), du plus récent au plus ancien. */

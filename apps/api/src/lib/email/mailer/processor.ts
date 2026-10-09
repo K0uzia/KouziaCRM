@@ -8,6 +8,7 @@ import {
   resolveFromAddress,
 } from "@/lib/email/smtp.js";
 import { saveEmailAttachment } from "@/lib/email/attachments.js";
+import { renderEmailHtml } from "@/lib/email/layout.js";
 import {
   buildReferences,
   extractDisplayName,
@@ -144,6 +145,30 @@ async function recordClientEvent(opts: {
   });
 }
 
+/**
+ * Emails automatiques envoyés en texte seul : version HTML aux couleurs de la charte.
+ * Les messages rédigés à la main (« custom ») restent tels quels.
+ */
+function brandedHtml(
+  payload: ReturnType<typeof parsePayload>,
+  settings: Awaited<ReturnType<typeof getCompanySettings>> | null,
+): string | undefined {
+  if (!payload.text || !settings || !payload.kind || payload.kind === "custom") return undefined;
+  return renderEmailHtml({
+    text: payload.text,
+    brand: {
+      tradeName: settings.tradeName ?? settings.legalName,
+      legalName: settings.legalName,
+      siret: settings.siret,
+      addressLine1: settings.addressLine1,
+      postalCode: settings.postalCode,
+      city: settings.city,
+      website: settings.website,
+    },
+    colors: settings,
+  });
+}
+
 async function sendOutboxRow(outboxId: string, rawPayload: string): Promise<void> {
   const payload = parsePayload(rawPayload);
   const messageIdHeader = generateMessageId(outboxId);
@@ -170,7 +195,7 @@ async function sendOutboxRow(outboxId: string, rawPayload: string): Promise<void
     bcc: payload.bcc,
     subject: payload.subject,
     text: payload.text,
-    html: payload.html,
+    html: payload.html ?? brandedHtml(payload, settings),
     replyTo,
     headers,
     attachments: decodeAttachments(payload),

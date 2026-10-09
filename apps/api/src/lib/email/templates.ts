@@ -1,4 +1,6 @@
 import { getCompanySettings } from "@/lib/company";
+import { formatEUR } from "@/lib/money.js";
+import { renderEmailHtml } from "@/lib/email/layout.js";
 import { resolveClientPortalUrl } from "@/lib/email/portal-url.js";
 import { formatPlainTextSignature } from "@/lib/email/signature.js";
 
@@ -64,7 +66,7 @@ export function renderPaymentButtonHtml(opts: {
   label?: string;
   brandPrimaryColor: string;
 }): string {
-  const color = opts.brandPrimaryColor || "#0f766e";
+  const color = opts.brandPrimaryColor || "#fe9a00";
   const label = escapeHtml(opts.label ?? "Payer en ligne");
   const url = escapeHtml(opts.url);
   return `<p><a href="${url}" style="display:inline-block;padding:12px 20px;background:${color};color:#ffffff;text-decoration:none;border-radius:6px;font-family:sans-serif;font-size:15px;">${label}</a></p>
@@ -83,7 +85,7 @@ export function invoiceTrackingBlockText(portalUrl: string): string {
 }
 
 function paymentLinesText(paymentUrl: string): string[] {
-  return ["", "Régler en ligne :", paymentUrl];
+  return ["", `Régler en ligne : ${paymentUrl}`];
 }
 
 function subjectFor(input: EmailContentInput): string {
@@ -122,10 +124,7 @@ function subjectFor(input: EmailContentInput): string {
 }
 
 function fmtEur(cents: number): string {
-  return new Intl.NumberFormat("fr-FR", {
-    style: "currency",
-    currency: "EUR",
-  }).format(cents / 100);
+  return formatEUR(cents);
 }
 
 async function bodyTextFor(input: EmailContentInput): Promise<string> {
@@ -215,21 +214,19 @@ async function resolveEmailSignature(brand: EmailBrand): Promise<string> {
 export async function buildEmailContent(input: EmailContentInput): Promise<{
   subject: string;
   text: string;
-  html?: string;
+  html: string;
 }> {
   const subject = subjectFor(input);
   const text = await bodyTextFor(input);
-  const paymentUrl = input.paymentUrl?.trim();
-  if (!paymentUrl) {
-    return { subject, text };
-  }
-
   const settings = await getCompanySettings();
-  const color = input.brandPrimaryColor ?? settings.brandPrimaryColor ?? "#0f766e";
-  const html = renderPaymentButtonHtml({
-    url: paymentUrl,
-    label: "Payer en ligne",
-    brandPrimaryColor: color,
+  const html = renderEmailHtml({
+    text,
+    brand: { ...input.brand, website: input.brand.website ?? null },
+    colors: {
+      brandPrimaryColor: input.brandPrimaryColor ?? settings.brandPrimaryColor,
+      brandSecondaryColor: settings.brandSecondaryColor,
+    },
+    paymentUrl: input.paymentUrl,
   });
   return { subject, text, html };
 }

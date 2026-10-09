@@ -94,7 +94,9 @@ export async function sendDocumentPdf(
 
     const text = replaceNumero((opts.text ?? built.text).trim());
     const subject = replaceNumero((opts.subject ?? built.subject).trim());
-    const html = opts.text ? (paymentUrl ? built.html : undefined) : built.html;
+    // HTML toujours reconstruit depuis le texte final (éventuellement modifié avant envoi).
+    const { renderEmailHtml } = await import("@/lib/email/layout.js");
+    const html = renderEmailHtml({ text, brand, colors: companyRaw, paymentUrl });
 
     const attachKind = isQuote ? "Devis" : isCredit ? "Avoir" : "Facture";
     const filename = pdfAttachmentFilename(attachKind, invoice.number, clientName);

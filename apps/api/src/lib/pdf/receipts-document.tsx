@@ -1,13 +1,13 @@
 import React from "react";
 import { Document, Page, Text, View, StyleSheet } from "@react-pdf/renderer";
-import { centsToEuros } from "@/lib/money";
+import { formatEUR } from "@/lib/money";
 
 const styles = StyleSheet.create({
   page: {
     padding: 28,
     fontSize: 8,
     fontFamily: "Helvetica",
-    color: "#14201b",
+    color: "#1f2433",
   },
   head: {
     flexDirection: "row",
@@ -16,16 +16,16 @@ const styles = StyleSheet.create({
     marginBottom: 14,
     paddingBottom: 10,
     borderBottomWidth: 2,
-    borderBottomColor: "#0f766e",
+    borderBottomColor: "#fe9a00",
   },
-  brand: { fontSize: 14, fontFamily: "Helvetica-Bold", color: "#0f766e" },
-  muted: { color: "#5a6f65", marginTop: 2, fontSize: 8 },
+  brand: { fontSize: 14, fontFamily: "Helvetica-Bold", color: "#0b1020" },
+  muted: { color: "#5b6478", marginTop: 2, fontSize: 8 },
   title: { fontSize: 12, fontFamily: "Helvetica-Bold", textAlign: "right" },
   table: { marginTop: 4 },
   tr: {
     flexDirection: "row",
     borderBottomWidth: 1,
-    borderBottomColor: "#cfdad3",
+    borderBottomColor: "#e3e6ee",
     paddingVertical: 4,
     paddingHorizontal: 2,
     alignItems: "flex-start",
@@ -34,8 +34,8 @@ const styles = StyleSheet.create({
     fontFamily: "Helvetica-Bold",
     fontSize: 7,
     textTransform: "uppercase",
-    color: "#5a6f65",
-    backgroundColor: "#f0f7f5",
+    color: "#5b6478",
+    backgroundColor: "#f5f6fa",
     paddingVertical: 5,
   },
   colDate: { width: "9%" },
@@ -55,7 +55,7 @@ const styles = StyleSheet.create({
   legal: {
     marginTop: 12,
     fontSize: 7,
-    color: "#5a6f65",
+    color: "#5b6478",
     lineHeight: 1.4,
   },
 });
@@ -65,10 +65,7 @@ function fmtDate(iso: string) {
 }
 
 function fmtMoney(cents: number) {
-  return new Intl.NumberFormat("fr-FR", {
-    style: "currency",
-    currency: "EUR",
-  }).format(centsToEuros(cents));
+  return formatEUR(cents);
 }
 
 export type ReceiptsPdfRow = {
