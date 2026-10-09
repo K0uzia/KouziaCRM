@@ -56,6 +56,7 @@ beforeEach(async () => {
     data: {
       revolutMerchantApiKeyEncrypted: "enc:test",
       revolutWebhookSecretEncrypted: "enc:whsec",
+      moduleMerchantApiEnabled: true,
       depositCount: 2,
       depositPercent1Bps: 3000,
       depositPercent2Bps: 7000,
@@ -136,6 +137,33 @@ describe("milestone payment service", () => {
     expect(merchantService.createRevolutOrder).toHaveBeenCalledWith(
       expect.objectContaining({ amountCents: 30000, reference: milestone?.id }),
     );
+  });
+
+  it("accepte le devis sans API Merchant : acompte à payer, sans checkout", async () => {
+    await prisma.companySettings.updateMany({ data: { moduleMerchantApiEnabled: false } });
+    const client = await createClient();
+    const quote = await prisma.invoice.create({
+      data: {
+        documentType: InvoiceDocumentType.QUOTE,
+        invoiceType: InvoiceType.SIMPLE,
+        status: InvoiceStatus.ISSUED,
+        number: "D-2026-0005",
+        clientId: client.id,
+        subtotalCents: 100000,
+        totalCents: 100000,
+        quoteStatus: QuoteStatus.ACCEPTED,
+        issueDate: new Date(),
+      },
+    });
+
+    await onQuoteAcceptedByClient(quote.id);
+
+    const milestone = await prisma.paymentMilestone.findFirst({
+      where: { quoteId: quote.id, position: 1 },
+    });
+    expect(milestone?.status).toBe(MilestoneStatus.DUE);
+    expect(milestone?.checkoutUrl).toBeNull();
+    expect(merchantService.createRevolutOrder).not.toHaveBeenCalled();
   });
 
   it("ne recrée pas de checkout à l'acceptation si l'acompte est déjà payé", async () => {

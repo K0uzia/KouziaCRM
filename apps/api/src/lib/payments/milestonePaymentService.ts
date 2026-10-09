@@ -344,10 +344,13 @@ export async function onQuoteAcceptedByClient(quoteId: string) {
             : first.status,
       },
     });
-    try {
-      await activateMilestoneCheckout(first.id, { sendEmail: true });
-    } catch (err) {
-      console.error("[milestone] activation acompte après validation devis", err);
+    // Sans API Merchant (Revolut Pro), le jalon reste « À payer » : lien collé à la main ou virement.
+    if (settings.moduleMerchantApiEnabled) {
+      try {
+        await activateMilestoneCheckout(first.id, { sendEmail: true });
+      } catch (err) {
+        console.error("[milestone] activation acompte après validation devis", err);
+      }
     }
   }
 }
