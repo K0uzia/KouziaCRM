@@ -181,7 +181,7 @@ export function ReceiptsBookPage() {
       </Modal>
 
       <div className="mb-4 flex min-w-0 flex-col gap-3 sm:flex-row sm:flex-wrap">
-        <Select className="w-full sm:w-auto" value={year} onChange={(e) => setYear(e.target.value)}>
+        <Select aria-label="Année" className="w-full sm:w-auto" value={year} onChange={(e) => setYear(e.target.value)}>
           {[thisYear, thisYear - 1, thisYear - 2].map((y) => (
             <option key={y} value={y}>
               {y}
@@ -189,6 +189,7 @@ export function ReceiptsBookPage() {
           ))}
         </Select>
         <Select
+          aria-label="Trimestre"
           className="w-full sm:w-auto"
           value={quarter}
           onChange={(e) => {
@@ -203,6 +204,7 @@ export function ReceiptsBookPage() {
           <option value="4">T4</option>
         </Select>
         <Select
+          aria-label="Mois"
           className="w-full sm:w-auto"
           value={month}
           onChange={(e) => {

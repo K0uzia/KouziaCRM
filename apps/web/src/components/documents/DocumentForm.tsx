@@ -292,6 +292,7 @@ export function DocumentFormEditor({
               </div>
             ) : services.length > 0 ? (
               <Select
+                aria-label={`Ligne ${i + 1} : choisir une prestation du catalogue`}
                 value=""
                 onChange={(e) => {
                   if (e.target.value) applyService(i, e.target.value);
@@ -311,12 +312,14 @@ export function DocumentFormEditor({
             <div className="grid grid-cols-1 gap-2 sm:grid-cols-[1fr_88px_110px_44px]">
               <Input
                 required
+                aria-label={`Ligne ${i + 1} : description`}
                 placeholder="Description de la prestation"
                 value={line.description}
                 onChange={(e) => updateLine(i, { description: e.target.value })}
               />
               <Input
                 required
+                aria-label={`Ligne ${i + 1} : quantité`}
                 type="number"
                 inputMode="decimal"
                 step="0.01"
@@ -331,6 +334,7 @@ export function DocumentFormEditor({
                 type="number"
                 inputMode="decimal"
                 step="0.01"
+                aria-label={`Ligne ${i + 1} : prix unitaire HT en euros`}
                 placeholder={line.isSubscription ? "€ / mois" : "Prix HT €"}
                 value={line.unitPriceEuros}
                 onChange={(e) => updateLine(i, { unitPriceEuros: e.target.value })}
@@ -350,6 +354,7 @@ export function DocumentFormEditor({
           <p className="text-sm font-medium">Remise globale</p>
           <div className="grid gap-2 sm:grid-cols-[160px_1fr]">
             <Select
+              aria-label="Type de remise globale"
               value={form.discountType}
               onChange={(e) =>
                 setForm((f) => ({
@@ -364,6 +369,7 @@ export function DocumentFormEditor({
             </Select>
             {form.discountType === "PERCENT" ? (
               <Input
+                aria-label="Remise en pourcentage"
                 type="number"
                 step="0.01"
                 min="0"
@@ -374,6 +380,7 @@ export function DocumentFormEditor({
               />
             ) : form.discountType === "FIXED" ? (
               <Input
+                aria-label="Remise en euros HT"
                 type="number"
                 step="0.01"
                 min="0"

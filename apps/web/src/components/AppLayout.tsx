@@ -69,6 +69,12 @@ export function AppLayout() {
 
   return (
     <div className="flex h-dvh min-w-0 flex-col overflow-hidden bg-[var(--bg)]">
+      <a
+        href="#contenu"
+        className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-3 focus:z-50 focus:rounded-[var(--radius-sm)] focus:bg-[var(--primary)] focus:px-4 focus:py-3 focus:text-sm focus:font-semibold focus:text-[var(--primary-fg)]"
+      >
+        Aller au contenu
+      </a>
       <header className="z-40 shrink-0 border-b border-[var(--border)] bg-[var(--bg)]/90 pt-[env(safe-area-inset-top)] backdrop-blur-md">
         <div className="mx-auto flex h-14 max-w-7xl min-w-0 items-center gap-2 px-4 sm:gap-3 sm:px-6">
           <Link
@@ -261,7 +267,9 @@ export function AppLayout() {
       ) : null}
 
       <main
-        className={`custom-scrollbar min-h-0 min-w-0 flex-1 ${
+        id="contenu"
+        tabIndex={-1}
+        className={`custom-scrollbar min-h-0 min-w-0 flex-1 focus:outline-none ${
           isMailWorkspace ? "overflow-hidden" : "overflow-y-auto overflow-x-hidden"
         }`}
       >
