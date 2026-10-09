@@ -9,7 +9,7 @@ import {
   toPrismaClientData,
 } from "@/lib/clients.js";
 import { requireAuth } from "@/lib/auth.js";
-import { issueAndSendAccessCode } from "@/lib/clients/access-email.js";
+import { revokeAllPortalSessions } from "@/lib/portal/auth.js";
 import { sendOnboardingInvite } from "@/lib/clients/onboarding.js";
 import { replyEntrepriseLookup } from "@/lib/company/entreprise-route.js";
 
@@ -83,24 +83,18 @@ export const clientsRoutes: FastifyPluginAsync = async (app) => {
     },
   );
 
+  // Espace client : déconnecte tous les appareils du client (appareil perdu, doute).
   app.post<{ Params: { id: string } }>(
-    "/api/clients/:id/regenerate-access-code",
+    "/api/clients/:id/portal/revoke-sessions",
     async (request, reply) => {
       await requireAuth(request, reply);
       if (reply.sent) return;
       const existing = await prisma.client.findUnique({
         where: { id: request.params.id },
+        select: { id: true },
       });
       if (!existing) return reply.code(404).send({ error: "Introuvable" });
-
-      try {
-        const result = await issueAndSendAccessCode(existing.id);
-        return result;
-      } catch (e) {
-        return reply
-          .code(400)
-          .send({ error: e instanceof Error ? e.message : "Impossible de générer le code" });
-      }
+      return { revoked: await revokeAllPortalSessions(existing.id) };
     },
   );
 

@@ -158,6 +158,13 @@ function createStyles(primary: string, secondary: string) {
       borderLeftColor: primary,
     },
     strong: { fontFamily: "Helvetica-Bold", color: INK },
+    signRow: { flexDirection: "row", gap: 12, marginTop: 6 },
+    signCol: { flex: 1 },
+    signName: { fontSize: 11, fontFamily: "Helvetica-Bold", color: INK },
+    signImage: { width: 160, height: 60, objectFit: "contain", marginVertical: 4 },
+    signTyped: { fontSize: 13, fontFamily: "Helvetica-Oblique", color: INK, marginVertical: 8 },
+    proof: { flex: 1, padding: 8, backgroundColor: "#f8fafc", borderWidth: 1, borderColor: LINE },
+    proofTitle: { fontSize: 8, fontFamily: "Helvetica-Bold", color: INK, letterSpacing: 0.6, marginBottom: 3 },
     legal: {
       marginTop: 24,
       paddingTop: 10,
@@ -180,6 +187,19 @@ function formatIban(iban: string): string {
 
 function fmtDate(d: Date) {
   return new Intl.DateTimeFormat("fr-FR").format(d);
+}
+
+function fmtDateTime(d: Date) {
+  return new Intl.DateTimeFormat("fr-FR", {
+    timeZone: "Europe/Paris",
+    dateStyle: "short",
+    timeStyle: "short",
+  }).format(d).replace(" ", " à ");
+}
+
+/** 3f9a1c2e…7b40c21e : assez pour comparer à l'empreinte complète archivée. */
+function shortHash(hex: string) {
+  return `${hex.slice(0, 16)}…${hex.slice(-16)}`;
 }
 
 function fmtMoney(cents: number) {
@@ -243,8 +263,21 @@ export type InvoicePdfData = {
       reference?: string | null;
       status?: string;
     }>;
-    /** Devis accepté : nom saisi en « Bon pour accord » et date de la décision. */
-    acceptance?: { signerName: string; acceptedAt: Date } | null;
+    /**
+     * Devis accepté. Signé depuis l'espace client : mode, tracé, adresse ayant reçu
+     * le code, n° de preuve et empreinte du devis avant signature. Sinon (validation
+     * par l'administrateur) : nom et date seulement.
+     */
+    acceptance?: {
+      signerName: string;
+      acceptedAt: Date;
+      company?: string | null;
+      mode?: "TYPED" | "DRAWN";
+      image?: string | null;
+      emailMasked?: string | null;
+      proofId?: string | null;
+      documentSha256?: string | null;
+    } | null;
     lines: Array<{
       description: string;
       quantity: number;
@@ -521,12 +554,47 @@ export function InvoiceDocument({ company, client, invoice }: InvoicePdfData) {
           </View>
         ) : null}
 
-        {isQuote && invoice.acceptance ? (
+        {isQuote && invoice.acceptance?.mode ? (
+          <View style={styles.payBox} wrap={false}>
+            <Text style={styles.h2}>Bon pour accord</Text>
+            <View style={styles.signRow}>
+              <View style={styles.signCol}>
+                <Text style={styles.signName}>{invoice.acceptance.signerName}</Text>
+                {invoice.acceptance.company ? (
+                  <Text style={styles.muted}>pour {invoice.acceptance.company}</Text>
+                ) : null}
+                {invoice.acceptance.mode === "DRAWN" && invoice.acceptance.image ? (
+                  <Image src={invoice.acceptance.image} style={styles.signImage} />
+                ) : (
+                  <Text style={styles.signTyped}>{invoice.acceptance.signerName}</Text>
+                )}
+                <Text style={styles.muted}>Signé le {fmtDateTime(invoice.acceptance.acceptedAt)}</Text>
+              </View>
+              <View style={styles.proof}>
+                <Text style={styles.proofTitle}>SIGNATURE ÉLECTRONIQUE</Text>
+                <Text style={styles.muted}>Signé dans l'espace client {brandName}.</Text>
+                {invoice.acceptance.emailMasked ? (
+                  <Text style={styles.muted}>
+                    Identité confirmée par un code à usage unique envoyé à {invoice.acceptance.emailMasked}.
+                  </Text>
+                ) : null}
+                {invoice.acceptance.proofId ? (
+                  <Text style={styles.muted}>Preuve n° {invoice.acceptance.proofId.slice(-10).toUpperCase()}</Text>
+                ) : null}
+                {invoice.acceptance.documentSha256 ? (
+                  <Text style={styles.muted}>
+                    Empreinte du devis accepté (SHA-256) : {shortHash(invoice.acceptance.documentSha256)}
+                  </Text>
+                ) : null}
+              </View>
+            </View>
+          </View>
+        ) : isQuote && invoice.acceptance ? (
           <View style={styles.payBox} wrap={false}>
             <Text style={styles.h2}>Bon pour accord</Text>
             <Text>
               Devis accepté par <Text style={styles.strong}>{invoice.acceptance.signerName}</Text> le{" "}
-              {fmtDate(invoice.acceptance.acceptedAt)} (signature électronique simple).
+              {fmtDate(invoice.acceptance.acceptedAt)}.
             </Text>
           </View>
         ) : null}

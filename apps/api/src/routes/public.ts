@@ -3,8 +3,28 @@ import { z } from "zod";
 import { InvoiceDocumentType, InvoiceStatus } from "@prisma/client";
 import { prisma } from "@/lib/prisma.js";
 import { getCompanySettings } from "@/lib/company.js";
-import { verifyAccessCode } from "@/lib/clients/numbering.js";
 import { verifyDocumentToken } from "@/lib/documents/public-token.js";
+import {
+  checkPortalCode,
+  clearPortalCookie,
+  closePortalSession,
+  describeDevice,
+  deviceIdOf,
+  findClientByEmail,
+  issuePortalCode,
+  maskEmail,
+  openPortalSession,
+  resolvePortalClient,
+  setPortalCookies,
+  type CodeCheck,
+} from "@/lib/portal/auth.js";
+import {
+  PORTAL_CODE_KINDS,
+  sendLoginCodeEmail,
+  sendNewDeviceAlertEmail,
+  sendSignCodeEmail,
+} from "@/lib/clients/access-email.js";
+import { decryptOptional } from "@/lib/crypto.js";
 import { renderInvoicePdf } from "@/lib/pdf/render.js";
 import { buildInvoicePdfPayload } from "@/lib/pdf/build-payload.js";
 import { enrichCompanyForPdf } from "@/lib/pdf/brand-assets.js";
@@ -36,10 +56,17 @@ import {
 } from "@/lib/testimonials/service.js";
 import { listPortalProjects } from "@/lib/projects/service.js";
 
-const trackingSchema = z.object({
-  clientNumber: z.string().min(3),
-  accessCode: z.string().min(4),
-});
+const emailSchema = z.object({ email: z.string().trim().email().max(254) });
+const codeSchema = z.string().trim().regex(/^\d{6}$/);
+const verifySchema = emailSchema.extend({ code: codeSchema });
+
+/** Prénom ou nom : lettres, espaces, tiret, apostrophe. */
+const nameSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(60)
+  .regex(/^\p{L}[\p{L}\s'’-]*$/u);
 
 const onboardingSubmitSchema = z.object({
   type: z.enum(["B2B", "B2C"]),
@@ -78,53 +105,116 @@ const onboardingSubmitSchema = z.object({
   token: z.string().optional(),
 });
 
-const testimonialSubmitSchema = trackingSchema.extend({
+const testimonialSubmitSchema = z.object({
   authorName: z.string().min(2).max(80),
   body: z.string().min(20).max(800),
 });
 
-const quoteDecisionSchema = trackingSchema.extend({
-  decision: z.enum(["ACCEPT", "REJECT"]),
-  signerName: z.string().min(2).max(120).optional(),
-  reason: z.string().max(500).optional(),
-});
+/** Tracé de signature : PNG en data URL, 300 Ko au plus. */
+const signatureImageSchema = z
+  .string()
+  .max(300_000)
+  .regex(/^data:image\/png;base64,[A-Za-z0-9+/]+=*$/);
 
-/** Rejoue l'authentification du portail : le client n'a pas de session serveur. */
-async function authenticateClient(clientNumber: string, accessCode: string) {
-  const client = await prisma.client.findUnique({
-    where: { clientNumber: clientNumber.trim().toUpperCase() },
-  });
-  if (!client?.accessCodeHash) return null;
-  const ok = await verifyAccessCode(client.accessCodeHash, accessCode);
-  return ok ? client : null;
+const quoteDecisionSchema = z.discriminatedUnion("decision", [
+  z.object({
+    decision: z.literal("ACCEPT"),
+    firstName: nameSchema,
+    lastName: nameSchema,
+    signatureMode: z.enum(["TYPED", "DRAWN"]),
+    signatureImage: signatureImageSchema.optional(),
+    code: codeSchema,
+  }),
+  z.object({
+    decision: z.literal("REJECT"),
+    reason: z.string().max(500).optional(),
+  }),
+]);
+
+const SESSION_EXPIRED = { error: "Session expirée : reconnectez-vous." };
+const CODE_ERRORS: Record<Exclude<CodeCheck, "ok">, string> = {
+  invalid: "Code incorrect ou expiré.",
+  locked: "Trop d'essais : demandez un nouveau code.",
+};
+
+/** « Jean DUPONT » : prénom tel que saisi, nom en capitales, espaces normalisés. */
+function formatSignerName(firstName: string, lastName: string): string {
+  const clean = (s: string) => s.trim().replace(/\s+/g, " ");
+  return `${clean(firstName)} ${clean(lastName).toLocaleUpperCase("fr-FR")}`;
 }
 
 export const publicRoutes: FastifyPluginAsync = async (app) => {
+  // Connexion, étape 1 : un code part si l'adresse est celle d'un client.
+  // Réponse identique dans tous les cas : on ne peut pas tester qui est client.
   app.post(
-    "/api/public/tracking",
-    {
-      config: {
-        rateLimit: {
-          // Le code d'accès (8 hex = 4 octets) reste impossible à brute-forcer
-          // même avec une limite large ; on tolère les refreshs légitimes.
-          max: 60,
-          timeWindow: "15 minutes",
-        },
-      },
-    },
+    "/api/public/auth/code",
+    { config: { rateLimit: { max: 10, timeWindow: "15 minutes" } } },
     async (request, reply) => {
-      const parsed = trackingSchema.safeParse(request.body);
-      if (!parsed.success) {
-        return reply.code(400).send({ error: "Données invalides" });
+      const parsed = emailSchema.safeParse(request.body);
+      if (!parsed.success) return reply.code(400).send({ error: "Adresse e-mail invalide." });
+
+      const client = await findClientByEmail(parsed.data.email);
+      if (client) {
+        // Hors du temps de réponse : la durée de l'envoi ne trahit pas un client existant.
+        void (async () => {
+          const code = await issuePortalCode(client.id, "LOGIN");
+          if (code) await sendLoginCodeEmail(client, code);
+        })().catch((err) => request.log.error({ err }, "envoi du code de connexion échoué"));
+      }
+      return { ok: true };
+    },
+  );
+
+  // Connexion, étape 2 : code valide = adresse confirmée et appareil reconnu 15 jours.
+  app.post(
+    "/api/public/auth/verify",
+    { config: { rateLimit: { max: 20, timeWindow: "15 minutes" } } },
+    async (request, reply) => {
+      const parsed = verifySchema.safeParse(request.body);
+      if (!parsed.success) return reply.code(400).send({ error: "Code à 6 chiffres attendu." });
+
+      const client = await findClientByEmail(parsed.data.email);
+      const check: CodeCheck = client
+        ? await checkPortalCode(client.id, "LOGIN", parsed.data.code)
+        : "invalid";
+      if (!client || check !== "ok") {
+        return reply.code(401).send({ error: CODE_ERRORS[check === "ok" ? "invalid" : check] });
       }
 
-      const client = await authenticateClient(
-        parsed.data.clientNumber,
-        parsed.data.accessCode,
-      );
-      if (!client) {
-        return reply.code(401).send({ error: "Identifiants invalides" });
+      const now = new Date();
+      if (!client.emailVerifiedAt) {
+        await prisma.client.update({ where: { id: client.id }, data: { emailVerifiedAt: now } });
       }
+      const deviceId = deviceIdOf(request);
+      const userAgent = request.headers["user-agent"] ?? null;
+      const session = await openPortalSession({
+        clientId: client.id,
+        deviceId,
+        ipAddress: request.ip,
+        userAgent,
+      });
+      setPortalCookies(reply, session, deviceId);
+      if (session.newDevice) {
+        void sendNewDeviceAlertEmail(client, { device: describeDevice(userAgent), at: now }).catch(
+          (err) => request.log.error({ err }, "alerte nouvel appareil échouée"),
+        );
+      }
+      return { ok: true };
+    },
+  );
+
+  app.post("/api/public/auth/logout", async (request, reply) => {
+    await closePortalSession(request);
+    clearPortalCookie(reply);
+    return { ok: true };
+  });
+
+  app.get(
+    "/api/public/tracking",
+    { config: { rateLimit: { max: 120, timeWindow: "15 minutes" } } },
+    async (request, reply) => {
+      const client = await resolvePortalClient(request);
+      if (!client) return reply.code(401).send(SESSION_EXPIRED);
 
       const settings = await getCompanySettings();
       const showAmounts = settings.publicTrackingShowAmounts;
@@ -148,7 +238,7 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
       });
 
       const emailEvents = await prisma.clientEmailEvent.findMany({
-        where: { clientId: client.id, success: true },
+        where: { clientId: client.id, success: true, kind: { notIn: PORTAL_CODE_KINDS } },
         orderBy: { sentAt: "desc" },
         take: 40,
       });
@@ -181,10 +271,18 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
       const testimonialSubmitted = await clientHasSubmittedTestimonial(client.id);
       const projects = await listPortalProjects(client.id);
 
+      const email = decryptOptional(client.emailEncrypted);
       return {
         clientFirstName: firstName,
         clientNumber: client.clientNumber,
         displayName: client.displayName,
+        emailMasked: email ? maskEmail(email) : null,
+        // Pré-remplit le formulaire de signature ; le client peut corriger.
+        signer: {
+          firstName: client.firstName ?? "",
+          lastName: client.lastName ?? "",
+          companyName: client.type === "B2B" ? (client.companyName ?? client.displayName) : null,
+        },
         brand: {
           tradeName: settings.tradeName ?? settings.legalName,
           accentColor: "#0f766e",
@@ -299,7 +397,38 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
     },
   );
 
-  // Acceptation ou refus d'un devis par le client depuis le portail de suivi.
+  // Signature, étape 1 : code envoyé à l'adresse du client pour ce devis précis.
+  app.post<{ Params: { id: string } }>(
+    "/api/public/quotes/:id/sign-code",
+    { config: { rateLimit: { max: 10, timeWindow: "15 minutes" } } },
+    async (request, reply) => {
+      const client = await resolvePortalClient(request);
+      if (!client) return reply.code(401).send(SESSION_EXPIRED);
+
+      const quote = await prisma.invoice.findUnique({
+        where: { id: request.params.id },
+        select: { id: true, clientId: true, number: true, quoteStatus: true },
+      });
+      // Même réponse qu'un devis inexistant : le portail ne révèle pas les documents d'autrui.
+      if (!quote || quote.clientId !== client.id) {
+        return reply.code(404).send({ error: "Devis introuvable" });
+      }
+      if (quote.quoteStatus !== "SENT") {
+        return reply.code(409).send({ error: "Ce devis n'attend plus de réponse." });
+      }
+      const email = decryptOptional(client.emailEncrypted);
+      if (!email) return reply.code(409).send({ error: "Aucune adresse e-mail sur votre fiche." });
+
+      const code = await issuePortalCode(client.id, "SIGN", quote.id);
+      if (!code) {
+        return reply.code(429).send({ error: "Trop de codes demandés : réessayez dans une heure." });
+      }
+      await sendSignCodeEmail(client, code, quote.number);
+      return { emailMasked: maskEmail(email) };
+    },
+  );
+
+  // Signature, étape 2 (ou refus) : acceptation seulement avec le code de ce devis.
   app.post<{ Params: { id: string } }>(
     "/api/public/quotes/:id/decision",
     {
@@ -315,19 +444,8 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
       if (!parsed.success) {
         return reply.code(400).send({ error: "Données invalides" });
       }
-      if (parsed.data.decision === "ACCEPT" && !parsed.data.signerName) {
-        return reply
-          .code(400)
-          .send({ error: "Indiquez votre nom pour valider le devis" });
-      }
-
-      const client = await authenticateClient(
-        parsed.data.clientNumber,
-        parsed.data.accessCode,
-      );
-      if (!client) {
-        return reply.code(401).send({ error: "Identifiants invalides" });
-      }
+      const client = await resolvePortalClient(request);
+      if (!client) return reply.code(401).send(SESSION_EXPIRED);
 
       const quote = await prisma.invoice.findUnique({
         where: { id: request.params.id },
@@ -339,15 +457,37 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
       }
 
       try {
-        const updated =
-          parsed.data.decision === "ACCEPT"
-            ? await acceptQuoteByClient(quote.id, parsed.data.signerName as string, {
-                context: {
-                  ipAddress: request.ip,
-                  userAgent: request.headers["user-agent"] ?? null,
-                },
-              })
-            : await rejectQuote(quote.id, parsed.data.reason);
+        if (parsed.data.decision === "REJECT") {
+          const updated = await rejectQuote(quote.id, parsed.data.reason);
+          return { quoteStatus: updated.quoteStatus };
+        }
+
+        const data = parsed.data;
+        if (data.signatureMode === "DRAWN" && !data.signatureImage) {
+          return reply.code(400).send({ error: "Tracez votre signature." });
+        }
+        const check = await checkPortalCode(client.id, "SIGN", data.code, quote.id);
+        if (check !== "ok") return reply.code(401).send({ error: CODE_ERRORS[check] });
+
+        const email = decryptOptional(client.emailEncrypted);
+        const updated = await acceptQuoteByClient(
+          quote.id,
+          formatSignerName(data.firstName, data.lastName),
+          {
+            context: {
+              ipAddress: request.ip,
+              userAgent: request.headers["user-agent"] ?? null,
+            },
+            signature: {
+              mode: data.signatureMode,
+              image: data.signatureMode === "DRAWN" ? (data.signatureImage ?? null) : null,
+              company:
+                client.type === "B2B" ? (client.companyName ?? client.displayName) : null,
+              emailMasked: email ? maskEmail(email) : null,
+              codeVerifiedAt: new Date(),
+            },
+          },
+        );
         return { quoteStatus: updated.quoteStatus };
       } catch (e) {
         if (e instanceof QuoteDecisionError) {
@@ -382,6 +522,7 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
           sourceMilestone: true,
           milestones: { orderBy: { position: "asc" } },
           payments: { orderBy: { paidAt: "asc" } },
+          quoteAcceptanceAudits: { orderBy: { createdAt: "desc" }, take: 1 },
         },
       });
       if (!invoice || invoice.status === InvoiceStatus.DRAFT || !invoice.number) {
@@ -565,13 +706,8 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
       if (!parsed.success) {
         return reply.code(400).send({ error: "Données invalides" });
       }
-      const client = await authenticateClient(
-        parsed.data.clientNumber,
-        parsed.data.accessCode,
-      );
-      if (!client) {
-        return reply.code(401).send({ error: "Identifiants invalides" });
-      }
+      const client = await resolvePortalClient(request);
+      if (!client) return reply.code(401).send(SESSION_EXPIRED);
       try {
         await submitClientTestimonial({
           clientId: client.id,

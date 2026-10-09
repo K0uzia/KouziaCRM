@@ -236,6 +236,17 @@ export type QuoteAcceptanceContext = {
   userAgent?: string | null;
 };
 
+/** Signature depuis l'espace client, confirmée par un code envoyé par e-mail. */
+export type QuoteSignature = {
+  mode: "TYPED" | "DRAWN";
+  /** Tracé PNG (data URL), mode DRAWN seulement */
+  image?: string | null;
+  /** Société représentée (client professionnel) */
+  company?: string | null;
+  emailMasked?: string | null;
+  codeVerifiedAt: Date;
+};
+
 async function logQuoteAcceptance(
   quoteId: string,
   signerName: string,
@@ -244,6 +255,8 @@ async function logQuoteAcceptance(
     threadId?: string | null;
     actor?: QuoteAcceptanceActor;
     context?: QuoteAcceptanceContext;
+    signature?: QuoteSignature;
+    originalPdfSha256?: string | null;
   } = {},
 ) {
   return prisma.quoteAcceptanceAudit.create({
@@ -256,6 +269,12 @@ async function logQuoteAcceptance(
       userEmail: opts.actor?.userEmail ?? null,
       ipAddress: opts.context?.ipAddress?.slice(0, 64) || null,
       userAgent: opts.context?.userAgent?.slice(0, 512) || null,
+      signatureMode: opts.signature?.mode ?? null,
+      signatureImage: opts.signature?.image ?? null,
+      signerCompany: opts.signature?.company ?? null,
+      verifiedEmailMasked: opts.signature?.emailMasked ?? null,
+      codeVerifiedAt: opts.signature?.codeVerifiedAt ?? null,
+      originalPdfSha256: opts.originalPdfSha256 ?? null,
     },
   });
 }
@@ -323,8 +342,15 @@ export async function acceptQuoteByClient(
     threadId?: string | null;
     actor?: QuoteAcceptanceActor;
     context?: QuoteAcceptanceContext;
+    signature?: QuoteSignature;
   } = {},
 ) {
+  // Signature portail : on fige le devis tel que le client l'a lu, avant qu'il porte l'accord.
+  const { captureQuoteBeforeSignature, archiveOriginalQuote } = await import(
+    "@/lib/invoices/acceptance-proof.js"
+  );
+  const original = audit.signature ? await captureQuoteBeforeSignature(quoteId) : null;
+
   const updated = await prisma.$transaction(async (tx) => {
     await loadPendingQuote(tx, quoteId);
     await ensureQuoteHasOfficialNumber(tx, quoteId);
@@ -345,7 +371,10 @@ export async function acceptQuoteByClient(
     threadId: audit.threadId,
     actor: audit.actor,
     context: audit.context,
+    signature: audit.signature,
+    originalPdfSha256: original?.sha256 ?? null,
   });
+  if (original) await archiveOriginalQuote(acceptance.id, original);
 
   const { onQuoteAcceptedByClient } = await import(
     "@/lib/payments/milestonePaymentService.js"

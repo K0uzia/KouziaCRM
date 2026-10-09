@@ -18,7 +18,6 @@ import {
 export type Client = {
   id: string;
   clientNumber?: string | null;
-  accessCode?: string;
   type: "B2B" | "B2C";
   displayName: string;
   firstName: string | null;
@@ -39,7 +38,7 @@ export type Client = {
   addressLat?: number | null;
   addressLon?: number | null;
   notes: string | null;
-  hasAccessCode?: boolean;
+  emailVerifiedAt?: string | null;
   onboardingCompletedAt?: string | null;
   accessEmailSentAt?: string | null;
   createdAt: string;

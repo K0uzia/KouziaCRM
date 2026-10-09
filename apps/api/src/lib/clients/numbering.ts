@@ -1,5 +1,3 @@
-import { randomBytes } from "node:crypto";
-import argon2 from "argon2";
 import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma.js";
 
@@ -21,19 +19,4 @@ export async function allocateClientNumber(
     data: { lastValue: { increment: 1 } },
   });
   return `CLI-${pad(updated.lastValue)}`;
-}
-
-/** Génère un code d'accès clair (une fois) + hash argon2id. 64 bits d'entropie. */
-export async function generateAccessCode(): Promise<{ code: string; hash: string }> {
-  const code = randomBytes(8).toString("hex").toUpperCase();
-  const hash = await argon2.hash(code, { type: argon2.argon2id });
-  return { code, hash };
-}
-
-export async function verifyAccessCode(hash: string, code: string): Promise<boolean> {
-  try {
-    return await argon2.verify(hash, code.trim().toUpperCase());
-  } catch {
-    return false;
-  }
 }

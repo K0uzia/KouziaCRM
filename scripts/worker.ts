@@ -12,6 +12,7 @@ import { importTransactions } from "../apps/api/src/lib/revolut/importTransactio
 import { activateDueMilestoneCheckouts } from "../apps/api/src/lib/payments/milestonePaymentService";
 import { getCompanySettings } from "../apps/api/src/lib/company";
 import { prisma } from "../apps/api/src/lib/prisma";
+import { purgePortalData } from "../apps/api/src/lib/portal/auth";
 
 async function runMaintenance() {
   try {
@@ -80,6 +81,14 @@ async function runHourly() {
     }
   } catch (err) {
     console.error("[worker] milestone checkout error", err);
+  }
+  try {
+    const purged = await purgePortalData();
+    if (purged.codes + purged.sessions > 0) {
+      console.log(`[worker] espace client purgé codes=${purged.codes} sessions=${purged.sessions}`);
+    }
+  } catch (err) {
+    console.error("[worker] purge espace client error", err);
   }
 }
 

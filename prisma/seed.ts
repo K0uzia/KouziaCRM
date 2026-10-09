@@ -1,7 +1,6 @@
 import { PrismaClient } from "@prisma/client";
 import { applyCatalog } from "../apps/api/src/lib/services/catalog";
 import argon2 from "argon2";
-import { randomBytes } from "node:crypto";
 
 const prisma = new PrismaClient();
 
@@ -123,47 +122,27 @@ async function main() {
     await prisma.startupChecklist.create({ data: {} });
   }
 
-  // Backfill CLI-xxxx + codes d'accès
-  const clients = await prisma.client.findMany({ orderBy: { createdAt: "asc" } });
-  let counter = await prisma.namedCounter.findUnique({ where: { name: "client" } });
-  if (!counter) {
-    counter = await prisma.namedCounter.create({ data: { name: "client", lastValue: 0 } });
+  // Backfill CLI-xxxx (l'espace client se connecte par e-mail + code, plus de code d'accès)
+  const clients = await prisma.client.findMany({
+    where: { clientNumber: null },
+    orderBy: { createdAt: "asc" },
+  });
+  if (clients.length > 0) {
+    await prisma.namedCounter.upsert({
+      where: { name: "client" },
+      create: { name: "client", lastValue: 0 },
+      update: {},
+    });
   }
-
-  const accessCodes: Array<{ clientNumber: string; displayName: string; accessCode: string }> =
-    [];
-
   for (const c of clients) {
-    let clientNumber = c.clientNumber;
-    if (!clientNumber) {
-      counter = await prisma.namedCounter.update({
-        where: { name: "client" },
-        data: { lastValue: { increment: 1 } },
-      });
-      clientNumber = `CLI-${pad(counter.lastValue)}`;
-    }
-
-    let accessCodeHash = c.accessCodeHash;
-    let accessCode: string | null = null;
-    if (!accessCodeHash) {
-      accessCode = randomBytes(4).toString("hex").toUpperCase();
-      accessCodeHash = await argon2.hash(accessCode, { type: argon2.argon2id });
-    }
-
-    if (clientNumber !== c.clientNumber || accessCodeHash !== c.accessCodeHash) {
-      await prisma.client.update({
-        where: { id: c.id },
-        data: { clientNumber, accessCodeHash },
-      });
-    }
-
-    if (accessCode) {
-      accessCodes.push({
-        clientNumber,
-        displayName: c.displayName,
-        accessCode,
-      });
-    }
+    const counter = await prisma.namedCounter.update({
+      where: { name: "client" },
+      data: { lastValue: { increment: 1 } },
+    });
+    await prisma.client.update({
+      where: { id: c.id },
+      data: { clientNumber: `CLI-${pad(counter.lastValue)}` },
+    });
   }
 
   // Catalogue de prestations et d'offres de maintenance (prix fixes), si aucun service.
@@ -208,12 +187,6 @@ async function main() {
   }
 
   console.log("Seed OK:", { admin: email, company: "Kouzia / Alexandre Kouziaeff" });
-  if (accessCodes.length > 0) {
-    console.log("Codes d'accès suivi public (affichés une seule fois) :");
-    for (const row of accessCodes) {
-      console.log(`  ${row.clientNumber} (${row.displayName}) : ${row.accessCode}`);
-    }
-  }
 }
 
 main()

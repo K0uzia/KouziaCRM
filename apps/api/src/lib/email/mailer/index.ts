@@ -1,5 +1,5 @@
 export { enqueueEmail, parsePayload } from "./outbox.js";
-export { processEmailOutbox, sendOutboxNow } from "./processor.js";
+export { processEmailOutbox, sendOutboxImmediately, sendOutboxNow } from "./processor.js";
 export type { EnqueueOptions, EnqueueResult, OutboxPayload, OutboxAttachment } from "./types.js";
 export { generateMessageId, formatFrom, extractEmailAddress } from "./headers.js";
 

@@ -983,6 +983,7 @@ export const invoicesRoutes: FastifyPluginAsync = async (app) => {
         sourceMilestone: true,
         milestones: { orderBy: { position: "asc" } },
         payments: { orderBy: { paidAt: "asc" } },
+        quoteAcceptanceAudits: { orderBy: { createdAt: "desc" }, take: 1 },
       },
     });
     if (!invoice) return reply.code(404).send({ error: "Introuvable" });

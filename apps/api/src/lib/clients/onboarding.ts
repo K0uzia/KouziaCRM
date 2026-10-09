@@ -5,7 +5,7 @@ import { encryptOptional } from "@/lib/crypto.js";
 import { isSmtpConfigured } from "@/lib/email/smtp.js";
 import { mailEnqueue } from "@/lib/email/mailer/index.js";
 import { allocateClientNumber } from "@/lib/clients/numbering.js";
-import { issueAndSendAccessCode } from "@/lib/clients/access-email.js";
+import { sendPortalWelcomeEmail } from "@/lib/clients/access-email.js";
 import {
   createOnboardingToken,
   getOnboardingTtlDays,
@@ -301,8 +301,8 @@ async function applySubmission(
         where: { id: invitation.id },
         data: { usedAt: now },
       });
-      await issueAndSendAccessCode(invitation.existingClientId).catch((err) => {
-        console.error(`[email] code suivi après onboarding (existant) échoué`, err);
+      await sendPortalWelcomeEmail(invitation.existingClientId).catch((err) => {
+        console.error(`[email] accès espace client après onboarding (existant) échoué`, err);
       });
       return { ok: true };
     }
@@ -312,7 +312,6 @@ async function applySubmission(
       data: {
         ...(await toPrismaData(locked)),
         clientNumber,
-        accessCodeHash: null,
         onboardingCompletedAt: now,
       },
     });
@@ -320,8 +319,8 @@ async function applySubmission(
       where: { id: invitation.id },
       data: { usedAt: now, createdClientId: created.id },
     });
-    await issueAndSendAccessCode(created.id).catch((err) => {
-      console.error(`[email] code suivi après onboarding (nouveau) échoué`, err);
+    await sendPortalWelcomeEmail(created.id).catch((err) => {
+      console.error(`[email] accès espace client après onboarding (nouveau) échoué`, err);
     });
     return { ok: true };
   } catch (e) {

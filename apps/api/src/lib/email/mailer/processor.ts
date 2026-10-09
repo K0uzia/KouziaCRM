@@ -1,4 +1,4 @@
-import { EmailDirection } from "@prisma/client";
+import { EmailDirection, EmailOutboxStatus } from "@prisma/client";
 import { getCompanySettings } from "@/lib/company";
 import { prisma } from "@/lib/prisma";
 import { logClientEmailEvent } from "@/lib/email/log-event.js";
@@ -280,6 +280,27 @@ export async function processEmailOutbox(): Promise<{ processed: number; failed:
   }
 
   return { processed, failed };
+}
+
+/**
+ * Envoi immédiat d'un message urgent (code de connexion) sans attendre le passage du worker.
+ * La ligne est réservée comme dans le worker : jamais d'envoi en double. En cas d'échec,
+ * elle repasse en attente et le worker réessaie.
+ */
+export async function sendOutboxImmediately(outboxId: string): Promise<boolean> {
+  const claimed = await prisma.emailOutbox.updateMany({
+    where: { id: outboxId, status: EmailOutboxStatus.PENDING },
+    data: { status: EmailOutboxStatus.SENDING },
+  });
+  if (claimed.count !== 1) return false;
+  const row = await prisma.emailOutbox.findUniqueOrThrow({ where: { id: outboxId } });
+  try {
+    await sendOutboxRow(row.id, row.payload);
+    return true;
+  } catch (e) {
+    await markOutboxFailed(row.id, formatSmtpError(e), new Date(Date.now() + RETRY_DELAYS_MS[0]));
+    return false;
+  }
 }
 
 /** Envoi immediat (tests, bypass throttle). */

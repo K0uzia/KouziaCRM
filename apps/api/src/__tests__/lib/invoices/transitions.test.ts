@@ -373,6 +373,53 @@ describe("décision du client sur un devis", () => {
     await fs.rm(abs, { force: true });
   });
 
+  it("signature portail : tracé, code vérifié et devis d'origine archivé avec son empreinte", async () => {
+    const quoteId = await issuedQuote();
+    // PNG 1 x 1 valide : le rendu du PDF signé doit réussir.
+    const trace =
+      "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=";
+    await acceptQuoteByClient(quoteId, "Camille DUPONT", {
+      context: { ipAddress: "203.0.113.7", userAgent: "Mozilla/5.0 Test" },
+      signature: {
+        mode: "DRAWN",
+        image: trace,
+        company: "Atelier Dupont",
+        emailMasked: "c***@exemple.fr",
+        codeVerifiedAt: new Date(),
+      },
+    });
+
+    const audit = await prisma.quoteAcceptanceAudit.findFirstOrThrow({ where: { quoteId } });
+    expect(audit.signatureMode).toBe("DRAWN");
+    expect(audit.signatureImage).toBe(trace);
+    expect(audit.signerCompany).toBe("Atelier Dupont");
+    expect(audit.verifiedEmailMasked).toBe("c***@exemple.fr");
+    expect(audit.codeVerifiedAt).toBeTruthy();
+    expect(audit.originalPdfPath).toMatch(/avant-signature\.pdf$/);
+
+    const { signedQuoteAbsolutePath } = await import("@/lib/invoices/acceptance-proof.js");
+    const original = await fs.readFile(signedQuoteAbsolutePath(audit.originalPdfPath!));
+    expect(createHash("sha256").update(original).digest("hex")).toBe(audit.originalPdfSha256);
+
+    // Le PDF signé reprend la preuve dans son bloc « Bon pour accord ».
+    const { loadDocumentForPdf } = await import("@/lib/pdf/document-pdf.js");
+    const { buildInvoicePdfPayload } = await import("@/lib/pdf/build-payload.js");
+    const doc = await loadDocumentForPdf(quoteId);
+    const payload = buildInvoicePdfPayload({ invoice: doc!.invoice, legalClauses: [] });
+    expect(payload.acceptance).toMatchObject({
+      signerName: "Camille DUPONT",
+      mode: "DRAWN",
+      image: trace,
+      company: "Atelier Dupont",
+      emailMasked: "c***@exemple.fr",
+      proofId: audit.id,
+      documentSha256: audit.originalPdfSha256,
+    });
+
+    await fs.rm(signedQuoteAbsolutePath(audit.originalPdfPath!), { force: true });
+    await fs.rm(signedQuoteAbsolutePath(audit.pdfPath!), { force: true });
+  });
+
   it("crée un acompte et un solde à l'émission, sans jalon intermédiaire", async () => {
     const quoteId = await issuedQuote();
     const milestones = await prisma.paymentMilestone.findMany({

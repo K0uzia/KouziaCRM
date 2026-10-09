@@ -94,10 +94,9 @@ export function serializeClient(client: {
   addressLat: number | null;
   addressLon: number | null;
   notes: string | null;
-  accessCodeHash: string | null;
-  accessCodeEncrypted?: string | null;
   onboardingCompletedAt: Date | null;
   accessEmailSentAt: Date | null;
+  emailVerifiedAt?: Date | null;
   createdAt: Date;
   updatedAt: Date;
 }) {
@@ -124,8 +123,7 @@ export function serializeClient(client: {
     addressLat: client.addressLat,
     addressLon: client.addressLon,
     notes: client.notes,
-    hasAccessCode: Boolean(client.accessCodeHash),
-    accessCode: decryptOptional(client.accessCodeEncrypted ?? null),
+    emailVerifiedAt: client.emailVerifiedAt ?? null,
     onboardingCompletedAt: client.onboardingCompletedAt,
     accessEmailSentAt: client.accessEmailSentAt,
     createdAt: client.createdAt,
@@ -211,10 +209,9 @@ export async function createClientWithAccess(data: ClientInput) {
     data: {
       ...(await toPrismaClientData(data)),
       clientNumber,
-      accessCodeHash: null,
     },
   });
-  return { client: serializeClient(client), accessCode: null as string | null };
+  return { client: serializeClient(client) };
 }
 
 export async function listClients(opts: { hasCorrespondence?: boolean } = {}) {

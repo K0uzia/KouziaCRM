@@ -24,6 +24,7 @@ export async function loadDocumentForPdf(documentId: string) {
         sourceMilestone: true,
         milestones: { orderBy: { position: "asc" } },
         payments: { orderBy: { paidAt: "asc" } },
+        quoteAcceptanceAudits: { orderBy: { createdAt: "desc" }, take: 1 },
       },
     }),
   ]);

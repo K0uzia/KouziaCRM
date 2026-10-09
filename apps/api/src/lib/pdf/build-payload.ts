@@ -4,6 +4,7 @@ import type {
   Payment,
   PaymentMilestone,
   LegalClause,
+  QuoteAcceptanceAudit,
 } from "@prisma/client";
 import type { ClientSnapshot } from "@/lib/invoices/transitions";
 import type { InvoicePdfData } from "@/lib/pdf/invoice-document";
@@ -15,6 +16,8 @@ type InvoiceWithRelations = Invoice & {
   quote?: { number: string | null; issueDate: Date | null } | null;
   sourceMilestone?: { triggerText: string | null } | null;
   milestones: PaymentMilestone[];
+  /** Dernière acceptation en premier : alimente le bloc de signature du devis. */
+  quoteAcceptanceAudits?: QuoteAcceptanceAudit[];
 };
 
 type BalanceSummary = NonNullable<InvoicePdfData["invoice"]["balanceSummary"]>;
@@ -108,8 +111,31 @@ export function buildInvoicePdfPayload({
     legalClauses: (legalClauses ?? []).map((c) => ({ title: c.title, body: c.body })),
     acceptance:
       invoice.quoteStatus === "ACCEPTED" && invoice.quoteSignerName && invoice.quoteDecidedAt
-        ? { signerName: invoice.quoteSignerName, acceptedAt: invoice.quoteDecidedAt }
+        ? acceptanceOf(
+            invoice.quoteSignerName,
+            invoice.quoteDecidedAt,
+            invoice.quoteAcceptanceAudits?.[0],
+          )
         : null,
+  };
+}
+
+/** Bloc de signature : preuve complète si le devis a été signé depuis l'espace client. */
+function acceptanceOf(
+  signerName: string,
+  acceptedAt: Date,
+  audit: QuoteAcceptanceAudit | undefined,
+): NonNullable<InvoicePdfData["invoice"]["acceptance"]> {
+  if (!audit?.signatureMode) return { signerName, acceptedAt };
+  return {
+    signerName,
+    acceptedAt,
+    company: audit.signerCompany,
+    mode: audit.signatureMode === "DRAWN" ? "DRAWN" : "TYPED",
+    image: audit.signatureImage,
+    emailMasked: audit.verifiedEmailMasked,
+    proofId: audit.id,
+    documentSha256: audit.originalPdfSha256,
   };
 }
 

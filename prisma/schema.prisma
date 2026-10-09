@@ -518,10 +518,6 @@ model Client {
   id             String        @id @default(cuid())
   /// Numéro public CLI-0001
   clientNumber   String?       @unique
-  /// Hash argon2id du code d'accès suivi public
-  accessCodeHash String?
-  /// Code d'accès chiffré AES-GCM (affichage admin / renvoi email)
-  accessCodeEncrypted String?
   type           ClientType
   displayName    String
   firstName      String?
@@ -549,10 +545,14 @@ model Client {
   notes          String?
   /// Date à laquelle le client a complété son onboarding (via invitation)
   onboardingCompletedAt  DateTime?
-  /// Date du dernier envoi d'identifiants de suivi par email
+  /// Date du dernier envoi de l'e-mail d'accès à l'espace client
   accessEmailSentAt      DateTime?
+  /// Première connexion à l'espace client par code e-mail : l'adresse est confirmée
+  emailVerifiedAt        DateTime?
   createdAt      DateTime      @default(now())
   updatedAt      DateTime      @updatedAt
+  portalCodes    PortalCode[]
+  portalSessions PortalSession[]
   invoices       Invoice[]
   emailThreads   EmailThread[]
   emailEvents    ClientEmailEvent[]
@@ -565,6 +565,44 @@ model Client {
 
   @@index([displayName])
   @@index([type])
+}
+
+/// Code à 6 chiffres envoyé par e-mail : connexion à l'espace client (LOGIN) ou signature d'un devis (SIGN).
+model PortalCode {
+  id        String    @id @default(cuid())
+  clientId  String
+  client    Client    @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  /// LOGIN | SIGN
+  purpose   String
+  /// Devis concerné (SIGN)
+  quoteId   String?
+  /// HMAC-SHA256 du code : jamais stocké en clair
+  codeHash  String
+  attempts  Int       @default(0)
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([clientId, purpose, createdAt])
+}
+
+/// Appareil reconnu après un code de connexion (cookie httpOnly, 15 jours).
+model PortalSession {
+  id         String    @id @default(cuid())
+  clientId   String
+  client     Client    @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  /// SHA-256 du jeton : le jeton clair n'existe que dans le cookie du navigateur
+  tokenHash  String    @unique
+  /// SHA-256 de l'identifiant d'appareil (cookie longue durée) : repère un nouvel appareil
+  deviceHash String
+  ipAddress  String?
+  userAgent  String?
+  createdAt  DateTime  @default(now())
+  lastSeenAt DateTime  @default(now())
+  expiresAt  DateTime
+  revokedAt  DateTime?
+
+  @@index([clientId])
 }
 
 /// Avancement d'un projet client, affiché dans l'espace client (/suivi) quand visible.
@@ -1043,6 +1081,18 @@ model QuoteAcceptanceAudit {
   /// PDF du devis signé, archivé dans data/uploads, et son empreinte SHA-256 (hex).
   pdfPath    String?
   pdfSha256  String?
+  /// Signature portail : TYPED (nom saisi) | DRAWN (tracé au doigt ou à la souris)
+  signatureMode   String?
+  /// Tracé de la signature (data URL PNG), seulement en mode DRAWN
+  signatureImage  String?
+  /// Société représentée (client professionnel)
+  signerCompany   String?
+  /// Adresse ayant reçu le code de signature, masquée (j***@exemple.fr)
+  verifiedEmailMasked String?
+  codeVerifiedAt  DateTime?
+  /// Devis tel que présenté au client juste avant sa signature, archivé, et son empreinte SHA-256
+  originalPdfPath   String?
+  originalPdfSha256 String?
   createdAt  DateTime     @default(now())
 
   @@index([quoteId])

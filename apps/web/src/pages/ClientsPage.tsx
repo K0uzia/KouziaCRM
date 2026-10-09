@@ -545,120 +545,54 @@ export function ClientDetailPage() {
             ) : null}
           </div>
           <p className="mt-1 text-xs text-[var(--muted)]">
-            Identifiant client immuable, utilisé pour le suivi public (kouzia.com/suivi).
+            Identifiant client immuable, repris sur les documents.
           </p>
         </div>
 
         <div className="border-t border-[var(--border)] pt-3">
-          <p className="text-xs font-medium text-[var(--muted)]">
-            Code d&apos;accès secret
-          </p>
+          <p className="text-xs font-medium text-[var(--muted)]">Espace client</p>
           <p className="mt-1 text-sm">
-            {client.accessCode ? (
-              <span className="inline-flex flex-wrap items-center gap-2">
-                <span className="rounded bg-[var(--bg)] px-2 py-1 font-mono text-base font-semibold tracking-wide text-[var(--text)]">
-                  {client.accessCode}
-                </span>
-                <Badge tone="green">Défini</Badge>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  className="h-8 px-2 text-xs"
-                  onClick={() => {
-                    void navigator.clipboard.writeText(client.accessCode!);
-                    toast.success("Code copié");
-                  }}
-                >
-                  Copier
-                </Button>
-              </span>
-            ) : client.hasAccessCode ? (
-              <span className="inline-flex items-center gap-2">
-                <span className="font-mono">••••••••</span>
-                <Badge tone="amber">Ancien format</Badge>
-              </span>
+            {client.emailVerifiedAt ? (
+              <Badge tone="green">E-mail vérifié le {formatDate(client.emailVerifiedAt)}</Badge>
             ) : (
-              <Badge tone="neutral">Non défini</Badge>
+              <Badge tone="neutral">Jamais connecté</Badge>
             )}
           </p>
           <p className="mt-1 text-xs text-[var(--muted)]">
-            {client.accessCode
-              ? "Code visible ici et dans l'email envoyé au client. Régénérer invalide l'ancien code."
-              : client.hasAccessCode
-                ? "Code créé avant la sauvegarde chiffrée : régénérez-le pour l'afficher ici et renvoyer l'email."
-                : "Générez le code pour l'envoyer par email et l'afficher sur cette fiche."}
+            Connexion avec l&apos;adresse e-mail de la fiche et un code à 6 chiffres reçu par
+            e-mail ; chaque appareil reste reconnu 15 jours.
           </p>
-          {client.accessEmailSentAt ? (
-            <p className="mt-1 text-xs text-[var(--muted)]">
-              Dernier envoi par email : {formatDate(client.accessEmailSentAt)}
-            </p>
-          ) : client.hasAccessCode ? (
-            <p className="mt-1 text-xs text-[var(--warning)]">
-              Code défini mais aucun email d&apos;identifiants enregistré. Utilisez Régénérer et
-              envoyer.
-            </p>
-          ) : null}
         </div>
 
         <div className="flex flex-wrap gap-2 border-t border-[var(--border)] pt-3">
           <Button
             variant="secondary"
-            disabled={busyAccess || !client.email}
+            disabled={busyAccess}
             onClick={() => setConfirmRegen(true)}
           >
-            {busyAccess
-              ? "Envoi…"
-              : client.hasAccessCode
-                ? "Régénérer et envoyer"
-                : "Générer et envoyer"}
+            {busyAccess ? "Déconnexion…" : "Déconnecter tous ses appareils"}
           </Button>
           <ConfirmDialog
             open={confirmRegen}
-            title={
-              client.hasAccessCode
-                ? "Régénérer le code d'accès ?"
-                : "Générer et envoyer le code d'accès ?"
-            }
-            message={
-              client.hasAccessCode
-                ? "L'ancien code sera invalidé. Un email avec le nouveau code de suivi et le code d'accès sera envoyé au client. Le code apparaîtra aussi une fois ici."
-                : "Un code d'accès sera créé et envoyé par email au client (avec le code de suivi CLI). Le code apparaîtra aussi une fois ici."
-            }
-            confirmLabel={client.hasAccessCode ? "Régénérer" : "Générer et envoyer"}
-            danger={client.hasAccessCode}
+            title="Déconnecter tous ses appareils ?"
+            message="Le client devra se reconnecter avec un nouveau code reçu par e-mail. À utiliser en cas d'appareil perdu ou de connexion suspecte."
+            confirmLabel="Déconnecter"
+            danger
             busy={busyAccess}
             onClose={() => setConfirmRegen(false)}
             onConfirm={() => {
               setBusyAccess(true);
-              void api<{
-                accessCode: string;
-                accessEmailSent?: boolean;
-                accessEmailReason?: string;
-              }>(`/api/clients/${client.id}/regenerate-access-code`, {
+              void api<{ revoked: number }>(`/api/clients/${client.id}/portal/revoke-sessions`, {
                 method: "POST",
                 body: "{}",
               })
                 .then((r) => {
                   setConfirmRegen(false);
-                  if (r.accessEmailSent) {
-                    toast.success(
-                      `Code envoyé par email. Code (récupérable aussi dans le mail) : ${r.accessCode}`,
-                      { duration: 15000 },
-                    );
-                  } else if (r.accessEmailReason === "smtp_off") {
-                    toast.error(
-                      `SMTP non configuré. Code généré : ${r.accessCode} (à transmettre manuellement)`,
-                      { duration: 15000 },
-                    );
-                  } else if (r.accessEmailReason === "no_email") {
-                    toast.error(
-                      `Pas d'email client. Code généré : ${r.accessCode}`,
-                      { duration: 15000 },
-                    );
-                  } else {
-                    toast.success(`Code généré : ${r.accessCode}`, { duration: 15000 });
-                  }
-                  refresh();
+                  toast.success(
+                    r.revoked > 0
+                      ? `${r.revoked} appareil(s) déconnecté(s).`
+                      : "Aucun appareil connecté.",
+                  );
                 })
                 .catch((e: Error) => toast.error(e.message))
                 .finally(() => setBusyAccess(false));

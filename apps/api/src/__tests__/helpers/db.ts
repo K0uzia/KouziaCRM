@@ -20,6 +20,8 @@ const TABLES = [
   "Service",
   "OnboardingInvitation",
   "ClientTestimonial",
+  "PortalCode",
+  "PortalSession",
   "Client",
   "Counter",
   "NamedCounter",

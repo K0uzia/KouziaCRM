@@ -15,6 +15,45 @@ export function signedQuoteAbsolutePath(pdfPath: string): string {
   return path.resolve(process.cwd(), "data", "uploads", pdfPath);
 }
 
+/**
+ * Rend le devis tel que le client le lit avant de signer, et calcule son empreinte SHA-256.
+ * Cette empreinte, imprimée sur le devis signé, prouve que le document accepté est
+ * exactement le fichier archivé : la moindre modification la changerait.
+ */
+export async function captureQuoteBeforeSignature(
+  quoteId: string,
+): Promise<{ pdf: Buffer; sha256: string; number: string } | null> {
+  try {
+    const doc = await loadDocumentForPdf(quoteId);
+    if (!doc) return null;
+    const pdf = await renderLoadedDocumentPdf(doc);
+    return {
+      pdf,
+      sha256: createHash("sha256").update(pdf).digest("hex"),
+      number: doc.invoice.number ?? "devis",
+    };
+  } catch (err) {
+    console.error(`[quote] rendu du devis avant signature impossible pour ${quoteId}`, err);
+    return null;
+  }
+}
+
+export async function archiveOriginalQuote(
+  auditId: string,
+  original: { pdf: Buffer; number: string },
+): Promise<void> {
+  try {
+    const safeNumber = original.number.replace(/[^A-Za-z0-9_-]/g, "_");
+    const originalPdfPath = `${SIGNED_QUOTES_DIR}/${safeNumber}-${auditId}-avant-signature.pdf`;
+    const abs = signedQuoteAbsolutePath(originalPdfPath);
+    await fs.mkdir(path.dirname(abs), { recursive: true });
+    await fs.writeFile(abs, original.pdf);
+    await prisma.quoteAcceptanceAudit.update({ where: { id: auditId }, data: { originalPdfPath } });
+  } catch (err) {
+    console.error(`[quote] archive du devis avant signature impossible (${auditId})`, err);
+  }
+}
+
 function fmtDateTime(d: Date): string {
   return d.toLocaleString("fr-FR", { timeZone: "Europe/Paris", dateStyle: "long", timeStyle: "short" });
 }
