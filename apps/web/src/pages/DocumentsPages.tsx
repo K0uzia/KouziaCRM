@@ -727,194 +727,269 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
         }
       />
 
-      {isQuote && linked.length > 0 ? (
-        <Card className="p-5">
-          <h2 className="mb-3 text-sm font-semibold">Factures liées</h2>
-          <ul className="divide-y divide-[var(--border)] text-sm">
-            {linked.map((inv) => (
-              <li key={inv.id} className="flex flex-wrap items-center justify-between gap-2 py-2">
-                <Link to={`/invoices/${inv.id}`} className="font-medium hover:text-[var(--primary)]">
-                  {inv.invoiceType === "ACOMPTE"
-                    ? "Acompte"
-                    : inv.invoiceType === "SOLDE"
-                      ? "Solde"
-                      : "Facture"}{" "}
-                  {inv.number ?? "Brouillon"}
-                </Link>
-                <div className="flex gap-2">
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    className="h-7 px-2 text-xs"
-                    disabled={resendBusy}
-                    onClick={() => {
-                      setResendBusy(true);
-                      void api(`/api/invoices/${inv.id}/send-email`, {
-                        method: "POST",
-                        body: "{}",
-                      })
-                        .then(() => toast.success("PDF en file d'envoi"))
-                        .catch((e: Error) => toast.error(e.message))
-                        .finally(() => setResendBusy(false));
-                    }}
-                  >
-                    Envoyer par email
-                  </Button>
+      <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_22rem]">
+        <div className="min-w-0 space-y-6">
+          {/* Le document tel qu'il est émis */}
+          <Card className="overflow-hidden">
+            <div className="flex flex-col gap-4 border-b border-[var(--border)] p-5 sm:flex-row sm:items-start sm:justify-between sm:p-6">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.12em] text-[var(--muted)]">
+                  {isQuote
+                    ? "Devis"
+                    : doc.invoiceType === "ACOMPTE"
+                      ? "Facture d'acompte"
+                      : doc.invoiceType === "SOLDE"
+                        ? "Facture de solde"
+                        : "Facture"}
+                </p>
+                <p className="mt-1 font-mono text-lg text-[var(--primary)]">{doc.number ?? "Brouillon"}</p>
+              </div>
+              <dl className="grid grid-cols-[auto_auto] gap-x-6 gap-y-1 text-sm sm:text-right">
+                <dt className="text-[var(--muted)]">Émis le</dt>
+                <dd>{doc.issueDate ? formatDate(doc.issueDate) : "Non émis"}</dd>
+                {isQuote ? (
+                  <>
+                    <dt className="text-[var(--muted)]">Valable jusqu'au</dt>
+                    <dd>{formatDate(doc.validUntil)}</dd>
+                  </>
+                ) : null}
+                {doc.serviceDate ? (
+                  <>
+                    <dt className="text-[var(--muted)]">Prestation</dt>
+                    <dd>{formatDate(doc.serviceDate)}</dd>
+                  </>
+                ) : null}
+                {doc.purchaseOrderRef ? (
+                  <>
+                    <dt className="text-[var(--muted)]">Bon de commande</dt>
+                    <dd className="font-mono text-xs">{doc.purchaseOrderRef}</dd>
+                  </>
+                ) : null}
+              </dl>
+            </div>
+
+            <div className="border-b border-[var(--border)] px-5 py-4 sm:px-6">
+              <p className="text-xs font-semibold uppercase tracking-[0.12em] text-[var(--muted)]">Client</p>
+              <Link
+                to={`/clients/${doc.client.id}`}
+                className="mt-1 inline-flex flex-wrap items-center gap-2 font-medium hover:text-[var(--primary)]"
+              >
+                {doc.client.displayName}
+                {doc.client.clientNumber ? (
+                  <span className="font-mono text-xs text-[var(--muted)]">{doc.client.clientNumber}</span>
+                ) : null}
+              </Link>
+              {doc.client.email ? (
+                <div className="mt-0.5 text-sm">
+                  <ClientEmailLink
+                    email={doc.client.email}
+                    name={doc.client.displayName}
+                    clientId={doc.client.id}
+                    defaultSubject={`${isQuote ? "Devis" : "Facture"} ${doc.number ?? ""}`}
+                    defaultTemplate={isQuote ? "quote_followup" : "invoice_reminder"}
+                  />
                 </div>
-              </li>
-            ))}
-          </ul>
-        </Card>
-      ) : null}
+              ) : null}
+            </div>
 
-      {isQuote && market ? (
-        <MarketTimeline
-          market={market}
-          busyId={busyId}
-          onGenerateAcompte={(mid) => void generateDeposit(mid)}
-          onGenerateSolde={(force) => void generateSolde(Boolean(force))}
-          onManualPay={(mid) => setPayingMilestoneId(mid)}
-          onSavePaymentLink={(mid, url, send) => savePaymentLink(mid, url, send)}
-        />
-      ) : null}
-      <ManualPaymentDialog
-        open={Boolean(payingMilestoneId)}
-        label={market?.milestones.find((m) => m.id === payingMilestoneId)?.label ?? ""}
-        busy={busyId === `pay-${payingMilestoneId}`}
-        onConfirm={(input) => payingMilestoneId && void manualPayMilestone(payingMilestoneId, input)}
-        onClose={() => setPayingMilestoneId(null)}
-      />
-
-      <div className="grid gap-4 lg:grid-cols-3">
-        <Card className="space-y-4 p-5 lg:col-span-2">
-          <h2 className="text-sm font-semibold">Lignes</h2>
-          <div className="ui-table-wrap max-md:overflow-visible">
-          <table className="ui-table ui-table-stack w-full text-sm">
-            <thead className="text-[var(--muted)]">
-              <tr>
-                <th className="pb-2 text-left font-medium">Description</th>
-                <th className="pb-2 text-right font-medium">Qté</th>
-                <th className="pb-2 text-right font-medium">P.U. HT</th>
-                <th className="pb-2 text-right font-medium">Total</th>
-              </tr>
-            </thead>
-            <tbody>
-              {(doc.lines ?? []).map((l, i) => (
-                <tr key={i} className="border-t border-[var(--border)]">
-                  <td className="py-2.5 pr-4" data-label="Description">
-                    <div className="space-y-1.5">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <span className="font-medium">{l.description}</span>
+            <div className="ui-table-wrap max-md:overflow-visible">
+              <table className="ui-table ui-table-stack w-full text-sm">
+                <thead>
+                  <tr className="bg-[var(--bg-subtle)] text-[0.6875rem] uppercase tracking-[0.06em] text-[var(--muted)]">
+                    <th className="px-5 py-2.5 text-left font-semibold sm:px-6">Désignation</th>
+                    <th className="px-3 py-2.5 text-right font-semibold">Qté</th>
+                    <th className="px-3 py-2.5 text-right font-semibold">P.U. HT</th>
+                    <th className="px-5 py-2.5 text-right font-semibold sm:px-6">Total HT</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(doc.lines ?? []).map((l, i) => (
+                    <tr key={i} className="border-t border-[var(--border)]">
+                      <td className="px-5 py-3 sm:px-6" data-label="Désignation">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="font-medium">{l.description}</span>
+                          {l.isSubscription ? <Badge tone="amber">Mensuel</Badge> : null}
+                        </div>
                         {l.isSubscription ? (
-                          <Badge tone="amber">Abonnement mensuel</Badge>
+                          <p className="mt-1 max-w-xl text-xs text-[var(--muted)]">
+                            Facturé le {l.billingDay ?? "…"} de chaque mois. Ce document inclut la 1re échéance.
+                          </p>
                         ) : null}
-                      </div>
-                      {l.isSubscription ? (
-                        <p className="max-w-xl text-xs leading-relaxed text-[var(--muted)]">
-                          Facturation le {l.billingDay ?? "…"} de chaque mois
+                      </td>
+                      <td className="w-16 px-3 py-3 text-right tabular-nums" data-label="Qté">
+                        {String(l.quantity)}
+                      </td>
+                      <td className="w-28 px-3 py-3 text-right tabular-nums" data-label="P.U. HT">
+                        {formatEUR(l.unitPriceCents)}
+                      </td>
+                      <td className="w-32 px-5 py-3 text-right font-medium tabular-nums sm:px-6" data-label="Total HT">
+                        {formatEUR(l.lineTotalCents)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            <div className="flex flex-col gap-4 border-t border-[var(--border)] p-5 sm:flex-row sm:justify-between sm:p-6">
+              <div className="min-w-0 space-y-3 text-sm sm:max-w-md">
+              {(doc.lines ?? []).some((l) => l.isSubscription) ? (
+                <div className="rounded-[var(--radius)] border border-[var(--border)] bg-[var(--bg)] p-3 text-sm">
+                  <p className="font-medium">Récurrence mensuelle</p>
+                  <ul className="mt-2 list-disc space-y-1.5 pl-5 text-[var(--muted)]">
+                    {(doc.lines ?? [])
+                      .filter((l) => l.isSubscription)
+                      .map((l, i) => (
+                        <li key={i}>
+                          <span className="text-[var(--text)]">{l.description}</span>
                           {" : "}
-                          {formatEUR(l.unitPriceCents)} HT.
+                          {formatEUR(l.unitPriceCents)} HT facturés chaque mois
+                          {l.billingDay ? ` le ${l.billingDay}` : ""}.
                           {" "}
-                          Ce document inclut la 1re échéance.
-                        </p>
-                      ) : null}
-                    </div>
-                  </td>
-                  <td className="w-16 py-2.5 text-right tabular-nums" data-label="Qté">{String(l.quantity)}</td>
-                  <td className="w-28 py-2.5 text-right tabular-nums" data-label="P.U. HT">
-                    {formatEUR(l.unitPriceCents)}
-                  </td>
-                  <td className="w-28 py-2.5 text-right tabular-nums font-medium" data-label="Total">
-                    {formatEUR(l.lineTotalCents)}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          </div>
-          {(doc.lines ?? []).some((l) => l.isSubscription) ? (
-            <div className="rounded-[var(--radius)] border border-[var(--border)] bg-[var(--bg)] p-3 text-sm">
-              <p className="font-medium">Récurrence mensuelle</p>
-              <ul className="mt-2 list-disc space-y-1.5 pl-5 text-[var(--muted)]">
-                {(doc.lines ?? [])
-                  .filter((l) => l.isSubscription)
-                  .map((l, i) => (
-                    <li key={i}>
-                      <span className="text-[var(--text)]">{l.description}</span>
-                      {" : "}
-                      {formatEUR(l.unitPriceCents)} HT facturés chaque mois
-                      {l.billingDay ? ` le ${l.billingDay}` : ""}.
-                      {" "}
-                      Les mois suivants seront facturés automatiquement.
+                          Les mois suivants seront facturés automatiquement.
+                        </li>
+                      ))}
+                  </ul>
+                </div>
+              ) : null}
+                {doc.paymentTerms ? (
+                  <p className="text-[var(--muted)]">
+                    <span className="text-[var(--text)]">Conditions :</span> {doc.paymentTerms}
+                  </p>
+                ) : null}
+                {doc.notes ? <p className="whitespace-pre-wrap text-[var(--muted)]">{doc.notes}</p> : null}
+              </div>
+              <div className="w-full shrink-0 space-y-1.5 text-sm sm:w-64">
+                {doc.discountType &&
+                doc.discountType !== "NONE" &&
+                (doc.subtotalCents ?? doc.totalCents) !== doc.totalCents ? (
+                  <>
+                    <p className="text-[var(--muted)]">
+                      Sous-total : {formatEUR(doc.subtotalCents ?? doc.totalCents)}
+                    </p>
+                    <p className="text-[var(--muted)]">
+                      Remise
+                      {doc.discountType === "PERCENT"
+                        ? ` (${((doc.discountValue ?? 0) / 100).toFixed(2)} %)`
+                        : ""}
+                      : −
+                      {formatEUR(
+                        Math.max(0, (doc.subtotalCents ?? doc.totalCents) - doc.totalCents),
+                      )}
+                    </p>
+                  </>
+                ) : null}
+                <div className="flex items-baseline justify-between border-t border-[var(--border)] pt-2">
+                  <span className="font-medium">Total HT</span>
+                  <span className="font-display text-2xl font-semibold tabular-nums">{formatEUR(doc.totalCents)}</span>
+                </div>
+              </div>
+            </div>
+          </Card>
+
+          {isQuote && market ? (
+            <MarketTimeline
+              market={market}
+              busyId={busyId}
+              onGenerateAcompte={(mid) => void generateDeposit(mid)}
+              onGenerateSolde={(force) => void generateSolde(Boolean(force))}
+              onManualPay={(mid) => setPayingMilestoneId(mid)}
+              onSavePaymentLink={(mid, url, send) => savePaymentLink(mid, url, send)}
+            />
+          ) : null}
+          <ManualPaymentDialog
+            open={Boolean(payingMilestoneId)}
+            label={market?.milestones.find((m) => m.id === payingMilestoneId)?.label ?? ""}
+            busy={busyId === `pay-${payingMilestoneId}`}
+            onConfirm={(input) => payingMilestoneId && void manualPayMilestone(payingMilestoneId, input)}
+            onClose={() => setPayingMilestoneId(null)}
+          />
+
+
+          {isQuote && linked.length > 0 ? (
+            <Card className="overflow-hidden">
+              <div className="flex min-h-11 items-center border-b border-[var(--border)] px-5">
+                <h2 className="text-sm font-semibold">Factures issues de ce devis</h2>
+              </div>
+              <div className="px-5">
+                <ul className="divide-y divide-[var(--border)] text-sm">
+                  {linked.map((inv) => (
+                    <li key={inv.id} className="flex flex-wrap items-center justify-between gap-2 py-2">
+                      <Link to={`/invoices/${inv.id}`} className="font-medium hover:text-[var(--primary)]">
+                        {inv.invoiceType === "ACOMPTE"
+                          ? "Acompte"
+                          : inv.invoiceType === "SOLDE"
+                            ? "Solde"
+                            : "Facture"}{" "}
+                        {inv.number ?? "Brouillon"}
+                      </Link>
+                      <div className="flex gap-2">
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          className="h-7 px-2 text-xs"
+                          disabled={resendBusy}
+                          onClick={() => {
+                            setResendBusy(true);
+                            void api(`/api/invoices/${inv.id}/send-email`, {
+                              method: "POST",
+                              body: "{}",
+                            })
+                              .then(() => toast.success("PDF en file d'envoi"))
+                              .catch((e: Error) => toast.error(e.message))
+                              .finally(() => setResendBusy(false));
+                          }}
+                        >
+                          Envoyer par email
+                        </Button>
+                      </div>
                     </li>
                   ))}
-              </ul>
-            </div>
-          ) : null}
-          <div className="flex justify-end border-t border-[var(--border)] pt-3 text-sm">
-            <div className="space-y-1 text-right">
-              {doc.discountType &&
-              doc.discountType !== "NONE" &&
-              (doc.subtotalCents ?? doc.totalCents) !== doc.totalCents ? (
-                <>
-                  <p className="text-[var(--muted)]">
-                    Sous-total : {formatEUR(doc.subtotalCents ?? doc.totalCents)}
-                  </p>
-                  <p className="text-[var(--muted)]">
-                    Remise
-                    {doc.discountType === "PERCENT"
-                      ? ` (${((doc.discountValue ?? 0) / 100).toFixed(2)} %)`
-                      : ""}
-                    : −
-                    {formatEUR(
-                      Math.max(0, (doc.subtotalCents ?? doc.totalCents) - doc.totalCents),
-                    )}
-                  </p>
-                </>
-              ) : null}
-              <p className="text-[var(--muted)]">Total HT</p>
-              <p className="text-xl font-semibold tabular-nums">{formatEUR(doc.totalCents)}</p>
-            </div>
-          </div>
-        </Card>
-
-        <div className="space-y-4">
-          <Card className="space-y-3 p-5 text-sm">
-            <h2 className="font-semibold">Informations</h2>
-            <div className="flex justify-between gap-2">
-              <span className="text-[var(--muted)]">Statut</span>
-              <Badge tone={statusTone(st)}>{labels[st]}</Badge>
-            </div>
-            <div className="flex justify-between gap-2">
-              <span className="text-[var(--muted)]">Client</span>
-              <Link to={`/clients/${doc.client.id}`} className="link truncate">
-                {doc.client.displayName}
-              </Link>
-            </div>
-            {doc.client.email ? (
-              <div className="flex justify-between gap-2">
-                <span className="text-[var(--muted)]">Email</span>
-                <ClientEmailLink
-                  email={doc.client.email}
-                  name={doc.client.displayName}
-                  clientId={doc.client.id}
-                  defaultSubject={`${isQuote ? "Devis" : "Facture"} ${doc.number ?? ""}`}
-                  defaultTemplate={isQuote ? "quote_followup" : "invoice_reminder"}
-                />
+                </ul>
               </div>
-            ) : null}
-            <div className="flex justify-between gap-2">
-              <span className="text-[var(--muted)]">Date</span>
-              <span>{formatDate(doc.issueDate)}</span>
+            </Card>
+          ) : null}
+        </div>
+
+        {/* Synthèse */}
+        <aside className="space-y-6" aria-label="Synthèse du document">
+          <Card className="p-5 text-sm">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-xs text-[var(--muted)]">{isQuote ? "Montant du devis" : "Montant de la facture"}</p>
+                <p className="mt-1 font-display text-3xl font-semibold tabular-nums">{formatEUR(doc.totalCents)}</p>
+              </div>
+              <Badge tone={statusTone(st)}>{labels[st] ?? st}</Badge>
             </div>
-            {isQuote ? (
-              <div className="flex justify-between gap-2">
-                <span className="text-[var(--muted)]">Valable jusqu&apos;au</span>
-                <span>{formatDate(doc.validUntil)}</span>
+            {!isQuote ? (
+              <div className="mt-5">
+                <div
+                  className="h-2 overflow-hidden rounded-full bg-[var(--bg-subtle)]"
+                  role="progressbar"
+                  aria-label="Part encaissée"
+                  aria-valuemin={0}
+                  aria-valuemax={100}
+                  aria-valuenow={doc.totalCents > 0 ? Math.round(Math.min(100, (paid / doc.totalCents) * 100)) : 0}
+                >
+                  <div
+                    className="h-full rounded-full bg-[var(--success)]"
+                    style={{ width: `${doc.totalCents > 0 ? Math.min(100, (paid / doc.totalCents) * 100) : 0}%` }}
+                  />
+                </div>
+                <dl className="mt-3 grid grid-cols-2 gap-2">
+                  <div>
+                    <dt className="text-xs text-[var(--muted)]">Encaissé</dt>
+                    <dd className="font-semibold tabular-nums text-[var(--success)]">{formatEUR(paid)}</dd>
+                  </div>
+                  <div className="text-right">
+                    <dt className="text-xs text-[var(--muted)]">Reste dû</dt>
+                    <dd className="font-semibold tabular-nums">{formatEUR(remaining)}</dd>
+                  </div>
+                </dl>
               </div>
             ) : null}
             {isQuote && doc.quoteDecidedAt ? (
-              <div className="border-t border-[var(--border)] pt-3">
+              <div className="mt-4 border-t border-[var(--border)] pt-4">
                 <p className="text-[var(--muted)]">
                   {doc.quoteStatus === "REJECTED" ? "Refusé le" : "Accepté le"}{" "}
                   {formatDate(doc.quoteDecidedAt)}
@@ -927,63 +1002,32 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
                 ) : null}
               </div>
             ) : null}
-            {isQuote && doc.quoteStatus === "ACCEPTED" ? <AcceptanceProofs quoteId={doc.id} /> : null}
-            {!isQuote && doc.quoteId ? (
-              <div className="flex justify-between gap-2 border-t border-[var(--border)] pt-3">
-                <span className="text-[var(--muted)]">Projet</span>
-                <Link to={`/quotes/${doc.quoteId}`} className="link">
-                  {doc.quote?.number ?? "Devis"}
-                </Link>
-              </div>
+            {isQuote && (doc.quoteStatus === "SENT" || doc.status === "DRAFT") ? (
+              <p className="mt-4 border-t border-[var(--border)] pt-4 text-[var(--muted)]">
+                <span className="font-medium text-[var(--text)]">Prochaine étape : </span>
+                {doc.status === "DRAFT"
+                  ? "émettre le devis pour lui attribuer un numéro et l'envoyer au client."
+                  : `attendre la décision du client (offre valable jusqu'au ${formatDate(doc.validUntil)}). Il peut l'accepter en ligne depuis son espace client.`}
+              </p>
             ) : null}
-            {!isQuote && linked.length > 0 ? (
-              <div className="space-y-1.5 border-t border-[var(--border)] pt-3">
-                <p className="text-[var(--muted)]">Autres factures</p>
-                {linked.map((s) => (
-                  <Link key={s.id} to={`/invoices/${s.id}`} className="link-row text-xs">
-                    <span className="font-mono">{s.number ?? "…"}</span>
-                    <span className="link-row-muted tabular-nums">
-                      {formatEUR(s.totalCents)}
-                    </span>
-                  </Link>
-                ))}
-              </div>
-            ) : null}
-            {doc.paymentTerms ? (
-              <div className="border-t border-[var(--border)] pt-3">
-                <p className="text-[var(--muted)]">Conditions</p>
-                <p className="mt-0.5">{doc.paymentTerms}</p>
-              </div>
-            ) : null}
-            {doc.notes ? (
-              <div>
-                <p className="text-[var(--muted)]">Notes</p>
-                <p className="mt-0.5 whitespace-pre-wrap">{doc.notes}</p>
+            {isQuote && doc.quoteStatus === "ACCEPTED" ? (
+              <div className="mt-4">
+                <AcceptanceProofs quoteId={doc.id} />
               </div>
             ) : null}
           </Card>
 
           {!isQuote ? (
-            <Card className="space-y-3 p-5 text-sm">
-              <h2 className="font-semibold">Encaissements</h2>
-              <div className="flex justify-between">
-                <span className="text-[var(--muted)]">Payé</span>
-                <span className="tabular-nums font-medium text-[var(--success)]">
-                  {formatEUR(paid)}
-                </span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-[var(--muted)]">Reste dû</span>
-                <span className="tabular-nums font-medium">{formatEUR(remaining)}</span>
-              </div>
+            <Card className="p-5 text-sm">
+              <h2 className="mb-3 text-sm font-semibold">Paiements reçus</h2>
               {(doc.payments ?? []).length === 0 ? (
-                <p className="text-[var(--muted)]">Aucun paiement.</p>
+                <p className="text-[var(--muted)]">Aucun paiement enregistré.</p>
               ) : (
-                <ul className="space-y-2 border-t border-[var(--border)] pt-3">
+                <ul className="divide-y divide-[var(--border)]">
                   {(doc.payments ?? []).map((p) => (
-                    <li key={p.id} className="flex justify-between gap-2">
+                    <li key={p.id} className="flex justify-between gap-2 py-2">
                       <span>{formatDate(p.paidAt)}</span>
-                      <span className="tabular-nums">{formatEUR(p.amountCents)}</span>
+                      <span className="font-medium tabular-nums">{formatEUR(p.amountCents)}</span>
                     </li>
                   ))}
                 </ul>
@@ -1010,7 +1054,25 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
               ) : null}
             </Card>
           ) : null}
-        </div>
+
+          {!isQuote && (doc.quoteId || linked.length > 0) ? (
+            <Card className="space-y-2 p-5 text-sm">
+              <h2 className="mb-1 text-sm font-semibold">Documents liés</h2>
+              {doc.quoteId ? (
+                <Link to={`/quotes/${doc.quoteId}`} className="link-row">
+                  <span>Devis d'origine</span>
+                  <span className="link-row-muted font-mono text-xs">{doc.quote?.number ?? "Devis"}</span>
+                </Link>
+              ) : null}
+              {linked.map((other) => (
+                <Link key={other.id} to={`/invoices/${other.id}`} className="link-row">
+                  <span className="font-mono text-xs">{other.number ?? "…"}</span>
+                  <span className="link-row-muted tabular-nums">{formatEUR(other.totalCents)}</span>
+                </Link>
+              ))}
+            </Card>
+          ) : null}
+        </aside>
       </div>
 
       <Modal
