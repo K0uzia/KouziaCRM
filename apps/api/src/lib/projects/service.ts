@@ -41,6 +41,7 @@ export const projectInputSchema = z.object({
   links: z.array(linkSchema).max(20).default([]),
   checklist: z.array(checklistItemSchema).max(50).default([]),
   visibleOnPortal: z.boolean().default(true),
+  status: z.enum(["PLANNED", "ACTIVE", "DONE"]).optional(),
 });
 
 export type ProjectInput = z.infer<typeof projectInputSchema>;
@@ -79,6 +80,9 @@ export function serializeProject(p: ClientProject) {
     checklist: parseList(p.checklist, checklistItemSchema),
     visibleOnPortal: p.visibleOnPortal,
     position: p.position,
+    quoteId: p.quoteId,
+    status: p.status,
+    startedAt: p.startedAt,
     createdAt: p.createdAt,
     updatedAt: p.updatedAt,
   };
@@ -92,6 +96,7 @@ function toData(input: ProjectInput) {
     links: JSON.stringify(input.links),
     checklist: JSON.stringify(input.checklist),
     visibleOnPortal: input.visibleOnPortal,
+    ...(input.status ? { status: input.status } : {}),
   };
 }
 

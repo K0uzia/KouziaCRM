@@ -50,7 +50,7 @@ export function PaymentForm({
   return (
     <form onSubmit={onSubmit} className="space-y-4">
       <div className="grid gap-4 sm:grid-cols-2">
-        <Field label="Montant encaissé (€)" hint="HT, franchise TVA">
+        <Field label="Montant encaissé (€)" hint="Montant TTC reçu (franchise de TVA)">
           <Input
             required
             type="number"

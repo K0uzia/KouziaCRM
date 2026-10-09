@@ -338,7 +338,7 @@ export function InvoiceDocument({ company, client, invoice }: InvoicePdfData) {
                     Abonnement mensuel, facturé chaque mois
                     {line.billingDay ? ` le ${line.billingDay}` : ""}
                     {" : "}
-                    {fmtMoney(line.unitPriceCents)} HT. Ce document inclut la 1re échéance.
+                    {fmtMoney(line.unitPriceCents)}. Ce document inclut la 1re échéance.
                   </Text>
                 ) : null}
               </View>
@@ -355,7 +355,7 @@ export function InvoiceDocument({ company, client, invoice }: InvoicePdfData) {
           invoice.subtotalCents !== invoice.totalCents ? (
             <>
               <View style={styles.totalLine}>
-                <Text>Sous-total HT</Text>
+                <Text>Sous-total</Text>
                 <Text>{fmtMoney(invoice.subtotalCents)}</Text>
               </View>
               <View style={styles.totalLine}>
@@ -373,11 +373,16 @@ export function InvoiceDocument({ company, client, invoice }: InvoicePdfData) {
             </>
           ) : null}
           <View style={styles.totalLine}>
-            <Text>Total TTC (= HT{company.vatMention ? ", franchise TVA" : ""})</Text>
+            <Text style={{ fontFamily: "Helvetica-Bold" }}>Net à payer</Text>
             <Text style={{ fontFamily: "Helvetica-Bold" }}>
               {fmtMoney(invoice.totalCents)}
             </Text>
           </View>
+          {company.vatMention ? (
+            <Text style={{ marginTop: 3, fontSize: 8, color: "#5a6f65", textAlign: "right" }}>
+              {company.vatMention}
+            </Text>
+          ) : null}
         </View>
 
         {invoice.lines.some((l) => l.isSubscription) ? (
@@ -395,7 +400,7 @@ export function InvoiceDocument({ company, client, invoice }: InvoicePdfData) {
               .filter((l) => l.isSubscription)
               .map((l, i) => (
                 <Text key={i} style={{ marginTop: 4, lineHeight: 1.4 }}>
-                  {l.description} : {fmtMoney(l.unitPriceCents)} HT facturés automatiquement
+                  {l.description} : {fmtMoney(l.unitPriceCents)} facturés automatiquement
                   chaque mois
                   {l.billingDay ? ` le ${l.billingDay}` : ""}
                   . Le total de ce document inclut la 1re échéance ; les échéances suivantes

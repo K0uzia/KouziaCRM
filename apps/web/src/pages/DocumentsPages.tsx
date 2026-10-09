@@ -23,6 +23,7 @@ import { DocumentNumberBadge } from "@/components/documents/DocumentNumberBadge"
 import { InvoiceTypeBadge } from "@/components/documents/InvoiceTypeBadge";
 import { MarketTimeline, type MarketView } from "@/components/documents/MarketTimeline";
 import { AcceptanceProofs } from "@/components/documents/AcceptanceProofs";
+import { QuoteJourney } from "@/components/documents/QuoteJourney";
 import {
   ManualPaymentDialog,
   type ManualPaymentInput,
@@ -798,8 +799,8 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
                   <tr className="bg-[var(--bg-subtle)] text-[0.6875rem] uppercase tracking-[0.06em] text-[var(--muted)]">
                     <th className="px-5 py-2.5 text-left font-semibold sm:px-6">Désignation</th>
                     <th className="px-3 py-2.5 text-right font-semibold">Qté</th>
-                    <th className="px-3 py-2.5 text-right font-semibold">P.U. HT</th>
-                    <th className="px-5 py-2.5 text-right font-semibold sm:px-6">Total HT</th>
+                    <th className="px-3 py-2.5 text-right font-semibold">P.U. TTC</th>
+                    <th className="px-5 py-2.5 text-right font-semibold sm:px-6">Total TTC</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -819,10 +820,10 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
                       <td className="w-16 px-3 py-3 text-right tabular-nums" data-label="Qté">
                         {String(l.quantity)}
                       </td>
-                      <td className="w-28 px-3 py-3 text-right tabular-nums" data-label="P.U. HT">
+                      <td className="w-28 px-3 py-3 text-right tabular-nums" data-label="P.U. TTC">
                         {formatEUR(l.unitPriceCents)}
                       </td>
-                      <td className="w-32 px-5 py-3 text-right font-medium tabular-nums sm:px-6" data-label="Total HT">
+                      <td className="w-32 px-5 py-3 text-right font-medium tabular-nums sm:px-6" data-label="Total TTC">
                         {formatEUR(l.lineTotalCents)}
                       </td>
                     </tr>
@@ -843,7 +844,7 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
                         <li key={i}>
                           <span className="text-[var(--text)]">{l.description}</span>
                           {" : "}
-                          {formatEUR(l.unitPriceCents)} HT facturés chaque mois
+                          {formatEUR(l.unitPriceCents)} TTC facturés chaque mois
                           {l.billingDay ? ` le ${l.billingDay}` : ""}.
                           {" "}
                           Les mois suivants seront facturés automatiquement.
@@ -880,7 +881,7 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
                   </>
                 ) : null}
                 <div className="flex items-baseline justify-between border-t border-[var(--border)] pt-2">
-                  <span className="font-medium">Total HT</span>
+                  <span className="font-medium">Total TTC</span>
                   <span className="font-display text-2xl font-semibold tabular-nums">{formatEUR(doc.totalCents)}</span>
                 </div>
               </div>
@@ -1017,6 +1018,21 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
             ) : null}
           </Card>
 
+          {isQuote && doc.number ? (
+            <Card className="p-5">
+              <QuoteJourney
+                quote={{
+                  id: doc.id,
+                  clientId: doc.client.id,
+                  issueDate: doc.issueDate,
+                  quoteStatus: doc.quoteStatus,
+                  quoteDecidedAt: doc.quoteDecidedAt,
+                }}
+                milestones={market?.milestones ?? []}
+              />
+            </Card>
+          ) : null}
+
           {!isQuote ? (
             <Card className="p-5 text-sm">
               <h2 className="mb-3 text-sm font-semibold">Paiements reçus</h2>
@@ -1079,49 +1095,77 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
         open={invoiceModalOpen}
         onClose={() => !invoiceModalBusy && setInvoiceModalOpen(false)}
         title="Créer une facture"
-        description="Choisissez une facture totale ou un acompte selon le marché."
+        description={
+          doc.quoteStatus === "ACCEPTED"
+            ? "Devis validé : facturez l'acompte. Le projet du client est créé avec cette facture et démarre à son paiement."
+            : "Le devis n'est pas encore validé par le client : vous pouvez tout de même préparer la facture."
+        }
       >
-        <div className="space-y-3">
-          <Button
-            type="button"
-            className="w-full justify-start"
-            disabled={invoiceModalBusy || totalInvoiceDisabled}
-            onClick={() => void createTotalInvoice()}
-          >
-            Facture totale ({formatEUR(doc.totalCents)})
-          </Button>
-          {totalInvoiceDisabled ? (
-            <p className="text-xs text-[var(--muted)]">
-              {hasSimpleInvoice
-                ? "Une facture totale existe déjà pour ce devis."
-                : "Des factures d'acompte existent : utilisez les jalons ou le solde."}
-            </p>
+        <div className="space-y-4">
+          {hasMarket ? (
+            <div className="space-y-2">
+              <p className="text-xs font-semibold uppercase tracking-[0.08em] text-[var(--muted)]">Échéancier du devis</p>
+              {market!.milestones.map((m, idx) => {
+                const isFirst = idx === 0;
+                const already = Boolean(m.invoiceId);
+                return (
+                  <button
+                    key={m.id}
+                    type="button"
+                    disabled={invoiceModalBusy || already}
+                    onClick={() => void createMilestoneInvoice(m.id)}
+                    className={`flex w-full items-center justify-between gap-3 rounded-[var(--radius)] border p-4 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-60 ${
+                      isFirst && !already
+                        ? "border-[var(--primary)]/60 bg-[var(--primary-soft)] hover:bg-[var(--primary)]/20"
+                        : "border-[var(--border)] bg-[var(--surface-raised)] hover:bg-[var(--surface-hover)]"
+                    }`}
+                  >
+                    <span className="min-w-0">
+                      <span className="block font-medium">
+                        {m.label} ({(m.percentBps / 100).toFixed(0)} %)
+                      </span>
+                      <span className="block text-xs text-[var(--muted)]">
+                        {already
+                          ? "Déjà facturé"
+                          : isFirst
+                            ? "Étape suivante : crée le projet client"
+                            : m.triggerText}
+                      </span>
+                    </span>
+                    <span className="shrink-0 font-display text-lg font-semibold tabular-nums">{formatEUR(m.amountCents)}</span>
+                  </button>
+                );
+              })}
+            </div>
           ) : null}
-          {hasMarket
-            ? market!.milestones.map((m) => (
-                <Button
-                  key={m.id}
-                  type="button"
-                  variant="secondary"
-                  className="w-full justify-start"
-                  disabled={invoiceModalBusy || Boolean(m.invoiceId)}
-                  onClick={() => void createMilestoneInvoice(m.id)}
-                >
-                  Acompte {m.position} · {m.label} ({formatEUR(m.amountCents)})
-                  {m.invoiceId ? " · déjà facturé" : ""}
-                </Button>
-              ))
-            : null}
-          <div className="flex justify-end border-t border-[var(--border)] pt-3">
-            <Button
-              type="button"
-              variant="secondary"
-              disabled={invoiceModalBusy}
-              onClick={() => setInvoiceModalOpen(false)}
-            >
-              Annuler
-            </Button>
+
+          <div className="rounded-[var(--radius)] border border-dashed border-[var(--border-strong)] p-4">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div className="min-w-0">
+                <p className="font-medium">Facture totale, sans acompte</p>
+                <p className="text-xs text-[var(--muted)]">
+                  {totalInvoiceDisabled
+                    ? hasSimpleInvoice
+                      ? "Une facture totale existe déjà pour ce devis."
+                      : "Des acomptes sont déjà facturés : passez par l'échéancier et la facture de solde."
+                    : "Pour une petite prestation réglée en une fois. Le projet est aussi créé."}
+                </p>
+              </div>
+              <Button
+                variant="secondary"
+                disabled={invoiceModalBusy || totalInvoiceDisabled}
+                onClick={() => void createTotalInvoice()}
+              >
+                {formatEUR(doc.totalCents)}
+              </Button>
+            </div>
           </div>
+
+          <ModalActions>
+            <Button variant="secondary" disabled={invoiceModalBusy} onClick={() => setInvoiceModalOpen(false)}>
+              Fermer
+            </Button>
+          </ModalActions>
         </div>
       </Modal>
 

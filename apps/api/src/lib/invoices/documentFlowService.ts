@@ -377,6 +377,8 @@ export async function generateMilestoneInvoice(
     return { invoice: created, quoteId: milestone.quoteId };
   });
 
+  const { ensureProjectForQuote } = await import("@/lib/projects/lifecycle.js");
+  await ensureProjectForQuote(invoice.quoteId);
   return invoice.invoice;
 }
 

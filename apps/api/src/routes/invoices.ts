@@ -738,6 +738,10 @@ export const invoicesRoutes: FastifyPluginAsync = async (app) => {
       return created;
     });
 
+    if (paidSoFar + amountCents >= invoice.totalCents) {
+      const { onInvoicePaidForProject } = await import("@/lib/projects/lifecycle.js");
+      await onInvoicePaidForProject(id);
+    }
     return reply.code(201).send(payment);
   });
 

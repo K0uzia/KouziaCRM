@@ -141,7 +141,7 @@ export function CreditNoteWizard({
   async function generate() {
     if (!elig) return;
     if (amountCents <= 0 || amountCents > elig.maxCreditCents) {
-      toast.error("Montant HT invalide");
+      toast.error("Montant invalide");
       return;
     }
     if (needsCgv && cgvRefundable !== "yes") {
@@ -258,7 +258,7 @@ export function CreditNoteWizard({
               ) : (
                 <p className="text-[var(--muted)]">
                   Un avoir est justifié uniquement pour rembourser / corriger un
-                  montant déjà encaissé. Montants en euros HT.
+                  montant déjà encaissé. Montants TTC, en euros.
                 </p>
               )}
 
@@ -344,7 +344,7 @@ export function CreditNoteWizard({
               </Field>
               <div className="grid gap-4 sm:grid-cols-2">
                 <Field
-                  label="Montant HT de l'avoir (€)"
+                  label="Montant TTC de l'avoir (€)"
                   hint={`Max ${formatEUR(elig.maxCreditCents)}`}
                 >
                   <Input
@@ -424,7 +424,7 @@ export function CreditNoteWizard({
                   {reasonDetail ? ` - ${reasonDetail}` : ""}
                 </p>
                 <p>
-                  Montant HT : <strong>{formatEUR(amountCents)}</strong>
+                  Montant TTC : <strong>{formatEUR(amountCents)}</strong>
                 </p>
                 <p>
                   Remboursement :{" "}

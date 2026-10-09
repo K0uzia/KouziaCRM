@@ -68,7 +68,9 @@ export function DocumentFormEditor({
     notes: initial?.notes ?? "",
     paymentTerms:
       initial?.paymentTerms ??
-      (documentType === "QUOTE" ? "Devis valable 30 jours" : "Paiement à réception"),
+      (documentType === "QUOTE"
+        ? "Acompte à la validation du devis, solde à la livraison (voir l'échéancier)."
+        : "Paiement à réception."),
     serviceDate: initial?.serviceDate ?? "",
     purchaseOrderRef: initial?.purchaseOrderRef ?? "",
     validUntil: initial?.validUntil ?? "",
@@ -101,17 +103,22 @@ export function DocumentFormEditor({
     }));
   }
 
-  function applyService(index: number, serviceId: string) {
-    const s = services.find((x) => x.id === serviceId);
-    if (!s) return;
-    const isSub = Boolean(s.isSubscription);
-    updateLine(index, {
+  function addFromCatalog(serviceId: string) {
+    const svc = services.find((x) => x.id === serviceId);
+    if (!svc) return;
+    const isSub = Boolean(svc.isSubscription);
+    const line: DocLine = {
       serviceId,
-      description: s.description ? `${s.name} - ${s.description}` : s.name,
-      unitPriceEuros: (s.unitPriceCents / 100).toFixed(2),
+      description: svc.description ? `${svc.name} : ${svc.description}` : svc.name,
+      unitPriceEuros: (svc.unitPriceCents / 100).toFixed(2),
       isSubscription: isSub,
-      billingDay: String(s.defaultBillingDay ?? 1),
-      quantity: isSub ? "1" : form.lines[index]?.quantity || "1",
+      billingDay: String(svc.defaultBillingDay ?? 1),
+      quantity: "1",
+    };
+    setForm((f) => {
+      const emptyIndex = f.lines.findIndex((l) => !l.description.trim() && !l.unitPriceEuros);
+      const lines = emptyIndex >= 0 ? f.lines.map((l, i) => (i === emptyIndex ? line : l)) : [...f.lines, line];
+      return { ...f, lines };
     });
   }
 
@@ -158,7 +165,6 @@ export function DocumentFormEditor({
         paymentTerms: form.paymentTerms || null,
         serviceDate: documentType === "INVOICE" ? form.serviceDate || null : null,
         purchaseOrderRef: form.purchaseOrderRef || null,
-        validUntil: form.validUntil || null,
         discountType: form.discountType,
         discountPercent:
           form.discountType === "PERCENT" ? Number(form.discountPercent) || 0 : undefined,
@@ -195,177 +201,169 @@ export function DocumentFormEditor({
     }
   }
 
+  const isQuote = documentType === "QUOTE";
+  const eur = (n: number) => n.toLocaleString("fr-FR", { style: "currency", currency: "EUR" });
+  const oneOff = services.filter((sv) => !sv.isSubscription);
+  const monthly = services.filter((sv) => sv.isSubscription);
+  const sectionTitle = "text-xs font-semibold uppercase tracking-[0.08em] text-[var(--muted)]";
+
   return (
-    <form onSubmit={onSubmit} className="space-y-5">
-      <Field label="Client" hint="Choisissez le destinataire du document">
+    <form onSubmit={onSubmit} className="space-y-6">
+      {/* 1. Client */}
+      <section className="space-y-2" aria-labelledby="doc-client">
+        <h3 id="doc-client" className={sectionTitle}>
+          1. Client
+        </h3>
         <Select
           required
+          aria-label="Client"
           value={form.clientId}
           onChange={(e) => setForm((f) => ({ ...f, clientId: e.target.value }))}
         >
           {clients.length === 0 ? (
-            <option value="">Aucun client - créez-en un d&apos;abord</option>
+            <option value="">Aucun client : créez-en un d&apos;abord</option>
           ) : (
             clients.map((c) => (
               <option key={c.id} value={c.id}>
-                {c.clientNumber ? `${c.clientNumber} · ` : ""}
                 {c.displayName}
+                {c.clientNumber ? ` (${c.clientNumber})` : ""}
               </option>
             ))
           )}
         </Select>
-      </Field>
+      </section>
 
-      <div className="space-y-3">
-        <div className="flex items-center justify-between">
-          <p className="text-sm font-medium">Lignes</p>
-          <Button type="button" variant="secondary" className="h-8 px-3 text-xs" onClick={addLine}>
-            Ajouter une ligne
-          </Button>
+      {/* 2. Prestations */}
+      <section className="space-y-3" aria-labelledby="doc-lines">
+        <div className="flex flex-wrap items-end justify-between gap-2">
+          <h3 id="doc-lines" className={sectionTitle}>
+            2. Prestations
+          </h3>
         </div>
-        {form.lines.map((line, i) => (
-          <div
-            key={i}
-            className="space-y-2 rounded-[var(--radius)] border border-[var(--border)] p-3"
+        {services.length > 0 ? (
+          <Select
+            aria-label="Ajouter une prestation du catalogue"
+            value=""
+            onChange={(e) => {
+              if (e.target.value) addFromCatalog(e.target.value);
+            }}
           >
-            <label className="flex items-center gap-2 text-sm">
-              <input
-                type="checkbox"
-                checked={line.isSubscription}
-                onChange={(e) =>
-                  updateLine(i, {
-                    isSubscription: e.target.checked,
-                    quantity: e.target.checked ? "1" : line.quantity,
-                  })
-                }
-              />
-              Prestation d&apos;abonnement mensuel
-              {line.isSubscription ? (
-                <span className="text-xs text-[var(--muted)]">
-                  Inclus dans le total (1re échéance), puis facturé chaque mois le{" "}
-                  {line.billingDay || "…"}
-                </span>
-              ) : null}
-            </label>
-
-            {line.isSubscription ? (
-              <div className="grid gap-2 sm:grid-cols-2">
-                <Field label="Prestation catalogue">
-                  <Select
-                    required
-                    value={line.serviceId}
-                    onChange={(e) => applyService(i, e.target.value)}
-                  >
-                    <option value="">Choisir…</option>
-                    {services
-                      .filter((s) => s.isSubscription)
-                      .map((s) => (
-                        <option key={s.id} value={s.id}>
-                          {s.name} ({(s.unitPriceCents / 100).toFixed(2)} € / mois)
-                        </option>
-                      ))}
-                    {services.some((s) => !s.isSubscription) ? (
-                      <optgroup label="Autres prestations">
-                        {services
-                          .filter((s) => !s.isSubscription)
-                          .map((s) => (
-                            <option key={s.id} value={s.id}>
-                              {s.name} ({(s.unitPriceCents / 100).toFixed(2)} €)
-                            </option>
-                          ))}
-                      </optgroup>
-                    ) : null}
-                  </Select>
-                </Field>
-                <Field label="Jour de facturation">
-                  <Select
-                    value={line.billingDay}
-                    onChange={(e) => updateLine(i, { billingDay: e.target.value })}
-                  >
-                    {Array.from({ length: 28 }, (_, d) => d + 1).map((d) => (
-                      <option key={d} value={String(d)}>
-                        Le {d}
-                      </option>
-                    ))}
-                  </Select>
-                </Field>
-              </div>
-            ) : services.length > 0 ? (
-              <Select
-                aria-label={`Ligne ${i + 1} : choisir une prestation du catalogue`}
-                value=""
-                onChange={(e) => {
-                  if (e.target.value) applyService(i, e.target.value);
-                }}
-              >
-                <option value="">Prestation du catalogue…</option>
-                {services.map((s) => (
-                  <option key={s.id} value={s.id}>
-                    {s.isSubscription ? "[Abo] " : ""}
-                    {s.name} ({(s.unitPriceCents / 100).toFixed(2)} €
-                    {s.isSubscription ? " / mois" : ""})
+            <option value="">+ Ajouter depuis le catalogue…</option>
+            {oneOff.length ? (
+              <optgroup label="Prestations (prix fixe)">
+                {oneOff.map((sv) => (
+                  <option key={sv.id} value={sv.id}>
+                    {sv.name} : {eur(sv.unitPriceCents / 100)}
                   </option>
                 ))}
-              </Select>
+              </optgroup>
             ) : null}
+            {monthly.length ? (
+              <optgroup label="Maintenance (par mois)">
+                {monthly.map((sv) => (
+                  <option key={sv.id} value={sv.id}>
+                    {sv.name} : {eur(sv.unitPriceCents / 100)} / mois
+                  </option>
+                ))}
+              </optgroup>
+            ) : null}
+          </Select>
+        ) : null}
 
-            <div className="grid grid-cols-1 gap-2 sm:grid-cols-[1fr_88px_110px_44px]">
-              <Input
-                required
-                aria-label={`Ligne ${i + 1} : description`}
-                placeholder="Description de la prestation"
-                value={line.description}
-                onChange={(e) => updateLine(i, { description: e.target.value })}
-              />
-              <Input
-                required
-                aria-label={`Ligne ${i + 1} : quantité`}
-                type="number"
-                inputMode="decimal"
-                step="0.01"
-                min="0.01"
-                placeholder="Qté"
-                value={line.isSubscription ? "1" : line.quantity}
-                disabled={line.isSubscription}
-                onChange={(e) => updateLine(i, { quantity: e.target.value })}
-              />
-              <Input
-                required
-                type="number"
-                inputMode="decimal"
-                step="0.01"
-                aria-label={`Ligne ${i + 1} : prix unitaire HT en euros`}
-                placeholder={line.isSubscription ? "€ / mois" : "Prix HT €"}
-                value={line.unitPriceEuros}
-                onChange={(e) => updateLine(i, { unitPriceEuros: e.target.value })}
-              />
-              <button
-                type="button"
-                className="inline-flex min-h-11 min-w-11 items-center justify-center text-sm text-[var(--muted)] hover:text-[var(--danger)]"
-                onClick={() => removeLine(i)}
-                aria-label="Supprimer la ligne"
-              >
-                ×
-              </button>
-            </div>
-          </div>
-        ))}
-        <div className="space-y-2 rounded-[var(--radius)] border border-[var(--border)] p-3">
-          <p className="text-sm font-medium">Remise globale</p>
-          <div className="grid gap-2 sm:grid-cols-[160px_1fr]">
+        <ul className="space-y-2">
+          {form.lines.map((line, i) => {
+            const lineTotal = (line.isSubscription ? 1 : Number(line.quantity) || 0) * (Number(line.unitPriceEuros) || 0);
+            return (
+              <li key={i} className="rounded-[var(--radius)] border border-[var(--border)] bg-[var(--bg-subtle)] p-3">
+                {line.isSubscription ? (
+                  <div className="mb-2 flex flex-wrap items-center gap-2 text-xs">
+                    <span className="rounded-full bg-[var(--warning-soft)] px-2 py-0.5 font-medium text-[var(--warning)]">
+                      Maintenance mensuelle
+                    </span>
+                    <label className="flex items-center gap-1.5 text-[var(--muted)]">
+                      Facturée le
+                      <select
+                        className="rounded-[var(--radius-sm)] border border-[var(--border-input)] bg-[var(--surface-raised)] px-1.5 py-1 text-[var(--text)]"
+                        aria-label={`Ligne ${i + 1} : jour de facturation`}
+                        value={line.billingDay}
+                        onChange={(e) => updateLine(i, { billingDay: e.target.value })}
+                      >
+                        {Array.from({ length: 28 }, (_, d) => d + 1).map((d) => (
+                          <option key={d} value={String(d)}>
+                            {d}
+                          </option>
+                        ))}
+                      </select>
+                      de chaque mois (1re échéance incluse dans ce document)
+                    </label>
+                  </div>
+                ) : null}
+                <div className="grid grid-cols-[1fr_auto] gap-2 sm:grid-cols-[1fr_5rem_8rem_auto]">
+                  <Textarea
+                    required
+                    rows={2}
+                    className="col-span-2 min-h-[2.75rem] sm:col-span-1"
+                    aria-label={`Ligne ${i + 1} : désignation`}
+                    placeholder="Désignation de la prestation"
+                    value={line.description}
+                    onChange={(e) => updateLine(i, { description: e.target.value })}
+                  />
+                  <Input
+                    required
+                    aria-label={`Ligne ${i + 1} : quantité`}
+                    type="number"
+                    inputMode="decimal"
+                    step="0.01"
+                    min="0.01"
+                    placeholder="Qté"
+                    value={line.isSubscription ? "1" : line.quantity}
+                    disabled={line.isSubscription}
+                    onChange={(e) => updateLine(i, { quantity: e.target.value })}
+                  />
+                  <Input
+                    required
+                    type="number"
+                    inputMode="decimal"
+                    step="0.01"
+                    aria-label={`Ligne ${i + 1} : prix unitaire TTC en euros`}
+                    placeholder={line.isSubscription ? "€ / mois" : "Prix TTC"}
+                    value={line.unitPriceEuros}
+                    onChange={(e) => updateLine(i, { unitPriceEuros: e.target.value })}
+                  />
+                  <Button
+                    variant="danger-ghost"
+                    className="min-h-11 min-w-11 px-0"
+                    aria-label={`Supprimer la ligne ${i + 1}`}
+                    disabled={form.lines.length <= 1}
+                    onClick={() => removeLine(i)}
+                  >
+                    ×
+                  </Button>
+                </div>
+                <p className="mt-1.5 text-right text-xs text-[var(--muted)]">
+                  Total ligne : <span className="font-medium tabular-nums text-[var(--text)]">{eur(lineTotal)}</span>
+                </p>
+              </li>
+            );
+          })}
+        </ul>
+        <Button variant="ghost" className="min-h-10 px-3 text-sm" onClick={addLine}>
+          + Ligne libre
+        </Button>
+
+        <details className="rounded-[var(--radius)] border border-[var(--border)] p-3" open={form.discountType !== "NONE"}>
+          <summary className="cursor-pointer text-sm font-medium">Remise</summary>
+          <div className="mt-3 grid gap-2 sm:grid-cols-[12rem_1fr]">
             <Select
               aria-label="Type de remise globale"
               value={form.discountType}
               onChange={(e) =>
-                setForm((f) => ({
-                  ...f,
-                  discountType: e.target.value as DocumentFormValues["discountType"],
-                }))
+                setForm((f) => ({ ...f, discountType: e.target.value as DocumentFormValues["discountType"] }))
               }
             >
               <option value="NONE">Aucune</option>
               <option value="PERCENT">Pourcentage (%)</option>
-              <option value="FIXED">Montant fixe (€ HT)</option>
+              <option value="FIXED">Montant fixe (€ TTC)</option>
             </Select>
             {form.discountType === "PERCENT" ? (
               <Input
@@ -380,7 +378,7 @@ export function DocumentFormEditor({
               />
             ) : form.discountType === "FIXED" ? (
               <Input
-                aria-label="Remise en euros HT"
+                aria-label="Remise en euros TTC"
                 type="number"
                 step="0.01"
                 min="0"
@@ -388,89 +386,69 @@ export function DocumentFormEditor({
                 value={form.discountEuros}
                 onChange={(e) => setForm((f) => ({ ...f, discountEuros: e.target.value }))}
               />
-            ) : (
-              <p className="self-center text-xs text-[var(--muted)]">Pas de remise</p>
-            )}
+            ) : null}
           </div>
-        </div>
-        <div className="space-y-1 text-right text-sm text-[var(--muted)]">
-          {discountPreview > 0 ? (
-            <>
-              <p>
-                Sous-total :{" "}
-                {subtotalPreview.toLocaleString("fr-FR", { style: "currency", currency: "EUR" })}
-              </p>
-              <p>
-                Remise : −
-                {discountPreview.toLocaleString("fr-FR", { style: "currency", currency: "EUR" })}
-              </p>
-            </>
-          ) : null}
-          <p>
-            Total HT estimé :{" "}
-            <span className="font-semibold text-[var(--text)]">
-              {totalPreview.toLocaleString("fr-FR", { style: "currency", currency: "EUR" })}
-            </span>
+        </details>
+      </section>
+
+      {/* 3. Conditions */}
+      <section className="space-y-3" aria-labelledby="doc-terms">
+        <h3 id="doc-terms" className={sectionTitle}>
+          3. Conditions
+        </h3>
+        {isQuote ? (
+          <p className="rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--bg-subtle)] px-3 py-2 text-sm text-[var(--muted)]">
+            <span className="font-medium text-[var(--text)]">Validité : 30 jours</span>, calculée automatiquement à partir de la
+            date d&apos;émission. Le client peut l&apos;accepter en ligne depuis son espace.
           </p>
+        ) : null}
+        <div className={isQuote ? "" : "grid gap-4 sm:grid-cols-2"}>
+          <Field label={isQuote ? "Conditions de règlement" : "Conditions de paiement"}>
+            <Input value={form.paymentTerms} onChange={(e) => setForm((f) => ({ ...f, paymentTerms: e.target.value }))} />
+          </Field>
+          {!isQuote ? (
+            <Field label="Date de la prestation" hint="Si elle diffère de la date d'émission.">
+              <Input
+                type="date"
+                value={form.serviceDate}
+                onChange={(e) => setForm((f) => ({ ...f, serviceDate: e.target.value }))}
+              />
+            </Field>
+          ) : null}
         </div>
-      </div>
+      </section>
 
-      <div className="grid gap-4 sm:grid-cols-2">
-        <Field
-          label={documentType === "QUOTE" ? "Conditions / validité" : "Conditions de paiement"}
-        >
-          <Input
-            value={form.paymentTerms}
-            onChange={(e) => setForm((f) => ({ ...f, paymentTerms: e.target.value }))}
-          />
-        </Field>
-        {documentType === "QUOTE" ? (
-          <Field label="Valable jusqu’au" hint="Défaut J+30 si vide">
+      {/* 4. Compléments */}
+      <details className="rounded-[var(--radius)] border border-[var(--border)] p-3" open={Boolean(form.notes || form.purchaseOrderRef)}>
+        <summary className="cursor-pointer text-sm font-medium">Compléments (bon de commande, notes)</summary>
+        <div className="mt-3 space-y-4">
+          <Field label="Bon de commande du client" hint="Sa référence, s'il en a fourni un.">
             <Input
-              type="date"
-              value={form.validUntil}
-              onChange={(e) => setForm((f) => ({ ...f, validUntil: e.target.value }))}
+              value={form.purchaseOrderRef}
+              onChange={(e) => setForm((f) => ({ ...f, purchaseOrderRef: e.target.value }))}
             />
           </Field>
-        ) : (
-          <Field label="Date de la prestation" hint="Obligatoire si différente de l’émission">
-            <Input
-              type="date"
-              value={form.serviceDate}
-              onChange={(e) => setForm((f) => ({ ...f, serviceDate: e.target.value }))}
-            />
+          <Field label="Notes" hint="Affichées sur le PDF.">
+            <Textarea value={form.notes} rows={3} onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))} />
           </Field>
-        )}
-      </div>
-
-      <Field label="Bon de commande du client" hint="Sa référence, s’il en a fourni un">
-        <Input
-          value={form.purchaseOrderRef}
-          onChange={(e) => setForm((f) => ({ ...f, purchaseOrderRef: e.target.value }))}
-          placeholder="Facultatif"
-        />
-      </Field>
-
-      <Field label="Notes" hint="Apparaissent sur le PDF">
-        <Textarea
-          value={form.notes}
-          onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))}
-          rows={3}
-        />
-      </Field>
+        </div>
+      </details>
 
       <ModalActions>
-        <Button type="button" variant="secondary" onClick={onCancel} disabled={busy}>
+        <div className="mr-auto basis-full text-sm sm:basis-auto">
+          {discountPreview > 0 ? (
+            <span className="mr-2 text-xs text-[var(--muted)]">
+              {eur(subtotalPreview)} − {eur(discountPreview)} =
+            </span>
+          ) : null}
+          <span className="text-[var(--muted)]">Total TTC </span>
+          <span className="font-display text-lg font-semibold tabular-nums">{eur(totalPreview)}</span>
+        </div>
+        <Button variant="secondary" onClick={onCancel} disabled={busy}>
           Annuler
         </Button>
         <Button type="submit" disabled={busy || !form.clientId}>
-          {busy
-            ? "Enregistrement…"
-            : mode === "edit"
-              ? "Enregistrer"
-              : documentType === "QUOTE"
-                ? "Créer le devis"
-                : "Créer la facture"}
+          {busy ? "Enregistrement…" : mode === "edit" ? "Enregistrer" : isQuote ? "Créer le devis" : "Créer la facture"}
         </Button>
       </ModalActions>
     </form>

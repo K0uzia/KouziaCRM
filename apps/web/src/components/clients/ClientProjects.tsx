@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState, type FormEvent, type ReactNode } from
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faPlus, faTrash } from "@fortawesome/free-solid-svg-icons";
 import { toast } from "sonner";
+import { Link } from "react-router-dom";
 import { api } from "@/lib/api";
 import { Button } from "@/components/ui/Button";
 import { Badge, Card } from "@/components/ui/Card";
@@ -18,9 +19,18 @@ type ProjectForm = {
   links: Array<{ label: string; url: string }>;
   checklist: Array<{ label: string; done: boolean; note: string | null }>;
   visibleOnPortal: boolean;
+  status: ProjectStatus;
 };
 
-type Project = ProjectForm & { id: string };
+type ProjectStatus = "PLANNED" | "ACTIVE" | "DONE";
+
+const PROJECT_STATUS: Record<ProjectStatus, { label: string; tone: "amber" | "teal" | "green" }> = {
+  PLANNED: { label: "Planifié (acompte en attente)", tone: "amber" },
+  ACTIVE: { label: "En cours", tone: "teal" },
+  DONE: { label: "Terminé", tone: "green" },
+};
+
+type Project = ProjectForm & { id: string; quoteId: string | null; startedAt: string | null };
 
 const STEP_LABEL: Record<StepStatus, string> = {
   done: "Terminé",
@@ -35,6 +45,7 @@ const EMPTY_FORM: ProjectForm = {
   links: [],
   checklist: [],
   visibleOnPortal: true,
+  status: "ACTIVE",
 };
 
 /** Retire les lignes vides avant l'envoi : une ligne ajoutée puis laissée vide n'est pas une erreur. */
@@ -137,7 +148,13 @@ export function ClientProjects({ clientId }: { clientId: string }) {
               <div className="min-w-0 flex-1">
                 <div className="flex flex-wrap items-center gap-2">
                   <p className="font-medium">{p.name}</p>
+                  <Badge tone={PROJECT_STATUS[p.status]?.tone ?? "neutral"}>{PROJECT_STATUS[p.status]?.label ?? p.status}</Badge>
                   {!p.visibleOnPortal ? <Badge tone="neutral">Masqué</Badge> : null}
+                  {p.quoteId ? (
+                    <Link to={`/quotes/${p.quoteId}`} className="link text-xs">
+                      Devis d'origine
+                    </Link>
+                  ) : null}
                 </div>
                 <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-[var(--bg)]">
                   <div
@@ -211,6 +228,13 @@ export function ClientProjects({ clientId }: { clientId: string }) {
                 </div>
               </Field>
             </div>
+            <Field label="Statut" hint="Planifié : acompte facturé, en attente de paiement. Il passe en cours au paiement.">
+              <Select value={form.status} onChange={(e) => update({ status: e.target.value as ProjectStatus })}>
+                <option value="PLANNED">Planifié</option>
+                <option value="ACTIVE">En cours</option>
+                <option value="DONE">Terminé</option>
+              </Select>
+            </Field>
             <label className="flex items-center gap-2 text-sm">
               <input
                 type="checkbox"

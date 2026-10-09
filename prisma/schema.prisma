@@ -583,6 +583,12 @@ model ClientProject {
   checklist       String   @default("[]")
   visibleOnPortal Boolean  @default(true)
   position        Int      @default(0)
+  /// Devis d'origine : le projet naît de la facture d'acompte (ou totale) de ce devis.
+  quoteId         String?  @unique
+  quote           Invoice? @relation("QuoteProject", fields: [quoteId], references: [id], onDelete: SetNull)
+  /// PLANNED (acompte facturé, en attente de paiement) | ACTIVE (démarré) | DONE
+  status          String   @default("ACTIVE")
+  startedAt       DateTime?
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
@@ -790,6 +796,7 @@ model Invoice {
   @@index([documentType, status])
   @@index([documentType, quoteStatus])
   @@index([clientId, documentType])
+  project           ClientProject? @relation("QuoteProject")
   @@index([revolutOrderId])
 }
 

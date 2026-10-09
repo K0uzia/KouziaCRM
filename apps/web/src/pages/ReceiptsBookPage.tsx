@@ -198,7 +198,7 @@ export function ReceiptsBookPage() {
       <Card className="overflow-hidden">
         <div className="flex flex-col gap-3 border-b border-[var(--border)] p-3 sm:flex-row sm:items-center sm:justify-between sm:p-4">
           <h2 className="text-sm font-semibold">Registre chronologique</h2>
-          <div className="grid min-w-0 grid-cols-3 gap-2 sm:flex sm:flex-wrap sm:items-center [&_select]:min-w-0">
+          <div className="grid w-full min-w-0 grid-cols-3 gap-2 sm:w-[30rem] [&_select]:min-w-0">
             <Select aria-label="Année" className="min-h-10 w-auto py-1.5 text-sm" value={year} onChange={(e) => setYear(e.target.value)}>
               {[thisYear, thisYear - 1, thisYear - 2].map((y) => (
                 <option key={y} value={y}>

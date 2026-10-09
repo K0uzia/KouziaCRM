@@ -510,5 +510,7 @@ export async function convertQuoteToInvoice(quoteId: string) {
     return { ...created, subscriptionsCreated: subs.created };
   });
 
+  const { ensureProjectForQuote } = await import("@/lib/projects/lifecycle.js");
+  await ensureProjectForQuote(quoteId);
   return invoice;
 }

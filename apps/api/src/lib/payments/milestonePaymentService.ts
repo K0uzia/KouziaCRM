@@ -413,7 +413,7 @@ export async function markMilestonePaidFromRevolut(opts: {
     await generateMilestoneInvoice(milestoneBefore.id);
   }
 
-  return prisma.$transaction(async (tx) => {
+  const result = await prisma.$transaction(async (tx) => {
     const existing = await tx.revolutWebhookEvent.findUnique({
       where: { eventId: opts.eventId },
     });
@@ -485,6 +485,11 @@ export async function markMilestonePaidFromRevolut(opts: {
 
     return { duplicate: false as const, milestone: updated };
   });
+  if (!result.duplicate && result.milestone) {
+    const { startProjectForQuote } = await import("@/lib/projects/lifecycle.js");
+    await startProjectForQuote(result.milestone.quoteId);
+  }
+  return result;
 }
 
 export async function markMilestoneFailedFromRevolut(opts: {
@@ -589,6 +594,8 @@ export async function markMilestonePaidManually(opts: {
   });
 
   await notifyDepositPaid(opts.milestoneId);
+  const { startProjectForQuote } = await import("@/lib/projects/lifecycle.js");
+  await startProjectForQuote(updated.quoteId);
   return updated;
 }
 

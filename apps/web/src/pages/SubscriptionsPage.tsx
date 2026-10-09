@@ -292,7 +292,7 @@ export function SubscriptionsPage() {
               {
                 label: "Revenu mensuel récurrent",
                 value: formatEUR(active.reduce((acc, r) => acc + r.amountCents, 0)),
-                hint: "HT, contrats actifs",
+                hint: "TTC, contrats actifs",
                 tone: "success" as const,
               },
               { label: "Contrats actifs", value: String(active.length) },
@@ -447,7 +447,7 @@ export function SubscriptionsPage() {
                       <div className="flex items-center gap-4">
                         <div className="text-right">
                           <p className="text-lg font-semibold tabular-nums">{formatEUR(o.unitPriceCents)}</p>
-                          <p className="text-xs text-[var(--muted)]">HT / mois</p>
+                          <p className="text-xs text-[var(--muted)]">TTC / mois</p>
                         </div>
                         {!o.active ? <Badge tone="red">Inactive</Badge> : null}
                         <Button
@@ -638,7 +638,7 @@ export function SubscriptionsPage() {
             />
           </Field>
           <div className="grid gap-4 sm:grid-cols-2">
-            <Field label="Prix HT / mois (€)">
+            <Field label="Prix TTC / mois (€)">
               <Input
                 required
                 type="number"
