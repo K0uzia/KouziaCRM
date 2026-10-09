@@ -1,4 +1,5 @@
 import { PrismaClient } from "@prisma/client";
+import { applyCatalog } from "../apps/api/src/lib/services/catalog";
 import argon2 from "argon2";
 import { randomBytes } from "node:crypto";
 
@@ -165,43 +166,10 @@ async function main() {
     }
   }
 
-  // Sample services if empty
+  // Catalogue de prestations et d'offres de maintenance (prix fixes), si aucun service.
   const serviceCount = await prisma.service.count();
   if (serviceCount === 0) {
-    await prisma.service.createMany({
-      data: [
-        {
-          name: "Conseil technique",
-          description: "Accompagnement et conseil",
-          unitPriceCents: 75000,
-          unit: "JOUR",
-          active: true,
-        },
-        {
-          name: "Développement",
-          description: "Prestation de développement logiciel",
-          unitPriceCents: 65000,
-          unit: "JOUR",
-          active: true,
-        },
-        {
-          name: "Forfait projet",
-          description: "Mission forfaitaire",
-          unitPriceCents: 250000,
-          unit: "FORFAIT",
-          active: true,
-        },
-        {
-          name: "Maintenance site web",
-          description: "Maintenance mensuelle de site web (abonnement récurrent)",
-          unitPriceCents: 15000,
-          unit: "FORFAIT",
-          active: true,
-          isSubscription: true,
-          defaultBillingDay: 1,
-        },
-      ],
-    });
+    await applyCatalog(prisma);
   }
 
   // Abonnement d'exemple (dev only) pour faciliter les tests du MRR/worker.

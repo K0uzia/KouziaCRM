@@ -80,13 +80,22 @@ export const servicesRoutes: FastifyPluginAsync = async (app) => {
     return updated;
   });
 
+  // Supprime une prestation jamais utilisée ; si elle figure sur un document ou un abonnement,
+  // elle est archivée (désactivée) pour ne pas altérer l'historique.
   app.delete<{ Params: { id: string } }>("/api/services/:id", async (request, reply) => {
     await requireAuth(request, reply);
     if (reply.sent) return;
-    await prisma.service.update({
-      where: { id: request.params.id },
-      data: { active: false },
+    const id = request.params.id;
+    const service = await prisma.service.findUnique({
+      where: { id },
+      select: { id: true, _count: { select: { invoiceLines: true, subscriptions: true } } },
     });
-    return { ok: true };
+    if (!service) return reply.code(404).send({ error: "Prestation introuvable" });
+    if (service._count.invoiceLines > 0 || service._count.subscriptions > 0) {
+      await prisma.service.update({ where: { id }, data: { active: false } });
+      return { ok: true, archived: true };
+    }
+    await prisma.service.delete({ where: { id } });
+    return { ok: true, archived: false };
   });
 };

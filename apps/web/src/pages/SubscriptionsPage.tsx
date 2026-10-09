@@ -433,7 +433,7 @@ export function SubscriptionsPage() {
                   {offers.map((o) => (
                     <div
                       key={o.id}
-                      className="flex flex-wrap items-center justify-between gap-4 px-5 py-4 hover:bg-[var(--surface-hover)]"
+                      className="flex flex-wrap items-center justify-between gap-4 px-5 py-4 transition-colors hover:bg-[var(--surface-raised)]"
                     >
                       <div className="min-w-0">
                         <p className="font-medium text-[var(--text)]">{o.name}</p>

@@ -1,9 +1,32 @@
 import { useMemo, useState, type ReactNode } from "react";
 import DataTableBase, {
+  createTheme,
   type TableColumn,
   type TableProps,
 } from "react-data-table-component";
 import { EmptyState } from "./Card";
+
+// Thème de la bibliothèque branché sur nos tokens : elle injecte ces couleurs en variables
+// CSS en ligne (son thème par défaut met #EEEEEE au survol, illisible sur fond sombre).
+createTheme(
+  "kouzia",
+  {
+    text: { primary: "var(--text)", secondary: "var(--muted)", disabled: "rgb(154 161 191 / 0.35)" },
+    background: { default: "var(--surface)" },
+    context: { background: "var(--primary-soft)", text: "var(--text)" },
+    divider: { default: "var(--border)" },
+    button: {
+      default: "var(--primary)",
+      focus: "var(--primary-soft)",
+      hover: "var(--surface-hover)",
+      disabled: "rgb(154 161 191 / 0.35)",
+    },
+    selected: { default: "var(--primary-soft)", text: "var(--text)" },
+    highlightOnHover: { default: "var(--surface-raised)", text: "var(--text)" },
+    striped: { default: "var(--bg-subtle)", text: "var(--text)" },
+  },
+  "dark",
+);
 
 const customStyles: TableProps<never>["customStyles"] = {
   table: {
@@ -351,6 +374,7 @@ export function DataTable<T>({
               columns={sizedColumns}
               data={filtered}
               customStyles={customStyles}
+              theme="kouzia"
               striped={striped}
               pagination={pagination && filtered.length > perPage}
               paginationPerPage={perPage}

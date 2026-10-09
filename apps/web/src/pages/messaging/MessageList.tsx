@@ -307,7 +307,7 @@ export function MessageList({
                 className={`group flex items-center gap-2 border-b border-[var(--border)] px-3 py-2.5 ${
                   selectedId === msg.id
                     ? "bg-[var(--primary)]/5"
-                    : "hover:bg-[var(--surface-hover)]"
+                    : "hover:bg-[var(--surface-raised)]"
                 } ${!msg.isRead ? "font-semibold" : ""}`}
                 onContextMenu={(e) => {
                   e.preventDefault();

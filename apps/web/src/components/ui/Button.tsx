@@ -1,7 +1,7 @@
 import type { ButtonHTMLAttributes, ReactNode } from "react";
 import { Link, type LinkProps } from "react-router-dom";
 
-type Variant = "primary" | "secondary" | "ghost" | "danger";
+type Variant = "primary" | "secondary" | "ghost" | "danger" | "danger-ghost";
 
 const styles: Record<Variant, string> = {
   primary: "btn-accent shadow-[var(--shadow-sm)]",
@@ -11,6 +11,9 @@ const styles: Record<Variant, string> = {
     "bg-transparent text-[var(--muted)] border-transparent hover:bg-[var(--surface-hover)] hover:text-[var(--text)]",
   danger:
     "bg-[var(--danger-soft)] text-[var(--danger)] border-[var(--danger)]/30 hover:bg-[var(--danger)]/20",
+  // Action destructrice discrète (icône dans une liste) : rouge seulement au survol.
+  "danger-ghost":
+    "bg-transparent text-[var(--muted)] border-transparent hover:bg-[var(--danger-soft)] hover:text-[var(--danger)]",
 };
 
 const base =
