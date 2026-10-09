@@ -33,7 +33,15 @@ import { PaymentForm } from "@/components/payments/PaymentForm";
 import { Field, Input, Textarea } from "@/components/ui/Field";
 import { ClientEmailLink } from "@/components/clients/ClientEmailLink";
 import { CreditNoteWizard } from "@/components/documents/CreditNoteWizard";
-import { buildIssueEmailDraft } from "@/lib/issue-email";
+import { buildBillingEmailDraft, buildIssueEmailDraft } from "@/lib/issue-email";
+import {
+  BillingDialog,
+  PaymentLinkFields,
+  paymentChoiceOf,
+  paymentFieldsValid,
+  type BillingRequest,
+  type PaymentFieldsState,
+} from "@/components/documents/BillingDialog";
 import { useCreateParam } from "@/lib/use-create-param";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 
@@ -59,6 +67,8 @@ type Doc = {
   documentType: string;
   invoiceType?: string;
   quoteId?: string | null;
+  sourceQuoteId?: string | null;
+  checkoutUrl?: string | null;
   quote?: { id: string; number: string | null } | null;
   subtotalCents?: number;
   totalCents: number;
@@ -406,6 +416,18 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
   const [rejectBusy, setRejectBusy] = useState(false);
   const [invoiceModalOpen, setInvoiceModalOpen] = useState(false);
   const [invoiceModalBusy, setInvoiceModalBusy] = useState(false);
+  // « Facturer » un acompte ou le solde : rien n'est émis avant validation de la fenêtre.
+  const [billing, setBilling] = useState<
+    | { kind: "ACOMPTE"; milestoneId: string; label: string; amountCents: number }
+    | { kind: "SOLDE"; amountCents: number; force?: boolean }
+    | null
+  >(null);
+  const [billingBusy, setBillingBusy] = useState(false);
+  const [issuePayment, setIssuePayment] = useState<PaymentFieldsState>({ mode: "manual", url: "" });
+  const [linkOpen, setLinkOpen] = useState(false);
+  const [linkBusy, setLinkBusy] = useState(false);
+  const [linkPayment, setLinkPayment] = useState<PaymentFieldsState>({ mode: "manual", url: "" });
+  const [linkSendEmail, setLinkSendEmail] = useState(true);
 
   async function load() {
     if (!id) return;
@@ -483,7 +505,73 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
     setEmailSubject(draft.subject);
     setEmailBody(draft.body);
     setSendEmailOnIssue(Boolean(doc!.client.email));
+    setIssuePayment({ mode: "manual", url: doc!.checkoutUrl ?? "" });
     setIssueOpen(true);
+  }
+
+  async function confirmBilling(req: BillingRequest) {
+    if (!billing) return;
+    setBillingBusy(true);
+    try {
+      const res =
+        billing.kind === "ACOMPTE"
+          ? await api<{ id: string; emailed?: boolean; emailReason?: string | null; warning?: string | null }>(
+              `/api/quotes/${id}/milestones/${billing.milestoneId}/invoice`,
+              { method: "POST", body: JSON.stringify(req) },
+            )
+          : await api<{ invoice: { id: string }; emailed?: boolean; emailReason?: string | null; warning?: string | null }>(
+              `/api/quotes/${id}/balance-invoice`,
+              { method: "POST", body: JSON.stringify({ ...req, force: Boolean(billing.force) }) },
+            ).then((r) => ({ ...r, id: r.invoice.id }));
+      const label = billing.kind === "ACOMPTE" ? "Facture d'acompte émise" : "Facture de solde émise";
+      if (req.email.send) {
+        if (res.emailed) toast.success(`${label} et envoyée au client`);
+        else toast.success(`${label} (email non envoyé : ${res.emailReason === "smtp_off" ? "SMTP non configuré" : res.emailReason === "no_email" ? "adresse client manquante" : "envoi impossible"})`);
+      } else {
+        toast.success(label);
+      }
+      if (res.warning) toast.error(`Lien de paiement : ${res.warning}`);
+      setBilling(null);
+      navigate(`/invoices/${res.id}`);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "Erreur";
+      if (billing.kind === "SOLDE" && !billing.force && msg.includes("force=true")) {
+        setForceSoldeMessage(msg);
+        return;
+      }
+      toast.error(msg);
+    } finally {
+      setBillingBusy(false);
+    }
+  }
+
+  function openPaymentLink() {
+    setLinkPayment({ mode: "manual", url: doc!.checkoutUrl ?? "" });
+    setLinkSendEmail(Boolean(doc!.client.email));
+    setLinkOpen(true);
+  }
+
+  async function savePaymentLinkOnInvoice(payment: ReturnType<typeof paymentChoiceOf>, sendEmail: boolean) {
+    setLinkBusy(true);
+    try {
+      const res = await api<{ checkoutUrl: string | null; emailed: boolean }>(
+        `/api/invoices/${id}/payment-link`,
+        { method: "PUT", body: JSON.stringify({ payment, sendEmail }) },
+      );
+      toast.success(
+        !res.checkoutUrl
+          ? "Lien de paiement retiré"
+          : res.emailed
+            ? "Lien enregistré et facture renvoyée au client"
+            : "Lien de paiement enregistré",
+      );
+      setLinkOpen(false);
+      await load();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Erreur");
+    } finally {
+      setLinkBusy(false);
+    }
   }
 
   async function confirmIssue() {
@@ -493,6 +581,7 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
         emailed?: boolean;
         emailReason?: string | null;
         subscriptionsCreated?: number;
+        warning?: string | null;
       }>(`/api/invoices/${id}/issue`, {
         method: "POST",
         body: JSON.stringify({
@@ -501,9 +590,11 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
             subject: emailSubject,
             body: emailBody,
           },
+          ...(isQuote ? {} : { payment: paymentChoiceOf(issuePayment) }),
         }),
       });
       setIssueOpen(false);
+      if (res.warning) toast.error(`Lien de paiement : ${res.warning}`);
       const kindLabel = isQuote ? "Devis" : "Facture";
       if (sendEmailOnIssue && res.emailed) {
         toast.success(`${kindLabel} émis et envoyé par email`);
@@ -553,21 +644,15 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
     }
   }
 
-  async function createMilestoneInvoice(milestoneId: string) {
-    setInvoiceModalBusy(true);
-    try {
-      const inv = await api<{ id: string }>(
-        `/api/quotes/${id}/milestones/${milestoneId}/invoice`,
-        { method: "POST", body: "{}" },
-      );
-      toast.success("Facture d'acompte créée");
-      setInvoiceModalOpen(false);
-      navigate(`/invoices/${inv.id}`);
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Erreur");
-    } finally {
-      setInvoiceModalBusy(false);
-    }
+  function createMilestoneInvoice(milestoneId: string) {
+    setInvoiceModalOpen(false);
+    openDepositBilling(milestoneId);
+  }
+
+  function openDepositBilling(milestoneId: string) {
+    const m = market?.milestones.find((x) => x.id === milestoneId);
+    if (!m) return;
+    setBilling({ kind: "ACOMPTE", milestoneId, label: m.label, amountCents: m.amountCents });
   }
 
   async function reject() {
@@ -635,41 +720,8 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
     }
   }
 
-  async function generateDeposit(milestoneId: string) {
-    setBusyId(milestoneId);
-    try {
-      const inv = await api<{ id: string }>(
-        `/api/quotes/${id}/milestones/${milestoneId}/invoice`,
-        { method: "POST", body: "{}" },
-      );
-      toast.success("Facture d'acompte émise");
-      navigate(`/invoices/${inv.id}`);
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Erreur");
-    } finally {
-      setBusyId(null);
-    }
-  }
-
-  async function generateSolde(force = false) {
-    setBusyId("solde");
-    try {
-      const res = await api<{ invoice: { id: string } }>(
-        `/api/quotes/${id}/balance-invoice`,
-        { method: "POST", body: JSON.stringify({ force }) },
-      );
-      toast.success("Facture de solde émise");
-      navigate(`/invoices/${res.invoice.id}`);
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : "Erreur";
-      if (!force && msg.includes("force=true")) {
-        setForceSoldeMessage(msg);
-        return;
-      }
-      toast.error(msg);
-    } finally {
-      setBusyId(null);
-    }
+  function generateSolde(force = false) {
+    setBilling({ kind: "SOLDE", amountCents: market?.balance.balanceDueCents ?? 0, force });
   }
 
   async function sendReminder() {
@@ -936,8 +988,8 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
             <MarketTimeline
               market={market}
               busyId={busyId}
-              onGenerateAcompte={(mid) => void generateDeposit(mid)}
-              onGenerateSolde={(force) => void generateSolde(Boolean(force))}
+              onGenerateAcompte={(mid) => openDepositBilling(mid)}
+              onGenerateSolde={(force) => generateSolde(Boolean(force))}
               onManualPay={(mid) => setPayingMilestoneId(mid)}
               onSavePaymentLink={(mid, url, send) => savePaymentLink(mid, url, send)}
               signed={quoteSigned}
@@ -1117,11 +1169,45 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
             </Card>
           ) : null}
 
-          {!isQuote && (doc.quoteId || linked.length > 0) ? (
+          {!isQuote && doc.number && doc.status === "ISSUED" && remaining > 0 ? (
+            <Card className="p-5 text-sm">
+              <div className="flex items-center justify-between gap-2">
+                <h2 className="text-sm font-semibold">Paiement en ligne</h2>
+                {doc.checkoutUrl ? <Badge tone="green">Lien actif</Badge> : <Badge tone="neutral">Aucun lien</Badge>}
+              </div>
+              {doc.checkoutUrl ? (
+                <p className="mt-2 break-all font-mono text-xs text-[var(--muted)]">{doc.checkoutUrl}</p>
+              ) : (
+                <p className="mt-2 text-[var(--muted)]">
+                  Ajoutez un lien Revolut : il apparaît en bouton « Payer en ligne » dans l'email et l'espace client.
+                </p>
+              )}
+              <div className="mt-3 flex flex-wrap gap-2">
+                <Button variant="secondary" onClick={openPaymentLink}>
+                  {doc.checkoutUrl ? "Modifier le lien" : "Ajouter un lien"}
+                </Button>
+                {doc.checkoutUrl ? (
+                  <Button
+                    variant="ghost"
+                    onClick={() => {
+                      void navigator.clipboard
+                        .writeText(doc.checkoutUrl!)
+                        .then(() => toast.success("Lien copié"))
+                        .catch(() => toast.error("Copie impossible"));
+                    }}
+                  >
+                    Copier
+                  </Button>
+                ) : null}
+              </div>
+            </Card>
+          ) : null}
+
+          {!isQuote && (doc.quoteId || doc.sourceQuoteId || linked.length > 0) ? (
             <Card className="space-y-2 p-5 text-sm">
               <h2 className="mb-1 text-sm font-semibold">Documents liés</h2>
-              {doc.quoteId ? (
-                <Link to={`/quotes/${doc.quoteId}`} className="link-row">
+              {doc.quoteId || doc.sourceQuoteId ? (
+                <Link to={`/quotes/${doc.quoteId ?? doc.sourceQuoteId}`} className="link-row">
                   <span>Devis d'origine</span>
                   <span className="link-row-muted font-mono text-xs">{doc.quote?.number ?? "Devis"}</span>
                 </Link>
@@ -1186,7 +1272,7 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
                   <button
                     key={m.id}
                     type="button"
-                    disabled={invoiceModalBusy || already || !previousPaid}
+                    disabled={invoiceModalBusy || already || !previousPaid || hasSimpleInvoice}
                     onClick={() => void createMilestoneInvoice(m.id)}
                     className={`flex w-full items-center justify-between gap-3 rounded-[var(--radius)] border p-4 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-60 ${
                       isFirst && !already
@@ -1201,7 +1287,9 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
                       <span className="block text-xs text-[var(--muted)]">
                         {already
                           ? "Déjà facturé"
-                          : !previousPaid
+                          : hasSimpleInvoice
+                            ? "Devis déjà facturé en totalité"
+                            : !previousPaid
                             ? "Après le paiement de l'acompte précédent"
                             : isFirst
                               ? "Étape suivante : son paiement crée le projet client"
@@ -1253,6 +1341,7 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
         wide
       >
         <div className="space-y-4">
+          {!isQuote ? <PaymentLinkFields value={issuePayment} onChange={setIssuePayment} /> : null}
           <label className="flex items-center gap-2 text-sm">
             <input
               type="checkbox"
@@ -1313,7 +1402,16 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
             >
               Annuler
             </Button>
-            <Button type="button" disabled={issueBusy} onClick={() => void confirmIssue()}>
+            <Button
+              type="button"
+              disabled={
+                issueBusy ||
+                (!isQuote &&
+                  (!paymentFieldsValid(issuePayment) ||
+                    (issuePayment.mode === "manual" && !issuePayment.url.trim())))
+              }
+              onClick={() => void confirmIssue()}
+            >
               {issueBusy
                 ? "Émission…"
                 : sendEmailOnIssue
@@ -1322,6 +1420,84 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
             </Button>
           </ModalActions>
         </div>
+      </Modal>
+
+      {(() => {
+        const draft = billing
+          ? buildBillingEmailDraft({
+              clientName: doc.client.displayName,
+              kind: billing.kind,
+              amountCents: billing.amountCents,
+              quoteNumber: doc.number,
+              companyName,
+            })
+          : { subject: "", body: "" };
+        return (
+          <BillingDialog
+            open={billing !== null}
+            title={billing?.kind === "SOLDE" ? "Facturer le solde" : `Facturer : ${billing?.kind === "ACOMPTE" ? billing.label : ""}`}
+            description={
+              billing?.kind === "SOLDE"
+                ? "La facture de solde reprend le devis et déduit les acomptes réglés."
+                : "Une fois cette facture payée, le projet du client est créé et démarre."
+            }
+            amountCents={billing?.amountCents ?? 0}
+            clientEmail={doc.client.email}
+            defaultSubject={draft.subject}
+            defaultBody={draft.body}
+            confirmLabel="Émettre la facture"
+            busy={billingBusy}
+            onConfirm={(req) => void confirmBilling(req)}
+            onClose={() => setBilling(null)}
+          />
+        );
+      })()}
+
+      <Modal
+        open={linkOpen}
+        onClose={() => !linkBusy && setLinkOpen(false)}
+        title="Lien de paiement"
+        description={`Facture ${doc.number ?? ""} · reste dû ${formatEUR(remaining)}`}
+      >
+        <form
+          className="space-y-4"
+          onSubmit={(e) => {
+            e.preventDefault();
+            void savePaymentLinkOnInvoice(paymentChoiceOf(linkPayment), linkSendEmail && linkPayment.mode !== "none");
+          }}
+        >
+          <PaymentLinkFields
+            value={linkPayment}
+            onChange={setLinkPayment}
+            noneLabel={doc.checkoutUrl ? "Retirer le lien (paiement par virement)" : "Pas de lien (virement)"}
+          />
+          {linkPayment.mode !== "none" ? (
+            <label className="flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={linkSendEmail}
+                disabled={!doc.client.email}
+                onChange={(e) => setLinkSendEmail(e.target.checked)}
+              />
+              Renvoyer la facture au client avec ce lien
+            </label>
+          ) : null}
+          <ModalActions>
+            <Button variant="secondary" disabled={linkBusy} onClick={() => setLinkOpen(false)}>
+              Annuler
+            </Button>
+            <Button
+              type="submit"
+              disabled={
+                linkBusy ||
+                !paymentFieldsValid(linkPayment) ||
+                (linkPayment.mode === "manual" && !linkPayment.url.trim())
+              }
+            >
+              {linkBusy ? "Enregistrement…" : "Enregistrer"}
+            </Button>
+          </ModalActions>
+        </form>
       </Modal>
 
       <Modal open={editOpen} onClose={() => setEditOpen(false)} title="Modifier le document" wide>
@@ -1336,6 +1512,7 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
             paymentTerms: doc.paymentTerms ?? "",
             serviceDate: doc.serviceDate ? doc.serviceDate.slice(0, 10) : "",
             purchaseOrderRef: doc.purchaseOrderRef ?? "",
+            sourceQuoteId: doc.sourceQuoteId ?? doc.quoteId ?? "",
             validUntil: doc.validUntil ? doc.validUntil.slice(0, 10) : "",
             discountType:
               doc.discountType === "PERCENT" || doc.discountType === "FIXED"
@@ -1432,10 +1609,10 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
         message={`${forceSoldeMessage ?? ""} Vous pouvez passer outre et émettre la facture de solde.`}
         confirmLabel="Émettre le solde"
         danger
-        busy={busyId === "solde"}
+        busy={billingBusy}
         onConfirm={() => {
           setForceSoldeMessage(null);
-          void generateSolde(true);
+          generateSolde(true);
         }}
         onClose={() => setForceSoldeMessage(null)}
       />

@@ -28,6 +28,18 @@ export type SendDocumentPdfOptions = {
 };
 
 /**
+ * Message rédigé à la main sans le lien de paiement : on l'ajoute avant la formule de
+ * politesse (sinon en fin de message), pour que le bouton « Payer » apparaisse.
+ */
+function withPaymentLine(text: string, paymentUrl: string | null): string {
+  if (!paymentUrl || text.includes(paymentUrl)) return text;
+  const line = `Régler en ligne : ${paymentUrl}`;
+  const closing = /\n\n(Cordialement|Bien à vous|Bien cordialement|Belle journée|Bonne journée|Merci)/i.exec(text);
+  if (!closing) return `${text}\n\n${line}`;
+  return `${text.slice(0, closing.index)}\n\n${line}${text.slice(closing.index)}`;
+}
+
+/**
  * Génère le PDF et enfile l'envoi email via EmailOutbox (worker).
  * Ne jette pas : retourne { sent, queued, outboxId, reason }.
  */
@@ -92,7 +104,7 @@ export async function sendDocumentPdf(
     const replaceNumero = (s: string) =>
       s.replaceAll("{{numero}}", invoice.number ?? "").replaceAll("{{number}}", invoice.number ?? "");
 
-    const text = replaceNumero((opts.text ?? built.text).trim());
+    const text = withPaymentLine(replaceNumero((opts.text ?? built.text).trim()), paymentUrl);
     const subject = replaceNumero((opts.subject ?? built.subject).trim());
     // HTML toujours reconstruit depuis le texte final (éventuellement modifié avant envoi).
     const { renderEmailHtml } = await import("@/lib/email/layout.js");

@@ -24,7 +24,7 @@ export function buildIssueEmailDraft(
   const lines: string[] = [
     firstName ? `Bonjour ${firstName},` : "Bonjour,",
     "",
-    `Veuillez trouver ci-joint votre ${label} {{numero}}, d'un montant de ${formatEUR(doc.totalCents)} HT.`,
+    `Veuillez trouver ci-joint votre ${label} {{numero}}, d'un montant de ${formatEUR(doc.totalCents)}.`,
     "",
   ];
 
@@ -34,7 +34,7 @@ export function buildIssueEmailDraft(
     for (const s of subs) {
       const day = s.billingDay ? ` le ${s.billingDay}` : "";
       lines.push(
-        `- ${s.description} : ${formatEUR(s.unitPriceCents)} HT facturés chaque mois${day}. La 1re échéance est incluse dans ce document.`,
+        `- ${s.description} : ${formatEUR(s.unitPriceCents)} facturés chaque mois${day}. La 1re échéance est incluse dans ce document.`,
       );
     }
     lines.push("");
@@ -52,6 +52,36 @@ export function buildIssueEmailDraft(
   return {
     subject: `Votre ${label} {{numero}}`,
     body: lines.join("\n"),
+  };
+}
+
+/** Brouillon pour une facture d'acompte ou de solde créée depuis un devis signé. */
+export function buildBillingEmailDraft(opts: {
+  clientName: string;
+  kind: "ACOMPTE" | "SOLDE";
+  amountCents: number;
+  quoteNumber: string | null;
+  companyName?: string;
+}): { subject: string; body: string } {
+  const label = opts.kind === "ACOMPTE" ? "facture d'acompte" : "facture de solde";
+  const firstName = opts.clientName.trim().split(/\s+/)[0] || "";
+  const ref = opts.quoteNumber ? ` (devis ${opts.quoteNumber})` : "";
+  const body = [
+    firstName ? `Bonjour ${firstName},` : "Bonjour,",
+    "",
+    `Veuillez trouver ci-joint votre ${label} {{numero}}${ref}, d'un montant de ${formatEUR(opts.amountCents)}.`,
+    opts.kind === "ACOMPTE"
+      ? "Son règlement lance le projet : je reviens vers vous dès réception pour démarrer."
+      : "Merci pour votre confiance tout au long du projet.",
+    "",
+    "Le PDF est joint à ce message.",
+    "",
+    "Cordialement,",
+    opts.companyName ?? "Alexandre Kouziaeff",
+  ].join("\n");
+  return {
+    subject: `${opts.kind === "ACOMPTE" ? "Facture d'acompte" : "Facture de solde"} {{numero}}`,
+    body,
   };
 }
 

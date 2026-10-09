@@ -3,6 +3,7 @@ import { z } from "zod";
 import {
   InvoiceDocumentType,
   InvoiceStatus,
+  InvoiceType,
   PaymentMethod,
   QuoteStatus,
 } from "@prisma/client";
@@ -32,6 +33,12 @@ import { enrichCompanyForPdf } from "@/lib/pdf/brand-assets.js";
 import { decryptOptional } from "@/lib/crypto.js";
 import type { ClientSnapshot } from "@/lib/invoices/transitions.js";
 import { serializeInvoice } from "@/lib/invoices/serialize.js";
+import { WorkflowError } from "@/lib/invoices/workflow.js";
+import {
+  applyPaymentLinkChoice,
+  assertQuoteLinkable,
+  setInvoicePaymentLink,
+} from "@/lib/invoices/payment-link.js";
 import { serializeClient } from "@/lib/clients.js";
 import { ensureQuoteMilestones } from "@/lib/quotes/milestones.js";
 import {
@@ -65,6 +72,8 @@ const createSchema = z.object({
   purchaseOrderRef: z.string().max(80).optional().nullable(),
   validUntil: z.string().optional().nullable(),
   lines: z.array(lineSchema).min(1),
+  /** Facture libre rattachée à un devis signé du même client (facultatif). */
+  sourceQuoteId: z.string().min(1).optional().nullable(),
   discountType: z.enum(["NONE", "PERCENT", "FIXED"]).optional().default("NONE"),
   discountPercent: z.coerce.number().min(0).max(100).optional(),
   discountEuros: z.coerce.number().min(0).optional(),
@@ -78,6 +87,7 @@ const updateSchema = z.object({
   purchaseOrderRef: z.string().max(80).optional().nullable(),
   validUntil: z.string().optional().nullable(),
   lines: z.array(lineSchema).min(1).optional(),
+  sourceQuoteId: z.string().min(1).optional().nullable(),
   discountType: z.enum(["NONE", "PERCENT", "FIXED"]).optional(),
   discountPercent: z.coerce.number().min(0).max(100).optional(),
   discountEuros: z.coerce.number().min(0).optional(),
@@ -197,6 +207,17 @@ export const invoicesRoutes: FastifyPluginAsync = async (app) => {
           ? InvoiceDocumentType.QUOTE
           : InvoiceDocumentType.INVOICE;
 
+      const linkedQuoteId =
+        documentType === InvoiceDocumentType.INVOICE ? parsed.data.sourceQuoteId ?? null : null;
+      if (linkedQuoteId) {
+        try {
+          await assertQuoteLinkable(linkedQuoteId, parsed.data.clientId);
+        } catch (e) {
+          if (e instanceof WorkflowError) return reply.code(e.statusCode).send({ error: e.message });
+          throw e;
+        }
+      }
+
       const validUntil =
         documentType === InvoiceDocumentType.QUOTE
           ? parsed.data.validUntil
@@ -224,6 +245,7 @@ export const invoicesRoutes: FastifyPluginAsync = async (app) => {
           totalCents,
           discountType,
           discountValue,
+          ...(linkedQuoteId ? { quoteId: linkedQuoteId, sourceQuoteId: linkedQuoteId } : {}),
           lines: { create: lines },
         },
         include: {
@@ -393,7 +415,27 @@ export const invoicesRoutes: FastifyPluginAsync = async (app) => {
       validUntil?: Date | null;
       serviceDate?: Date | null;
       purchaseOrderRef?: string | null;
+      quoteId?: string | null;
+      sourceQuoteId?: string | null;
     } = {};
+
+    if (
+      parsed.data.sourceQuoteId !== undefined &&
+      existing.documentType === InvoiceDocumentType.INVOICE &&
+      existing.invoiceType === InvoiceType.SIMPLE
+    ) {
+      const target = parsed.data.sourceQuoteId;
+      if (target) {
+        try {
+          await assertQuoteLinkable(target, parsed.data.clientId ?? existing.clientId, existing.id);
+        } catch (e) {
+          if (e instanceof WorkflowError) return reply.code(e.statusCode).send({ error: e.message });
+          throw e;
+        }
+      }
+      data.quoteId = target;
+      data.sourceQuoteId = target;
+    }
 
     if (parsed.data.clientId) data.clientId = parsed.data.clientId;
     if (parsed.data.notes !== undefined) data.notes = parsed.data.notes;
@@ -519,6 +561,7 @@ export const invoicesRoutes: FastifyPluginAsync = async (app) => {
         subject?: string;
         body?: string;
       };
+      payment?: { mode: "none" } | { mode: "manual"; url: string } | { mode: "auto" };
     };
     let issueDate = new Date();
     let dueDate: Date | undefined;
@@ -533,6 +576,14 @@ export const invoicesRoutes: FastifyPluginAsync = async (app) => {
         doc.documentType === InvoiceDocumentType.QUOTE
           ? await issueQuote(request.params.id, issueDate, validUntil ?? dueDate)
           : await issueInvoice(request.params.id, issueDate, dueDate);
+      let paymentWarning: string | null = null;
+      if (doc.documentType === InvoiceDocumentType.INVOICE && body.payment) {
+        try {
+          await applyPaymentLinkChoice(issued.id, body.payment);
+        } catch (e) {
+          paymentWarning = e instanceof Error ? e.message : "Lien de paiement non enregistré";
+        }
+      }
       const wantEmail = body.email?.send !== false;
       const mail = await sendDocumentPdf(issued.id, {
         send: wantEmail,
@@ -548,12 +599,46 @@ export const invoicesRoutes: FastifyPluginAsync = async (app) => {
         emailed: mail.sent,
         emailReason: mail.reason ?? null,
         subscriptionsCreated,
+        warning: paymentWarning,
       };
     } catch (e) {
       request.log.error({ err: e }, "[issue]");
       return reply
         .code(400)
         .send({ error: e instanceof Error ? e.message : "Erreur d'émission" });
+    }
+  });
+
+  app.put<{ Params: { id: string } }>("/api/invoices/:id/payment-link", async (request, reply) => {
+    await requireAuth(request, reply);
+    if (reply.sent) return;
+    const parsed = z
+      .object({
+        payment: z.discriminatedUnion("mode", [
+          z.object({ mode: z.literal("none") }),
+          z.object({ mode: z.literal("manual"), url: z.string().min(1).max(2000) }),
+          z.object({ mode: z.literal("auto") }),
+        ]),
+        sendEmail: z.boolean().optional(),
+      })
+      .safeParse(request.body ?? {});
+    if (!parsed.success) return reply.code(400).send({ error: "Lien de paiement invalide" });
+    try {
+      const url =
+        parsed.data.payment.mode === "none"
+          ? await setInvoicePaymentLink(request.params.id, null)
+          : await applyPaymentLinkChoice(request.params.id, parsed.data.payment);
+      let emailed = false;
+      let emailReason: string | null = null;
+      if (url && parsed.data.sendEmail) {
+        const mail = await sendDocumentPdf(request.params.id);
+        emailed = mail.sent;
+        emailReason = mail.reason ?? null;
+      }
+      return { checkoutUrl: url, emailed, emailReason };
+    } catch (e) {
+      if (e instanceof WorkflowError) return reply.code(e.statusCode).send({ error: e.message });
+      throw e;
     }
   });
 

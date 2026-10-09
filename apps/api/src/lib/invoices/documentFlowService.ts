@@ -290,6 +290,21 @@ export async function generateMilestoneInvoice(
       throw new DocumentFlowError("Jalon invalide", 400);
     }
     await assertQuoteSigned(milestone.quoteId, tx);
+    const totalInvoice = await tx.invoice.findFirst({
+      where: {
+        OR: [{ quoteId: milestone.quoteId }, { sourceQuoteId: milestone.quoteId }],
+        documentType: InvoiceDocumentType.INVOICE,
+        invoiceType: InvoiceType.SIMPLE,
+        status: { not: InvoiceStatus.CANCELLED },
+      },
+      select: { number: true },
+    });
+    if (totalInvoice) {
+      throw new DocumentFlowError(
+        `Ce devis est déjà facturé en totalité${totalInvoice.number ? ` (${totalInvoice.number})` : ""} : pas d'acompte possible.`,
+        409,
+      );
+    }
     if (milestone.invoiceId || milestone.generatedInvoice) {
       throw new DocumentFlowError(
         "Une facture existe déjà pour ce jalon",

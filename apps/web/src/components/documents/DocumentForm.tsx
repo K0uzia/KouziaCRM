@@ -26,6 +26,16 @@ export type DocumentFormValues = {
   discountType: "NONE" | "PERCENT" | "FIXED";
   discountPercent: string;
   discountEuros: string;
+  /** Facture : devis signé du client auquel la rattacher (facultatif). */
+  sourceQuoteId: string;
+};
+
+type QuoteOpt = {
+  id: string;
+  number: string | null;
+  totalCents: number;
+  quoteStatus?: string | null;
+  lines?: Array<{ description: string }>;
 };
 
 type ServiceOpt = {
@@ -80,9 +90,67 @@ export function DocumentFormEditor({
     discountType: initial?.discountType ?? "NONE",
     discountPercent: initial?.discountPercent ?? "",
     discountEuros: initial?.discountEuros ?? "",
+    sourceQuoteId: initial?.sourceQuoteId ?? "",
   });
   const [busy, setBusy] = useState(false);
   const [services, setServices] = useState<ServiceOpt[]>([]);
+  const [signedQuotes, setSignedQuotes] = useState<QuoteOpt[]>([]);
+
+  // Facture : devis signés du client, pour un rattachement facultatif.
+  useEffect(() => {
+    if (documentType !== "INVOICE" || !form.clientId) {
+      setSignedQuotes([]);
+      return;
+    }
+    let alive = true;
+    const cid = encodeURIComponent(form.clientId);
+    Promise.all([
+      api<QuoteOpt[]>(`/api/invoices?type=QUOTE&clientId=${cid}`),
+      api<Array<{ id: string; status: string; quoteId?: string | null; sourceQuoteId?: string | null }>>(
+        `/api/invoices?type=INVOICE&clientId=${cid}`,
+      ),
+    ])
+      .then(([quotes, invoices]) => {
+        // Devis déjà facturés (par une autre facture) : l'API refuserait le rattachement.
+        const billed = new Set(
+          invoices
+            .filter((i) => i.status !== "CANCELLED" && i.id !== documentId)
+            .flatMap((i) => [i.quoteId, i.sourceQuoteId])
+            .filter(Boolean),
+        );
+        if (alive) {
+          setSignedQuotes(
+            quotes.filter(
+              (q) => q.number && q.quoteStatus === "ACCEPTED" && (!billed.has(q.id) || q.id === form.sourceQuoteId),
+            ),
+          );
+        }
+      })
+      .catch(() => alive && setSignedQuotes([]));
+    return () => {
+      alive = false;
+    };
+  }, [documentType, form.clientId]);
+
+  async function copyQuoteLines(quoteId: string) {
+    try {
+      const q = await api<{
+        lines?: Array<{ description: string; quantity: number; unitPriceCents: number; isSubscription?: boolean; billingDay?: number | null; serviceId?: string | null }>;
+      }>(`/api/invoices/${quoteId}`);
+      const lines = (q.lines ?? []).map((l) => ({
+        description: l.description,
+        quantity: String(l.quantity),
+        unitPriceEuros: (l.unitPriceCents / 100).toFixed(2),
+        isSubscription: Boolean(l.isSubscription),
+        billingDay: String(l.billingDay ?? 1),
+        serviceId: l.serviceId ?? "",
+      }));
+      if (lines.length) setForm((f) => ({ ...f, lines }));
+      toast.success("Prestations du devis reprises");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Reprise impossible");
+    }
+  }
 
   useEffect(() => {
     if (!form.clientId && clients[0]) {
@@ -165,6 +233,7 @@ export function DocumentFormEditor({
         paymentTerms: form.paymentTerms || null,
         serviceDate: documentType === "INVOICE" ? form.serviceDate || null : null,
         purchaseOrderRef: form.purchaseOrderRef || null,
+        ...(documentType === "INVOICE" ? { sourceQuoteId: form.sourceQuoteId || null } : {}),
         discountType: form.discountType,
         discountPercent:
           form.discountType === "PERCENT" ? Number(form.discountPercent) || 0 : undefined,
@@ -218,7 +287,7 @@ export function DocumentFormEditor({
           required
           aria-label="Client"
           value={form.clientId}
-          onChange={(e) => setForm((f) => ({ ...f, clientId: e.target.value }))}
+          onChange={(e) => setForm((f) => ({ ...f, clientId: e.target.value, sourceQuoteId: "" }))}
         >
           {clients.length === 0 ? (
             <option value="">Aucun client : créez-en un d&apos;abord</option>
@@ -231,6 +300,37 @@ export function DocumentFormEditor({
             ))
           )}
         </Select>
+        {!isQuote ? (
+          <Field
+            label="Devis lié (facultatif)"
+            hint={
+              signedQuotes.length === 0
+                ? "Aucun devis signé pour ce client : la facture reste indépendante."
+                : "Rattache la facture à un devis signé : il apparaît dans les documents liés, et le paiement démarre le projet."
+            }
+          >
+            <div className="flex flex-wrap gap-2">
+              <Select
+                className="min-w-0 flex-1"
+                value={form.sourceQuoteId}
+                disabled={signedQuotes.length === 0}
+                onChange={(e) => setForm((f) => ({ ...f, sourceQuoteId: e.target.value }))}
+              >
+                <option value="">Aucun (facture indépendante)</option>
+                {signedQuotes.map((q) => (
+                  <option key={q.id} value={q.id}>
+                    {q.number} · {eur(q.totalCents / 100)}
+                  </option>
+                ))}
+              </Select>
+              {form.sourceQuoteId ? (
+                <Button type="button" variant="secondary" onClick={() => void copyQuoteLines(form.sourceQuoteId)}>
+                  Reprendre ses prestations
+                </Button>
+              ) : null}
+            </div>
+          </Field>
+        ) : null}
       </section>
 
       {/* 2. Prestations */}

@@ -24,6 +24,8 @@ import {
 } from "@/lib/invoices/transitions.js";
 import { signedQuoteAbsolutePath } from "@/lib/invoices/acceptance-proof.js";
 import { WorkflowError } from "@/lib/invoices/workflow.js";
+import { applyPaymentLinkChoice } from "@/lib/invoices/payment-link.js";
+import { sendDocumentPdf } from "@/lib/email/send-document-pdf.js";
 import fs from "node:fs/promises";
 
 function actorOf(request: { user?: { id: string; email: string } }) {
@@ -40,6 +42,51 @@ function flowError(reply: import("fastify").FastifyReply, e: unknown) {
   return reply
     .code(400)
     .send({ error: e instanceof Error ? e.message : "Erreur document" });
+}
+
+/** Options de la fenêtre « Facturer » : lien de paiement puis envoi au client. */
+export const billingOptionsSchema = z.object({
+  payment: z
+    .discriminatedUnion("mode", [
+      z.object({ mode: z.literal("none") }),
+      z.object({ mode: z.literal("manual"), url: z.string().min(1).max(2000) }),
+      z.object({ mode: z.literal("auto") }),
+    ])
+    .optional(),
+  email: z
+    .object({
+      send: z.boolean(),
+      subject: z.string().max(300).optional(),
+      body: z.string().max(20000).optional(),
+    })
+    .optional(),
+});
+
+type BillingOptions = z.infer<typeof billingOptionsSchema>;
+
+/**
+ * Après création de la facture : lien de paiement puis email. La facture existe déjà :
+ * un échec ici est signalé sans l'annuler (on corrige depuis la fiche facture).
+ */
+export async function finalizeBilling(invoiceId: string, opts: BillingOptions) {
+  let paymentUrl: string | null = null;
+  let warning: string | null = null;
+  try {
+    paymentUrl = await applyPaymentLinkChoice(invoiceId, opts.payment);
+  } catch (e) {
+    warning = e instanceof Error ? e.message : "Lien de paiement non enregistré";
+  }
+  let emailed = false;
+  let emailReason: string | null = null;
+  if (opts.email?.send) {
+    const mail = await sendDocumentPdf(invoiceId, {
+      subject: opts.email.subject,
+      text: opts.email.body,
+    });
+    emailed = mail.sent;
+    emailReason = mail.reason ?? null;
+  }
+  return { paymentUrl, emailed, emailReason, warning };
 }
 
 export const quotesMarketRoutes: FastifyPluginAsync = async (app) => {
@@ -140,9 +187,12 @@ export const quotesMarketRoutes: FastifyPluginAsync = async (app) => {
         where: { id: request.params.mid, quoteId: request.params.id },
       });
       if (!milestone) return reply.code(404).send({ error: "Jalon introuvable" });
+      const opts = billingOptionsSchema.safeParse(request.body ?? {});
+      if (!opts.success) return reply.code(400).send({ error: "Options de facturation invalides" });
       try {
         const invoice = await generateMilestoneInvoice(milestone.id);
-        return reply.code(201).send(serializeInvoice(invoice));
+        const billing = await finalizeBilling(invoice.id, opts.data);
+        return reply.code(201).send({ ...serializeInvoice(invoice), ...billing });
       } catch (e) {
         return flowError(reply, e);
       }
@@ -249,7 +299,7 @@ export const quotesMarketRoutes: FastifyPluginAsync = async (app) => {
       if (!quote || quote.documentType !== InvoiceDocumentType.QUOTE) {
         return reply.code(404).send({ error: "Devis introuvable" });
       }
-      const schema = z.object({
+      const schema = billingOptionsSchema.extend({
         force: z.boolean().optional(),
         issueDate: z.string().optional(),
         milestoneId: z.string().optional(),
@@ -266,9 +316,11 @@ export const quotesMarketRoutes: FastifyPluginAsync = async (app) => {
             : undefined,
           milestoneId: parsed.data.milestoneId,
         });
+        const billing = await finalizeBilling(result.invoice.id, parsed.data);
         return reply.code(201).send({
           invoice: serializeInvoice(result.invoice),
           summary: result.summary,
+          ...billing,
         });
       } catch (e) {
         return flowError(reply, e);

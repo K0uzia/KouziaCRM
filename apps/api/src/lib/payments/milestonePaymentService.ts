@@ -254,6 +254,13 @@ export async function setManualMilestonePaymentLink(
     },
     include: { quote: { include: { client: true } } },
   });
+  // Même lien sur la facture de l'échéance : visible depuis la fiche facture et ses emails.
+  if (milestone.invoiceId) {
+    await prisma.invoice.update({
+      where: { id: milestone.invoiceId },
+      data: { checkoutUrl: url.toString(), revolutOrderId: null },
+    });
+  }
 
   const clientEmail = decryptOptional(milestone.quote.client.emailEncrypted);
   const quoteRef = milestone.quote.number ?? "brouillon";
