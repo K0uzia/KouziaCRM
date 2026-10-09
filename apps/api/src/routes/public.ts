@@ -34,6 +34,7 @@ import {
   submitClientTestimonial,
   TestimonialError,
 } from "@/lib/testimonials/service.js";
+import { listPortalProjects } from "@/lib/projects/service.js";
 
 const trackingSchema = z.object({
   clientNumber: z.string().min(3),
@@ -178,6 +179,7 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
       });
 
       const testimonialSubmitted = await clientHasSubmittedTestimonial(client.id);
+      const projects = await listPortalProjects(client.id);
 
       return {
         clientFirstName: firstName,
@@ -291,6 +293,8 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
           sentAt: e.sentAt.toISOString(),
         })),
         testimonialSubmitted,
+        // Bloc « Avancement » de /suivi : affiché dès que la liste est présente.
+        ...(projects.length > 0 ? { projects } : {}),
       };
     },
   );

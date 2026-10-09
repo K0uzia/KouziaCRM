@@ -561,9 +561,32 @@ model Client {
   onboardingAsCreated  OnboardingInvitation[] @relation("OnboardingCreated")
 
   testimonials        ClientTestimonial[]
+  projects            ClientProject[]
 
   @@index([displayName])
   @@index([type])
+}
+
+/// Avancement d'un projet client, affiché dans l'espace client (/suivi) quand visible.
+model ClientProject {
+  id              String   @id @default(cuid())
+  clientId        String
+  client          Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  name            String
+  /// 0 à 100
+  progress        Int      @default(0)
+  /// JSON [{ label, status: done|current|todo, date?: YYYY-MM-DD }]
+  steps           String   @default("[]")
+  /// JSON [{ label, url (https) }]
+  links           String   @default("[]")
+  /// JSON [{ label, done, note? }]
+  checklist       String   @default("[]")
+  visibleOnPortal Boolean  @default(true)
+  position        Int      @default(0)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([clientId, position])
 }
 
 /// Journal des emails sortants vers un client (suivi portail /admin)

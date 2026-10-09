@@ -16,6 +16,7 @@ import {
   type Client,
 } from "@/components/clients/ClientForm";
 import { ClientEmailLink } from "@/components/clients/ClientEmailLink";
+import { ClientProjects } from "@/components/clients/ClientProjects";
 import { ClientMessagesTab } from "@/pages/messaging/ClientMessagesTab";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { useCreateParam } from "@/lib/use-create-param";
@@ -619,6 +620,8 @@ export function ClientDetailPage() {
           )}
         </Card>
       </div>
+
+      <ClientProjects clientId={client.id} />
 
       <ClientMessagesTab clientId={client.id} />
 
