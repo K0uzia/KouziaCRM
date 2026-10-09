@@ -2,8 +2,8 @@
 services:
   app:
     build: .
-    image: kouziacrm:latest
-    container_name: kouziacrm-app
+    image: kouzia-erp:latest
+    container_name: kouzia-erp-app
     restart: unless-stopped
     ports:
       - "127.0.0.1:3000:3000"
@@ -30,8 +30,8 @@ services:
       start_period: 60s
 
   worker:
-    image: kouziacrm:latest
-    container_name: kouziacrm-worker
+    image: kouzia-erp:latest
+    container_name: kouzia-erp-worker
     restart: unless-stopped
     command: ["npx", "tsx", "--env-file=.env", "--tsconfig", "apps/api/tsconfig.json", "scripts/worker.ts"]
     env_file: .env
@@ -45,8 +45,8 @@ services:
         condition: service_healthy
 
   prisma-studio:
-    image: kouziacrm:latest
-    container_name: kouziacrm-studio
+    image: kouzia-erp:latest
+    container_name: kouzia-erp-studio
     restart: unless-stopped
     command: ["npx", "prisma", "studio", "--hostname", "0.0.0.0", "--port", "5555"]
     ports:
@@ -61,7 +61,7 @@ services:
   # Décommenter sur Proxmox pour l'accès HTTPS via Cloudflare Tunnel
   # cloudflared:
   #   image: cloudflare/cloudflared:latest
-  #   container_name: kouziacrm-tunnel
+  #   container_name: kouzia-erp-tunnel
   #   restart: unless-stopped
   #   command: tunnel --no-autoupdate run --token ${CLOUDFLARE_TUNNEL_TOKEN}
   #   env_file: .env

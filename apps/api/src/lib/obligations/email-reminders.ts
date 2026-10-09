@@ -54,12 +54,12 @@ export function buildObligationReminderEmail(opts: {
     "",
     `Lien officiel : ${opts.officialUrl}`,
     "",
-    `- ${opts.brandName} / KouziaCRM`,
+    `- ${opts.brandName} / Kouzia ERP`,
   ].join("\n");
   const html = `<p><strong>Rappel déclaration (${opts.stageLabel})</strong></p>
 <p>${escapeHtml(opts.label)}<br/>Échéance : ${escapeHtml(opts.dueYmd)}</p>
 <p><a href="${escapeHtml(opts.officialUrl)}">Ouvrir la démarche officielle</a></p>
-<p style="color:#64748b;font-size:12px;">${escapeHtml(opts.brandName)} / KouziaCRM</p>`;
+<p style="color:#64748b;font-size:12px;">${escapeHtml(opts.brandName)} / Kouzia ERP</p>`;
   return { subject, text, html };
 }
 

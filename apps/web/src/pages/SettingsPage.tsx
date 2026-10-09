@@ -1192,7 +1192,7 @@ export function SettingsPage() {
                   <p className="text-xs text-[var(--muted)]">
                     Tiime (ou une autre PA) servira surtout pour la{" "}
                     <strong className="text-[var(--text)]">facture électronique B2B 2026</strong>
-                    , pas pour remplacer le CRM. Laissez l&apos;activité B2C désactivée dans
+                    , pas pour remplacer l'ERP. Laissez l&apos;activité B2C désactivée dans
                     Déclarations si vous ne facturez pas de particuliers.
                   </p>
                 </Card>

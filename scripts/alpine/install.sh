@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Installation KouziaCRM sur CT Proxmox Alpine (natif, sans Docker).
+# Installation Kouzia ERP sur CT Proxmox Alpine (natif, sans Docker).
 #
 # Préférer le menu :
 #   bash /opt/kouziacrm/scripts/alpine/kouziactl
@@ -20,7 +20,7 @@ fi
 # shellcheck source=lib.sh
 source "${SCRIPT_DIR}/lib.sh"
 
-REPO_URL="${KOUZIA_REPO_URL:-https://github.com/K0uzia/KouziaCRM.git}"
+REPO_URL="${KOUZIA_REPO_URL:-https://github.com/K0uzia/Kouzia ERP.git}"
 REPO_BRANCH="${KOUZIA_REPO_BRANCH:-main}"
 SKIP_SEED=0
 NO_START=0
@@ -70,7 +70,7 @@ require_root
 require_alpine
 disk_guard / 1024
 
-log "=== KouziaCRM : installation Alpine CT ==="
+log "=== Kouzia ERP : installation Alpine CT ==="
 log "App dir : $KOUZIA_APP_DIR"
 
 # --- Packages système ---
@@ -245,7 +245,7 @@ install -m 644 "${SCRIPT_DIR}/conf/logrotate.kouzia" /etc/logrotate.d/kouzia
 CRON_FILE="/etc/periodic/daily/kouzia-backup"
 cat > "$CRON_FILE" <<EOF
 #!/bin/sh
-# Backup quotidien KouziaCRM (Alpine busybox crond : /etc/periodic/daily)
+# Backup quotidien Kouzia ERP (Alpine busybox crond : /etc/periodic/daily)
 exec ${KOUZIA_APP_DIR}/scripts/alpine/backup.sh
 EOF
 chmod 755 "$CRON_FILE"

@@ -13,11 +13,11 @@ export default defineConfig({
     alias: {
       "@": path.resolve(__dirname, "./src"),
       "@kouzia/forms": path.resolve(__dirname, "../../packages/kouzia-forms/src/index.ts"),
-      "@kouziacrm/email-sanitize": path.resolve(
+      "@kouzia-erp/email-sanitize": path.resolve(
         __dirname,
         "../api/src/lib/email/sanitize-html.ts",
       ),
-      "@kouziacrm/email-sender": path.resolve(
+      "@kouzia-erp/email-sender": path.resolve(
         __dirname,
         "../api/src/lib/email/sender-label.ts",
       ),

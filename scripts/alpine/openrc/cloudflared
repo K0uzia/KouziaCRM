@@ -1,5 +1,5 @@
 #!/sbin/openrc-run
-# Cloudflare Tunnel pour KouziaCRM
+# Cloudflare Tunnel pour Kouzia ERP
 # Token : /etc/kouzia/cloudflare-tunnel.token (posé par kouziactl cloudflare)
 
 description="Cloudflare Tunnel (cloudflared)"

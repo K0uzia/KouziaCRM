@@ -1,8 +1,8 @@
 #!/sbin/openrc-run
-# OpenRC : API KouziaCRM (sert aussi la SPA en production)
+# OpenRC : API Kouzia ERP (sert aussi la SPA en production)
 # conf.d : /etc/conf.d/kouziacrm
 
-description="KouziaCRM API + SPA"
+description="Kouzia ERP API + SPA"
 
 : "${KOUZIA_APP_DIR:=/opt/kouziacrm}"
 : "${KOUZIA_USER:=kouzia}"

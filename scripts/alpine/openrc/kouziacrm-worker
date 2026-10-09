@@ -1,8 +1,8 @@
 #!/sbin/openrc-run
-# OpenRC : worker KouziaCRM (IMAP + cron métier via node-cron)
+# OpenRC : worker Kouzia ERP (IMAP + cron métier via node-cron)
 # conf.d : /etc/conf.d/kouziacrm-worker
 
-description="KouziaCRM worker (IMAP / relances)"
+description="Kouzia ERP worker (IMAP / relances)"
 
 : "${KOUZIA_APP_DIR:=/opt/kouziacrm}"
 : "${KOUZIA_USER:=kouzia}"

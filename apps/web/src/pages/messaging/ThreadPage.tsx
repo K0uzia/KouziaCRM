@@ -10,7 +10,7 @@ import { AttachmentList } from "./AttachmentList";
 import { MessageBody } from "./MessageBody";
 import { QuickActions } from "./QuickActions";
 import { QuoteValidationBlock } from "./QuoteValidationBlock";
-import { senderLabel } from "@kouziacrm/email-sender";
+import { senderLabel } from "@kouzia-erp/email-sender";
 
 export function ThreadPage() {
   const { threadId } = useParams();

@@ -14,7 +14,7 @@ import { MessageBody } from "@/pages/messaging/MessageBody";
 import { AttachmentList } from "@/pages/messaging/AttachmentList";
 import { QuoteValidationBlock } from "@/pages/messaging/QuoteValidationBlock";
 import { formatDate, formatTime } from "@/lib/format";
-import { senderLabel } from "@kouziacrm/email-sender";
+import { senderLabel } from "@kouzia-erp/email-sender";
 
 type Props = {
   threadId: string | null;

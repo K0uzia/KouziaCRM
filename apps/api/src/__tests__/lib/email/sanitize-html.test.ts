@@ -75,7 +75,7 @@ describe("buildEmailSrcDoc", () => {
     expect(doc).toContain("<body>");
   });
 
-  it("force un canvas clair pour contrer le color-scheme dark du CRM", () => {
+  it("force un canvas clair pour contrer le color-scheme dark de l'ERP", () => {
     const doc = buildEmailSrcDoc(
       '<html><head><meta name="color-scheme" content="dark"></head><body style="color:#fff"><p>Hello</p></body></html>',
     );

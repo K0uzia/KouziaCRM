@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Mise à jour incrémentale KouziaCRM (Alpine) :
+# Mise à jour incrémentale Kouzia ERP (Alpine) :
 #  - backup DB avant toute modification
 #  - git pull OU code déjà synchronisé (rsync depuis la machine de dev)
 #  - npm ci seulement si package-lock.json a changé
@@ -60,7 +60,7 @@ require_cmd curl sqlite3 npm npx
 disk_guard "$KOUZIA_APP_DIR" 400
 [[ -f "${KOUZIA_APP_DIR}/package.json" ]] || die "App introuvable dans $KOUZIA_APP_DIR (lancer install.sh d'abord)."
 
-log "=== KouziaCRM : mise à jour ==="
+log "=== Kouzia ERP : mise à jour ==="
 if [[ "$DO_GIT" -eq 1 ]]; then
   log "Mode : git pull + incrémental"
 else

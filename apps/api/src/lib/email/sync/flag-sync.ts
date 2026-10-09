@@ -22,7 +22,7 @@ async function recountUnread(threadId: string | null, folderId: string | null): 
   }
 }
 
-/** Résout un id CRM, un Message-ID RFC, ou un uid IMAP local. */
+/** Résout un id ERP, un Message-ID RFC, ou un uid IMAP local. */
 export async function resolveEmailMessageId(id: string): Promise<string | null> {
   const byPk = await prisma.emailMessage.findUnique({
     where: { id },

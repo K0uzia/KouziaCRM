@@ -28,10 +28,10 @@
       "@/*": [
         "./src/*"
       ],
-      "@kouziacrm/email-sanitize": [
+      "@kouzia-erp/email-sanitize": [
         "../api/src/lib/email/sanitize-html.ts"
       ],
-      "@kouziacrm/email-sender": [
+      "@kouzia-erp/email-sender": [
         "../api/src/lib/email/sender-label.ts"
       ]
     }

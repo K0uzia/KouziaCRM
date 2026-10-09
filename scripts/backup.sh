@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Backup SQLite KouziaCRM : à lancer via cron de l'hôte Proxmox.
+# Backup SQLite Kouzia ERP : à lancer via cron de l'hôte Proxmox.
 #
 # Cron recommandé (crontab -e sur l'hôte) :
 #   0 2 * * * /opt/kouziacrm/scripts/backup.sh

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Restauration d'un backup GPG KouziaCRM.
+# Restauration d'un backup GPG Kouzia ERP.
 #
 # Usage :
 #   kouziactl restore /var/backup/kouzia/kouziacrm-2026-09-03.db.gpg

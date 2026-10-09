@@ -1,6 +1,6 @@
-# KouziaCRM
+# Kouzia ERP
 
-Outil privé de CRM et facturation pour **Alexandre Kouziaeff** (EI Kouzia)  -  micro-entreprise, franchise en base de TVA (art. 293 B CGI), activité libérale non réglementée (BNC).
+ERP privé (gestion, facturation, suivi client) pour **Alexandre Kouziaeff** (EI Kouzia)  -  micro-entreprise, franchise en base de TVA (art. 293 B CGI), activité libérale non réglementée (BNC).
 
 Stack : **Fastify + Prisma + SQLite** (API) · **Vite + React + TypeScript + Tailwind + Font Awesome** (SPA).
 
@@ -108,7 +108,7 @@ bash scripts/deploy.sh
 
 - **Ne pas utiliser `--no-cache`** sauf dépannage (force un rebuild complet ~1 h sur petit CT).
 - Le cache Docker réutilise `npm ci` tant que `package-lock.json` ne change pas.
-- Une seule image (`kouziacrm:latest`) sert app, worker et prisma-studio.
+- Une seule image (`kouzia-erp:latest`) sert app, worker et prisma-studio.
 - **`docker compose down` ne supprime pas `./data`** (volume bind sur le disque hôte).
 - **Ne jamais** `rm -rf data/` ni restaurer une vieille image par-dessus la base sans backup.
 

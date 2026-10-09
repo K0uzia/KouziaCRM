@@ -2,7 +2,7 @@ import { useMemo, type ReactNode } from "react";
 import {
   buildEmailSrcDoc,
   sanitizeEmailHtml,
-} from "@kouziacrm/email-sanitize";
+} from "@kouzia-erp/email-sanitize";
 
 type Props = {
   bodyText: string | null;

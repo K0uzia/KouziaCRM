@@ -72,7 +72,7 @@ SSH_CMD=(ssh)
 # shellcheck disable=SC2206
 [[ -n "$SSH_OPTS" ]] && SSH_CMD+=($SSH_OPTS)
 
-echo "==> Déploiement KouziaCRM → ${REMOTE}:${REMOTE_DIR}"
+echo "==> Déploiement Kouzia ERP → ${REMOTE}:${REMOTE_DIR}"
 
 if [[ "$RUN_GIT_ON_REMOTE" -eq 1 ]]; then
   echo "==> Mode git sur le CT (pas de rsync code)"

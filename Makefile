@@ -29,7 +29,7 @@ app: build
 	  npx tsx --env-file=.env --tsconfig apps/api/tsconfig.json apps/api/src/index.ts
 
 build:
-	npm run build -w @kouziacrm/web
+	npm run build -w @kouzia-erp/web
 
 worker:
 	npm run worker

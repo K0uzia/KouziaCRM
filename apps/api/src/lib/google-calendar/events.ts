@@ -80,7 +80,7 @@ export type ObligationEventInput = {
 export function buildObligationEventPayload(
   input: ObligationEventInput & { obligationId?: string },
 ): calendar_v3.Schema$Event {
-  const summaryBase = (input.label || "Obligation KouziaCRM").slice(0, 1000);
+  const summaryBase = (input.label || "Obligation Kouzia ERP").slice(0, 1000);
   const summary =
     input.kind === "open"
       ? `Ouverture : ${summaryBase}`.slice(0, 1024)
@@ -158,7 +158,7 @@ export function buildObligationDescription(opts: {
     "",
     `Démarche officielle : ${opts.officialUrl}`,
     "",
-    `Événement synchronisé depuis KouziaCRM. ${reminderHint}`,
+    `Événement synchronisé depuis Kouzia ERP. ${reminderHint}`,
   ];
   return lines.join("\n");
 }

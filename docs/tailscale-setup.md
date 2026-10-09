@@ -1,6 +1,6 @@
 # Tailscale : accès admin ERP depuis le téléphone
 
-Guide pour joindre l'interface admin KouziaCRM (hébergée sur un CT Proxmox Alpine)
+Guide pour joindre l'interface admin Kouzia ERP (hébergée sur un CT Proxmox Alpine)
 depuis n'importe où, sans ouvrir de ports et **sans exposer l'ERP sur Internet**.
 
 Le site public `kouzia.com`, les webhooks Revolut et le callback Google Calendar

@@ -6,7 +6,7 @@ Objectif : login Google + sync Agenda, **sans** casser le site Hostinger `kouzia
 | Rôle | URL | Où ça tourne |
 |------|-----|----------------|
 | Site / suivi | `https://kouzia.com` | Hostinger (inchangé) |
-| API CRM (OAuth, webhooks) | `https://api.kouzia.com` | CT via Cloudflare Tunnel |
+| API ERP (OAuth, webhooks) | `https://api.kouzia.com` | CT via Cloudflare Tunnel |
 | Admin ERP | `http://192.168.1.52:3000` | LAN uniquement |
 
 Après Google, Kouzia te renvoie tout seul sur le LAN (`WEB_ORIGIN`).

@@ -21,7 +21,7 @@ COPY . .
 ENV DATABASE_URL="file:/app/data/kouziacrm.db"
 RUN mkdir -p /app/data \
   && npx prisma generate \
-  && npm run build -w @kouziacrm/web
+  && npm run build -w @kouzia-erp/web
 
 # Étape 3 : image runtime légère (sans Vite, Tailwind, tests…)
 FROM node:22-bookworm-slim AS runner

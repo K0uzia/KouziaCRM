@@ -9,7 +9,7 @@ cd "$ROOT"
 export DOCKER_BUILDKIT=1
 export COMPOSE_DOCKER_CLI_BUILD=1
 
-echo "==> KouziaCRM : mise à jour (données conservées dans ${ROOT}/data/)"
+echo "==> Kouzia ERP : mise à jour (données conservées dans ${ROOT}/data/)"
 git pull
 
 echo "==> Build incrémental (cache Docker, pas de --no-cache)…"

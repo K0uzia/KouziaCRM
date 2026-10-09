@@ -30,7 +30,7 @@ v=DMARC1; p=none; rua=mailto:contact@kouzia.com
 
 Une fois les rapports stables, renforcer vers `p=quarantine` puis `p=reject`.
 
-## Checklist KouziaCRM
+## Checklist Kouzia ERP
 
 1. Paramètres > Emails & Messagerie : SMTP Hostinger (`smtp.hostinger.com:465` SSL) + IMAP (`imap.hostinger.com:993`)
 2. Mot de passe boîte `contact@kouzia.com` enregistré (chiffré en base)

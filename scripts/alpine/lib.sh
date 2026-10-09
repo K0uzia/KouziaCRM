@@ -115,7 +115,7 @@ git_sync_from_origin() {
 build_spa() {
   local dir="${1:-$KOUZIA_APP_DIR}"
   log "Build SPA (vite)…"
-  run_as_app "cd '$dir' && npm run build:spa -w @kouziacrm/web"
+  run_as_app "cd '$dir' && npm run build:spa -w @kouzia-erp/web"
 }
 
 ensure_dirs() {

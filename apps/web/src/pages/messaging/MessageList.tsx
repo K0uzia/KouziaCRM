@@ -14,7 +14,7 @@ import type { MailMessageItem } from "@/pages/messaging/MailLayout";
 import { formatDate, formatTime } from "@/lib/format";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Field";
-import { senderLabel } from "@kouziacrm/email-sender";
+import { senderLabel } from "@kouzia-erp/email-sender";
 
 type Props = {
   messages: MailMessageItem[];

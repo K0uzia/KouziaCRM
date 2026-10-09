@@ -549,7 +549,7 @@ configure_admin() {
 
 configure_public_site() {
   section "4/6  Site public kouzia.com" \
-    "Seul site public. Il appelle l'API CRM (/api/public/*) pour le suivi client, devis, PDF…"
+    "Seul site public. Il appelle l'API de l'ERP (/api/public/*) pour le suivi client, devis, PDF…"
 
   local public_web client_portal site_url
   ask public_web "Origine du site (PUBLIC_WEB_ORIGIN, CORS)" "$(env_get PUBLIC_WEB_ORIGIN "https://kouzia.com")"
@@ -1237,7 +1237,7 @@ DO_RESTART=0
 run_full_wizard() {
   echo ""
   echo "${C_BOLD}════════════════════════════════════════${C_RESET}"
-  echo "${C_BOLD}  Assistant configuration KouziaCRM${C_RESET}"
+  echo "${C_BOLD}  Assistant configuration Kouzia ERP${C_RESET}"
   echo "${C_BOLD}════════════════════════════════════════${C_RESET}"
   print_access
   choose_profile

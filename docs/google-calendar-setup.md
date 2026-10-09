@@ -1,4 +1,4 @@
-# Google Calendar : sync des obligations KouziaCRM
+# Google Calendar : sync des obligations Kouzia ERP
 
 ERP en LAN (CT) + site `kouzia.com` à part. Login Google = **une fois**.
 Pas de sous-domaine, pas de DNS Hostinger.

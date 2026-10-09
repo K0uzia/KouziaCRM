@@ -14,7 +14,7 @@ async function main() {
   const app = await buildApp();
   const port = getApiPort();
   await app.listen({ port, host: "0.0.0.0" });
-  app.log.info(`API KouziaCRM sur :${port}`);
+  app.log.info(`API Kouzia ERP sur :${port}`);
 
   try {
     await hydrateSettingsFromEnv();

@@ -77,7 +77,7 @@ export function sanitizeEmailHtml(
   );
 }
 
-/** Canvas clair: le CRM est dark (color-scheme), les emails HTML sont conçus pour fond blanc. */
+/** Canvas clair: l'ERP est dark (color-scheme), les emails HTML sont conçus pour fond blanc. */
 const EMAIL_LIGHT_HEAD =
   '<meta name="color-scheme" content="light only">' +
   '<meta name="supported-color-schemes" content="light">' +

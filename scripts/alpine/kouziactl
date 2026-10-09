@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Point d'entrée unifié KouziaCRM (Alpine / Proxmox CT).
+# Point d'entrée unifié Kouzia ERP (Alpine / Proxmox CT).
 #
 #   kouziactl                 → menu interactif
 #   kouziactl <cmd>           → commande directe
@@ -83,7 +83,7 @@ pause_enter() {
 
 usage() {
   cat <<EOF
-${C_BOLD}kouziactl${C_RESET} - gestion KouziaCRM (Alpine CT)
+${C_BOLD}kouziactl${C_RESET} - gestion Kouzia ERP (Alpine CT)
 
 Usage:
   kouziactl                 Menu interactif
@@ -345,7 +345,7 @@ show_services_menu() {
 show_menu() {
   while true; do
     menu_clear_hint
-    menu_box "KouziaCRM  ·  Alpine CT"
+    menu_box "Kouzia ERP  ·  Alpine CT"
     local ip_hint=""
     if command -v ip >/dev/null 2>&1; then
       ip_hint="$(ip -4 -o addr show scope global 2>/dev/null | awk '{print $4}' | cut -d/ -f1 | head -1 || true)"

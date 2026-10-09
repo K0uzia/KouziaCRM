@@ -84,7 +84,7 @@ async function runHourly() {
 }
 
 console.log(
-  "[worker] KouziaCRM worker démarré - outbox 30s + IMAP IDLE/poll 60s + banque/maintenance horaire",
+  "[worker] Kouzia ERP worker démarré - outbox 30s + IMAP IDLE/poll 60s + banque/maintenance horaire",
 );
 void runOutbox();
 void runImapIfDue();
