@@ -1,5 +1,5 @@
 import { assertSecurityEnv, getApiPort } from "@/lib/env.js";
-import { enableWal } from "@/lib/prisma.js";
+import { enableWal, prisma } from "@/lib/prisma.js";
 import { buildApp } from "@/app.js";
 import { hydrateSettingsFromEnv } from "@/lib/settings/service.js";
 
@@ -13,6 +13,23 @@ async function main() {
   // hydrate + backfill (surtout sous lock SQLite avec le worker).
   const app = await buildApp();
   const port = getApiPort();
+
+  // Arrêt propre (Ctrl+C, redémarrage de tsx watch, OpenRC) : connexions fermées, base libérée.
+  let closing = false;
+  const shutdown = (signal: string) => {
+    if (closing) return;
+    closing = true;
+    app.log.info(`[arrêt] ${signal}`);
+    const force = setTimeout(() => process.exit(0), 3000);
+    force.unref();
+    void app
+      .close()
+      .then(() => prisma.$disconnect())
+      .catch(() => undefined)
+      .finally(() => process.exit(0));
+  };
+  for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"] as const) process.once(signal, () => shutdown(signal));
+
   await app.listen({ port, host: "0.0.0.0" });
   app.log.info(`API Kouzia ERP sur :${port}`);
 

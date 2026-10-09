@@ -1,6 +1,6 @@
 import cron from "node-cron";
 import { isImapConfigured } from "../apps/api/src/lib/email/imap-config";
-import { runMailPollFallback, startIdleWorker } from "../apps/api/src/lib/email/sync/idle-worker";
+import { runMailPollFallback, startIdleWorker, stopIdleWorker } from "../apps/api/src/lib/email/sync/idle-worker";
 import { syncImapInbox } from "../apps/api/src/lib/email/imap-sync";
 import { processEmailOutbox } from "../apps/api/src/lib/email/mailer";
 import { expireQuotes, scheduleReminders } from "../apps/api/src/lib/reminders";
@@ -94,15 +94,33 @@ if (process.env.MAIL_IDLE !== "false") {
   void startIdleWorker();
 }
 
-cron.schedule("*/30 * * * * *", () => {
-  void runOutbox();
-});
-cron.schedule("* * * * *", () => {
-  void runMailPollFallback();
-});
-cron.schedule("*/5 * * * *", () => {
-  void runImapIfDue();
-});
-cron.schedule("0 * * * *", () => {
-  void runHourly();
-});
+const tasks = [
+  cron.schedule("*/30 * * * * *", () => {
+    void runOutbox();
+  }),
+  cron.schedule("* * * * *", () => {
+    void runMailPollFallback();
+  }),
+  cron.schedule("*/5 * * * *", () => {
+    void runImapIfDue();
+  }),
+  cron.schedule("0 * * * *", () => {
+    void runHourly();
+  }),
+];
+
+// Arrêt propre (Ctrl+C, redémarrage de tsx watch, OpenRC) : plus de tâche, IMAP et base fermés.
+let closing = false;
+function shutdown(signal: string) {
+  if (closing) return;
+  closing = true;
+  console.log(`[worker] arrêt (${signal})`);
+  setTimeout(() => process.exit(0), 3000).unref();
+  for (const task of tasks) void task.stop();
+  stopIdleWorker();
+  void prisma
+    .$disconnect()
+    .catch(() => undefined)
+    .finally(() => process.exit(0));
+}
+for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"] as const) process.once(signal, () => shutdown(signal));
