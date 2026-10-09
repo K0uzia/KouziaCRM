@@ -146,7 +146,7 @@ export function PaymentsPage() {
         }
       />
 
-      <div className="mb-6 grid gap-4 sm:grid-cols-3">
+      <div className="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-3 sm:gap-4 [&>*:first-child]:col-span-2 sm:[&>*:first-child]:col-span-1">
         <Card className="p-4">
           <p className="text-xs text-[var(--muted)]">Encaissé ce mois</p>
           <p className="mt-1 text-2xl font-semibold tabular-nums">{formatEUR(totalMonth)}</p>

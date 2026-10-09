@@ -12,6 +12,7 @@ import {
 } from "@fortawesome/free-solid-svg-icons";
 import type { MailMessageItem } from "@/pages/messaging/MailLayout";
 import { formatDate, formatTime } from "@/lib/format";
+import { FilterChips } from "@/components/ui/FilterChips";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Field";
 import { senderLabel } from "@kouzia-erp/email-sender";
@@ -198,40 +199,36 @@ export function MessageList({
             Dossiers
           </Button>
         </div>
-        <div className="mb-2 flex flex-wrap gap-1">
-          {filters.map((f) => {
-            const count =
+        <FilterChips
+          className="mb-2"
+          label="Expéditeurs"
+          value={audience}
+          onChange={onAudienceChange}
+          options={filters.map((f) => ({
+            id: f.id,
+            label: f.label,
+            count:
               f.id === "all"
                 ? audienceCounts?.all
                 : f.id === "clients"
                   ? audienceCounts?.clients
-                  : audienceCounts?.external;
-            return (
-              <button
-                key={f.id}
-                type="button"
-                className={`ui-chip rounded-full px-3 text-xs ${
-                  audience === f.id
-                    ? "bg-[var(--primary)] text-[var(--primary-fg)]"
-                    : "bg-[var(--surface-hover)] text-[var(--muted)] hover:text-[var(--text)]"
-                }`}
-                onClick={() => onAudienceChange(f.id)}
-              >
-                {f.label}
-                {count != null ? ` (${count})` : ""}
-              </button>
-            );
-          })}
-        </div>
-        <div className="mb-2 flex flex-wrap gap-1" role="group" aria-label="Filtres du dossier">
+                  : audienceCounts?.external,
+          }))}
+        />
+        <div
+          className="-mx-4 mb-2 flex gap-1 overflow-x-auto border-b border-[var(--border)] px-4 no-scrollbar sm:mx-0 sm:px-0"
+          role="group"
+          aria-label="Filtres du dossier"
+        >
           {viewFilters.map((f) => (
             <button
               key={f.id}
               type="button"
-              className={`ui-chip rounded-full px-3 text-xs ${
+              aria-pressed={viewFilter === f.id}
+              className={`ui-chip shrink-0 border-b-2 px-3 text-sm transition-colors ${
                 viewFilter === f.id
-                  ? "bg-[var(--surface-raised)] font-medium text-[var(--text)] ring-1 ring-[var(--border)]"
-                  : "text-[var(--muted)] hover:bg-[var(--surface-hover)] hover:text-[var(--text)]"
+                  ? "border-[var(--primary)] font-medium text-[var(--text)]"
+                  : "border-transparent text-[var(--muted)] hover:text-[var(--text)]"
               }`}
               onClick={() => onViewFilterChange(f.id)}
             >

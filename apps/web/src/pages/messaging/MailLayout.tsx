@@ -133,6 +133,11 @@ export function MailLayout() {
     setAudienceCounts(data.audienceCounts);
   }, [selectedFolderId, search, audience, viewFilter]);
 
+  /** Même erreur venant des dossiers et des messages : un seul toast (id stable). */
+  const notifyLoadError = useCallback((e: Error) => {
+    toast.error(e.message, { id: "mail-load-error" });
+  }, []);
+
   const refresh = useCallback(async () => {
     await loadFolders();
     await loadMessages();
@@ -142,16 +147,16 @@ export function MailLayout() {
   const scheduleRefresh = useCallback(() => {
     if (refreshTimer.current) clearTimeout(refreshTimer.current);
     refreshTimer.current = setTimeout(() => {
-      void refresh().catch((e: Error) => toast.error(e.message));
+      void refresh().catch(notifyLoadError);
     }, 400);
   }, [refresh]);
 
   useEffect(() => {
-    void loadFolders().catch((e: Error) => toast.error(e.message));
+    void loadFolders().catch(notifyLoadError);
   }, [loadFolders]);
 
   useEffect(() => {
-    void loadMessages().catch((e: Error) => toast.error(e.message));
+    void loadMessages().catch(notifyLoadError);
   }, [loadMessages]);
 
   useEffect(() => {

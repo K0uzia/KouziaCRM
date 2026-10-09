@@ -1,10 +1,14 @@
-import { useEffect, useId, type ReactNode } from "react";
+import { useEffect, useId, useRef, type ReactNode } from "react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faXmark } from "@fortawesome/free-solid-svg-icons";
 
+const FOCUSABLE =
+  'a[href], button:not([disabled]), input:not([disabled]):not([type="hidden"]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+
+/** Barre d'actions collée en bas du corps de la modale (le corps n'a pas de padding bas : rien ne dépasse sous elle). */
 export function ModalActions({ children }: { children: ReactNode }) {
   return (
-    <div className="sticky bottom-0 z-10 -mx-5 mt-4 flex flex-col-reverse gap-2 border-t border-[var(--border)] bg-[var(--surface)] px-5 py-4 pb-[max(1rem,env(safe-area-inset-bottom))] sm:-mx-6 sm:flex-row sm:justify-end sm:px-6 [&_button]:w-full sm:[&_button]:w-auto">
+    <div className="sticky bottom-0 z-10 -mx-5 mt-4 flex flex-wrap justify-end gap-2 border-t border-[var(--border)] bg-[var(--surface)] px-5 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:-mx-6 sm:px-6 sm:py-4 [&>*]:flex-[1_1_8rem] sm:[&>*]:flex-none">
       {children}
     </div>
   );
@@ -29,19 +33,49 @@ export function Modal({
 }) {
   const titleId = useId();
   const descId = useId();
+  const panelRef = useRef<HTMLDivElement>(null);
+  // onClose change à chaque rendu chez la plupart des appelants : lu via ref pour ne pas
+  // relancer l'effet (et voler le focus) à chaque frappe.
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
 
   useEffect(() => {
     if (!open) return;
+    const previous = document.activeElement as HTMLElement | null;
+    const panel = panelRef.current;
+    const first = panel?.querySelector<HTMLElement>(
+      `[autofocus], .modal-body ${FOCUSABLE.split(", ").join(", .modal-body ")}`,
+    );
+    (first ?? panel)?.focus();
+
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
+      if (e.key === "Escape") {
+        onCloseRef.current();
+        return;
+      }
+      if (e.key !== "Tab" || !panel) return;
+      const items = Array.from(panel.querySelectorAll<HTMLElement>(FOCUSABLE)).filter(
+        (el) => el.offsetParent !== null,
+      );
+      if (items.length === 0) return;
+      const head = items[0];
+      const tail = items[items.length - 1];
+      if (e.shiftKey && document.activeElement === head) {
+        e.preventDefault();
+        tail.focus();
+      } else if (!e.shiftKey && document.activeElement === tail) {
+        e.preventDefault();
+        head.focus();
+      }
     };
     document.addEventListener("keydown", onKey);
     document.body.style.overflow = "hidden";
     return () => {
       document.removeEventListener("keydown", onKey);
       document.body.style.overflow = "";
+      previous?.focus?.();
     };
-  }, [open, onClose]);
+  }, [open]);
 
   if (!open) return null;
 
@@ -50,15 +84,19 @@ export function Modal({
       <button
         type="button"
         aria-label="Fermer"
-        className="absolute inset-0 bg-[var(--text)]/30 backdrop-blur-[2px]"
+        tabIndex={-1}
+        className="absolute inset-0 bg-[var(--bg)]/75"
         onClick={onClose}
       />
       <div
+        ref={panelRef}
+        tabIndex={-1}
         role="dialog"
+        data-modal-panel
         aria-modal="true"
         aria-labelledby={titleId}
         aria-describedby={description ? descId : undefined}
-        className={`relative z-10 flex max-h-[92vh] w-full min-w-0 flex-col overflow-hidden rounded-t-[var(--radius-lg)] border border-[var(--border)] bg-[var(--surface)] pb-[env(safe-area-inset-bottom)] shadow-[var(--shadow)] sm:rounded-[var(--radius-lg)] ${
+        className={`relative z-10 flex max-h-[92vh] focus:outline-none w-full min-w-0 flex-col overflow-hidden rounded-t-[var(--radius-lg)] border border-[var(--border)] bg-[var(--surface)] pb-[env(safe-area-inset-bottom)] shadow-[var(--shadow)] sm:rounded-[var(--radius-lg)] ${
           wide ? "sm:max-w-3xl" : "sm:max-w-lg"
         }`}
       >
@@ -85,7 +123,7 @@ export function Modal({
             <FontAwesomeIcon icon={faXmark} />
           </button>
         </header>
-        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 py-5 sm:px-6">
+        <div className="modal-body min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 pt-5 after:block after:h-5 after:content-[''] sm:px-6">
           {children}
         </div>
         {footer ? (

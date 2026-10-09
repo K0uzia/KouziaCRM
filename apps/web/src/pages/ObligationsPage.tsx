@@ -257,7 +257,7 @@ export function ObligationsPage() {
         </ul>
       ) : null}
 
-      <div className="grid gap-3 sm:grid-cols-4">
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         <Card className="p-4">
           <p className="text-xs text-[var(--muted)]">En retard</p>
           <p className="mt-1 text-xl font-semibold tabular-nums text-[var(--danger)]">
