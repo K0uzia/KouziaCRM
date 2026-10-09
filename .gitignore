@@ -62,3 +62,7 @@ Export_*.pdf
 .cache/
 .npm/
 .deploy-state/
+
+# Bases SQLite locales
+*.db
+*.db-journal
