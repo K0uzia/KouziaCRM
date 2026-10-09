@@ -1,6 +1,8 @@
 import type { ReactNode } from "react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import type { IconDefinition } from "@fortawesome/fontawesome-svg-core";
+import { faArrowLeft } from "@fortawesome/free-solid-svg-icons";
+import { Link } from "react-router-dom";
 
 const tones = {
   neutral: "bg-[var(--surface-raised)] text-[var(--muted)] ring-1 ring-[var(--border)]",
@@ -34,19 +36,31 @@ export function PageHeader({
   title,
   subtitle,
   actions,
+  back,
 }: {
   title: React.ReactNode;
-  subtitle?: string;
+  subtitle?: React.ReactNode;
   actions?: React.ReactNode;
+  /** Lien de retour vers la liste parente (affiché au-dessus du titre). */
+  back?: { to: string; label: string };
 }) {
   return (
     <div className="mb-6 flex flex-col gap-3 sm:mb-8 sm:flex-row sm:items-start sm:justify-between sm:gap-6">
       <div className="min-w-0">
+        {back ? (
+          <Link
+            to={back.to}
+            className="-ml-1 mb-1 inline-flex min-h-11 items-center gap-2 rounded-[var(--radius-sm)] px-1 text-sm text-[var(--muted)] transition-colors hover:text-[var(--text)]"
+          >
+            <FontAwesomeIcon icon={faArrowLeft} className="h-3.5 w-3.5" aria-hidden />
+            {back.label}
+          </Link>
+        ) : null}
         <h1 className="text-xl font-bold leading-tight tracking-tight text-[var(--text)] sm:text-2xl lg:text-3xl">
           {title}
         </h1>
         {subtitle ? (
-          <p className="mt-2 max-w-xl text-sm leading-relaxed text-[var(--muted)]">{subtitle}</p>
+          <div className="mt-2 max-w-xl text-sm leading-relaxed text-[var(--muted)]">{subtitle}</div>
         ) : null}
       </div>
       {actions ? (

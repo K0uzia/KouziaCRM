@@ -156,7 +156,7 @@ export function MarketTimeline({
           return (
             <li key={m.id} className="space-y-3 px-5 py-3.5">
               <div className="flex flex-wrap items-center gap-3">
-                <div className="min-w-0 flex-1">
+                <div className="min-w-0 basis-full sm:basis-0 sm:flex-1">
                   <div className="flex flex-wrap items-center gap-2">
                     <p className="text-sm font-medium">
                       {m.label}
@@ -227,6 +227,9 @@ export function MarketTimeline({
               {canLink ? (
                 <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
                   <Input
+                    type="url"
+                    inputMode="url"
+                    aria-label={`Lien de paiement : ${m.label}`}
                     className="py-2 text-xs"
                     placeholder="https://revolut.me/… ou lien Payment Link"
                     value={draft}
@@ -234,7 +237,7 @@ export function MarketTimeline({
                       setDrafts((prev) => ({ ...prev, [m.id]: e.target.value }))
                     }
                   />
-                  <div className="flex shrink-0 gap-2">
+                  <div className="flex shrink-0 gap-2 [&>*]:flex-1 sm:[&>*]:flex-none">
                     <Button
                       type="button"
                       variant="secondary"

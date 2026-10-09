@@ -135,26 +135,33 @@ function DefaultMobileCard<T>({
   index: number;
   columns: TableColumn<T>[];
 }) {
-  const fields = columns.filter((c) => !isActionColumn(c));
+  // Colonnes marquées `hide` : secondaires sur petit écran, absentes de la carte.
+  const fields = columns.filter((c) => !isActionColumn(c) && !c.hide);
   const actions = columns.filter(isActionColumn);
-  const titleCol = fields[0];
-  const rest = fields.slice(1);
+  const [titleCol, leadCol, ...rest] = fields;
 
   return (
-    <article className="min-w-0 rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--surface-glass)] p-4 shadow-[var(--shadow-card)]">
-      {titleCol ? (
-        <div className="min-w-0 text-sm font-semibold text-[var(--text)]">
-          {renderColumnCell(titleCol, row, index)}
-        </div>
-      ) : null}
+    <article className="min-w-0 rounded-[var(--radius)] border border-[var(--border)] bg-[var(--surface)] p-3.5">
+      <div className="flex min-w-0 items-start justify-between gap-3">
+        {titleCol ? (
+          <div className="min-w-0 text-sm font-semibold text-[var(--text)]">
+            {renderColumnCell(titleCol, row, index)}
+          </div>
+        ) : null}
+        {leadCol ? (
+          <div className="min-w-0 shrink-0 text-right text-sm text-[var(--text)]">
+            {renderColumnCell(leadCol, row, index)}
+          </div>
+        ) : null}
+      </div>
       {rest.length > 0 ? (
-        <dl className="mt-3 grid gap-2">
+        <dl className="mt-2.5 grid grid-cols-2 gap-x-4 gap-y-2">
           {rest.map((col, i) => {
             const label = columnLabel(col) || `Champ ${i + 1}`;
             return (
               <div key={`${label}-${i}`} className="min-w-0">
                 <dt className="text-xs text-[var(--muted)]">{label}</dt>
-                <dd className="mt-0.5 min-w-0 break-words text-sm text-[var(--text)]">
+                <dd className="mt-0.5 min-w-0 truncate text-sm text-[var(--text)]">
                   {renderColumnCell(col, row, index)}
                 </dd>
               </div>
@@ -163,7 +170,7 @@ function DefaultMobileCard<T>({
         </dl>
       ) : null}
       {actions.length > 0 ? (
-        <div className="mt-3 flex flex-wrap gap-2 [&_button]:h-auto [&_button]:min-h-11">
+        <div className="mt-3 flex flex-wrap justify-end gap-2 border-t border-[var(--border)] pt-3 [&_a]:min-h-11 [&_button]:h-auto [&_button]:min-h-11">
           {actions.map((col, i) => (
             <div key={i} className="min-w-0">
               {renderColumnCell(col, row, index)}
@@ -265,7 +272,7 @@ export function DataTable<T>({
 
   const wrapper = (children: React.ReactNode) =>
     card ? (
-      <div className="overflow-hidden rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--surface-glass)] shadow-[var(--shadow-card)] backdrop-blur-md">
+      <div className="overflow-hidden rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--surface)] shadow-[var(--shadow-card)] backdrop-blur-md">
         {children}
       </div>
     ) : (
@@ -304,12 +311,12 @@ export function DataTable<T>({
       ) : null}
 
       {filtered.length === 0 ? (
-        <div className="overflow-hidden rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--surface-glass)]">
+        <div className="overflow-hidden rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--surface)]">
           <EmptyState title={emptyTitle} hint={emptyHint} />
         </div>
       ) : (
         <>
-          <div className="space-y-3 md:hidden">
+          <div className="space-y-2 md:hidden">
             {mobileRows.map((row, index) => {
               const globalIndex = pagination
                 ? (currentMobilePage - 1) * perPage + index

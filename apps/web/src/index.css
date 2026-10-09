@@ -72,9 +72,6 @@
   --duration-fast: 150ms;
   --duration-base: 300ms;
   --ease: cubic-bezier(0.2, 0, 0, 1);
-  /* Gabarit */
-  --target: 2.75rem;
-  --header-h: 3.5rem;
 }
 
 *,

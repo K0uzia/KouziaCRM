@@ -10,7 +10,8 @@ import {
   quoteStatusLabel,
   statusTone,
 } from "@/lib/format";
-import { Button } from "@/components/ui/Button";
+import { Button, buttonClass } from "@/components/ui/Button";
+import { MoreMenu } from "@/components/ui/MoreMenu";
 import { Badge, Card, PageHeader } from "@/components/ui/Card";
 import { Modal, ModalActions } from "@/components/ui/Modal";
 import { FilterChips } from "@/components/ui/FilterChips";
@@ -140,6 +141,30 @@ function DocumentsListPage({
     ? ["ALL", "DRAFT", "SENT", "ACCEPTED", "REJECTED", "EXPIRED"]
     : ["ALL", "DRAFT", "ISSUED", "PAID", "CANCELLED"];
 
+  const renderDocCard = (d: Doc) => {
+    const st = displayStatus(d, isQuote);
+    return (
+      <Link
+        to={isQuote ? `/quotes/${d.id}` : `/invoices/${d.id}`}
+        className="block min-w-0 rounded-[var(--radius)] border border-[var(--border)] bg-[var(--surface)] p-3.5 transition-colors hover:border-[var(--border-strong)] hover:bg-[var(--surface-raised)]"
+      >
+        <div className="flex items-center justify-between gap-3">
+          <DocumentNumberBadge
+            number={d.number}
+            documentType={d.documentType}
+            invoiceType={d.invoiceType}
+          />
+          <span className="font-semibold tabular-nums">{formatEUR(d.totalCents)}</span>
+        </div>
+        <div className="mt-2 flex items-center justify-between gap-3">
+          <span className="min-w-0 truncate text-sm">{d.client.displayName}</span>
+          <Badge tone={statusTone(st)}>{labels[st] ?? st}</Badge>
+        </div>
+        <p className="mt-1 text-xs text-[var(--muted)]">{formatDate(d.issueDate)}</p>
+      </Link>
+    );
+  };
+
   const docColumns: TableColumn<Doc>[] = [
     {
       name: "Numéro",
@@ -257,6 +282,7 @@ function DocumentsListPage({
       ) : (
         <DataTable
           columns={docColumns}
+          renderMobileCard={renderDocCard}
           data={filtered}
           pagination
           perPage={25}
@@ -596,80 +622,75 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
           doc.number ??
           (isQuote ? "Devis brouillon" : "Facture brouillon")
         }
-        subtitle={`${doc.client.displayName} · ${labels[st] ?? st}${
-          doc.invoiceType && doc.invoiceType !== "SIMPLE"
-            ? ` · ${doc.invoiceType === "ACOMPTE" ? "Acompte" : "Solde"}`
-            : ""
-        }`}
+        back={isQuote ? { to: "/quotes", label: "Devis" } : { to: "/invoices", label: "Factures" }}
+        subtitle={
+          <span className="flex flex-wrap items-center gap-2">
+            <Link to={`/clients/${doc.client.id}`} className="link">
+              {doc.client.displayName}
+            </Link>
+            <Badge tone={statusTone(st)}>{labels[st] ?? st}</Badge>
+            {doc.invoiceType && doc.invoiceType !== "SIMPLE" ? (
+              <InvoiceTypeBadge type={doc.invoiceType} />
+            ) : null}
+          </span>
+        }
         actions={
           <>
-            <Button
-              variant="secondary"
-              onClick={() => navigate(isQuote ? "/quotes" : "/invoices")}
-            >
-              Retour
-            </Button>
             {doc.status === "DRAFT" ? (
               <>
                 <Button variant="secondary" onClick={() => setEditOpen(true)}>
                   Modifier
                 </Button>
-                <Button onClick={() => openIssueModal()}>
-                  {isQuote ? "Émettre" : "Émettre"}
-                </Button>
+                <Button onClick={() => openIssueModal()}>Émettre</Button>
               </>
             ) : null}
             {doc.number ? (
-              <>
-                <a
-                  href={`/api/invoices/${doc.id}/pdf`}
-                  className="inline-flex min-h-11 shrink-0 items-center whitespace-nowrap rounded-[var(--radius)] border border-[var(--border-strong)] bg-[var(--surface)] px-4 text-sm font-medium hover:bg-[var(--surface-raised)]"
-                >
-                  PDF
-                </a>
-                <Button
-                  variant="secondary"
-                  disabled={resendBusy}
-                  onClick={() => {
-                    setResendBusy(true);
-                    void api<{ emailed: boolean }>(`/api/invoices/${doc.id}/send-email`, {
-                      method: "POST",
-                      body: "{}",
-                    })
-                      .then(() => toast.success("PDF en file d'envoi"))
-                      .catch((e: Error) => toast.error(e.message))
-                      .finally(() => setResendBusy(false));
-                  }}
-                >
-                  {resendBusy ? "Envoi…" : "Renvoyer par email"}
-                </Button>
-              </>
+              <a
+                href={`/api/invoices/${doc.id}/pdf`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className={buttonClass("secondary")}
+              >
+                PDF
+              </a>
             ) : null}
             {!isQuote && doc.status === "ISSUED" ? (
               <Button onClick={() => setPayOpen(true)}>Paiement</Button>
             ) : null}
-            {!isQuote &&
-            doc.documentType === "INVOICE" &&
-            (doc.status === "ISSUED" || doc.status === "PAID") ? (
-              <Button variant="danger" onClick={() => setAvoirOpen(true)}>
-                Avoir
-              </Button>
-            ) : null}
             {canCreateInvoice ? (
-              <Button variant="secondary" onClick={() => setInvoiceModalOpen(true)}>
-                Créer une facture
-              </Button>
+              <Button onClick={() => setInvoiceModalOpen(true)}>Créer une facture</Button>
             ) : null}
-            {isQuote && doc.quoteStatus === "SENT" ? (
-              <Button variant="ghost" onClick={() => setRejectOpen(true)}>
-                Refusé par le client
-              </Button>
-            ) : null}
-            {doc.number ? (
-              <Button variant="ghost" onClick={() => void sendReminder()}>
-                Relancer
-              </Button>
-            ) : null}
+            <MoreMenu
+              items={[
+                ...(doc.number
+                  ? [
+                      {
+                        label: resendBusy ? "Envoi…" : "Renvoyer par email",
+                        disabled: resendBusy,
+                        onSelect: () => {
+                          setResendBusy(true);
+                          void api<{ emailed: boolean }>(`/api/invoices/${doc.id}/send-email`, {
+                            method: "POST",
+                            body: "{}",
+                          })
+                            .then(() => toast.success("PDF en file d'envoi"))
+                            .catch((e: Error) => toast.error(e.message))
+                            .finally(() => setResendBusy(false));
+                        },
+                      },
+                      { label: "Relancer le client", onSelect: () => void sendReminder() },
+                    ]
+                  : []),
+                ...(isQuote && doc.quoteStatus === "SENT"
+                  ? [{ label: "Marquer refusé par le client", onSelect: () => setRejectOpen(true) }]
+                  : []),
+                ...(!isQuote &&
+                doc.documentType === "INVOICE" &&
+                (doc.status === "ISSUED" || doc.status === "PAID")
+                  ? [{ label: "Créer un avoir", danger: true, onSelect: () => setAvoirOpen(true) }]
+                  : []),
+              ]}
+            />
           </>
         }
       />
