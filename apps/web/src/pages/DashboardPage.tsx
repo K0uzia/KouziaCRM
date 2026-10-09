@@ -14,6 +14,7 @@ import {
 } from "@fortawesome/free-solid-svg-icons";
 import type { IconDefinition } from "@fortawesome/fontawesome-svg-core";
 import { toast } from "sonner";
+import { useLiveRefresh } from "@/lib/notifications";
 import { api, formatEUR } from "@/lib/api";
 import { formatDate } from "@/lib/format";
 import { useAuth } from "@/lib/auth";
@@ -172,7 +173,9 @@ export function DashboardPage() {
       .catch(() => setThreads(null));
   }, []);
 
-  const url = useMemo(() => `/api/dashboard?scope=${scope}`, [scope]);
+  const [liveTick, setLiveTick] = useState(0);
+  useLiveRefresh(() => setLiveTick((t) => t + 1));
+  const url = useMemo(() => `/api/dashboard?scope=${scope}&t=${liveTick}`, [scope, liveTick]);
 
   useEffect(() => {
     let cancelled = false;

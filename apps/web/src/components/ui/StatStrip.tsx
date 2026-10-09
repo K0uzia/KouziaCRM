@@ -40,7 +40,17 @@ export function StatStrip({ items, className = "" }: { items: StatItem[]; classN
             <dd
               className={`mt-1.5 font-display text-xl font-semibold tabular-nums tracking-tight sm:text-2xl ${toneClass[s.tone ?? "default"]}`}
             >
-              {s.value}
+              {s.to ? (
+                // Lien étiré : son ::after couvre toute la case, la structure dt/dd reste valide.
+                <Link
+                  to={s.to}
+                  className="after:absolute after:inset-0 after:content-[''] focus-visible:outline-none focus-visible:after:rounded-[inherit] focus-visible:after:outline focus-visible:after:outline-2 focus-visible:after:outline-[var(--primary)]"
+                >
+                  {s.value}
+                </Link>
+              ) : (
+                s.value
+              )}
             </dd>
             {s.hint ? <dd className="mt-1 truncate text-xs text-[var(--muted)]">{s.hint}</dd> : null}
           </>
@@ -51,9 +61,6 @@ export function StatStrip({ items, className = "" }: { items: StatItem[]; classN
             className={`relative min-w-0 bg-[var(--surface)] p-4 sm:p-5 ${s.to ? "transition-colors hover:bg-[var(--surface-raised)]" : ""}`}
           >
             {content}
-            {s.to ? (
-              <Link to={s.to} className="absolute inset-0 rounded-[inherit]" aria-label={`${s.label} : voir le détail`} />
-            ) : null}
           </div>
         );
       })}

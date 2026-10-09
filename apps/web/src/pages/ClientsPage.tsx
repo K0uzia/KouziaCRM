@@ -3,6 +3,7 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faPlus, faPaperPlane, faEnvelope, faPen } from "@fortawesome/free-solid-svg-icons";
 import { toast } from "sonner";
+import { useLiveRefresh } from "@/lib/notifications";
 import { api, formatEUR } from "@/lib/api";
 import { formatDate, formatPhoneFr, invoiceStatusLabel, quoteStatusLabel, statusTone } from "@/lib/format";
 import { Button, ButtonLink } from "@/components/ui/Button";
@@ -325,6 +326,8 @@ export function ClientDetailPage() {
       client: { id: string };
     }>
   >([]);
+
+  useLiveRefresh(() => refresh(), (i) => i.kind === "quote_accepted" || i.kind === "quote_rejected" || i.kind === "payment");
 
   function refresh() {
     if (!id) return;

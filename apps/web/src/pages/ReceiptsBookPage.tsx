@@ -254,7 +254,6 @@ export function ReceiptsBookPage() {
                   <tr>
                     <th className="nowrap">Date</th>
                     <th>Facture</th>
-                    <th className="nowrap">Code client</th>
                     <th>Client</th>
                     <th>Nature</th>
                     <th className="nowrap">Règlement</th>
@@ -268,7 +267,7 @@ export function ReceiptsBookPage() {
                       <td className="nowrap text-[var(--muted)]" data-label="Date">
                         {formatDate(r.paidAt)}
                       </td>
-                      <td className="wrap" data-label="Facture">
+                      <td className="nowrap" data-label="Facture">
                         {r.invoiceId ? (
                           <div className="flex flex-wrap items-center gap-1.5">
                             <Link to={`/invoices/${r.invoiceId}`}>
@@ -284,10 +283,12 @@ export function ReceiptsBookPage() {
                           <span className="text-xs text-[var(--muted)]">Sans facture</span>
                         )}
                       </td>
-                      <td className="nowrap font-mono text-xs text-[var(--muted)]" data-label="Code client">
-                        {r.clientNumber ?? "-"}
+                      <td className="wrap" data-label="Client">
+                        <span className="block font-medium">{r.clientName}</span>
+                        {r.clientNumber ? (
+                          <span className="font-mono text-xs text-[var(--muted)]">{r.clientNumber}</span>
+                        ) : null}
                       </td>
-                      <td className="truncate font-medium" data-label="Client">{r.clientName}</td>
                       <td className="wrap text-[var(--muted)]" title={r.nature} data-label="Nature">
                         {r.nature}
                       </td>

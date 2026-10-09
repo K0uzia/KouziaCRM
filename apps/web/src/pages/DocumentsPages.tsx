@@ -3,6 +3,7 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faPlus } from "@fortawesome/free-solid-svg-icons";
 import { toast } from "sonner";
+import { useLiveRefresh } from "@/lib/notifications";
 import { api, formatEUR } from "@/lib/api";
 import {
   formatDate,
@@ -133,6 +134,8 @@ function DocumentsListPage({
       .catch((e: Error) => toast.error(e.message))
       .finally(() => setLoading(false));
   }, [documentType]);
+
+  useLiveRefresh(() => void load().catch(() => undefined), (i) => i.kind === "quote_accepted" || i.kind === "quote_rejected" || i.kind === "payment");
 
   const filtered = useMemo(() => {
     if (statusFilter === "ALL") return rows;
@@ -425,6 +428,12 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
       .then((s) => setCompanyName(s.tradeName || s.legalName || "Alexandre Kouziaeff"))
       .catch(() => undefined);
   }, [id]);
+
+  // Devis accepté ou refusé, paiement reçu : la fiche ouverte se met à jour seule.
+  useLiveRefresh(
+    () => void load().catch(() => undefined),
+    (i) => Boolean(id) && i.href.endsWith(`/${id}`),
+  );
 
   if (!doc) return <p className="text-sm text-[var(--muted)]">Chargement…</p>;
 
@@ -888,7 +897,7 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
             </div>
           </Card>
 
-          {isQuote && market ? (
+          {isQuote && market && doc.quoteStatus !== "REJECTED" && doc.quoteStatus !== "EXPIRED" ? (
             <MarketTimeline
               market={market}
               busyId={busyId}

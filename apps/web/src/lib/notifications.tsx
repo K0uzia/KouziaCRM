@@ -26,6 +26,7 @@ export type NotificationItem = {
 type Feed = { items: NotificationItem[]; serverTime: string };
 
 const POLL_MS = 10_000;
+const DATA_CHANGED = "kouzia:data-changed";
 const SEEN_KEY = "kouzia.notifications.seenAt";
 const SOUND_KEY = "kouzia.notifications.sound";
 
@@ -172,6 +173,8 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
       itemsRef.current = [...fresh, ...itemsRef.current].slice(0, 50);
       setItems(itemsRef.current);
       announce(fresh);
+      // Les écrans ouverts se rechargent (devis accepté, paiement reçu…) sans action de l'utilisateur.
+      window.dispatchEvent(new CustomEvent<NotificationItem[]>(DATA_CHANGED, { detail: fresh }));
     }
 
     first().catch(() => undefined);
@@ -227,4 +230,23 @@ export function useNotifications(): Ctx {
   const ctx = useContext(NotificationsCtx);
   if (!ctx) throw new Error("useNotifications hors NotificationsProvider");
   return ctx;
+}
+
+/**
+ * Recharge un écran quand le centre de notifications signale un changement qui le concerne.
+ * `match` filtre les événements (par défaut : tous).
+ */
+export function useLiveRefresh(reload: () => void, match?: (item: NotificationItem) => boolean) {
+  const reloadRef = useRef(reload);
+  reloadRef.current = reload;
+  const matchRef = useRef(match);
+  matchRef.current = match;
+  useEffect(() => {
+    const onChange = (e: Event) => {
+      const items = (e as CustomEvent<NotificationItem[]>).detail ?? [];
+      if (!matchRef.current || items.some((i) => matchRef.current!(i))) reloadRef.current();
+    };
+    window.addEventListener(DATA_CHANGED, onChange);
+    return () => window.removeEventListener(DATA_CHANGED, onChange);
+  }, []);
 }

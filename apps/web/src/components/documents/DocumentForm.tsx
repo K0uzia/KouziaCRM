@@ -298,11 +298,11 @@ export function DocumentFormEditor({
                     </label>
                   </div>
                 ) : null}
-                <div className="grid grid-cols-[1fr_auto] gap-2 sm:grid-cols-[1fr_5rem_8rem_auto]">
+                <div className="grid grid-cols-[4.5rem_1fr_auto] gap-2 sm:grid-cols-[1fr_5rem_8rem_auto]">
                   <Textarea
                     required
                     rows={2}
-                    className="col-span-2 min-h-[2.75rem] sm:col-span-1"
+                    className="col-span-3 min-h-[2.75rem] sm:col-span-1"
                     aria-label={`Ligne ${i + 1} : désignation`}
                     placeholder="Désignation de la prestation"
                     value={line.description}

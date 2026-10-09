@@ -15,9 +15,10 @@ createRoot(document.getElementById("root")!).render(
           <App />
           <Toaster
             richColors
-            position="bottom-center"
+            position="bottom-right"
             theme="dark"
-            offset="max(1rem, env(safe-area-inset-bottom))"
+            offset="1.5rem"
+            mobileOffset={{ bottom: "calc(4.5rem + env(safe-area-inset-bottom))" }}
             toastOptions={{ className: "max-w-[calc(100vw-2rem)]" }}
           />
         </FeaturesProvider>

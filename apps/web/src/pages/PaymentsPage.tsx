@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { toast } from "sonner";
+import { useLiveRefresh } from "@/lib/notifications";
 import { api, formatEUR } from "@/lib/api";
 import { formatDate, paymentMethodLabel } from "@/lib/format";
 import { Badge, PageHeader } from "@/components/ui/Card";
@@ -132,6 +133,7 @@ export function PaymentsPage() {
 
   const openCreate = useCallback(() => setOpen(true), []);
   useCreateParam(openCreate);
+  useLiveRefresh(() => void load().catch(() => undefined), (i) => i.kind === "payment");
   // Facture présélectionnée : la première à encaisser, dès que la liste est chargée.
   useEffect(() => {
     if (open && !invoiceId && openInvoices[0]) setInvoiceId(openInvoices[0].id);

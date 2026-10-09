@@ -1,7 +1,7 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { Navigate } from "react-router-dom";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { faPlus, faPlay, faPause, faStop, faPen, faSync } from "@fortawesome/free-solid-svg-icons";
+import { faPlus, faPlay, faPause, faStop, faPen, faSync, faTrash } from "@fortawesome/free-solid-svg-icons";
 import { toast } from "sonner";
 import { api, formatEUR, formatDate } from "@/lib/api";
 import { useFeatures } from "@/lib/features";
@@ -10,6 +10,7 @@ import { Card, EmptyState, PageHeader, Badge } from "@/components/ui/Card";
 import { Modal, ModalActions } from "@/components/ui/Modal";
 import { Field, Input, Select } from "@/components/ui/Field";
 import { useCreateParam } from "@/lib/use-create-param";
+import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { StatStrip } from "@/components/ui/StatStrip";
 import { Tabs, useTabParam } from "@/components/ui/Tabs";
 
@@ -161,6 +162,19 @@ export function SubscriptionsPage() {
 
   useCreateParam(openCreate);
 
+  const [offerToArchive, setOfferToArchive] = useState<Service | null>(null);
+
+  async function archiveOffer(o: Service) {
+    try {
+      const res = await api<{ archived: boolean }>(`/api/services/${o.id}`, { method: "DELETE" });
+      toast.success(res.archived ? "Offre archivée (utilisée par des contrats ou documents)" : "Offre supprimée");
+      setOfferToArchive(null);
+      await load();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Suppression impossible");
+    }
+  }
+
   function openEdit(s: Subscription) {
     setEditingId(s.id);
     setForm({
@@ -309,7 +323,7 @@ export function SubscriptionsPage() {
         onChange={setTab}
         tabs={[
           { id: "contrats", label: "Contrats clients", count: rows.length },
-          { id: "offres", label: "Offres", count: offers.length },
+          { id: "offres", label: "Offres", count: offers.filter((o) => o.active).length },
         ]}
       >
         {tab === "contrats" ? (
@@ -429,43 +443,63 @@ export function SubscriptionsPage() {
                   hint="Définissez vos forfaits mensuels (maintenance, hébergement, etc.) avant de créer un contrat."
                 />
               ) : (
-                <div className="divide-y divide-[var(--border)]">
-                  {offers.map((o) => (
-                    <div
-                      key={o.id}
-                      className="flex flex-wrap items-center justify-between gap-4 px-5 py-4 transition-colors hover:bg-[var(--surface-raised)]"
-                    >
-                      <div className="min-w-0">
-                        <p className="font-medium text-[var(--text)]">{o.name}</p>
-                        {o.description ? (
-                          <p className="mt-1 text-sm text-[var(--muted)]">{o.description}</p>
-                        ) : null}
-                        <p className="mt-1 text-xs text-[var(--muted)]">
-                          Facturation le {o.defaultBillingDay ?? 1} de chaque mois
-                        </p>
-                      </div>
-                      <div className="flex items-center gap-4">
-                        <div className="text-right">
-                          <p className="text-lg font-semibold tabular-nums">{formatEUR(o.unitPriceCents)}</p>
-                          <p className="text-xs text-[var(--muted)]">TTC / mois</p>
+                <ul className="divide-y divide-[var(--border)]">
+                  {offers
+                    .filter((o) => o.active)
+                    .map((o) => (
+                      <li
+                        key={o.id}
+                        className="flex flex-col gap-3 px-5 py-4 transition-colors hover:bg-[var(--surface-raised)] sm:flex-row sm:items-center"
+                      >
+                        <div className="min-w-0 flex-1">
+                          <p className="font-medium">{o.name}</p>
+                          {o.description ? <p className="mt-1 text-sm text-[var(--muted)]">{o.description}</p> : null}
+                          <p className="mt-1 text-xs text-[var(--muted)]">Facturée le {o.defaultBillingDay ?? 1} de chaque mois</p>
                         </div>
-                        {!o.active ? <Badge tone="red">Inactive</Badge> : null}
-                        <Button
-                          variant="ghost"
-                          className="h-8 px-3 text-xs"
-                          onClick={() => openEditOffer(o)}
-                        >
-                          Modifier
-                        </Button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
+                        <div className="flex shrink-0 items-center justify-between gap-4 sm:justify-end">
+                          <div className="sm:text-right">
+                            <p className="font-display text-lg font-semibold tabular-nums">{formatEUR(o.unitPriceCents)}</p>
+                            <p className="text-xs text-[var(--muted)]">TTC / mois</p>
+                          </div>
+                          <div className="flex gap-1">
+                            <Button
+                              variant="ghost"
+                              className="min-h-10 min-w-10 px-0"
+                              aria-label={`Modifier ${o.name}`}
+                              title="Modifier"
+                              onClick={() => openEditOffer(o)}
+                            >
+                              <FontAwesomeIcon icon={faPen} className="h-3.5 w-3.5" aria-hidden />
+                            </Button>
+                            <Button
+                              variant="danger-ghost"
+                              className="min-h-10 min-w-10 px-0"
+                              aria-label={`Archiver ${o.name}`}
+                              title="Archiver"
+                              onClick={() => setOfferToArchive(o)}
+                            >
+                              <FontAwesomeIcon icon={faTrash} className="h-3.5 w-3.5" aria-hidden />
+                            </Button>
+                          </div>
+                        </div>
+                      </li>
+                    ))}
+                </ul>
               )}
             </Card>
 
         )}
       </Tabs>
+
+      <ConfirmDialog
+        open={Boolean(offerToArchive)}
+        title="Retirer cette offre"
+        message={`« ${offerToArchive?.name ?? ""} » ne sera plus proposée. Les contrats en cours ne changent pas ; si l'offre est déjà utilisée, elle est archivée.`}
+        confirmLabel="Retirer"
+        danger
+        onConfirm={() => offerToArchive && void archiveOffer(offerToArchive)}
+        onClose={() => setOfferToArchive(null)}
+      />
 
       <Modal
         open={open}

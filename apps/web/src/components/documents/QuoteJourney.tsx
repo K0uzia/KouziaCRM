@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { faCheck } from "@fortawesome/free-solid-svg-icons";
+import { faCheck, faXmark } from "@fortawesome/free-solid-svg-icons";
 import { api } from "@/lib/api";
 import { formatDate } from "@/lib/format";
 
@@ -50,7 +50,15 @@ export function QuoteJourney({
       detail: project?.startedAt ? formatDate(project.startedAt) : null,
     },
   ];
-  const currentIndex = steps.findIndex((s) => !s.done);
+  const rejected = quote.quoteStatus === "REJECTED" || quote.quoteStatus === "EXPIRED";
+  if (rejected) {
+    steps.splice(1, steps.length - 1, {
+      label: quote.quoteStatus === "EXPIRED" ? "Devis expiré" : "Devis refusé par le client",
+      done: false,
+      detail: quote.quoteDecidedAt ? formatDate(quote.quoteDecidedAt) : null,
+    });
+  }
+  const currentIndex = rejected ? -1 : steps.findIndex((s) => !s.done);
 
   return (
     <div>
@@ -68,7 +76,9 @@ export function QuoteJourney({
               ) : null}
               <span
                 className={`relative z-10 flex h-6 w-6 shrink-0 items-center justify-center rounded-full border text-[0.625rem] ${
-                  s.done
+                  rejected && i === 1
+                    ? "border-[var(--danger)] bg-[var(--danger-soft)] text-[var(--danger)]"
+                    : s.done
                     ? "border-[var(--success)] bg-[var(--success-soft)] text-[var(--success)]"
                     : current
                       ? "border-[var(--primary)] bg-[var(--primary-soft)] text-[var(--primary)]"
@@ -76,10 +86,10 @@ export function QuoteJourney({
                 }`}
                 aria-hidden
               >
-                {s.done ? <FontAwesomeIcon icon={faCheck} className="h-2.5 w-2.5" /> : i + 1}
+                {rejected && i === 1 ? <FontAwesomeIcon icon={faXmark} className="h-2.5 w-2.5" /> : s.done ? <FontAwesomeIcon icon={faCheck} className="h-2.5 w-2.5" /> : i + 1}
               </span>
               <div className="min-w-0 pt-0.5">
-                <p className={`text-sm ${s.done ? "" : current ? "font-medium text-[var(--primary)]" : "text-[var(--muted)]"}`}>
+                <p className={`text-sm ${rejected && i === 1 ? "font-medium text-[var(--danger)]" : s.done ? "" : current ? "font-medium text-[var(--primary)]" : "text-[var(--muted)]"}`}>
                   {s.label}
                   <span className="sr-only">{s.done ? " (fait)" : current ? " (étape en cours)" : " (à venir)"}</span>
                 </p>
@@ -93,7 +103,7 @@ export function QuoteJourney({
         <Link to={`/clients/${quote.clientId}?tab=projets`} className="link mt-3 inline-block text-sm">
           Voir le projet ({project.progress} %)
         </Link>
-      ) : accepted ? (
+      ) : accepted && !rejected ? (
         <p className="mt-3 text-xs text-[var(--muted)]">Le projet sera créé avec la facture d&apos;acompte.</p>
       ) : null}
     </div>
