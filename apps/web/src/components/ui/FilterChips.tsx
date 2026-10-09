@@ -25,7 +25,7 @@ export function FilterChips<T extends string>({
     <div
       role="group"
       aria-label={label}
-      className={`-mx-4 flex gap-2 overflow-x-auto px-4 no-scrollbar sm:mx-0 sm:flex-wrap sm:px-0 ${className}`}
+      className={`-mx-4 flex gap-1.5 overflow-x-auto px-4 no-scrollbar sm:mx-0 sm:flex-wrap sm:px-0 ${className}`}
     >
       {options.map((o) => {
         const active = o.id === value;
@@ -35,7 +35,7 @@ export function FilterChips<T extends string>({
             type="button"
             aria-pressed={active}
             onClick={() => onChange(o.id)}
-            className={`ui-chip shrink-0 gap-1.5 rounded-full border px-3.5 text-sm transition-colors duration-150 ${
+            className={`inline-flex min-h-11 shrink-0 touch-manipulation items-center justify-center gap-1.5 rounded-full border px-3.5 text-sm transition-colors duration-150 sm:min-h-9 sm:px-3 ${
               active
                 ? "border-[var(--primary)]/60 bg-[var(--primary-soft)] font-medium text-[var(--primary)]"
                 : "border-[var(--border)] bg-[var(--surface)] text-[var(--muted)] hover:border-[var(--border-strong)] hover:text-[var(--text)]"

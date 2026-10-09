@@ -20,18 +20,20 @@ const customStyles: TableProps<never>["customStyles"] = {
   },
   headRow: {
     style: {
-      backgroundColor: "var(--surface-raised)",
+      backgroundColor: "var(--bg-subtle)",
       borderBottomColor: "var(--border)",
       borderBottomStyle: "solid",
       borderBottomWidth: "1px",
-      minHeight: "2.75rem",
+      minHeight: "2.5rem",
     },
   },
   headCells: {
     style: {
-      padding: "0.75rem 1rem",
-      fontSize: "0.8125rem",
-      fontWeight: 500,
+      padding: "0.5rem 1rem",
+      fontSize: "0.6875rem",
+      fontWeight: 600,
+      letterSpacing: "0.06em",
+      textTransform: "uppercase",
       color: "var(--muted)",
       whiteSpace: "nowrap",
     },
@@ -42,14 +44,14 @@ const customStyles: TableProps<never>["customStyles"] = {
       borderBottomStyle: "solid",
       borderBottomWidth: "1px",
       minHeight: "3.25rem",
-      backgroundColor: "var(--surface-raised)",
+      backgroundColor: "var(--surface)",
     },
-    stripedStyle: { backgroundColor: "var(--surface-hover)" },
-    highlightOnHoverStyle: { backgroundColor: "var(--surface-hover)" },
+    stripedStyle: { backgroundColor: "var(--bg-subtle)" },
+    highlightOnHoverStyle: { backgroundColor: "var(--surface-raised)", outline: "none" },
   },
   cells: {
     style: {
-      padding: "0.625rem 0.875rem",
+      padding: "0.625rem 1rem",
       fontSize: "0.875rem",
       color: "var(--text)",
       lineHeight: 1.5,
@@ -64,8 +66,8 @@ const customStyles: TableProps<never>["customStyles"] = {
       borderTopColor: "var(--border)",
       borderTopStyle: "solid",
       borderTopWidth: "1px",
-      backgroundColor: "var(--surface-raised)",
-      color: "var(--text)",
+      backgroundColor: "var(--surface)",
+      color: "var(--muted)",
       fontSize: "0.8125rem",
       padding: "0.625rem 1rem",
       flexWrap: "wrap",
@@ -105,6 +107,12 @@ export type DataTableProps<T> = {
   card?: boolean;
   maxHeight?: string;
   renderMobileCard?: (row: T, index: number) => ReactNode;
+  /** Filtres affichés dans la barre d'outils, à côté de la recherche. */
+  toolbar?: ReactNode;
+  /** Clic sur une ligne (souris). Garder un lien dans une cellule pour le clavier. */
+  onRowClick?: (row: T) => void;
+  /** Libellé du compteur (« clients », « factures »). */
+  countLabel?: string;
 };
 
 function columnLabel<T>(col: TableColumn<T>): string {
@@ -229,12 +237,20 @@ export function DataTable<T>({
   emptyTitle = "Aucune donnée",
   emptyHint,
   striped = false,
-  card = true,
   maxHeight,
   renderMobileCard,
+  toolbar,
+  onRowClick,
+  countLabel,
 }: DataTableProps<T>) {
   const [query, setQuery] = useState("");
   const [mobilePage, setMobilePage] = useState(1);
+  // Une colonne à largeur fixe ne prend pas de part de l'espace libre (grow vaut 1 par défaut
+  // dans la bibliothèque, ce qui faisait déborder le tableau).
+  const sizedColumns = useMemo(
+    () => columns.map((c) => (c.width && c.grow === undefined ? { ...c, grow: 0 } : c)),
+    [columns],
+  );
 
   const filtered = useMemo(() => {
     if (!searchable) return data;
@@ -269,58 +285,48 @@ export function DataTable<T>({
   const mobileRows = pagination
     ? filtered.slice((currentMobilePage - 1) * perPage, currentMobilePage * perPage)
     : filtered;
-
-  const wrapper = (children: React.ReactNode) =>
-    card ? (
-      <div className="overflow-hidden rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--surface)] shadow-[var(--shadow-card)] backdrop-blur-md">
-        {children}
-      </div>
-    ) : (
-      <div className="overflow-hidden">{children}</div>
-    );
+  const hasToolbar = Boolean(searchable || toolbar);
 
   return (
-    <div className="min-w-0 space-y-3">
-      {searchable ? (
-        <div className="flex min-h-11 items-center gap-2 rounded-[var(--radius)] border border-[var(--border)] bg-[var(--surface-raised)] px-3 py-1">
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            viewBox="0 0 20 20"
-            fill="currentColor"
-            className="h-4 w-4 shrink-0 text-[var(--muted)]"
-            aria-hidden
-          >
-            <path
-              fillRule="evenodd"
-              d="M9 3.5a5.5 5.5 0 1 0 0 11 5.5 5.5 0 0 0 0-11ZM2 9a7 7 0 1 1 12.452 4.391l3.328 3.329a.75.75 0 1 1-1.06 1.06l-3.329-3.328A7 7 0 0 1 2 9Z"
-              clipRule="evenodd"
-            />
-          </svg>
-          <input
-            type="search"
-            value={query}
-            onChange={(e) => {
-              setQuery(e.target.value);
-              setMobilePage(1);
-            }}
-            placeholder={searchPlaceholder}
-            className="min-h-11 w-full min-w-0 border-0 bg-transparent text-sm outline-none placeholder:text-[var(--muted)]"
-            aria-label={searchPlaceholder}
-          />
+    <section className="ui-card min-w-0 overflow-hidden">
+      {hasToolbar ? (
+        <div className="flex flex-col gap-3 border-b border-[var(--border)] p-3 sm:p-4 lg:flex-row lg:items-center">
+          {searchable ? (
+            <label className="flex min-h-10 min-w-0 items-center gap-2 rounded-[var(--radius-sm)] border border-[var(--border-input)] bg-[var(--bg-subtle)] px-3 focus-within:border-[var(--primary)] lg:w-80">
+              <svg viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4 shrink-0 text-[var(--muted)]" aria-hidden>
+                <path
+                  fillRule="evenodd"
+                  d="M9 3.5a5.5 5.5 0 1 0 0 11 5.5 5.5 0 0 0 0-11ZM2 9a7 7 0 1 1 12.452 4.391l3.328 3.329a.75.75 0 1 1-1.06 1.06l-3.329-3.328A7 7 0 0 1 2 9Z"
+                  clipRule="evenodd"
+                />
+              </svg>
+              <span className="sr-only">{searchPlaceholder}</span>
+              <input
+                type="search"
+                value={query}
+                onChange={(e) => {
+                  setQuery(e.target.value);
+                  setMobilePage(1);
+                }}
+                placeholder={searchPlaceholder}
+                className="min-h-10 w-full min-w-0 border-0 bg-transparent text-sm outline-none placeholder:text-[var(--muted)]"
+              />
+            </label>
+          ) : null}
+          {toolbar ? <div className="min-w-0 flex-1">{toolbar}</div> : <div className="hidden flex-1 lg:block" />}
+          <p className="shrink-0 text-xs tabular-nums text-[var(--muted)]" aria-live="polite">
+            {filtered.length} {countLabel ?? (filtered.length > 1 ? "résultats" : "résultat")}
+          </p>
         </div>
       ) : null}
 
       {filtered.length === 0 ? (
-        <div className="overflow-hidden rounded-[var(--radius-lg)] border border-[var(--border)] bg-[var(--surface)]">
-          <EmptyState title={emptyTitle} hint={emptyHint} />
-        </div>
+        <EmptyState title={emptyTitle} hint={emptyHint} />
       ) : (
         <>
-          <div className="space-y-2 md:hidden">
+          <div className="space-y-2 p-3 md:hidden">
             {mobileRows.map((row, index) => {
-              const globalIndex = pagination
-                ? (currentMobilePage - 1) * perPage + index
-                : index;
+              const globalIndex = pagination ? (currentMobilePage - 1) * perPage + index : index;
               const key =
                 row && typeof row === "object" && "id" in row
                   ? String((row as { id: unknown }).id)
@@ -336,41 +342,36 @@ export function DataTable<T>({
               );
             })}
             {pagination ? (
-              <MobilePager
-                page={currentMobilePage}
-                pageCount={pageCount}
-                onPage={setMobilePage}
-              />
+              <MobilePager page={currentMobilePage} pageCount={pageCount} onPage={setMobilePage} />
             ) : null}
           </div>
 
           <div className="ui-table-wrap hidden min-w-0 md:block">
-            {wrapper(
-              <DataTableBase
-                columns={columns}
-                data={filtered}
-                customStyles={customStyles}
-                striped={striped}
-                pagination={pagination}
-                paginationPerPage={perPage}
-                paginationRowsPerPageOptions={[10, 25, 50, 100]}
-                paginationComponentOptions={{
-                  rowsPerPageText: "lignes par page :",
-                  rangeSeparatorText: "sur",
-                  noRowsPerPage: false,
-                  selectAllRowsItem: false,
-                }}
-                fixedHeader={Boolean(maxHeight)}
-                fixedHeaderScrollHeight={maxHeight ?? "100%"}
-                noDataComponent={<EmptyState title={emptyTitle} hint={emptyHint} />}
-                highlightOnHover
-                pointerOnHover
-              />,
-            )}
+            <DataTableBase
+              columns={sizedColumns}
+              data={filtered}
+              customStyles={customStyles}
+              striped={striped}
+              pagination={pagination && filtered.length > perPage}
+              paginationPerPage={perPage}
+              paginationRowsPerPageOptions={[10, 25, 50, 100]}
+              paginationComponentOptions={{
+                rowsPerPageText: "Lignes par page :",
+                rangeSeparatorText: "sur",
+                noRowsPerPage: false,
+                selectAllRowsItem: false,
+              }}
+              fixedHeader={Boolean(maxHeight)}
+              fixedHeaderScrollHeight={maxHeight ?? "100%"}
+              noDataComponent={<EmptyState title={emptyTitle} hint={emptyHint} />}
+              highlightOnHover
+              pointerOnHover={Boolean(onRowClick)}
+              onRowClicked={onRowClick ? (row) => onRowClick(row) : undefined}
+            />
           </div>
         </>
       )}
-    </div>
+    </section>
   );
 }
 

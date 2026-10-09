@@ -15,7 +15,9 @@ import { MoreMenu } from "@/components/ui/MoreMenu";
 import { Badge, Card, PageHeader } from "@/components/ui/Card";
 import { Modal, ModalActions } from "@/components/ui/Modal";
 import { FilterChips } from "@/components/ui/FilterChips";
+import { StatStrip, type StatItem } from "@/components/ui/StatStrip";
 import { DataTable, type TableColumn } from "@/components/ui/DataTable";
+import { Media } from "react-data-table-component";
 import { DocumentFormEditor } from "@/components/documents/DocumentForm";
 import { DocumentNumberBadge } from "@/components/documents/DocumentNumberBadge";
 import { InvoiceTypeBadge } from "@/components/documents/InvoiceTypeBadge";
@@ -165,6 +167,8 @@ function DocumentsListPage({
     );
   };
 
+  const detailPath = (d: Doc) => (isQuote ? `/quotes/${d.id}` : `/invoices/${d.id}`);
+
   const docColumns: TableColumn<Doc>[] = [
     {
       name: "Numéro",
@@ -173,11 +177,9 @@ function DocumentsListPage({
       grow: 2,
       cell: (d) => (
         <div className="flex min-w-0 flex-wrap items-center gap-2">
-          <DocumentNumberBadge
-            number={d.number}
-            documentType={d.documentType}
-            invoiceType={d.invoiceType}
-          />
+          <Link to={detailPath(d)} className="rounded-[var(--radius-sm)] hover:opacity-80">
+            <DocumentNumberBadge number={d.number} documentType={d.documentType} invoiceType={d.invoiceType} />
+          </Link>
           <InvoiceTypeBadge type={d.invoiceType} />
           {!isQuote && (d.quote?.number || d.quoteId) ? (
             <Link
@@ -185,7 +187,7 @@ function DocumentsListPage({
               className="text-xs text-[var(--muted)] hover:text-[var(--primary)]"
               onClick={(e) => e.stopPropagation()}
             >
-              Projet {d.quote?.number ?? ""}
+              Devis {d.quote?.number ?? ""}
             </Link>
           ) : null}
         </div>
@@ -195,60 +197,74 @@ function DocumentsListPage({
       name: "Client",
       selector: (d) => d.client.displayName,
       sortable: true,
-      grow: 2,
+      grow: 3,
       cell: (d) => (
-        <span className="block truncate" title={d.client.displayName}>
-          {d.client.displayName}
-        </span>
+        <div className="min-w-0">
+          <p className="truncate font-medium" title={d.client.displayName}>
+            {d.client.displayName}
+          </p>
+          {d.client.clientNumber ? (
+            <p className="font-mono text-xs text-[var(--muted)]">{d.client.clientNumber}</p>
+          ) : null}
+        </div>
       ),
     },
     {
       name: "Statut",
       selector: (d) => displayStatus(d, isQuote),
       sortable: true,
-      width: "130px",
+      width: "9rem",
       cell: (d) => {
         const st = displayStatus(d, isQuote);
         return <Badge tone={statusTone(st)}>{labels[st] ?? st}</Badge>;
       },
     },
     {
-      name: "Date",
+      name: "Émis le",
       selector: (d) => d.issueDate ?? "",
       sortable: true,
-      width: "130px",
-      cell: (d) => (
-        <span className="text-[var(--muted)]">{formatDate(d.issueDate)}</span>
-      ),
+      width: "8.5rem",
+      cell: (d) => <span className="text-[var(--muted)]">{d.issueDate ? formatDate(d.issueDate) : "Brouillon"}</span>,
     },
+    ...((isQuote
+      ? [
+          {
+            name: "Valable jusqu'au",
+            selector: (d: Doc) => d.validUntil ?? "",
+            sortable: true,
+            width: "9.5rem",
+            hide: Media.LG,
+            cell: (d: Doc) => <span className="text-[var(--muted)]">{d.validUntil ? formatDate(d.validUntil) : "-"}</span>,
+          },
+        ]
+      : []) as TableColumn<Doc>[]),
     {
-      name: "Total HT",
+      name: "Montant",
       selector: (d) => d.totalCents,
       sortable: true,
-      width: "140px",
+      width: "8.5rem",
       right: true,
-      cell: (d) => (
-        <span className="tabular-nums">{formatEUR(d.totalCents)}</span>
-      ),
-    },
-    {
-      name: "",
-      grow: 0,
-      width: "5.5rem",
-      right: true,
-      button: true,
-      style: { whiteSpace: "nowrap" },
-      cell: (d) => (
-        <Button
-          variant="ghost"
-          className="h-8 px-3 text-xs"
-          onClick={() => navigate(isQuote ? `/quotes/${d.id}` : `/invoices/${d.id}`)}
-        >
-          Ouvrir
-        </Button>
-      ),
+      cell: (d) => <span className="font-semibold tabular-nums">{formatEUR(d.totalCents)}</span>,
     },
   ];
+
+  const count = (st: string) => rows.filter((r) => displayStatus(r, isQuote) === st).length;
+  const sum = (st: string) =>
+    rows.filter((r) => displayStatus(r, isQuote) === st).reduce((acc, r) => acc + r.totalCents, 0);
+  const decided = count("ACCEPTED") + count("REJECTED");
+  const stats: StatItem[] = isQuote
+    ? [
+        { label: "En attente de réponse", value: formatEUR(sum("SENT")), hint: `${count("SENT")} devis envoyé${count("SENT") > 1 ? "s" : ""}`, tone: "primary" },
+        { label: "Acceptés", value: formatEUR(sum("ACCEPTED")), hint: `${count("ACCEPTED")} devis`, tone: "success" },
+        { label: "Taux d'acceptation", value: decided ? `${Math.round((count("ACCEPTED") / decided) * 100)} %` : "-", hint: decided ? `sur ${decided} décidé${decided > 1 ? "s" : ""}` : "aucune décision" },
+        { label: "Brouillons", value: String(count("DRAFT")), hint: "à émettre" },
+      ]
+    : [
+        { label: "À encaisser", value: formatEUR(sum("ISSUED")), hint: `${count("ISSUED")} facture${count("ISSUED") > 1 ? "s" : ""} émise${count("ISSUED") > 1 ? "s" : ""}`, tone: "primary" },
+        { label: "Encaissé", value: formatEUR(sum("PAID")), hint: `${count("PAID")} payée${count("PAID") > 1 ? "s" : ""}`, tone: "success" },
+        { label: "Total facturé", value: formatEUR(sum("ISSUED") + sum("PAID")), hint: "hors brouillons et annulées" },
+        { label: "Brouillons", value: String(count("DRAFT")), hint: "à émettre" },
+      ];
 
   return (
     <div>
@@ -256,41 +272,57 @@ function DocumentsListPage({
         title={isQuote ? "Devis" : "Factures"}
         subtitle={
           isQuote
-            ? "Ce que j'ai proposé, et ce qui a été accepté"
-            : "Ce que j'ai facturé, et ce qui a été payé"
+            ? "Propositions envoyées aux clients et leur décision."
+            : "Factures émises, encaissements et soldes restants."
         }
         actions={
           <Button onClick={openCreate}>
-            <FontAwesomeIcon icon={faPlus} className="h-3.5 w-3.5" />
+            <FontAwesomeIcon icon={faPlus} className="h-3.5 w-3.5" aria-hidden />
             {isQuote ? "Nouveau devis" : "Nouvelle facture"}
           </Button>
         }
       />
 
-      <FilterChips
-        className="mb-4"
-        label={isQuote ? "Filtrer les devis par statut" : "Filtrer les factures par statut"}
-        value={statusFilter}
-        onChange={setStatusFilter}
-        options={filters.map((s) => ({ id: s, label: s === "ALL" ? "Tous" : labels[s] ?? s }))}
-      />
-
       {loading ? (
-        <Card>
-          <p className="p-8 text-sm text-[var(--muted)]">Chargement…</p>
-        </Card>
+        <div className="space-y-4" aria-busy="true">
+          <div className="ui-card h-24 animate-pulse" />
+          <div className="ui-card h-64 animate-pulse" />
+        </div>
       ) : (
-        <DataTable
-          columns={docColumns}
-          renderMobileCard={renderDocCard}
-          data={filtered}
-          pagination
-          perPage={25}
-          searchable={["number", "client.displayName", "client.clientNumber"]}
-          searchPlaceholder={isQuote ? "Rechercher un devis…" : "Rechercher une facture…"}
-          emptyTitle={isQuote ? "Aucun devis" : "Aucune facture"}
-          emptyHint="Créez un document pour démarrer le suivi."
-        />
+        <div className="space-y-5">
+          {rows.length > 0 ? <StatStrip items={stats} /> : null}
+          <DataTable
+            columns={docColumns}
+            renderMobileCard={renderDocCard}
+            data={filtered}
+            pagination
+            perPage={25}
+            onRowClick={(d) => navigate(detailPath(d))}
+            countLabel={isQuote ? "devis" : filtered.length > 1 ? "factures" : "facture"}
+            toolbar={
+              <FilterChips
+                label={isQuote ? "Filtrer les devis par statut" : "Filtrer les factures par statut"}
+                value={statusFilter}
+                onChange={setStatusFilter}
+                options={filters.map((st) => ({
+                  id: st,
+                  label: st === "ALL" ? "Tous" : labels[st] ?? st,
+                  count: st === "ALL" ? rows.length : count(st),
+                }))}
+              />
+            }
+            searchable={["number", "client.displayName", "client.clientNumber"]}
+            searchPlaceholder={isQuote ? "Rechercher un devis ou un client" : "Rechercher une facture ou un client"}
+            emptyTitle={isQuote ? "Aucun devis" : "Aucune facture"}
+            emptyHint={
+              rows.length === 0
+                ? isQuote
+                  ? "Créez votre premier devis avec le bouton Nouveau devis."
+                  : "Créez votre première facture avec le bouton Nouvelle facture."
+                : "Aucun document ne correspond à ces filtres."
+            }
+          />
+        </div>
       )}
 
       <Modal
