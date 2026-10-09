@@ -335,7 +335,7 @@ export function AppLayout() {
         {/* Onglets du bas (mobile) */}
         <nav
           aria-label="Accès rapide"
-          className="grid shrink-0 grid-cols-5 border-t border-[var(--border)] bg-[var(--bg-subtle)] pb-[env(safe-area-inset-bottom)] md:hidden"
+          className="grid shrink-0 grid-cols-5 border-t border-[var(--border)] bg-[var(--bg-subtle)] pb-[env(safe-area-inset-bottom)] lg:hidden"
         >
           {tabs.map((item) => {
             const active = item.match(pathname);

@@ -29,8 +29,10 @@ Le dépôt s'appelle encore `KouziaCRM`, mais l'outil est un ERP : clients, devi
 
 ## Interface (UI/UX)
 
-- Thème sombre unique (`color-scheme: dark`). Tokens dans `apps/web/src/index.css` (`:root`), seule source des valeurs brutes. Les composants utilisent `var(--*)`, jamais de couleur Tailwind en dur (`text-red-500`, `bg-slate-*`).
-- Primitives communes dans `apps/web/src/components/ui/` (`Button`, `Card`, `Field`, `Modal`, `DataTable`, `ConfirmDialog`). Un besoin récurrent étend une primitive ; on ne recrée pas un bouton ou une carte dans une page.
+- Thème sombre unique (`color-scheme: dark`), identité Kouzia (nuit, ambre, Exo 2 pour les titres, police système pour les données). Tokens dans `apps/web/src/index.css` (`:root`), seule source des valeurs brutes. Les composants utilisent `var(--*)`, jamais de couleur Tailwind en dur (`text-red-500`, `bg-slate-*`). Texte sur ambre : `--primary-fg`, jamais blanc.
+- Structure : barre latérale par métier (Pilotage, Ventes, Offre, Comptabilité, Relation client, Réglages), barre supérieure (fil d'Ariane, recherche Ctrl K, menu Créer), onglets du bas sous 1024 px. Arborescence unique dans `apps/web/src/lib/navigation.ts` : un nouvel écran s'y déclare.
+- Gabarits : liste = `PageHeader` + `StatStrip` (synthèse) + `DataTable` (recherche et `FilterChips` dans `toolbar`, `onRowClick`, lien dans la 1re colonne) ; fiche = `PageHeader` avec `back` + colonne principale (`Tabs` reflétés dans `?tab=`) + panneau latéral de synthèse.
+- Primitives communes dans `apps/web/src/components/ui/` (`Button`, `ButtonLink`, `Card`, `Field`, `Modal`, `DataTable`, `FilterChips`, `Segmented`, `StatStrip`, `Tabs`, `MoreMenu`, `Avatar`, `ConfirmDialog`). Un besoin récurrent étend une primitive ; on ne recrée pas un bouton ou une carte dans une page.
 - Responsive obligatoire : l'admin s'utilise aussi au téléphone (Tailscale). De 320 px au grand écran, sans scroll horizontal. Tableaux lisibles sur mobile, en cartes ou avec les colonnes essentielles. Cibles tactiles de 44 px minimum.
 - Chaque écran prévoit les états chargement, vide, erreur et succès. Les actions destructrices passent par `ConfirmDialog`. Les retours d'action passent par `sonner`, sans `alert` ni `confirm` natifs.
 - Libellés en français, vocabulaire métier constant : devis, facture, avoir, acompte, solde, jalon.
