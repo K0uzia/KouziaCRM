@@ -800,7 +800,7 @@ export function SettingsPage() {
                   </Field>
                   <Field label="URL du portail client">
                     <Input
-                      placeholder="https://kouzia.fr/suivi"
+                      placeholder="https://kouzia.com/suivi"
                       value={form.clientPortalUrl ?? ""}
                       onChange={(e) =>
                         setForm({ ...form, clientPortalUrl: e.target.value || null })

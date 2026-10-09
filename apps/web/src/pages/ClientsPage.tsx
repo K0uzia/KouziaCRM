@@ -387,7 +387,7 @@ export function ClientDetailPage() {
             ) : null}
           </div>
           <p className="mt-1 text-xs text-[var(--muted)]">
-            Identifiant client immuable, utilisé pour le suivi public (kouzia.fr/suivi).
+            Identifiant client immuable, utilisé pour le suivi public (kouzia.com/suivi).
           </p>
         </div>
 

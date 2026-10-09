@@ -61,7 +61,7 @@ Flux :
 
 1. Depuis l'ERP, invitation email (`POST /api/onboarding/invite`) : génère un token HMAC
    (`ONBOARDING_HMAC_SECRET`) et un enregistrement `OnboardingInvitation` (jti, expiration).
-2. Le client ouvre `https://kouzia.fr/nouveau-client?token=...`.
+2. Le client ouvre `https://kouzia.com/nouveau-client?token=...`.
 3. Kouzia appelle `GET /api/public/clients/preview` puis `POST /api/public/clients`
    (CORS limité à `PUBLIC_WEB_ORIGIN`). Aucune donnée n'est stockée sur Kouzia.
 4. L'ERP revalide adresse (BAN) et SIREN (recherche-entreprises), crée/met à jour le client.

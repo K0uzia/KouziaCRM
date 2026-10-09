@@ -9,7 +9,7 @@ export function OnboardingPage() {
   const { token } = useParams<{ token: string }>();
   const site =
     (import.meta.env.VITE_PUBLIC_SITE_URL as string | undefined)?.replace(/\/$/, "") ||
-    "https://kouzia.fr";
+    "https://kouzia.com";
 
   useEffect(() => {
     if (!token) return;

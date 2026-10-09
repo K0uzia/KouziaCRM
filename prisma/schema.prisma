@@ -1077,7 +1077,7 @@ enum TestimonialStatus {
   REJECTED
 }
 
-/// Avis client soumis depuis le portail de suivi, publié sur kouzia.fr après validation.
+/// Avis client soumis depuis le portail de suivi, publié sur kouzia.com après validation.
 model ClientTestimonial {
   id          String            @id @default(cuid())
   clientId    String

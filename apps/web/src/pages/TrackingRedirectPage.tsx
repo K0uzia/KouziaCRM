@@ -1,9 +1,9 @@
 import { useEffect } from "react";
 
 const PUBLIC_SITE_URL =
-  import.meta.env.VITE_PUBLIC_SITE_URL?.trim() || "https://kouzia.fr";
+  import.meta.env.VITE_PUBLIC_SITE_URL?.trim() || "https://kouzia.com";
 
-/** Ancienne route ERP : renvoie vers l'espace client sur kouzia.fr. */
+/** Ancienne route ERP : renvoie vers l'espace client sur kouzia.com. */
 export function TrackingRedirectPage() {
   useEffect(() => {
     const target = new URL(`${PUBLIC_SITE_URL.replace(/\/$/, "")}/suivi`);

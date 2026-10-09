@@ -62,7 +62,7 @@ export function TestimonialsPage() {
     <div>
       <PageHeader
         title="Avis clients"
-        subtitle="Les avis envoyés depuis le suivi. Publiez ceux que vous souhaitez afficher sur kouzia.fr."
+        subtitle="Les avis envoyés depuis le suivi. Publiez ceux que vous souhaitez afficher sur kouzia.com."
       />
 
       {rows.length === 0 ? (
