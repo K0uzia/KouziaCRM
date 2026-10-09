@@ -6,6 +6,7 @@ import {
   type Prisma,
 } from "@prisma/client";
 import { prisma } from "@/lib/prisma.js";
+import { assertDepositsPaid, assertQuoteSigned } from "@/lib/invoices/workflow.js";
 import { decryptOptional } from "@/lib/crypto.js";
 import { allocateInvoiceNumber } from "@/lib/invoices/numberingService.js";
 import { ensureQuoteMilestonesFromSettings } from "@/lib/payments/milestonePaymentService.js";
@@ -288,6 +289,7 @@ export async function generateMilestoneInvoice(
     if (milestone.quote.documentType !== InvoiceDocumentType.QUOTE) {
       throw new DocumentFlowError("Jalon invalide", 400);
     }
+    await assertQuoteSigned(milestone.quoteId, tx);
     if (milestone.invoiceId || milestone.generatedInvoice) {
       throw new DocumentFlowError(
         "Une facture existe déjà pour ce jalon",
@@ -377,8 +379,6 @@ export async function generateMilestoneInvoice(
     return { invoice: created, quoteId: milestone.quoteId };
   });
 
-  const { ensureProjectForQuote } = await import("@/lib/projects/lifecycle.js");
-  await ensureProjectForQuote(invoice.quoteId);
   return invoice.invoice;
 }
 
@@ -400,6 +400,8 @@ export async function generateBalanceInvoice(
     if (quote.documentType !== InvoiceDocumentType.QUOTE) {
       throw new DocumentFlowError("Devis introuvable", 404);
     }
+    await assertQuoteSigned(quoteId, tx);
+    await assertDepositsPaid(quoteId, tx);
 
     const existingSolde = await tx.invoice.findFirst({
       where: {
@@ -416,14 +418,8 @@ export async function generateBalanceInvoice(
     }
 
     const summary = await computeBalanceSummary(quoteId, tx);
-    if (summary.pendingMilestones.length > 0 && !opts.force) {
-      throw new DocumentFlowError(
-        `Des jalons ne sont pas encore facturés (${summary.pendingMilestones
-          .map((m) => m.label)
-          .join(", ")}). Passez force=true pour ignorer.`,
-        409,
-      );
-    }
+    // Les acomptes doivent être payés (assertDepositsPaid ci-dessus) : le jalon « Solde » encore
+    // en attente est justement celui que cette facture couvre, il ne bloque pas.
 
     if (summary.balanceDueCents <= 0) {
       throw new DocumentFlowError(

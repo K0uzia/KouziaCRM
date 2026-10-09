@@ -207,7 +207,7 @@ describe("issueQuote", () => {
 });
 
 describe("convertQuoteToInvoice", () => {
-  it("crée une facture SIMPLE brouillon liée au devis et marque le devis ACCEPTED", async () => {
+  it("crée une facture SIMPLE brouillon liée à un devis signé", async () => {
     const client = await createClient();
     const quoteId = await createDraftInvoice({
       documentType: InvoiceDocumentType.QUOTE,
@@ -215,6 +215,7 @@ describe("convertQuoteToInvoice", () => {
       lines: [{ description: "Mission", unitPriceCents: 100000 }],
     });
     await issueQuote(quoteId, new Date(2026, 5, 15));
+    await acceptQuoteByClient(quoteId, "Camille Dupont");
 
     const result = await convertQuoteToInvoice(quoteId);
     expect(result.documentType).toBe(InvoiceDocumentType.INVOICE);
@@ -247,9 +248,12 @@ describe("convertQuoteToInvoice", () => {
       ],
     });
     await issueQuote(quoteId, new Date(2026, 5, 15));
+    // L'abonnement est créé à la signature du devis ; la conversion le rattache sans doublon.
+    await acceptQuoteByClient(quoteId, "Camille Dupont");
 
     const result = await convertQuoteToInvoice(quoteId);
-    expect(result.subscriptionsCreated).toBe(1);
+    expect(result.subscriptionsCreated).toBe(0);
+    expect(await prisma.subscription.count({ where: { clientId: client.id } })).toBe(1);
 
     const invLines = await prisma.invoiceLine.findMany({
       where: { invoiceId: result.id },
@@ -274,10 +278,23 @@ describe("convertQuoteToInvoice", () => {
       lines: [{ description: "Mission", unitPriceCents: 50000 }],
     });
     await issueQuote(quoteId, new Date(2026, 5, 15));
+    await acceptQuoteByClient(quoteId, "Camille Dupont");
     await convertQuoteToInvoice(quoteId);
     await expect(convertQuoteToInvoice(quoteId)).rejects.toThrow(
       /Devis non convertible/,
     );
+  });
+
+  it("refuse de facturer un devis brouillon ou émis sans signature", async () => {
+    const client = await createClient();
+    const draftId = await createDraftInvoice({
+      documentType: InvoiceDocumentType.QUOTE,
+      clientId: client.id,
+      lines: [{ description: "Site une page", unitPriceCents: 69000, quantity: 1 }],
+    });
+    await expect(convertQuoteToInvoice(draftId)).rejects.toThrow(/Émettez d.abord le devis/);
+    await issueQuote(draftId, new Date(2026, 5, 15));
+    await expect(convertQuoteToInvoice(draftId)).rejects.toThrow(/pas encore signé/);
   });
 });
 
@@ -324,7 +341,7 @@ describe("décision du client sur un devis", () => {
   it("interdit de facturer un devis refusé", async () => {
     const quoteId = await issuedQuote();
     await rejectQuote(quoteId);
-    await expect(convertQuoteToInvoice(quoteId)).rejects.toThrow(/non convertible/);
+    await expect(convertQuoteToInvoice(quoteId)).rejects.toThrow(/refusé ou a expiré/);
   });
 
   it("accepte un devis sans acompte payé (validation d'abord)", async () => {

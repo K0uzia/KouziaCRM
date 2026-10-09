@@ -42,12 +42,11 @@ export function QuoteJourney({
       done: Boolean(deposit && (deposit.invoiceId || deposit.status === "INVOICED" || deposit.status === "PAID")),
       detail: null,
     },
-    { label: "Projet créé", done: Boolean(project), detail: project?.name ?? null },
     { label: "Acompte payé", done: deposit?.status === "PAID", detail: null },
     {
-      label: "Démarrage du projet",
-      done: project?.status === "ACTIVE" || project?.status === "DONE",
-      detail: project?.startedAt ? formatDate(project.startedAt) : null,
+      label: "Projet créé et démarré",
+      done: Boolean(project) && (project?.status === "ACTIVE" || project?.status === "DONE"),
+      detail: project ? `${project.name}${project.startedAt ? ` · ${formatDate(project.startedAt)}` : ""}` : null,
     },
   ];
   const rejected = quote.quoteStatus === "REJECTED" || quote.quoteStatus === "EXPIRED";
@@ -104,7 +103,7 @@ export function QuoteJourney({
           Voir le projet ({project.progress} %)
         </Link>
       ) : accepted && !rejected ? (
-        <p className="mt-3 text-xs text-[var(--muted)]">Le projet sera créé avec la facture d&apos;acompte.</p>
+        <p className="mt-3 text-xs text-[var(--muted)]">Le projet sera créé au paiement de l&apos;acompte.</p>
       ) : null}
     </div>
   );

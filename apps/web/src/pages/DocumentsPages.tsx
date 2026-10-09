@@ -381,6 +381,27 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
   const [companyName, setCompanyName] = useState("Alexandre Kouziaeff");
   const [forceSoldeMessage, setForceSoldeMessage] = useState<string | null>(null);
   const [rejectOpen, setRejectOpen] = useState(false);
+  const [signOpen, setSignOpen] = useState(false);
+  const [signerName, setSignerName] = useState("");
+  const [signBusy, setSignBusy] = useState(false);
+
+  async function signOffline() {
+    setSignBusy(true);
+    try {
+      await api(`/api/quotes/${id}/sign-offline`, {
+        method: "POST",
+        body: JSON.stringify({ signerName: signerName.trim() }),
+      });
+      toast.success("Signature enregistrée : vous pouvez facturer l'acompte");
+      setSignOpen(false);
+      setSignerName("");
+      await load();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Enregistrement impossible");
+    } finally {
+      setSignBusy(false);
+    }
+  }
   const [rejectReason, setRejectReason] = useState("");
   const [rejectBusy, setRejectBusy] = useState(false);
   const [invoiceModalOpen, setInvoiceModalOpen] = useState(false);
@@ -446,10 +467,15 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
   const hasDepositInvoices = linked.some(
     (i) => i.invoiceType === "ACOMPTE" || i.invoiceType === "SOLDE",
   );
-  const canCreateInvoice =
-    isQuote &&
-    Boolean(doc.number) &&
-    (doc.quoteStatus === "ACCEPTED" || doc.quoteStatus === "SENT");
+  // Ordre imposé : un devis ne se facture qu'une fois émis puis signé (règle vérifiée aussi par l'API).
+  const quoteSigned = isQuote && Boolean(doc.number) && doc.quoteStatus === "ACCEPTED";
+  const canCreateInvoice = quoteSigned;
+  const lockedReason =
+    doc.status === "DRAFT"
+      ? "Étape 1 : émettez le devis (bouton Émettre) pour l'envoyer au client."
+      : doc.quoteStatus === "SENT"
+        ? "Étape 2 : en attente de la signature du client. Il signe depuis son espace client ; pour une signature papier ou par email, utilisez « Enregistrer la signature »."
+        : "Ce devis ne peut plus être facturé.";
   const totalInvoiceDisabled = hasSimpleInvoice || hasDepositInvoices;
 
   function openIssueModal() {
@@ -569,9 +595,15 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
         method: "POST",
         body: JSON.stringify(input),
       });
-      toast.success("Acompte marqué comme payé");
+      toast.success("Acompte payé : le projet démarre");
       setPayingMilestoneId(null);
       await load();
+      // Étape suivante du parcours : compléter le projet créé au paiement.
+      const projects = await api<Array<{ id: string; quoteId: string | null }>>(
+        `/api/clients/${doc!.client.id}/projects`,
+      ).catch(() => []);
+      const project = projects.find((p) => p.quoteId === doc!.id);
+      if (project) navigate(`/clients/${doc!.client.id}?tab=projets&projet=${project.id}`);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Erreur");
     } finally {
@@ -698,6 +730,9 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
             ) : null}
             {!isQuote && doc.status === "ISSUED" ? (
               <Button onClick={() => setPayOpen(true)}>Paiement</Button>
+            ) : null}
+            {isQuote && doc.number && doc.quoteStatus === "SENT" ? (
+              <Button onClick={() => setSignOpen(true)}>Enregistrer la signature</Button>
             ) : null}
             {canCreateInvoice ? (
               <Button onClick={() => setInvoiceModalOpen(true)}>Créer une facture</Button>
@@ -905,6 +940,8 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
               onGenerateSolde={(force) => void generateSolde(Boolean(force))}
               onManualPay={(mid) => setPayingMilestoneId(mid)}
               onSavePaymentLink={(mid, url, send) => savePaymentLink(mid, url, send)}
+              signed={quoteSigned}
+              lockedReason={lockedReason}
             />
           ) : null}
           <ManualPaymentDialog
@@ -1101,27 +1138,55 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
       </div>
 
       <Modal
+        open={signOpen}
+        onClose={() => !signBusy && setSignOpen(false)}
+        title="Enregistrer la signature du client"
+        description="Pour un devis signé sur papier ou validé par email. La signature est tracée (date, auteur) dans la preuve d'acceptation."
+      >
+        <form
+          className="space-y-4"
+          onSubmit={(e) => {
+            e.preventDefault();
+            void signOffline();
+          }}
+        >
+          <Field label="Nom du signataire" hint="Tel qu'il figure sur le devis signé ou dans l'email d'accord.">
+            <Input required minLength={2} maxLength={120} value={signerName} onChange={(e) => setSignerName(e.target.value)} />
+          </Field>
+          <ModalActions>
+            <Button variant="secondary" disabled={signBusy} onClick={() => setSignOpen(false)}>
+              Annuler
+            </Button>
+            <Button type="submit" disabled={signBusy || signerName.trim().length < 2}>
+              {signBusy ? "Enregistrement…" : "Enregistrer la signature"}
+            </Button>
+          </ModalActions>
+        </form>
+      </Modal>
+
+      <Modal
         open={invoiceModalOpen}
         onClose={() => !invoiceModalBusy && setInvoiceModalOpen(false)}
         title="Créer une facture"
         description={
           doc.quoteStatus === "ACCEPTED"
-            ? "Devis validé : facturez l'acompte. Le projet du client est créé avec cette facture et démarre à son paiement."
-            : "Le devis n'est pas encore validé par le client : vous pouvez tout de même préparer la facture."
+            ? "Devis signé : facturez l'acompte. Une fois payé, le projet du client est créé et démarre."
+            : "Le devis doit être signé par le client avant toute facture."
         }
       >
         <div className="space-y-4">
           {hasMarket ? (
             <div className="space-y-2">
               <p className="text-xs font-semibold uppercase tracking-[0.08em] text-[var(--muted)]">Échéancier du devis</p>
-              {market!.milestones.map((m, idx) => {
+              {market!.milestones.slice(0, -1).map((m, idx, deposits) => {
                 const isFirst = idx === 0;
                 const already = Boolean(m.invoiceId);
+                const previousPaid = deposits.slice(0, idx).every((p) => p.status === "PAID");
                 return (
                   <button
                     key={m.id}
                     type="button"
-                    disabled={invoiceModalBusy || already}
+                    disabled={invoiceModalBusy || already || !previousPaid}
                     onClick={() => void createMilestoneInvoice(m.id)}
                     className={`flex w-full items-center justify-between gap-3 rounded-[var(--radius)] border p-4 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-60 ${
                       isFirst && !already
@@ -1136,9 +1201,11 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
                       <span className="block text-xs text-[var(--muted)]">
                         {already
                           ? "Déjà facturé"
-                          : isFirst
-                            ? "Étape suivante : crée le projet client"
-                            : m.triggerText}
+                          : !previousPaid
+                            ? "Après le paiement de l'acompte précédent"
+                            : isFirst
+                              ? "Étape suivante : son paiement crée le projet client"
+                              : m.triggerText}
                       </span>
                     </span>
                     <span className="shrink-0 font-display text-lg font-semibold tabular-nums">{formatEUR(m.amountCents)}</span>
@@ -1157,7 +1224,7 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
                     ? hasSimpleInvoice
                       ? "Une facture totale existe déjà pour ce devis."
                       : "Des acomptes sont déjà facturés : passez par l'échéancier et la facture de solde."
-                    : "Pour une petite prestation réglée en une fois. Le projet est aussi créé."}
+                    : "Pour une petite prestation réglée en une fois. Le projet est créé à son paiement."}
                 </p>
               </div>
               <Button

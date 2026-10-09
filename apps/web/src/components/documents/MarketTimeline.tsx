@@ -77,6 +77,8 @@ export function MarketTimeline({
   onSavePaymentLink,
   busyId,
   allowManualLink = true,
+  signed,
+  lockedReason,
 }: {
   market: MarketView;
   onGenerateAcompte: (milestoneId: string) => void;
@@ -89,10 +91,19 @@ export function MarketTimeline({
   ) => Promise<void> | void;
   busyId?: string | null;
   allowManualLink?: boolean;
+  /** Devis signé par le client : condition de toute facturation (règle imposée aussi par l'API). */
+  signed: boolean;
+  /** Raison affichée tant que le devis n'est pas signé. */
+  lockedReason?: string;
 }) {
   const { progress, milestones, balance } = market;
-  const hasPending = balance.pendingMilestones.length > 0;
   const maxPos = Math.max(...milestones.map((x) => x.position), 0);
+  const isSoldeOf = (m: { label: string; position: number }) =>
+    m.label.toLowerCase().includes("solde") || m.position === maxPos;
+  const deposits = milestones.filter((m) => !isSoldeOf(m));
+  const depositsPaid = deposits.every((m) => m.status === "PAID");
+  const soldeMilestone = milestones.find((m) => isSoldeOf(m));
+  const canSolde = signed && depositsPaid && Boolean(soldeMilestone) && !soldeMilestone?.invoiceId;
   const [drafts, setDrafts] = useState<Record<string, string>>({});
 
   return (
@@ -107,16 +118,25 @@ export function MarketTimeline({
               {formatEUR(balance.balanceDueCents)}
             </p>
           </div>
-          <Button
-            type="button"
-            variant="secondary"
-            className="h-8 px-3 text-xs"
-            disabled={busyId === "solde"}
-            onClick={() => onGenerateSolde(false)}
-          >
-            Facture de solde
-          </Button>
+          {canSolde ? (
+            <Button
+              type="button"
+              className="h-8 px-3 text-xs"
+              disabled={busyId === "solde"}
+              onClick={() => onGenerateSolde(true)}
+            >
+              Facture de solde
+            </Button>
+          ) : null}
         </div>
+        {!signed ? (
+          <p
+            role="status"
+            className="mt-3 rounded-[var(--radius-sm)] border border-[var(--warning)]/30 bg-[var(--warning-soft)] px-3 py-2 text-xs leading-relaxed text-[var(--warning)]"
+          >
+            {lockedReason ?? "Le devis doit être signé par le client avant toute facturation."}
+          </p>
+        ) : null}
         {allowManualLink ? (
           <p className="mt-3 rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--bg)] px-3 py-2 text-xs leading-relaxed text-[var(--muted)]">
             Clients pro : en général{" "}
@@ -135,22 +155,31 @@ export function MarketTimeline({
 
       <ul className="divide-y divide-[var(--border)]">
         {milestones.map((m) => {
-          const isSolde =
-            m.label.toLowerCase().includes("solde") || m.position === maxPos;
+          const isSolde = isSoldeOf(m);
+          const previousPaid = deposits
+            .filter((d) => d.position < m.position)
+            .every((d) => d.status === "PAID");
+          // Ordre imposé : signé → facture de l'acompte → paiement → acompte suivant → solde.
           const canInvoice =
-            (m.status === "PENDING" || m.status === "DUE") &&
+            signed &&
+            !isSolde &&
             !m.invoiceId &&
-            !isSolde;
-          const canManualPay =
-            onManualPay &&
-            m.status !== "PAID" &&
-            m.status !== "CANCELLED" &&
-            !isSolde;
-          const canLink =
-            allowManualLink &&
-            onSavePaymentLink &&
-            m.status !== "PAID" &&
-            m.status !== "CANCELLED";
+            (m.status === "PENDING" || m.status === "DUE" || m.status === "OVERDUE") &&
+            previousPaid;
+          const unpaidInvoiced = Boolean(m.invoiceId) && m.status !== "PAID" && m.status !== "CANCELLED";
+          const canManualPay = Boolean(onManualPay) && signed && !isSolde && unpaidInvoiced;
+          const canLink = allowManualLink && Boolean(onSavePaymentLink) && signed && unpaidInvoiced;
+          const nextHint = !signed || m.status === "PAID" || m.status === "CANCELLED"
+            ? null
+            : isSolde
+              ? m.invoiceId
+                ? null
+                : depositsPaid
+                  ? null
+                  : "Après le paiement des acomptes."
+              : !m.invoiceId && !previousPaid
+                ? "Après le paiement de l'étape précédente."
+                : null;
           const draft = drafts[m.id] ?? m.checkoutUrl ?? "";
 
           return (
@@ -193,9 +222,8 @@ export function MarketTimeline({
                   ) : null}
                 </div>
 
-                {canManualPay ? (
+                {canManualPay && onManualPay ? (
                   <Button
-                    variant="secondary"
                     className="h-8 shrink-0 px-3 text-xs"
                     disabled={busyId === `pay-${m.id}`}
                     onClick={() => onManualPay(m.id)}
@@ -212,16 +240,16 @@ export function MarketTimeline({
                     Facturer
                   </Button>
                 ) : null}
-                {isSolde && m.status === "PENDING" && !m.invoiceId ? (
+                {isSolde && canSolde ? (
                   <Button
-                    variant="secondary"
                     className="h-8 shrink-0 px-3 text-xs"
                     disabled={busyId === "solde"}
-                    onClick={() => onGenerateSolde(!hasPending)}
+                    onClick={() => onGenerateSolde(true)}
                   >
-                    Solde
+                    Facturer le solde
                   </Button>
                 ) : null}
+                {nextHint ? <p className="shrink-0 text-xs text-[var(--muted)]">{nextHint}</p> : null}
               </div>
 
               {canLink ? (

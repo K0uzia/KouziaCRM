@@ -6,6 +6,7 @@ import {
   type Prisma,
 } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import { assertQuoteSigned } from "@/lib/invoices/workflow.js";
 import { getCompanySettings } from "@/lib/company";
 import { allocateInvoiceNumber, allocateQuoteNumber } from "@/lib/invoices/numberingService";
 import { ensureQuoteMilestones } from "@/lib/quotes/milestones";
@@ -404,6 +405,7 @@ export async function convertQuoteToInvoice(quoteId: string) {
     if (quote.documentType !== InvoiceDocumentType.QUOTE) {
       throw new Error("Seuls les devis peuvent être convertis");
     }
+    await assertQuoteSigned(quoteId, tx);
     if (
       quote.quoteStatus !== QuoteStatus.SENT &&
       quote.quoteStatus !== QuoteStatus.DRAFT &&
@@ -510,7 +512,5 @@ export async function convertQuoteToInvoice(quoteId: string) {
     return { ...created, subscriptionsCreated: subs.created };
   });
 
-  const { ensureProjectForQuote } = await import("@/lib/projects/lifecycle.js");
-  await ensureProjectForQuote(quoteId);
   return invoice;
 }

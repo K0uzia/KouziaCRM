@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState, type FormEvent, type ReactNode } from
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faPlus, faTrash } from "@fortawesome/free-solid-svg-icons";
 import { toast } from "sonner";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { api } from "@/lib/api";
 import { Button } from "@/components/ui/Button";
 import { Badge, Card } from "@/components/ui/Card";
@@ -81,6 +81,22 @@ export function ClientProjects({ clientId }: { clientId: string }) {
   useEffect(() => {
     load().catch((e: Error) => toast.error(e.message));
   }, [load]);
+
+  // Arrivée depuis le paiement de l'acompte (?projet=id) : la fiche du projet créé s'ouvre à compléter.
+  const [params, setParams] = useSearchParams();
+  const [fromPayment, setFromPayment] = useState(false);
+  useEffect(() => {
+    const wanted = params.get("projet");
+    if (!wanted || projects.length === 0) return;
+    const p = projects.find((x) => x.id === wanted);
+    if (p) {
+      setEditing({ id: p.id, form: { ...EMPTY_FORM, ...p } });
+      setFromPayment(true);
+    }
+    const next = new URLSearchParams(params);
+    next.delete("projet");
+    setParams(next, { replace: true });
+  }, [params, projects, setParams]);
 
   function update(patch: Partial<ProjectForm>) {
     setEditing((cur) => (cur ? { ...cur, form: { ...cur.form, ...patch } } : cur));
@@ -189,8 +205,17 @@ export function ClientProjects({ clientId }: { clientId: string }) {
 
       <Modal
         open={Boolean(editing)}
-        onClose={() => (busy ? undefined : setEditing(null))}
-        title={editing?.id ? "Modifier le projet" : "Nouveau projet"}
+        onClose={() => {
+          if (busy) return;
+          setEditing(null);
+          setFromPayment(false);
+        }}
+        title={fromPayment ? "Projet créé : complétez-le" : editing?.id ? "Modifier le projet" : "Nouveau projet"}
+        description={
+          fromPayment
+            ? "L'acompte est payé, le projet a démarré. Ajustez son nom, ses étapes, les liens et la check-list : le client les voit dans son espace."
+            : undefined
+        }
         wide
       >
         {form ? (

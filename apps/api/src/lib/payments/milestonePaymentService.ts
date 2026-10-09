@@ -25,6 +25,7 @@ import {
   type MilestoneTemplate,
 } from "@/lib/quotes/milestones.js";
 import { prisma } from "@/lib/prisma.js";
+import { assertMilestoneInvoiced, assertQuoteSigned } from "@/lib/invoices/workflow.js";
 import { createRevolutOrder } from "@/lib/revolut/merchantService.js";
 
 export class MilestonePaymentError extends Error {
@@ -235,6 +236,8 @@ export async function setManualMilestonePaymentLink(
   ) {
     throw new MilestonePaymentError("Ce jalon est déjà réglé ou annulé", 409);
   }
+  await assertQuoteSigned(milestone.quoteId);
+  assertMilestoneInvoiced(milestone);
 
   const settings = await getCompanySettings();
   const updated = await prisma.paymentMilestone.update({
@@ -540,10 +543,9 @@ export async function markMilestonePaidManually(opts: {
   if (milestoneBefore.status === MilestoneStatus.PAID) {
     throw new MilestonePaymentError("Jalon déjà payé", 409);
   }
-
-  if (!milestoneBefore.invoiceId) {
-    await generateMilestoneInvoice(milestoneBefore.id);
-  }
+  // Ordre imposé : devis signé, puis facture d'acompte, puis paiement.
+  await assertQuoteSigned(milestoneBefore.quoteId);
+  assertMilestoneInvoiced(milestoneBefore);
 
   const updated = await prisma.$transaction(async (tx) => {
     const milestone = await tx.paymentMilestone.findUniqueOrThrow({

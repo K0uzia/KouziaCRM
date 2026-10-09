@@ -18,10 +18,12 @@ import {
   setManualMilestonePaymentLink,
 } from "@/lib/payments/milestonePaymentService.js";
 import {
+  acceptQuoteByClient,
   acceptQuoteFromThread,
   QuoteDecisionError,
 } from "@/lib/invoices/transitions.js";
 import { signedQuoteAbsolutePath } from "@/lib/invoices/acceptance-proof.js";
+import { WorkflowError } from "@/lib/invoices/workflow.js";
 import fs from "node:fs/promises";
 
 function actorOf(request: { user?: { id: string; email: string } }) {
@@ -32,7 +34,7 @@ function actorOf(request: { user?: { id: string; email: string } }) {
 }
 
 function flowError(reply: import("fastify").FastifyReply, e: unknown) {
-  if (e instanceof DocumentFlowError || e instanceof MilestonePaymentError) {
+  if (e instanceof DocumentFlowError || e instanceof MilestonePaymentError || e instanceof WorkflowError) {
     return reply.code(e.statusCode).send({ error: e.message });
   }
   return reply
@@ -41,6 +43,28 @@ function flowError(reply: import("fastify").FastifyReply, e: unknown) {
 }
 
 export const quotesMarketRoutes: FastifyPluginAsync = async (app) => {
+  // Signature recueillie hors de l'espace client (papier, email signé) : tracée comme acceptation ADMIN.
+  app.post<{ Params: { id: string } }>("/api/quotes/:id/sign-offline", async (request, reply) => {
+    await requireAuth(request, reply);
+    if (reply.sent) return;
+    const parsed = z
+      .object({ signerName: z.string().trim().min(2, "Nom du signataire requis").max(120) })
+      .safeParse(request.body);
+    if (!parsed.success) {
+      return reply.code(400).send({ error: parsed.error.issues[0]?.message ?? "Données invalides" });
+    }
+    try {
+      const quote = await acceptQuoteByClient(request.params.id, parsed.data.signerName, {
+        source: "ADMIN",
+        actor: actorOf(request as { user?: { id: string; email: string } }),
+      });
+      return { quoteStatus: quote.quoteStatus };
+    } catch (e) {
+      if (e instanceof QuoteDecisionError) return reply.code(409).send({ error: e.message, code: e.code });
+      throw e;
+    }
+  });
+
   // Preuves de signature d'un devis (plus récente en premier).
   app.get<{ Params: { id: string } }>("/api/quotes/:id/acceptances", async (request, reply) => {
     await requireAuth(request, reply);
