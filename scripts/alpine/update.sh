@@ -21,6 +21,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=lib.sh
 source "${SCRIPT_DIR}/lib.sh"
 
+ORIG_ARGS=("$@")
 DO_GIT=0
 SKIP_BACKUP=0
 FORCE_DEPS=0
@@ -97,6 +98,13 @@ if [[ "$DO_GIT" -eq 1 ]]; then
   git_in_app checkout HEAD -- package-lock.json 2>/dev/null || true
   chown "${KOUZIA_USER}:${KOUZIA_GROUP}" "${KOUZIA_APP_DIR}/package-lock.json" 2>/dev/null || true
   git_sync_from_origin "${KOUZIA_REPO_BRANCH:-main}"
+
+  # Ce shell a chargé update.sh et lib.sh d'avant le pull : la suite doit tourner sur les nouveaux.
+  if [[ -z "${KOUZIA_UPDATE_REEXEC:-}" ]]; then
+    log "Relance de la mise à jour avec les scripts à jour…"
+    trap - EXIT
+    KOUZIA_UPDATE_REEXEC=1 exec bash "${SCRIPT_DIR}/update.sh" ${ORIG_ARGS[@]+"${ORIG_ARGS[@]}"} --no-git --skip-backup
+  fi
 else
   log "Pas de git pull (code déjà en place ou poussé via rsync). Utiliser --git si besoin."
 fi
