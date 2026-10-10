@@ -428,7 +428,7 @@ export function ClientDetailPage() {
               <FontAwesomeIcon icon={faPen} className="h-3.5 w-3.5" aria-hidden />
               Modifier
             </Button>
-            <ButtonLink to="/quotes?new=1">
+            <ButtonLink to={`/quotes?new=1&clientId=${encodeURIComponent(client.id)}`}>
               <FontAwesomeIcon icon={faPlus} className="h-3.5 w-3.5" aria-hidden />
               Nouveau devis
             </ButtonLink>

@@ -127,8 +127,13 @@ function DocumentsListPage({
   const [clients, setClients] = useState<ClientOpt[]>([]);
   const [loading, setLoading] = useState(true);
   const [createOpen, setCreateOpen] = useState(false);
+  // Client présélectionné (lien « Nouveau devis » d'une fiche client), sinon le formulaire choisit.
+  const [createClientId, setCreateClientId] = useState<string | undefined>(undefined);
   const [statusFilter, setStatusFilter] = useState("ALL");
-  const openCreate = useCallback(() => setCreateOpen(true), []);
+  const openCreate = useCallback((params?: { clientId?: string }) => {
+    setCreateClientId(params?.clientId);
+    setCreateOpen(true);
+  }, []);
 
   useCreateParam(openCreate);
 
@@ -292,7 +297,7 @@ function DocumentsListPage({
             : "Factures émises, encaissements et soldes restants."
         }
         actions={
-          <Button onClick={openCreate}>
+          <Button onClick={() => openCreate()}>
             <FontAwesomeIcon icon={faPlus} className="h-3.5 w-3.5" aria-hidden />
             {isQuote ? "Nouveau devis" : "Nouvelle facture"}
           </Button>
@@ -352,6 +357,7 @@ function DocumentsListPage({
           mode="create"
           documentType={documentType}
           clients={clients}
+          initial={createClientId ? { clientId: createClientId } : undefined}
           onCancel={() => setCreateOpen(false)}
           onSuccess={(doc) => {
             setCreateOpen(false);
