@@ -858,7 +858,7 @@ export function SettingsPage() {
                       />
                     </Field>
                   </div>
-                  <label className="flex items-center gap-2 text-sm">
+                  <label className="flex min-h-11 items-center gap-2 text-sm">
                     <input
                       type="checkbox"
                       checked={form.publicTrackingShowAmounts}
@@ -1052,7 +1052,7 @@ export function SettingsPage() {
                       }
                     />
                   </Field>
-                  <label className="flex items-center gap-2 text-sm sm:col-span-2">
+                  <label className="flex min-h-11 items-center gap-2 text-sm sm:col-span-2">
                     <input
                       type="checkbox"
                       checked={form.imapSecure}
@@ -1115,7 +1115,7 @@ export function SettingsPage() {
                   Masquez ce que vous ne pouvez pas utiliser (ex. banque Revolut Pro sans API).
                   Les clients, devis, factures et mails restent toujours disponibles.
                 </p>
-                <label className="flex items-start gap-3 text-sm">
+                <label className="flex min-h-11 items-start gap-3 text-sm">
                   <input
                     type="checkbox"
                     className="mt-1"
@@ -1131,7 +1131,7 @@ export function SettingsPage() {
                     </span>
                   </span>
                 </label>
-                <label className="flex items-start gap-3 text-sm">
+                <label className="flex min-h-11 items-start gap-3 text-sm">
                   <input
                     type="checkbox"
                     className="mt-1"
@@ -1150,7 +1150,7 @@ export function SettingsPage() {
                     </span>
                   </span>
                 </label>
-                <label className="flex items-start gap-3 text-sm">
+                <label className="flex min-h-11 items-start gap-3 text-sm">
                   <input
                     type="checkbox"
                     className="mt-1"
@@ -1381,9 +1381,11 @@ export function SettingsPage() {
                       key={prefix}
                       className="flex items-end gap-3 rounded-[var(--radius-sm)] border border-[var(--border)] p-3"
                     >
-                      <label className="flex items-center gap-2 pb-2 text-sm">
+                      <label className="flex min-h-11 min-w-11 items-center justify-center text-sm">
                         <input
                           type="checkbox"
+                          className="h-5 w-5"
+                          aria-label={`Activer le rappel ${label}`}
                           checked={Boolean(form[enKey])}
                           onChange={(e) =>
                             setForm({ ...form, [enKey]: e.target.checked } as PublicSettings)
@@ -1644,7 +1646,7 @@ export function SettingsPage() {
                   />
                 </Field>
               </div>
-              <label className="flex items-center gap-2 text-sm">
+              <label className="flex min-h-11 items-center gap-2 text-sm">
                 <input
                   type="checkbox"
                   checked={form.b2cActivity}
@@ -1713,7 +1715,7 @@ export function SettingsPage() {
                     }
                   />
                 </Field>
-                <label className="flex items-center gap-2 text-sm">
+                <label className="flex min-h-11 items-center gap-2 text-sm">
                   <input
                     type="checkbox"
                     checked={form.obligationEmailRemindersEnabled}
@@ -1734,7 +1736,7 @@ export function SettingsPage() {
                   <ul className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                     {CHECKLIST_LABELS.map(({ key, label }) => (
                       <li key={key}>
-                        <label className="flex items-center gap-2 text-sm">
+                        <label className="flex min-h-11 items-center gap-2 text-sm">
                           <input
                             type="checkbox"
                             checked={checklist[key]}

@@ -114,7 +114,7 @@ export function NotificationBell() {
                           ) : null}
                         </span>
                         <span className="mt-0.5 line-clamp-2 block text-xs text-[var(--muted)]">{item.body}</span>
-                        <span className="mt-1 block text-[0.6875rem] text-[var(--muted)]/80">{ago(item.at)}</span>
+                        <span className="mt-1 block text-xs text-[var(--muted)]">{ago(item.at)}</span>
                       </span>
                     </button>
                   </li>

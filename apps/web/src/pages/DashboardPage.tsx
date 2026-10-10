@@ -431,7 +431,7 @@ export function DashboardPage() {
                     <li key={r.id} className="flex items-center justify-between gap-3 px-5 py-2.5 text-sm">
                       <Link
                         to={r.documentType === "QUOTE" ? `/quotes/${r.id}` : `/invoices/${r.id}`}
-                        className="min-w-0 hover:text-[var(--primary)]"
+                        className="flex min-h-11 min-w-0 flex-col justify-center hover:text-[var(--primary)]"
                       >
                         <span className="block truncate font-medium">{r.client.displayName}</span>
                         <span className="text-xs text-[var(--muted)]">
@@ -536,7 +536,7 @@ export function DashboardPage() {
             {threads === null ? (
               <div className="px-5 py-6 text-center text-sm text-[var(--muted)]">
                 <p>Boîte mail non connectée.</p>
-                <Link to="/settings?tab=email" className="link mt-1 inline-block">
+                <Link to="/settings?tab=email" className="link mt-1 inline-flex min-h-11 items-center">
                   Configurer la messagerie
                 </Link>
               </div>
@@ -587,7 +587,7 @@ export function DashboardPage() {
                   <dt className="text-[var(--muted)]">{row.label}</dt>
                   <dd className="font-semibold tabular-nums">
                     {row.to ? (
-                      <Link to={row.to} className="hover:text-[var(--primary)]">
+                      <Link to={row.to} className="inline-flex min-h-11 items-center hover:text-[var(--primary)]">
                         {row.value}
                       </Link>
                     ) : (

@@ -102,7 +102,7 @@ function Sidebar({
         {sections.map((section) => (
           <div key={section.id} className="mt-4 first:mt-1">
             {section.label ? (
-              <p className="mb-1 px-3 text-[0.6875rem] font-semibold uppercase tracking-[0.08em] text-[var(--muted)]/80">
+              <p className="mb-1 px-3 text-xs font-semibold uppercase tracking-[0.08em] text-[var(--muted)]">
                 {section.label}
               </p>
             ) : null}
@@ -314,10 +314,13 @@ export function AppLayout() {
           </div>
         </header>
 
+        {/* Région qui défile : atteignable au clavier (axe scrollable-region-focusable),
+            contour visible seulement au focus clavier. */}
         <main
           id="contenu"
-          tabIndex={-1}
-          className={`custom-scrollbar min-h-0 min-w-0 flex-1 focus:outline-none ${
+          tabIndex={isMailWorkspace ? -1 : 0}
+          aria-label="Contenu"
+          className={`custom-scrollbar min-h-0 min-w-0 flex-1 focus:outline-none focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-[var(--primary)] ${
             isMailWorkspace ? "overflow-hidden" : "overflow-y-auto overflow-x-hidden"
           }`}
         >

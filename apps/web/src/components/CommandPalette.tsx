@@ -205,14 +205,15 @@ export function CommandPalette({
           placeholder="Client, facture, devis, tarif, page…"
           className="sticky top-0 z-10 w-full border-b border-[var(--border)] bg-[var(--surface)] px-4 py-3.5 pt-[max(0.875rem,env(safe-area-inset-top))] text-[15px] text-[var(--text)] outline-none placeholder:text-[var(--muted)]"
         />
+        {/* Hors de la liste : un listbox ne doit contenir que des options (axe aria-required-children). */}
+        <Command.Empty className="px-3 py-8 text-center text-sm text-[var(--muted)]">
+          {searching
+            ? "Recherche…"
+            : hasQuery
+              ? "Aucun résultat pour cette recherche."
+              : "Tapez un nom, un numéro, un tarif…"}
+        </Command.Empty>
         <Command.List className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-2 sm:max-h-[62vh] sm:flex-none">
-          <Command.Empty className="px-3 py-8 text-center text-sm text-[var(--muted)]">
-            {searching
-              ? "Recherche…"
-              : hasQuery
-                ? "Aucun résultat pour cette recherche."
-                : "Tapez un nom, un numéro, un tarif…"}
-          </Command.Empty>
 
           {results.clients.length > 0 ? (
             <Command.Group heading="Clients" className={GROUP_CLASS}>
@@ -321,7 +322,7 @@ export function CommandPalette({
             </>
           ) : null}
         </Command.List>
-        <div className="flex items-center justify-between border-t border-[var(--border)] px-3 py-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] text-[11px] text-[var(--muted)]">
+        <div className="flex items-center justify-between border-t border-[var(--border)] px-3 py-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] text-xs text-[var(--muted)]">
           <span>↑↓ naviguer · ↵ ouvrir · esc fermer</span>
           {hasQuery && searching ? <span>Recherche…</span> : null}
         </div>

@@ -315,7 +315,7 @@ export function DataTable<T>({
       {hasToolbar ? (
         <div className="flex flex-col gap-3 border-b border-[var(--border)] p-3 sm:p-4 lg:flex-row lg:items-center">
           {searchable ? (
-            <label className="flex min-h-10 min-w-0 items-center gap-2 rounded-[var(--radius-sm)] border border-[var(--border-input)] bg-[var(--bg-subtle)] px-3 focus-within:border-[var(--primary)] lg:w-80">
+            <label className="flex min-h-11 min-w-0 items-center gap-2 rounded-[var(--radius-sm)] border border-[var(--border-input)] bg-[var(--bg-subtle)] px-3 focus-within:border-[var(--primary)] lg:w-80">
               <svg viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4 shrink-0 text-[var(--muted)]" aria-hidden>
                 <path
                   fillRule="evenodd"
@@ -332,7 +332,7 @@ export function DataTable<T>({
                   setMobilePage(1);
                 }}
                 placeholder={searchPlaceholder}
-                className="min-h-10 w-full min-w-0 border-0 bg-transparent text-sm outline-none placeholder:text-[var(--muted)]"
+                className="min-h-11 w-full min-w-0 border-0 bg-transparent text-sm outline-none placeholder:text-[var(--muted)]"
               />
             </label>
           ) : null}
