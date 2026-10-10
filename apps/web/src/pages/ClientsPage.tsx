@@ -23,6 +23,7 @@ import {
 } from "@/components/clients/ClientForm";
 import { ClientEmailLink } from "@/components/clients/ClientEmailLink";
 import { ClientProjects } from "@/components/clients/ClientProjects";
+import { ClientNeedsCard } from "@/components/clients/ClientNeedsCard";
 import { ClientMessagesTab } from "@/pages/messaging/ClientMessagesTab";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { useCreateParam } from "@/lib/use-create-param";
@@ -232,6 +233,7 @@ export function ClientsPage() {
         title={modal === "edit" ? "Modifier le client" : "Nouveau client"}
         description="Les emails et téléphones sont chiffrés en base."
         wide
+        fullScreenMobile
       >
         <ClientFormEditor
           clientId={editing?.id}
@@ -468,6 +470,7 @@ export function ClientDetailPage() {
                   </div>
                   {docList(docs, 5)}
                 </Card>
+                <ClientNeedsCard key={client.id} clientId={client.id} initial={client.needs ?? []} />
                 {client.notes ? (
                   <Card className="p-5">
                     <h2 className="mb-2 text-sm font-semibold">Notes internes</h2>

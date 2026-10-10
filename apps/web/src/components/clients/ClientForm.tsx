@@ -1,10 +1,13 @@
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent, type ReactNode } from "react";
+import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
+import { faChevronDown } from "@fortawesome/free-solid-svg-icons";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { formatPhoneFr } from "@/lib/format";
 import { Button } from "@/components/ui/Button";
 import { ModalActions } from "@/components/ui/Modal";
 import { Field, Input, Textarea } from "@/components/ui/Field";
+import { NeedsEditor, type ClientNeed } from "@/components/clients/NeedsEditor";
 import {
   AddressAutocomplete,
   revalidateAddressBeforeSubmit,
@@ -38,6 +41,7 @@ export type Client = {
   addressLat?: number | null;
   addressLon?: number | null;
   notes: string | null;
+  needs?: ClientNeed[];
   emailVerifiedAt?: string | null;
   onboardingCompletedAt?: string | null;
   accessEmailSentAt?: string | null;
@@ -165,6 +169,8 @@ export function ClientFormEditor({
   const [addressError, setAddressError] = useState<string | null>(null);
   // Création seulement : envoi de l'accès à l'espace client, coché par défaut.
   const [sendPortalAccess, setSendPortalAccess] = useState(true);
+  // Création seulement : besoins notés en rendez-vous (sur la fiche, bloc « Besoins » dédié).
+  const [needs, setNeeds] = useState<ClientNeed[]>([]);
 
   useEffect(() => {
     if (initial) setForm(initial);
@@ -220,7 +226,7 @@ export function ClientFormEditor({
         addressLon: form.addressLon,
         addressManualConfirmed: form.addressManualConfirmed,
         notes: form.notes,
-        ...(clientId ? {} : { sendPortalAccess: sendPortalAccess && Boolean(form.email) }),
+        ...(clientId ? {} : { sendPortalAccess: sendPortalAccess && Boolean(form.email), needs }),
       };
       const client = await api<Client & { portalAccess?: { sent: boolean; reason?: string } | null }>(
         clientId ? `/api/clients/${clientId}` : "/api/clients",
@@ -330,6 +336,7 @@ export function ClientFormEditor({
         </Field>
       </div>
 
+      <FormSection title="Adresse" defaultOpen={Boolean(clientId || form.addressLine1 || addressError)}>
       <AddressAutocomplete
         value={toAddressValue(form)}
         onChange={(addr) =>
@@ -348,10 +355,20 @@ export function ClientFormEditor({
         }
       />
       {addressError ? <p className="text-sm text-[var(--danger)]">{addressError}</p> : null}
+      </FormSection>
 
-      <Field label="Notes internes" hint="Non visibles sur les documents PDF">
-        <Textarea value={form.notes} onChange={(e) => set("notes", e.target.value)} rows={3} />
-      </Field>
+      <FormSection title={clientId ? "Notes" : "Besoins et notes"} defaultOpen>
+        {clientId ? null : (
+          <div className="space-y-1.5">
+            <p className="text-sm font-medium">Besoins</p>
+            <p className="text-xs text-[var(--muted)]">Pour préparer le devis et le projet. Entrée ajoute le besoin.</p>
+            <NeedsEditor needs={needs} onChange={setNeeds} />
+          </div>
+        )}
+        <Field label="Notes internes" hint="Non visibles sur les documents PDF">
+          <Textarea value={form.notes} onChange={(e) => set("notes", e.target.value)} rows={3} />
+        </Field>
+      </FormSection>
 
       {clientId ? null : (
         <label className="flex min-h-11 items-start gap-3 text-sm">
@@ -378,9 +395,34 @@ export function ClientFormEditor({
           Annuler
         </Button>
         <Button type="submit" disabled={busy}>
-          {busy ? "Enregistrement…" : "Enregistrer le client"}
+          {busy ? "Enregistrement…" : clientId ? "Enregistrer le client" : "Créer le client"}
         </Button>
       </ModalActions>
     </form>
+  );
+}
+
+/** Section repliable du formulaire client (mobile : on ne déroule que ce qu'on remplit). */
+function FormSection({
+  title,
+  defaultOpen = false,
+  children,
+}: {
+  title: string;
+  defaultOpen?: boolean;
+  children: ReactNode;
+}) {
+  return (
+    <details open={defaultOpen} className="group rounded-[var(--radius)] border border-[var(--border)]">
+      <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between gap-2 px-3 text-sm font-semibold">
+        {title}
+        <FontAwesomeIcon
+          icon={faChevronDown}
+          aria-hidden
+          className="h-3 w-3 text-[var(--muted)] transition-transform group-open:rotate-180"
+        />
+      </summary>
+      <div className="space-y-4 border-t border-[var(--border)] p-3">{children}</div>
+    </details>
   );
 }

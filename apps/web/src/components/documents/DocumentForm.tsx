@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/Button";
 import { ModalActions } from "@/components/ui/Modal";
 import { Field, Input, Select, Textarea } from "@/components/ui/Field";
 import type { Client } from "@/components/clients/ClientForm";
+import type { ClientNeed } from "@/components/clients/NeedsEditor";
 
 export type DocLine = {
   description: string;
@@ -69,7 +70,7 @@ export function DocumentFormEditor({
   documentType: "INVOICE" | "QUOTE";
   documentId?: string;
   initial?: Partial<DocumentFormValues>;
-  clients: Array<{ id: string; displayName: string; clientNumber?: string | null }>;
+  clients: Array<{ id: string; displayName: string; clientNumber?: string | null; needs?: ClientNeed[] }>;
   onSuccess: (doc: { id: string }) => void;
   onCancel: () => void;
 }) {
@@ -194,6 +195,17 @@ export function DocumentFormEditor({
     setForm((f) => ({ ...f, lines: [...f.lines, emptyLine()] }));
   }
 
+  /** Besoin du client repris en ligne : libellé prérempli, prix à saisir (rien d'automatique). */
+  function addNeedLine(label: string) {
+    const line: DocLine = { ...emptyLine(), description: label };
+    setForm((f) => {
+      const emptyIndex = f.lines.findIndex((l) => !l.description.trim() && !l.unitPriceEuros);
+      const lines = emptyIndex >= 0 ? f.lines.map((l, i) => (i === emptyIndex ? line : l)) : [...f.lines, line];
+      return { ...f, lines };
+    });
+    toast.success("Ligne ajoutée : saisissez le prix.");
+  }
+
   function removeLine(index: number) {
     setForm((f) => ({
       ...f,
@@ -275,6 +287,7 @@ export function DocumentFormEditor({
   const oneOff = services.filter((sv) => !sv.isSubscription);
   const monthly = services.filter((sv) => sv.isSubscription);
   const sectionTitle = "text-xs font-semibold uppercase tracking-[0.08em] text-[var(--muted)]";
+  const clientNeeds = clients.find((c) => c.id === form.clientId)?.needs ?? [];
 
   return (
     <form onSubmit={onSubmit} className="space-y-6">
@@ -332,6 +345,32 @@ export function DocumentFormEditor({
           </Field>
         ) : null}
       </section>
+
+      {documentType === "QUOTE" && clientNeeds.length > 0 ? (
+        <details className="rounded-[var(--radius)] border border-[var(--border)] p-3">
+          <summary className="min-h-11 cursor-pointer py-2 text-sm font-semibold">
+            Besoins du client ({clientNeeds.filter((n) => !n.done).length} à traiter)
+          </summary>
+          <ul className="mt-2 space-y-1" aria-label="Besoins du client">
+            {clientNeeds.map((need) => (
+              <li key={need.id} className="flex min-w-0 items-center justify-between gap-2">
+                <span className={`min-w-0 break-words text-sm ${need.done ? "text-[var(--muted)] line-through" : ""}`}>
+                  {need.label}
+                  {need.done ? <span className="sr-only"> (traité)</span> : null}
+                </span>
+                <Button
+                  variant="ghost"
+                  className="shrink-0 text-sm"
+                  aria-label={`Ajouter comme ligne : ${need.label}`}
+                  onClick={() => addNeedLine(need.label)}
+                >
+                  Ajouter comme ligne
+                </Button>
+              </li>
+            ))}
+          </ul>
+        </details>
+      ) : null}
 
       {/* 2. Prestations */}
       <section className="space-y-3" aria-labelledby="doc-lines">

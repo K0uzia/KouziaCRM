@@ -22,6 +22,7 @@ export function Modal({
   children,
   footer,
   wide = false,
+  fullScreenMobile = false,
 }: {
   open: boolean;
   onClose: () => void;
@@ -30,6 +31,8 @@ export function Modal({
   children: ReactNode;
   footer?: ReactNode;
   wide?: boolean;
+  /** Sous 640 px : plein écran (formulaire long saisi au téléphone), feuille du bas sinon. */
+  fullScreenMobile?: boolean;
 }) {
   const titleId = useId();
   const descId = useId();
@@ -96,13 +99,17 @@ export function Modal({
         aria-modal="true"
         aria-labelledby={titleId}
         aria-describedby={description ? descId : undefined}
-        className={`relative z-10 flex max-h-[92vh] focus:outline-none w-full min-w-0 flex-col overflow-hidden rounded-t-[var(--radius-lg)] border border-[var(--border)] bg-[var(--surface)] pb-[env(safe-area-inset-bottom)] shadow-[var(--shadow)] sm:rounded-[var(--radius-lg)] ${
-          wide ? "sm:max-w-3xl" : "sm:max-w-lg"
-        }`}
+        className={`relative z-10 flex focus:outline-none w-full min-w-0 flex-col overflow-hidden border-[var(--border)] bg-[var(--surface)] pb-[env(safe-area-inset-bottom)] shadow-[var(--shadow)] sm:max-h-[92vh] sm:rounded-[var(--radius-lg)] sm:border ${
+          fullScreenMobile
+            ? "h-dvh max-h-dvh rounded-none border-0 sm:h-auto"
+            : "max-h-[92vh] rounded-t-[var(--radius-lg)] border"
+        } ${wide ? "sm:max-w-3xl" : "sm:max-w-lg"}`}
       >
-        <div className="flex h-10 shrink-0 items-center justify-center sm:hidden" aria-hidden>
-          <div className="h-1 w-10 rounded-full bg-[var(--muted)]/40" />
-        </div>
+        {fullScreenMobile ? null : (
+          <div className="flex h-10 shrink-0 items-center justify-center sm:hidden" aria-hidden>
+            <div className="h-1 w-10 rounded-full bg-[var(--muted)]/40" />
+          </div>
+        )}
         <header className="flex shrink-0 items-start justify-between gap-3 border-b border-[var(--border)] px-5 py-3 sm:px-6 sm:py-4">
           <div className="min-w-0">
             <h2 id={titleId} className="text-lg font-semibold tracking-tight">

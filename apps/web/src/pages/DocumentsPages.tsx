@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import type { ClientNeed } from "@/components/clients/NeedsEditor";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faPlus } from "@fortawesome/free-solid-svg-icons";
@@ -107,7 +108,8 @@ type Doc = {
   milestones?: Milestone[];
 };
 
-type ClientOpt = { id: string; displayName: string; clientNumber?: string | null };
+// needs : rappel des besoins du client dans le formulaire de devis.
+type ClientOpt = { id: string; displayName: string; clientNumber?: string | null; needs?: ClientNeed[] };
 
 function displayStatus(d: Doc, isQuote: boolean): string {
   if (isQuote && d.quoteStatus) return d.quoteStatus;
