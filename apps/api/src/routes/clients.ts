@@ -13,6 +13,7 @@ import { requireAuth } from "@/lib/auth.js";
 import { revokeAllPortalSessions } from "@/lib/portal/auth.js";
 import { sendOnboardingInvite } from "@/lib/clients/onboarding.js";
 import { sendPortalWelcomeEmail } from "@/lib/clients/access-email.js";
+import { needsInputSchema, normalizeNeeds } from "@/lib/clients/needs.js";
 
 const createOptionsSchema = z.object({
   /** Case du formulaire (cochée par défaut côté interface) : envoie l'accès si une adresse existe. */
@@ -94,6 +95,21 @@ export const clientsRoutes: FastifyPluginAsync = async (app) => {
       return replyEntrepriseLookup(request.params.siren, reply);
     },
   );
+
+  // Besoins notés pour le client : la liste est remplacée en entier (ordre, libellés, « traité »).
+  app.put<{ Params: { id: string } }>("/api/clients/:id/needs", async (request, reply) => {
+    await requireAuth(request, reply);
+    if (reply.sent) return;
+    const parsed = z.object({ needs: needsInputSchema }).safeParse(request.body);
+    if (!parsed.success) {
+      return reply.code(400).send({ error: parsed.error.issues[0]?.message ?? "Besoins invalides" });
+    }
+    const existing = await prisma.client.findUnique({ where: { id: request.params.id }, select: { id: true } });
+    if (!existing) return reply.code(404).send({ error: "Introuvable" });
+    const needs = normalizeNeeds(parsed.data.needs);
+    await prisma.client.update({ where: { id: existing.id }, data: { needs: JSON.stringify(needs) } });
+    return { needs };
+  });
 
   // Espace client : (r)envoie l'e-mail d'accès (adresse du site, connexion par code).
   app.post<{ Params: { id: string } }>(
