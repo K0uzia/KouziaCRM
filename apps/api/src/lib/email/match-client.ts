@@ -1,5 +1,5 @@
-import { prisma } from "@/lib/prisma";
-import { decryptOptional } from "@/lib/crypto";
+import { prisma } from "@/lib/prisma.js";
+import { decryptOptional } from "@/lib/crypto.js";
 import { computeEmailHash } from "@/lib/clients/email-hash.js";
 
 export async function findClientIdByEmail(address: string): Promise<string | null> {
@@ -17,7 +17,7 @@ export async function findClientIdByEmail(address: string): Promise<string | nul
 
   const clients = await prisma.client.findMany({
     where: { emailEncrypted: { not: null } },
-    select: { id: true, emailEncrypted: true },
+    select: { id: true, emailEncrypted: true, emailHash: true },
   });
 
   for (const c of clients) {

@@ -8,10 +8,10 @@ import {
   Image,
   Font,
 } from "@react-pdf/renderer";
-import type { PdfCompanySettings } from "@/lib/pdf/brand-assets";
-import type { ClientSnapshot } from "@/lib/invoices/transitions";
-import { formatEUR } from "@/lib/money";
-import { readableOn, resolveBrandColors } from "@/lib/brand";
+import type { PdfCompanySettings } from "@/lib/pdf/brand-assets.js";
+import type { ClientSnapshot } from "@/lib/invoices/transitions.js";
+import { formatEUR } from "@/lib/money.js";
+import { readableOn, resolveBrandColors } from "@/lib/brand.js";
 
 /**
  * Charte Kouzia adaptée à l'impression : fond blanc, encre nuit, ambre en aplats

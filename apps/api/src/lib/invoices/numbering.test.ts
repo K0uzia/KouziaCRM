@@ -1,13 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { formatInvoiceNumber } from "@/lib/invoices/numberingService";
-import { eurosToCents, lineTotalCents, formatEUR } from "@/lib/money";
-import { computeLineTotals } from "@/lib/invoices/totals";
-import { monthBounds, previousMonth, currentMonth } from "@/lib/finance/dates";
+import { formatInvoiceNumber } from "@/lib/invoices/numberingService.js";
+import { eurosToCents, lineTotalCents, formatEUR } from "@/lib/money.js";
+import { computeLineTotals } from "@/lib/invoices/totals.js";
+import { monthBounds, previousMonth, currentMonth } from "@/lib/finance/dates.js";
 import {
   resolveDeclarationPeriod,
   resolveEcheanceStatus,
-} from "@/lib/finance/urssaf-echeance";
-import { computeUrssafDueCents } from "@/lib/publicodes";
+} from "@/lib/finance/urssaf-echeance.js";
+import { computeUrssafDueCents } from "@/lib/publicodes.js";
 
 describe("formatInvoiceNumber", () => {
   it("pads sequence to 4 digits with F- prefix", () => {

@@ -61,7 +61,7 @@ describe("testimonials", () => {
     const published = await listPublishedTestimonials();
     expect(published).toHaveLength(1);
     expect(published[0]?.authorName).toBe("Camille Dupont");
-    expect(published[0]?.status).toBeUndefined();
+    expect(published[0]).not.toHaveProperty("status");
 
     const row = await prisma.clientTestimonial.findUniqueOrThrow({
       where: { id: created.id },

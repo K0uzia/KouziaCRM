@@ -6,10 +6,10 @@ import {
   SubscriptionStatus,
   type Prisma,
 } from "@prisma/client";
-import { prisma } from "@/lib/prisma";
-import { issueInvoiceWithin, issueQuote } from "@/lib/invoices/transitions";
-import { sendDocumentPdf } from "@/lib/email/send-document-pdf";
-import { getCompanySettings } from "@/lib/company";
+import { prisma } from "@/lib/prisma.js";
+import { issueInvoiceWithin, issueQuote } from "@/lib/invoices/transitions.js";
+import { sendDocumentPdf } from "@/lib/email/send-document-pdf.js";
+import { getCompanySettings } from "@/lib/company.js";
 
 export type CreateSubscriptionInput = {
   clientId: string;

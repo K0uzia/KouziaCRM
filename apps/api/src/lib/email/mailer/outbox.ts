@@ -1,5 +1,5 @@
 import { EmailOutboxStatus } from "@prisma/client";
-import { prisma } from "@/lib/prisma";
+import { prisma } from "@/lib/prisma.js";
 import { generateMessageId } from "./headers.js";
 import type { EnqueueOptions, EnqueueResult, OutboxPayload } from "./types.js";
 

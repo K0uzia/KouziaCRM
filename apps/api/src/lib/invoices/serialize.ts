@@ -12,13 +12,13 @@ export function serializeInvoiceLine(line: InvoiceLine) {
   };
 }
 
-export function serializeInvoice(
-  invoice: Invoice & {
+export function serializeInvoice<
+  T extends Invoice & {
     lines?: InvoiceLine[];
-    payments?: Payment[];
+    payments?: Pick<Payment, "id" | "amountCents" | "paidAt" | "method">[];
     client?: Pick<Client, "id" | "displayName" | "clientNumber"> | Client | null;
   },
-) {
+>(invoice: T) {
   return {
     ...invoice,
     lines: invoice.lines?.map(serializeInvoiceLine),

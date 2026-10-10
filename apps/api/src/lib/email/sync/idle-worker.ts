@@ -51,7 +51,8 @@ export async function startIdleWorker(): Promise<void> {
         });
 
         idleTimer = setTimeout(() => {
-          client.idleDone?.();
+          // Toute commande met fin à IDLE : la boucle relance ensuite une synchro.
+          void client.noop().catch(() => {});
         }, 28 * 60 * 1000);
 
         await Promise.race([

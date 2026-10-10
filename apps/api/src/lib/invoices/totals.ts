@@ -1,4 +1,4 @@
-import { lineTotalCents } from "@/lib/money";
+import { lineTotalCents } from "@/lib/money.js";
 
 export type LineInput = {
   description: string;

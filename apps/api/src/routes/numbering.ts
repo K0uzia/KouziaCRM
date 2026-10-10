@@ -1,4 +1,5 @@
 import type { FastifyPluginAsync } from "fastify";
+import { Prisma } from "@prisma/client";
 import { z } from "zod";
 import { requireAuth } from "@/lib/auth.js";
 import { getCompanySettings, invalidateCompanySettingsCache } from "@/lib/company.js";
@@ -85,7 +86,7 @@ export const numberingRoutes: FastifyPluginAsync = async (app) => {
           ? { numberCounterWidth: parsed.data.numberCounterWidth }
           : {}),
         ...(parsed.data.numberingLegacyStarts !== undefined
-          ? { numberingLegacyStarts: parsed.data.numberingLegacyStarts }
+          ? { numberingLegacyStarts: parsed.data.numberingLegacyStarts ?? Prisma.DbNull }
           : {}),
       },
     });

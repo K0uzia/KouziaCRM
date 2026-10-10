@@ -1,4 +1,7 @@
-import Decimal from "decimal.js";
+import { Prisma } from "@prisma/client";
+
+// decimal.js, via Prisma : son import par défaut n'est pas typé correctement en NodeNext.
+const Decimal = Prisma.Decimal;
 
 export function eurosToCents(euros: number | string): number {
   return new Decimal(euros).mul(100).toDecimalPlaces(0, Decimal.ROUND_HALF_UP).toNumber();

@@ -1,9 +1,9 @@
 import { renderToBuffer } from "@react-pdf/renderer";
-import { InvoiceDocument, type InvoicePdfData } from "@/lib/pdf/invoice-document";
+import { InvoiceDocument, type InvoicePdfData } from "@/lib/pdf/invoice-document.js";
 import {
   ReceiptsDocument,
   type ReceiptsPdfData,
-} from "@/lib/pdf/receipts-document";
+} from "@/lib/pdf/receipts-document.js";
 
 export async function renderInvoicePdf(data: InvoicePdfData): Promise<Buffer> {
   const buffer = await renderToBuffer(

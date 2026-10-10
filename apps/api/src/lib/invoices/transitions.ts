@@ -5,11 +5,11 @@ import {
   QuoteStatus,
   type Prisma,
 } from "@prisma/client";
-import { prisma } from "@/lib/prisma";
+import { prisma } from "@/lib/prisma.js";
 import { assertQuoteSigned } from "@/lib/invoices/workflow.js";
-import { getCompanySettings } from "@/lib/company";
-import { allocateInvoiceNumber, allocateQuoteNumber } from "@/lib/invoices/numberingService";
-import { ensureQuoteMilestones } from "@/lib/quotes/milestones";
+import { getCompanySettings } from "@/lib/company.js";
+import { allocateInvoiceNumber, allocateQuoteNumber } from "@/lib/invoices/numberingService.js";
+import { ensureQuoteMilestones } from "@/lib/quotes/milestones.js";
 import {
   buildClientSnapshot,
   type ClientSnapshot,
@@ -18,8 +18,8 @@ import {
   syncMilestoneOnInvoicePaid,
   assertQuoteEditable,
   DocumentFlowError,
-} from "@/lib/invoices/documentFlowService";
-import { activateSubscriptionsFromDocument } from "@/lib/subscriptions/activate-from-document";
+} from "@/lib/invoices/documentFlowService.js";
+import { activateSubscriptionsFromDocument } from "@/lib/subscriptions/activate-from-document.js";
 
 export type { ClientSnapshot };
 export {
@@ -34,7 +34,7 @@ export {
   createCreditNote,
   cancelInvoiceWithCreditNote,
   CreditNoteError,
-} from "@/lib/invoices/credit-note-service";
+} from "@/lib/invoices/credit-note-service.js";
 
 function addDays(d: Date, days: number): Date {
   const out = new Date(d);

@@ -1,12 +1,12 @@
-import { prisma } from "@/lib/prisma";
-import { getCompanySettings } from "@/lib/company";
-import { computeSocialChargesForEncaisse } from "@/lib/publicodes";
-import { monthBounds, monthLabelFr } from "@/lib/finance/dates";
+import { prisma } from "@/lib/prisma.js";
+import { getCompanySettings } from "@/lib/company.js";
+import { computeSocialChargesForEncaisse } from "@/lib/publicodes.js";
+import { monthBounds, monthLabelFr } from "@/lib/finance/dates.js";
 import {
   getBusinessStartLocal,
   monthsElapsedSinceActivityStart,
   resolveActivityStartForYear,
-} from "@/lib/company/business-start";
+} from "@/lib/company/business-start.js";
 
 export type CashflowScope = "week" | "month" | "quarter" | "year";
 

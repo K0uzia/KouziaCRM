@@ -423,8 +423,7 @@ async function upsertObligation(data: {
         amountCents: data.amountCents ?? existing.amountCents,
         notes: data.notes ?? existing.notes,
         status:
-          data.dueDate < new Date() && existing.status !== ObligationStatus.DONE
-            ? ObligationStatus.LATE
+          data.dueDate < new Date() ? ObligationStatus.LATE
             : ObligationStatus.PENDING,
       },
     });
@@ -1043,7 +1042,7 @@ export async function updateChecklist(
     rcpInsurance: boolean;
     mediationChecked: boolean;
     dedicatedBankAccount: boolean;
-    lastIncomeTaxDeclaredYear: number;
+    lastIncomeTaxDeclaredYear: number | null;
   }>,
 ) {
   const row = await getOrCreateChecklist();

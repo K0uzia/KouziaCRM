@@ -1,7 +1,7 @@
 import { InvoiceDocumentType, InvoiceStatus } from "@prisma/client";
-import { isSmtpConfigured } from "@/lib/email/smtp";
-import { mailEnqueue } from "@/lib/email/mailer";
-import { loadDocumentForPdf, renderLoadedDocumentPdf } from "@/lib/pdf/document-pdf";
+import { isSmtpConfigured } from "@/lib/email/smtp.js";
+import { mailEnqueue } from "@/lib/email/mailer/index.js";
+import { loadDocumentForPdf, renderLoadedDocumentPdf } from "@/lib/pdf/document-pdf.js";
 import { resolveClientPortalUrl } from "@/lib/email/portal-url.js";
 import { resolveInvoicePaymentUrl } from "@/lib/email/payment-url.js";
 

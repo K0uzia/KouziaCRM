@@ -1,6 +1,6 @@
 import React from "react";
 import { Document, Page, Text, View, StyleSheet } from "@react-pdf/renderer";
-import { formatEUR } from "@/lib/money";
+import { formatEUR } from "@/lib/money.js";
 
 const styles = StyleSheet.create({
   page: {

@@ -1,7 +1,7 @@
 import { InvoiceStatus, type UrssafPeriodicity } from "@prisma/client";
-import { prisma } from "@/lib/prisma";
-import { getCompanySettings } from "@/lib/company";
-import { computeSocialChargesForEncaisse, computeUrssafDueCents } from "@/lib/publicodes";
+import { prisma } from "@/lib/prisma.js";
+import { getCompanySettings } from "@/lib/company.js";
+import { computeSocialChargesForEncaisse, computeUrssafDueCents } from "@/lib/publicodes.js";
 import {
   calendarDaysBetween,
   previousQuarter,
@@ -11,7 +11,7 @@ import {
   resolvePriorDeclarationPeriod,
   resolveUpcomingDeclarationPeriod,
   type EcheanceStatus,
-} from "@/lib/finance/urssaf-echeance";
+} from "@/lib/finance/urssaf-echeance.js";
 import {
   getCashflowChartSeries,
   getInvoiceCashflow,
@@ -21,8 +21,8 @@ import {
   type CashflowChartPoint,
   type CashflowScope,
   type ScopedCashflow,
-} from "@/lib/finance/cashflow-service";
-import { clipPeriodToActivity } from "@/lib/company/business-start";
+} from "@/lib/finance/cashflow-service.js";
+import { clipPeriodToActivity } from "@/lib/company/business-start.js";
 
 export type PriorPeriodStatus = {
   periodKey: string;

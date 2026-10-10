@@ -1,10 +1,10 @@
 import { InvoiceDocumentType, MilestoneStatus, QuoteStatus } from "@prisma/client";
-import { decryptOptional } from "@/lib/crypto";
-import { isSmtpConfigured } from "@/lib/email/smtp";
-import { mailEnqueue } from "@/lib/email/mailer";
-import { brandFromSettings, buildEmailContent } from "@/lib/email/templates";
-import { getCompanySettings } from "@/lib/company";
-import { prisma } from "@/lib/prisma";
+import { decryptOptional } from "@/lib/crypto.js";
+import { isSmtpConfigured } from "@/lib/email/smtp.js";
+import { mailEnqueue } from "@/lib/email/mailer/index.js";
+import { brandFromSettings, buildEmailContent } from "@/lib/email/templates.js";
+import { getCompanySettings } from "@/lib/company.js";
+import { prisma } from "@/lib/prisma.js";
 
 type DepositStage = "minus7" | "minus1" | "plus3" | "plus10";
 

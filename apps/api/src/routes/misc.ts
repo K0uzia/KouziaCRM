@@ -222,12 +222,8 @@ export const miscRoutes: FastifyPluginAsync = async (app) => {
       take?: string;
     };
     const search = (q.search ?? q.q ?? "").trim();
-    const virtual =
-      q.virtual === "unread" || q.virtual === "starred" || q.virtual === "attachments"
-        ? q.virtual
-        : undefined;
-    const audience =
-      q.audience === "clients" || q.audience === "external" ? q.audience : undefined;
+    const virtual = (["unread", "starred", "attachments"] as const).find((v) => v === q.virtual);
+    const audience = (["clients", "external"] as const).find((a) => a === q.audience);
     const listFilter = {
       folderId: q.folderId,
       virtual,

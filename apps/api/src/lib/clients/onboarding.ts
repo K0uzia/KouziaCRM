@@ -17,6 +17,7 @@ import {
   verifyCompanyIdentifiers,
 } from "@/lib/address/france.js";
 import { computeEmailHash } from "@/lib/clients/email-hash.js";
+import { AddressValidationError } from "@/lib/clients.js";
 
 export type OnboardingInviteResult = {
   ok: boolean;

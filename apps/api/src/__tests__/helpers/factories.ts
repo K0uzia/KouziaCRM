@@ -1,3 +1,4 @@
+import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma.js";
 import { invalidateCompanySettingsCache } from "@/lib/company.js";
 
@@ -34,7 +35,7 @@ export async function seedCompanySettings(): Promise<void> {
     depositPercent1Bps: 3000,
     depositPercent2Bps: 7000,
     depositPercent3Bps: 0,
-  };
+  } satisfies Prisma.CompanySettingsCreateInput;
   if (existing) {
     await prisma.companySettings.update({ where: { id: existing.id }, data });
   } else {

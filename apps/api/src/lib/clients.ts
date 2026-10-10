@@ -1,9 +1,9 @@
 import { z } from "zod";
 import { ClientType } from "@prisma/client";
 import { isValidSiren, isValidSiret } from "@kouzia/forms";
-import { prisma } from "@/lib/prisma";
-import { decryptOptional, encryptOptional } from "@/lib/crypto";
-import { allocateClientNumber } from "@/lib/clients/numbering";
+import { prisma } from "@/lib/prisma.js";
+import { decryptOptional, encryptOptional } from "@/lib/crypto.js";
+import { allocateClientNumber } from "@/lib/clients/numbering.js";
 import { computeEmailHash } from "@/lib/clients/email-hash.js";
 import {
   normalizeFrenchAddress,

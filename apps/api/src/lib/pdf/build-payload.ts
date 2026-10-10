@@ -6,8 +6,8 @@ import type {
   LegalClause,
   QuoteAcceptanceAudit,
 } from "@prisma/client";
-import type { ClientSnapshot } from "@/lib/invoices/transitions";
-import type { InvoicePdfData } from "@/lib/pdf/invoice-document";
+import type { ClientSnapshot } from "@/lib/invoices/transitions.js";
+import type { InvoicePdfData } from "@/lib/pdf/invoice-document.js";
 
 type InvoiceWithRelations = Invoice & {
   lines: InvoiceLine[];

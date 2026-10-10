@@ -1,4 +1,4 @@
-import { getCompanySettings } from "@/lib/company";
+import { getCompanySettings } from "@/lib/company.js";
 import { formatEUR } from "@/lib/money.js";
 import { renderEmailHtml } from "@/lib/email/layout.js";
 import { resolveClientPortalUrl } from "@/lib/email/portal-url.js";

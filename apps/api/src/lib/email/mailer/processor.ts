@@ -1,6 +1,6 @@
 import { EmailDirection, EmailOutboxStatus } from "@prisma/client";
-import { getCompanySettings } from "@/lib/company";
-import { prisma } from "@/lib/prisma";
+import { getCompanySettings } from "@/lib/company.js";
+import { prisma } from "@/lib/prisma.js";
 import { logClientEmailEvent } from "@/lib/email/log-event.js";
 import {
   formatSmtpError,

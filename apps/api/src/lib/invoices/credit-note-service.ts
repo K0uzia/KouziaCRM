@@ -7,10 +7,10 @@ import {
   Prisma,
   RefundMethod,
 } from "@prisma/client";
-import { prisma } from "@/lib/prisma";
-import { getCompanySettings } from "@/lib/company";
-import { allocateCreditNoteNumber } from "@/lib/invoices/numberingService";
-import { buildClientSnapshot, type ClientSnapshot } from "@/lib/invoices/documentFlowService";
+import { prisma } from "@/lib/prisma.js";
+import { getCompanySettings } from "@/lib/company.js";
+import { allocateCreditNoteNumber } from "@/lib/invoices/numberingService.js";
+import { buildClientSnapshot, type ClientSnapshot } from "@/lib/invoices/documentFlowService.js";
 
 export class CreditNoteError extends Error {
   constructor(

@@ -7,7 +7,7 @@ import {
   previousMonth,
   urssafDeadlineForCurrentMonth,
   type MonthRef,
-} from "@/lib/finance/dates";
+} from "@/lib/finance/dates.js";
 
 export type DeclarationPeriod = {
   periodKey: string;

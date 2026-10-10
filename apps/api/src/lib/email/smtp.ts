@@ -1,8 +1,8 @@
 import nodemailer from "nodemailer";
 import type SMTPTransport from "nodemailer/lib/smtp-transport/index.js";
 import type { Transporter } from "nodemailer";
-import { decryptOptional } from "@/lib/crypto";
-import { getCompanySettings } from "@/lib/company";
+import { decryptOptional } from "@/lib/crypto.js";
+import { getCompanySettings } from "@/lib/company.js";
 import { formatFrom } from "@/lib/email/mailer/headers.js";
 import {
   defaultPortForEncryption,
@@ -252,7 +252,8 @@ export function formatSmtpError(error: unknown): string {
 }
 
 export function createTransportFromConfig(cfg: SmtpRuntimeConfig, pool = false) {
-  const options: SMTPTransport.Options = {
+  // `pool` : option de SMTPPool, absente du type SMTPTransport.Options.
+  const options: SMTPTransport.Options & { pool?: boolean } = {
     host: cfg.host,
     port: cfg.port,
     secure: cfg.secure,
@@ -264,11 +265,7 @@ export function createTransportFromConfig(cfg: SmtpRuntimeConfig, pool = false) 
   if (cfg.user) {
     options.auth = { user: cfg.user, pass: cfg.pass };
   }
-  if (
-    cfg.encryption === "STARTTLS" &&
-    cfg.port !== 1025 &&
-    cfg.encryption !== "NONE"
-  ) {
+  if (cfg.encryption === "STARTTLS" && cfg.port !== 1025) {
     options.requireTLS = true;
   }
   return nodemailer.createTransport(options);

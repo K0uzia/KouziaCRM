@@ -12,7 +12,7 @@ export type OfficialLinks = {
 };
 
 export function resolveOfficialLinks(raw: unknown): OfficialLinks {
-  const base = { ...DEFAULT_OFFICIAL_LINKS };
+  const base: OfficialLinks = { ...DEFAULT_OFFICIAL_LINKS };
   if (!raw || typeof raw !== "object") return base;
   const o = raw as Record<string, unknown>;
   for (const key of Object.keys(base) as Array<keyof OfficialLinks>) {

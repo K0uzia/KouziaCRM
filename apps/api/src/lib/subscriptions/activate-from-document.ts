@@ -1,11 +1,11 @@
 import { SubscriptionStatus } from "@prisma/client";
-import { prisma } from "@/lib/prisma";
+import { prisma } from "@/lib/prisma.js";
 import {
   createSubscription,
   updateSubscription,
   SubscriptionError,
   type Db,
-} from "@/lib/subscriptions/subscription-service";
+} from "@/lib/subscriptions/subscription-service.js";
 
 export type ActivateSubscriptionsResult = {
   created: number;
