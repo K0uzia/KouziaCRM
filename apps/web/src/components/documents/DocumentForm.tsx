@@ -499,7 +499,7 @@ export function DocumentFormEditor({
             );
           })}
         </ul>
-        <Button variant="ghost" className="min-h-10 px-3 text-sm" onClick={addLine}>
+        <Button variant="ghost" className="px-3 text-sm" onClick={addLine}>
           + Ligne libre
         </Button>
 

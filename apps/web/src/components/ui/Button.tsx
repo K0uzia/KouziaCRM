@@ -16,8 +16,10 @@ const styles: Record<Variant, string> = {
     "bg-transparent text-[var(--muted)] border-transparent hover:bg-[var(--danger-soft)] hover:text-[var(--danger)]",
 };
 
+// Sous 640 px, un libellé long revient à la ligne et le bouton peut rétrécir : sinon sa largeur
+// imposait celle de la rangée et la poussait hors de l'écran (« Publier sur le site » à 320 px).
 const base =
-  "inline-flex min-h-11 min-w-11 shrink-0 touch-manipulation items-center justify-center gap-2 whitespace-nowrap rounded-[var(--radius)] border px-4 text-sm font-medium transition-colors duration-150";
+  "inline-flex min-h-11 min-w-11 max-w-full touch-manipulation items-center justify-center gap-2 whitespace-normal rounded-[var(--radius)] border px-4 py-1.5 text-center text-sm leading-tight font-medium transition-colors duration-150 sm:shrink-0 sm:whitespace-nowrap";
 
 export function buttonClass(variant: Variant = "primary", className = ""): string {
   return `${base} ${styles[variant]} ${className}`;

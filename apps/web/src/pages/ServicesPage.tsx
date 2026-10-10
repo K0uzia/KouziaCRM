@@ -214,7 +214,7 @@ export function ServicesPage() {
                         </Button>
                       </>
                     ) : (
-                      <Button variant="secondary" className="min-h-10 px-3 text-sm" onClick={() => void restore(s)}>
+                      <Button variant="secondary" className="px-3 text-sm" onClick={() => void restore(s)}>
                         Réactiver
                       </Button>
                     )}

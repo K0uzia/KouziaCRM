@@ -439,7 +439,7 @@ export function DashboardPage() {
                           {r.reminderCount > 1 ? "s" : ""}
                         </span>
                       </Link>
-                      <Button variant="secondary" className="min-h-9 shrink-0 px-3 text-xs" onClick={() => void sendReminder(r.id)}>
+                      <Button variant="secondary" className="shrink-0 px-3 text-sm" onClick={() => void sendReminder(r.id)}>
                         Envoyer
                       </Button>
                     </li>

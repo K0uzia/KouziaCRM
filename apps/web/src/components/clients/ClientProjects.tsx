@@ -456,7 +456,7 @@ function ListSection({
     <fieldset className="space-y-2">
       <div className="flex items-center justify-between gap-2">
         <legend className="text-sm font-medium">{title}</legend>
-        <Button variant="ghost" className="h-8 min-h-8 px-2 text-xs" onClick={onAdd}>
+        <Button variant="ghost" className="px-3 text-sm" onClick={onAdd}>
           <FontAwesomeIcon icon={faPlus} className="h-3 w-3" aria-hidden />
           Ajouter
         </Button>
