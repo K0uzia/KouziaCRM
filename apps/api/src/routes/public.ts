@@ -154,6 +154,8 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
         void (async () => {
           const code = await issuePortalCode(client.id, "LOGIN");
           if (code) await sendLoginCodeEmail(client, code);
+          // Réponse inchangée (anti-énumération) : le refus se voit seulement dans les journaux.
+          else request.log.warn({ event: "portal_code_throttled", clientId: client.id }, "code de connexion non émis : limite horaire atteinte");
         })().catch((err) => request.log.error({ err }, "envoi du code de connexion échoué"));
       }
       return { ok: true };
