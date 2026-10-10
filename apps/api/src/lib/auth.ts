@@ -1,4 +1,4 @@
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import argon2 from "argon2";
 import bcrypt from "bcryptjs";
 import type { FastifyReply, FastifyRequest } from "fastify";
@@ -47,11 +47,14 @@ export async function upgradePasswordHashIfNeeded(
   await prisma.user.update({ where: { id: userId }, data: { passwordHash: next } });
 }
 
-export async function createSession(userId: string): Promise<{ id: string; expiresAt: Date }> {
-  const id = randomBytes(32).toString("hex");
+/** La base ne garde que le SHA-256 du jeton : une copie de la base ne donne pas de session valide. */
+const sessionIdOf = (token: string) => createHash("sha256").update(token).digest("hex");
+
+export async function createSession(userId: string): Promise<{ token: string; expiresAt: Date }> {
+  const token = randomBytes(32).toString("base64url");
   const expiresAt = new Date(Date.now() + SESSION_TTL_MS);
-  await prisma.session.create({ data: { id, userId, expiresAt } });
-  return { id, expiresAt };
+  await prisma.session.create({ data: { id: sessionIdOf(token), userId, expiresAt } });
+  return { token, expiresAt };
 }
 
 export async function destroySession(sessionId: string): Promise<void> {
@@ -59,11 +62,11 @@ export async function destroySession(sessionId: string): Promise<void> {
 }
 
 export async function resolveSession(
-  sessionId: string | undefined,
+  token: string | undefined,
 ): Promise<{ user: AuthUser; sessionId: string } | null> {
-  if (!sessionId) return null;
+  if (!token) return null;
   const session = await prisma.session.findUnique({
-    where: { id: sessionId },
+    where: { id: sessionIdOf(token) },
     include: { user: true },
   });
   if (!session) return null;
@@ -81,9 +84,15 @@ export async function resolveSession(
   };
 }
 
-export function setSessionCookie(reply: FastifyReply, sessionId: string, expiresAt: Date): void {
-  const secure = getCookieSecure();
-  reply.setCookie(SESSION_COOKIE, sessionId, {
+export function setSessionCookie(
+  request: FastifyRequest,
+  reply: FastifyReply,
+  token: string,
+  expiresAt: Date,
+): void {
+  // Par le tunnel, la page est en HTTPS même si COOKIE_SECURE=false pour le LAN.
+  const secure = getCookieSecure() || request.viaTunnel;
+  reply.setCookie(SESSION_COOKIE, token, {
     path: "/",
     httpOnly: true,
     sameSite: "lax",
@@ -92,8 +101,8 @@ export function setSessionCookie(reply: FastifyReply, sessionId: string, expires
   });
 }
 
-export function clearSessionCookie(reply: FastifyReply): void {
-  const secure = getCookieSecure();
+export function clearSessionCookie(request: FastifyRequest, reply: FastifyReply): void {
+  const secure = getCookieSecure() || request.viaTunnel;
   reply.clearCookie(SESSION_COOKIE, {
     path: "/",
     httpOnly: true,

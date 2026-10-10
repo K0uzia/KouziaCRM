@@ -1,4 +1,5 @@
-import type { FastifyPluginAsync } from "fastify";
+import type { FastifyPluginAsync, FastifyReply, FastifyRequest } from "fastify";
+import QRCode from "qrcode";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma.js";
 import {
@@ -6,28 +7,83 @@ import {
   attachUser,
   createSession,
   destroySession,
+  hashPassword,
   requireAuth,
   setSessionCookie,
   upgradePasswordHashIfNeeded,
   verifyPassword,
 } from "@/lib/auth.js";
+import { otpauthUri } from "@/lib/admin/totp.js";
+import {
+  clearFailures,
+  closeLoginChallenge,
+  confirmEnrollment,
+  consumeRecoveryCode,
+  consumeTotpCode,
+  failLoginChallenge,
+  findLoginChallenge,
+  isLocked,
+  isTwoFactorEnabled,
+  openLoginChallenge,
+  regenerateRecoveryCodes,
+  registerFailure,
+  remainingRecoveryCodes,
+  rememberAdminDevice,
+  startEnrollment,
+} from "@/lib/admin/two-factor.js";
+import { sendAdminNewDeviceAlert } from "@/lib/admin/alerts.js";
+import { getCompanySettings } from "@/lib/company.js";
 
 const loginSchema = z.object({
   email: z.string().email(),
   password: z.string().min(1),
 });
 
+const secondFactorSchema = z.union([
+  z.object({ code: z.string().trim().regex(/^\d{6}$/) }),
+  z.object({ recoveryCode: z.string().trim().min(10).max(20) }),
+]);
+
+const codeSchema = z.object({ code: z.string().trim().regex(/^\d{6}$/) });
+
+const BAD_CREDENTIALS = { error: "Email ou mot de passe incorrect" };
+const BAD_CODE = { error: "Code incorrect." };
+const CHALLENGE_EXPIRED = { error: "Connexion expirée : saisissez à nouveau votre mot de passe." };
+const TUNNEL_NEEDS_2FA = {
+  error:
+    "Connexion par Internet impossible tant que la double authentification n'est pas activée. " +
+    "Connectez-vous depuis le réseau local ou Tailscale, puis activez-la dans Réglages > Sécurité.",
+};
+
+// Hash argon2 d'un mot de passe aléatoire : un email inconnu coûte le même temps qu'un mauvais mot de passe.
+let dummyHash: Promise<string> | null = null;
+const getDummyHash = () => (dummyHash ??= hashPassword(`dummy-${Date.now()}-${Math.random()}`));
+
+async function openSession(
+  user: { id: string; email: string; name: string | null },
+  request: FastifyRequest,
+  reply: FastifyReply,
+) {
+  await prisma.session.deleteMany({ where: { userId: user.id, expiresAt: { lt: new Date() } } });
+  // Rotation : la session éventuelle du navigateur est remplacée.
+  await attachUser(request);
+  if (request.sessionId) await destroySession(request.sessionId);
+  const session = await createSession(user.id);
+  setSessionCookie(request, reply, session.token, session.expiresAt);
+  await clearFailures(user.id);
+  const newDevice = await rememberAdminDevice(user.id, request, reply);
+  if (newDevice) {
+    void sendAdminNewDeviceAlert(user.email, request).catch((err) =>
+      request.log.error({ err }, "alerte nouvel appareil admin échouée"),
+    );
+  }
+  return { user: { id: user.id, email: user.email, name: user.name } };
+}
+
 export const authRoutes: FastifyPluginAsync = async (app) => {
   app.post(
     "/api/auth/login",
-    {
-      config: {
-        rateLimit: {
-          max: 10,
-          timeWindow: "15 minutes",
-        },
-      },
-    },
+    { config: { rateLimit: { max: 10, timeWindow: "15 minutes" } } },
     async (request, reply) => {
       const parsed = loginSchema.safeParse(request.body);
       if (!parsed.success) {
@@ -37,27 +93,58 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
       const email = parsed.data.email.toLowerCase().trim();
       const user = await prisma.user.findUnique({ where: { email } });
       if (!user) {
-        return reply.code(401).send({ error: "Email ou mot de passe incorrect" });
+        await verifyPassword(parsed.data.password, await getDummyHash());
+        return reply.code(401).send(BAD_CREDENTIALS);
+      }
+      if (isLocked(user, request)) {
+        return reply.code(401).send(BAD_CREDENTIALS);
       }
 
       const ok = await verifyPassword(parsed.data.password, user.passwordHash);
       if (!ok) {
-        return reply.code(401).send({ error: "Email ou mot de passe incorrect" });
+        await registerFailure(user.id, request);
+        return reply.code(401).send(BAD_CREDENTIALS);
       }
-
       await upgradePasswordHashIfNeeded(user.id, parsed.data.password, user.passwordHash);
 
-      // Invalide les sessions expirées / rotation : une session fraîche
-      await prisma.session.deleteMany({
-        where: { userId: user.id, expiresAt: { lt: new Date() } },
-      });
+      if (isTwoFactorEnabled(user)) {
+        await openLoginChallenge(user.id, request, reply);
+        return { mfaRequired: true };
+      }
+      if (request.viaTunnel) {
+        return reply.code(403).send(TUNNEL_NEEDS_2FA);
+      }
+      return openSession(user, request, reply);
+    },
+  );
 
-      const session = await createSession(user.id);
-      setSessionCookie(reply, session.id, session.expiresAt);
+  app.post(
+    "/api/auth/2fa",
+    { config: { rateLimit: { max: 10, timeWindow: "15 minutes" } } },
+    async (request, reply) => {
+      const parsed = secondFactorSchema.safeParse(request.body);
+      if (!parsed.success) return reply.code(400).send({ error: "Code à 6 chiffres attendu." });
 
-      return {
-        user: { id: user.id, email: user.email, name: user.name },
-      };
+      const challenge = await findLoginChallenge(request);
+      if (!challenge) return reply.code(401).send(CHALLENGE_EXPIRED);
+      const { user } = challenge;
+      if (isLocked(user, request) || !isTwoFactorEnabled(user)) {
+        await closeLoginChallenge(user.id, request, reply);
+        return reply.code(401).send(CHALLENGE_EXPIRED);
+      }
+
+      const ok =
+        "code" in parsed.data
+          ? await consumeTotpCode(user, parsed.data.code)
+          : await consumeRecoveryCode(user.id, parsed.data.recoveryCode);
+      if (!ok) {
+        await failLoginChallenge(challenge.id);
+        await registerFailure(user.id, request);
+        return reply.code(401).send(BAD_CODE);
+      }
+
+      await closeLoginChallenge(user.id, request, reply);
+      return openSession(user, request, reply);
     },
   );
 
@@ -67,7 +154,7 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
     if (request.sessionId) {
       await destroySession(request.sessionId);
     }
-    clearSessionCookie(reply);
+    clearSessionCookie(request, reply);
     return { ok: true };
   });
 
@@ -75,4 +162,68 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
     await attachUser(request);
     return { user: request.user ?? null };
   });
+
+  // --- Réglages > Sécurité ---
+
+  app.get("/api/auth/2fa/status", async (request, reply) => {
+    await requireAuth(request, reply);
+    const user = await prisma.user.findUniqueOrThrow({ where: { id: request.user!.id } });
+    return {
+      enabled: isTwoFactorEnabled(user),
+      enabledAt: user.totpEnabledAt,
+      recoveryCodesRemaining: isTwoFactorEnabled(user) ? await remainingRecoveryCodes(user.id) : 0,
+    };
+  });
+
+  app.post(
+    "/api/auth/2fa/setup",
+    { config: { rateLimit: { max: 10, timeWindow: "15 minutes" } } },
+    async (request, reply) => {
+      await requireAuth(request, reply);
+      const user = await prisma.user.findUniqueOrThrow({ where: { id: request.user!.id } });
+      if (isTwoFactorEnabled(user)) {
+        return reply.code(409).send({ error: "La double authentification est déjà activée." });
+      }
+      const secret = await startEnrollment(user.id);
+      const settings = await getCompanySettings();
+      const issuer = `${settings.tradeName ?? settings.legalName} ERP`;
+      const uri = otpauthUri(secret, user.email, issuer);
+      const qrSvg = await QRCode.toString(uri, { type: "svg", margin: 1, errorCorrectionLevel: "M" });
+      return { secret, otpauthUri: uri, qrSvg };
+    },
+  );
+
+  app.post(
+    "/api/auth/2fa/enable",
+    { config: { rateLimit: { max: 10, timeWindow: "15 minutes" } } },
+    async (request, reply) => {
+      await requireAuth(request, reply);
+      const parsed = codeSchema.safeParse(request.body);
+      if (!parsed.success) return reply.code(400).send({ error: "Code à 6 chiffres attendu." });
+      const userId = request.user!.id;
+      const recoveryCodes = await confirmEnrollment(userId, parsed.data.code);
+      if (!recoveryCodes) return reply.code(400).send(BAD_CODE);
+      // Les autres sessions ont été ouvertes sans second facteur : elles sont fermées.
+      await prisma.session.deleteMany({
+        where: { userId, ...(request.sessionId ? { id: { not: request.sessionId } } : {}) },
+      });
+      return { recoveryCodes };
+    },
+  );
+
+  app.post(
+    "/api/auth/2fa/recovery-codes",
+    { config: { rateLimit: { max: 10, timeWindow: "15 minutes" } } },
+    async (request, reply) => {
+      await requireAuth(request, reply);
+      const parsed = codeSchema.safeParse(request.body);
+      if (!parsed.success) return reply.code(400).send({ error: "Code à 6 chiffres attendu." });
+      const user = await prisma.user.findUniqueOrThrow({ where: { id: request.user!.id } });
+      if (!isTwoFactorEnabled(user)) {
+        return reply.code(409).send({ error: "La double authentification n'est pas activée." });
+      }
+      if (!(await consumeTotpCode(user, parsed.data.code))) return reply.code(400).send(BAD_CODE);
+      return { recoveryCodes: await regenerateRecoveryCodes(user.id) };
+    },
+  );
 };

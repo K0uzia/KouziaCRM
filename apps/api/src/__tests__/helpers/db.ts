@@ -30,6 +30,9 @@ const TABLES = [
   "UrssafDeclaration",
   "LegalClause",
   "Session",
+  "AdminRecoveryCode",
+  "AdminLoginChallenge",
+  "AdminDevice",
   "SettingsAuditLog",
 ];
 
