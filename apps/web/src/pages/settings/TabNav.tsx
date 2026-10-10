@@ -9,6 +9,7 @@ import {
   faHashtag,
   faPalette,
   faScaleBalanced,
+  faShieldHalved,
 } from "@fortawesome/free-solid-svg-icons";
 import type { SettingsTabId } from "./types";
 import { SETTINGS_TABS } from "./types";
@@ -18,6 +19,7 @@ const GROUPS: Array<{ label: string; ids: SettingsTabId[] }> = [
   { label: "Entreprise", ids: ["general", "identity", "declarations"] },
   { label: "Facturation", ids: ["payments", "numbering", "legal", "reminders"] },
   { label: "Communication", ids: ["email"] },
+  { label: "Compte", ids: ["security"] },
 ];
 
 const ICONS: Record<SettingsTabId, IconDefinition> = {
@@ -29,6 +31,7 @@ const ICONS: Record<SettingsTabId, IconDefinition> = {
   legal: faGavel,
   reminders: faBell,
   email: faEnvelope,
+  security: faShieldHalved,
 };
 
 /** Navigation des réglages : liste groupée (bureau), liste déroulante (mobile). */

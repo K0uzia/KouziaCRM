@@ -9,6 +9,7 @@ import { Modal, ModalActions } from "@/components/ui/Modal";
 import { AddressAutocomplete, type AddressValue } from "@/components/forms/AddressAutocomplete";
 import { SettingsTabNav } from "@/pages/settings/TabNav";
 import { SecretField } from "@/pages/settings/SecretField";
+import { SecurityTab } from "@/pages/settings/SecurityTab";
 import {
   SETTINGS_TABS,
   type PublicSettings,
@@ -1749,6 +1750,8 @@ export function SettingsPage() {
               <SaveBar onSave={saveDeclarations} />
             </Card>
           ) : null}
+
+          {tab === "security" ? <SecurityTab /> : null}
 
           {tab === "legal" ? (
             <section className="space-y-4">

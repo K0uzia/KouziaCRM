@@ -127,7 +127,8 @@ export type SettingsTabId =
   | "identity"
   | "numbering"
   | "declarations"
-  | "legal";
+  | "legal"
+  | "security";
 
 export const SETTINGS_TABS: Array<{ id: SettingsTabId; label: string }> = [
   { id: "general", label: "Identité" },
@@ -138,4 +139,5 @@ export const SETTINGS_TABS: Array<{ id: SettingsTabId; label: string }> = [
   { id: "numbering", label: "Numérotation" },
   { id: "declarations", label: "Fiscalité" },
   { id: "legal", label: "Mentions légales" },
+  { id: "security", label: "Sécurité" },
 ];

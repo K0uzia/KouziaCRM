@@ -1,4 +1,4 @@
-import type { InputHTMLAttributes, SelectHTMLAttributes, TextareaHTMLAttributes, ReactNode } from "react";
+import type { ComponentPropsWithRef, SelectHTMLAttributes, TextareaHTMLAttributes, ReactNode } from "react";
 
 export function Field({
   label,
@@ -26,7 +26,8 @@ export function Field({
 const control =
   "w-full min-h-11 rounded-[var(--radius)] border border-[var(--border-input)] bg-[var(--surface-raised)] px-3 py-2.5 text-sm text-[var(--text)] placeholder:text-[var(--muted)] transition focus:border-[var(--primary)] focus:outline-none focus:ring-2 focus:ring-[var(--primary)]/20 disabled:bg-[var(--bg-subtle)] disabled:opacity-70";
 
-export function Input({ className = "", ...props }: InputHTMLAttributes<HTMLInputElement>) {
+// React 19 : ref est une prop ordinaire, transmise avec le reste (focus programmatique).
+export function Input({ className = "", ...props }: ComponentPropsWithRef<"input">) {
   return <input className={`${control} ${className}`} {...props} />;
 }
 

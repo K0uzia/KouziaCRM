@@ -14,7 +14,9 @@ type User = { id: string; email: string; name: string | null };
 type AuthCtx = {
   user: User | null;
   loading: boolean;
-  login: (email: string, password: string) => Promise<void>;
+  /** "mfa" : mot de passe accepté, code de la double authentification attendu. */
+  login: (email: string, password: string) => Promise<"ok" | "mfa">;
+  verifySecondFactor: (input: { code: string } | { recoveryCode: string }) => Promise<void>;
   logout: () => Promise<void>;
   refresh: () => Promise<void>;
 };
@@ -41,9 +43,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [refresh]);
 
   const login = useCallback(async (email: string, password: string) => {
-    const data = await api<{ user: User }>("/api/auth/login", {
+    const data = await api<{ user: User } | { mfaRequired: true }>("/api/auth/login", {
       method: "POST",
       body: JSON.stringify({ email, password }),
+    });
+    if ("mfaRequired" in data) return "mfa" as const;
+    setUser(data.user);
+    return "ok" as const;
+  }, []);
+
+  const verifySecondFactor = useCallback(async (input: { code: string } | { recoveryCode: string }) => {
+    const data = await api<{ user: User }>("/api/auth/2fa", {
+      method: "POST",
+      body: JSON.stringify(input),
     });
     setUser(data.user);
   }, []);
@@ -54,8 +66,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const value = useMemo(
-    () => ({ user, loading, login, logout, refresh }),
-    [user, loading, login, logout, refresh],
+    () => ({ user, loading, login, verifySecondFactor, logout, refresh }),
+    [user, loading, login, verifySecondFactor, logout, refresh],
   );
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
