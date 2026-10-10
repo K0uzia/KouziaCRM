@@ -73,7 +73,7 @@ Workflow : le client **valide d'abord le devis** (portail `/suivi` ou réponse e
 | Variable | Rôle |
 |----------|------|
 | `CLIENT_PORTAL_URL` | Lien `/suivi` inséré dans les emails (ex. `https://kouzia.com/suivi`) |
-| Dev local | `http://localhost:5174/suivi` (site Kouzia sur :5174) |
+| Dev local | `http://localhost:4321/suivi` (site Kouzia Astro sur :4321, avec `PUBLIC_WEB_ORIGIN="http://localhost:4321"`) |
 
 Variables à ajouter dans `.env` :
 
