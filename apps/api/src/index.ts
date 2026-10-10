@@ -1,4 +1,5 @@
-import { assertSecurityEnv, getApiPort } from "@/lib/env.js";
+import { assertSecurityEnv, getApiPort, getTrustedProxies } from "@/lib/env.js";
+import { getAdminPublicHost } from "@/lib/tunnel-hosts.js";
 import { enableWal, prisma } from "@/lib/prisma.js";
 import { buildApp } from "@/app.js";
 import { hydrateSettingsFromEnv } from "@/lib/settings/service.js";
@@ -9,6 +10,15 @@ async function main() {
   assertSecurityEnv();
 
   await enableWal();
+
+  // Tunnel actif (proxy de confiance) sans hôte admin : toute l'admin répond 404 par Internet.
+  // Journal seulement : cette configuration n'est jamais exposée par /api/health.
+  if (getTrustedProxies() && !getAdminPublicHost()) {
+    console.warn(
+      "[boot] ATTENTION : admin injoignable par le tunnel : ADMIN_PUBLIC_ORIGIN absent du .env " +
+        '(ex. ADMIN_PUBLIC_ORIGIN="https://erp.kouzia.com"). Le LAN et Tailscale fonctionnent.',
+    );
+  }
 
   // Base en retard sur le schéma : chaque requête sur une table modifiée échouerait (500).
   try {

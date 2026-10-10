@@ -192,6 +192,14 @@ fi
 service_safe kouziacrm-worker start
 ok "Worker démarré après health OK"
 
+# Tunnel actif sans hôte admin : erp.kouzia.com répondrait 404 sur toute l'admin.
+_env_val() { grep -E "^$1=" "${KOUZIA_APP_DIR}/.env" 2>/dev/null | tail -1 | cut -d= -f2- | tr -d '"' || true; }
+_trust="$(_env_val TRUST_PROXY)"
+if [[ "${_trust,,}" != "false" && "$_trust" != "0" && -z "$(_env_val ADMIN_PUBLIC_ORIGIN)" ]]; then
+  warn "ADMIN_PUBLIC_ORIGIN absent du .env : admin injoignable par le tunnel (erp.kouzia.com en 404)."
+  warn "Ajouter ADMIN_PUBLIC_ORIGIN=\"https://erp.kouzia.com\" dans ${KOUZIA_APP_DIR}/.env puis : kouziactl restart"
+fi
+
 # --- 7. Persister empreintes ---
 state_set "package-lock" "$NEW_LOCK"
 state_set "prisma-schema" "$NEW_SCHEMA"
