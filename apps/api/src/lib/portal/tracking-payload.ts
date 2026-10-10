@@ -135,12 +135,14 @@ export function buildPaymentHistory(opts: {
       continue;
     }
 
-    for (const p of d.payments) {
-      const linkedMilestone = opts.milestones.find(
-        (m) => m.generatedInvoice?.id === d.id && m.paidAt?.getTime() === p.paidAt.getTime(),
-      );
-      if (linkedMilestone) continue;
+    // Facture d'un jalon payé : déjà comptée par l'entrée du jalon. Ne pas comparer les dates
+    // (le jalon et le règlement sont horodatés séparément, à quelques millisecondes d'écart).
+    const coveredByMilestone = opts.milestones.some(
+      (m) => m.status === MilestoneStatus.PAID && m.paidAt && m.generatedInvoice?.id === d.id,
+    );
+    if (coveredByMilestone) continue;
 
+    for (const p of d.payments) {
       items.push({
         id: `payment-${p.id}`,
         date: p.paidAt,
