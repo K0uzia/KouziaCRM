@@ -17,9 +17,16 @@ export function LoginPage() {
   const [useRecovery, setUseRecovery] = useState(false);
   const [code, setCode] = useState("");
   const codeRef = useRef<HTMLInputElement>(null);
+  const passwordRef = useRef<HTMLInputElement>(null);
+  // Retour à l'étape 1 (bouton ou connexion expirée) : le focus revient au mot de passe.
+  const returningRef = useRef(false);
 
   useEffect(() => {
     if (step === "code") codeRef.current?.focus();
+    if (step === "password" && returningRef.current) {
+      returningRef.current = false;
+      passwordRef.current?.focus();
+    }
   }, [step, useRecovery]);
 
   if (!loading && user) return <Navigate to="/" replace />;
@@ -58,7 +65,10 @@ export function LoginPage() {
     } catch (err) {
       const message = err instanceof Error ? err.message : "Code incorrect.";
       // Challenge expiré ou épuisé : retour au mot de passe.
-      if (/expirée/.test(message)) setStep("password");
+      if (/expirée/.test(message)) {
+        returningRef.current = true;
+        setStep("password");
+      }
       setError(message);
       setCode("");
     } finally {
@@ -67,6 +77,7 @@ export function LoginPage() {
   }
 
   function backToPassword() {
+    returningRef.current = true;
     setStep("password");
     setUseRecovery(false);
     setError(null);
@@ -169,6 +180,7 @@ export function LoginPage() {
           </Field>
           <Field label="Mot de passe">
             <Input
+              ref={passwordRef}
               type="password"
               required
               autoComplete="current-password"

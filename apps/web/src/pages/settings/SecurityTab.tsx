@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useId, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useId, useRef, useState, type FormEvent } from "react";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { Button } from "@/components/ui/Button";
@@ -37,6 +37,12 @@ function CodeInput({
 }
 
 function RecoveryCodes({ codes, onDone }: { codes: string[]; onDone: () => void }) {
+  const introRef = useRef<HTMLParagraphElement>(null);
+  // Le formulaire d'activation disparaît : le focus va sur l'explication des codes.
+  useEffect(() => {
+    introRef.current?.focus();
+  }, []);
+
   function download() {
     const text = [
       "Kouzia ERP : codes de secours de la double authentification.",
@@ -64,7 +70,7 @@ function RecoveryCodes({ codes, onDone }: { codes: string[]; onDone: () => void 
 
   return (
     <div className="space-y-4" role="status">
-      <p className="text-sm">
+      <p ref={introRef} tabIndex={-1} className="text-sm">
         Voici vos <strong>codes de secours</strong>. Ils remplacent un code de l&apos;application si vous perdez le
         téléphone. Chacun ne sert qu&apos;une fois et ils ne seront <strong>plus jamais affichés</strong>.
       </p>
@@ -102,6 +108,26 @@ export function SecurityTab() {
   const [busy, setBusy] = useState(false);
   const [codes, setCodes] = useState<string[] | null>(null);
   const [regenerating, setRegenerating] = useState(false);
+  // Gestion du focus quand un panneau remplace le bouton qui l'a ouvert (sinon il tombe sur body).
+  const titleRef = useRef<HTMLHeadingElement>(null);
+  const setupRef = useRef<HTMLHeadingElement>(null);
+  const focusTitle = useRef(false);
+
+  useEffect(() => {
+    if (setup) setupRef.current?.focus();
+  }, [setup]);
+
+  useEffect(() => {
+    if (focusTitle.current) {
+      focusTitle.current = false;
+      titleRef.current?.focus();
+    }
+  });
+
+  function closePanel(close: () => void) {
+    focusTitle.current = true;
+    close();
+  }
 
   const load = useCallback(async () => {
     setLoadError(null);
@@ -174,7 +200,9 @@ export function SecurityTab() {
   return (
     <Card className="space-y-5 border border-[var(--border)] p-5">
       <div>
-        <h2 className="text-base font-semibold">Double authentification</h2>
+        <h2 ref={titleRef} tabIndex={-1} className="text-base font-semibold">
+          Double authentification
+        </h2>
         <p className="mt-1 max-w-xl text-xs text-[var(--muted)]">
           Après le mot de passe, un code à 6 chiffres de Google Authenticator (ou une application équivalente) est
           demandé. Obligatoire pour se connecter par Internet (erp.kouzia.com).
@@ -182,7 +210,7 @@ export function SecurityTab() {
       </div>
 
       {codes ? (
-        <RecoveryCodes codes={codes} onDone={() => setCodes(null)} />
+        <RecoveryCodes codes={codes} onDone={() => closePanel(() => setCodes(null))} />
       ) : status.enabled ? (
         <div className="space-y-4">
           <p className="text-sm">
@@ -204,7 +232,7 @@ export function SecurityTab() {
                 <Button type="submit" disabled={busy || code.length !== 6}>
                   {busy ? "Vérification…" : "Créer de nouveaux codes"}
                 </Button>
-                <Button variant="ghost" onClick={() => setRegenerating(false)}>
+                <Button variant="ghost" onClick={() => closePanel(() => setRegenerating(false))}>
                   Annuler
                 </Button>
               </div>
@@ -221,6 +249,9 @@ export function SecurityTab() {
         </div>
       ) : setup ? (
         <form onSubmit={(e) => void submit(e, "/api/auth/2fa/enable")} className="space-y-4">
+          <h3 ref={setupRef} tabIndex={-1} className="text-sm font-semibold">
+            Activation en trois étapes
+          </h3>
           <ol className="list-decimal space-y-4 pl-5 text-sm">
             <li>
               Dans Google Authenticator, ajoutez un compte en scannant ce QR code.
@@ -229,7 +260,7 @@ export function SecurityTab() {
                 alt="QR code d'enrôlement pour l'application d'authentification"
                 width={192}
                 height={192}
-                className="mt-3 rounded-[var(--radius-sm)]"
+                className="mt-3 h-auto w-40 rounded-[var(--radius-sm)] sm:w-48"
               />
             </li>
             <li>
@@ -249,7 +280,7 @@ export function SecurityTab() {
             <Button type="submit" disabled={busy || code.length !== 6}>
               {busy ? "Vérification…" : "Activer"}
             </Button>
-            <Button variant="ghost" onClick={() => setSetup(null)}>
+            <Button variant="ghost" onClick={() => closePanel(() => setSetup(null))}>
               Annuler
             </Button>
           </div>
