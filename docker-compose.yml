@@ -58,7 +58,10 @@ services:
       - ./data:/app/data
       - ./.env:/app/.env:ro
 
-  # Décommenter sur Proxmox pour l'accès HTTPS via Cloudflare Tunnel
+  # Décommenter sur Proxmox pour l'accès HTTPS via Cloudflare Tunnel.
+  # cloudflared tourne alors dans un autre conteneur : renseigner TRUST_PROXY dans .env avec le
+  # sous-réseau Docker (ex. "172.18.0.0/16"), sinon l'API ne lit pas CF-Connecting-IP et toutes
+  # les requêtes du tunnel partagent l'IP du conteneur (limites de débit communes).
   # cloudflared:
   #   image: cloudflare/cloudflared:latest
   #   container_name: kouzia-erp-tunnel

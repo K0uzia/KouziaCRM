@@ -1,3 +1,6 @@
+import type { BlockList } from "node:net";
+import { parseTrustedProxies } from "@/lib/client-ip.js";
+
 function requireEnv(name: string): string {
   const v = process.env[name];
   if (!v || v.trim() === "") {
@@ -108,10 +111,7 @@ export function getCookieSecure(): boolean {
   return process.env.NODE_ENV === "production";
 }
 
-/** true seulement derrière un reverse-proxy de confiance (Tunnel, nginx). */
-export function getTrustProxy(): boolean {
-  const v = process.env.TRUST_PROXY?.trim().toLowerCase();
-  if (v === "true" || v === "1") return true;
-  if (v === "false" || v === "0") return false;
-  return process.env.NODE_ENV === "production";
+/** Proxies de confiance (Tunnel, nginx) : voir parseTrustedProxies. */
+export function getTrustedProxies(): BlockList | null {
+  return parseTrustedProxies(process.env.TRUST_PROXY, process.env.NODE_ENV === "production");
 }

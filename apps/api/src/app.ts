@@ -7,7 +7,8 @@ import helmet from "@fastify/helmet";
 import rateLimit from "@fastify/rate-limit";
 import fastifyStatic from "@fastify/static";
 import multipart from "@fastify/multipart";
-import { getAllowedOrigins, getCookieSecure, getTrustProxy } from "@/lib/env.js";
+import { getAllowedOrigins, getCookieSecure, getTrustedProxies } from "@/lib/env.js";
+import { registerClientIpHook, trustProxyFn } from "@/lib/client-ip.js";
 import { originGuardPlugin } from "@/plugins/origin-guard.js";
 import { authRoutes } from "@/routes/auth.js";
 import { clientsRoutes } from "@/routes/clients.js";
@@ -41,6 +42,7 @@ export type BuildAppOptions = {
 };
 
 export async function buildApp(opts: BuildAppOptions = {}): Promise<FastifyInstance> {
+  const trustedProxies = getTrustedProxies();
   const app = Fastify({
     logger: opts.silent
       ? false
@@ -59,10 +61,12 @@ export async function buildApp(opts: BuildAppOptions = {}): Promise<FastifyInsta
             censor: "[redacted]",
           },
         },
-    trustProxy: getTrustProxy(),
+    trustProxy: trustProxyFn(trustedProxies),
     // Les tokens PDF publics (base64url(payload).base64url(sig)) dépassent le défaut 100.
     maxParamLength: 256,
   });
+  // Avant toute route et toute limite de débit : request.ip doit être l'IP réelle.
+  registerClientIpHook(app, trustedProxies);
 
   setJsonSerializer(app);
   registerErrorHandler(app);
