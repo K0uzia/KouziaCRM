@@ -69,6 +69,8 @@ export function registerClientIpHook(app: FastifyInstance, list: BlockList | nul
     const value = (Array.isArray(cf) ? cf[0] : cf)?.trim();
     if (value && isIP(value)) {
       headers["x-forwarded-for"] = value;
+      // Le Host d'origine arrive tel quel par cloudflared ; un X-Forwarded-Host viendrait du client.
+      delete headers["x-forwarded-host"];
       request.viaTunnel = true;
     }
   });

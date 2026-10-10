@@ -134,7 +134,13 @@ Sans menu (non interactif) : `bash /opt/kouziacrm/scripts/alpine/install.sh --ye
 Puis :
 
 1. Éditer `/opt/kouziacrm/.env` (`WEB_ORIGIN`, SMTP, IMAP).
-2. Cloudflare Tunnel → `http://127.0.0.1:3000` (site public, webhooks, OAuth Google).
+2. Cloudflare Tunnel, deux *Public Hostnames* vers le même service `http://127.0.0.1:3000`
+   (port `API_PORT` du CT, 3000 par défaut) :
+   - `api.kouzia.com` : site public, webhooks, OAuth Google. Seules ces routes y répondent,
+     le reste renvoie 404 ;
+   - `erp.kouzia.com` : administration (`ADMIN_PUBLIC_ORIGIN="https://erp.kouzia.com"` dans `.env`),
+     accessible seulement avec la double authentification activée (voir « Double
+     authentification » ci-dessous).
 3. Optionnel : `kouziactl tailscale` pour l'admin depuis le téléphone
    ([guide](docs/tailscale-setup.md)).
 4. Optionnel : `/etc/kouzia/rsync.env` pour pousser les backups chiffrés hors du CT.

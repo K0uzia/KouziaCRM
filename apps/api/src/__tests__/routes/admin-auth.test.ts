@@ -11,7 +11,9 @@ const EMAIL = "admin-2fa@kouzia.test";
 const PASSWORD = "mot-de-passe-de-test";
 
 const previousTrust = process.env.TRUST_PROXY;
+const previousAdmin = process.env.ADMIN_PUBLIC_ORIGIN;
 process.env.TRUST_PROXY = "true";
+process.env.ADMIN_PUBLIC_ORIGIN = "https://erp.kouzia.test";
 const { buildApp } = await import("@/app.js");
 
 let app: FastifyInstance;
@@ -25,6 +27,8 @@ afterAll(async () => {
   await app.close();
   if (previousTrust === undefined) delete process.env.TRUST_PROXY;
   else process.env.TRUST_PROXY = previousTrust;
+  if (previousAdmin === undefined) delete process.env.ADMIN_PUBLIC_ORIGIN;
+  else process.env.ADMIN_PUBLIC_ORIGIN = previousAdmin;
 });
 
 beforeEach(async () => {
@@ -47,7 +51,10 @@ function store(jar: Jar, res: LightMyRequestResponse): Jar {
 
 /** Requête venue d'Internet par cloudflared (IP différente à chaque fois : pas de limite de débit commune). */
 function tunnel(): Origin {
-  return { remoteAddress: "127.0.0.1", headers: { "cf-connecting-ip": `198.51.100.${ipSeq++ % 250}` } };
+  return {
+    remoteAddress: "127.0.0.1",
+    headers: { host: "erp.kouzia.test", "cf-connecting-ip": `198.51.100.${ipSeq++ % 250}` },
+  };
 }
 const lan = (): Origin => ({ remoteAddress: `192.168.1.${ipSeq++ % 250}`, headers: {} });
 

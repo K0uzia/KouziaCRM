@@ -9,6 +9,7 @@ import fastifyStatic from "@fastify/static";
 import multipart from "@fastify/multipart";
 import { getAllowedOrigins, getCookieSecure, getTrustedProxies } from "@/lib/env.js";
 import { registerClientIpHook, trustProxyFn } from "@/lib/client-ip.js";
+import { registerTunnelHostGuard } from "@/lib/tunnel-hosts.js";
 import { originGuardPlugin } from "@/plugins/origin-guard.js";
 import { authRoutes } from "@/routes/auth.js";
 import { clientsRoutes } from "@/routes/clients.js";
@@ -67,6 +68,7 @@ export async function buildApp(opts: BuildAppOptions = {}): Promise<FastifyInsta
   });
   // Avant toute route et toute limite de débit : request.ip doit être l'IP réelle.
   registerClientIpHook(app, trustedProxies);
+  registerTunnelHostGuard(app);
 
   setJsonSerializer(app);
   registerErrorHandler(app);
@@ -160,6 +162,7 @@ export async function buildApp(opts: BuildAppOptions = {}): Promise<FastifyInsta
 
   app.get("/api/health", async () => ({ ok: true }));
 
+  let spaServed = false;
   if (opts.serveStatic !== false) {
     const webDist = process.env.WEB_DIST
       ? path.resolve(process.env.WEB_DIST)
@@ -178,10 +181,15 @@ export async function buildApp(opts: BuildAppOptions = {}): Promise<FastifyInsta
         }
         return reply.sendFile("index.html");
       });
+      spaServed = true;
       app.log.info(`SPA static served from ${webDist}`);
     } catch {
       app.log.info("Pas de build web - API seule (mode dev)");
     }
+  }
+  if (!spaServed) {
+    // Même corps de 404 qu'avec la SPA (le garde d'hôte du tunnel s'aligne dessus).
+    app.setNotFoundHandler((_request, reply) => reply.code(404).send({ error: "Not found" }));
   }
 
   return app;

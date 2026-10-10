@@ -34,10 +34,12 @@ describe("request.ip derrière le tunnel", () => {
     app = undefined;
     if (previous === undefined) delete process.env.TRUST_PROXY;
     else process.env.TRUST_PROXY = previous;
+    delete process.env.ADMIN_PUBLIC_ORIGIN;
   });
 
   async function appWith(trust: string) {
     process.env.TRUST_PROXY = trust;
+    process.env.ADMIN_PUBLIC_ORIGIN = "https://erp.kouzia.test";
     app = await buildApp({ silent: true, serveStatic: false });
     app.get("/__ip", async (request) => ({ ip: request.ip }));
     return app;
@@ -49,7 +51,7 @@ describe("request.ip derrière le tunnel", () => {
       method: "GET",
       url: "/__ip",
       remoteAddress: "127.0.0.1",
-      headers: { "cf-connecting-ip": "198.51.100.23", "x-forwarded-for": "203.0.113.7, 198.51.100.23" },
+      headers: { host: "erp.kouzia.test", "cf-connecting-ip": "198.51.100.23", "x-forwarded-for": "203.0.113.7, 198.51.100.23" },
     });
     expect(res.json()).toEqual({ ip: "198.51.100.23" });
   });
@@ -60,7 +62,7 @@ describe("request.ip derrière le tunnel", () => {
       method: "GET",
       url: "/__ip",
       remoteAddress: "192.168.1.50",
-      headers: { "cf-connecting-ip": "198.51.100.23", "x-forwarded-for": "203.0.113.7" },
+      headers: { host: "erp.kouzia.test", "cf-connecting-ip": "198.51.100.23", "x-forwarded-for": "203.0.113.7" },
     });
     expect(res.json()).toEqual({ ip: "192.168.1.50" });
   });
@@ -73,7 +75,7 @@ describe("request.ip derrière le tunnel", () => {
         method: "POST",
         url: "/api/auth/login",
         remoteAddress: "127.0.0.1",
-        headers: { "cf-connecting-ip": "198.51.100.23", "x-forwarded-for": xff },
+        headers: { host: "erp.kouzia.test", "cf-connecting-ip": "198.51.100.23", "x-forwarded-for": xff },
         payload: {},
       });
       remaining.push(String(res.headers["x-ratelimit-remaining"]));

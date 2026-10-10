@@ -90,12 +90,13 @@ function addOrigins(set: Set<string>, raw: string | undefined): void {
   }
 }
 
-/** Origines autorisées (admin LAN, admin Tailscale, site public). */
+/** Origines autorisées (admin LAN, admin Tailscale, admin par le tunnel, site public). */
 export function getAllowedOrigins(): string[] {
   const set = new Set<string>();
   addOrigins(set, getCorsOrigin());
   addOrigins(set, process.env.PUBLIC_WEB_ORIGIN);
   addOrigins(set, process.env.TAILSCALE_ORIGIN);
+  addOrigins(set, process.env.ADMIN_PUBLIC_ORIGIN);
   return Array.from(set);
 }
 
