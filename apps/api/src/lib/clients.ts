@@ -5,6 +5,7 @@ import { prisma } from "@/lib/prisma.js";
 import { decryptOptional, encryptOptional } from "@/lib/crypto.js";
 import { allocateClientNumber } from "@/lib/clients/numbering.js";
 import { computeEmailHash } from "@/lib/clients/email-hash.js";
+import { needsInputSchema, normalizeNeeds, parseNeeds } from "@/lib/clients/needs.js";
 import {
   normalizeFrenchAddress,
   verifyCompanyIdentifiers,
@@ -44,6 +45,7 @@ export const clientInputSchema = z
     addressManualConfirmed: z.boolean().optional(),
     companyVerifiedAt: z.string().datetime().optional().nullable(),
     notes: z.string().optional().nullable(),
+    needs: needsInputSchema.optional(),
   })
   .superRefine((data, ctx) => {
     if (data.type === "B2B" && !data.companyName?.trim()) {
@@ -94,6 +96,7 @@ export function serializeClient(client: {
   addressLat: number | null;
   addressLon: number | null;
   notes: string | null;
+  needs?: string;
   onboardingCompletedAt: Date | null;
   accessEmailSentAt: Date | null;
   emailVerifiedAt?: Date | null;
@@ -123,6 +126,7 @@ export function serializeClient(client: {
     addressLat: client.addressLat,
     addressLon: client.addressLon,
     notes: client.notes,
+    needs: parseNeeds(client.needs),
     emailVerifiedAt: client.emailVerifiedAt ?? null,
     onboardingCompletedAt: client.onboardingCompletedAt,
     accessEmailSentAt: client.accessEmailSentAt,
@@ -193,6 +197,8 @@ export async function toPrismaClientData(data: ClientInput) {
     addressLat: addr.address.addressLat,
     addressLon: addr.address.addressLon,
     notes: data.notes?.trim() || null,
+    // Absent (édition de la fiche sans la liste) : besoins inchangés.
+    ...(data.needs ? { needs: JSON.stringify(normalizeNeeds(data.needs)) } : {}),
   };
 }
 
