@@ -203,7 +203,7 @@ async function sendOutboxRow(outboxId: string, rawPayload: string): Promise<void
 
   let rawMessage: Buffer | null = null;
   try {
-    const MailComposer = (await import("nodemailer/lib/mail-composer/index.js")).default;
+    const MailComposer = (await import("nodemailer/lib/mail-composer")).default;
     rawMessage = await new MailComposer(mailOptions).compile().build();
   } catch {
     rawMessage = null;

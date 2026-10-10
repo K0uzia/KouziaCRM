@@ -1,5 +1,5 @@
 import nodemailer from "nodemailer";
-import type SMTPTransport from "nodemailer/lib/smtp-transport/index.js";
+import type { SMTPTransportOptions } from "nodemailer/lib/smtp-transport";
 import type { Transporter } from "nodemailer";
 import { decryptOptional } from "@/lib/crypto.js";
 import { getCompanySettings } from "@/lib/company.js";
@@ -252,8 +252,8 @@ export function formatSmtpError(error: unknown): string {
 }
 
 export function createTransportFromConfig(cfg: SmtpRuntimeConfig, pool = false) {
-  // `pool` : option de SMTPPool, absente du type SMTPTransport.Options.
-  const options: SMTPTransport.Options & { pool?: boolean } = {
+  // `pool` : option de SMTPPool, absente du type SMTPTransportOptions.
+  const options: SMTPTransportOptions & { pool?: boolean } = {
     host: cfg.host,
     port: cfg.port,
     secure: cfg.secure,
