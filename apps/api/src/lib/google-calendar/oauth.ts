@@ -28,7 +28,7 @@ function oauthClient() {
 }
 
 /** URL de consentement Google (access_type=offline pour refresh token). */
-export function getGoogleAuthUrl(): string {
+export function getGoogleAuthUrl(state: string): string {
   if (!isGoogleCalendarConfigured()) {
     throw new Error("Google Calendar non configuré");
   }
@@ -37,6 +37,7 @@ export function getGoogleAuthUrl(): string {
     access_type: "offline",
     prompt: "consent",
     scope: [GOOGLE_CALENDAR_SCOPE, "openid", "email"],
+    state,
   });
 }
 

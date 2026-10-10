@@ -1,10 +1,12 @@
 import type { FastifyPluginAsync } from "fastify";
 import { requireAuth } from "@/lib/auth.js";
 import { getCompanySettings } from "@/lib/company.js";
+import { isGoogleCalendarConfigured, webAdminOrigin } from "@/lib/google-calendar/config.js";
 import {
-  isGoogleCalendarConfigured,
-  webAdminOrigin,
-} from "@/lib/google-calendar/config.js";
+  createOAuthState,
+  resolveReturnOrigin,
+  verifyOAuthState,
+} from "@/lib/google-calendar/oauth-state.js";
 import {
   disconnectGoogleCalendar,
   exchangeGoogleCode,
@@ -37,7 +39,9 @@ export const googleCalendarRoutes: FastifyPluginAsync = async (app) => {
           "Google Calendar non configuré (GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET)",
       });
     }
-    return { url: getGoogleAuthUrl() };
+    // L'admin revient là d'où il est parti (LAN, erp. ou Tailscale), dans la liste blanche.
+    const { returnTo } = request.query as { returnTo?: string };
+    return { url: getGoogleAuthUrl(createOAuthState(resolveReturnOrigin(returnTo))) };
   });
 
   /**
@@ -46,8 +50,13 @@ export const googleCalendarRoutes: FastifyPluginAsync = async (app) => {
    * déclaration) puis crée / met à jour les événements Google avant redirect.
    */
   app.get("/api/google/calendar/callback", async (request, reply) => {
-    const q = request.query as { code?: string; error?: string };
-    const base = `${webAdminOrigin()}/settings?tab=declarations`;
+    const q = request.query as { code?: string; error?: string; state?: string };
+    const origin = verifyOAuthState(q.state);
+    if (!origin) {
+      // State absent, falsifié ou expiré : aucun échange de code (connexion non demandée par l'admin).
+      return reply.redirect(`${webAdminOrigin()}/settings?tab=declarations&google=error`);
+    }
+    const base = `${origin}/settings?tab=declarations`;
     if (q.error) {
       return reply.redirect(`${base}&google=error`);
     }

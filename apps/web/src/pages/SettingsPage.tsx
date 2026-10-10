@@ -203,7 +203,9 @@ export function SettingsPage() {
   async function connectGoogleCalendar() {
     setGoogleBusy(true);
     try {
-      const { url } = await api<{ url: string }>("/api/google/calendar/auth-url");
+      const { url } = await api<{ url: string }>(
+        `/api/google/calendar/auth-url?returnTo=${encodeURIComponent(window.location.origin)}`,
+      );
       window.location.href = url;
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Impossible d'ouvrir Google");
