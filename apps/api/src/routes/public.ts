@@ -35,12 +35,7 @@ import {
   rejectQuote,
   QuoteDecisionError,
 } from "@/lib/invoices/transitions.js";
-import {
-  getOnboardingView,
-  getPublicClientPreview,
-  submitOnboarding,
-  submitPublicClient,
-} from "@/lib/clients/onboarding.js";
+import { getPublicClientPreview, submitPublicClient } from "@/lib/clients/onboarding.js";
 import { signDocumentToken } from "@/lib/documents/public-token.js";
 import { replyEntrepriseLookup } from "@/lib/company/entreprise-route.js";
 import {
@@ -100,8 +95,8 @@ const onboardingSubmitSchema = z.object({
   addressLon: z.number().optional().nullable(),
   addressManualConfirmed: z.boolean().optional(),
   notes: z.string().optional().nullable(),
-  /** Honeypot anti-spam : doit rester vide */
-  website: z.string().max(0).optional().nullable(),
+  /** Honeypot anti-spam : doit rester vide (rempli = robot, voir POST /api/public/clients). */
+  website: z.string().max(500).optional().nullable(),
   token: z.string().optional(),
 });
 
@@ -557,49 +552,6 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
     },
   );
 
-  app.get<{ Params: { token: string } }>(
-    "/api/public/onboarding/:token",
-    {
-      config: {
-        rateLimit: {
-          max: 20,
-          timeWindow: "15 minutes",
-        },
-      },
-    },
-    async (request, reply) => {
-      const view = await getOnboardingView(request.params.token);
-      if (!view) return reply.code(404).send({ error: "Lien invalide ou expiré" });
-      return view;
-    },
-  );
-
-  // Soumet le formulaire d'onboarding public legacy (validé côté serveur).
-  app.post<{ Params: { token: string } }>(
-    "/api/public/onboarding/:token",
-    {
-      config: {
-        rateLimit: {
-          max: 10,
-          timeWindow: "15 minutes",
-        },
-      },
-    },
-    async (request, reply) => {
-      const parsed = onboardingSubmitSchema.safeParse(request.body);
-      if (!parsed.success) {
-        return reply.code(400).send({ error: parsed.error.flatten() });
-      }
-      const { website: _honeypot, token: _t, ...data } = parsed.data;
-      const result = await submitOnboarding(request.params.token, data);
-      if (!result.ok) {
-        const code = result.alreadySubmitted ? 409 : 400;
-        return reply.code(code).send({ error: result.error ?? "Erreur" });
-      }
-      return { ok: true };
-    },
-  );
-
   // Preview du formulaire client public (Kouzia) - token HMAC.
   app.get(
     "/api/public/clients/preview",
@@ -648,6 +600,16 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
         });
         return reply.code(400).send({ error: parsed.error.flatten() });
       }
+      // Honeypot rempli = robot : fausse réussite, rien n'est enregistré.
+      if (parsed.data.website?.trim()) {
+        request.log.info({
+          event: "public_client_submit",
+          status: 201,
+          ipTrunc: truncateIp(request.ip),
+          reason: "honeypot",
+        });
+        return reply.code(201).send({ ok: true });
+      }
       const token =
         parsed.data.token?.trim() ||
         (typeof (request.body as { token?: string })?.token === "string"
@@ -655,16 +617,6 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
           : "");
       if (!token) {
         return reply.code(400).send({ error: "Token requis" });
-      }
-      // Honeypot : champ website rempli = bot
-      if (parsed.data.website) {
-        request.log.info({
-          event: "public_client_submit",
-          status: 400,
-          ipTrunc: truncateIp(request.ip),
-          reason: "honeypot",
-        });
-        return reply.code(400).send({ error: "Requête refusée" });
       }
 
       const { website: _h, token: _t, ...data } = parsed.data;

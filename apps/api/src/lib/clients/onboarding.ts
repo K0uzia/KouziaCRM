@@ -1,4 +1,3 @@
-import { randomBytes } from "node:crypto";
 import { prisma } from "@/lib/prisma.js";
 import { getCompanySettings } from "@/lib/company.js";
 import { encryptOptional } from "@/lib/crypto.js";
@@ -380,11 +379,4 @@ export async function submitOnboarding(
     return { ok: false, error: "Ce lien a expiré. Contactez-moi pour en recevoir un nouveau." };
   }
   return applySubmission(invitation, data);
-}
-
-/** Conservé pour compat éventuelle (génération token legacy). */
-export function generateLegacyOnboardingToken(): { token: string; expiresAt: Date } {
-  const token = randomBytes(16).toString("hex");
-  const expiresAt = new Date(Date.now() + getOnboardingTtlDays() * 24 * 60 * 60 * 1000);
-  return { token, expiresAt };
 }
