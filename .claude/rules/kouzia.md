@@ -6,7 +6,7 @@ Le dépôt s'appelle encore `KouziaCRM`, mais l'outil est un ERP : clients, devi
 
 - Outil privé, mono-utilisateur, de l'EI Kouzia : micro-entreprise, franchise en base de TVA (art. 293 B du CGI), activité libérale non réglementée (BNC).
 - Stack : API Fastify, Prisma et SQLite (`apps/api`, schéma `prisma/schema.prisma`) ; SPA Vite, React, TypeScript, Tailwind 4 et Font Awesome (`apps/web`) ; worker (`scripts/worker.ts`) pour la file d'e-mails et les tâches planifiées ; paquet partagé `packages/kouzia-forms`.
-- Hébergement : Proxmox, CT Alpine (OpenRC, `scripts/alpine/`) ou Docker. L'administration reste privée (LAN ou Tailscale) et ne passe jamais par le tunnel Cloudflare. Seuls `/api/public/*` et les webhooks sont exposés sur `https://api.kouzia.com`.
+- Hébergement : Proxmox, CT Alpine (OpenRC, `scripts/alpine/`) ou Docker. L'administration est joignable en LAN, par Tailscale et, par le tunnel Cloudflare, sur `https://erp.kouzia.com` seulement : mot de passe puis code TOTP obligatoires (codes de secours à usage unique, anti-rejeu, limite de débit et verrouillage). Sans 2FA activée, la connexion par le tunnel est refusée. `https://api.kouzia.com` (même service) ne sert que `/api/public/*`, les webhooks, le callback Google et `/api/health`, le reste en 404.
 - Le site `kouzia.com` (dépôt KouziaWebsite) lit l'API publique : invitation `/nouveau-client`, espace client `/suivi`. Tout changement de format d'une réponse `/api/public/*` se fait en accord avec ce dépôt et se documente dans son README.
 - Configuration par `.env` uniquement, `.env.example` tenu à jour, aucun secret versionné.
 
@@ -42,7 +42,7 @@ Le dépôt s'appelle encore `KouziaCRM`, mais l'outil est un ERP : clients, devi
 - Open source d'abord : avant d'écrire un utilitaire ou un composant de zéro, chercher une bibliothèque viable. Critères : licence permissive (MIT, Apache-2.0, BSD, ISC), maintenue, typée, légère. Sinon, écrire le code et noter pourquoi en une ligne de commentaire.
 - Bibliothèques validées : `react-data-table-component` (tables), `cmdk` (palette), `sonner` (toasts), `recharts` (graphiques), `@react-pdf/renderer` (PDF), `zod` (validation), `argon2` (mots de passe), `node-cron`, `imapflow` et `nodemailer`, `vitest`.
 - À ne pas introduire : AG Grid, MUI ou une autre bibliothèque de composants complète, TanStack Table.
-- Toute entrée d'API est validée avec `zod`. Toute route admin commence par `requireAuth`. Les routes publiques ont une limite de débit et ne révèlent pas l'existence d'une donnée d'autrui (404 identique).
+- Toute entrée d'API est validée avec `zod`. Toute route admin commence par `requireAuth`. Les routes publiques ont une limite de débit et ne révèlent pas l'existence d'une donnée d'autrui (404 identique). L'IP client est `request.ip`, dérivée de `CF-Connecting-IP` pour une requête venue du tunnel (socket en loopback), jamais d'un `X-Forwarded-For` brut. Par le tunnel, l'hôte se lit dans l'en-tête Host brut.
 - Changement de schéma : une migration Prisma versionnée dans `prisma/migrations/`, jamais `db push` en production.
 - Imports API avec l'extension `.js` (`@/lib/x.js`).
 
