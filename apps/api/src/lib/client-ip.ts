@@ -58,6 +58,7 @@ export function trustProxyFn(list: BlockList | null): ((addr: string, hop: numbe
  * n'est jamais lu.
  */
 export function registerClientIpHook(app: FastifyInstance, list: BlockList | null): void {
+  app.decorateRequest("viaTunnel", false);
   app.addHook("onRequest", async (request) => {
     const headers = request.raw.headers;
     if (!isTrustedProxy(list, request.raw.socket.remoteAddress)) {
@@ -65,7 +66,17 @@ export function registerClientIpHook(app: FastifyInstance, list: BlockList | nul
       return;
     }
     const cf = headers["cf-connecting-ip"];
-    const value = Array.isArray(cf) ? cf[0] : cf;
-    if (value && isIP(value.trim())) headers["x-forwarded-for"] = value.trim();
+    const value = (Array.isArray(cf) ? cf[0] : cf)?.trim();
+    if (value && isIP(value)) {
+      headers["x-forwarded-for"] = value;
+      request.viaTunnel = true;
+    }
   });
+}
+
+declare module "fastify" {
+  interface FastifyRequest {
+    /** Requête venue d'Internet par le tunnel Cloudflare (et non du LAN ou de Tailscale). */
+    viaTunnel: boolean;
+  }
 }

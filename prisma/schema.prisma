@@ -165,13 +165,67 @@ enum RefundMethod {
 }
 
 model User {
-  id           String    @id @default(cuid())
-  email        String    @unique
-  name         String?
-  passwordHash String
-  createdAt    DateTime  @default(now())
-  updatedAt    DateTime  @updatedAt
-  sessions     Session[]
+  id                         String                @id @default(cuid())
+  email                      String                @unique
+  name                       String?
+  passwordHash               String
+  /// Secret TOTP actif (base32), chiffré avec ENCRYPTION_KEY. Null = 2FA non activée.
+  totpSecretEncrypted        String?
+  /// Secret en cours d'enrôlement, activé après vérification d'un premier code.
+  totpPendingSecretEncrypted String?
+  totpEnabledAt              DateTime?
+  /// Dernier pas TOTP accepté : un pas inférieur ou égal est refusé (anti-rejeu).
+  totpLastStep               Int?
+  /// Échecs consécutifs (mot de passe ou code) venus du tunnel, remis à zéro au succès.
+  failedLogins               Int                   @default(0)
+  lockedUntil                DateTime?
+  createdAt                  DateTime              @default(now())
+  updatedAt                  DateTime              @updatedAt
+  sessions                   Session[]
+  recoveryCodes              AdminRecoveryCode[]
+  loginChallenges            AdminLoginChallenge[]
+  devices                    AdminDevice[]
+}
+
+/// Code de secours 2FA à usage unique, stocké haché (HMAC-SHA256).
+model AdminRecoveryCode {
+  id        String    @id @default(cuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  codeHash  String    @unique
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([userId])
+}
+
+/// Étape intermédiaire de connexion : mot de passe validé, code TOTP attendu. id = SHA-256 du jeton du cookie.
+model AdminLoginChallenge {
+  id        String   @id
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt DateTime
+  attempts  Int      @default(0)
+  ipAddress String?
+  userAgent String?
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+/// Appareil admin reconnu (cookie d'appareil haché) : alerte email à la première connexion.
+model AdminDevice {
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  deviceHash  String
+  userAgent   String?
+  ipAddress   String?
+  firstSeenAt DateTime @default(now())
+  lastSeenAt  DateTime @default(now())
+
+  @@unique([userId, deviceHash])
 }
 
 /// Session serveur (cookie httpOnly opaque)
