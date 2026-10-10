@@ -212,7 +212,7 @@ export function ClientsPage() {
             >
               <Avatar name={c.displayName} />
               <div className="min-w-0 flex-1">
-                <p className="truncate font-medium">{c.displayName}</p>
+                <p className="line-clamp-2 break-words font-medium">{c.displayName}</p>
                 <p className="truncate text-xs text-[var(--muted)]">
                   {[c.clientNumber, c.city].filter(Boolean).join(" · ")}
                 </p>

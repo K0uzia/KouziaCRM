@@ -180,7 +180,7 @@ function DocumentsListPage({
           <span className="font-semibold tabular-nums">{formatEUR(d.totalCents)}</span>
         </div>
         <div className="mt-2 flex items-center justify-between gap-3">
-          <span className="min-w-0 truncate text-sm">{d.client.displayName}</span>
+          <span className="line-clamp-2 min-w-0 break-words text-sm">{d.client.displayName}</span>
           <Badge tone={statusTone(st)}>{labels[st] ?? st}</Badge>
         </div>
         <p className="mt-1 text-xs text-[var(--muted)]">{formatDate(d.issueDate)}</p>
