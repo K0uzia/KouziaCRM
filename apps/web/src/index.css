@@ -453,6 +453,15 @@ option:hover {
   color: var(--text) !important;
 }
 
+/* Texte secondaire (classe text-xs, lue par Tailwind dans --text-xs) : 13 px sous 640 px pour la
+   lecture au téléphone, 12 px au-delà pour la densité du bureau. Badges : tailles dédiées. */
+@media (max-width: 39.99rem) {
+  :root {
+    --text-xs: var(--text-meta);
+    --text-xs--line-height: calc(1.125 / 0.8125);
+  }
+}
+
 /* Marge latérale des pages selon la largeur (token --gutter). */
 @media (min-width: 40rem) {
   :root {

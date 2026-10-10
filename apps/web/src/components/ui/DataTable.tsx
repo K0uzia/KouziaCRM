@@ -172,7 +172,8 @@ function DefaultMobileCard<T>({
   const [titleCol, leadCol, ...rest] = fields;
 
   return (
-    <article className="min-w-0 rounded-[var(--radius)] border border-[var(--border)] bg-[var(--surface)] p-3.5">
+    // Liens des cellules : cible de 44 px au doigt (ex. numéro de facture des encaissements).
+    <article className="min-w-0 rounded-[var(--radius)] border border-[var(--border)] bg-[var(--surface)] p-3.5 [&_a]:inline-flex [&_a]:min-h-11 [&_a]:items-center">
       <div className="flex min-w-0 items-start justify-between gap-3">
         {titleCol ? (
           <div className="min-w-0 text-sm font-semibold text-[var(--text)]">

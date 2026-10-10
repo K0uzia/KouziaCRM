@@ -900,7 +900,7 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
             <div className="ui-table-wrap max-md:overflow-visible">
               <table className="ui-table ui-table-stack w-full text-sm">
                 <thead>
-                  <tr className="bg-[var(--bg-subtle)] text-[0.6875rem] uppercase tracking-[0.06em] text-[var(--muted)]">
+                  <tr className="bg-[var(--bg-subtle)] text-xs uppercase tracking-[0.06em] text-[var(--muted)]">
                     <th className="px-5 py-2.5 text-left font-semibold sm:px-6">Désignation</th>
                     <th className="px-3 py-2.5 text-right font-semibold">Qté</th>
                     <th className="px-3 py-2.5 text-right font-semibold">P.U. TTC</th>

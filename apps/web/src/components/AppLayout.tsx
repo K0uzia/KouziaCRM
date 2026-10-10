@@ -348,7 +348,7 @@ export function AppLayout() {
                 to={item.to}
                 end={item.to === "/"}
                 aria-current={active ? "page" : undefined}
-                className={`relative flex min-h-14 flex-col items-center justify-center gap-1 text-[0.6875rem] ${
+                className={`relative flex min-h-14 flex-col items-center justify-center gap-1 text-xs ${
                   active ? "text-[var(--primary)]" : "text-[var(--muted)]"
                 }`}
               >
@@ -365,7 +365,7 @@ export function AppLayout() {
             onClick={() => setDrawerOpen(true)}
             aria-expanded={drawerOpen}
             aria-controls="menu-principal"
-            className="flex min-h-14 flex-col items-center justify-center gap-1 text-[0.6875rem] text-[var(--muted)]"
+            className="flex min-h-14 flex-col items-center justify-center gap-1 text-xs text-[var(--muted)]"
           >
             <FontAwesomeIcon icon={faEllipsis} className="h-4 w-4" aria-hidden />
             Plus
