@@ -37,7 +37,7 @@ function publicSiteOrigin(): string {
  * Crée une invitation d'onboarding pour un email donné.
  * - existingClientId null : nouveau prospect (le client sera créé à la soumission).
  * - existingClientId renseigné : client existant à mettre à jour.
- * Envoie l'email contenant le lien Kouzia /nouveau-client?token=...
+ * Envoie l'email contenant le lien Kouzia /nouveau-client/?token=...
  */
 export async function sendOnboardingInvite(opts: {
   email: string;
@@ -69,7 +69,7 @@ export async function sendOnboardingInvite(opts: {
     const company = await getCompanySettings();
     const brand = company.tradeName ?? company.legalName;
     const ttl = getOnboardingTtlDays();
-    const link = `${publicSiteOrigin()}/nouveau-client?token=${encodeURIComponent(token)}`;
+    const link = `${publicSiteOrigin()}/nouveau-client/?token=${encodeURIComponent(token)}`;
 
     const body = [
       "Bonjour,",

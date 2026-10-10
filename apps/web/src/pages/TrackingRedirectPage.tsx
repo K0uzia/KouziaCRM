@@ -6,7 +6,7 @@ const PUBLIC_SITE_URL =
 /** Ancienne route ERP : renvoie vers l'espace client sur kouzia.com. */
 export function TrackingRedirectPage() {
   useEffect(() => {
-    const target = new URL(`${PUBLIC_SITE_URL.replace(/\/$/, "")}/suivi`);
+    const target = new URL(`${PUBLIC_SITE_URL.replace(/\/$/, "")}/suivi/`);
     const incoming = new URLSearchParams(window.location.search);
     incoming.forEach((value, key) => {
       target.searchParams.set(key, value);

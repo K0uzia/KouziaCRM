@@ -13,7 +13,7 @@ export function OnboardingPage() {
 
   useEffect(() => {
     if (!token) return;
-    const url = `${site}/nouveau-client?token=${encodeURIComponent(token)}`;
+    const url = `${site}/nouveau-client/?token=${encodeURIComponent(token)}`;
     window.location.replace(url);
   }, [token, site]);
 
