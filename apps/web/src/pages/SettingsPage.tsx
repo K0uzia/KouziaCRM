@@ -734,7 +734,7 @@ export function SettingsPage() {
                       Importer INPI / open data
                     </Button>
                   </div>
-                  <div className="grid gap-4 sm:grid-cols-2">
+                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                     <Field label="Nom légal">
                       <Input
                         value={form.legalName}
@@ -782,7 +782,7 @@ export function SettingsPage() {
               ) : null}
 
               {identitySection === "contact" ? (
-                <div className="grid gap-4 sm:grid-cols-2">
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                   <Field label="Email de contact">
                     <Input
                       type="email"
@@ -834,7 +834,7 @@ export function SettingsPage() {
 
               {identitySection === "extra" ? (
                 <div className="space-y-4">
-                  <div className="grid gap-4 sm:grid-cols-3">
+                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
                     <Field label="Décennale : assureur">
                       <Input
                         value={form.decennaleInsurer ?? ""}
@@ -912,7 +912,7 @@ export function SettingsPage() {
                     &gt; Emails, pas votre mot de passe hPanel.
                   </p>
                 ) : null}
-                <div className="mt-3 grid gap-4 sm:grid-cols-2">
+                <div className="mt-3 grid grid-cols-1 gap-4 sm:grid-cols-2">
                   <Field label="Hôte">
                     <Input
                       placeholder={d?.smtpHost}
@@ -1007,7 +1007,7 @@ export function SettingsPage() {
                   Enregistrer. Polling toutes les {form.imapPollIntervalMinutes} min + bouton
                   Synchroniser dans Messages.
                 </p>
-                <div className="mt-3 grid gap-4 sm:grid-cols-2">
+                <div className="mt-3 grid grid-cols-1 gap-4 sm:grid-cols-2">
                   <Field label="Hôte IMAP">
                     <Input
                       placeholder={d?.imapHost}
@@ -1078,7 +1078,7 @@ export function SettingsPage() {
                   compressée. Hostinger limite souvent l&apos;envoi à ~50 Mo : ces plafonds
                   concernent ce que l&apos;ERP conserve après réception.
                 </p>
-                <div className="mt-3 grid gap-4 sm:grid-cols-2">
+                <div className="mt-3 grid grid-cols-1 gap-4 sm:grid-cols-2">
                   <Field label="Max par fichier (Mo)">
                     <Input
                       type="number"
@@ -1204,7 +1204,7 @@ export function SettingsPage() {
 
               <Card className="space-y-4 border border-[var(--border)] p-5">
                 <h3 className="text-sm font-semibold">Coordonnées bancaires (virement)</h3>
-                <div className="grid gap-4 sm:grid-cols-2">
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                   <Field label="Titulaire">
                     <Input
                       value={form.bankAccountHolder ?? ""}
@@ -1252,7 +1252,7 @@ export function SettingsPage() {
                   Distinct de l&apos;API Business (rapprochement bancaire / virements). Clés générées
                   dans le portail Merchant Revolut.
                 </p>
-                <div className="grid gap-4 sm:grid-cols-2">
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                   <SecretField
                     label="Clé API secrète"
                     value={revolutKey}
@@ -1296,7 +1296,7 @@ export function SettingsPage() {
                   solde à la livraison. Les devis déjà émis avec un jalon intermédiaire
                   conservent leur calendrier.
                 </p>
-                <div className="grid gap-4 sm:grid-cols-2">
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                   <Field label="Acompte à la validation (%)">
                     <Input
                       type="number"
@@ -1344,7 +1344,7 @@ export function SettingsPage() {
           {tab === "reminders" ? (
             <Card className="space-y-4 border border-[var(--border)] p-5">
               <h3 className="text-sm font-semibold">Relances devis / factures</h3>
-              <div className="grid gap-4 sm:grid-cols-2">
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <Field label="Relance devis (j après émission)">
                   <Input
                     type="number"
@@ -1365,7 +1365,7 @@ export function SettingsPage() {
                 </Field>
               </div>
               <h3 className="pt-2 text-sm font-semibold">Rappels d&apos;acomptes</h3>
-              <div className="grid gap-3 sm:grid-cols-2">
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 {(
                   [
                     ["reminderDepositMinus7", "J-7 avant échéance", "minus7"],
@@ -1412,7 +1412,7 @@ export function SettingsPage() {
 
           {tab === "identity" ? (
             <Card className="space-y-4 border border-[var(--border)] p-5">
-              <div className="grid gap-4 sm:grid-cols-2">
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <Field label="Couleur primaire">
                   <div className="flex gap-2">
                     <input
@@ -1491,7 +1491,7 @@ export function SettingsPage() {
                 Variables : {"{prefix}"}, {"{year}"}, {"{counter}"}. Attribution uniquement à
                 l&apos;émission.
               </p>
-              <div className="grid gap-4 sm:grid-cols-2">
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <Field label="Template factures">
                   <Input
                     value={form.invoiceNumberTemplate}
@@ -1524,7 +1524,7 @@ export function SettingsPage() {
                   />
                 </Field>
               </div>
-              <div className="grid gap-3 sm:grid-cols-3">
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
                 {previews.map((p) => (
                   <div
                     key={`${p.series}-${p.year}`}
@@ -1584,7 +1584,7 @@ export function SettingsPage() {
 
           {tab === "declarations" ? (
             <Card className="space-y-4 border border-[var(--border)] p-5">
-              <div className="grid gap-4 sm:grid-cols-3">
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
                 <Field label="Périodicité URSSAF">
                   <Select
                     value={form.urssafPeriodicity}
@@ -1731,7 +1731,7 @@ export function SettingsPage() {
               {checklist ? (
                 <div className="border-t border-[var(--border)] pt-4">
                   <p className="mb-2 text-sm font-medium">Checklist post-création</p>
-                  <ul className="grid gap-2 sm:grid-cols-2">
+                  <ul className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                     {CHECKLIST_LABELS.map(({ key, label }) => (
                       <li key={key}>
                         <label className="flex items-center gap-2 text-sm">
@@ -1906,7 +1906,7 @@ function PayoutBeneficiaryCard() {
           ? `Compte enregistré : ${status.beneficiaryLabel}. Titulaire et IBAN chiffrés.`
           : "Aucun compte enregistré."}
       </p>
-      <form onSubmit={save} className="grid gap-4 sm:grid-cols-2">
+      <form onSubmit={save} className="grid grid-cols-1 gap-4 sm:grid-cols-2">
         <Field label="Libellé">
           <Input value={label} onChange={(e) => setLabel(e.target.value)} required />
         </Field>

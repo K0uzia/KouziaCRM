@@ -277,7 +277,7 @@ export function ClientFormEditor({
       </div>
 
       {form.type === "B2C" ? (
-        <div className="grid gap-4 sm:grid-cols-2">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <Field label="Prénom">
             <Input value={form.firstName} onChange={(e) => set("firstName", e.target.value)} />
           </Field>
@@ -314,7 +314,7 @@ export function ClientFormEditor({
         />
       )}
 
-      <div className="grid gap-4 sm:grid-cols-2">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
         <Field label="Email">
           <Input type="email" value={form.email} onChange={(e) => set("email", e.target.value)} />
         </Field>

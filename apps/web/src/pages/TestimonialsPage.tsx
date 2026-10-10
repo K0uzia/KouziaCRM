@@ -94,7 +94,7 @@ export function TestimonialsPage() {
             />
           </Card>
         ) : (
-          <ul className="grid gap-4 lg:grid-cols-2">
+          <ul className="grid grid-cols-1 gap-4 lg:grid-cols-2">
             {visible.map((row) => (
               <li key={row.id}>
                 <Card className="flex h-full flex-col p-5">

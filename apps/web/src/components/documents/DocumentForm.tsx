@@ -505,7 +505,7 @@ export function DocumentFormEditor({
 
         <details className="rounded-[var(--radius)] border border-[var(--border)] p-3" open={form.discountType !== "NONE"}>
           <summary className="cursor-pointer text-sm font-medium">Remise</summary>
-          <div className="mt-3 grid gap-2 sm:grid-cols-[12rem_1fr]">
+          <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-[12rem_1fr]">
             <Select
               aria-label="Type de remise globale"
               value={form.discountType}

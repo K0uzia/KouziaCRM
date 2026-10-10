@@ -377,7 +377,7 @@ export function DashboardPage() {
         ]}
       />
 
-      <div className="mt-6 grid gap-6 xl:grid-cols-[minmax(0,1fr)_24rem]">
+      <div className="mt-6 grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1fr)_24rem]">
         <div className="min-w-0 space-y-6">
           <Card className="min-w-0 overflow-hidden">
             <SectionTitle>Répartition des encaissements</SectionTitle>
@@ -388,7 +388,7 @@ export function DashboardPage() {
             </div>
           </Card>
 
-          <div className="grid gap-6 lg:grid-cols-2">
+          <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
             <Card className="overflow-hidden">
               <SectionTitle
                 action={

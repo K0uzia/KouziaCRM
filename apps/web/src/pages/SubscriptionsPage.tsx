@@ -559,7 +559,7 @@ export function SubscriptionsPage() {
               onChange={(e) => setForm({ ...form, label: e.target.value })}
             />
           </Field>
-          <div className="grid gap-4 sm:grid-cols-3">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
             <Field
               label="Montant/mois (€)"
               hint={editingId ? "Via un nouveau devis (légal)" : undefined}
@@ -671,7 +671,7 @@ export function SubscriptionsPage() {
               onChange={(e) => setOfferForm({ ...offerForm, description: e.target.value })}
             />
           </Field>
-          <div className="grid gap-4 sm:grid-cols-2">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <Field label="Prix TTC / mois (€)">
               <Input
                 required
