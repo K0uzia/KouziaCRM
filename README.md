@@ -159,6 +159,32 @@ Puis :
 
 Détails : `scripts/alpine/` (install, update, backup, restore, OpenRC, conf rsync).
 
+### Double authentification (admin par Internet)
+
+Par le tunnel, l'administration (`erp.kouzia.com`) demande le mot de passe puis un code à
+6 chiffres (TOTP, Google Authenticator ou équivalent). Tant que la double authentification n'est
+pas activée, la connexion par Internet est refusée : l'activation se fait donc depuis le réseau
+local ou Tailscale.
+
+1. Se connecter à l'admin en LAN (`http://IP_DU_CT:3000`) ou par Tailscale.
+2. Réglages > Sécurité > « Activer la double authentification ».
+3. Scanner le QR code avec l'application (ou saisir la clé), puis entrer le code affiché.
+4. Enregistrer les 10 codes de secours (télécharger ou copier), hors de l'ordinateur. Chacun ne sert
+   qu'une fois ; Réglages > Sécurité permet d'en créer de nouveaux avec un code de l'application.
+5. Les autres sessions sont fermées. La connexion par `https://erp.kouzia.com` est désormais possible.
+
+Une connexion depuis un nouvel appareil envoie un email d'alerte au compte admin. Après 5 échecs
+venus d'Internet, le compte est verrouillé 15 minutes pour Internet (le LAN reste utilisable).
+
+Téléphone et codes de secours perdus : sur le CT, en root,
+
+```bash
+kouziactl 2fa-reset admin@kouzia.com
+```
+
+désactive la double authentification et ferme toutes les sessions. Reprendre ensuite à l'étape 1,
+et changer le mot de passe si l'appareil a été perdu ou volé.
+
 ### Alternative : LXC Ubuntu + Docker
 
 1. LXC Ubuntu 24.04 + Docker.

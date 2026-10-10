@@ -106,6 +106,7 @@ Config (rejouable) :
 Services / data :
   start | stop | restart | logs [app|worker|backup|tailscale]
   backup | restore | migrate
+  2fa-reset <email>   désactive la double authentification admin et ferme ses sessions (secours)
 
 Défaut update = git pull si dépôt présent, puis npm/build si changé.
 EOF
@@ -193,6 +194,12 @@ run_cmd() {
       sleep 2
       wait_health || warn "API unhealthy après migrate"
       service_safe kouziacrm-worker start
+      ;;
+    2fa-reset)
+      require_root
+      [[ -n "${1:-}" ]] || die "Usage : kouziactl 2fa-reset <email>"
+      [[ "$1" =~ ^[^[:space:]'\"]+@[^[:space:]'\"]+$ ]] || die "Email invalide : $1"
+      run_as_app "cd '$KOUZIA_APP_DIR' && npm run --silent admin:2fa-reset -- '$1'"
       ;;
     menu) show_menu ;;
     help|-h|--help) usage ;;
