@@ -249,7 +249,7 @@ export function AppLayout() {
 
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
         {/* Barre supérieure */}
-        <header className="z-30 flex h-[var(--topbar-h)] shrink-0 items-center gap-2 border-b border-[var(--border)] bg-[var(--bg)] px-3 pt-[env(safe-area-inset-top)] sm:gap-3 sm:px-6">
+        <header className="z-30 flex h-[var(--topbar-h)] min-w-0 shrink-0 items-center gap-1 border-b border-[var(--border)] bg-[var(--bg)] px-2 pt-[env(safe-area-inset-top)] sm:gap-3 sm:px-6">
           <button
             ref={drawerTrigger}
             type="button"
@@ -278,12 +278,12 @@ export function AppLayout() {
               </Link>
             ) : null}
           </nav>
-          <Link to="/" className="flex min-h-11 items-center gap-2 md:hidden" aria-label="Kouzia ERP, tableau de bord">
-            <BrandMark className="h-7 w-7" />
+          <Link to="/" className="flex min-h-11 min-w-0 flex-1 items-center gap-2 md:hidden" aria-label="Kouzia ERP, tableau de bord">
+            <BrandMark className="h-7 w-7 shrink-0" />
             <span className="truncate font-display text-base font-semibold">{current?.label ?? "Kouzia ERP"}</span>
           </Link>
 
-          <div className="ml-auto flex items-center gap-1.5 sm:gap-2">
+          <div className="ml-auto flex shrink-0 items-center gap-1 sm:gap-2">
             <button
               type="button"
               onClick={() => setPaletteOpen(true)}
@@ -309,6 +309,7 @@ export function AppLayout() {
               variant="primary"
               leading={<FontAwesomeIcon icon={faPlus} className="h-3.5 w-3.5" aria-hidden />}
               ariaLabel="Créer"
+              compactMobile
             />
           </div>
         </header>
@@ -324,7 +325,7 @@ export function AppLayout() {
             className={
               isMailWorkspace
                 ? "flex h-full min-h-0 min-w-0 flex-col"
-                : "mx-auto w-full max-w-[90rem] min-w-0 px-4 py-5 sm:px-6 lg:px-8 lg:py-7"
+                : "mx-auto w-full max-w-[90rem] min-w-0 px-[var(--gutter)] py-5 lg:py-7"
             }
           >
             <Outlet />

@@ -71,6 +71,11 @@
   /* Gabarit applicatif */
   --sidebar-w: 15.5rem;
   --topbar-h: 3.75rem;
+  /* Mise en page mobile d'abord : marge latérale des pages (élargie plus bas), cible tactile
+     minimale (44 px), texte secondaire (13 px, lisible au téléphone). */
+  --gutter: 1rem;
+  --tap: 2.75rem;
+  --text-meta: 0.8125rem;
   /* Mouvement */
   --duration-fast: 150ms;
   --duration-base: 300ms;
@@ -446,4 +451,16 @@ option:hover {
 .rdt_TableRow:hover .rdt_TableCell {
   background-color: var(--surface-raised) !important;
   color: var(--text) !important;
+}
+
+/* Marge latérale des pages selon la largeur (token --gutter). */
+@media (min-width: 40rem) {
+  :root {
+    --gutter: 1.5rem;
+  }
+}
+@media (min-width: 64rem) {
+  :root {
+    --gutter: 2rem;
+  }
 }

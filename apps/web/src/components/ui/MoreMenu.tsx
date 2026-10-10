@@ -21,6 +21,7 @@ export function MoreMenu({
   variant = "secondary",
   leading,
   ariaLabel,
+  compactMobile = false,
 }: {
   items: MoreMenuItem[];
   label?: ReactNode;
@@ -29,6 +30,8 @@ export function MoreMenu({
   leading?: ReactNode;
   /** Nom accessible quand le libellé visible est masqué sur petit écran. */
   ariaLabel?: string;
+  /** Sous 640 px : bouton carré de 44 px (icône seule, libellé masqué par l'appelant). */
+  compactMobile?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
@@ -66,7 +69,7 @@ export function MoreMenu({
         aria-controls={panelId}
         aria-label={ariaLabel}
         onClick={() => setOpen((v) => !v)}
-        className={buttonClass(variant, "w-full")}
+        className={buttonClass(variant, compactMobile ? "w-full px-0 sm:px-4" : "w-full")}
       >
         {leading}
         {icon ? <FontAwesomeIcon icon={faEllipsis} className="h-4 w-4" aria-hidden /> : null}
