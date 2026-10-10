@@ -163,6 +163,8 @@ export function ClientFormEditor({
   const [form, setForm] = useState<ClientFormData>(initial ?? emptyClientForm());
   const [busy, setBusy] = useState(false);
   const [addressError, setAddressError] = useState<string | null>(null);
+  // Création seulement : envoi de l'accès à l'espace client, coché par défaut.
+  const [sendPortalAccess, setSendPortalAccess] = useState(true);
 
   useEffect(() => {
     if (initial) setForm(initial);
@@ -218,15 +220,26 @@ export function ClientFormEditor({
         addressLon: form.addressLon,
         addressManualConfirmed: form.addressManualConfirmed,
         notes: form.notes,
+        ...(clientId ? {} : { sendPortalAccess: sendPortalAccess && Boolean(form.email) }),
       };
-      const client = await api<Client>(clientId ? `/api/clients/${clientId}` : "/api/clients", {
-        method: clientId ? "PUT" : "POST",
-        body: JSON.stringify(payload),
-      });
+      const client = await api<Client & { portalAccess?: { sent: boolean; reason?: string } | null }>(
+        clientId ? `/api/clients/${clientId}` : "/api/clients",
+        {
+          method: clientId ? "PUT" : "POST",
+          body: JSON.stringify(payload),
+        },
+      );
       if (!clientId) {
-        toast.success(
-          `Client créé (${client.clientNumber}). Le code d'accès se génère depuis la fiche client ou après le formulaire d'onboarding.`,
-        );
+        const access = client.portalAccess;
+        if (access?.sent) {
+          toast.success(`Client créé (${client.clientNumber}). Accès à l'espace client envoyé par e-mail.`);
+        } else if (access?.reason === "smtp_off") {
+          toast.warning(`Client créé (${client.clientNumber}). SMTP non configuré : accès non envoyé.`);
+        } else if (access) {
+          toast.warning(`Client créé (${client.clientNumber}). L'e-mail d'accès n'a pas pu partir.`);
+        } else {
+          toast.success(`Client créé (${client.clientNumber}).`);
+        }
       } else {
         toast.success("Client mis à jour");
       }
@@ -339,6 +352,26 @@ export function ClientFormEditor({
       <Field label="Notes internes" hint="Non visibles sur les documents PDF">
         <Textarea value={form.notes} onChange={(e) => set("notes", e.target.value)} rows={3} />
       </Field>
+
+      {clientId ? null : (
+        <label className="flex min-h-11 items-start gap-3 text-sm">
+          <input
+            type="checkbox"
+            className="mt-0.5 h-5 w-5 shrink-0"
+            checked={sendPortalAccess && Boolean(form.email)}
+            disabled={!form.email}
+            onChange={(e) => setSendPortalAccess(e.target.checked)}
+          />
+          <span>
+            Envoyer l&apos;accès à l&apos;espace client
+            <span className="block text-xs text-[var(--muted)]">
+              {form.email
+                ? "Un e-mail donne le lien de l'espace client et explique la connexion par code."
+                : "Renseignez une adresse e-mail pour envoyer l'accès."}
+            </span>
+          </span>
+        </label>
+      )}
 
       <ModalActions>
         <Button type="button" variant="secondary" onClick={onCancel} disabled={busy}>

@@ -313,6 +313,7 @@ export function ClientDetailPage() {
   const [client, setClient] = useState<Client | null>(null);
   const [editOpen, setEditOpen] = useState(false);
   const [busyAccess, setBusyAccess] = useState(false);
+  const [busyWelcome, setBusyWelcome] = useState(false);
   const [confirmRegen, setConfirmRegen] = useState(false);
   const [busyOnboarding, setBusyOnboarding] = useState(false);
   const [docs, setDocs] = useState<
@@ -565,6 +566,27 @@ export function ClientDetailPage() {
         </div>
 
         <div className="flex flex-wrap gap-2 border-t border-[var(--border)] pt-3">
+          <Button
+            variant="secondary"
+            disabled={busyWelcome || !client.email}
+            title={client.email ? undefined : "Adresse e-mail manquante sur la fiche"}
+            onClick={() => {
+              setBusyWelcome(true);
+              void api<{ sent: boolean; reason?: string }>(`/api/clients/${client.id}/portal/welcome`, {
+                method: "POST",
+              })
+                .then((r) => {
+                  if (r.sent) toast.success(`Accès à l'espace client envoyé à ${client.email}.`);
+                  else if (r.reason === "smtp_off") toast.error("SMTP non configuré : e-mail non envoyé.");
+                  else if (r.reason === "no_email") toast.error("Le client n'a pas d'adresse e-mail.");
+                  else toast.error("L'e-mail d'accès n'a pas pu partir.");
+                })
+                .catch((e: Error) => toast.error(e.message))
+                .finally(() => setBusyWelcome(false));
+            }}
+          >
+            {busyWelcome ? "Envoi…" : "Envoyer l'accès à l'espace client"}
+          </Button>
           <Button
             variant="secondary"
             disabled={busyAccess}

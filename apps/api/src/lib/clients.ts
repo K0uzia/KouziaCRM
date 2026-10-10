@@ -203,7 +203,8 @@ export class AddressValidationError extends Error {
   }
 }
 
-export async function createClientWithAccess(data: ClientInput) {
+/** Crée la fiche (numéro attribué). L'accès à l'espace client s'envoie à part (sendPortalWelcomeEmail). */
+export async function createClientRecord(data: ClientInput) {
   const clientNumber = await allocateClientNumber();
   const client = await prisma.client.create({
     data: {

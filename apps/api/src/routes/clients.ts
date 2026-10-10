@@ -1,9 +1,10 @@
 import type { FastifyPluginAsync } from "fastify";
+import { z } from "zod";
 import { prisma } from "@/lib/prisma.js";
 import {
   AddressValidationError,
   clientInputSchema,
-  createClientWithAccess,
+  createClientRecord,
   listClients,
   serializeClient,
   toPrismaClientData,
@@ -11,6 +12,12 @@ import {
 import { requireAuth } from "@/lib/auth.js";
 import { revokeAllPortalSessions } from "@/lib/portal/auth.js";
 import { sendOnboardingInvite } from "@/lib/clients/onboarding.js";
+import { sendPortalWelcomeEmail } from "@/lib/clients/access-email.js";
+
+const createOptionsSchema = z.object({
+  /** Case du formulaire (cochée par défaut côté interface) : envoie l'accès si une adresse existe. */
+  sendPortalAccess: z.boolean().optional().default(false),
+});
 import { replyEntrepriseLookup } from "@/lib/company/entreprise-route.js";
 
 export const clientsRoutes: FastifyPluginAsync = async (app) => {
@@ -34,9 +41,14 @@ export const clientsRoutes: FastifyPluginAsync = async (app) => {
     if (!parsed.success) {
       return reply.code(400).send({ error: parsed.error.flatten() });
     }
+    const options = createOptionsSchema.safeParse(request.body);
     try {
-      const { client } = await createClientWithAccess(parsed.data);
-      return reply.code(201).send(client);
+      const { client } = await createClientRecord(parsed.data);
+      const portalAccess =
+        options.success && options.data.sendPortalAccess && client.email
+          ? await sendPortalWelcomeEmail(client.id)
+          : null;
+      return reply.code(201).send({ ...client, portalAccess });
     } catch (e) {
       if (e instanceof AddressValidationError) {
         return reply.code(400).send({ error: e.message });
@@ -80,6 +92,22 @@ export const clientsRoutes: FastifyPluginAsync = async (app) => {
       await requireAuth(request, reply);
       if (reply.sent) return;
       return replyEntrepriseLookup(request.params.siren, reply);
+    },
+  );
+
+  // Espace client : (r)envoie l'e-mail d'accès (adresse du site, connexion par code).
+  app.post<{ Params: { id: string } }>(
+    "/api/clients/:id/portal/welcome",
+    { config: { rateLimit: { max: 5, timeWindow: "15 minutes" } } },
+    async (request, reply) => {
+      await requireAuth(request, reply);
+      if (reply.sent) return;
+      const existing = await prisma.client.findUnique({
+        where: { id: request.params.id },
+        select: { id: true },
+      });
+      if (!existing) return reply.code(404).send({ error: "Introuvable" });
+      return sendPortalWelcomeEmail(existing.id);
     },
   );
 
