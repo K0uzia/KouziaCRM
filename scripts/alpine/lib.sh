@@ -285,6 +285,9 @@ npm_ci_or_install() {
   log "npm ci dans $dir…"
   local libc_args=()
   [[ -f /etc/alpine-release ]] && libc_args=(--libc=musl)
+  if ! run_as_app "cd '$dir' && node scripts/check-lockfile.mjs"; then
+    warn "Lockfile élagué (souvent un npm install sous Windows) : npm ci risque d'échouer, à corriger dans le dépôt."
+  fi
   if run_as_app "cd '$dir' && npm ci --include=dev ${libc_args[*]}"; then
     ok "npm ci terminé"
     return 0
