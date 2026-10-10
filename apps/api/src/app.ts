@@ -10,6 +10,7 @@ import multipart from "@fastify/multipart";
 import { getAllowedOrigins, getCookieSecure, getTrustedProxies } from "@/lib/env.js";
 import { registerClientIpHook, trustProxyFn } from "@/lib/client-ip.js";
 import { registerTunnelHostGuard } from "@/lib/tunnel-hosts.js";
+import { pendingMigrationCount } from "@/lib/migration-check.js";
 import { originGuardPlugin } from "@/plugins/origin-guard.js";
 import { authRoutes } from "@/routes/auth.js";
 import { clientsRoutes } from "@/routes/clients.js";
@@ -160,7 +161,8 @@ export async function buildApp(opts: BuildAppOptions = {}): Promise<FastifyInsta
   await app.register(notificationsRoutes);
   await app.register(googleCalendarRoutes);
 
-  app.get("/api/health", async () => ({ ok: true }));
+  // pendingMigrations > 0 : base en retard sur le code (contrôle d'après déploiement).
+  app.get("/api/health", async () => ({ ok: true, pendingMigrations: pendingMigrationCount() }));
 
   let spaServed = false;
   if (opts.serveStatic !== false) {

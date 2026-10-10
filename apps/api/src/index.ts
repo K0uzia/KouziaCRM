@@ -2,12 +2,31 @@ import { assertSecurityEnv, getApiPort } from "@/lib/env.js";
 import { enableWal, prisma } from "@/lib/prisma.js";
 import { buildApp } from "@/app.js";
 import { hydrateSettingsFromEnv } from "@/lib/settings/service.js";
+import { checkPendingMigrations } from "@/lib/migration-check.js";
 
 async function main() {
   // Compat .env legacy : AUTH_SECRET -> SESSION_SECRET (géré par assertSecurityEnv)
   assertSecurityEnv();
 
   await enableWal();
+
+  // Base en retard sur le schéma : chaque requête sur une table modifiée échouerait (500).
+  try {
+    const pending = await checkPendingMigrations();
+    if (pending.length > 0) {
+      const message =
+        `[boot] ${pending.length} migration(s) Prisma non appliquée(s) : ${pending.join(", ")}. ` +
+        "Lancer `npm run db:deploy` (prod : `kouziactl migrate`).";
+      if (process.env.NODE_ENV !== "production") {
+        console.error(message);
+        process.exit(1);
+      }
+      console.error(message);
+    }
+  } catch (err) {
+    // Base créée par db push (sans _prisma_migrations) : contrôle impossible, pas bloquant.
+    console.warn("[boot] contrôle des migrations impossible", err instanceof Error ? err.message : err);
+  }
 
   // Écouter tôt : le healthcheck OpenRC / kouziactl ne doit pas attendre
   // hydrate + backfill (surtout sous lock SQLite avec le worker).
