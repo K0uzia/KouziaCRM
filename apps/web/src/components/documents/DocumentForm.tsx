@@ -74,6 +74,7 @@ export function DocumentFormEditor({
   onSuccess: (doc: { id: string }) => void;
   onCancel: () => void;
 }) {
+  const [showDoneNeeds, setShowDoneNeeds] = useState(false);
   const [form, setForm] = useState<DocumentFormValues>({
     clientId: initial?.clientId ?? clients[0]?.id ?? "",
     notes: initial?.notes ?? "",
@@ -288,6 +289,8 @@ export function DocumentFormEditor({
   const monthly = services.filter((sv) => sv.isSubscription);
   const sectionTitle = "text-xs font-semibold uppercase tracking-[0.08em] text-[var(--muted)]";
   const clientNeeds = clients.find((c) => c.id === form.clientId)?.needs ?? [];
+  const doneNeeds = clientNeeds.filter((n) => n.done).length;
+  const visibleNeeds = showDoneNeeds ? clientNeeds : clientNeeds.filter((n) => !n.done);
 
   return (
     <form onSubmit={onSubmit} className="space-y-6">
@@ -352,7 +355,7 @@ export function DocumentFormEditor({
             Besoins du client ({clientNeeds.filter((n) => !n.done).length} à traiter)
           </summary>
           <ul className="mt-2 space-y-1" aria-label="Besoins du client">
-            {clientNeeds.map((need) => (
+            {visibleNeeds.map((need) => (
               <li key={need.id} className="flex min-w-0 items-center justify-between gap-2">
                 <span className={`min-w-0 break-words text-sm ${need.done ? "text-[var(--muted)] line-through" : ""}`}>
                   {need.label}
@@ -369,6 +372,16 @@ export function DocumentFormEditor({
               </li>
             ))}
           </ul>
+          {doneNeeds > 0 ? (
+            <button
+              type="button"
+              className="link mt-2 min-h-11 text-sm"
+              aria-expanded={showDoneNeeds}
+              onClick={() => setShowDoneNeeds((v) => !v)}
+            >
+              {showDoneNeeds ? "Masquer les besoins traités" : `Afficher les besoins traités (${doneNeeds})`}
+            </button>
+          ) : null}
         </details>
       ) : null}
 

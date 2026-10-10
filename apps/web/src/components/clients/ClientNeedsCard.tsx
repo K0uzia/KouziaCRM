@@ -60,8 +60,17 @@ export function ClientNeedsCard({ clientId, initial }: { clientId: string; initi
         <h2 className="text-sm font-semibold">
           Besoins{needs.length > 0 ? ` (${open} à traiter sur ${needs.length})` : ""}
         </h2>
-        <p className="text-xs text-[var(--muted)]" aria-live="polite">
-          {state === "saving" ? "Enregistrement…" : state === "saved" ? "Enregistré" : ""}
+        <p
+          className={`text-xs ${state === "error" ? "text-[var(--danger)]" : "text-[var(--muted)]"}`}
+          aria-live="polite"
+        >
+          {state === "saving"
+            ? "Enregistrement…"
+            : state === "saved"
+              ? "Enregistré"
+              : state === "error"
+                ? "Non enregistré : modifiez un besoin pour réessayer"
+                : ""}
         </p>
       </div>
       {needs.length === 0 ? (

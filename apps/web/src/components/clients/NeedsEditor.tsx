@@ -94,9 +94,11 @@ export function NeedsEditor({
                   else if (label !== need.label) update(i, { label });
                 }}
               />
+              {/* Conteneur masqué sous 640 px : la classe inline-flex du bouton l'emporterait sur hidden. */}
+              <span className="hidden shrink-0 sm:flex">
               <Button
                 variant="ghost"
-                className="hidden px-0 sm:inline-flex"
+                className="px-0"
                 disabled={disabled || i === 0}
                 aria-label={`Monter : ${need.label}`}
                 onClick={() => move(i, -1)}
@@ -105,13 +107,14 @@ export function NeedsEditor({
               </Button>
               <Button
                 variant="ghost"
-                className="hidden px-0 sm:inline-flex"
+                className="px-0"
                 disabled={disabled || i === needs.length - 1}
                 aria-label={`Descendre : ${need.label}`}
                 onClick={() => move(i, 1)}
               >
                 <FontAwesomeIcon icon={faArrowDown} aria-hidden />
               </Button>
+              </span>
               <Button
                 variant="danger-ghost"
                 className="px-0"
