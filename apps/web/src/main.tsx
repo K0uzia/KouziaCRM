@@ -15,10 +15,11 @@ createRoot(document.getElementById("root")!).render(
           <App />
           <Toaster
             richColors
-            position="bottom-right"
+            // Centré en haut : loin des onglets du bas et de la feuille des notifications sur mobile.
+            position="top-center"
             theme="dark"
             offset="1.5rem"
-            mobileOffset={{ bottom: "calc(4.5rem + env(safe-area-inset-bottom))" }}
+            mobileOffset={{ top: "calc(0.75rem + env(safe-area-inset-top))" }}
             toastOptions={{ className: "max-w-[calc(100vw-2rem)]" }}
           />
         </FeaturesProvider>

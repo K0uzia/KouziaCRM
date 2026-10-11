@@ -152,14 +152,32 @@ export const CATALOG: CatalogEntry[] = [
   },
 ];
 
+export type CatalogAction = {
+  name: string;
+  action: "create" | "update" | "same" | "differs" | "archive";
+  /** Écarts constatés (prix, description, type, archivée) pour « update » et « differs ». */
+  changes: string[];
+};
+
+export type CatalogOptions = {
+  /** Aucune écriture : liste seulement ce qui serait fait. */
+  dryRun?: boolean;
+  /**
+   * Remet les prestations existantes aux valeurs du catalogue et archive les anciennes au jour
+   * ou à l'heure. Sans cette option, seules les prestations manquantes sont créées : un prix
+   * modifié à la main dans l'ERP n'est jamais écrasé.
+   */
+  update?: boolean;
+};
+
+const euros = (cents: number) => (cents / 100).toFixed(2).replace(".", ",") + " €";
+
 /**
- * Crée ou met à jour le catalogue (par nom). Les anciennes prestations facturées au jour ou
- * à l'heure sont archivées (désactivées, jamais supprimées : elles peuvent figurer sur des
- * documents émis). Idempotent.
+ * Importe le catalogue (rapprochement par nom). Idempotent : relancé, il ne crée aucun doublon.
+ * Les prestations ne sont jamais supprimées (elles peuvent figurer sur des documents émis).
  */
-export async function applyCatalog(prisma: PrismaClient): Promise<{ created: number; updated: number; archived: number }> {
-  let created = 0;
-  let updated = 0;
+export async function applyCatalog(prisma: PrismaClient, opts: CatalogOptions = {}): Promise<CatalogAction[]> {
+  const actions: CatalogAction[] = [];
   for (const entry of CATALOG) {
     const data = {
       description: entry.description,
@@ -167,25 +185,42 @@ export async function applyCatalog(prisma: PrismaClient): Promise<{ created: num
       unit: ServiceUnit.FORFAIT,
       active: true,
       isSubscription: Boolean(entry.monthly),
-      defaultBillingDay: 1,
     };
     const existing = await prisma.service.findFirst({ where: { name: entry.name } });
-    if (existing) {
-      await prisma.service.update({ where: { id: existing.id }, data });
-      updated++;
+    if (!existing) {
+      if (!opts.dryRun) await prisma.service.create({ data: { name: entry.name, defaultBillingDay: 1, ...data } });
+      actions.push({ name: entry.name, action: "create", changes: [] });
+      continue;
+    }
+    const changes: string[] = [];
+    if (existing.unitPriceCents !== data.unitPriceCents)
+      changes.push(`prix ${euros(existing.unitPriceCents)} -> ${euros(data.unitPriceCents)}`);
+    if ((existing.description ?? "") !== data.description) changes.push("description");
+    if (existing.unit !== data.unit) changes.push(`unité ${existing.unit} -> FORFAIT`);
+    if (existing.isSubscription !== data.isSubscription) changes.push(data.isSubscription ? "devient abonnement" : "devient ponctuelle");
+    if (!existing.active) changes.push("réactivée");
+    if (changes.length === 0) {
+      actions.push({ name: entry.name, action: "same", changes });
+    } else if (opts.update) {
+      if (!opts.dryRun) await prisma.service.update({ where: { id: existing.id }, data });
+      actions.push({ name: entry.name, action: "update", changes });
     } else {
-      await prisma.service.create({ data: { name: entry.name, ...data } });
-      created++;
+      actions.push({ name: entry.name, action: "differs", changes });
     }
   }
-  const names = CATALOG.map((e) => e.name);
-  const archived = await prisma.service.updateMany({
-    where: {
-      active: true,
-      name: { notIn: names },
-      OR: [{ unit: { not: ServiceUnit.FORFAIT } }, { name: { in: ["Forfait projet", "Maintenance site web"] } }],
-    },
-    data: { active: false },
-  });
-  return { created, updated, archived: archived.count };
+  if (opts.update) {
+    const legacy = await prisma.service.findMany({
+      where: {
+        active: true,
+        name: { notIn: CATALOG.map((e) => e.name) },
+        OR: [{ unit: { not: ServiceUnit.FORFAIT } }, { name: { in: ["Forfait projet", "Maintenance site web"] } }],
+      },
+      select: { id: true, name: true },
+    });
+    for (const s of legacy) {
+      if (!opts.dryRun) await prisma.service.update({ where: { id: s.id }, data: { active: false } });
+      actions.push({ name: s.name, action: "archive", changes: ["archivée"] });
+    }
+  }
+  return actions;
 }
