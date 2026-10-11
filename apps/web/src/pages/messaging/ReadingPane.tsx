@@ -99,6 +99,7 @@ export function ReadingPane({
   const [bodies, setBodies] = useState<Record<string, MessageBodyPayload>>({});
   const [bodyError, setBodyError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [loadingBody, setLoadingBody] = useState(false);
 
   useEffect(() => {
@@ -107,6 +108,7 @@ export function ReadingPane({
       return;
     }
     setLoading(true);
+    setLoadError(null);
     setBodyError(null);
     void (async () => {
       try {
@@ -172,7 +174,8 @@ export function ReadingPane({
           }
         }
       } catch (e) {
-        toast.error(e instanceof Error ? e.message : "Lecture impossible");
+        setThread(null);
+        setLoadError(e instanceof Error ? e.message : "Lecture impossible");
       } finally {
         setLoading(false);
       }
@@ -222,10 +225,24 @@ export function ReadingPane({
     );
   }
 
+  const backButton = (
+    <Button variant="secondary" onClick={onBack}>
+      <FontAwesomeIcon icon={faArrowLeft} className="h-4 w-4" aria-hidden />
+      Retour
+    </Button>
+  );
+
+  // Chargement ou fil introuvable : le retour à la liste reste disponible.
   if (loading || !thread) {
     return (
-      <div className="flex h-full items-center justify-center text-sm text-[var(--muted)]">
-        Chargement…
+      <div className="flex h-full flex-col">
+        <div className="border-b border-[var(--border)] p-3">{backButton}</div>
+        <div
+          role={loadError ? "alert" : "status"}
+          className={`flex flex-1 items-center justify-center p-6 text-center text-sm ${loadError ? "text-[var(--danger)]" : "text-[var(--muted)]"}`}
+        >
+          {loadError && !loading ? loadError : "Chargement…"}
+        </div>
       </div>
     );
   }
@@ -235,10 +252,7 @@ export function ReadingPane({
   return (
     <div className="flex h-full flex-col">
       <div className="flex min-w-0 flex-wrap items-center gap-2 border-b border-[var(--border)] p-3">
-        <Button variant="secondary" onClick={onBack}>
-          <FontAwesomeIcon icon={faArrowLeft} className="h-4 w-4" />
-          Retour
-        </Button>
+        {backButton}
         {latest ? (
           <>
             <Button

@@ -522,7 +522,14 @@ export function SubscriptionsPage() {
               ))}
             </Select>
           </Field>
-          <Field label="Offre abonnement">
+          <Field
+            label="Offre abonnement"
+            hint={(() => {
+              // Le select natif tronque son libellé sur mobile : le détail complet est repris dessous.
+              const svc = services.find((s) => s.id === form.serviceId);
+              return svc ? `${svc.name}, ${formatEUR(svc.unitPriceCents)} par mois` : undefined;
+            })()}
+          >
             <Select
               required
               value={form.serviceId}
@@ -546,7 +553,7 @@ export function SubscriptionsPage() {
               <option value="">Choisir une offre…</option>
               {services.map((s) => (
                 <option key={s.id} value={s.id}>
-                  {s.name} - {(s.unitPriceCents / 100).toFixed(2)} € / mois
+                  {s.name}, {formatEUR(s.unitPriceCents)}/mois
                 </option>
               ))}
             </Select>

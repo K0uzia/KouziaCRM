@@ -8,6 +8,7 @@ import { useLiveRefresh } from "@/lib/notifications";
 import { api, formatEUR } from "@/lib/api";
 import {
   formatDate,
+  formatDecimal,
   invoiceStatusLabel,
   quoteStatusLabel,
   statusTone,
@@ -975,7 +976,7 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
                     <p className="text-[var(--muted)]">
                       Remise
                       {doc.discountType === "PERCENT"
-                        ? ` (${((doc.discountValue ?? 0) / 100).toFixed(2)} %)`
+                        ? ` (${formatDecimal((doc.discountValue ?? 0) / 100)} %)`
                         : ""}
                       : −
                       {formatEUR(

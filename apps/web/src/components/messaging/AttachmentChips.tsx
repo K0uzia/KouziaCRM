@@ -2,6 +2,7 @@ import { useRef, type ChangeEvent, type DragEvent } from "react";
 import { faPaperclip, faXmark } from "@fortawesome/free-solid-svg-icons";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { Button } from "@/components/ui/Button";
+import { formatBytes as formatSize } from "@/lib/format";
 
 export type AttachmentChipItem = {
   id: string;
@@ -10,11 +11,6 @@ export type AttachmentChipItem = {
   kind: "file" | "document";
 };
 
-function formatSize(bytes: number): string {
-  if (bytes < 1024) return `${bytes} o`;
-  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} Ko`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} Mo`;
-}
 
 type Props = {
   items: AttachmentChipItem[];

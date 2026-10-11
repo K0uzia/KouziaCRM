@@ -23,11 +23,10 @@ export type NotificationItem = {
   at: string;
 };
 
-type Feed = { items: NotificationItem[]; serverTime: string };
+type Feed = { items: NotificationItem[]; serverTime: string; seenAt: string };
 
 const POLL_MS = 10_000;
 const DATA_CHANGED = "kouzia:data-changed";
-const SEEN_KEY = "kouzia.notifications.seenAt";
 const SOUND_KEY = "kouzia.notifications.sound";
 
 // Préférences légères du poste : stockage navigateur, protégé (navigation privée, quota).
@@ -106,7 +105,7 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
   const navigate = useNavigate();
   const chime = useChime();
   const [items, setItems] = useState<NotificationItem[]>([]);
-  const [seenAt, setSeenAt] = useState<string>(() => readPref(SEEN_KEY) ?? new Date(0).toISOString());
+  const [seenAt, setSeenAt] = useState<string>(() => new Date().toISOString());
   const [soundEnabled, setSoundState] = useState(() => readPref(SOUND_KEY) !== "off");
   // Hors https (LAN, Tailscale en http), le navigateur refuse toute notification : indisponible.
   const [desktopPermission, setDesktopPermission] = useState<NotificationPermission | "unsupported">(() =>
@@ -165,6 +164,7 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
       const feed = await api<Feed>("/api/notifications/feed");
       if (cancelled) return;
       setItems(feed.items);
+      setSeenAt(feed.seenAt);
       cursor.current = feed.serverTime;
     }
 
@@ -173,6 +173,8 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
       const feed = await api<Feed>(`/api/notifications/feed?since=${encodeURIComponent(cursor.current)}`);
       if (cancelled) return;
       cursor.current = feed.serverTime;
+      // Lu sur un autre appareil : le compteur suit.
+      setSeenAt((prev) => (feed.seenAt > prev ? feed.seenAt : prev));
       if (feed.items.length === 0) return;
       const known = new Set(itemsRef.current.map((i) => i.id));
       const fresh = feed.items.filter((i) => !known.has(i.id));
@@ -204,9 +206,11 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
       seenAt,
       unread: items.filter((i) => i.at > seenAt).length,
       markAllRead: () => {
-        const now = new Date().toISOString();
-        setSeenAt(now);
-        writePref(SEEN_KEY, now);
+        // Lecture enregistrée en base, commune au PC et au téléphone.
+        setSeenAt(new Date().toISOString());
+        void api<{ seenAt: string }>("/api/notifications/seen", { method: "POST", body: "{}" })
+          .then((r) => setSeenAt(r.seenAt))
+          .catch(() => undefined);
         // L'état lu des e-mails vit en base (une seule source) : les messages notifiés y passent lus,
         // puis les écrans ouverts (carte du tableau de bord, messagerie) se rechargent.
         const messageIds = items.filter((i) => i.kind === "mail").map((i) => i.id.replace(/^mail:/, ""));

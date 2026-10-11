@@ -1,5 +1,6 @@
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faDownload, faPaperclip } from "@fortawesome/free-solid-svg-icons";
+import { formatBytes as formatSize } from "@/lib/format";
 
 type Attachment = {
   id: string;
@@ -8,11 +9,6 @@ type Attachment = {
   sizeBytes: number;
 };
 
-function formatSize(bytes: number): string {
-  if (bytes < 1024) return `${bytes} o`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} Ko`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} Mo`;
-}
 
 export function AttachmentList({ attachments }: { attachments: Attachment[] }) {
   if (!attachments.length) return null;
