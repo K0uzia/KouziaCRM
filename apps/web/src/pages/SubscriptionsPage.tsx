@@ -152,10 +152,15 @@ export function SubscriptionsPage() {
 
   function openCreate() {
     setEditingId(null);
+    // Offre présélectionnée : son prix, son libellé et son jour de prélèvement aussi.
+    const svc = services[0];
     setForm({
       ...emptyForm,
       clientId: clients[0]?.id ?? "",
-      serviceId: services[0]?.id ?? "",
+      serviceId: svc?.id ?? "",
+      amountEuros: svc ? (svc.unitPriceCents / 100).toFixed(2) : "",
+      label: svc ? `${svc.name} : mensuel` : "",
+      billingDay: svc?.defaultBillingDay ? String(svc.defaultBillingDay) : emptyForm.billingDay,
     });
     setOpen(true);
   }
@@ -536,10 +541,15 @@ export function SubscriptionsPage() {
               onChange={(e) => {
                 const id = e.target.value;
                 const svc = services.find((s) => s.id === id);
+                // Montant saisi à la main (différent du prix de l'offre précédente) : conservé.
+                const prev = services.find((s) => s.id === form.serviceId);
+                const typed =
+                  form.amountEuros !== "" &&
+                  (!prev || Number(form.amountEuros) !== prev.unitPriceCents / 100);
                 setForm({
                   ...form,
                   serviceId: id,
-                  amountEuros: svc
+                  amountEuros: svc && !typed
                     ? (svc.unitPriceCents / 100).toFixed(2)
                     : form.amountEuros,
                   label: form.label || (svc ? `${svc.name} : mensuel` : ""),

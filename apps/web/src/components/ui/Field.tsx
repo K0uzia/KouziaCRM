@@ -1,3 +1,4 @@
+import { Children, cloneElement, isValidElement, useId } from "react";
 import type { ComponentPropsWithRef, SelectHTMLAttributes, TextareaHTMLAttributes, ReactNode } from "react";
 
 export function Field({
@@ -13,12 +14,32 @@ export function Field({
   children: ReactNode;
   className?: string;
 }) {
+  const id = useId();
+  const noteId = hint || error ? `${id}-note` : undefined;
+  // Aide et erreur : description du contrôle (aria-describedby), pas une partie de son nom.
+  // aria-hidden les retire du nom calculé depuis le label ; la référence par id reste lue.
+  const describedChild =
+    noteId && Children.count(children) === 1 && isValidElement<Record<string, unknown>>(children)
+      ? cloneElement(children, {
+          "aria-describedby": children.props["aria-describedby"] ?? noteId,
+          ...(error ? { "aria-invalid": true } : {}),
+        })
+      : children;
+  const linked = describedChild !== children;
   return (
     <label className={`block min-w-0 space-y-1.5 ${className}`}>
       <span className="block text-sm font-medium text-[var(--text)]">{label}</span>
-      {children}
-      {hint && !error ? <span className="block text-xs text-[var(--muted)]">{hint}</span> : null}
-      {error ? <span className="block text-sm text-[var(--danger)]">{error}</span> : null}
+      {describedChild}
+      {hint && !error ? (
+        <span id={noteId} aria-hidden={linked || undefined} className="block text-xs text-[var(--muted)]">
+          {hint}
+        </span>
+      ) : null}
+      {error ? (
+        <span id={noteId} aria-hidden={linked || undefined} className="block text-sm text-[var(--danger)]">
+          {error}
+        </span>
+      ) : null}
     </label>
   );
 }

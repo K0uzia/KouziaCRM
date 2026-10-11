@@ -325,7 +325,8 @@ export function MailLayout() {
     selectedFolder?.role === "TRASH" ||
     selectedFolder?.displayName?.toLowerCase().includes("corbeille") === true;
 
-  if (notConfigured && folders.length === 0) {
+  // Un fil ouvert (depuis le tableau de bord) s'affiche même sans IMAP : ses messages sont en base.
+  if (notConfigured && folders.length === 0 && !threadId) {
     return (
       <div className="flex h-full items-center justify-center p-6">
         <div className="ui-card max-w-md p-8 text-center">

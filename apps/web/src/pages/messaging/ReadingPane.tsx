@@ -173,9 +173,10 @@ export function ReadingPane({
             setLoadingBody(false);
           }
         }
-      } catch (e) {
+      } catch {
         setThread(null);
-        setLoadError(e instanceof Error ? e.message : "Lecture impossible");
+        // Le message brut de l'API peut être technique (« Not found ») : libellé français constant.
+        setLoadError("Impossible d'ouvrir cette conversation : elle a peut-être été supprimée.");
       } finally {
         setLoading(false);
       }
