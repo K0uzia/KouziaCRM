@@ -4,6 +4,7 @@
 // et se dispute le clavier avec l'invite du terminal. Ici, node lance node directement.
 import { spawn, execFileSync } from "node:child_process";
 import { createInterface } from "node:readline";
+import { createConnection } from "node:net";
 import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -79,6 +80,28 @@ async function shutdown(code = 0) {
 process.on("SIGINT", () => void shutdown(0));
 process.on("SIGTERM", () => void shutdown(0));
 process.on("SIGHUP", () => void shutdown(0));
+
+// Port déjà pris (pile de démo lancée ailleurs) : message clair plutôt qu'un crash EADDRINUSE.
+function portOpen(host, port) {
+  return new Promise((resolve) => {
+    const socket = createConnection({ host, port });
+    socket.setTimeout(800);
+    socket.once("connect", () => (socket.destroy(), resolve(true)));
+    socket.once("timeout", () => (socket.destroy(), resolve(false)));
+    socket.once("error", () => resolve(false));
+  });
+}
+for (const [name, port] of [["API", apiPort], ["admin (Vite)", 5173]]) {
+  if ((await portOpen("127.0.0.1", port)) || (await portOpen("::1", port))) {
+    console.error(
+      `Port ${port} (${name}) déjà occupé : une pile ERP tourne sans doute déjà (http://localhost:5173).` +
+        " Utilisez-la, ou arrêtez-la avant de relancer.",
+    );
+    process.exit(1);
+  }
+}
+// make dev : contrôle seul, avant la migration (une base ouverte par une pile en cours est verrouillée).
+if (process.argv.includes("--check-ports")) process.exit(0);
 
 start("api", [tsxCli, "watch", "--env-file=../../.env", "src/index.ts"], path.join(root, "apps/api"));
 if (await waitForApi()) {
