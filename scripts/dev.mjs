@@ -82,7 +82,9 @@ process.on("SIGHUP", () => void shutdown(0));
 
 start("api", [tsxCli, "watch", "--env-file=../../.env", "src/index.ts"], path.join(root, "apps/api"));
 if (await waitForApi()) {
-  start("web", [viteCli], path.join(root, "apps/web"));
+  // --lan : l'admin de dev est joignable depuis un téléphone du réseau local (vite --host).
+  // L'origine http://<ip-du-pc>:5173 doit alors figurer dans TAILSCALE_ORIGIN (garde d'origine de l'API).
+  start("web", [viteCli, ...(process.argv.includes("--lan") ? ["--host"] : [])], path.join(root, "apps/web"));
   start("worker", [tsxCli, "watch", "--env-file=.env", "--tsconfig", "apps/api/tsconfig.json", "scripts/worker.ts"], root);
 } else if (!stopping) {
   log("api", `pas de réponse sur :${apiPort}/api/health après 60 s`);
