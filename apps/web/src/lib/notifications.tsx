@@ -108,8 +108,9 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
   const [items, setItems] = useState<NotificationItem[]>([]);
   const [seenAt, setSeenAt] = useState<string>(() => readPref(SEEN_KEY) ?? new Date(0).toISOString());
   const [soundEnabled, setSoundState] = useState(() => readPref(SOUND_KEY) !== "off");
+  // Hors https (LAN, Tailscale en http), le navigateur refuse toute notification : indisponible.
   const [desktopPermission, setDesktopPermission] = useState<NotificationPermission | "unsupported">(() =>
-    typeof Notification === "undefined" ? "unsupported" : Notification.permission,
+    typeof Notification === "undefined" || !window.isSecureContext ? "unsupported" : Notification.permission,
   );
   const cursor = useRef<string | null>(null);
   const itemsRef = useRef<NotificationItem[]>([]);
@@ -139,12 +140,18 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
       if (soundRef.current) chime(fresh[0].kind);
       if (typeof Notification !== "undefined" && Notification.permission === "granted") {
         fresh.slice(0, 3).forEach((item) => {
-          const n = new Notification(item.title, { body: item.body, tag: item.id, icon: "/favicon.svg" });
-          n.onclick = () => {
-            window.focus();
-            navigate(item.href);
-            n.close();
-          };
+          // Android Chrome interdit new Notification() dans une page (service worker requis) :
+          // l'exception ne doit pas interrompre les toasts ni le rechargement des écrans.
+          try {
+            const n = new Notification(item.title, { body: item.body, tag: item.id, icon: "/favicon.svg" });
+            n.onclick = () => {
+              window.focus();
+              navigate(item.href);
+              n.close();
+            };
+          } catch {
+            /* notification de l'appareil indisponible ici : toast et cloche suffisent */
+          }
         });
       }
     },
@@ -212,10 +219,15 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
         const result = await Notification.requestPermission();
         setDesktopPermission(result);
         if (result === "granted") {
-          new Notification("Notifications activées", {
-            body: "Vous serez prévenu des nouveaux messages, devis et paiements.",
-            icon: "/favicon.svg",
-          });
+          try {
+            new Notification("Notifications activées", {
+              body: "Vous serez prévenu des nouveaux messages, devis et paiements.",
+              icon: "/favicon.svg",
+            });
+          } catch {
+            // Permission accordée mais affichage impossible dans une page (Android) : signalé comme indisponible.
+            setDesktopPermission("unsupported");
+          }
         }
       },
       open,

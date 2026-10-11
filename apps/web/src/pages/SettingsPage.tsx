@@ -1419,7 +1419,7 @@ export function SettingsPage() {
                   <div className="flex gap-2">
                     <input
                       type="color"
-                      className="h-10 w-14 cursor-pointer rounded border border-[var(--border)] bg-transparent"
+                      className="h-11 w-14 cursor-pointer rounded border border-[var(--border)] bg-transparent"
                       value={form.brandPrimaryColor}
                       onChange={(e) => setForm({ ...form, brandPrimaryColor: e.target.value })}
                     />
@@ -1433,7 +1433,7 @@ export function SettingsPage() {
                   <div className="flex gap-2">
                     <input
                       type="color"
-                      className="h-10 w-14 cursor-pointer rounded border border-[var(--border)] bg-transparent"
+                      className="h-11 w-14 cursor-pointer rounded border border-[var(--border)] bg-transparent"
                       value={form.brandSecondaryColor}
                       onChange={(e) => setForm({ ...form, brandSecondaryColor: e.target.value })}
                     />
@@ -1476,7 +1476,7 @@ export function SettingsPage() {
                 Mentions TVA, paiement, pénalités : onglet{" "}
                 <button
                   type="button"
-                  className="font-medium text-[var(--primary)] hover:underline"
+                  className="inline-flex min-h-11 items-center font-medium text-[var(--primary)] hover:underline"
                   onClick={() => setTab("legal")}
                 >
                   Mentions légales

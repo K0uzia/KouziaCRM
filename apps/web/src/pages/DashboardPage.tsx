@@ -592,7 +592,7 @@ export function DashboardPage() {
                   <dt className="text-[var(--muted)]">{row.label}</dt>
                   <dd className="font-semibold tabular-nums">
                     {row.to ? (
-                      <Link to={row.to} className="inline-flex min-h-11 items-center hover:text-[var(--primary)]">
+                      <Link to={row.to} className="inline-flex min-h-11 min-w-11 items-center justify-end hover:text-[var(--primary)]">
                         {row.value}
                       </Link>
                     ) : (

@@ -1,3 +1,4 @@
+import { useMediaQuery } from "@/lib/use-media-query";
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
@@ -49,6 +50,8 @@ async function fetchReceiptsPdf(queryParams: string): Promise<Blob> {
 }
 
 export function ReceiptsBookPage() {
+  // Sous 640 px : libellés courts dans les listes déroulantes (le select garde son nom complet).
+  const wide = useMediaQuery("(min-width: 40rem)");
   const thisYear = new Date().getFullYear();
   const [year, setYear] = useState(String(thisYear));
   const [quarter, setQuarter] = useState("ALL");
@@ -216,7 +219,7 @@ export function ReceiptsBookPage() {
                 setMonth("ALL");
               }}
             >
-              <option value="ALL">Toute l&apos;année</option>
+              <option value="ALL">{wide ? "Toute l'année" : "Année"}</option>
               <option value="1">T1</option>
               <option value="2">T2</option>
               <option value="3">T3</option>
@@ -231,10 +234,10 @@ export function ReceiptsBookPage() {
                 if (e.target.value !== "ALL") setQuarter("ALL");
               }}
             >
-              <option value="ALL">Tous les mois</option>
+              <option value="ALL">{wide ? "Tous les mois" : "Mois"}</option>
               {Array.from({ length: 12 }, (_, i) => (
                 <option key={i + 1} value={String(i + 1)}>
-                  {new Date(2000, i, 1).toLocaleString("fr-FR", { month: "long" })}
+                  {new Date(2000, i, 1).toLocaleString("fr-FR", { month: wide ? "long" : "short" })}
                 </option>
               ))}
             </Select>

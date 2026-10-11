@@ -759,7 +759,7 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
         back={isQuote ? { to: "/quotes", label: "Devis" } : { to: "/invoices", label: "Factures" }}
         subtitle={
           <span className="flex flex-wrap items-center gap-2">
-            <Link to={`/clients/${doc.client.id}`} className="link">
+            <Link to={`/clients/${doc.client.id}`} className="link inline-flex min-h-11 items-center">
               {doc.client.displayName}
             </Link>
             <Badge tone={statusTone(st)}>{labels[st] ?? st}</Badge>
@@ -877,7 +877,7 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
               <p className="text-xs font-semibold uppercase tracking-[0.12em] text-[var(--muted)]">Client</p>
               <Link
                 to={`/clients/${doc.client.id}`}
-                className="mt-1 inline-flex flex-wrap items-center gap-2 font-medium hover:text-[var(--primary)]"
+                className="mt-1 inline-flex min-h-11 flex-wrap items-center gap-2 font-medium hover:text-[var(--primary)]"
               >
                 {doc.client.displayName}
                 {doc.client.clientNumber ? (
