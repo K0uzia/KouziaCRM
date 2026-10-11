@@ -97,6 +97,8 @@ export function getAllowedOrigins(): string[] {
   addOrigins(set, process.env.PUBLIC_WEB_ORIGIN);
   addOrigins(set, process.env.TAILSCALE_ORIGIN);
   addOrigins(set, process.env.ADMIN_PUBLIC_ORIGIN);
+  // Posée par scripts/dev.mjs --lan (admin de dev ouverte au téléphone), ignorée en production.
+  if (process.env.NODE_ENV !== "production") addOrigins(set, process.env.DEV_LAN_ORIGIN);
   return Array.from(set);
 }
 

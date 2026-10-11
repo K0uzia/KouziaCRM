@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { getAllowedOrigins } from "@/lib/env.js";
 
-const KEYS = ["WEB_ORIGIN", "AUTH_URL", "PUBLIC_WEB_ORIGIN", "TAILSCALE_ORIGIN"] as const;
+const KEYS = ["WEB_ORIGIN", "AUTH_URL", "PUBLIC_WEB_ORIGIN", "TAILSCALE_ORIGIN", "DEV_LAN_ORIGIN", "NODE_ENV"] as const;
 
 const snapshot: Record<string, string | undefined> = {};
 
@@ -46,5 +46,13 @@ describe("getAllowedOrigins", () => {
         "http://kouzia.tailnet-abc.ts.net",
       ]),
     );
+  });
+
+  it("DEV_LAN_ORIGIN (dev.mjs --lan) : autorisée en dev, ignorée en production", () => {
+    process.env.DEV_LAN_ORIGIN = "http://192.168.1.46:5173";
+    process.env.NODE_ENV = "development";
+    expect(getAllowedOrigins()).toContain("http://192.168.1.46:5173");
+    process.env.NODE_ENV = "production";
+    expect(getAllowedOrigins()).not.toContain("http://192.168.1.46:5173");
   });
 });
