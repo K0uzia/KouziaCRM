@@ -76,12 +76,13 @@ export function NotificationBell() {
       {open ? (
         <div
           id={panelId}
-          className="absolute right-0 z-40 mt-2 w-[min(24rem,calc(100vw-1.5rem))] overflow-hidden rounded-[var(--radius)] border border-[var(--border-strong)] bg-[var(--surface-raised)] shadow-[var(--shadow)]"
+          // Sous 640 px : feuille du bas pleine largeur (sous la cloche, le panneau sortait à gauche de l'écran).
+          className="fixed inset-x-0 bottom-0 z-50 overflow-hidden rounded-t-[var(--radius-lg)] border border-[var(--border-strong)] bg-[var(--surface-raised)] pb-[env(safe-area-inset-bottom)] shadow-[var(--shadow)] sm:absolute sm:inset-x-auto sm:bottom-auto sm:right-0 sm:mt-2 sm:w-[min(24rem,calc(100vw-1.5rem))] sm:rounded-[var(--radius)] sm:pb-0"
         >
           <div className="flex items-center justify-between gap-2 border-b border-[var(--border)] px-4 py-3">
             <p className="text-sm font-semibold">Notifications</p>
             {n.unread > 0 ? (
-              <button type="button" className="link min-h-9 text-xs" onClick={n.markAllRead}>
+              <button type="button" className="link min-h-11 text-sm" onClick={n.markAllRead}>
                 Tout marquer comme lu
               </button>
             ) : null}
@@ -114,7 +115,7 @@ export function NotificationBell() {
                           ) : null}
                         </span>
                         <span className="mt-0.5 line-clamp-2 block text-xs text-[var(--muted)]">{item.body}</span>
-                        <span className="mt-1 block text-[0.6875rem] text-[var(--muted)]/80">{ago(item.at)}</span>
+                        <span className="mt-1 block text-xs text-[var(--muted)]">{ago(item.at)}</span>
                       </span>
                     </button>
                   </li>
@@ -124,7 +125,7 @@ export function NotificationBell() {
           )}
 
           <div className="space-y-2 border-t border-[var(--border)] bg-[var(--surface)] px-4 py-3 text-xs">
-            <label className="flex min-h-9 items-center justify-between gap-3">
+            <label className="flex min-h-11 items-center justify-between gap-3">
               <span>Son à chaque notification</span>
               <input
                 type="checkbox"
@@ -133,19 +134,25 @@ export function NotificationBell() {
                 onChange={(e) => n.setSoundEnabled(e.target.checked)}
               />
             </label>
-            {n.desktopPermission === "unsupported" ? null : n.desktopPermission === "granted" ? (
-              <p className="text-[var(--success)]">Notifications du PC activées.</p>
+            {n.desktopPermission === "unsupported" ? (
+              <p className="text-[var(--muted)]">
+                {typeof window !== "undefined" && !window.isSecureContext
+                  ? "Notifications de l'appareil indisponibles sur cette adresse : ouvrez l'ERP par https://erp.kouzia.com."
+                  : "Notifications de l'appareil indisponibles dans ce navigateur (iPhone : seulement dans l'application installée). Les nouveautés s'affichent ici tant que l'ERP est ouvert."}
+              </p>
+            ) : n.desktopPermission === "granted" ? (
+              <p className="text-[var(--success)]">Notifications de l'appareil activées (ERP ouvert).</p>
             ) : n.desktopPermission === "denied" ? (
               <p className="text-[var(--muted)]">
-                Notifications du PC bloquées : autorisez-les dans les réglages du navigateur pour ce site.
+                Notifications de l'appareil bloquées : autorisez-les dans les réglages du navigateur pour ce site.
               </p>
             ) : (
               <button
                 type="button"
-                className="min-h-9 w-full rounded-[var(--radius-sm)] border border-[var(--border-strong)] px-3 text-left hover:bg-[var(--surface-hover)]"
+                className="min-h-11 w-full rounded-[var(--radius-sm)] border border-[var(--border-strong)] px-3 text-left hover:bg-[var(--surface-hover)]"
                 onClick={() => void n.requestDesktop()}
               >
-                Activer les notifications du PC
+                Activer les notifications de l'appareil
               </button>
             )}
           </div>

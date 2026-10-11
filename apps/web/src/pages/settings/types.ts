@@ -53,6 +53,7 @@ export type PublicSettings = {
   smtpFrom: string | null;
   smtpFromName: string | null;
   smtpReplyTo: string | null;
+  transactionalFrom: string | null;
   emailThrottlePerMinute: number;
   imapHost: string | null;
   imapPort: number | null;

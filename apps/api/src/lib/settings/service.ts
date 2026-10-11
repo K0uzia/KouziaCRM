@@ -129,6 +129,7 @@ export type EmailPatch = {
   smtpFrom?: string | null;
   smtpFromName?: string | null;
   smtpReplyTo?: string | null;
+  transactionalFrom?: string | null;
   emailThrottlePerMinute?: number;
   imapHost?: string | null;
   imapPort?: number | null;
@@ -206,6 +207,7 @@ export async function saveEmailTab(
       ...(patch.smtpFrom !== undefined ? { smtpFrom: emptyToNull(patch.smtpFrom) } : {}),
       ...(patch.smtpFromName !== undefined ? { smtpFromName: emptyToNull(patch.smtpFromName) } : {}),
       ...(patch.smtpReplyTo !== undefined ? { smtpReplyTo: emptyToNull(patch.smtpReplyTo) } : {}),
+      ...(patch.transactionalFrom !== undefined ? { transactionalFrom: emptyToNull(patch.transactionalFrom) } : {}),
       ...(patch.emailThrottlePerMinute !== undefined
         ? { emailThrottlePerMinute: patch.emailThrottlePerMinute }
         : {}),

@@ -5,6 +5,18 @@ export function formatEUR(cents: number): string {
   }).format(cents / 100);
 }
 
+/** Nombre décimal à la française (virgule) : 12,5. */
+export function formatDecimal(value: number, maxFractionDigits = 2): string {
+  return new Intl.NumberFormat("fr-FR", { maximumFractionDigits: maxFractionDigits }).format(value);
+}
+
+/** Taille de fichier : 820 o, 12 Ko, 1,5 Mo. */
+export function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} o`;
+  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} Ko`;
+  return `${formatDecimal(bytes / (1024 * 1024), 1)} Mo`;
+}
+
 /** Affichage téléphone FR : 07 78 55 18 25 (sinon inchangé). */
 export function formatPhoneFr(phone: string | null | undefined): string {
   if (!phone) return "";

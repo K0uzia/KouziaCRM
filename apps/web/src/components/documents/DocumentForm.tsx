@@ -499,13 +499,13 @@ export function DocumentFormEditor({
             );
           })}
         </ul>
-        <Button variant="ghost" className="min-h-10 px-3 text-sm" onClick={addLine}>
+        <Button variant="ghost" className="px-3 text-sm" onClick={addLine}>
           + Ligne libre
         </Button>
 
         <details className="rounded-[var(--radius)] border border-[var(--border)] p-3" open={form.discountType !== "NONE"}>
-          <summary className="cursor-pointer text-sm font-medium">Remise</summary>
-          <div className="mt-3 grid gap-2 sm:grid-cols-[12rem_1fr]">
+          <summary className="flex min-h-11 cursor-pointer items-center text-sm font-medium">Remise</summary>
+          <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-[12rem_1fr]">
             <Select
               aria-label="Type de remise globale"
               value={form.discountType}
@@ -572,7 +572,9 @@ export function DocumentFormEditor({
 
       {/* 4. Compléments */}
       <details className="rounded-[var(--radius)] border border-[var(--border)] p-3" open={Boolean(form.notes || form.purchaseOrderRef)}>
-        <summary className="cursor-pointer text-sm font-medium">Compléments (bon de commande, notes)</summary>
+        <summary className="flex min-h-11 cursor-pointer items-center text-sm font-medium">
+          Compléments (bon de commande, notes)
+        </summary>
         <div className="mt-3 space-y-4">
           <Field label="Bon de commande du client" hint="Sa référence, s'il en a fourni un.">
             <Input

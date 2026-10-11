@@ -316,7 +316,7 @@ export function CreditNoteWizard({
 
           {step === 3 ? (
             <div className="space-y-4">
-              <div className="grid gap-3 text-sm sm:grid-cols-2">
+              <div className="grid grid-cols-1 gap-3 text-sm sm:grid-cols-2">
                 <p>
                   Facture d&apos;origine :{" "}
                   <strong>{elig.invoiceNumber}</strong>
@@ -342,7 +342,7 @@ export function CreditNoteWizard({
                   onChange={(e) => setReasonDetail(e.target.value)}
                 />
               </Field>
-              <div className="grid gap-4 sm:grid-cols-2">
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <Field
                   label="Montant TTC de l'avoir (€)"
                   hint={`Max ${formatEUR(elig.maxCreditCents)}`}

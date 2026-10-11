@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { toast } from "sonner";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faEnvelope } from "@fortawesome/free-solid-svg-icons";
@@ -61,6 +61,7 @@ export type SyncStatus = {
 
 export function MailLayout() {
   const navigate = useNavigate();
+  const location = useLocation();
   const { threadId } = useParams<{ threadId?: string }>();
   const isReading = Boolean(threadId);
 
@@ -197,12 +198,15 @@ export function MailLayout() {
     setMessages((prev) =>
       prev.map((m) => (m.threadId === msg.threadId ? { ...m, isRead: true } : m)),
     );
-    navigate(`/inbox/${msg.threadId}`);
+    navigate(`/inbox/${msg.threadId}`, { state: { fromList: true } });
   }
 
+  // Ouvert depuis la liste : on dépile l'historique, le retour du navigateur (geste Android) mène
+  // donc aussi à la liste. Ouvert depuis ailleurs (tableau de bord, lien) : la liste remplace le fil.
   function backToList() {
     setSelectedMessageId(null);
-    navigate("/inbox");
+    if ((location.state as { fromList?: boolean } | null)?.fromList) navigate(-1);
+    else navigate("/inbox", { replace: true });
   }
 
   async function bulkDelete(ids = [...selectedIds], permanent = false) {
@@ -321,7 +325,8 @@ export function MailLayout() {
     selectedFolder?.role === "TRASH" ||
     selectedFolder?.displayName?.toLowerCase().includes("corbeille") === true;
 
-  if (notConfigured && folders.length === 0) {
+  // Un fil ouvert (depuis le tableau de bord) s'affiche même sans IMAP : ses messages sont en base.
+  if (notConfigured && folders.length === 0 && !threadId) {
     return (
       <div className="flex h-full items-center justify-center p-6">
         <div className="ui-card max-w-md p-8 text-center">

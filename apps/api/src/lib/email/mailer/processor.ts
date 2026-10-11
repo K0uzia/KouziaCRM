@@ -1,3 +1,4 @@
+import { OUTBOUND_HEADER } from "@/lib/email/own-messages.js";
 import { EmailDirection, EmailOutboxStatus } from "@prisma/client";
 import { getCompanySettings } from "@/lib/company.js";
 import { prisma } from "@/lib/prisma.js";
@@ -13,6 +14,7 @@ import {
   buildReferences,
   extractDisplayName,
   extractEmailAddress,
+  formatFrom,
   generateMessageId,
 } from "./headers.js";
 import {
@@ -169,23 +171,39 @@ function brandedHtml(
   });
 }
 
+/** E-mails automatiques : partent de l'expéditeur transactionnel (noreply@) s'il est réglé. */
+const TRANSACTIONAL_KINDS = new Set(["portal_code", "portal_alert", "onboarding", "access", "admin_alert"]);
+
+/** Refus de l'adresse d'expédition par le serveur SMTP (alias non autorisé à l'envoi, etc.). */
+function isSenderRejected(err: unknown): boolean {
+  const e = err as { responseCode?: number; response?: string; message?: string };
+  const text = `${e.response ?? ""} ${e.message ?? ""}`;
+  return [550, 553, 554].includes(e.responseCode ?? 0) && /sender|from|owned|authori[sz]|not allowed|mismatch/i.test(text);
+}
+
 async function sendOutboxRow(outboxId: string, rawPayload: string): Promise<void> {
   const payload = parsePayload(rawPayload);
   const messageIdHeader = generateMessageId(outboxId);
   const references = buildReferences(payload.inReplyTo, payload.references);
 
   const settings = await getCompanySettings().catch(() => null);
-  const fromFormatted = await resolveFromAddress(settings?.smtpFromName);
+  const defaultFrom = await resolveFromAddress(settings?.smtpFromName);
+  const transactional = Boolean(payload.kind && TRANSACTIONAL_KINDS.has(payload.kind) && settings?.transactionalFrom);
+  let fromFormatted = transactional ? formatFrom(settings!.transactionalFrom!, settings?.smtpFromName) : defaultFrom;
 
   const headers: Record<string, string> = {
     ...(payload.headers ?? {}),
     "Message-ID": messageIdHeader,
+    // Reconnu par la synchro IMAP : un envoi de l'ERP n'est jamais un « nouveau message ».
+    [OUTBOUND_HEADER]: "1",
   };
   if (payload.inReplyTo) headers["In-Reply-To"] = payload.inReplyTo;
   if (references) headers["References"] = references;
 
   let replyTo = payload.replyTo;
   if (!replyTo && settings?.smtpReplyTo) replyTo = settings.smtpReplyTo;
+  // noreply@ : les réponses du client arrivent quand même dans la boîte habituelle.
+  if (!replyTo && transactional) replyTo = extractEmailAddress(defaultFrom);
 
   const transport = await getSharedTransport();
   const mailOptions = {
@@ -209,7 +227,17 @@ async function sendOutboxRow(outboxId: string, rawPayload: string): Promise<void
     rawMessage = null;
   }
 
-  const info = await transport.sendMail(mailOptions);
+  let info: { messageId?: string };
+  try {
+    info = await transport.sendMail(mailOptions);
+  } catch (err) {
+    if (!transactional || !isSenderRejected(err)) throw err;
+    // Expéditeur transactionnel refusé : l'e-mail part quand même, depuis l'adresse habituelle.
+    console.warn(`[mail] expéditeur transactionnel refusé, envoi depuis l'adresse habituelle (${outboxId})`);
+    fromFormatted = defaultFrom;
+    mailOptions.from = defaultFrom;
+    info = await transport.sendMail(mailOptions);
+  }
 
   if (rawMessage) {
     try {

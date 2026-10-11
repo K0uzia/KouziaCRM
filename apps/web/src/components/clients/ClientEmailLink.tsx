@@ -68,7 +68,7 @@ export function ClientEmailLink({
 
   return (
     <>
-      <button type="button" className="link" onClick={() => setOpen(true)}>
+      <button type="button" className="link inline-flex min-h-11 max-w-full items-center break-all text-left" onClick={() => setOpen(true)}>
         {email}
       </button>
       <Modal open={open} onClose={() => setOpen(false)} title="Composer un email">

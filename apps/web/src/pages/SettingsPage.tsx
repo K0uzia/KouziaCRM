@@ -347,6 +347,7 @@ export function SettingsPage() {
       smtpFrom: form.smtpFrom || null,
       smtpFromName: form.smtpFromName || null,
       smtpReplyTo: form.smtpReplyTo || null,
+      transactionalFrom: form.transactionalFrom || null,
       emailThrottlePerMinute: form.emailThrottlePerMinute,
       imapHost: form.imapHost || null,
       imapPort: form.imapPort,
@@ -506,7 +507,8 @@ export function SettingsPage() {
     }
   }
 
-  async function testSmtp() {
+  /** `fromOverride` : essai de l'expéditeur des e-mails automatiques (alias noreply@). */
+  async function testSmtp(fromOverride?: string) {
     setBusy(true);
     try {
       const res = await api<{
@@ -523,7 +525,7 @@ export function SettingsPage() {
           smtpPort: form?.smtpPort,
           smtpEncryption: form?.smtpEncryptionResolved,
           smtpUser: form?.smtpUser,
-          smtpFrom: form?.smtpFrom,
+          smtpFrom: fromOverride ?? form?.smtpFrom,
           smtpPass: smtpPass || undefined,
         }),
       });
@@ -533,7 +535,11 @@ export function SettingsPage() {
           : res.source === "db"
             ? " (paramètres enregistrés)"
             : "";
-      toast.success(`Email de test envoyé à ${res.to}${via}`);
+      toast.success(
+        fromOverride
+          ? `Email de test envoyé à ${res.to} depuis ${fromOverride} : vérifiez l'expéditeur reçu.`
+          : `Email de test envoyé à ${res.to}${via}`,
+      );
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Échec du test", { duration: 8000 });
     } finally {
@@ -734,7 +740,7 @@ export function SettingsPage() {
                       Importer INPI / open data
                     </Button>
                   </div>
-                  <div className="grid gap-4 sm:grid-cols-2">
+                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                     <Field label="Nom légal">
                       <Input
                         value={form.legalName}
@@ -782,7 +788,7 @@ export function SettingsPage() {
               ) : null}
 
               {identitySection === "contact" ? (
-                <div className="grid gap-4 sm:grid-cols-2">
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                   <Field label="Email de contact">
                     <Input
                       type="email"
@@ -834,7 +840,7 @@ export function SettingsPage() {
 
               {identitySection === "extra" ? (
                 <div className="space-y-4">
-                  <div className="grid gap-4 sm:grid-cols-3">
+                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
                     <Field label="Décennale : assureur">
                       <Input
                         value={form.decennaleInsurer ?? ""}
@@ -858,7 +864,7 @@ export function SettingsPage() {
                       />
                     </Field>
                   </div>
-                  <label className="flex items-center gap-2 text-sm">
+                  <label className="flex min-h-11 items-center gap-2 text-sm">
                     <input
                       type="checkbox"
                       checked={form.publicTrackingShowAmounts}
@@ -912,7 +918,7 @@ export function SettingsPage() {
                     &gt; Emails, pas votre mot de passe hPanel.
                   </p>
                 ) : null}
-                <div className="mt-3 grid gap-4 sm:grid-cols-2">
+                <div className="mt-3 grid grid-cols-1 gap-4 sm:grid-cols-2">
                   <Field label="Hôte">
                     <Input
                       placeholder={d?.smtpHost}
@@ -973,6 +979,28 @@ export function SettingsPage() {
                       onChange={(e) => setForm({ ...form, smtpReplyTo: e.target.value || null })}
                     />
                   </Field>
+                  <Field
+                    label="Expéditeur des e-mails automatiques"
+                    hint="Codes de connexion, invitation, accès à l'espace client, alertes. Ex. noreply@kouzia.com ; les réponses vont au Reply-To. Vide : même expéditeur que les documents."
+                    className="sm:col-span-2"
+                  >
+                    <Input
+                      type="email"
+                      autoComplete="off"
+                      placeholder="noreply@kouzia.com"
+                      value={form.transactionalFrom ?? ""}
+                      onChange={(e) => setForm({ ...form, transactionalFrom: e.target.value || null })}
+                    />
+                  </Field>
+                  <div className="sm:col-span-2">
+                    <Button
+                      variant="secondary"
+                      disabled={busy || !form.transactionalFrom}
+                      onClick={() => void testSmtp(form.transactionalFrom ?? undefined)}
+                    >
+                      Envoyer un e-mail de test depuis cette adresse
+                    </Button>
+                  </div>
                   <Field label="Throttle (emails / min)">
                     <Input
                       type="number"
@@ -1007,7 +1035,7 @@ export function SettingsPage() {
                   Enregistrer. Polling toutes les {form.imapPollIntervalMinutes} min + bouton
                   Synchroniser dans Messages.
                 </p>
-                <div className="mt-3 grid gap-4 sm:grid-cols-2">
+                <div className="mt-3 grid grid-cols-1 gap-4 sm:grid-cols-2">
                   <Field label="Hôte IMAP">
                     <Input
                       placeholder={d?.imapHost}
@@ -1052,7 +1080,7 @@ export function SettingsPage() {
                       }
                     />
                   </Field>
-                  <label className="flex items-center gap-2 text-sm sm:col-span-2">
+                  <label className="flex min-h-11 items-center gap-2 text-sm sm:col-span-2">
                     <input
                       type="checkbox"
                       checked={form.imapSecure}
@@ -1078,7 +1106,7 @@ export function SettingsPage() {
                   compressée. Hostinger limite souvent l&apos;envoi à ~50 Mo : ces plafonds
                   concernent ce que l&apos;ERP conserve après réception.
                 </p>
-                <div className="mt-3 grid gap-4 sm:grid-cols-2">
+                <div className="mt-3 grid grid-cols-1 gap-4 sm:grid-cols-2">
                   <Field label="Max par fichier (Mo)">
                     <Input
                       type="number"
@@ -1115,7 +1143,7 @@ export function SettingsPage() {
                   Masquez ce que vous ne pouvez pas utiliser (ex. banque Revolut Pro sans API).
                   Les clients, devis, factures et mails restent toujours disponibles.
                 </p>
-                <label className="flex items-start gap-3 text-sm">
+                <label className="flex min-h-11 items-start gap-3 text-sm">
                   <input
                     type="checkbox"
                     className="mt-1"
@@ -1131,7 +1159,7 @@ export function SettingsPage() {
                     </span>
                   </span>
                 </label>
-                <label className="flex items-start gap-3 text-sm">
+                <label className="flex min-h-11 items-start gap-3 text-sm">
                   <input
                     type="checkbox"
                     className="mt-1"
@@ -1150,7 +1178,7 @@ export function SettingsPage() {
                     </span>
                   </span>
                 </label>
-                <label className="flex items-start gap-3 text-sm">
+                <label className="flex min-h-11 items-start gap-3 text-sm">
                   <input
                     type="checkbox"
                     className="mt-1"
@@ -1204,7 +1232,7 @@ export function SettingsPage() {
 
               <Card className="space-y-4 border border-[var(--border)] p-5">
                 <h3 className="text-sm font-semibold">Coordonnées bancaires (virement)</h3>
-                <div className="grid gap-4 sm:grid-cols-2">
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                   <Field label="Titulaire">
                     <Input
                       value={form.bankAccountHolder ?? ""}
@@ -1252,7 +1280,7 @@ export function SettingsPage() {
                   Distinct de l&apos;API Business (rapprochement bancaire / virements). Clés générées
                   dans le portail Merchant Revolut.
                 </p>
-                <div className="grid gap-4 sm:grid-cols-2">
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                   <SecretField
                     label="Clé API secrète"
                     value={revolutKey}
@@ -1296,7 +1324,7 @@ export function SettingsPage() {
                   solde à la livraison. Les devis déjà émis avec un jalon intermédiaire
                   conservent leur calendrier.
                 </p>
-                <div className="grid gap-4 sm:grid-cols-2">
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                   <Field label="Acompte à la validation (%)">
                     <Input
                       type="number"
@@ -1344,7 +1372,7 @@ export function SettingsPage() {
           {tab === "reminders" ? (
             <Card className="space-y-4 border border-[var(--border)] p-5">
               <h3 className="text-sm font-semibold">Relances devis / factures</h3>
-              <div className="grid gap-4 sm:grid-cols-2">
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <Field label="Relance devis (j après émission)">
                   <Input
                     type="number"
@@ -1365,7 +1393,7 @@ export function SettingsPage() {
                 </Field>
               </div>
               <h3 className="pt-2 text-sm font-semibold">Rappels d&apos;acomptes</h3>
-              <div className="grid gap-3 sm:grid-cols-2">
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 {(
                   [
                     ["reminderDepositMinus7", "J-7 avant échéance", "minus7"],
@@ -1381,9 +1409,11 @@ export function SettingsPage() {
                       key={prefix}
                       className="flex items-end gap-3 rounded-[var(--radius-sm)] border border-[var(--border)] p-3"
                     >
-                      <label className="flex items-center gap-2 pb-2 text-sm">
+                      <label className="flex min-h-11 min-w-11 items-center justify-center text-sm">
                         <input
                           type="checkbox"
+                          className="h-5 w-5"
+                          aria-label={`Activer le rappel ${label}`}
                           checked={Boolean(form[enKey])}
                           onChange={(e) =>
                             setForm({ ...form, [enKey]: e.target.checked } as PublicSettings)
@@ -1412,12 +1442,12 @@ export function SettingsPage() {
 
           {tab === "identity" ? (
             <Card className="space-y-4 border border-[var(--border)] p-5">
-              <div className="grid gap-4 sm:grid-cols-2">
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <Field label="Couleur primaire">
                   <div className="flex gap-2">
                     <input
                       type="color"
-                      className="h-10 w-14 cursor-pointer rounded border border-[var(--border)] bg-transparent"
+                      className="h-11 w-14 cursor-pointer rounded border border-[var(--border)] bg-transparent"
                       value={form.brandPrimaryColor}
                       onChange={(e) => setForm({ ...form, brandPrimaryColor: e.target.value })}
                     />
@@ -1431,7 +1461,7 @@ export function SettingsPage() {
                   <div className="flex gap-2">
                     <input
                       type="color"
-                      className="h-10 w-14 cursor-pointer rounded border border-[var(--border)] bg-transparent"
+                      className="h-11 w-14 cursor-pointer rounded border border-[var(--border)] bg-transparent"
                       value={form.brandSecondaryColor}
                       onChange={(e) => setForm({ ...form, brandSecondaryColor: e.target.value })}
                     />
@@ -1474,7 +1504,7 @@ export function SettingsPage() {
                 Mentions TVA, paiement, pénalités : onglet{" "}
                 <button
                   type="button"
-                  className="font-medium text-[var(--primary)] hover:underline"
+                  className="inline-flex min-h-11 items-center font-medium text-[var(--primary)] hover:underline"
                   onClick={() => setTab("legal")}
                 >
                   Mentions légales
@@ -1491,7 +1521,7 @@ export function SettingsPage() {
                 Variables : {"{prefix}"}, {"{year}"}, {"{counter}"}. Attribution uniquement à
                 l&apos;émission.
               </p>
-              <div className="grid gap-4 sm:grid-cols-2">
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <Field label="Template factures">
                   <Input
                     value={form.invoiceNumberTemplate}
@@ -1524,7 +1554,7 @@ export function SettingsPage() {
                   />
                 </Field>
               </div>
-              <div className="grid gap-3 sm:grid-cols-3">
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
                 {previews.map((p) => (
                   <div
                     key={`${p.series}-${p.year}`}
@@ -1584,7 +1614,7 @@ export function SettingsPage() {
 
           {tab === "declarations" ? (
             <Card className="space-y-4 border border-[var(--border)] p-5">
-              <div className="grid gap-4 sm:grid-cols-3">
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
                 <Field label="Périodicité URSSAF">
                   <Select
                     value={form.urssafPeriodicity}
@@ -1644,7 +1674,7 @@ export function SettingsPage() {
                   />
                 </Field>
               </div>
-              <label className="flex items-center gap-2 text-sm">
+              <label className="flex min-h-11 items-center gap-2 text-sm">
                 <input
                   type="checkbox"
                   checked={form.b2cActivity}
@@ -1713,7 +1743,7 @@ export function SettingsPage() {
                     }
                   />
                 </Field>
-                <label className="flex items-center gap-2 text-sm">
+                <label className="flex min-h-11 items-center gap-2 text-sm">
                   <input
                     type="checkbox"
                     checked={form.obligationEmailRemindersEnabled}
@@ -1731,10 +1761,10 @@ export function SettingsPage() {
               {checklist ? (
                 <div className="border-t border-[var(--border)] pt-4">
                   <p className="mb-2 text-sm font-medium">Checklist post-création</p>
-                  <ul className="grid gap-2 sm:grid-cols-2">
+                  <ul className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                     {CHECKLIST_LABELS.map(({ key, label }) => (
                       <li key={key}>
-                        <label className="flex items-center gap-2 text-sm">
+                        <label className="flex min-h-11 items-center gap-2 text-sm">
                           <input
                             type="checkbox"
                             checked={checklist[key]}
@@ -1906,7 +1936,7 @@ function PayoutBeneficiaryCard() {
           ? `Compte enregistré : ${status.beneficiaryLabel}. Titulaire et IBAN chiffrés.`
           : "Aucun compte enregistré."}
       </p>
-      <form onSubmit={save} className="grid gap-4 sm:grid-cols-2">
+      <form onSubmit={save} className="grid grid-cols-1 gap-4 sm:grid-cols-2">
         <Field label="Libellé">
           <Input value={label} onChange={(e) => setLabel(e.target.value)} required />
         </Field>

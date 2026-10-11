@@ -23,11 +23,10 @@ export type NotificationItem = {
   at: string;
 };
 
-type Feed = { items: NotificationItem[]; serverTime: string };
+type Feed = { items: NotificationItem[]; serverTime: string; seenAt: string };
 
 const POLL_MS = 10_000;
 const DATA_CHANGED = "kouzia:data-changed";
-const SEEN_KEY = "kouzia.notifications.seenAt";
 const SOUND_KEY = "kouzia.notifications.sound";
 
 // Préférences légères du poste : stockage navigateur, protégé (navigation privée, quota).
@@ -106,10 +105,11 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
   const navigate = useNavigate();
   const chime = useChime();
   const [items, setItems] = useState<NotificationItem[]>([]);
-  const [seenAt, setSeenAt] = useState<string>(() => readPref(SEEN_KEY) ?? new Date(0).toISOString());
+  const [seenAt, setSeenAt] = useState<string>(() => new Date().toISOString());
   const [soundEnabled, setSoundState] = useState(() => readPref(SOUND_KEY) !== "off");
+  // Hors https (LAN, Tailscale en http), le navigateur refuse toute notification : indisponible.
   const [desktopPermission, setDesktopPermission] = useState<NotificationPermission | "unsupported">(() =>
-    typeof Notification === "undefined" ? "unsupported" : Notification.permission,
+    typeof Notification === "undefined" || !window.isSecureContext ? "unsupported" : Notification.permission,
   );
   const cursor = useRef<string | null>(null);
   const itemsRef = useRef<NotificationItem[]>([]);
@@ -139,12 +139,18 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
       if (soundRef.current) chime(fresh[0].kind);
       if (typeof Notification !== "undefined" && Notification.permission === "granted") {
         fresh.slice(0, 3).forEach((item) => {
-          const n = new Notification(item.title, { body: item.body, tag: item.id, icon: "/favicon.svg" });
-          n.onclick = () => {
-            window.focus();
-            navigate(item.href);
-            n.close();
-          };
+          // Android Chrome interdit new Notification() dans une page (service worker requis) :
+          // l'exception ne doit pas interrompre les toasts ni le rechargement des écrans.
+          try {
+            const n = new Notification(item.title, { body: item.body, tag: item.id, icon: "/favicon.svg" });
+            n.onclick = () => {
+              window.focus();
+              navigate(item.href);
+              n.close();
+            };
+          } catch {
+            /* notification de l'appareil indisponible ici : toast et cloche suffisent */
+          }
         });
       }
     },
@@ -158,6 +164,7 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
       const feed = await api<Feed>("/api/notifications/feed");
       if (cancelled) return;
       setItems(feed.items);
+      setSeenAt(feed.seenAt);
       cursor.current = feed.serverTime;
     }
 
@@ -166,6 +173,8 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
       const feed = await api<Feed>(`/api/notifications/feed?since=${encodeURIComponent(cursor.current)}`);
       if (cancelled) return;
       cursor.current = feed.serverTime;
+      // Lu sur un autre appareil : le compteur suit.
+      setSeenAt((prev) => (feed.seenAt > prev ? feed.seenAt : prev));
       if (feed.items.length === 0) return;
       const known = new Set(itemsRef.current.map((i) => i.id));
       const fresh = feed.items.filter((i) => !known.has(i.id));
@@ -197,9 +206,22 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
       seenAt,
       unread: items.filter((i) => i.at > seenAt).length,
       markAllRead: () => {
-        const now = new Date().toISOString();
-        setSeenAt(now);
-        writePref(SEEN_KEY, now);
+        // Lecture enregistrée en base, commune au PC et au téléphone.
+        setSeenAt(new Date().toISOString());
+        void api<{ seenAt: string }>("/api/notifications/seen", { method: "POST", body: "{}" })
+          .then((r) => setSeenAt(r.seenAt))
+          .catch(() => undefined);
+        // L'état lu des e-mails vit en base (une seule source) : les messages notifiés y passent lus,
+        // puis les écrans ouverts (carte du tableau de bord, messagerie) se rechargent.
+        const messageIds = items.filter((i) => i.kind === "mail").map((i) => i.id.replace(/^mail:/, ""));
+        if (messageIds.length > 0) {
+          void api("/api/emails/messages/bulk-flags", {
+            method: "POST",
+            body: JSON.stringify({ messageIds, read: true }),
+          })
+            .then(() => window.dispatchEvent(new CustomEvent<NotificationItem[]>(DATA_CHANGED, { detail: [] })))
+            .catch(() => undefined);
+        }
       },
       soundEnabled,
       setSoundEnabled: (v) => {
@@ -212,10 +234,15 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
         const result = await Notification.requestPermission();
         setDesktopPermission(result);
         if (result === "granted") {
-          new Notification("Notifications activées", {
-            body: "Vous serez prévenu des nouveaux messages, devis et paiements.",
-            icon: "/favicon.svg",
-          });
+          try {
+            new Notification("Notifications activées", {
+              body: "Vous serez prévenu des nouveaux messages, devis et paiements.",
+              icon: "/favicon.svg",
+            });
+          } catch {
+            // Permission accordée mais affichage impossible dans une page (Android) : signalé comme indisponible.
+            setDesktopPermission("unsupported");
+          }
         }
       },
       open,

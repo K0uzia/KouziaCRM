@@ -1,3 +1,4 @@
+import { useMediaQuery } from "@/lib/use-media-query";
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
@@ -49,6 +50,8 @@ async function fetchReceiptsPdf(queryParams: string): Promise<Blob> {
 }
 
 export function ReceiptsBookPage() {
+  // Sous 640 px : libellés courts dans les listes déroulantes (le select garde son nom complet).
+  const wide = useMediaQuery("(min-width: 40rem)");
   const thisYear = new Date().getFullYear();
   const [year, setYear] = useState(String(thisYear));
   const [quarter, setQuarter] = useState("ALL");
@@ -198,8 +201,9 @@ export function ReceiptsBookPage() {
       <Card className="overflow-hidden">
         <div className="flex flex-col gap-3 border-b border-[var(--border)] p-3 sm:flex-row sm:items-center sm:justify-between sm:p-4">
           <h2 className="text-sm font-semibold">Registre chronologique</h2>
-          <div className="grid w-full min-w-0 grid-cols-3 gap-2 sm:w-[30rem] [&_select]:min-w-0">
-            <Select aria-label="Année" className="min-h-10 w-auto py-1.5 text-sm" value={year} onChange={(e) => setYear(e.target.value)}>
+          {/* Sous 480 px : année et trimestre côte à côte, mois sur sa ligne (libellés entiers). */}
+          <div className="grid w-full min-w-0 grid-cols-2 gap-2 min-[30rem]:grid-cols-3 sm:w-[30rem] [&_select]:min-w-0">
+            <Select aria-label="Année" className="w-auto py-1.5 text-sm" value={year} onChange={(e) => setYear(e.target.value)}>
               {[thisYear, thisYear - 1, thisYear - 2].map((y) => (
                 <option key={y} value={y}>
                   {y}
@@ -208,14 +212,14 @@ export function ReceiptsBookPage() {
             </Select>
             <Select
               aria-label="Trimestre"
-              className="min-h-10 w-auto py-1.5 text-sm"
+              className="w-auto py-1.5 text-sm"
               value={quarter}
               onChange={(e) => {
                 setQuarter(e.target.value);
                 setMonth("ALL");
               }}
             >
-              <option value="ALL">Toute l&apos;année</option>
+              <option value="ALL">{wide ? "Toute l'année" : "Année"}</option>
               <option value="1">T1</option>
               <option value="2">T2</option>
               <option value="3">T3</option>
@@ -223,17 +227,17 @@ export function ReceiptsBookPage() {
             </Select>
             <Select
               aria-label="Mois"
-              className="min-h-10 w-auto py-1.5 text-sm"
+              className="col-span-2 w-auto py-1.5 text-sm min-[30rem]:col-span-1"
               value={month}
               onChange={(e) => {
                 setMonth(e.target.value);
                 if (e.target.value !== "ALL") setQuarter("ALL");
               }}
             >
-              <option value="ALL">Tous les mois</option>
+              <option value="ALL">{wide ? "Tous les mois" : "Mois"}</option>
               {Array.from({ length: 12 }, (_, i) => (
                 <option key={i + 1} value={String(i + 1)}>
-                  {new Date(2000, i, 1).toLocaleString("fr-FR", { month: "long" })}
+                  {new Date(2000, i, 1).toLocaleString("fr-FR", { month: wide ? "long" : "short" })}
                 </option>
               ))}
             </Select>
@@ -270,7 +274,7 @@ export function ReceiptsBookPage() {
                       <td className="nowrap" data-label="Facture">
                         {r.invoiceId ? (
                           <div className="flex flex-wrap items-center gap-1.5">
-                            <Link to={`/invoices/${r.invoiceId}`}>
+                            <Link to={`/invoices/${r.invoiceId}`} className="inline-flex min-h-11 items-center">
                               <DocumentNumberBadge
                                 number={r.invoiceNumber}
                                 documentType={r.documentType ?? "INVOICE"}
@@ -284,10 +288,13 @@ export function ReceiptsBookPage() {
                         )}
                       </td>
                       <td className="wrap" data-label="Client">
-                        <span className="block font-medium">{r.clientName}</span>
-                        {r.clientNumber ? (
-                          <span className="font-mono text-xs text-[var(--muted)]">{r.clientNumber}</span>
-                        ) : null}
+                        {/* Un seul bloc : en mode cartes, la cellule est en flex et séparait nom et numéro. */}
+                        <div className="min-w-0 max-md:text-right">
+                          <span className="block font-medium">{r.clientName}</span>
+                          {r.clientNumber ? (
+                            <span className="whitespace-nowrap font-mono text-xs text-[var(--muted)]">{r.clientNumber}</span>
+                          ) : null}
+                        </div>
                       </td>
                       <td className="wrap text-[var(--muted)]" title={r.nature} data-label="Nature">
                         {r.nature}

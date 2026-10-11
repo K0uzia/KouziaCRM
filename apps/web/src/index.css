@@ -71,6 +71,11 @@
   /* Gabarit applicatif */
   --sidebar-w: 15.5rem;
   --topbar-h: 3.75rem;
+  /* Mise en page mobile d'abord : marge latérale des pages (élargie plus bas), cible tactile
+     minimale (44 px), texte secondaire (13 px, lisible au téléphone). */
+  --gutter: 1rem;
+  --tap: 2.75rem;
+  --text-meta: 0.8125rem;
   /* Mouvement */
   --duration-fast: 150ms;
   --duration-base: 300ms;
@@ -251,7 +256,7 @@ h3 {
 .ui-table th {
   padding: 0.625rem 1rem;
   font-weight: 600;
-  font-size: 0.6875rem;
+  font-size: 0.75rem;
   letter-spacing: 0.06em;
   text-transform: uppercase;
   white-space: nowrap;
@@ -446,4 +451,25 @@ option:hover {
 .rdt_TableRow:hover .rdt_TableCell {
   background-color: var(--surface-raised) !important;
   color: var(--text) !important;
+}
+
+/* Texte secondaire (classe text-xs, lue par Tailwind dans --text-xs) : 13 px sous 640 px pour la
+   lecture au téléphone, 12 px au-delà pour la densité du bureau. Badges : tailles dédiées. */
+@media (max-width: 39.99rem) {
+  :root {
+    --text-xs: var(--text-meta);
+    --text-xs--line-height: calc(1.125 / 0.8125);
+  }
+}
+
+/* Marge latérale des pages selon la largeur (token --gutter). */
+@media (min-width: 40rem) {
+  :root {
+    --gutter: 1.5rem;
+  }
+}
+@media (min-width: 64rem) {
+  :root {
+    --gutter: 2rem;
+  }
 }

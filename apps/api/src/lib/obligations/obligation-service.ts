@@ -6,6 +6,7 @@ import {
   type Obligation,
 } from "@prisma/client";
 import { prisma } from "@/lib/prisma.js";
+import { formatEUR } from "@/lib/money.js";
 import { getCompanySettings, invalidateCompanySettingsCache } from "@/lib/company.js";
 import { monthLabelFr, calendarDaysBetween } from "@/lib/finance/dates.js";
 import {
@@ -523,10 +524,10 @@ async function ensureCfePayment(settings: CompanySettings, now = new Date()) {
       ? monthsActiveInCalendarYear(start, periodYear)
       : 12;
   const notes = exempt
-    ? `Exonéré si CA annuel < 5 000 € (CA ${refYear} : ${(caRef / 100).toFixed(2)} €)`
+    ? `Exonéré si CA annuel < 5 000 € (CA ${refYear} : ${formatEUR(caRef)})`
     : prorataMonths < 12
-      ? `CFE prorata ${prorataMonths}/12 (année de création) · CA ${refYear} : ${(caRef / 100).toFixed(2)} €`
-      : `CA ${refYear} : ${(caRef / 100).toFixed(2)} €`;
+      ? `CFE prorata ${prorataMonths}/12 (année de création) · CA ${refYear} : ${formatEUR(caRef)}`
+      : `CA ${refYear} : ${formatEUR(caRef)}`;
 
   return upsertObligation({
     type: ObligationType.CFE_PAYMENT,
@@ -556,10 +557,10 @@ async function ensureNextCfe(settings: CompanySettings, completedPeriod: string)
   const prorataMonths =
     year === start.getFullYear() ? monthsActiveInCalendarYear(start, year) : 12;
   const notes = exempt
-    ? `Exonéré si CA annuel < 5 000 € (CA ${refYear} : ${(caRef / 100).toFixed(2)} €)`
+    ? `Exonéré si CA annuel < 5 000 € (CA ${refYear} : ${formatEUR(caRef)})`
     : prorataMonths < 12
-      ? `CFE prorata ${prorataMonths}/12 (année de création) · CA ${refYear} : ${(caRef / 100).toFixed(2)} €`
-      : `CA ${refYear} : ${(caRef / 100).toFixed(2)} €`;
+      ? `CFE prorata ${prorataMonths}/12 (année de création) · CA ${refYear} : ${formatEUR(caRef)}`
+      : `CA ${refYear} : ${formatEUR(caRef)}`;
 
   return upsertObligation({
     type: ObligationType.CFE_PAYMENT,

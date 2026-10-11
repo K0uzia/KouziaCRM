@@ -61,7 +61,7 @@ export function SettingsTabNav({
       <nav className="hidden w-56 shrink-0 flex-col gap-5 md:flex" aria-label="Sections des réglages">
         {GROUPS.map((group) => (
           <div key={group.label}>
-            <p className="mb-1 px-3 text-[0.6875rem] font-semibold uppercase tracking-[0.08em] text-[var(--muted)]/80">
+            <p className="mb-1 px-3 text-xs font-semibold uppercase tracking-[0.08em] text-[var(--muted)]">
               {group.label}
             </p>
             <ul className="space-y-0.5">

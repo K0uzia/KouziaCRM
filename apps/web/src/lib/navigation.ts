@@ -26,6 +26,8 @@ export type NavItem = {
   id: string;
   to: string;
   label: string;
+  /** Titre de l'en-tête mobile quand le libellé ne tient pas à 320 px. */
+  shortLabel?: string;
   icon: IconDefinition;
   match: (pathname: string) => boolean;
   feature?: keyof FeatureFlags;
@@ -43,7 +45,7 @@ export const NAV_SECTIONS: NavSection[] = [
     id: "pilotage",
     label: null,
     items: [
-      { id: "dashboard", to: "/", label: "Tableau de bord", icon: faChartPie, match: (p) => p === "/" },
+      { id: "dashboard", to: "/", label: "Tableau de bord", shortLabel: "Accueil", icon: faChartPie, match: (p) => p === "/" },
       { id: "todo", to: "/obligations", label: "Démarches", icon: faClipboardCheck, match: starts("/obligations") },
     ],
   },
@@ -76,7 +78,7 @@ export const NAV_SECTIONS: NavSection[] = [
     id: "compta",
     label: "Comptabilité",
     items: [
-      { id: "receipts", to: "/receipts", label: "Livre de recettes", icon: faBook, match: starts("/receipts") },
+      { id: "receipts", to: "/receipts", label: "Livre de recettes", shortLabel: "Recettes", icon: faBook, match: starts("/receipts") },
       { id: "urssaf", to: "/urssaf", label: "URSSAF", icon: faLandmark, match: starts("/urssaf") },
       {
         id: "bank",
@@ -93,7 +95,7 @@ export const NAV_SECTIONS: NavSection[] = [
     label: "Relation client",
     items: [
       { id: "inbox", to: "/inbox", label: "Messagerie", icon: faEnvelope, match: starts("/inbox"), badge: "unread" },
-      { id: "reviews", to: "/avis", label: "Avis clients", icon: faCommentDots, match: starts("/avis") },
+      { id: "reviews", to: "/avis", label: "Avis clients", shortLabel: "Avis", icon: faCommentDots, match: starts("/avis") },
     ],
   },
 ];

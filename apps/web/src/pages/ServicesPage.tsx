@@ -196,7 +196,7 @@ export function ServicesPage() {
                       <>
                         <Button
                           variant="ghost"
-                          className="min-h-10 min-w-10 px-0"
+                          className="px-0"
                           aria-label={`Modifier ${s.name}`}
                           title="Modifier"
                           onClick={() => openEdit(s)}
@@ -205,7 +205,7 @@ export function ServicesPage() {
                         </Button>
                         <Button
                           variant="danger-ghost"
-                          className="min-h-10 min-w-10 px-0"
+                          className="px-0"
                           aria-label={`Supprimer ${s.name}`}
                           title="Supprimer"
                           onClick={() => setDeleting(s)}
@@ -214,7 +214,7 @@ export function ServicesPage() {
                         </Button>
                       </>
                     ) : (
-                      <Button variant="secondary" className="min-h-10 px-3 text-sm" onClick={() => void restore(s)}>
+                      <Button variant="secondary" className="px-3 text-sm" onClick={() => void restore(s)}>
                         Réactiver
                       </Button>
                     )}

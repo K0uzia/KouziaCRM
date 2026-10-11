@@ -212,7 +212,7 @@ export function ClientsPage() {
             >
               <Avatar name={c.displayName} />
               <div className="min-w-0 flex-1">
-                <p className="truncate font-medium">{c.displayName}</p>
+                <p className="line-clamp-2 break-words font-medium">{c.displayName}</p>
                 <p className="truncate text-xs text-[var(--muted)]">
                   {[c.clientNumber, c.city].filter(Boolean).join(" · ")}
                 </p>
@@ -375,17 +375,27 @@ export function ClientDetailPage() {
       <ul className="divide-y divide-[var(--border)]">
         {rows.slice(0, limit ?? rows.length).map((d) => (
           <li key={d.id}>
-            <Link to={docPath(d)} className="flex min-h-12 items-center gap-3 px-5 py-2.5 text-sm hover:bg-[var(--surface-raised)]">
-              <span className="w-28 shrink-0 font-mono text-xs text-[var(--primary)]">{d.number ?? "Brouillon"}</span>
-              <span className="min-w-0 flex-1 truncate text-[var(--muted)]">
+            {/* Sous 640 px : numéro et montant, puis type et statut (le montant restait coupé à 320 px). */}
+            <Link
+              to={docPath(d)}
+              className="grid min-h-12 grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-1 px-5 py-2.5 text-sm hover:bg-[var(--surface-raised)] sm:flex sm:gap-3"
+            >
+              <span className="min-w-0 truncate font-mono text-xs text-[var(--primary)] sm:w-28 sm:shrink-0">
+                {d.number ?? "Brouillon"}
+              </span>
+              <span className="text-right font-medium tabular-nums sm:order-last sm:w-24 sm:shrink-0">
+                {formatEUR(d.totalCents)}
+              </span>
+              <span className="min-w-0 truncate text-[var(--muted)] sm:flex-1">
                 {d.documentType === "QUOTE" ? "Devis" : "Facture"}
               </span>
-              {(() => {
-                const st = d.documentType === "QUOTE" ? d.quoteStatus ?? d.status : d.status;
-                const lbl = d.documentType === "QUOTE" ? quoteStatusLabel[st] : invoiceStatusLabel[st];
-                return <Badge tone={statusTone(st)}>{lbl ?? st}</Badge>;
-              })()}
-              <span className="w-24 shrink-0 text-right font-medium tabular-nums">{formatEUR(d.totalCents)}</span>
+              <span className="justify-self-end">
+                {(() => {
+                  const st = d.documentType === "QUOTE" ? d.quoteStatus ?? d.status : d.status;
+                  const lbl = d.documentType === "QUOTE" ? quoteStatusLabel[st] : invoiceStatusLabel[st];
+                  return <Badge tone={statusTone(st)}>{lbl ?? st}</Badge>;
+                })()}
+              </span>
             </Link>
           </li>
         ))}
@@ -436,7 +446,7 @@ export function ClientDetailPage() {
         }
       />
 
-      <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_22rem]">
+      <div className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1fr)_22rem]">
         <div className="min-w-0">
           <Tabs
             label="Sections de la fiche client"

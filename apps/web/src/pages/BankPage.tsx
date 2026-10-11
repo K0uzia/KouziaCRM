@@ -327,7 +327,7 @@ export function BankPage() {
         </Card>
       ) : null}
 
-      <div className="mb-4 grid gap-3 sm:grid-cols-2">
+      <div className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
         <Card className="p-4">
           <p className="text-xs text-[var(--muted)]">Crédits importés (hors ignorés)</p>
           <p className="mt-1 text-lg font-semibold tabular-nums">

@@ -8,6 +8,7 @@ import { useLiveRefresh } from "@/lib/notifications";
 import { api, formatEUR } from "@/lib/api";
 import {
   formatDate,
+  formatDecimal,
   invoiceStatusLabel,
   quoteStatusLabel,
   statusTone,
@@ -180,7 +181,7 @@ function DocumentsListPage({
           <span className="font-semibold tabular-nums">{formatEUR(d.totalCents)}</span>
         </div>
         <div className="mt-2 flex items-center justify-between gap-3">
-          <span className="min-w-0 truncate text-sm">{d.client.displayName}</span>
+          <span className="line-clamp-2 min-w-0 break-words text-sm">{d.client.displayName}</span>
           <Badge tone={statusTone(st)}>{labels[st] ?? st}</Badge>
         </div>
         <p className="mt-1 text-xs text-[var(--muted)]">{formatDate(d.issueDate)}</p>
@@ -759,7 +760,7 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
         back={isQuote ? { to: "/quotes", label: "Devis" } : { to: "/invoices", label: "Factures" }}
         subtitle={
           <span className="flex flex-wrap items-center gap-2">
-            <Link to={`/clients/${doc.client.id}`} className="link">
+            <Link to={`/clients/${doc.client.id}`} className="link inline-flex min-h-11 items-center">
               {doc.client.displayName}
             </Link>
             <Badge tone={statusTone(st)}>{labels[st] ?? st}</Badge>
@@ -832,7 +833,7 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
         }
       />
 
-      <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_22rem]">
+      <div className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1fr)_22rem]">
         <div className="min-w-0 space-y-6">
           {/* Le document tel qu'il est émis */}
           <Card className="overflow-hidden">
@@ -877,7 +878,7 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
               <p className="text-xs font-semibold uppercase tracking-[0.12em] text-[var(--muted)]">Client</p>
               <Link
                 to={`/clients/${doc.client.id}`}
-                className="mt-1 inline-flex flex-wrap items-center gap-2 font-medium hover:text-[var(--primary)]"
+                className="mt-1 inline-flex min-h-11 flex-wrap items-center gap-2 font-medium hover:text-[var(--primary)]"
               >
                 {doc.client.displayName}
                 {doc.client.clientNumber ? (
@@ -900,7 +901,7 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
             <div className="ui-table-wrap max-md:overflow-visible">
               <table className="ui-table ui-table-stack w-full text-sm">
                 <thead>
-                  <tr className="bg-[var(--bg-subtle)] text-[0.6875rem] uppercase tracking-[0.06em] text-[var(--muted)]">
+                  <tr className="bg-[var(--bg-subtle)] text-xs uppercase tracking-[0.06em] text-[var(--muted)]">
                     <th className="px-5 py-2.5 text-left font-semibold sm:px-6">Désignation</th>
                     <th className="px-3 py-2.5 text-right font-semibold">Qté</th>
                     <th className="px-3 py-2.5 text-right font-semibold">P.U. TTC</th>
@@ -975,7 +976,7 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
                     <p className="text-[var(--muted)]">
                       Remise
                       {doc.discountType === "PERCENT"
-                        ? ` (${((doc.discountValue ?? 0) / 100).toFixed(2)} %)`
+                        ? ` (${formatDecimal((doc.discountValue ?? 0) / 100)} %)`
                         : ""}
                       : −
                       {formatEUR(

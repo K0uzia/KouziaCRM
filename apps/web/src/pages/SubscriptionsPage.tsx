@@ -152,10 +152,15 @@ export function SubscriptionsPage() {
 
   function openCreate() {
     setEditingId(null);
+    // Offre présélectionnée : son prix, son libellé et son jour de prélèvement aussi.
+    const svc = services[0];
     setForm({
       ...emptyForm,
       clientId: clients[0]?.id ?? "",
-      serviceId: services[0]?.id ?? "",
+      serviceId: svc?.id ?? "",
+      amountEuros: svc ? (svc.unitPriceCents / 100).toFixed(2) : "",
+      label: svc ? `${svc.name} : mensuel` : "",
+      billingDay: svc?.defaultBillingDay ? String(svc.defaultBillingDay) : emptyForm.billingDay,
     });
     setOpen(true);
   }
@@ -464,7 +469,7 @@ export function SubscriptionsPage() {
                           <div className="flex gap-1">
                             <Button
                               variant="ghost"
-                              className="min-h-10 min-w-10 px-0"
+                              className="px-0"
                               aria-label={`Modifier ${o.name}`}
                               title="Modifier"
                               onClick={() => openEditOffer(o)}
@@ -473,7 +478,7 @@ export function SubscriptionsPage() {
                             </Button>
                             <Button
                               variant="danger-ghost"
-                              className="min-h-10 min-w-10 px-0"
+                              className="px-0"
                               aria-label={`Archiver ${o.name}`}
                               title="Archiver"
                               onClick={() => setOfferToArchive(o)}
@@ -522,17 +527,29 @@ export function SubscriptionsPage() {
               ))}
             </Select>
           </Field>
-          <Field label="Offre abonnement">
+          <Field
+            label="Offre abonnement"
+            hint={(() => {
+              // Le select natif tronque son libellé sur mobile : le détail complet est repris dessous.
+              const svc = services.find((s) => s.id === form.serviceId);
+              return svc ? `${svc.name}, ${formatEUR(svc.unitPriceCents)} par mois` : undefined;
+            })()}
+          >
             <Select
               required
               value={form.serviceId}
               onChange={(e) => {
                 const id = e.target.value;
                 const svc = services.find((s) => s.id === id);
+                // Montant saisi à la main (différent du prix de l'offre précédente) : conservé.
+                const prev = services.find((s) => s.id === form.serviceId);
+                const typed =
+                  form.amountEuros !== "" &&
+                  (!prev || Number(form.amountEuros) !== prev.unitPriceCents / 100);
                 setForm({
                   ...form,
                   serviceId: id,
-                  amountEuros: svc
+                  amountEuros: svc && !typed
                     ? (svc.unitPriceCents / 100).toFixed(2)
                     : form.amountEuros,
                   label: form.label || (svc ? `${svc.name} : mensuel` : ""),
@@ -546,7 +563,7 @@ export function SubscriptionsPage() {
               <option value="">Choisir une offre…</option>
               {services.map((s) => (
                 <option key={s.id} value={s.id}>
-                  {s.name} - {(s.unitPriceCents / 100).toFixed(2)} € / mois
+                  {s.name}, {formatEUR(s.unitPriceCents)}/mois
                 </option>
               ))}
             </Select>
@@ -559,7 +576,7 @@ export function SubscriptionsPage() {
               onChange={(e) => setForm({ ...form, label: e.target.value })}
             />
           </Field>
-          <div className="grid gap-4 sm:grid-cols-3">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
             <Field
               label="Montant/mois (€)"
               hint={editingId ? "Via un nouveau devis (légal)" : undefined}
@@ -671,7 +688,7 @@ export function SubscriptionsPage() {
               onChange={(e) => setOfferForm({ ...offerForm, description: e.target.value })}
             />
           </Field>
-          <div className="grid gap-4 sm:grid-cols-2">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <Field label="Prix TTC / mois (€)">
               <Input
                 required

@@ -53,7 +53,7 @@ const customStyles: TableProps<never>["customStyles"] = {
   headCells: {
     style: {
       padding: "0.5rem 1rem",
-      fontSize: "0.6875rem",
+      fontSize: "0.75rem",
       fontWeight: 600,
       letterSpacing: "0.06em",
       textTransform: "uppercase",
@@ -172,7 +172,8 @@ function DefaultMobileCard<T>({
   const [titleCol, leadCol, ...rest] = fields;
 
   return (
-    <article className="min-w-0 rounded-[var(--radius)] border border-[var(--border)] bg-[var(--surface)] p-3.5">
+    // Liens des cellules : cible de 44 px au doigt (ex. numéro de facture des encaissements).
+    <article className="min-w-0 rounded-[var(--radius)] border border-[var(--border)] bg-[var(--surface)] p-3.5 [&_a]:inline-flex [&_a]:min-h-11 [&_a]:items-center">
       <div className="flex min-w-0 items-start justify-between gap-3">
         {titleCol ? (
           <div className="min-w-0 text-sm font-semibold text-[var(--text)]">
@@ -315,7 +316,7 @@ export function DataTable<T>({
       {hasToolbar ? (
         <div className="flex flex-col gap-3 border-b border-[var(--border)] p-3 sm:p-4 lg:flex-row lg:items-center">
           {searchable ? (
-            <label className="flex min-h-10 min-w-0 items-center gap-2 rounded-[var(--radius-sm)] border border-[var(--border-input)] bg-[var(--bg-subtle)] px-3 focus-within:border-[var(--primary)] lg:w-80">
+            <label className="flex min-h-11 min-w-0 items-center gap-2 rounded-[var(--radius-sm)] border border-[var(--border-input)] bg-[var(--bg-subtle)] px-3 focus-within:border-[var(--primary)] lg:w-80">
               <svg viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4 shrink-0 text-[var(--muted)]" aria-hidden>
                 <path
                   fillRule="evenodd"
@@ -332,7 +333,7 @@ export function DataTable<T>({
                   setMobilePage(1);
                 }}
                 placeholder={searchPlaceholder}
-                className="min-h-10 w-full min-w-0 border-0 bg-transparent text-sm outline-none placeholder:text-[var(--muted)]"
+                className="min-h-11 w-full min-w-0 border-0 bg-transparent text-sm outline-none placeholder:text-[var(--muted)]"
               />
             </label>
           ) : null}

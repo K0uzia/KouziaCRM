@@ -220,7 +220,7 @@ export function ClientProjects({ clientId }: { clientId: string }) {
       >
         {form ? (
           <form onSubmit={save} className="space-y-5">
-            <div className="grid gap-3 sm:grid-cols-[1fr_auto]">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-[1fr_auto]">
               <Field label="Nom du projet">
                 <Input
                   required
@@ -456,7 +456,7 @@ function ListSection({
     <fieldset className="space-y-2">
       <div className="flex items-center justify-between gap-2">
         <legend className="text-sm font-medium">{title}</legend>
-        <Button variant="ghost" className="h-8 min-h-8 px-2 text-xs" onClick={onAdd}>
+        <Button variant="ghost" className="px-3 text-sm" onClick={onAdd}>
           <FontAwesomeIcon icon={faPlus} className="h-3 w-3" aria-hidden />
           Ajouter
         </Button>

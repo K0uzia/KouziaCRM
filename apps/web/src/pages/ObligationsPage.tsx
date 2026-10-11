@@ -130,7 +130,7 @@ function ObligationRow({
   }
 
   const iconBtn =
-    "inline-flex min-h-10 min-w-10 items-center justify-center rounded-[var(--radius-sm)] border border-[var(--border)] text-[var(--muted)] transition-colors hover:border-[var(--border-strong)] hover:text-[var(--text)]";
+    "inline-flex min-h-11 min-w-11 items-center justify-center rounded-[var(--radius-sm)] border border-[var(--border)] text-[var(--muted)] transition-colors hover:border-[var(--border-strong)] hover:text-[var(--text)]";
 
   return (
     <div className="flex flex-col gap-3 border-b border-[var(--border)] py-4 last:border-0 sm:flex-row sm:items-center">
@@ -161,7 +161,7 @@ function ObligationRow({
           ) : null}
         </div>
       </div>
-      <div className="flex shrink-0 items-center gap-2 pl-12 sm:pl-0">
+      <div className="flex min-w-0 flex-wrap items-center gap-2 pl-12 sm:shrink-0 sm:flex-nowrap sm:pl-0">
         {showConfirm && item.officialUrl ? (
           <a
             href={item.officialUrl}
@@ -195,7 +195,7 @@ function ObligationRow({
           <FontAwesomeIcon icon={faPaperclip} className="h-3.5 w-3.5" aria-hidden />
         </button>
         {showConfirm && alertActive ? (
-          <Button className="min-h-10 px-3 text-sm" disabled={busy} onClick={() => onConfirm(item.id)}>
+          <Button className="min-w-0 flex-1 px-3 text-sm sm:flex-none" disabled={busy} onClick={() => onConfirm(item.id)}>
             <FontAwesomeIcon icon={faCheck} className="h-3 w-3" aria-hidden />
             {item.confirmLabel}
           </Button>

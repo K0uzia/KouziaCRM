@@ -25,7 +25,7 @@ export function FilterChips<T extends string>({
     <div
       role="group"
       aria-label={label}
-      className={`-mx-4 flex gap-1.5 overflow-x-auto px-4 no-scrollbar sm:mx-0 sm:flex-wrap sm:px-0 ${className}`}
+      className={`-mx-3 flex gap-1.5 overflow-x-auto px-3 no-scrollbar sm:mx-0 sm:flex-wrap sm:px-0 ${className}`}
     >
       {options.map((o) => {
         const active = o.id === value;

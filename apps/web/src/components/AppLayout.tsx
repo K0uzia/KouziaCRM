@@ -102,7 +102,7 @@ function Sidebar({
         {sections.map((section) => (
           <div key={section.id} className="mt-4 first:mt-1">
             {section.label ? (
-              <p className="mb-1 px-3 text-[0.6875rem] font-semibold uppercase tracking-[0.08em] text-[var(--muted)]/80">
+              <p className="mb-1 px-3 text-xs font-semibold uppercase tracking-[0.08em] text-[var(--muted)]">
                 {section.label}
               </p>
             ) : null}
@@ -249,7 +249,7 @@ export function AppLayout() {
 
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
         {/* Barre supérieure */}
-        <header className="z-30 flex h-[var(--topbar-h)] shrink-0 items-center gap-2 border-b border-[var(--border)] bg-[var(--bg)] px-3 pt-[env(safe-area-inset-top)] sm:gap-3 sm:px-6">
+        <header className="z-30 flex h-[var(--topbar-h)] min-w-0 shrink-0 items-center gap-1 border-b border-[var(--border)] bg-[var(--bg)] px-2 pt-[env(safe-area-inset-top)] sm:gap-3 sm:px-6">
           <button
             ref={drawerTrigger}
             type="button"
@@ -278,12 +278,15 @@ export function AppLayout() {
               </Link>
             ) : null}
           </nav>
-          <Link to="/" className="flex min-h-11 items-center gap-2 md:hidden" aria-label="Kouzia ERP, tableau de bord">
-            <BrandMark className="h-7 w-7" />
-            <span className="truncate font-display text-base font-semibold">{current?.label ?? "Kouzia ERP"}</span>
+          <Link to="/" className="flex min-h-11 min-w-0 flex-1 items-center gap-2 md:hidden" aria-label="Kouzia ERP, tableau de bord">
+            {/* Sous 400 px : logo masqué, titre court, pour garder le titre lisible à côté des actions. */}
+            <BrandMark className="hidden h-7 w-7 shrink-0 min-[25rem]:block" />
+            <span className="truncate font-display text-base font-semibold">
+              {current?.shortLabel ?? current?.label ?? "Kouzia ERP"}
+            </span>
           </Link>
 
-          <div className="ml-auto flex items-center gap-1.5 sm:gap-2">
+          <div className="ml-auto flex shrink-0 items-center gap-1 sm:gap-2">
             <button
               type="button"
               onClick={() => setPaletteOpen(true)}
@@ -309,14 +312,18 @@ export function AppLayout() {
               variant="primary"
               leading={<FontAwesomeIcon icon={faPlus} className="h-3.5 w-3.5" aria-hidden />}
               ariaLabel="Créer"
+              compactMobile
             />
           </div>
         </header>
 
+        {/* Région qui défile : atteignable au clavier (axe scrollable-region-focusable),
+            contour visible seulement au focus clavier. */}
         <main
           id="contenu"
-          tabIndex={-1}
-          className={`custom-scrollbar min-h-0 min-w-0 flex-1 focus:outline-none ${
+          tabIndex={isMailWorkspace ? -1 : 0}
+          aria-label="Contenu"
+          className={`custom-scrollbar min-h-0 min-w-0 flex-1 focus:outline-none focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-[var(--primary)] ${
             isMailWorkspace ? "overflow-hidden" : "overflow-y-auto overflow-x-hidden"
           }`}
         >
@@ -324,7 +331,7 @@ export function AppLayout() {
             className={
               isMailWorkspace
                 ? "flex h-full min-h-0 min-w-0 flex-col"
-                : "mx-auto w-full max-w-[90rem] min-w-0 px-4 py-5 sm:px-6 lg:px-8 lg:py-7"
+                : "mx-auto w-full max-w-[90rem] min-w-0 px-[var(--gutter)] py-5 lg:py-7"
             }
           >
             <Outlet />
@@ -344,7 +351,7 @@ export function AppLayout() {
                 to={item.to}
                 end={item.to === "/"}
                 aria-current={active ? "page" : undefined}
-                className={`relative flex min-h-14 flex-col items-center justify-center gap-1 text-[0.6875rem] ${
+                className={`relative flex min-h-14 flex-col items-center justify-center gap-1 text-xs ${
                   active ? "text-[var(--primary)]" : "text-[var(--muted)]"
                 }`}
               >
@@ -361,7 +368,7 @@ export function AppLayout() {
             onClick={() => setDrawerOpen(true)}
             aria-expanded={drawerOpen}
             aria-controls="menu-principal"
-            className="flex min-h-14 flex-col items-center justify-center gap-1 text-[0.6875rem] text-[var(--muted)]"
+            className="flex min-h-14 flex-col items-center justify-center gap-1 text-xs text-[var(--muted)]"
           >
             <FontAwesomeIcon icon={faEllipsis} className="h-4 w-4" aria-hidden />
             Plus

@@ -166,15 +166,15 @@ export function DashboardPage() {
   const [cfeObligation, setCfeObligation] = useState<CfeObligation | null>(null);
   const [remindersRunBusy, setRemindersRunBusy] = useState(false);
   const [threads, setThreads] = useState<ThreadRow[] | null>(null);
+  const [liveTick, setLiveTick] = useState(0);
+  useLiveRefresh(() => setLiveTick((t) => t + 1));
 
+  // Rechargée à chaque changement signalé (nouveau message, messages marqués lus) : non-lus à jour.
   useEffect(() => {
     api<ThreadRow[]>("/api/emails")
       .then((rows) => setThreads(rows.slice(0, 5)))
       .catch(() => setThreads(null));
-  }, []);
-
-  const [liveTick, setLiveTick] = useState(0);
-  useLiveRefresh(() => setLiveTick((t) => t + 1));
+  }, [liveTick]);
   const url = useMemo(() => `/api/dashboard?scope=${scope}&t=${liveTick}`, [scope, liveTick]);
 
   useEffect(() => {
@@ -298,21 +298,26 @@ export function DashboardPage() {
         <FontAwesomeIcon icon={faWallet} className="h-3.5 w-3.5" aria-hidden />
         Encaisser
       </ButtonLink>
-      <ButtonLink to="/quotes?new=1" variant="secondary">
+      {/* Sous 640 px : libellé court sur une ligne, nom accessible complet (il contient le libellé visible). */}
+      <ButtonLink to="/quotes?new=1" variant="secondary" aria-label="Nouveau devis">
         <FontAwesomeIcon icon={faFileSignature} className="h-3.5 w-3.5" aria-hidden />
-        Nouveau devis
+        <span className="sm:hidden">Devis</span>
+        <span className="hidden sm:inline">Nouveau devis</span>
       </ButtonLink>
-      <ButtonLink to="/invoices?new=1" variant="secondary">
+      <ButtonLink to="/invoices?new=1" variant="secondary" aria-label="Nouvelle facture">
         <FontAwesomeIcon icon={faFileInvoice} className="h-3.5 w-3.5" aria-hidden />
-        Nouvelle facture
+        <span className="sm:hidden">Facture</span>
+        <span className="hidden sm:inline">Nouvelle facture</span>
       </ButtonLink>
-      <ButtonLink to="/clients?new=1" variant="secondary">
+      <ButtonLink to="/clients?new=1" variant="secondary" aria-label="Nouveau client">
         <FontAwesomeIcon icon={faUserPlus} className="h-3.5 w-3.5" aria-hidden />
-        Nouveau client
+        <span className="sm:hidden">Client</span>
+        <span className="hidden sm:inline">Nouveau client</span>
       </ButtonLink>
-      <ButtonLink to="/inbox/compose" variant="secondary">
+      <ButtonLink to="/inbox/compose" variant="secondary" aria-label="Écrire un mail">
         <FontAwesomeIcon icon={faPenToSquare} className="h-3.5 w-3.5" aria-hidden />
-        Écrire un mail
+        <span className="sm:hidden">Mail</span>
+        <span className="hidden sm:inline">Écrire un mail</span>
       </ButtonLink>
     </div>
   );
@@ -377,7 +382,7 @@ export function DashboardPage() {
         ]}
       />
 
-      <div className="mt-6 grid gap-6 xl:grid-cols-[minmax(0,1fr)_24rem]">
+      <div className="mt-6 grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1fr)_24rem]">
         <div className="min-w-0 space-y-6">
           <Card className="min-w-0 overflow-hidden">
             <SectionTitle>Répartition des encaissements</SectionTitle>
@@ -388,7 +393,7 @@ export function DashboardPage() {
             </div>
           </Card>
 
-          <div className="grid gap-6 lg:grid-cols-2">
+          <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
             <Card className="overflow-hidden">
               <SectionTitle
                 action={
@@ -431,7 +436,7 @@ export function DashboardPage() {
                     <li key={r.id} className="flex items-center justify-between gap-3 px-5 py-2.5 text-sm">
                       <Link
                         to={r.documentType === "QUOTE" ? `/quotes/${r.id}` : `/invoices/${r.id}`}
-                        className="min-w-0 hover:text-[var(--primary)]"
+                        className="flex min-h-11 min-w-0 flex-col justify-center hover:text-[var(--primary)]"
                       >
                         <span className="block truncate font-medium">{r.client.displayName}</span>
                         <span className="text-xs text-[var(--muted)]">
@@ -439,7 +444,7 @@ export function DashboardPage() {
                           {r.reminderCount > 1 ? "s" : ""}
                         </span>
                       </Link>
-                      <Button variant="secondary" className="min-h-9 shrink-0 px-3 text-xs" onClick={() => void sendReminder(r.id)}>
+                      <Button variant="secondary" className="shrink-0 px-3 text-sm" onClick={() => void sendReminder(r.id)}>
                         Envoyer
                       </Button>
                     </li>
@@ -536,7 +541,7 @@ export function DashboardPage() {
             {threads === null ? (
               <div className="px-5 py-6 text-center text-sm text-[var(--muted)]">
                 <p>Boîte mail non connectée.</p>
-                <Link to="/settings?tab=email" className="link mt-1 inline-block">
+                <Link to="/settings?tab=email" className="link mt-1 inline-flex min-h-11 items-center">
                   Configurer la messagerie
                 </Link>
               </div>
@@ -587,7 +592,7 @@ export function DashboardPage() {
                   <dt className="text-[var(--muted)]">{row.label}</dt>
                   <dd className="font-semibold tabular-nums">
                     {row.to ? (
-                      <Link to={row.to} className="hover:text-[var(--primary)]">
+                      <Link to={row.to} className="inline-flex min-h-11 min-w-11 items-center justify-end hover:text-[var(--primary)]">
                         {row.value}
                       </Link>
                     ) : (

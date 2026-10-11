@@ -10,7 +10,7 @@ import { Button } from "@/components/ui/Button";
 import { StatStrip } from "@/components/ui/StatStrip";
 import { DataTable, type TableColumn } from "@/components/ui/DataTable";
 import { PaymentForm } from "@/components/payments/PaymentForm";
-import { Select } from "@/components/ui/Field";
+import { Field, Select } from "@/components/ui/Field";
 import { useCreateParam } from "@/lib/use-create-param";
 
 type Payment = {
@@ -185,8 +185,7 @@ export function PaymentsPage() {
         title="Enregistrer un paiement"
         description="Choisissez la facture puis le montant réellement reçu."
       >
-        <div className="mb-4">
-          <label className="mb-1.5 block text-sm font-medium">Facture</label>
+        <Field label="Facture" className="mb-4">
           <Select value={invoiceId} onChange={(e) => setInvoiceId(e.target.value)}>
             {openInvoices.map((i) => (
               <option key={i.id} value={i.id}>
@@ -195,7 +194,7 @@ export function PaymentsPage() {
               </option>
             ))}
           </Select>
-        </div>
+        </Field>
         {invoiceId ? (
           <PaymentForm
             invoiceId={invoiceId}
