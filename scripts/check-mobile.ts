@@ -19,7 +19,7 @@ const WIDTHS = (process.env.CHECK_MOBILE_WIDTHS ?? "320,375").split(",").map(Num
 const TAP = 44;
 const TOLERANCE = 2;
 
-type Issue = { kind: "scroll" | "clip" | "target"; detail: string; selector: string };
+type Issue = { kind: "scroll" | "clip" | "target" | "state"; detail: string; selector: string };
 type Result = { screen: string; width: number; issues: Issue[] };
 
 function totp(secretBase32: string): string {
@@ -84,9 +84,42 @@ async function main() {
     ["Nouvelle facture", "/invoices?new=1"],
     ["Nouveau client", "/clients?new=1"],
     ["Enregistrer un paiement", "/payments?new=1"],
+    ["Nouvel abonnement", "/abonnements?new=1"],
   ] as const) {
     screens.push({ name: `Modale : ${name}`, path, open: async (page) => void (await page.getByRole("dialog").waitFor()) });
   }
+  // États ouverts de la barre supérieure (panneaux qui débordaient sur téléphone).
+  screens.push({
+    name: "Panneau des notifications",
+    path: "/",
+    open: async (page) => {
+      await page.getByRole("button", { name: /^Notifications/ }).click();
+      await page.waitForTimeout(200);
+    },
+  });
+  screens.push({
+    // Les messages s'ouvrent par un bouton (pas de lien) : fil pris dans l'API, puis vue détail.
+    name: "Messagerie : lecture d'un message",
+    path: "/inbox",
+    open: async (page) => {
+      const threadId = await page.evaluate(async () => {
+        const res = await fetch("/api/emails/messages?take=1", { credentials: "include" });
+        const body = (await res.json()) as { messages?: Array<{ threadId?: string }> };
+        return body.messages?.[0]?.threadId ?? null;
+      });
+      if (!threadId) throw new Error("aucun message dans la base de recette");
+      await page.goto(`${BASE}/inbox/${threadId}`);
+      await settle(page);
+    },
+  });
+  screens.push({
+    name: "Menu Créer",
+    path: "/",
+    open: async (page) => {
+      await page.getByRole("button", { name: "Créer" }).click();
+      await page.getByRole("button", { name: "Nouveau devis" }).waitFor();
+    },
+  });
 
   const browser = await chromium.launch();
   const results: Result[] = [];
@@ -113,8 +146,9 @@ async function main() {
       for (const screen of [...screens, ...details]) {
         await page.goto(`${BASE}${screen.path}`);
         await settle(page);
-        if (screen.open) await screen.open(page).catch(() => undefined);
+        const opened = screen.open ? await screen.open(page).then(() => true, () => false) : true;
         const issues = await measure(page);
+        if (!opened) issues.unshift({ kind: "state", detail: "état non ouvert (bouton introuvable)", selector: screen.name });
         results.push({ screen: `${screen.name} (${screen.path})`, width, issues });
         const status = issues.length === 0 ? "OK  " : "KO  ";
         console.log(`${status}${width}px  ${screen.name}${issues.length ? `  (${issues.length})` : ""}`);

@@ -63,9 +63,12 @@
       issues.push({ kind: "clip", detail: "contenu " + e.scrollWidth + " > " + e.clientWidth, selector: label(e) });
     }
 
-    // Élément au-delà du bord droit de l'écran, hors bande qui défile et hors élément fixe.
+    // Élément au-delà d'un bord de l'écran, hors bande qui défile et hors élément fixe.
     if (r.right > vw + TOL && r.left < vw && s.position !== "fixed" && !scrollableAncestor(e)) {
       issues.push({ kind: "clip", detail: "bord droit " + Math.round(r.right) + " > " + vw, selector: label(e) });
+    }
+    if (r.left < -TOL && r.right > 0 && s.position !== "fixed" && !scrollableAncestor(e)) {
+      issues.push({ kind: "clip", detail: "bord gauche " + Math.round(r.left) + " < 0", selector: label(e) });
     }
 
     // Cibles d'action.
