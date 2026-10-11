@@ -207,6 +207,17 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
         const now = new Date().toISOString();
         setSeenAt(now);
         writePref(SEEN_KEY, now);
+        // L'état lu des e-mails vit en base (une seule source) : les messages notifiés y passent lus,
+        // puis les écrans ouverts (carte du tableau de bord, messagerie) se rechargent.
+        const messageIds = items.filter((i) => i.kind === "mail").map((i) => i.id.replace(/^mail:/, ""));
+        if (messageIds.length > 0) {
+          void api("/api/emails/messages/bulk-flags", {
+            method: "POST",
+            body: JSON.stringify({ messageIds, read: true }),
+          })
+            .then(() => window.dispatchEvent(new CustomEvent<NotificationItem[]>(DATA_CHANGED, { detail: [] })))
+            .catch(() => undefined);
+        }
       },
       soundEnabled,
       setSoundEnabled: (v) => {

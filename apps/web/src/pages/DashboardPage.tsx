@@ -166,15 +166,15 @@ export function DashboardPage() {
   const [cfeObligation, setCfeObligation] = useState<CfeObligation | null>(null);
   const [remindersRunBusy, setRemindersRunBusy] = useState(false);
   const [threads, setThreads] = useState<ThreadRow[] | null>(null);
+  const [liveTick, setLiveTick] = useState(0);
+  useLiveRefresh(() => setLiveTick((t) => t + 1));
 
+  // Rechargée à chaque changement signalé (nouveau message, messages marqués lus) : non-lus à jour.
   useEffect(() => {
     api<ThreadRow[]>("/api/emails")
       .then((rows) => setThreads(rows.slice(0, 5)))
       .catch(() => setThreads(null));
-  }, []);
-
-  const [liveTick, setLiveTick] = useState(0);
-  useLiveRefresh(() => setLiveTick((t) => t + 1));
+  }, [liveTick]);
   const url = useMemo(() => `/api/dashboard?scope=${scope}&t=${liveTick}`, [scope, liveTick]);
 
   useEffect(() => {
