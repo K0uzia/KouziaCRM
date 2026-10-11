@@ -2,7 +2,7 @@
 # Toute logique passe par node ou npm : aucune commande propre à un shell (bash, cp -n, VAR=x cmd),
 # car GNU make sous Windows lance cmd.exe, et « bash » peut y désigner WSL.
 # Windows : GNU make (ex. choco install make) et Node.js 22 dans le PATH.
-.PHONY: setup dev app worker db-deploy db-seed build mailpit mailpit-stop alpine-deploy alpine-status
+.PHONY: setup dev dev-lan app worker db-deploy db-seed build mailpit mailpit-stop alpine-deploy alpine-status
 
 setup:
 	node -e "const f=require('fs');if(!f.existsSync('.env'))f.copyFileSync('.env.example','.env');f.mkdirSync('data',{recursive:true})"
@@ -26,6 +26,13 @@ dev:
 	@echo Mailpit UI : http://127.0.0.1:8025
 	@echo Worker : relances et file des e-mails, inclus dans npm run dev
 	npm run dev
+
+# Comme dev, admin ouverte au téléphone du réseau local (adresse affichée au démarrage).
+dev-lan:
+	@node scripts/dev.mjs --check-ports
+	@$(MAKE) --no-print-directory db-deploy
+	@$(MAKE) --no-print-directory mailpit
+	npm run dev -- --lan
 
 # Build puis API en mode production locale sur :3000 (sert aussi l'admin compilé).
 app: build

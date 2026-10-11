@@ -5,6 +5,7 @@
 import { spawn, execFileSync } from "node:child_process";
 import { createInterface } from "node:readline";
 import { createConnection } from "node:net";
+import { networkInterfaces } from "node:os";
 import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -103,11 +104,31 @@ for (const [name, port] of [["API", apiPort], ["admin (Vite)", 5173]]) {
 // make dev : contrôle seul, avant la migration (une base ouverte par une pile en cours est verrouillée).
 if (process.argv.includes("--check-ports")) process.exit(0);
 
+// --lan : adresse IPv4 du PC sur le réseau local, autorisée par la garde d'origine de l'API
+// (DEV_LAN_ORIGIN, transmise aux processus enfants ; ignorée si NODE_ENV=production).
+const lan = process.argv.includes("--lan");
+let lanUrl = null;
+if (lan && process.env.NODE_ENV !== "production") {
+  // Box domestique d'abord (192.168.x), avant les cartes virtuelles (Hyper-V, WSL, VPN).
+  const rank = (ip) => (ip.startsWith("192.168.") ? 0 : ip.startsWith("10.") ? 1 : 2);
+  const ip = Object.values(networkInterfaces())
+    .flat()
+    .filter((a) => a && a.family === "IPv4" && !a.internal && !a.address.startsWith("169.254."))
+    .map((a) => a.address)
+    .sort((x, y) => rank(x) - rank(y))[0];
+  if (ip) {
+    lanUrl = `http://${ip}:5173`;
+    process.env.DEV_LAN_ORIGIN = lanUrl;
+  } else {
+    console.error("--lan : aucune adresse du réseau local trouvée, admin accessible sur ce PC seulement.");
+  }
+}
+
 start("api", [tsxCli, "watch", "--env-file=../../.env", "src/index.ts"], path.join(root, "apps/api"));
 if (await waitForApi()) {
   // --lan : l'admin de dev est joignable depuis un téléphone du réseau local (vite --host).
-  // L'origine http://<ip-du-pc>:5173 doit alors figurer dans TAILSCALE_ORIGIN (garde d'origine de l'API).
-  start("web", [viteCli, ...(process.argv.includes("--lan") ? ["--host"] : [])], path.join(root, "apps/web"));
+  start("web", [viteCli, ...(lan ? ["--host"] : [])], path.join(root, "apps/web"));
+  if (lanUrl) log("web", `téléphone (même Wi-Fi) : ${lanUrl}`);
   start("worker", [tsxCli, "watch", "--env-file=.env", "--tsconfig", "apps/api/tsconfig.json", "scripts/worker.ts"], root);
 } else if (!stopping) {
   log("api", `pas de réponse sur :${apiPort}/api/health après 60 s`);
