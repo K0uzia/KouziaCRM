@@ -347,6 +347,7 @@ export function SettingsPage() {
       smtpFrom: form.smtpFrom || null,
       smtpFromName: form.smtpFromName || null,
       smtpReplyTo: form.smtpReplyTo || null,
+      transactionalFrom: form.transactionalFrom || null,
       emailThrottlePerMinute: form.emailThrottlePerMinute,
       imapHost: form.imapHost || null,
       imapPort: form.imapPort,
@@ -971,6 +972,19 @@ export function SettingsPage() {
                       placeholder={d?.smtpReplyTo}
                       value={form.smtpReplyTo ?? ""}
                       onChange={(e) => setForm({ ...form, smtpReplyTo: e.target.value || null })}
+                    />
+                  </Field>
+                  <Field
+                    label="Expéditeur des e-mails automatiques"
+                    hint="Codes de connexion, invitation, accès à l'espace client, alertes. Ex. noreply@kouzia.com ; les réponses vont au Reply-To. Vide : même expéditeur que les documents."
+                    className="sm:col-span-2"
+                  >
+                    <Input
+                      type="email"
+                      autoComplete="off"
+                      placeholder="noreply@kouzia.com"
+                      value={form.transactionalFrom ?? ""}
+                      onChange={(e) => setForm({ ...form, transactionalFrom: e.target.value || null })}
                     />
                   </Field>
                   <Field label="Throttle (emails / min)">

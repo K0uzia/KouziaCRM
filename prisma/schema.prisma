@@ -333,6 +333,9 @@ model CompanySettings {
   smtpFrom          String?
   smtpFromName      String?
   smtpReplyTo       String?
+  /// Expéditeur des e-mails automatiques (codes, invitation, accès, alertes), ex. noreply@kouzia.com.
+  /// Vide : smtpFrom. Les réponses vont au Reply-To (contact@).
+  transactionalFrom String?
   /// Plafond d'envois (emails / minute)
   emailThrottlePerMinute Int @default(30)
 

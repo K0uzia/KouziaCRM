@@ -111,6 +111,7 @@ export const settingsRoutes: FastifyPluginAsync = async (app) => {
       smtpFrom: z.string().optional().nullable(),
       smtpFromName: z.string().optional().nullable(),
       smtpReplyTo: z.string().optional().nullable(),
+      transactionalFrom: z.string().trim().email().optional().nullable().or(z.literal("")),
       emailThrottlePerMinute: z.number().int().min(1).max(120).optional(),
       imapHost: z.string().optional().nullable(),
       imapPort: z.number().int().min(1).max(65535).optional().nullable(),

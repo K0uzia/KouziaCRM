@@ -13,7 +13,7 @@ export async function erpSenderAddresses(): Promise<Set<string>> {
   const raw = [
     s.smtpFrom,
     s.smtpUser,
-    (s as { transactionalFrom?: string | null }).transactionalFrom,
+    s.transactionalFrom,
     process.env.SMTP_FROM,
     process.env.SMTP_USER,
   ];
