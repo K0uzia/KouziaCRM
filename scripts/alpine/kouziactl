@@ -106,6 +106,7 @@ Config (rejouable) :
 Services / data :
   start | stop | restart | logs [app|worker|backup|tailscale]
   backup | restore | migrate
+  catalog [--dry-run] [--update]   importe le catalogue des prestations (sans doublon)
   2fa-reset <email>   désactive la double authentification admin et ferme ses sessions (secours)
 
 Défaut update = git pull si dépôt présent, puis npm/build si changé.
@@ -194,6 +195,13 @@ run_cmd() {
       sleep 2
       wait_health || warn "API unhealthy après migrate"
       service_safe kouziacrm-worker start
+      ;;
+    catalog|catalogue)
+      require_root
+      for a in "$@"; do
+        [[ "$a" == "--dry-run" || "$a" == "--update" ]] || die "Usage : kouziactl catalog [--dry-run] [--update]"
+      done
+      run_as_app "cd '$KOUZIA_APP_DIR' && npm run --silent catalog -- $*"
       ;;
     2fa-reset)
       require_root

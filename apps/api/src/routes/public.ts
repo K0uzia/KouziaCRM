@@ -139,6 +139,18 @@ function formatSignerName(firstName: string, lastName: string): string {
 }
 
 export const publicRoutes: FastifyPluginAsync = async (app) => {
+  // fetch(…, { headers: { "Content-Type": "application/json" } }) sans corps (déconnexion) :
+  // Fastify refuse un JSON vide (400) avant la route, la session resterait ouverte. Corps vide = pas de corps.
+  app.addContentTypeParser("application/json", { parseAs: "string" }, (_request, body, done) => {
+    const text = typeof body === "string" ? body : body.toString("utf8");
+    if (text.trim() === "") return done(null, undefined);
+    try {
+      done(null, JSON.parse(text));
+    } catch {
+      done(Object.assign(new Error("JSON invalide"), { statusCode: 400 }), undefined);
+    }
+  });
+
   // Connexion, étape 1 : un code part si l'adresse est celle d'un client.
   // Réponse identique dans tous les cas : on ne peut pas tester qui est client.
   app.post(
