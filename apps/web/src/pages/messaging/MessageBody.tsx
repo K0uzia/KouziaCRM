@@ -44,9 +44,26 @@ function htmlToPlainText(html: string): string {
     .trim();
 }
 
+/**
+ * Mise en page à largeur fixe (newsletter de 600 px) plus large que l'écran : réduite pour tenir
+ * dans la largeur disponible, comme Gmail, au lieu d'un défilement horizontal.
+ */
+function fitIframeWidth(iframe: HTMLIFrameElement) {
+  const doc = iframe.contentDocument;
+  const root = doc?.documentElement;
+  if (!root) return;
+  root.style.zoom = "";
+  const available = iframe.clientWidth;
+  const content = root.scrollWidth;
+  if (available > 0 && content > available + 1) {
+    root.style.zoom = String(Math.max(0.4, available / content));
+  }
+}
+
 function resizeIframe(iframe: HTMLIFrameElement) {
   const doc = iframe.contentDocument;
   if (!doc?.documentElement) return;
+  fitIframeWidth(iframe);
   const height = Math.max(
     doc.documentElement.scrollHeight,
     doc.body?.scrollHeight ?? 0,
@@ -184,14 +201,14 @@ function IframeBody({
   if (!srcDoc) return null;
 
   return (
-    <div className="mt-3 w-full min-w-0 overflow-x-auto">
+    <div className="mt-3 w-full min-w-0 overflow-hidden">
     <iframe
       title="Corps du message"
       sandbox="allow-same-origin allow-popups allow-popups-to-escape-sandbox"
       srcDoc={srcDoc}
       referrerPolicy="no-referrer"
       className="block w-full min-w-0 rounded-[var(--radius)] border border-[var(--border)] bg-white [color-scheme:light]"
-      style={{ colorScheme: "light", width: "100%", height: 320, minHeight: 120 }}
+      style={{ colorScheme: "light", width: "100%", height: 160, minHeight: 120 }}
       onLoad={(event) => bindIframeResize(event.currentTarget)}
     />
     </div>

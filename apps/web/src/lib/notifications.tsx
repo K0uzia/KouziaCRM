@@ -11,6 +11,7 @@ import {
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
+import { NotificationToast } from "@/components/NotificationToast";
 
 export type NotificationKind = "mail" | "quote_accepted" | "quote_rejected" | "payment" | "testimonial";
 
@@ -21,6 +22,7 @@ export type NotificationItem = {
   body: string;
   href: string;
   at: string;
+  mail?: { from: string; subject: string; client: string | null };
 };
 
 type Feed = { items: NotificationItem[]; serverTime: string; seenAt: string };
@@ -128,13 +130,19 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
     (fresh: NotificationItem[]) => {
       // Au plus 3 toasts par vague, le reste est dans la cloche.
       fresh.slice(0, 3).forEach((item) => {
-        const show = item.kind === "quote_rejected" ? toast.warning : item.kind === "mail" ? toast.message : toast.success;
-        show(item.title, {
-          id: item.id,
-          description: item.body,
-          duration: 8000,
-          action: { label: "Ouvrir", onClick: () => navigate(item.href) },
-        });
+        toast.custom(
+          (id) => (
+            <NotificationToast
+              item={item}
+              onOpen={() => {
+                toast.dismiss(id);
+                navigate(item.href);
+              }}
+              onClose={() => toast.dismiss(id)}
+            />
+          ),
+          { id: item.id, duration: 8000, unstyled: true },
+        );
       });
       if (soundRef.current) chime(fresh[0].kind);
       if (typeof Notification !== "undefined" && Notification.permission === "granted") {

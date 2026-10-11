@@ -124,7 +124,7 @@ docker compose up -d --build
 | Service | Bind | Accès |
 |---------|------|--------|
 | App | `127.0.0.1:3000` | SPA + API |
-| Worker |  -  | polling IMAP horaire |
+| Worker |  -  | IMAP en IDLE (arrivée immédiate), repli chaque minute si IDLE est muet, file des e-mails toutes les 30 s |
 | Prisma Studio | `127.0.0.1:5555` | SSH tunnel uniquement |
 
 Volume persistant : `./data/kouziacrm.db` (sur l'hôte Proxmox, **pas dans l'image Docker**).
@@ -318,7 +318,7 @@ docker compose start app worker
 | `make dev` | Mailpit + API + Vite en parallèle |
 | `make mailpit` / `make mailpit-stop` | SMTP catcher local (UI :8025) |
 | `make app` | Build web + API qui sert la SPA |
-| `make worker` | Sync IMAP horaire |
+| `make worker` | Worker : IMAP en IDLE avec repli chaque minute, file des e-mails, tâches planifiées |
 | `make db-deploy` / `make db-seed` | Base |
 | `make alpine-deploy HOST=user@ct` | Rsync + update incrémental vers CT Alpine |
 | `make alpine-status HOST=user@ct` | Status distant |

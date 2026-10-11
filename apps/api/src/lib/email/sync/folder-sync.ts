@@ -7,7 +7,7 @@ import {
 import { prisma } from "@/lib/prisma.js";
 import { getCompanySettings } from "@/lib/company.js";
 import { findClientIdByEmail } from "@/lib/email/match-client.js";
-import { erpSenderAddresses, isOwnOutboundMessage, readOutboundHeader } from "@/lib/email/own-messages.js";
+import { isOwnOutboundMessage, readOutboundHeader } from "@/lib/email/own-messages.js";
 import {
   buildFolderOverrides,
   detectFolderRole,
@@ -258,7 +258,6 @@ export async function syncFolder(folderId: string): Promise<{ imported: number; 
     }
 
     const startUid = folder.highestUid > 0 ? folder.highestUid + 1 : 1;
-    const senders = await erpSenderAddresses();
     let maxUid = folder.highestUid;
     let folderUnread = 0;
 
@@ -345,10 +344,7 @@ export async function syncFolder(folderId: string): Promise<{ imported: number; 
 
         // Envoi de l'ERP retrouvé hors du dossier Envoyés (copie, alerte à soi-même) : pas un message reçu,
         // donc ni notification « nouvel e-mail » ni non lu.
-        const ownOutbound = isOwnOutboundMessage(
-          { fromAddress, messageId: mid, outboundHeader: readOutboundHeader(msg.headers) },
-          senders,
-        );
+        const ownOutbound = isOwnOutboundMessage({ messageId: mid, outboundHeader: readOutboundHeader(msg.headers) });
         const direction =
           folder.role === MailFolderRole.SENT || ownOutbound ? EmailDirection.OUTBOUND : EmailDirection.INBOUND;
         // Un envoi de l'ERP n'est jamais « non lu », même retrouvé dans la boîte de réception.

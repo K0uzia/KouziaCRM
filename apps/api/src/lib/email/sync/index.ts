@@ -25,11 +25,37 @@ export {
   syncAllFolders,
 };
 
-export async function runMailSync(): Promise<{
-  imported: number;
-  updated: number;
-  folders: number;
-}> {
+type MailSyncResult = { imported: number; updated: number; folders: number };
+
+let inFlight: Promise<MailSyncResult> | null = null;
+let rerun = false;
+
+/**
+ * Synchronise tous les dossiers. Un seul passage à la fois sur la connexion IMAP partagée :
+ * un appel pendant un passage en cours (IDLE, repli, bouton) en redemande un juste après,
+ * pour qu'un message arrivé pendant le passage ne soit pas manqué.
+ */
+export function runMailSync(): Promise<MailSyncResult> {
+  if (inFlight) {
+    rerun = true;
+    return inFlight;
+  }
+  inFlight = (async () => {
+    try {
+      let result: MailSyncResult;
+      do {
+        rerun = false;
+        result = await syncOnce();
+      } while (rerun);
+      return result;
+    } finally {
+      inFlight = null;
+    }
+  })();
+  return inFlight;
+}
+
+async function syncOnce(): Promise<MailSyncResult> {
   if (!(await isImapConfigured())) {
     throw new Error("IMAP non configuré");
   }

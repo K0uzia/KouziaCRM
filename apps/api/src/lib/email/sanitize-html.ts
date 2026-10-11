@@ -81,9 +81,19 @@ export function sanitizeEmailHtml(
 const EMAIL_LIGHT_HEAD =
   '<meta name="color-scheme" content="light only">' +
   '<meta name="supported-color-schemes" content="light">' +
+  '<meta name="viewport" content="width=device-width,initial-scale=1">' +
   "<style>" +
   ":root,html,body{color-scheme:light only !important;background-color:#ffffff !important;color:#1a1a1a !important;}" +
-  "html,body{min-height:320px;}" +
+  "html,body{min-height:120px;}" +
+  "body{margin:0;padding:12px;overflow-wrap:anywhere;}" +
+  // Lisible sur téléphone : rien ne dépasse la largeur (images, tableaux, blocs de code, URL longues).
+  // Une mise en page à largeur fixe trop large est ensuite réduite par l'admin (zoom sur la largeur).
+  "img,video{max-width:100% !important;height:auto !important;}" +
+  "table{max-width:100% !important;}" +
+  "td,th{overflow-wrap:anywhere;}" +
+  "pre,code{white-space:pre-wrap !important;overflow-wrap:anywhere;}" +
+  "a{overflow-wrap:anywhere;}" +
+  "blockquote{margin:8px 0 8px 4px;padding-left:10px;border-left:2px solid #d0d0d0;}" +
   "</style>";
 
 function neutralizeEmailDarkMode(html: string): string {

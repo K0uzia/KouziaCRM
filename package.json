@@ -23,6 +23,7 @@
     "db:push": "prisma db push",
     "db:seed": "tsx --env-file=.env prisma/seed.ts",
     "catalog": "tsx --env-file=.env scripts/apply-catalog.ts",
+    "mail:repair": "tsx --env-file=.env scripts/mail-repair.ts",
     "admin:2fa-reset": "tsx --env-file=.env --tsconfig apps/api/tsconfig.json scripts/admin-2fa-reset.ts",
     "db:studio": "prisma studio",
     "worker": "tsx watch --env-file=.env --tsconfig apps/api/tsconfig.json scripts/worker.ts",

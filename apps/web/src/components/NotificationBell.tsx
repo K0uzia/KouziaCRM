@@ -1,23 +1,8 @@
 import { useEffect, useId, useRef, useState } from "react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import type { IconDefinition } from "@fortawesome/fontawesome-svg-core";
-import {
-  faBell,
-  faCircleCheck,
-  faCircleXmark,
-  faEnvelope,
-  faStar,
-  faWallet,
-} from "@fortawesome/free-solid-svg-icons";
-import { useNotifications, type NotificationKind } from "@/lib/notifications";
-
-const KIND: Record<NotificationKind, { icon: IconDefinition; tone: string }> = {
-  mail: { icon: faEnvelope, tone: "bg-[var(--info-soft)] text-[var(--info)]" },
-  quote_accepted: { icon: faCircleCheck, tone: "bg-[var(--success-soft)] text-[var(--success)]" },
-  quote_rejected: { icon: faCircleXmark, tone: "bg-[var(--danger-soft)] text-[var(--danger)]" },
-  payment: { icon: faWallet, tone: "bg-[var(--success-soft)] text-[var(--success)]" },
-  testimonial: { icon: faStar, tone: "bg-[var(--primary-soft)] text-[var(--primary)]" },
-};
+import { faBell } from "@fortawesome/free-solid-svg-icons";
+import { useNotifications } from "@/lib/notifications";
+import { NOTIFICATION_KIND_STYLE as KIND } from "@/components/NotificationToast";
 
 function ago(iso: string): string {
   const s = Math.max(0, (Date.now() - new Date(iso).getTime()) / 1000);

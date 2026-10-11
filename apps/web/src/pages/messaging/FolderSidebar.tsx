@@ -13,6 +13,8 @@ type Props = {
   onSelect: (id: string) => void;
   onSync: () => void;
   onCompose: () => void;
+  /** « il y a 3 min » : dernière synchro réussie (null si jamais). */
+  lastSync?: string | null;
 };
 
 const ROLE_LABELS: Record<string, string> = {
@@ -45,7 +47,7 @@ function folderLabel(folder: MailFolderItem): string {
   return NAME_LABELS[raw.toLowerCase()] ?? folder.displayName;
 }
 
-export function FolderSidebar({ folders, selectedId, onSelect, onSync, onCompose }: Props) {
+export function FolderSidebar({ folders, selectedId, onSelect, onSync, onCompose, lastSync }: Props) {
   return (
     <div className="flex h-full flex-col p-3">
       <div className="mb-3 flex gap-2">
@@ -57,6 +59,9 @@ export function FolderSidebar({ folders, selectedId, onSelect, onSync, onCompose
           Écrire
         </Button>
       </div>
+      {lastSync ? (
+        <p className="mb-2 px-1 text-xs text-[var(--muted)]">Dernière synchro {lastSync}</p>
+      ) : null}
       <nav aria-label="Dossiers" className="custom-scrollbar flex-1 space-y-0.5 overflow-y-auto">
         {folders.map((folder) => (
           <button
