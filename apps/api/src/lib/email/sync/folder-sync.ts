@@ -7,6 +7,7 @@ import {
 import { prisma } from "@/lib/prisma.js";
 import { getCompanySettings } from "@/lib/company.js";
 import { findClientIdByEmail } from "@/lib/email/match-client.js";
+import { erpSenderAddresses, isOwnOutboundMessage, readOutboundHeader } from "@/lib/email/own-messages.js";
 import {
   buildFolderOverrides,
   detectFolderRole,
@@ -257,6 +258,7 @@ export async function syncFolder(folderId: string): Promise<{ imported: number; 
     }
 
     const startUid = folder.highestUid > 0 ? folder.highestUid + 1 : 1;
+    const senders = await erpSenderAddresses();
     let maxUid = folder.highestUid;
     let folderUnread = 0;
 
@@ -269,6 +271,7 @@ export async function syncFolder(folderId: string): Promise<{ imported: number; 
           flags: true,
           bodyStructure: true,
           size: true,
+          headers: ["x-kouzia-outbound"],
         },
         { uid: true },
       )) {
@@ -340,8 +343,16 @@ export async function syncFolder(folderId: string): Promise<{ imported: number; 
           continue;
         }
 
+        // Envoi de l'ERP retrouvé hors du dossier Envoyés (copie, alerte à soi-même) : pas un message reçu,
+        // donc ni notification « nouvel e-mail » ni non lu.
+        const ownOutbound = isOwnOutboundMessage(
+          { fromAddress, messageId: mid, outboundHeader: readOutboundHeader(msg.headers) },
+          senders,
+        );
         const direction =
-          folder.role === MailFolderRole.SENT ? EmailDirection.OUTBOUND : EmailDirection.INBOUND;
+          folder.role === MailFolderRole.SENT || ownOutbound ? EmailDirection.OUTBOUND : EmailDirection.INBOUND;
+        // Un envoi de l'ERP n'est jamais « non lu », même retrouvé dans la boîte de réception.
+        const readNow = isRead || ownOutbound;
         const inboundReplyTo = direction === EmailDirection.INBOUND ? replyToAddress : null;
         const participants = Array.from(
           new Set([fromAddress, ...(inboundReplyTo ? [inboundReplyTo] : []), ...toAddresses, ...ccAddresses]),
@@ -378,7 +389,7 @@ export async function syncFolder(folderId: string): Promise<{ imported: number; 
             subject,
             snippet: subject.slice(0, 120),
             receivedAt,
-            isRead,
+            isRead: readNow,
             isStarred,
             hasAttachments,
             imapUid: uid,
@@ -386,7 +397,7 @@ export async function syncFolder(folderId: string): Promise<{ imported: number; 
           },
         });
 
-        if (!isRead) {
+        if (!readNow) {
           await prisma.emailThread.update({
             where: { id: threadId },
             data: { unreadCount: { increment: 1 } },
@@ -395,7 +406,7 @@ export async function syncFolder(folderId: string): Promise<{ imported: number; 
 
         imported++;
         maxUid = Math.max(maxUid, uid);
-        if (!isRead) folderUnread++;
+        if (!readNow) folderUnread++;
       }
     }
 

@@ -1,3 +1,4 @@
+import { OUTBOUND_HEADER } from "@/lib/email/own-messages.js";
 import { EmailDirection, EmailOutboxStatus } from "@prisma/client";
 import { getCompanySettings } from "@/lib/company.js";
 import { prisma } from "@/lib/prisma.js";
@@ -180,6 +181,8 @@ async function sendOutboxRow(outboxId: string, rawPayload: string): Promise<void
   const headers: Record<string, string> = {
     ...(payload.headers ?? {}),
     "Message-ID": messageIdHeader,
+    // Reconnu par la synchro IMAP : un envoi de l'ERP n'est jamais un « nouveau message ».
+    [OUTBOUND_HEADER]: "1",
   };
   if (payload.inReplyTo) headers["In-Reply-To"] = payload.inReplyTo;
   if (references) headers["References"] = references;

@@ -1,6 +1,7 @@
 import { EmailDirection, QuoteStatus } from "@prisma/client";
 import { prisma } from "@/lib/prisma.js";
 import { formatEUR } from "@/lib/money.js";
+import { erpSenderAddresses } from "@/lib/email/own-messages.js";
 
 export type NotificationKind = "mail" | "quote_accepted" | "quote_rejected" | "payment" | "testimonial";
 
@@ -27,6 +28,7 @@ function eur(cents: number): string {
 /** Événements survenus après `since` (création en base), du plus récent au plus ancien. */
 export async function listNotifications(since: Date): Promise<NotificationItem[]> {
   const recentMail = new Date(Date.now() - MAIL_RECENT_MS);
+  const senders = [...(await erpSenderAddresses())];
 
   const [mails, accepted, rejected, payments, testimonials] = await Promise.all([
     prisma.emailMessage.findMany({
@@ -34,6 +36,8 @@ export async function listNotifications(since: Date): Promise<NotificationItem[]
         direction: EmailDirection.INBOUND,
         createdAt: { gt: since },
         receivedAt: { gt: recentMail },
+        // Envois de l'ERP synchronisés comme reçus avant la détection (copies, alertes à soi-même).
+        NOT: [{ messageId: { endsWith: "@kouzia.local>" } }, { fromAddress: { in: senders } }],
       },
       orderBy: { createdAt: "desc" },
       take: MAX_ITEMS,
