@@ -13,14 +13,46 @@ import { prisma } from "@/lib/prisma.js";
 let idleRunning = false;
 let idleAbort: AbortController | null = null;
 
+/** Délai de regroupement des événements IDLE (plusieurs EXISTS d'affilée = une seule synchro). */
+const EXISTS_DEBOUNCE_MS = 1500;
+/** IDLE relancé régulièrement : les serveurs coupent une session IDLE au bout de 29 min (RFC 2177). */
+const IDLE_REFRESH_MS = 25 * 60 * 1000;
+/** Filet de sécurité : sans synchro depuis ce délai, le repli synchronise même si IDLE est actif. */
+export const FALLBACK_STALE_MS = 2 * 60 * 1000;
+
+const listening = new WeakSet<object>();
+
+function log(message: string, extra?: unknown) {
+  if (extra === undefined) console.log(`[mail] ${message}`);
+  else console.log(`[mail] ${message}`, extra);
+}
+
+/** Synchro déclenchée par un événement, erreurs journalisées (jamais d'exception non gérée). */
+async function syncFrom(reason: string): Promise<void> {
+  try {
+    const result = await runMailSync();
+    log(`synchro (${reason}) : ${result.imported} importé(s), ${result.updated} mis à jour`);
+  } catch (err) {
+    console.error(`[mail] synchro (${reason}) en échec`, formatConnectionError(err));
+  }
+}
+
 export function stopIdleWorker(): void {
   idleAbort?.abort();
   idleRunning = false;
 }
 
+/**
+ * IDLE IMAP sur la boîte de réception. Un nouveau message (événement EXISTS) ne met PAS fin à
+ * IDLE : imapflow émet seulement « exists ». On l'écoute pour synchroniser aussitôt ; sans cela,
+ * les messages n'arrivaient qu'au rafraîchissement d'IDLE ou au clic sur « Synchroniser ».
+ */
 export async function startIdleWorker(): Promise<void> {
   if (idleRunning) return;
-  if (!(await isImapConfigured())) return;
+  if (!(await isImapConfigured())) {
+    log("IDLE non démarré : IMAP non configuré");
+    return;
+  }
 
   idleRunning = true;
   idleAbort = new AbortController();
@@ -34,37 +66,42 @@ export async function startIdleWorker(): Promise<void> {
           where: { role: MailFolderRole.INBOX, isVirtual: false },
         });
         if (!inbox) {
-          await runMailSync();
+          // Premier démarrage : la synchro découvre les dossiers, IDLE démarre au tour suivant.
+          await syncFrom("découverte des dossiers");
           await sleep(60_000);
           continue;
         }
 
         const { client } = await getImapClient();
+        if (!listening.has(client)) {
+          listening.add(client);
+          let timer: ReturnType<typeof setTimeout> | undefined;
+          client.on("exists", (data: { path?: string; count?: number; prevCount?: number }) => {
+            log(`IDLE : nouveau message sur ${data.path ?? "?"} (${data.prevCount ?? "?"} -> ${data.count ?? "?"})`);
+            clearTimeout(timer);
+            timer = setTimeout(() => void syncFrom("IDLE"), EXISTS_DEBOUNCE_MS);
+          });
+        }
         await client.mailboxOpen(inbox.imapPath);
         await updateMailSyncStatus({ idleActive: true, connected: true, lastError: null });
+        log(`IDLE actif sur ${inbox.imapPath}`);
 
-        const idleResult = client.idle();
-        let idleTimer: ReturnType<typeof setTimeout> | undefined;
-        const idlePromise = idleResult.then(async () => {
-          if (signal.aborted) return;
-          await runMailSync();
-        });
-
-        idleTimer = setTimeout(() => {
-          // Toute commande met fin à IDLE : la boucle relance ensuite une synchro.
+        const refresh = setTimeout(() => {
+          // Toute commande met fin à IDLE : la boucle synchronise puis relance IDLE.
           void client.noop().catch(() => {});
-        }, 28 * 60 * 1000);
+        }, IDLE_REFRESH_MS);
 
         await Promise.race([
-          idlePromise,
+          client.idle(),
           new Promise<void>((resolve) => {
             signal.addEventListener("abort", () => resolve(), { once: true });
           }),
         ]);
-
-        if (idleTimer) clearTimeout(idleTimer);
+        clearTimeout(refresh);
+        if (!signal.aborted) await syncFrom("fin d'IDLE");
         backoffMs = 1000;
       } catch (err) {
+        console.error("[mail] IDLE interrompu", formatConnectionError(err));
         await updateMailSyncStatus({
           idleActive: false,
           connected: false,
@@ -82,14 +119,19 @@ export async function startIdleWorker(): Promise<void> {
   })();
 }
 
-/** Fallback poll si IDLE indisponible (évite de doubler le sync quand IDLE tourne). */
-export async function runMailPollFallback(): Promise<void> {
-  if (!(await isImapConfigured())) return;
+/**
+ * Repli (cron, chaque minute). IDLE inactif : synchro. IDLE actif : synchro seulement si la
+ * dernière date de plus de FALLBACK_STALE_MS (IDLE muet, connexion à demi coupée).
+ */
+export async function runMailPollFallback(now = Date.now()): Promise<"synced" | "skipped"> {
+  if (!(await isImapConfigured())) return "skipped";
   const status = await prisma.mailSyncStatus.findUnique({ where: { id: "default" } });
-  if (status?.idleActive) return;
-  try {
-    await runMailSync();
-  } catch (err) {
-    console.error("[mail] poll fallback error", formatConnectionError(err));
-  }
+  const age = status?.lastSyncAt ? now - status.lastSyncAt.getTime() : Infinity;
+  if (status?.idleActive && age < FALLBACK_STALE_MS) return "skipped";
+  await syncFrom(
+    status?.idleActive
+      ? `repli, IDLE muet depuis ${Math.round(age / 60_000)} min`
+      : "repli, IDLE inactif",
+  );
+  return "synced";
 }

@@ -202,6 +202,8 @@ export const miscRoutes: FastifyPluginAsync = async (app) => {
     return {
       ...status,
       inboxUnreadCount: inbox?.unreadCount ?? 0,
+      // Alerte « pas de synchro depuis X min » seulement si la boîte est configurée.
+      imapConfigured: await isImapConfigured(),
     };
   });
 

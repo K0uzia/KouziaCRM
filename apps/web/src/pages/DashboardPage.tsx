@@ -4,6 +4,7 @@ import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import {
   faArrowRight,
   faClipboardCheck,
+  faEnvelope,
   faFileInvoice,
   faFilePen,
   faFileSignature,
@@ -16,7 +17,7 @@ import type { IconDefinition } from "@fortawesome/fontawesome-svg-core";
 import { toast } from "sonner";
 import { useLiveRefresh } from "@/lib/notifications";
 import { api, formatEUR } from "@/lib/api";
-import { formatDate } from "@/lib/format";
+import { formatAgoMinutes, formatDate, MAIL_SYNC_STALE_MIN, minutesSince } from "@/lib/format";
 import { useAuth } from "@/lib/auth";
 import { Button, ButtonLink } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
@@ -170,11 +171,17 @@ export function DashboardPage() {
   useLiveRefresh(() => setLiveTick((t) => t + 1));
 
   // Rechargée à chaque changement signalé (nouveau message, messages marqués lus) : non-lus à jour.
+  const [mailSyncAge, setMailSyncAge] = useState<number | null>(null);
   useEffect(() => {
     api<ThreadRow[]>("/api/emails")
       .then((rows) => setThreads(rows.slice(0, 5)))
       .catch(() => setThreads(null));
+    // Synchro automatique en panne : alerte dans « À traiter » (boîte configurée seulement).
+    api<{ imapConfigured?: boolean; lastSyncAt?: string | null }>("/api/emails/sync-status")
+      .then((s) => setMailSyncAge(s.imapConfigured ? (minutesSince(s.lastSyncAt) ?? Infinity) : null))
+      .catch(() => setMailSyncAge(null));
   }, [liveTick]);
+  const mailStale = mailSyncAge !== null && mailSyncAge > MAIL_SYNC_STALE_MIN;
   const url = useMemo(() => `/api/dashboard?scope=${scope}&t=${liveTick}`, [scope, liveTick]);
 
   useEffect(() => {
@@ -465,16 +472,33 @@ export function DashboardPage() {
             <SectionTitle
               action={
                 <span className="rounded-full bg-[var(--surface-hover)] px-2 text-xs font-medium tabular-nums leading-6 text-[var(--muted)]">
-                  {obligationAlerts + (echeanceDue ? 1 : 0) + (data.drafts > 0 ? 1 : 0)}
+                  {obligationAlerts + (echeanceDue ? 1 : 0) + (data.drafts > 0 ? 1 : 0) + (mailStale ? 1 : 0)}
                 </span>
               }
             >
               À traiter
             </SectionTitle>
-            {obligationAlerts === 0 && !echeanceDue && data.drafts === 0 ? (
+            {obligationAlerts === 0 && !echeanceDue && data.drafts === 0 && !mailStale ? (
               <p className="px-5 py-6 text-center text-sm text-[var(--muted)]">Rien en attente. Tout est à jour.</p>
             ) : (
               <ul className="divide-y divide-[var(--border)] px-5">
+                {mailStale ? (
+                  <TodoRow
+                    icon={faEnvelope}
+                    tone="danger"
+                    title="Messagerie : synchronisation automatique arrêtée"
+                    detail={
+                      mailSyncAge === Infinity
+                        ? "Aucune synchronisation enregistrée"
+                        : `Dernière synchro ${formatAgoMinutes(mailSyncAge ?? 0)}`
+                    }
+                    action={
+                      <Link to="/inbox" className="link inline-flex min-h-11 items-center gap-1 text-sm">
+                        Voir <FontAwesomeIcon icon={faArrowRight} className="h-3 w-3" aria-hidden />
+                      </Link>
+                    }
+                  />
+                ) : null}
                 {os && obligationAlerts > 0 ? (
                   <TodoRow
                     icon={faClipboardCheck}

@@ -2,11 +2,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { EmailDirection } from "@prisma/client";
 import { prisma } from "@/lib/prisma.js";
 import { invalidateCompanySettingsCache } from "@/lib/company.js";
-import {
-  erpSenderAddresses,
-  isOwnOutboundMessage,
-  readOutboundHeader,
-} from "@/lib/email/own-messages.js";
+import { isOwnOutboundMessage, readOutboundHeader } from "@/lib/email/own-messages.js";
 import { listNotifications } from "@/lib/notifications/feed.js";
 import { setBulkMessageFlags } from "@/lib/email/sync/flag-sync.js";
 import { resetDb } from "../../helpers/db.js";
@@ -20,17 +16,32 @@ beforeEach(async () => {
 });
 
 describe("e-mails envoyés par l'ERP", () => {
-  it("adresses d'envoi lues dans les réglages, en minuscules et sans nom affiché", async () => {
-    const senders = await erpSenderAddresses();
-    expect(senders.has("contact@kouzia.test")).toBe(true);
+  it("reconnus seulement par l'en-tête maison ou le Message-ID de l'ERP", () => {
+    expect(isOwnOutboundMessage({ messageId: "<a@b>", outboundHeader: "1" })).toBe(true);
+    expect(isOwnOutboundMessage({ messageId: "<cuid123@kouzia.local>" })).toBe(true);
+    expect(isOwnOutboundMessage({ messageId: "<z@gmail.com>" })).toBe(false);
   });
 
-  it("reconnus par l'en-tête maison, le Message-ID de l'ERP ou l'expéditeur", () => {
-    const senders = new Set(["contact@kouzia.test"]);
-    expect(isOwnOutboundMessage({ fromAddress: "x@y.fr", messageId: "<a@b>", outboundHeader: "1" }, senders)).toBe(true);
-    expect(isOwnOutboundMessage({ fromAddress: "x@y.fr", messageId: "<cuid123@kouzia.local>" }, senders)).toBe(true);
-    expect(isOwnOutboundMessage({ fromAddress: "Contact@Kouzia.test", messageId: "<z@gmail.com>" }, senders)).toBe(true);
-    expect(isOwnOutboundMessage({ fromAddress: "client@gmail.com", messageId: "<z@gmail.com>" }, senders)).toBe(false);
+  it("vrai e-mail reçu depuis notre propre adresse (envoi à soi-même, formulaire relayé) : reçu, pas envoi", () => {
+    // En-têtes d'un message du formulaire du site relayé par Web3Forms vers contact@, From = contact@.
+    const web3forms = [
+      "From: Kouzia <contact@kouzia.com>",
+      "Reply-To: prospect@gmail.com",
+      "To: contact@kouzia.com",
+      "Subject: Nouveau message depuis kouzia.com",
+      "Message-ID: <0102019a1b2c3d4e-5f6a7b8c@email.amazonses.com>",
+      "",
+      "",
+    ].join("\r\n");
+    expect(readOutboundHeader(web3forms)).toBeNull();
+    expect(
+      isOwnOutboundMessage({
+        messageId: "<0102019a1b2c3d4e-5f6a7b8c@email.amazonses.com>",
+        outboundHeader: readOutboundHeader(web3forms),
+      }),
+    ).toBe(false);
+    // Envoi direct de contact@ vers contact@ depuis le webmail Hostinger.
+    expect(isOwnOutboundMessage({ messageId: "<a1b2c3@kouzia.com>", outboundHeader: null })).toBe(false);
   });
 
   it("lecture de l'en-tête dans le bloc brut IMAP", () => {
@@ -57,8 +68,11 @@ describe("e-mails envoyés par l'ERP", () => {
       data: { ...base, messageId: "<m3@gmail.com>", fromAddress: "client@gmail.com", subject: "Question du client" },
     });
     const mails = (await listNotifications(since)).filter((i) => i.kind === "mail");
-    expect(mails).toHaveLength(1);
-    expect(mails[0]!.body).toContain("Question du client");
+    // Seul le Message-ID de l'ERP exclut : un message reçu de contact@ reste notifié.
+    expect(mails.map((m) => m.body).sort()).toEqual([
+      "client@gmail.com : Question du client",
+      "contact@kouzia.test : Votre code",
+    ]);
   });
 });
 

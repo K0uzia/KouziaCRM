@@ -1,7 +1,6 @@
 import { EmailDirection, QuoteStatus } from "@prisma/client";
 import { prisma } from "@/lib/prisma.js";
 import { formatEUR } from "@/lib/money.js";
-import { erpSenderAddresses } from "@/lib/email/own-messages.js";
 
 export type NotificationKind = "mail" | "quote_accepted" | "quote_rejected" | "payment" | "testimonial";
 
@@ -14,6 +13,8 @@ export type NotificationItem = {
   /** Écran à ouvrir au clic. */
   href: string;
   at: string;
+  /** E-mail : expéditeur, objet et client rattaché, pour la notification en app. */
+  mail?: { from: string; subject: string; client: string | null };
 };
 
 const MAX_ITEMS = 30;
@@ -28,7 +29,6 @@ function eur(cents: number): string {
 /** Événements survenus après `since` (création en base), du plus récent au plus ancien. */
 export async function listNotifications(since: Date): Promise<NotificationItem[]> {
   const recentMail = new Date(Date.now() - MAIL_RECENT_MS);
-  const senders = [...(await erpSenderAddresses())];
 
   const [mails, accepted, rejected, payments, testimonials] = await Promise.all([
     prisma.emailMessage.findMany({
@@ -37,7 +37,7 @@ export async function listNotifications(since: Date): Promise<NotificationItem[]
         createdAt: { gt: since },
         receivedAt: { gt: recentMail },
         // Envois de l'ERP synchronisés comme reçus avant la détection (copies, alertes à soi-même).
-        NOT: [{ messageId: { endsWith: "@kouzia.local>" } }, { fromAddress: { in: senders } }],
+        NOT: { messageId: { endsWith: "@kouzia.local>" } },
       },
       orderBy: { createdAt: "desc" },
       take: MAX_ITEMS,
@@ -101,6 +101,11 @@ export async function listNotifications(since: Date): Promise<NotificationItem[]
       body: `${m.fromName || m.fromAddress} : ${m.subject}`,
       href: `/inbox/${m.threadId}`,
       at: m.createdAt.toISOString(),
+      mail: {
+        from: m.fromName || m.fromAddress,
+        subject: m.subject,
+        client: m.thread?.client?.displayName ?? null,
+      },
     })),
     ...accepted.map((a) => ({
       id: `quote_accepted:${a.id}`,

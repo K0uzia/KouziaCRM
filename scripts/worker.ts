@@ -53,7 +53,10 @@ async function runOutbox() {
 
 async function runImapIfDue() {
   try {
-    if (!(await isImapConfigured())) return;
+    if (!(await isImapConfigured())) {
+      console.log("[worker] IMAP sync skip : IMAP non configuré");
+      return;
+    }
     const settings = await getCompanySettings();
     const intervalMin = Math.min(60, Math.max(1, settings.imapPollIntervalMinutes || 2));
     const state = await prisma.mailSyncStatus.findUnique({ where: { id: "default" } });
@@ -61,6 +64,8 @@ async function runImapIfDue() {
       state?.lastSyncAt &&
       Date.now() - state.lastSyncAt.getTime() < intervalMin * 60 * 1000
     ) {
+      const ago = Math.round((Date.now() - state.lastSyncAt.getTime()) / 60_000);
+      console.log(`[worker] IMAP sync skip : dernière synchro il y a ${ago} min (intervalle ${intervalMin} min)`);
       return;
     }
     console.log(`[worker] IMAP sync start ${new Date().toISOString()}`);
@@ -108,7 +113,11 @@ const tasks = [
     void runOutbox();
   }),
   cron.schedule("* * * * *", () => {
-    void runMailPollFallback();
+    runMailPollFallback()
+      .then((r) => {
+        if (r === "skipped") console.log("[worker] repli IMAP : skip (IDLE actif et synchro récente, ou IMAP non configuré)");
+      })
+      .catch((err) => console.error("[worker] repli IMAP en échec", err));
   }),
   cron.schedule("*/5 * * * *", () => {
     void runImapIfDue();

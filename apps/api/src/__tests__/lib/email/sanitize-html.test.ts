@@ -108,3 +108,16 @@ describe("buildEmailSrcDoc", () => {
     expect(doc).toContain("https://cdn.example/logo.png");
   });
 });
+
+describe("corps HTML lisible sur téléphone", () => {
+  it("viewport et règles de largeur injectés (images, tableaux, code, URL longues)", async () => {
+    const { readFileSync } = await import("node:fs");
+    const { fileURLToPath } = await import("node:url");
+    const html = readFileSync(fileURLToPath(new URL("../../fixtures/emails/newsletter.html", import.meta.url)), "utf8");
+    const doc = buildEmailSrcDoc(sanitizeEmailHtml(html, { allowRemoteImages: true }));
+    expect(doc).toContain('name="viewport"');
+    expect(doc).toContain("img,video{max-width:100% !important");
+    expect(doc).toContain("table{max-width:100% !important;}");
+    expect(doc).toContain("pre,code{white-space:pre-wrap !important");
+  });
+});

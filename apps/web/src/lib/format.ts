@@ -17,6 +17,22 @@ export function formatBytes(bytes: number): string {
   return `${formatDecimal(bytes / (1024 * 1024), 1)} Mo`;
 }
 
+/** Synchro de la messagerie considérée en panne au-delà de ce délai (IMAP configuré). */
+export const MAIL_SYNC_STALE_MIN = 15;
+
+/** Minutes écoulées depuis une date ISO (null si absente). */
+export function minutesSince(iso: string | null | undefined, now = Date.now()): number | null {
+  if (!iso) return null;
+  return Math.max(0, Math.floor((now - new Date(iso).getTime()) / 60_000));
+}
+
+/** « à l'instant », « il y a 5 min », « il y a 2 h ». */
+export function formatAgoMinutes(min: number): string {
+  if (min < 1) return "à l'instant";
+  if (min < 60) return `il y a ${min} min`;
+  return `il y a ${Math.floor(min / 60)} h`;
+}
+
 /** Affichage téléphone FR : 07 78 55 18 25 (sinon inchangé). */
 export function formatPhoneFr(phone: string | null | undefined): string {
   if (!phone) return "";

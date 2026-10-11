@@ -12,6 +12,7 @@ import { ComposeModal } from "@/pages/messaging/ComposeModal";
 import { useInboxSync } from "@/pages/messaging/useInboxSync";
 import { useMailNotifications } from "@/pages/messaging/useMailNotifications";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
+import { formatAgoMinutes, MAIL_SYNC_STALE_MIN, minutesSince } from "@/lib/format";
 
 export type MailFolderItem = {
   id: string;
@@ -177,6 +178,14 @@ export function MailLayout() {
 
   useInboxSync(scheduleRefresh);
   useMailNotifications(scheduleRefresh, syncStatus);
+
+  // « Dernière synchro il y a X min » se met à jour sans recharger la page.
+  const [clock, setClock] = useState(() => Date.now());
+  useEffect(() => {
+    const id = setInterval(() => setClock(Date.now()), 30_000);
+    return () => clearInterval(id);
+  }, []);
+  const syncAge = minutesSince(syncStatus?.lastSyncAt, clock);
 
   async function syncNow() {
     try {
@@ -355,6 +364,16 @@ export function MailLayout() {
         >
           Connexion à la boîte perdue : reconnexion en cours… ({syncStatus.lastError})
         </div>
+      ) : syncAge !== null && syncAge > MAIL_SYNC_STALE_MIN ? (
+        <div
+          role="status"
+          className="flex shrink-0 flex-wrap items-center gap-x-3 border-b border-[var(--warning)]/30 bg-[var(--warning-soft)] px-4 py-1 text-sm text-[var(--warning)]"
+        >
+          <span>Aucune synchronisation automatique depuis {formatAgoMinutes(syncAge).replace("il y a ", "")}.</span>
+          <button type="button" className="link min-h-11" onClick={() => void syncNow()}>
+            Synchroniser maintenant
+          </button>
+        </div>
       ) : null}
 
       <div className="flex min-h-0 flex-1 overflow-hidden bg-[var(--bg)]">
@@ -364,6 +383,7 @@ export function MailLayout() {
           } ${isReading ? "hidden md:block" : ""}`}
         >
           <FolderSidebar
+            lastSync={syncAge === null ? null : formatAgoMinutes(syncAge)}
             folders={folders}
             selectedId={selectedFolderId}
             onSelect={(id) => {
