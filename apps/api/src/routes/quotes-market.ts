@@ -22,6 +22,7 @@ import {
   acceptQuoteFromThread,
   QuoteDecisionError,
 } from "@/lib/invoices/transitions.js";
+import { PaymentPlanError } from "@/lib/quotes/payment-plans.js";
 import { signedQuoteAbsolutePath } from "@/lib/invoices/acceptance-proof.js";
 import { WorkflowError } from "@/lib/invoices/workflow.js";
 import { applyPaymentLinkChoice } from "@/lib/invoices/payment-link.js";
@@ -95,7 +96,10 @@ export const quotesMarketRoutes: FastifyPluginAsync = async (app) => {
     await requireAuth(request, reply);
     if (reply.sent) return;
     const parsed = z
-      .object({ signerName: z.string().trim().min(2, "Nom du signataire requis").max(120) })
+      .object({
+        signerName: z.string().trim().min(2, "Nom du signataire requis").max(120),
+        paymentPlan: z.enum(["TWO", "THREE"]).optional(),
+      })
       .safeParse(request.body);
     if (!parsed.success) {
       return reply.code(400).send({ error: parsed.error.issues[0]?.message ?? "Données invalides" });
@@ -104,10 +108,12 @@ export const quotesMarketRoutes: FastifyPluginAsync = async (app) => {
       const quote = await acceptQuoteByClient(request.params.id, parsed.data.signerName, {
         source: "ADMIN",
         actor: actorOf(request as { user?: { id: string; email: string } }),
+        paymentPlan: parsed.data.paymentPlan,
       });
       return { quoteStatus: quote.quoteStatus };
     } catch (e) {
       if (e instanceof QuoteDecisionError) return reply.code(409).send({ error: e.message, code: e.code });
+      if (e instanceof PaymentPlanError) return reply.code(400).send({ error: e.message, code: e.code });
       throw e;
     }
   });
@@ -339,6 +345,7 @@ export const quotesMarketRoutes: FastifyPluginAsync = async (app) => {
       const schema = z.object({
         threadId: z.string().min(1),
         signerName: z.string().min(2).max(120),
+        paymentPlan: z.enum(["TWO", "THREE"]).optional(),
       });
       const parsed = schema.safeParse(request.body ?? {});
       if (!parsed.success) {
@@ -350,13 +357,14 @@ export const quotesMarketRoutes: FastifyPluginAsync = async (app) => {
           threadId: parsed.data.threadId,
           signerName: parsed.data.signerName,
           actor: actorOf(request),
+          paymentPlan: parsed.data.paymentPlan,
         });
         return {
           ok: true,
           quote: serializeInvoice(quote),
         };
       } catch (e) {
-        if (e instanceof QuoteDecisionError) {
+        if (e instanceof QuoteDecisionError || e instanceof PaymentPlanError) {
           return reply.code(400).send({ error: e.message, code: e.code });
         }
         return flowError(reply, e);

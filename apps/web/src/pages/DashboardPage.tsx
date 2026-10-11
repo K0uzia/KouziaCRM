@@ -59,6 +59,11 @@ type DashboardData = {
     periodKey: string;
   };
   drafts: number;
+  /** Paiement en 3 fois : étape du 2e acompte à choisir, 2e acompte exigible à facturer. */
+  deposit2?: {
+    missingStep: Array<{ quoteId: string; number: string | null; displayName: string; amountCents: number }>;
+    toInvoice: Array<{ quoteId: string; number: string | null; displayName: string; amountCents: number }>;
+  };
   pendingWithBalance: Array<{
     id: string;
     number: string | null;
@@ -182,6 +187,10 @@ export function DashboardPage() {
       .catch(() => setMailSyncAge(null));
   }, [liveTick]);
   const mailStale = mailSyncAge !== null && mailSyncAge > MAIL_SYNC_STALE_MIN;
+  const deposit2Rows = [
+    ...(data?.deposit2?.toInvoice ?? []).map((q) => ({ ...q, kind: "toInvoice" as const })),
+    ...(data?.deposit2?.missingStep ?? []).map((q) => ({ ...q, kind: "missingStep" as const })),
+  ];
   const url = useMemo(() => `/api/dashboard?scope=${scope}&t=${liveTick}`, [scope, liveTick]);
 
   useEffect(() => {
@@ -472,13 +481,13 @@ export function DashboardPage() {
             <SectionTitle
               action={
                 <span className="rounded-full bg-[var(--surface-hover)] px-2 text-xs font-medium tabular-nums leading-6 text-[var(--muted)]">
-                  {obligationAlerts + (echeanceDue ? 1 : 0) + (data.drafts > 0 ? 1 : 0) + (mailStale ? 1 : 0)}
+                  {obligationAlerts + (echeanceDue ? 1 : 0) + (data.drafts > 0 ? 1 : 0) + (mailStale ? 1 : 0) + deposit2Rows.length}
                 </span>
               }
             >
               À traiter
             </SectionTitle>
-            {obligationAlerts === 0 && !echeanceDue && data.drafts === 0 && !mailStale ? (
+            {obligationAlerts === 0 && !echeanceDue && data.drafts === 0 && !mailStale && deposit2Rows.length === 0 ? (
               <p className="px-5 py-6 text-center text-sm text-[var(--muted)]">Rien en attente. Tout est à jour.</p>
             ) : (
               <ul className="divide-y divide-[var(--border)] px-5">
@@ -499,6 +508,24 @@ export function DashboardPage() {
                     }
                   />
                 ) : null}
+                {deposit2Rows.map((q) => (
+                  <TodoRow
+                    key={`${q.kind}-${q.quoteId}`}
+                    icon={faFileInvoice}
+                    tone={q.kind === "toInvoice" ? "warning" : "primary"}
+                    title={
+                      q.kind === "toInvoice"
+                        ? `2e acompte à facturer : ${formatEUR(q.amountCents)}`
+                        : "Étape du 2e acompte à choisir"
+                    }
+                    detail={`${q.displayName}, devis ${q.number ?? ""}`}
+                    action={
+                      <Link to={`/quotes/${q.quoteId}`} className="link inline-flex min-h-11 items-center gap-1 text-sm">
+                        Voir <FontAwesomeIcon icon={faArrowRight} className="h-3 w-3" aria-hidden />
+                      </Link>
+                    }
+                  />
+                ))}
                 {os && obligationAlerts > 0 ? (
                   <TodoRow
                     icon={faClipboardCheck}

@@ -11,6 +11,15 @@ import { getCompanySettings } from "@/lib/company.js";
 import { allocateInvoiceNumber, allocateQuoteNumber } from "@/lib/invoices/numberingService.js";
 import { ensureQuoteMilestones } from "@/lib/quotes/milestones.js";
 import {
+  applyPlanMilestones,
+  effectiveOffer,
+  initialPlan,
+  parsePaymentPlanOffer,
+  PaymentPlanError,
+  resolveAcceptedPlan,
+  type PaymentPlan,
+} from "@/lib/quotes/payment-plans.js";
+import {
   buildClientSnapshot,
   type ClientSnapshot,
   generateMilestoneInvoice,
@@ -128,6 +137,8 @@ export async function issueQuote(
     const validity =
       validUntil ??
       new Date(issueDate.getTime() + 30 * 24 * 60 * 60 * 1000);
+    // Offre de paiement figée à l'émission (seuil du 3 fois appliqué ici).
+    const offer = effectiveOffer(parsePaymentPlanOffer(quote.paymentPlanOffer), quote.totalCents, settings);
 
     const updated = await tx.invoice.update({
       where: { id: quoteId },
@@ -143,11 +154,13 @@ export async function issueQuote(
         issuedAt: new Date(),
         clientSnapshot: snapshot as unknown as Prisma.InputJsonValue,
         nextReminderAt: addDays(issueDate, settings.reminderQuoteDays),
+        paymentPlanOffer: offer,
       },
       include: { lines: true, client: true, payments: true },
     });
 
-    await ensureQuoteMilestones(quoteId, quote.totalCents, tx);
+    if (offer === null) await ensureQuoteMilestones(quoteId, quote.totalCents, tx);
+    else await applyPlanMilestones(tx, quoteId, quote.totalCents, initialPlan(offer), settings);
     return updated;
   });
 
@@ -257,6 +270,7 @@ async function logQuoteAcceptance(
     context?: QuoteAcceptanceContext;
     signature?: QuoteSignature;
     originalPdfSha256?: string | null;
+    paymentPlan?: PaymentPlan | null;
   } = {},
 ) {
   return prisma.quoteAcceptanceAudit.create({
@@ -275,6 +289,7 @@ async function logQuoteAcceptance(
       verifiedEmailMasked: opts.signature?.emailMasked ?? null,
       codeVerifiedAt: opts.signature?.codeVerifiedAt ?? null,
       originalPdfSha256: opts.originalPdfSha256 ?? null,
+      paymentPlan: opts.paymentPlan ?? null,
     },
   });
 }
@@ -343,8 +358,25 @@ export async function acceptQuoteByClient(
     actor?: QuoteAcceptanceActor;
     context?: QuoteAcceptanceContext;
     signature?: QuoteSignature;
+    /** Formule de paiement choisie (offre CHOICE : obligatoire depuis l'espace client). */
+    paymentPlan?: PaymentPlan | null;
   } = {},
 ) {
+  // Formule retenue, validée avant toute écriture.
+  const pending = await prisma.invoice.findUniqueOrThrow({
+    where: { id: quoteId },
+    select: { paymentPlanOffer: true, totalCents: true },
+  });
+  const offer = parsePaymentPlanOffer(pending.paymentPlanOffer);
+  const plan =
+    offer === null
+      ? null
+      : resolveAcceptedPlan(offer, audit.paymentPlan, { requireChoice: (audit.source ?? "PORTAL") === "PORTAL" });
+  if (offer === null && audit.paymentPlan && audit.paymentPlan !== "TWO") {
+    throw new PaymentPlanError("Cette formule de paiement n'est pas proposée sur ce devis.");
+  }
+  const settings = plan ? await getCompanySettings() : null;
+
   // Signature portail : on fige le devis tel que le client l'a lu, avant qu'il porte l'accord.
   const { captureQuoteBeforeSignature, archiveOriginalQuote } = await import(
     "@/lib/invoices/acceptance-proof.js"
@@ -360,9 +392,11 @@ export async function acceptQuoteByClient(
         quoteStatus: QuoteStatus.ACCEPTED,
         quoteDecidedAt: new Date(),
         quoteSignerName: signerName.trim(),
+        ...(plan ? { paymentPlan: plan } : {}),
       },
       include: { lines: true, client: true },
     });
+    if (plan && settings) await applyPlanMilestones(tx, quoteId, pending.totalCents, plan, settings);
     await activateSubscriptionsFromDocument(quoteId, tx);
     return result;
   });
@@ -373,6 +407,7 @@ export async function acceptQuoteByClient(
     context: audit.context,
     signature: audit.signature,
     originalPdfSha256: original?.sha256 ?? null,
+    paymentPlan: plan,
   });
   if (original) await archiveOriginalQuote(acceptance.id, original);
 
@@ -395,6 +430,7 @@ export async function acceptQuoteFromThread(
     signerName: string;
     threadId: string;
     actor: QuoteAcceptanceActor;
+    paymentPlan?: PaymentPlan;
   },
 ) {
   const thread = await prisma.emailThread.findUnique({
@@ -420,6 +456,7 @@ export async function acceptQuoteFromThread(
     source: "THREAD",
     threadId: opts.threadId,
     actor: opts.actor,
+    paymentPlan: opts.paymentPlan,
   });
 }
 

@@ -412,6 +412,12 @@ export function SettingsPage() {
       depositPercent1Bps: form.depositPercent1Bps,
       depositPercent2Bps: form.depositPercent2Bps,
       depositPercent3Bps: 0,
+      split3Percent1Bps: form.split3Percent1Bps,
+      split3Percent2Bps: form.split3Percent2Bps,
+      split3Percent3Bps: form.split3Percent3Bps,
+      split3MinTotalCents: form.split3MinTotalCents,
+      paymentChoiceDefault: form.paymentChoiceDefault,
+      split3Step2TriggerText: form.split3Step2TriggerText,
       paymentButtonLeadDays: form.paymentButtonLeadDays,
       moduleBankEnabled: form.moduleBankEnabled,
       moduleSubscriptionsEnabled: form.moduleSubscriptionsEnabled,
@@ -1318,11 +1324,10 @@ export function SettingsPage() {
               ) : null}
 
               <Card className="space-y-4 border border-[var(--border)] p-5">
-                <h3 className="text-sm font-semibold">Échéancier d&apos;acomptes</h3>
+                <h3 className="text-sm font-semibold">Paiement en 2 fois</h3>
                 <p className="text-xs text-[var(--muted)]">
-                  Deux échéances seulement : un acompte à la validation du devis, puis le
-                  solde à la livraison. Les devis déjà émis avec un jalon intermédiaire
-                  conservent leur calendrier.
+                  Un acompte à la validation du devis, puis le solde à la livraison. Les devis
+                  déjà émis conservent leur échéancier.
                 </p>
                 <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                   <Field label="Acompte à la validation (%)">
@@ -1362,6 +1367,77 @@ export function SettingsPage() {
                     />
                   </Field>
                 </div>
+
+                <h3 className="border-t border-[var(--border)] pt-4 text-sm font-semibold">Paiement en 3 fois</h3>
+                <p className="text-xs text-[var(--muted)]">
+                  Acompte à la validation, 2e acompte quand l&apos;étape de projet choisie est faite,
+                  solde à la livraison. La formule se choisit devis par devis ; le client peut aussi
+                  choisir à la signature.
+                </p>
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+                  <Field label="Acompte (%)">
+                    <Input
+                      type="number"
+                      min={1}
+                      max={98}
+                      value={pct(form.split3Percent1Bps)}
+                      onChange={(e) => {
+                        const p1 = fromPct(e.target.value);
+                        setForm({
+                          ...form,
+                          split3Percent1Bps: p1,
+                          split3Percent3Bps: Math.max(0, 10000 - p1 - form.split3Percent2Bps),
+                        });
+                      }}
+                    />
+                  </Field>
+                  <Field label="2e acompte (%)">
+                    <Input
+                      type="number"
+                      min={1}
+                      max={98}
+                      value={pct(form.split3Percent2Bps)}
+                      onChange={(e) => {
+                        const p2 = fromPct(e.target.value);
+                        setForm({
+                          ...form,
+                          split3Percent2Bps: p2,
+                          split3Percent3Bps: Math.max(0, 10000 - form.split3Percent1Bps - p2),
+                        });
+                      }}
+                    />
+                  </Field>
+                  <Field label="Solde (%)" hint="Calculé : le total fait 100 %">
+                    <Input type="number" readOnly value={pct(form.split3Percent3Bps)} />
+                  </Field>
+                  <Field label="3 fois à partir de (€)" hint="En dessous, le devis passe en 2 fois">
+                    <Input
+                      type="number"
+                      min={0}
+                      step="1"
+                      inputMode="numeric"
+                      value={String(Math.round(form.split3MinTotalCents / 100))}
+                      onChange={(e) =>
+                        setForm({ ...form, split3MinTotalCents: Math.max(0, Math.round(Number(e.target.value) * 100)) })
+                      }
+                    />
+                  </Field>
+                  <Field label="Texte du 2e acompte sur le devis" className="sm:col-span-2">
+                    <Input
+                      maxLength={200}
+                      value={form.split3Step2TriggerText}
+                      onChange={(e) => setForm({ ...form, split3Step2TriggerText: e.target.value })}
+                    />
+                  </Field>
+                </div>
+                <label className="flex min-h-11 items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={form.paymentChoiceDefault}
+                    onChange={(e) => setForm({ ...form, paymentChoiceDefault: e.target.checked })}
+                  />
+                  Nouveaux devis : laisser le client choisir entre 2 et 3 fois
+                </label>
                 <SaveBar onSave={savePayments} />
               </Card>
 

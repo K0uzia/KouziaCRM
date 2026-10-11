@@ -236,6 +236,15 @@ export type InvoicePdfData = {
     quoteIssueDate?: Date | null;
     marketTotalCents?: number | null;
     milestoneTrigger?: string | null;
+    /** Facture du 2e acompte (3 fois) : étape de projet qui l'a rendu exigible. */
+    milestoneTriggerStep?: { label: string; at: Date | null } | null;
+    /** Devis au choix, non signé : un échéancier par formule. */
+    paymentPlanChoice?: Array<{
+      title: string;
+      milestones: Array<{ label: string; percentBps: number; amountCents: number; triggerText: string }>;
+    }> | null;
+    /** Devis signé : formule retenue par le client. */
+    paymentPlanRetained?: string | null;
     balanceSummary?: {
       marketTotalCents: number;
       quoteNumber: string | null;
@@ -409,7 +418,12 @@ export function InvoiceDocument({ company, client, invoice }: InvoicePdfData) {
             <View style={[styles.party, { borderLeftColor: LINE }]}>
               <Text style={styles.partyTitle}>CONDITIONS</Text>
               {invoice.paymentTerms ? <Text>{invoice.paymentTerms}</Text> : null}
-              {isAcompte && invoice.milestoneTrigger && invoice.milestoneTrigger !== invoice.paymentTerms ? (
+              {isAcompte && invoice.milestoneTriggerStep ? (
+                <Text style={{ marginTop: 2 }}>
+                  Déclencheur : étape « {invoice.milestoneTriggerStep.label} » validée
+                  {invoice.milestoneTriggerStep.at ? ` le ${fmtDate(invoice.milestoneTriggerStep.at)}` : ""}
+                </Text>
+              ) : isAcompte && invoice.milestoneTrigger && invoice.milestoneTrigger !== invoice.paymentTerms ? (
                 <Text style={{ marginTop: 2 }}>Déclencheur : {invoice.milestoneTrigger}</Text>
               ) : null}
               {isCredit && invoice.nothingToPay ? (
@@ -533,9 +547,34 @@ export function InvoiceDocument({ company, client, invoice }: InvoicePdfData) {
           </View>
         ) : null}
 
-        {isQuote && invoice.milestones && invoice.milestones.length > 0 ? (
+        {isQuote && invoice.paymentPlanChoice && invoice.paymentPlanChoice.length > 0 ? (
           <View style={styles.section} wrap={false}>
-            <Text style={styles.h2}>Échéancier de paiement</Text>
+            <Text style={styles.h2}>Échéancier au choix</Text>
+            <Text style={styles.muted}>La formule de paiement se choisit à la signature du devis.</Text>
+            {invoice.paymentPlanChoice.map((p) => (
+              <View key={p.title} style={{ marginTop: 6 }}>
+                <Text style={styles.strong}>{p.title}</Text>
+                {p.milestones.map((m, i) => (
+                  <View key={i} style={styles.milestone}>
+                    <View style={{ flex: 1 }}>
+                      <Text>
+                        {m.label} ({(m.percentBps / 100).toFixed(0)} %)
+                      </Text>
+                      <Text style={styles.muted}>{m.triggerText}</Text>
+                    </View>
+                    <Text style={styles.strong}>{fmtMoney(m.amountCents)}</Text>
+                  </View>
+                ))}
+              </View>
+            ))}
+          </View>
+        ) : isQuote && invoice.milestones && invoice.milestones.length > 0 ? (
+          <View style={styles.section} wrap={false}>
+            <Text style={styles.h2}>
+              {invoice.paymentPlanRetained
+                ? `Échéancier retenu par le client : ${invoice.paymentPlanRetained.toLowerCase()}`
+                : "Échéancier de paiement"}
+            </Text>
             {invoice.milestones.map((m, i) => (
               <View key={i} style={styles.milestone}>
                 <View style={{ flex: 1 }}>

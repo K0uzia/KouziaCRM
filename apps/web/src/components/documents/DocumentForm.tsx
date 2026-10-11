@@ -1,6 +1,6 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { toast } from "sonner";
-import { api } from "@/lib/api";
+import { api, formatEUR } from "@/lib/api";
 import { Button } from "@/components/ui/Button";
 import { ModalActions } from "@/components/ui/Modal";
 import { Field, Input, Select, Textarea } from "@/components/ui/Field";
@@ -29,7 +29,11 @@ export type DocumentFormValues = {
   discountEuros: string;
   /** Facture : devis signé du client auquel la rattacher (facultatif). */
   sourceQuoteId: string;
+  /** Devis : paiement en 2 fois, en 3 fois ou au choix du client (vide = réglages). */
+  paymentPlanOffer: "" | "TWO" | "THREE" | "CHOICE";
 };
+
+type PlanSettings = { paymentChoiceDefault: boolean; split3MinTotalCents: number };
 
 type QuoteOpt = {
   id: string;
@@ -93,7 +97,19 @@ export function DocumentFormEditor({
     discountPercent: initial?.discountPercent ?? "",
     discountEuros: initial?.discountEuros ?? "",
     sourceQuoteId: initial?.sourceQuoteId ?? "",
+    paymentPlanOffer: initial?.paymentPlanOffer ?? "",
   });
+  const [planSettings, setPlanSettings] = useState<PlanSettings | null>(null);
+  useEffect(() => {
+    if (documentType !== "QUOTE") return;
+    api<PlanSettings>("/api/settings")
+      .then((s) => {
+        setPlanSettings(s);
+        // Nouveau devis : formule par défaut des réglages.
+        setForm((f) => (f.paymentPlanOffer ? f : { ...f, paymentPlanOffer: s.paymentChoiceDefault ? "CHOICE" : "TWO" }));
+      })
+      .catch(() => undefined);
+  }, [documentType]);
   const [busy, setBusy] = useState(false);
   const [services, setServices] = useState<ServiceOpt[]>([]);
   const [signedQuotes, setSignedQuotes] = useState<QuoteOpt[]>([]);
@@ -247,6 +263,7 @@ export function DocumentFormEditor({
         serviceDate: documentType === "INVOICE" ? form.serviceDate || null : null,
         purchaseOrderRef: form.purchaseOrderRef || null,
         ...(documentType === "INVOICE" ? { sourceQuoteId: form.sourceQuoteId || null } : {}),
+        ...(documentType === "QUOTE" && form.paymentPlanOffer ? { paymentPlanOffer: form.paymentPlanOffer } : {}),
         discountType: form.discountType,
         discountPercent:
           form.discountType === "PERCENT" ? Number(form.discountPercent) || 0 : undefined,
@@ -553,6 +570,29 @@ export function DocumentFormEditor({
             <span className="font-medium text-[var(--text)]">Validité : 30 jours</span>, calculée automatiquement à partir de la
             date d&apos;émission. Le client peut l&apos;accepter en ligne depuis son espace.
           </p>
+        ) : null}
+        {isQuote ? (
+          <Field
+            label="Paiement"
+            hint={
+              planSettings && form.paymentPlanOffer !== "TWO" && totalPreview * 100 < planSettings.split3MinTotalCents
+                ? `Sous ${formatEUR(planSettings.split3MinTotalCents)}, le devis passera en 2 fois à l'émission.`
+                : form.paymentPlanOffer === "CHOICE"
+                  ? "Le client choisira à la signature ; les deux échéanciers figurent sur le devis."
+                  : undefined
+            }
+          >
+            <Select
+              value={form.paymentPlanOffer}
+              onChange={(e) =>
+                setForm((f) => ({ ...f, paymentPlanOffer: e.target.value as DocumentFormValues["paymentPlanOffer"] }))
+              }
+            >
+              <option value="TWO">En 2 fois : acompte et solde</option>
+              <option value="THREE">En 3 fois : acompte, 2e acompte à une étape, solde</option>
+              <option value="CHOICE">Au choix du client (2 ou 3 fois)</option>
+            </Select>
+          </Field>
         ) : null}
         <div className={isQuote ? "" : "grid gap-4 sm:grid-cols-2"}>
           <Field label={isQuote ? "Conditions de règlement" : "Conditions de paiement"}>

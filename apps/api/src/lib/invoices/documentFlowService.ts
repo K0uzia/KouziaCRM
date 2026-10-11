@@ -230,6 +230,8 @@ export async function getMarketView(quoteId: string) {
       percentBps: m.percentBps,
       amountCents: m.amountCents,
       triggerText: m.triggerText,
+      triggerStepLabel: m.triggerStepLabel,
+      triggeredAt: m.triggeredAt,
       status: m.status,
       dueDate: m.dueDate,
       checkoutUrl: m.checkoutUrl,

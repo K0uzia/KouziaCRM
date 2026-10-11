@@ -268,6 +268,12 @@ export type PaymentsPatch = {
   depositPercent1Bps?: number;
   depositPercent2Bps?: number;
   depositPercent3Bps?: number;
+  split3Percent1Bps?: number;
+  split3Percent2Bps?: number;
+  split3Percent3Bps?: number;
+  split3MinTotalCents?: number;
+  paymentChoiceDefault?: boolean;
+  split3Step2TriggerText?: string;
   paymentButtonLeadDays?: number;
   projectMilestoneMidBps?: number;
   moduleBankEnabled?: boolean;
@@ -300,6 +306,15 @@ export async function savePaymentsTab(
         statusCode: 400,
       },
     );
+  }
+
+  const t1 = patch.split3Percent1Bps ?? current.split3Percent1Bps;
+  const t2 = patch.split3Percent2Bps ?? current.split3Percent2Bps;
+  const t3 = patch.split3Percent3Bps ?? current.split3Percent3Bps;
+  if (t1 + t2 + t3 !== 10000) {
+    throw Object.assign(new Error("Paiement en 3 fois : la somme des trois pourcentages doit faire 100 %"), {
+      statusCode: 400,
+    });
   }
 
   const extra: string[] = [];
@@ -335,6 +350,14 @@ export async function savePaymentsTab(
       depositPercent1Bps: p1,
       depositPercent2Bps: p2,
       depositPercent3Bps: 0,
+      split3Percent1Bps: t1,
+      split3Percent2Bps: t2,
+      split3Percent3Bps: t3,
+      ...(patch.split3MinTotalCents !== undefined ? { split3MinTotalCents: patch.split3MinTotalCents } : {}),
+      ...(patch.paymentChoiceDefault !== undefined ? { paymentChoiceDefault: patch.paymentChoiceDefault } : {}),
+      ...(patch.split3Step2TriggerText !== undefined
+        ? { split3Step2TriggerText: patch.split3Step2TriggerText }
+        : {}),
       ...(patch.paymentButtonLeadDays !== undefined
         ? { paymentButtonLeadDays: patch.paymentButtonLeadDays }
         : {}),

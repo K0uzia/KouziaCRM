@@ -75,6 +75,12 @@ export type PublicSettings = {
   depositPercent1Bps: number;
   depositPercent2Bps: number;
   depositPercent3Bps: number;
+  split3Percent1Bps: number;
+  split3Percent2Bps: number;
+  split3Percent3Bps: number;
+  split3MinTotalCents: number;
+  paymentChoiceDefault: boolean;
+  split3Step2TriggerText: string;
   paymentButtonLeadDays: number;
   projectMilestoneMidBps: number;
   moduleBankEnabled: boolean;

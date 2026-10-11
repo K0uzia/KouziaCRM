@@ -77,6 +77,7 @@ export async function renderLoadedDocumentPdf(doc: LoadedDocumentForPdf): Promis
       invoice: doc.invoice,
       legalClauses: doc.legalClauses,
       balanceSummary: doc.balanceSummary,
+      planSettings: doc.companyRaw,
     }),
   });
 }

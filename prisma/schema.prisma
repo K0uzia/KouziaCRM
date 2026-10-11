@@ -395,6 +395,16 @@ model CompanySettings {
   depositPercent1Bps      Int @default(3000)
   depositPercent2Bps      Int @default(7000)
   depositPercent3Bps      Int @default(0)
+  /// Paiement en 3 fois : acompte, 2e acompte (étape de projet), solde. Somme = 10000.
+  split3Percent1Bps       Int @default(3000)
+  split3Percent2Bps       Int @default(4000)
+  split3Percent3Bps       Int @default(3000)
+  /// Total minimal (centimes) pour proposer le 3 fois ; en dessous, l'offre retombe sur 2 fois.
+  split3MinTotalCents     Int @default(50000)
+  /// Nouveaux devis : proposer au client le choix entre 2 et 3 fois.
+  paymentChoiceDefault    Boolean @default(false)
+  /// Déclencheur imprimé pour le 2e acompte du 3 fois.
+  split3Step2TriggerText  String @default("À la validation de l'étape définie dans le suivi de projet")
   /// Jours avant échéance où le bouton de paiement Revolut est créé / activé
   paymentButtonLeadDays   Int @default(7)
   /// Position du jalon 2 sur la durée du projet (5000 = 50 %)
@@ -851,6 +861,10 @@ model Invoice {
   refundMethod         RefundMethod?
   /// Confirmation CGV : acompte remboursable (null si non applicable)
   cgvDepositRefundable Boolean?
+  /// Devis : formules proposées, TWO | THREE | CHOICE (null = échéancier historique). Figée à l'émission.
+  paymentPlanOffer  String?
+  /// Devis accepté : formule retenue, TWO | THREE.
+  paymentPlan       String?
   /// Checklist suivi post-avoir (JSON)
   creditFollowUp       Json?
   /// Pivot marché : devis commun (nullable si facture hors marché)
@@ -914,6 +928,9 @@ model PaymentMilestone {
   /// Revolut Merchant (encaissement en ligne)
   revolutOrderId    String?
   revolutPaymentId  String?
+  /// 2e acompte du 3 fois : étape de projet qui l'a rendu exigible, et quand.
+  triggerStepLabel  String?
+  triggeredAt       DateTime?
   checkoutUrl       String?
   paidAt            DateTime?
   paymentMethod     PaymentMethod?
@@ -1154,6 +1171,8 @@ model QuoteAcceptanceAudit {
   /// Devis tel que présenté au client juste avant sa signature, archivé, et son empreinte SHA-256
   originalPdfPath   String?
   originalPdfSha256 String?
+  /// Formule de paiement retenue à la signature (TWO | THREE)
+  paymentPlan       String?
   createdAt  DateTime     @default(now())
 
   @@index([quoteId])

@@ -8,13 +8,23 @@ import type {
 } from "@prisma/client";
 import type { ClientSnapshot } from "@/lib/invoices/transitions.js";
 import type { InvoicePdfData } from "@/lib/pdf/invoice-document.js";
+import {
+  describePlans,
+  parsePaymentPlan,
+  parsePaymentPlanOffer,
+  type PlanSettings,
+} from "@/lib/quotes/payment-plans.js";
 
 type InvoiceWithRelations = Invoice & {
   lines: InvoiceLine[];
   payments?: Payment[];
   creditedInvoice?: { number: string | null; issueDate: Date | null } | null;
   quote?: { number: string | null; issueDate: Date | null } | null;
-  sourceMilestone?: { triggerText: string | null } | null;
+  sourceMilestone?: {
+    triggerText: string | null;
+    triggerStepLabel?: string | null;
+    triggeredAt?: Date | null;
+  } | null;
   milestones: PaymentMilestone[];
   /** Dernière acceptation en premier : alimente le bloc de signature du devis. */
   quoteAcceptanceAudits?: QuoteAcceptanceAudit[];
@@ -26,7 +36,11 @@ export type BuildPdfPayloadInput = {
   invoice: InvoiceWithRelations;
   legalClauses?: LegalClause[];
   balanceSummary?: BalanceSummary | null;
+  /** Réglages des formules : tableaux « au choix » d'un devis non encore signé. */
+  planSettings?: PlanSettings | null;
 };
+
+const PLAN_TITLE = { TWO: "Paiement en 2 fois", THREE: "Paiement en 3 fois" } as const;
 
 const MILESTONE_STATUS_LABEL: Record<string, string> = {
   PENDING: "En attente",
@@ -55,7 +69,11 @@ export function buildInvoicePdfPayload({
   invoice,
   legalClauses,
   balanceSummary,
+  planSettings,
 }: BuildPdfPayloadInput): InvoicePdfData["invoice"] {
+  const offer = parsePaymentPlanOffer(invoice.paymentPlanOffer);
+  const retained = parsePaymentPlan(invoice.paymentPlan);
+  const isQuote = invoice.documentType === "QUOTE";
   return {
     number: invoice.number ?? "",
     documentType: invoice.documentType as "INVOICE" | "CREDIT_NOTE" | "QUOTE",
@@ -84,6 +102,18 @@ export function buildInvoicePdfPayload({
     quoteIssueDate: invoice.quote?.issueDate ?? null,
     marketTotalCents: invoice.marketTotalCents,
     milestoneTrigger: invoice.sourceMilestone?.triggerText ?? null,
+    milestoneTriggerStep: invoice.sourceMilestone?.triggerStepLabel
+      ? { label: invoice.sourceMilestone.triggerStepLabel, at: invoice.sourceMilestone.triggeredAt ?? null }
+      : null,
+    // Devis au choix non signé : les deux échéanciers ; devis signé : la formule retenue.
+    paymentPlanChoice:
+      isQuote && offer === "CHOICE" && !retained && planSettings
+        ? describePlans(offer, invoice.totalCents, planSettings).map((p) => ({
+            title: PLAN_TITLE[p.plan],
+            milestones: p.milestones,
+          }))
+        : null,
+    paymentPlanRetained: isQuote && offer && retained ? PLAN_TITLE[retained] : null,
     balanceSummary: balanceSummary ?? null,
     milestones: invoice.milestones.map((m) => ({
       label: m.label,
