@@ -15,7 +15,7 @@ type StepStatus = "done" | "current" | "todo";
 type ProjectForm = {
   name: string;
   progress: number;
-  steps: Array<{ label: string; status: StepStatus; date: string | null }>;
+  steps: Array<{ label: string; status: StepStatus; date: string | null; triggersDeposit2?: boolean }>;
   links: Array<{ label: string; url: string }>;
   checklist: Array<{ label: string; done: boolean; note: string | null }>;
   visibleOnPortal: boolean;
@@ -30,7 +30,13 @@ const PROJECT_STATUS: Record<ProjectStatus, { label: string; tone: "amber" | "te
   DONE: { label: "Terminé", tone: "green" },
 };
 
-type Project = ProjectForm & { id: string; quoteId: string | null; startedAt: string | null };
+type Project = ProjectForm & {
+  id: string;
+  quoteId: string | null;
+  startedAt: string | null;
+  /** Devis d'origine accepté en 3 fois : étape du 2e acompte (verrouillée une fois exigible). */
+  deposit2: { locked: boolean; missingStep: boolean } | null;
+};
 
 const STEP_LABEL: Record<StepStatus, string> = {
   done: "Terminé",
@@ -138,6 +144,7 @@ export function ClientProjects({ clientId }: { clientId: string }) {
   }
 
   const form = editing?.form;
+  const editingDeposit2 = editing?.id ? (projects.find((x) => x.id === editing.id)?.deposit2 ?? null) : null;
 
   return (
     <Card className="space-y-3 p-5 text-sm">
@@ -166,6 +173,7 @@ export function ClientProjects({ clientId }: { clientId: string }) {
                   <p className="font-medium">{p.name}</p>
                   <Badge tone={PROJECT_STATUS[p.status]?.tone ?? "neutral"}>{PROJECT_STATUS[p.status]?.label ?? p.status}</Badge>
                   {!p.visibleOnPortal ? <Badge tone="neutral">Masqué</Badge> : null}
+                  {p.deposit2?.missingStep ? <Badge tone="amber">Étape du 2e acompte à choisir</Badge> : null}
                   {p.quoteId ? (
                     <Link to={`/quotes/${p.quoteId}`} className="link text-xs">
                       Devis d'origine
@@ -269,6 +277,13 @@ export function ClientProjects({ clientId }: { clientId: string }) {
               Visible dans l&apos;espace client
             </label>
 
+            {editingDeposit2 ? (
+              <p role="status" className="rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--bg-subtle)] px-3 py-2 text-sm text-[var(--muted)]">
+                {editingDeposit2.locked
+                  ? "Le 2e acompte est exigible : l'étape qui l'a déclenché ne peut plus changer."
+                  : "Devis accepté en 3 fois : cochez l'étape qui, une fois terminée, rend le 2e acompte exigible."}
+              </p>
+            ) : null}
             <ListSection
               title="Étapes"
               onAdd={() =>
@@ -278,6 +293,7 @@ export function ClientProjects({ clientId }: { clientId: string }) {
               {form.steps.map((s, i) => (
                 <ListRow
                   key={i}
+                  removeDisabled={Boolean(editingDeposit2?.locked && s.triggersDeposit2)}
                   onRemove={() => update({ steps: form.steps.filter((_, j) => j !== i) })}
                 >
                   <Input
@@ -322,6 +338,25 @@ export function ClientProjects({ clientId }: { clientId: string }) {
                       })
                     }
                   />
+                  {editingDeposit2 ? (
+                    <label className="flex min-h-11 shrink-0 items-center gap-2 text-sm">
+                      <input
+                        type="checkbox"
+                        checked={Boolean(s.triggersDeposit2)}
+                        disabled={editingDeposit2.locked}
+                        onChange={(e) =>
+                          // Une seule étape déclenche le 2e acompte : cocher l'une décoche les autres.
+                          update({
+                            steps: form.steps.map((x, j) => ({
+                              ...x,
+                              triggersDeposit2: j === i ? e.target.checked : false,
+                            })),
+                          })
+                        }
+                      />
+                      Déclenche le 2e acompte
+                    </label>
+                  ) : null}
                 </ListRow>
               ))}
             </ListSection>
@@ -466,11 +501,19 @@ function ListSection({
   );
 }
 
-function ListRow({ onRemove, children }: { onRemove: () => void; children: ReactNode }) {
+function ListRow({
+  onRemove,
+  removeDisabled = false,
+  children,
+}: {
+  onRemove: () => void;
+  removeDisabled?: boolean;
+  children: ReactNode;
+}) {
   return (
     <div className="flex flex-col gap-2 rounded-[var(--radius-sm)] border border-[var(--border)] p-2 sm:flex-row sm:items-center">
       {children}
-      <Button variant="ghost" className="px-2 text-xs" aria-label="Retirer" onClick={onRemove}>
+      <Button variant="ghost" className="px-2 text-xs" aria-label="Retirer" disabled={removeDisabled} onClick={onRemove}>
         <FontAwesomeIcon icon={faTrash} className="h-3.5 w-3.5" aria-hidden />
       </Button>
     </div>

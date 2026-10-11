@@ -35,6 +35,13 @@ import {
   rejectQuote,
   QuoteDecisionError,
 } from "@/lib/invoices/transitions.js";
+import {
+  describePlans,
+  parsePaymentPlan,
+  parsePaymentPlanOffer,
+  PaymentPlanError,
+  resolveAcceptedPlan,
+} from "@/lib/quotes/payment-plans.js";
 import { getPublicClientPreview, submitPublicClient } from "@/lib/clients/onboarding.js";
 import { signDocumentToken } from "@/lib/documents/public-token.js";
 import { replyEntrepriseLookup } from "@/lib/company/entreprise-route.js";
@@ -119,6 +126,8 @@ const quoteDecisionSchema = z.discriminatedUnion("decision", [
     signatureMode: z.enum(["TYPED", "DRAWN"]),
     signatureImage: signatureImageSchema.optional(),
     code: codeSchema,
+    /** Formule de paiement : obligatoire quand le devis propose le choix. */
+    paymentPlan: z.enum(["TWO", "THREE"]).optional(),
   }),
   z.object({
     decision: z.literal("REJECT"),
@@ -325,6 +334,7 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
           const depositPaid =
             !requiresDeposit || firstMilestone?.status === "PAID";
           const quotePending = d.quoteStatus === "SENT";
+          const offer = parsePaymentPlanOffer(d.paymentPlanOffer);
           return {
             id: d.id,
             number: d.number,
@@ -366,6 +376,8 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
                     percentBps: m.percentBps,
                     status: m.status,
                     triggerText: m.triggerText,
+                    triggerStepLabel: m.triggerStepLabel,
+                    triggeredAt: m.triggeredAt,
                     dueDate: m.dueDate,
                     checkoutUrl:
                       m.checkoutUrl &&
@@ -379,6 +391,23 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
                     ...(showAmounts ? { amountCents: m.amountCents } : {}),
                   }))
                 : undefined,
+            // Paiement en 2 ou 3 fois : formules proposées (avant signature) et formule retenue.
+            ...(d.documentType === InvoiceDocumentType.QUOTE && offer
+              ? {
+                  paymentPlanOffer: offer,
+                  paymentPlan: parsePaymentPlan(d.paymentPlan),
+                  ...(quotePending
+                    ? {
+                        paymentPlans: describePlans(offer, d.totalCents, settings).map((p) => ({
+                          plan: p.plan,
+                          milestones: p.milestones.map(({ amountCents, ...m }) =>
+                            showAmounts ? { ...m, amountCents } : m,
+                          ),
+                        })),
+                      }
+                    : {}),
+                }
+              : {}),
             requiresDeposit,
             depositPaid,
             canAcceptQuote: quotePending,
@@ -458,7 +487,7 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
 
       const quote = await prisma.invoice.findUnique({
         where: { id: request.params.id },
-        select: { id: true, clientId: true },
+        select: { id: true, clientId: true, paymentPlanOffer: true },
       });
       // Même réponse qu'un devis inexistant : le portail ne révèle pas les documents d'autrui.
       if (!quote || quote.clientId !== client.id) {
@@ -475,6 +504,8 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
         if (data.signatureMode === "DRAWN" && !data.signatureImage) {
           return reply.code(400).send({ error: "Tracez votre signature." });
         }
+        // Formule vérifiée avant le code : un oubli ne consomme pas le code de signature.
+        resolveAcceptedPlan(parsePaymentPlanOffer(quote.paymentPlanOffer), data.paymentPlan, { requireChoice: true });
         const check = await checkPortalCode(client.id, "SIGN", data.code, quote.id);
         if (check !== "ok") return reply.code(401).send({ error: CODE_ERRORS[check] });
 
@@ -495,6 +526,7 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
               emailMasked: email ? maskEmail(email) : null,
               codeVerifiedAt: new Date(),
             },
+            paymentPlan: data.paymentPlan,
           },
         );
         return { quoteStatus: updated.quoteStatus };
@@ -502,6 +534,7 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
         if (e instanceof QuoteDecisionError) {
           return reply.code(409).send({ error: e.message, code: e.code });
         }
+        if (e instanceof PaymentPlanError) return reply.code(400).send({ error: e.message, code: e.code });
         return reply.code(400).send({ error: "Décision impossible" });
       }
     },
@@ -556,7 +589,7 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
       const buffer = await renderInvoicePdf({
         company,
         client: snapshot,
-        invoice: buildInvoicePdfPayload({ invoice, legalClauses }),
+        invoice: buildInvoicePdfPayload({ invoice, legalClauses, planSettings: await getCompanySettings() }),
       });
 
       return reply

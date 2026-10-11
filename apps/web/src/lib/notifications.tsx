@@ -13,7 +13,13 @@ import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { NotificationToast } from "@/components/NotificationToast";
 
-export type NotificationKind = "mail" | "quote_accepted" | "quote_rejected" | "payment" | "testimonial";
+export type NotificationKind =
+  | "mail"
+  | "quote_accepted"
+  | "quote_rejected"
+  | "payment"
+  | "testimonial"
+  | "deposit_due";
 
 export type NotificationItem = {
   id: string;

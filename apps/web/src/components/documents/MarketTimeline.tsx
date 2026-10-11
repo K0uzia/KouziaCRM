@@ -12,6 +12,9 @@ export type MarketMilestone = {
   percentBps: number;
   amountCents: number;
   triggerText: string;
+  /** 3 fois : étape de projet qui a rendu le 2e acompte exigible. */
+  triggerStepLabel?: string | null;
+  triggeredAt?: string | null;
   status: string;
   dueDate?: string | null;
   checkoutUrl?: string | null;

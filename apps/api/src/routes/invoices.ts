@@ -77,6 +77,8 @@ const createSchema = z.object({
   discountType: z.enum(["NONE", "PERCENT", "FIXED"]).optional().default("NONE"),
   discountPercent: z.coerce.number().min(0).max(100).optional(),
   discountEuros: z.coerce.number().min(0).optional(),
+  /** Devis : paiement en 2 fois, en 3 fois ou au choix du client (défaut : réglages). */
+  paymentPlanOffer: z.enum(["TWO", "THREE", "CHOICE"]).optional(),
 });
 
 const updateSchema = z.object({
@@ -91,6 +93,7 @@ const updateSchema = z.object({
   discountType: z.enum(["NONE", "PERCENT", "FIXED"]).optional(),
   discountPercent: z.coerce.number().min(0).max(100).optional(),
   discountEuros: z.coerce.number().min(0).optional(),
+  paymentPlanOffer: z.enum(["TWO", "THREE", "CHOICE"]).optional(),
 });
 
 function discountFromBody(data: {
@@ -229,9 +232,15 @@ export const invoicesRoutes: FastifyPluginAsync = async (app) => {
             ? new Date(parsed.data.validUntil)
             : null;
 
+      const paymentPlanOffer =
+        documentType === InvoiceDocumentType.QUOTE
+          ? (parsed.data.paymentPlanOffer ?? ((await getCompanySettings()).paymentChoiceDefault ? "CHOICE" : "TWO"))
+          : null;
+
       const invoice = await prisma.invoice.create({
         data: {
           documentType,
+          paymentPlanOffer,
           quoteStatus: documentType === InvoiceDocumentType.QUOTE ? QuoteStatus.DRAFT : null,
           clientId: parsed.data.clientId,
           notes: parsed.data.notes ?? null,
@@ -419,7 +428,11 @@ export const invoicesRoutes: FastifyPluginAsync = async (app) => {
       purchaseOrderRef?: string | null;
       quoteId?: string | null;
       sourceQuoteId?: string | null;
+      paymentPlanOffer?: string;
     } = {};
+    if (parsed.data.paymentPlanOffer && existing.documentType === InvoiceDocumentType.QUOTE) {
+      data.paymentPlanOffer = parsed.data.paymentPlanOffer;
+    }
 
     if (
       parsed.data.sourceQuoteId !== undefined &&
@@ -1030,7 +1043,12 @@ export const invoicesRoutes: FastifyPluginAsync = async (app) => {
 
     const buffer = await renderInvoicePdf({
       company,
-      invoice: buildInvoicePdfPayload({ invoice, legalClauses, balanceSummary }),
+      invoice: buildInvoicePdfPayload({
+        invoice,
+        legalClauses,
+        balanceSummary,
+        planSettings: await getCompanySettings(),
+      }),
       client: snapshot,
     });
 

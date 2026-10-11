@@ -4,6 +4,7 @@ import {
   faCircleCheck,
   faCircleXmark,
   faEnvelope,
+  faFileInvoiceDollar,
   faStar,
   faWallet,
   faXmark,
@@ -17,6 +18,7 @@ export const NOTIFICATION_KIND_STYLE: Record<NotificationKind, { icon: IconDefin
   quote_rejected: { icon: faCircleXmark, tone: "bg-[var(--danger-soft)] text-[var(--danger)]" },
   payment: { icon: faWallet, tone: "bg-[var(--success-soft)] text-[var(--success)]" },
   testimonial: { icon: faStar, tone: "bg-[var(--primary-soft)] text-[var(--primary)]" },
+  deposit_due: { icon: faFileInvoiceDollar, tone: "bg-[var(--warning-soft)] text-[var(--warning)]" },
 };
 
 /**

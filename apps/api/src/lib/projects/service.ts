@@ -1,4 +1,4 @@
-import type { ClientProject } from "@prisma/client";
+import { MilestoneStatus, type ClientProject } from "@prisma/client";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma.js";
 
@@ -16,6 +16,11 @@ const stepSchema = z.object({
     .regex(/^\d{4}-\d{2}-\d{2}$/)
     .nullish()
     .transform((v) => v || null),
+  /** Paiement en 3 fois : cette étape, une fois faite, rend le 2e acompte exigible. */
+  triggersDeposit2: z
+    .boolean()
+    .optional()
+    .transform((v) => (v ? true : undefined)),
 });
 
 const linkSchema = z.object({
@@ -37,7 +42,13 @@ const checklistItemSchema = z.object({
 export const projectInputSchema = z.object({
   name: z.string().trim().min(1).max(120),
   progress: z.number().int().min(0).max(100),
-  steps: z.array(stepSchema).max(30).default([]),
+  steps: z
+    .array(stepSchema)
+    .max(30)
+    .default([])
+    .refine((steps) => steps.filter((s) => s.triggersDeposit2).length <= 1, {
+      message: "Une seule étape peut déclencher le 2e acompte.",
+    }),
   links: z.array(linkSchema).max(20).default([]),
   checklist: z.array(checklistItemSchema).max(50).default([]),
   visibleOnPortal: z.boolean().default(true),
@@ -105,7 +116,75 @@ export async function listClientProjects(clientId: string) {
     where: { clientId },
     orderBy: [{ position: "asc" }, { createdAt: "asc" }],
   });
-  return projects.map(serializeProject);
+  return Promise.all(projects.map(serializeAdminProject));
+}
+
+/** Fiche admin : état du 2e acompte (case « Déclenche le 2e acompte » et alerte sans étape). */
+async function serializeAdminProject(p: ClientProject) {
+  const s = serializeProject(p);
+  const trigger = await depositTriggerState(p.quoteId);
+  return {
+    ...s,
+    deposit2: trigger.eligible
+      ? { locked: trigger.locked, missingStep: !s.steps.some((step) => step.triggersDeposit2) }
+      : null,
+  };
+}
+
+/**
+ * 2e acompte du paiement en 3 fois, rattaché au projet par son devis d'origine.
+ * eligible : le devis a été accepté en 3 fois ; locked : le jalon n'est plus en attente.
+ */
+async function deposit2Of(quoteId: string | null) {
+  if (!quoteId) return null;
+  const quote = await prisma.invoice.findUnique({
+    where: { id: quoteId },
+    select: { paymentPlan: true, milestones: { where: { position: 2 } } },
+  });
+  if (quote?.paymentPlan !== "THREE") return null;
+  return quote.milestones[0] ?? null;
+}
+
+export async function depositTriggerState(quoteId: string | null) {
+  const m = await deposit2Of(quoteId);
+  return { eligible: Boolean(m), locked: Boolean(m && m.status !== MilestoneStatus.PENDING) };
+}
+
+const flaggedStep = (steps: ProjectStep[]) => steps.find((s) => s.triggersDeposit2) ?? null;
+
+/**
+ * Contrôle l'étape déclencheuse, puis rend le 2e acompte exigible si elle est faite.
+ * Jamais de facture émise ici : la facture reste une action humaine (fiche devis, « Facturer »).
+ * Le jalon ne revient pas en attente si l'étape repasse « à faire » (pas d'oscillation).
+ */
+async function applyDepositTrigger(quoteId: string | null, before: ProjectStep[], after: ProjectStep[]) {
+  const next = flaggedStep(after);
+  const m = await deposit2Of(quoteId);
+  if (!m) {
+    if (next) throw new ProjectError("Ce projet ne vient pas d'un devis accepté en 3 fois.", 400);
+    return;
+  }
+  if (m.status !== MilestoneStatus.PENDING) {
+    const prev = flaggedStep(before);
+    if (prev && next?.label !== prev.label) {
+      throw new ProjectError(
+        "Le 2e acompte est déjà exigible : l'étape qui l'a déclenché ne peut plus être changée.",
+        409,
+      );
+    }
+    return;
+  }
+  if (next?.status === "done") {
+    await prisma.paymentMilestone.update({
+      where: { id: m.id },
+      data: {
+        status: MilestoneStatus.DUE,
+        dueDate: new Date(),
+        triggerStepLabel: next.label,
+        triggeredAt: new Date(),
+      },
+    });
+  }
 }
 
 export async function createClientProject(clientId: string, input: ProjectInput) {
@@ -116,6 +195,9 @@ export async function createClientProject(clientId: string, input: ProjectInput)
     orderBy: { position: "desc" },
     select: { position: true },
   });
+  if (flaggedStep(input.steps)) {
+    throw new ProjectError("Ce projet ne vient pas d'un devis accepté en 3 fois.", 400);
+  }
   const created = await prisma.clientProject.create({
     data: { clientId, position: (last?.position ?? -1) + 1, ...toData(input) },
   });
@@ -123,10 +205,11 @@ export async function createClientProject(clientId: string, input: ProjectInput)
 }
 
 export async function updateClientProject(id: string, input: ProjectInput) {
-  const existing = await prisma.clientProject.findUnique({ where: { id }, select: { id: true } });
+  const existing = await prisma.clientProject.findUnique({ where: { id } });
   if (!existing) throw new ProjectError("Projet introuvable", 404);
+  await applyDepositTrigger(existing.quoteId, parseList(existing.steps, stepSchema), input.steps);
   const updated = await prisma.clientProject.update({ where: { id }, data: toData(input) });
-  return serializeProject(updated);
+  return serializeAdminProject(updated);
 }
 
 export async function deleteClientProject(id: string) {

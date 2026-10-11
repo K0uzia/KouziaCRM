@@ -25,6 +25,12 @@ import {
   type MilestoneTemplate,
 } from "@/lib/quotes/milestones.js";
 import { prisma } from "@/lib/prisma.js";
+import {
+  initialPlan,
+  parsePaymentPlan,
+  parsePaymentPlanOffer,
+  planTemplate,
+} from "@/lib/quotes/payment-plans.js";
 import { assertMilestoneInvoiced, assertQuoteSigned } from "@/lib/invoices/workflow.js";
 import { createRevolutOrder } from "@/lib/revolut/merchantService.js";
 
@@ -71,7 +77,16 @@ export async function ensureQuoteMilestonesFromSettings(
     });
   }
 
-  const template = await loadDepositTemplateFromSettings();
+  // Formule du devis (retenue, sinon celle de l'émission) ; devis historique : réglages 2 fois.
+  const quote = await db.invoice.findUnique({
+    where: { id: quoteId },
+    select: { paymentPlanOffer: true, paymentPlan: true },
+  });
+  const offer = parsePaymentPlanOffer(quote?.paymentPlanOffer);
+  const template =
+    offer === null
+      ? await loadDepositTemplateFromSettings()
+      : planTemplate(parsePaymentPlan(quote?.paymentPlan) ?? initialPlan(offer), await getCompanySettings());
   const amounts = computeMilestoneAmounts(totalCents, template);
   await db.paymentMilestone.createMany({
     data: amounts.map((m) => ({
@@ -331,9 +346,11 @@ export async function onQuoteAcceptedByClient(quoteId: string) {
   });
 
   for (const m of milestones) {
+    // 3 fois : le 2e acompte n'a pas de date, il devient exigible à l'étape de projet cochée.
+    const awaitsStep = quote.paymentPlan === "THREE" && m.position === 2;
     await prisma.paymentMilestone.update({
       where: { id: m.id },
-      data: { dueDate: computeMilestoneDueDate(quote, m, settings, milestones) },
+      data: { dueDate: awaitsStep ? null : computeMilestoneDueDate(quote, m, settings, milestones) },
     });
   }
 

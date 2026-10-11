@@ -2,7 +2,13 @@ import { EmailDirection, QuoteStatus } from "@prisma/client";
 import { prisma } from "@/lib/prisma.js";
 import { formatEUR } from "@/lib/money.js";
 
-export type NotificationKind = "mail" | "quote_accepted" | "quote_rejected" | "payment" | "testimonial";
+export type NotificationKind =
+  | "mail"
+  | "quote_accepted"
+  | "quote_rejected"
+  | "payment"
+  | "testimonial"
+  | "deposit_due";
 
 export type NotificationItem = {
   /** Identifiant stable (type + id source) : sert à dédoublonner côté interface. */
@@ -30,7 +36,7 @@ function eur(cents: number): string {
 export async function listNotifications(since: Date): Promise<NotificationItem[]> {
   const recentMail = new Date(Date.now() - MAIL_RECENT_MS);
 
-  const [mails, accepted, rejected, payments, testimonials] = await Promise.all([
+  const [mails, accepted, rejected, payments, testimonials, depositsDue] = await Promise.all([
     prisma.emailMessage.findMany({
       where: {
         direction: EmailDirection.INBOUND,
@@ -91,6 +97,19 @@ export async function listNotifications(since: Date): Promise<NotificationItem[]
       take: MAX_ITEMS,
       select: { id: true, authorName: true, createdAt: true },
     }),
+    // Paiement en 3 fois : étape de projet faite, 2e acompte à facturer.
+    prisma.paymentMilestone.findMany({
+      where: { triggeredAt: { gt: since } },
+      orderBy: { triggeredAt: "desc" },
+      take: MAX_ITEMS,
+      select: {
+        id: true,
+        amountCents: true,
+        triggerStepLabel: true,
+        triggeredAt: true,
+        quote: { select: { id: true, number: true, client: { select: { displayName: true } } } },
+      },
+    }),
   ]);
 
   const items: NotificationItem[] = [
@@ -138,6 +157,14 @@ export async function listNotifications(since: Date): Promise<NotificationItem[]
       body: `${t.authorName} a laissé un avis à relire.`,
       href: "/avis",
       at: t.createdAt.toISOString(),
+    })),
+    ...depositsDue.map((d) => ({
+      id: `deposit_due:${d.id}`,
+      kind: "deposit_due" as const,
+      title: `2e acompte exigible : ${eur(d.amountCents)}`,
+      body: `${d.quote.client.displayName}, devis ${d.quote.number ?? ""} : étape « ${d.triggerStepLabel ?? ""} » faite. Facture à émettre.`,
+      href: `/quotes/${d.quote.id}`,
+      at: (d.triggeredAt ?? new Date()).toISOString(),
     })),
   ];
 

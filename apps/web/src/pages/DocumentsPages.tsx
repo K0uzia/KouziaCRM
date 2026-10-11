@@ -24,7 +24,7 @@ import { Media } from "react-data-table-component";
 import { DocumentFormEditor } from "@/components/documents/DocumentForm";
 import { DocumentNumberBadge } from "@/components/documents/DocumentNumberBadge";
 import { InvoiceTypeBadge } from "@/components/documents/InvoiceTypeBadge";
-import { MarketTimeline, type MarketView } from "@/components/documents/MarketTimeline";
+import { MarketTimeline, type MarketMilestone, type MarketView } from "@/components/documents/MarketTimeline";
 import { AcceptanceProofs } from "@/components/documents/AcceptanceProofs";
 import { QuoteJourney } from "@/components/documents/QuoteJourney";
 import {
@@ -82,6 +82,9 @@ type Doc = {
   validUntil: string | null;
   notes: string | null;
   paymentTerms: string | null;
+  /** Devis : formules proposées (TWO | THREE | CHOICE) et formule retenue à la signature. */
+  paymentPlanOffer?: string | null;
+  paymentPlan?: string | null;
   client: {
     id: string;
     displayName: string;
@@ -378,6 +381,44 @@ export function InvoicesPage() {
   return <DocumentsListPage documentType="INVOICE" />;
 }
 
+/**
+ * Devis accepté en 3 fois : où en est le 2e acompte. Il devient exigible quand l'étape de projet
+ * cochée « Déclenche le 2e acompte » est faite ; la facture reste à émettre ici (« Facturer »).
+ */
+function Deposit2Notice({ milestone, clientId }: { milestone: MarketMilestone | null; clientId: string }) {
+  if (!milestone) return null;
+  const projectLink = (
+    <Link to={`/clients/${clientId}?tab=projets`} className="link inline-flex min-h-11 items-center">
+      Ouvrir le projet du client
+    </Link>
+  );
+  if (milestone.status === "PENDING") {
+    return (
+      <div role="status" className="rounded-[var(--radius)] border border-[var(--border)] bg-[var(--bg-subtle)] px-4 py-2 text-sm">
+        <p>
+          <span className="font-medium">Paiement en 3 fois.</span> Le 2e acompte ({formatEUR(milestone.amountCents)}) devient
+          exigible quand l&apos;étape cochée « Déclenche le 2e acompte » du projet est faite.
+        </p>
+        {projectLink}
+      </div>
+    );
+  }
+  if (milestone.status === "DUE" && !milestone.invoiceId) {
+    return (
+      <div
+        role="status"
+        className="rounded-[var(--radius)] border border-[var(--warning)]/40 bg-[var(--warning-soft)] px-4 py-3 text-sm text-[var(--text)]"
+      >
+        <span className="font-medium">2e acompte exigible</span>
+        {milestone.triggerStepLabel ? <> : étape « {milestone.triggerStepLabel} » faite</> : null}
+        {milestone.triggeredAt ? <> le {formatDate(milestone.triggeredAt)}</> : null}. Émettez la facture
+        d&apos;acompte depuis l&apos;échéancier ci-dessous.
+      </div>
+    );
+  }
+  return null;
+}
+
 export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
   const { id } = useParams();
   const navigate = useNavigate();
@@ -402,6 +443,7 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
   const [rejectOpen, setRejectOpen] = useState(false);
   const [signOpen, setSignOpen] = useState(false);
   const [signerName, setSignerName] = useState("");
+  const [signPlan, setSignPlan] = useState<"TWO" | "THREE">("TWO");
   const [signBusy, setSignBusy] = useState(false);
 
   async function signOffline() {
@@ -409,7 +451,10 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
     try {
       await api(`/api/quotes/${id}/sign-offline`, {
         method: "POST",
-        body: JSON.stringify({ signerName: signerName.trim() }),
+        body: JSON.stringify({
+          signerName: signerName.trim(),
+          ...(doc?.paymentPlanOffer === "CHOICE" ? { paymentPlan: signPlan } : {}),
+        }),
       });
       toast.success("Signature enregistrée : vous pouvez facturer l'acompte");
       setSignOpen(false);
@@ -993,6 +1038,16 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
             </div>
           </Card>
 
+          {isQuote && doc.paymentPlan === "THREE" ? (
+            <Deposit2Notice
+              milestone={market?.milestones.find((m) => m.position === 2) ?? null}
+              clientId={doc.client.id}
+            />
+          ) : isQuote && doc.paymentPlanOffer === "CHOICE" && doc.quoteStatus === "SENT" ? (
+            <p className="rounded-[var(--radius)] border border-[var(--border)] bg-[var(--bg-subtle)] px-4 py-3 text-sm text-[var(--muted)]">
+              Paiement au choix du client : il choisira 2 ou 3 fois à la signature.
+            </p>
+          ) : null}
           {isQuote && market && doc.quoteStatus !== "REJECTED" && doc.quoteStatus !== "EXPIRED" ? (
             <MarketTimeline
               market={market}
@@ -1248,6 +1303,28 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
           <Field label="Nom du signataire" hint="Tel qu'il figure sur le devis signé ou dans l'email d'accord.">
             <Input required minLength={2} maxLength={120} value={signerName} onChange={(e) => setSignerName(e.target.value)} />
           </Field>
+          {doc.paymentPlanOffer === "CHOICE" ? (
+            <fieldset className="space-y-1">
+              <legend className="text-sm font-medium">Formule retenue par le client</legend>
+              {(
+                [
+                  ["TWO", "En 2 fois : acompte, puis solde à la livraison"],
+                  ["THREE", "En 3 fois : acompte, 2e acompte à une étape du projet, solde"],
+                ] as const
+              ).map(([value, label]) => (
+                <label key={value} className="flex min-h-11 items-center gap-2 text-sm">
+                  <input
+                    type="radio"
+                    name="sign-plan"
+                    value={value}
+                    checked={signPlan === value}
+                    onChange={() => setSignPlan(value)}
+                  />
+                  {label}
+                </label>
+              ))}
+            </fieldset>
+          ) : null}
           <ModalActions>
             <Button variant="secondary" disabled={signBusy} onClick={() => setSignOpen(false)}>
               Annuler
@@ -1522,6 +1599,10 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
             serviceDate: doc.serviceDate ? doc.serviceDate.slice(0, 10) : "",
             purchaseOrderRef: doc.purchaseOrderRef ?? "",
             sourceQuoteId: doc.sourceQuoteId ?? doc.quoteId ?? "",
+            paymentPlanOffer:
+              doc.paymentPlanOffer === "TWO" || doc.paymentPlanOffer === "THREE" || doc.paymentPlanOffer === "CHOICE"
+                ? doc.paymentPlanOffer
+                : "",
             validUntil: doc.validUntil ? doc.validUntil.slice(0, 10) : "",
             discountType:
               doc.discountType === "PERCENT" || doc.discountType === "FIXED"

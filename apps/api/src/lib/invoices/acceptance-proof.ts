@@ -95,6 +95,14 @@ export async function recordQuoteAcceptanceProof(
       "",
       `Nous avons bien reçu votre accord sur le devis {{numero}}, validé au nom de « ${audit.signerName} » le ${fmtDateTime(audit.createdAt)}.`,
       "Vous trouverez ci-joint le devis signé. Conservez-le avec cet e-mail.",
+      ...(audit.paymentPlan
+        ? [
+            "",
+            audit.paymentPlan === "THREE"
+              ? "Formule de paiement retenue : en 3 fois. Le 2e acompte sera demandé à l'étape du projet indiquée dans votre espace client."
+              : "Formule de paiement retenue : en 2 fois (acompte puis solde).",
+          ]
+        : []),
       "",
       `La suite du projet est consultable dans votre espace client : ${await resolveClientPortalUrl()}`,
       "",

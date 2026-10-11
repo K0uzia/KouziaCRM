@@ -1,6 +1,7 @@
 import { InvoiceStatus, type UrssafPeriodicity } from "@prisma/client";
 import { prisma } from "@/lib/prisma.js";
 import { getCompanySettings } from "@/lib/company.js";
+import { listDeposit2Todos } from "@/lib/quotes/payment-plans.js";
 import { computeSocialChargesForEncaisse, computeUrssafDueCents } from "@/lib/publicodes.js";
 import {
   calendarDaysBetween,
@@ -63,6 +64,8 @@ export type DashboardSnapshotV2 = {
   cashflow: ScopedCashflow;
   chart: CashflowChartPoint[];
   drafts: number;
+  /** Paiement en 3 fois : étape déclencheuse à choisir, 2e acompte exigible à facturer. */
+  deposit2: Awaited<ReturnType<typeof listDeposit2Todos>>;
   pendingWithBalance: Array<{
     id: string;
     number: string | null;
@@ -233,6 +236,7 @@ export async function getDashboardSnapshot(
     cashflow,
     chart,
     drafts,
+    deposit2: await listDeposit2Todos(prisma),
     pendingWithBalance,
   };
 }
