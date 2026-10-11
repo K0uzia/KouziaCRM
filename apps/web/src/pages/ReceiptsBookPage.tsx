@@ -271,7 +271,7 @@ export function ReceiptsBookPage() {
                       <td className="nowrap" data-label="Facture">
                         {r.invoiceId ? (
                           <div className="flex flex-wrap items-center gap-1.5">
-                            <Link to={`/invoices/${r.invoiceId}`}>
+                            <Link to={`/invoices/${r.invoiceId}`} className="inline-flex min-h-11 items-center">
                               <DocumentNumberBadge
                                 number={r.invoiceNumber}
                                 documentType={r.documentType ?? "INVOICE"}

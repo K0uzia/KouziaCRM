@@ -464,7 +464,7 @@ export function SubscriptionsPage() {
                           <div className="flex gap-1">
                             <Button
                               variant="ghost"
-                              className="min-h-10 min-w-10 px-0"
+                              className="px-0"
                               aria-label={`Modifier ${o.name}`}
                               title="Modifier"
                               onClick={() => openEditOffer(o)}
@@ -473,7 +473,7 @@ export function SubscriptionsPage() {
                             </Button>
                             <Button
                               variant="danger-ghost"
-                              className="min-h-10 min-w-10 px-0"
+                              className="px-0"
                               aria-label={`Archiver ${o.name}`}
                               title="Archiver"
                               onClick={() => setOfferToArchive(o)}

@@ -279,8 +279,11 @@ export function AppLayout() {
             ) : null}
           </nav>
           <Link to="/" className="flex min-h-11 min-w-0 flex-1 items-center gap-2 md:hidden" aria-label="Kouzia ERP, tableau de bord">
-            <BrandMark className="h-7 w-7 shrink-0" />
-            <span className="truncate font-display text-base font-semibold">{current?.label ?? "Kouzia ERP"}</span>
+            {/* Sous 400 px : logo masqué, titre court, pour garder le titre lisible à côté des actions. */}
+            <BrandMark className="hidden h-7 w-7 shrink-0 min-[25rem]:block" />
+            <span className="truncate font-display text-base font-semibold">
+              {current?.shortLabel ?? current?.label ?? "Kouzia ERP"}
+            </span>
           </Link>
 
           <div className="ml-auto flex shrink-0 items-center gap-1 sm:gap-2">

@@ -53,7 +53,7 @@ const customStyles: TableProps<never>["customStyles"] = {
   headCells: {
     style: {
       padding: "0.5rem 1rem",
-      fontSize: "0.6875rem",
+      fontSize: "0.75rem",
       fontWeight: 600,
       letterSpacing: "0.06em",
       textTransform: "uppercase",

@@ -298,21 +298,26 @@ export function DashboardPage() {
         <FontAwesomeIcon icon={faWallet} className="h-3.5 w-3.5" aria-hidden />
         Encaisser
       </ButtonLink>
-      <ButtonLink to="/quotes?new=1" variant="secondary">
+      {/* Sous 640 px : libellé court sur une ligne, nom accessible complet (il contient le libellé visible). */}
+      <ButtonLink to="/quotes?new=1" variant="secondary" aria-label="Nouveau devis">
         <FontAwesomeIcon icon={faFileSignature} className="h-3.5 w-3.5" aria-hidden />
-        Nouveau devis
+        <span className="sm:hidden">Devis</span>
+        <span className="hidden sm:inline">Nouveau devis</span>
       </ButtonLink>
-      <ButtonLink to="/invoices?new=1" variant="secondary">
+      <ButtonLink to="/invoices?new=1" variant="secondary" aria-label="Nouvelle facture">
         <FontAwesomeIcon icon={faFileInvoice} className="h-3.5 w-3.5" aria-hidden />
-        Nouvelle facture
+        <span className="sm:hidden">Facture</span>
+        <span className="hidden sm:inline">Nouvelle facture</span>
       </ButtonLink>
-      <ButtonLink to="/clients?new=1" variant="secondary">
+      <ButtonLink to="/clients?new=1" variant="secondary" aria-label="Nouveau client">
         <FontAwesomeIcon icon={faUserPlus} className="h-3.5 w-3.5" aria-hidden />
-        Nouveau client
+        <span className="sm:hidden">Client</span>
+        <span className="hidden sm:inline">Nouveau client</span>
       </ButtonLink>
-      <ButtonLink to="/inbox/compose" variant="secondary">
+      <ButtonLink to="/inbox/compose" variant="secondary" aria-label="Écrire un mail">
         <FontAwesomeIcon icon={faPenToSquare} className="h-3.5 w-3.5" aria-hidden />
-        Écrire un mail
+        <span className="sm:hidden">Mail</span>
+        <span className="hidden sm:inline">Écrire un mail</span>
       </ButtonLink>
     </div>
   );

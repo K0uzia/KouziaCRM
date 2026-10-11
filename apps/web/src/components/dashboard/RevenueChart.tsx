@@ -38,12 +38,12 @@ export default function RevenueChart({ data }: { data: RevenuePoint[] }) {
         <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
         <XAxis
           dataKey="label"
-          tick={{ fontSize: 11, fill: "var(--muted)" }}
+          tick={{ fontSize: 12, fill: "var(--muted)" }}
           axisLine={false}
           tickLine={false}
         />
         <YAxis
-          tick={{ fontSize: 11, fill: "var(--muted)" }}
+          tick={{ fontSize: 12, fill: "var(--muted)" }}
           axisLine={false}
           tickLine={false}
           width={52}
