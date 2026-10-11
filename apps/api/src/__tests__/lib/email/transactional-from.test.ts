@@ -78,3 +78,12 @@ describe("expéditeur des e-mails automatiques", () => {
     expect((await send("portal_code")).from).toBe("Kouzia <contact@kouzia.test>");
   });
 });
+
+describe("message d'erreur d'un expéditeur refusé", () => {
+  it("explique l'alias à créer et le repli automatique", async () => {
+    const { formatSmtpError } = await vi.importActual<typeof import("@/lib/email/smtp.js")>("@/lib/email/smtp.js");
+    const msg = formatSmtpError({ responseCode: 553, response: "553 5.7.1 Sender address rejected: not owned by user" });
+    expect(msg).toMatch(/alias/);
+    expect(msg).toMatch(/adresse habituelle/);
+  });
+});

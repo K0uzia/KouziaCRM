@@ -231,6 +231,17 @@ export function formatSmtpError(error: unknown): string {
     response?: string;
     message?: string;
   };
+  // Expéditeur refusé (alias non autorisé à l'envoi par le serveur) : message actionnable.
+  if (
+    [550, 553, 554].includes(err.responseCode ?? 0) &&
+    /sender|from|owned|authori[sz]|not allowed|mismatch/i.test(`${err.response ?? ""} ${err.message ?? ""}`)
+  ) {
+    return (
+      "Le serveur refuse cet expéditeur. Créez l'adresse comme alias de la boîte utilisée pour l'envoi " +
+      "(hPanel > Emails > Alias), ou laissez le champ vide : les e-mails automatiques partent alors de " +
+      "l'adresse habituelle. En attendant, l'ERP renvoie automatiquement depuis l'adresse habituelle."
+    );
+  }
   if (err.code === "EAUTH" || err.responseCode === 535) {
     return (
       "Authentification refusée par Hostinger. Utilisez l'adresse complète (contact@kouzia.com) " +

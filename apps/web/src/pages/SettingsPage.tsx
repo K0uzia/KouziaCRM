@@ -507,7 +507,8 @@ export function SettingsPage() {
     }
   }
 
-  async function testSmtp() {
+  /** `fromOverride` : essai de l'expéditeur des e-mails automatiques (alias noreply@). */
+  async function testSmtp(fromOverride?: string) {
     setBusy(true);
     try {
       const res = await api<{
@@ -524,7 +525,7 @@ export function SettingsPage() {
           smtpPort: form?.smtpPort,
           smtpEncryption: form?.smtpEncryptionResolved,
           smtpUser: form?.smtpUser,
-          smtpFrom: form?.smtpFrom,
+          smtpFrom: fromOverride ?? form?.smtpFrom,
           smtpPass: smtpPass || undefined,
         }),
       });
@@ -534,7 +535,11 @@ export function SettingsPage() {
           : res.source === "db"
             ? " (paramètres enregistrés)"
             : "";
-      toast.success(`Email de test envoyé à ${res.to}${via}`);
+      toast.success(
+        fromOverride
+          ? `Email de test envoyé à ${res.to} depuis ${fromOverride} : vérifiez l'expéditeur reçu.`
+          : `Email de test envoyé à ${res.to}${via}`,
+      );
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Échec du test", { duration: 8000 });
     } finally {
@@ -987,6 +992,15 @@ export function SettingsPage() {
                       onChange={(e) => setForm({ ...form, transactionalFrom: e.target.value || null })}
                     />
                   </Field>
+                  <div className="sm:col-span-2">
+                    <Button
+                      variant="secondary"
+                      disabled={busy || !form.transactionalFrom}
+                      onClick={() => void testSmtp(form.transactionalFrom ?? undefined)}
+                    >
+                      Envoyer un e-mail de test depuis cette adresse
+                    </Button>
+                  </div>
                   <Field label="Throttle (emails / min)">
                     <Input
                       type="number"
