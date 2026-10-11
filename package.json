@@ -13,6 +13,7 @@
     "dev:worker": "wait-on -t 60000 http-get://127.0.0.1:3001/api/health && npm run worker",
     "dev": "node scripts/dev.mjs",
     "check:lockfile": "node scripts/check-lockfile.mjs",
+    "check:mobile": "tsx scripts/check-mobile.ts",
     "prebuild": "npm run check:lockfile",
     "build": "npm run build -w @kouzia-erp/web",
     "start": "tsx --env-file=.env --tsconfig apps/api/tsconfig.json apps/api/src/index.ts",
@@ -50,6 +51,7 @@
   "devDependencies": {
     "@types/node": "^26.2.0",
     "concurrently": "^9.2.4",
+    "playwright": "^1.64.0",
     "tsx": "^4.23.12",
     "typescript": "^5.9.3",
     "vitest": "^4.1.11",

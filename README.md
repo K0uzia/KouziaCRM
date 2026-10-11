@@ -85,6 +85,36 @@ Variables à ajouter dans `.env` :
 | `CLIENT_PORTAL_URL` | URL espace client `/suivi` (emails devis, paramètres ERP) |
 | `VITE_PUBLIC_SITE_URL` | Redirection legacy `/onboarding/:token` |
 
+## Terminé = vérifié
+
+Avant un merge dans `main` :
+
+| Contrôle | Commande |
+|----------|----------|
+| Tests API | `cd apps/api && DATABASE_URL=file:./test.db npx prisma db push --skip-generate --accept-data-loss --schema=../../prisma/schema.prisma && DATABASE_URL=file:./test.db npx vitest run` (sous Windows, `npm test` ne fonctionne pas) |
+| Types et build du front | `npm run build` (lance aussi `check:lockfile`) |
+| Lockfile | `npm run check:lockfile` : échoue si npm sous Windows a retiré les binaires des autres plateformes (dont `lightningcss-linux-x64-musl` pour le CT Alpine) |
+| Mobile | `npm run check:mobile` (voir ci-dessous) |
+| Typographie | aucun tiret cadratin ni demi-cadratin ajouté |
+
+### Contrôle mobile (`npm run check:mobile`)
+
+Playwright (Chromium, dépendance de développement) parcourt tous les écrans de `navigation.ts`,
+les onglets des Réglages, une fiche client, devis et facture, et les modales de création, à
+320 et 375 px. Il échoue sur un scroll horizontal, un élément sorti de son conteneur coupé ou de
+l'écran, ou une cible d'action de moins de 44 px. Lecture seule : les modales sont ouvertes puis
+fermées.
+
+```bash
+npx playwright install chromium        # une fois
+npm run dev                            # sur une base de recette, jamais la prod
+CHECK_MOBILE_EMAIL=… CHECK_MOBILE_PASSWORD=… CHECK_MOBILE_TOTP=… npm run check:mobile
+```
+
+`CHECK_MOBILE_TOTP` est le secret base32 du compte de test si sa double authentification est
+active. Options : `CHECK_MOBILE_URL` (défaut `http://localhost:5173`), `CHECK_MOBILE_WIDTHS`
+(défaut `320,375`), `CHECK_MOBILE_REPORT` (rapport JSON).
+
 ## Docker (app + worker + Prisma Studio)
 
 ```bash
