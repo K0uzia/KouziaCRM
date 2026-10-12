@@ -199,7 +199,7 @@ function DocumentsListPage({
       name: "Numéro",
       selector: (d) => d.number ?? "",
       sortable: true,
-      grow: 2,
+      width: "11rem",
       cell: (d) => (
         <div className="flex min-w-0 flex-wrap items-center gap-2">
           <Link to={detailPath(d)} className="rounded-[var(--radius-sm)] hover:opacity-80">
@@ -225,7 +225,7 @@ function DocumentsListPage({
       grow: 3,
       cell: (d) => (
         <div className="min-w-0">
-          <p className="truncate font-medium" title={d.client.displayName}>
+          <p className="line-clamp-2 break-words font-medium" title={d.client.displayName}>
             {d.client.displayName}
           </p>
           {d.client.clientNumber ? (
@@ -249,6 +249,8 @@ function DocumentsListPage({
       selector: (d) => d.issueDate ?? "",
       sortable: true,
       width: "8.5rem",
+      // Sous 1280 px, le nom du client passe avant la date (visible sur la fiche et en carte).
+      showFrom: 1280,
       cell: (d) => <span className="text-[var(--muted)]">{d.issueDate ? formatDate(d.issueDate) : "Brouillon"}</span>,
     },
     ...((isQuote

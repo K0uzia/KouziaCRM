@@ -92,7 +92,9 @@ export function ClientsPage() {
       grow: 2,
       cell: (c) => (
         <div className="min-w-0 text-[var(--muted)]">
-          <div className="truncate text-[var(--text)]">{c.email ?? "-"}</div>
+          <div className="line-clamp-2 break-all text-[var(--text)]" title={c.email ?? undefined}>
+            {c.email ?? "-"}
+          </div>
           {c.phone ? <div className="text-xs">{formatPhoneFr(c.phone)}</div> : null}
         </div>
       ),
@@ -118,7 +120,7 @@ export function ClientsPage() {
             onClick={(e) => e.stopPropagation()}
           >
             <span className="text-[var(--text)]">{formatDate(c.lastExchange.lastMessageAt)}</span>
-            <span className="mt-0.5 block truncate text-xs text-[var(--muted)]">{c.lastExchange.subject}</span>
+            <span className="mt-0.5 line-clamp-2 break-words text-xs text-[var(--muted)]">{c.lastExchange.subject}</span>
           </Link>
         ) : (
           <span className="text-sm text-[var(--muted)]">Aucun</span>
