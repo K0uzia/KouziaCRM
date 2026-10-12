@@ -370,7 +370,7 @@ export function DataTable<T>({
             ) : null}
           </div>
 
-          <div className="ui-table-wrap hidden min-w-0 md:block">
+          <div className={`ui-table-wrap hidden min-w-0 md:block ${onRowClick ? "ui-rows-clickable" : ""}`}>
             <DataTableBase
               columns={sizedColumns}
               data={filtered}

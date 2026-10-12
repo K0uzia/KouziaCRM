@@ -356,6 +356,17 @@ h3 {
   }
 }
 
+/* Clic de ligne (DataTable) : la bibliothèque ne le déclenche que si la cible elle-même porte
+   data-tag="allowRowEvents", c'est-à-dire la cellule. Le contenu non interactif laisse donc
+   passer le clic jusqu'à elle ; liens, boutons et champs restent cliquables. */
+.ui-rows-clickable .rdt_TableCell :not(a, button, input, select, textarea, label, summary, [role="button"], [tabindex]) {
+  pointer-events: none;
+}
+/* pointer-events s'hérite : un lien dans un contenu transparent doit le réactiver. */
+.ui-rows-clickable .rdt_TableCell :is(a, button, input, select, textarea, label, summary, [role="button"], [tabindex]) {
+  pointer-events: auto;
+}
+
 .ui-chip {
   display: inline-flex;
   min-height: 44px;
