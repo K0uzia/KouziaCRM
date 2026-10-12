@@ -12,12 +12,13 @@ export type PayTokenKind = "invoice" | "milestone" | "subscribe";
 
 type TokenPayload = { kind: PayTokenKind; id: string; exp: number };
 
-function secret(): string {
+/** Clé propre aux jetons de paiement, dérivée de SESSION_SECRET (jamais la clé des cookies elle-même). */
+function secret(): Buffer {
   const s = process.env.SESSION_SECRET || process.env.AUTH_SECRET;
   if (!s) {
     throw new Error("SESSION_SECRET requis pour signer les jetons de paiement");
   }
-  return s;
+  return createHmac("sha256", s).update("kouzia-pay-token-v1").digest();
 }
 
 function encodePayload(payload: TokenPayload): string {

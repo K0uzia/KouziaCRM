@@ -30,13 +30,8 @@ export async function syncCatalogFromStripe(): Promise<CatalogSyncAction[]> {
   const actions: CatalogSyncAction[] = [];
   const seenPriceIds = new Set<string>();
 
-  const prices = await stripe.prices.list({
-    active: true,
-    expand: ["data.product"],
-    limit: 100,
-  });
-
-  for (const price of prices.data) {
+  // Toutes les pages : au-delà de 100 prix, une prestation non lue serait archivée à tort.
+  for await (const price of stripe.prices.list({ active: true, expand: ["data.product"], limit: 100 })) {
     const product = price.product;
     if (typeof product === "string" || product.deleted) continue;
     if (!product.active) continue;
@@ -60,11 +55,10 @@ export async function syncCatalogFromStripe(): Promise<CatalogSyncAction[]> {
       billingInterval,
     };
 
-    const existing = await prisma.service.findFirst({
-      where: {
-        OR: [{ stripePriceId: price.id }, { name }],
-      },
-    });
+    // Rapprochement par prix Stripe ; par nom seulement pour une prestation ERP pas encore liée.
+    const existing =
+      (await prisma.service.findFirst({ where: { stripePriceId: price.id } })) ??
+      (await prisma.service.findFirst({ where: { name, stripePriceId: null } }));
 
     if (!existing) {
       await prisma.service.create({ data: { ...data, defaultBillingDay: 1 } });

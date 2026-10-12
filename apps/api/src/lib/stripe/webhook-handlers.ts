@@ -1,6 +1,7 @@
 import { PaymentMethod } from "@prisma/client";
 import type Stripe from "stripe";
 import { prisma } from "@/lib/prisma.js";
+import { formatEUR } from "@/lib/money.js";
 import { getCompanySettings } from "@/lib/company.js";
 import { mailEnqueue } from "@/lib/email/mailer/index.js";
 import { getStripe } from "@/lib/stripe/client.js";
@@ -16,7 +17,16 @@ import {
   markPaidFromOnlinePayment,
 } from "@/lib/stripe/mark-paid.js";
 
-async function recordEvent(event: Stripe.Event): Promise<boolean> {
+/** Événement déjà traité avec succès ? */
+async function alreadyProcessed(event: Stripe.Event): Promise<boolean> {
+  return Boolean(await prisma.stripeWebhookEvent.findUnique({ where: { eventId: event.id } }));
+}
+
+/**
+ * Marque l'événement traité, APRÈS le traitement : en cas d'échec, la route répond 500 et le renvoi
+ * de Stripe est retraité (les traitements sont eux-mêmes idempotents : PaymentIntent, Invoice).
+ */
+async function recordEvent(event: Stripe.Event): Promise<void> {
   try {
     await prisma.stripeWebhookEvent.create({
       data: {
@@ -25,12 +35,19 @@ async function recordEvent(event: Stripe.Event): Promise<boolean> {
         payload: event as unknown as object,
       },
     });
-    return false;
   } catch (err) {
-    const code = (err as { code?: string }).code;
-    if (code === "P2002") return true; // déjà traité
-    throw err;
+    // Deux livraisons simultanées du même événement : la seconde trouve la ligne déjà écrite.
+    if ((err as { code?: string }).code !== "P2002") throw err;
   }
+}
+
+/** Facture Billing d'abonnement à 0 € (essai, alignement de la première échéance) : aucune facture ERP. */
+function isZeroAmountInvoice(invoice: Stripe.Invoice): boolean {
+  return (invoice.amount_due ?? 0) <= 0 && (invoice.total ?? 0) <= 0;
+}
+
+function isSubscriptionInvoice(invoice: Stripe.Invoice): boolean {
+  return Boolean(invoice.billing_reason?.startsWith("subscription") || invoice.parent?.subscription_details);
 }
 
 async function alertAdmin(subject: string, text: string): Promise<void> {
@@ -73,13 +90,19 @@ export async function processStripeEvent(event: Stripe.Event): Promise<{
   duplicate: boolean;
   handled: string;
 }> {
-  const duplicate = await recordEvent(event);
-  if (duplicate) return { duplicate: true, handled: event.type };
+  if (await alreadyProcessed(event)) return { duplicate: true, handled: event.type };
+  const handled = await handleEvent(event);
+  await recordEvent(event);
+  return { duplicate: false, handled };
+}
 
+async function handleEvent(event: Stripe.Event): Promise<string> {
   switch (event.type) {
     case "payment_intent.succeeded": {
       const pi = event.data.object as Stripe.PaymentIntent;
       const meta = pi.metadata ?? {};
+      // Prélèvement d'abonnement (Billing) : pas de métadonnées ERP, invoice.paid s'en charge.
+      if (!meta.erpInvoiceId && !meta.erpMilestoneId) return `${event.type}:ignoré (sans document ERP)`;
       const feeCents = await feeFromPaymentIntent(pi);
       await markPaidFromOnlinePayment({
         amountCents: pi.amount_received || pi.amount,
@@ -122,23 +145,21 @@ export async function processStripeEvent(event: Stripe.Event): Promise<{
     }
     case "invoice.finalized": {
       const invoice = event.data.object as Stripe.Invoice;
-      if (invoice.billing_reason?.startsWith("subscription") || invoice.parent?.subscription_details) {
-        await issueErpInvoiceFromStripeInvoice(invoice);
-      }
+      if (isZeroAmountInvoice(invoice)) return `${event.type}:ignoré (0 €)`;
+      if (isSubscriptionInvoice(invoice)) await issueErpInvoiceFromStripeInvoice(invoice);
       break;
     }
     case "invoice.paid": {
       const invoice = event.data.object as Stripe.Invoice;
-      if (invoice.billing_reason?.startsWith("subscription") || invoice.parent?.subscription_details) {
-        await handleStripeInvoicePaid(invoice);
-      }
+      if (isZeroAmountInvoice(invoice)) return `${event.type}:ignoré (0 €)`;
+      if (isSubscriptionInvoice(invoice)) await handleStripeInvoicePaid(invoice);
       break;
     }
     case "invoice.payment_failed": {
       const invoice = event.data.object as Stripe.Invoice;
       await alertAdmin(
         "Échec de prélèvement Stripe",
-        `La facture Stripe ${invoice.id} a échoué (montant ${(invoice.amount_due / 100).toFixed(2)} €). Stripe retentera automatiquement.`,
+        `La facture Stripe ${invoice.id} a échoué (montant ${formatEUR(invoice.amount_due)}). Stripe retentera automatiquement.`,
       );
       break;
     }
@@ -207,7 +228,7 @@ export async function processStripeEvent(event: Stripe.Event): Promise<{
       } else {
         await alertAdmin(
           "Échec de versement Stripe",
-          `Le versement ${payout.id} (${(payout.amount / 100).toFixed(2)} €) vers Revolut a échoué (${payout.failure_message ?? payout.status}).`,
+          `Le versement ${payout.id} (${formatEUR(payout.amount)}) vers le compte bancaire a échoué (${payout.failure_message ?? payout.status}).`,
         );
       }
       break;
@@ -233,7 +254,7 @@ export async function processStripeEvent(event: Stripe.Event): Promise<{
       }
       await alertAdmin(
         "Remboursement Stripe",
-        `Un remboursement a été effectué sur ${charge.id} (${(charge.amount_refunded / 100).toFixed(2)} €). Créez un avoir dans l'ERP si besoin.`,
+        `Un remboursement a été effectué sur ${charge.id} (${formatEUR(charge.amount_refunded)}). Créez un avoir dans l'ERP si besoin.`,
       );
       break;
     }
@@ -241,13 +262,12 @@ export async function processStripeEvent(event: Stripe.Event): Promise<{
       const dispute = event.data.object as Stripe.Dispute;
       await alertAdmin(
         "Litige Stripe",
-        `Un litige a été ouvert (${dispute.id}) pour ${(dispute.amount / 100).toFixed(2)} €. Motif : ${dispute.reason}.`,
+        `Un litige a été ouvert (${dispute.id}) pour ${formatEUR(dispute.amount)}. Motif : ${dispute.reason}.`,
       );
       break;
     }
     default:
       break;
   }
-
-  return { duplicate: false, handled: event.type };
+  return event.type;
 }

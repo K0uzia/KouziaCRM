@@ -2,6 +2,7 @@ import {
   InvoiceDocumentType,
   InvoiceStatus,
   MilestoneStatus,
+  QuoteStatus,
   SubscriptionStatus,
 } from "@prisma/client";
 import { prisma } from "@/lib/prisma.js";
@@ -91,6 +92,23 @@ export async function createInvoiceCheckoutSession(invoiceId: string): Promise<s
   return session.url;
 }
 
+/**
+ * Jalon payable : devis signé, et jalon exigible. Le 2e acompte d'un paiement en 3 fois reste
+ * en attente de son étape de projet (PENDING) : il ne se paie pas avant.
+ */
+export function assertMilestonePayable(milestone: {
+  status: MilestoneStatus;
+  position: number;
+  quote: { quoteStatus: QuoteStatus | null; paymentPlan: string | null };
+}): void {
+  if (milestone.quote.quoteStatus !== QuoteStatus.ACCEPTED) {
+    throw new StripeCheckoutError("Le devis n'est pas encore signé", 409);
+  }
+  if (milestone.quote.paymentPlan === "THREE" && milestone.position === 2 && milestone.status === MilestoneStatus.PENDING) {
+    throw new StripeCheckoutError("Ce 2e acompte attend l'étape de projet prévue", 409);
+  }
+}
+
 /** Session Checkout ponctuelle pour un jalon (acompte / solde). */
 export async function createMilestoneCheckoutSession(milestoneId: string): Promise<string> {
   await assertStripeEnabled();
@@ -108,6 +126,7 @@ export async function createMilestoneCheckoutSession(milestoneId: string): Promi
   if (milestone.amountCents <= 0) {
     throw new StripeCheckoutError("Montant invalide", 400);
   }
+  assertMilestonePayable(milestone);
 
   // Si une facture est déjà liée, on paie la facture (reste dû).
   if (milestone.invoiceId) {
@@ -162,6 +181,25 @@ export async function createMilestoneCheckoutSession(milestoneId: string): Promi
   return session.url;
 }
 
+/**
+ * Prix de l'échéance : le montant de l'abonnement ERP et sa périodicité (mensuelle ou annuelle).
+ * La prestation Stripe liée sert de produit si elle existe ; sinon, le libellé de l'abonnement.
+ */
+export function subscriptionPriceData(sub: {
+  amountCents: number;
+  billingInterval: string | null;
+  label: string;
+  service: { stripeProductId: string | null; billingInterval: string | null };
+}) {
+  const interval = (sub.billingInterval ?? sub.service.billingInterval) === "YEAR" ? "year" : "month";
+  return {
+    currency: "eur",
+    unit_amount: sub.amountCents,
+    recurring: { interval },
+    ...(sub.service.stripeProductId ? { product: sub.service.stripeProductId } : { product_data: { name: sub.label } }),
+  } as const;
+}
+
 /** Session Checkout abonnement (prélèvement SEPA + carte). */
 export async function createSubscriptionCheckoutSession(
   subscriptionId: string,
@@ -178,11 +216,8 @@ export async function createSubscriptionCheckoutSession(
   if (sub.stripeSubscriptionId) {
     throw new StripeCheckoutError("Le prélèvement Stripe est déjà en place", 409);
   }
-  if (!sub.service.stripePriceId) {
-    throw new StripeCheckoutError(
-      "Cette prestation n'est pas synchronisée avec Stripe (catalogue).",
-      409,
-    );
+  if (sub.amountCents <= 0) {
+    throw new StripeCheckoutError("Montant d'abonnement invalide", 400);
   }
 
   const stripe = await getStripe();
@@ -199,7 +234,7 @@ export async function createSubscriptionCheckoutSession(
     mode: "subscription",
     customer: customerId,
     allowed_payment_method_types: ["card", "sepa_debit"],
-    line_items: [{ price: sub.service.stripePriceId, quantity: 1 }],
+    line_items: [{ price_data: subscriptionPriceData(sub), quantity: 1 }],
     subscription_data: {
       metadata: { erpSubscriptionId: sub.id, erpClientId: sub.clientId },
       ...(trialEnd ? { trial_end: trialEnd } : {}),

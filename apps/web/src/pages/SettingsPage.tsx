@@ -1295,8 +1295,15 @@ export function SettingsPage() {
                 <p className="text-xs text-[var(--muted)]">
                   Clés dans le tableau de bord Stripe. Le mode test ou live se déduit du préfixe
                   de la clé (<code className="text-[var(--text)]">sk_test_</code> /{" "}
-                  <code className="text-[var(--text)]">sk_live_</code>). Désactivez l&apos;envoi
-                  des factures et reçus Stripe aux clients — l&apos;ERP reste seul émetteur.
+                  <code className="text-[var(--text)]">sk_live_</code>).
+                </p>
+                <p
+                  role="note"
+                  className="rounded-[var(--radius-sm)] border border-[var(--warning)]/40 bg-[var(--warning-soft)] px-3 py-2 text-sm text-[var(--text)]"
+                >
+                  Dans Stripe, désactivez l&apos;envoi des factures et des reçus aux clients
+                  (Settings, Customer emails). La facture légale est celle de l&apos;ERP : sinon,
+                  le client en recevrait deux.
                 </p>
                 <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                   <SecretField

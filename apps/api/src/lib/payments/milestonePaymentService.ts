@@ -150,6 +150,11 @@ export async function activateMilestoneCheckout(
   if (milestone.checkoutUrl) {
     return milestone;
   }
+  // Pas de lien de paiement avant la signature, ni pour un 2e acompte en attente de son étape.
+  await assertQuoteSigned(milestone.quoteId);
+  if (milestone.quote.paymentPlan === "THREE" && milestone.position === 2 && milestone.status === MilestoneStatus.PENDING && !milestone.triggeredAt) {
+    throw new MilestonePaymentError("Ce 2e acompte attend l'étape de projet prévue", 409);
+  }
 
   const settings = await getCompanySettings();
   if (!settings.moduleStripeEnabled) {

@@ -39,9 +39,19 @@ vi.mock("@/lib/stripe/client.js", async (importOriginal) => {
   };
 });
 
+/** Liste Stripe simulée : promesse ET itérable asynchrone (pagination automatique du SDK). */
+function listOf<T>(items: T[]) {
+  const page = { data: items, has_more: false };
+  return Object.assign(Promise.resolve(page), {
+    async *[Symbol.asyncIterator]() {
+      yield* items;
+    },
+  });
+}
+
 const mockStripe = {
   prices: {
-    list: vi.fn(async () => ({ data: [] as Stripe.Price[] })),
+    list: vi.fn((_params?: unknown) => listOf([] as Stripe.Price[])),
   },
   paymentIntents: {
     retrieve: vi.fn(async (id: string) => ({
@@ -69,7 +79,7 @@ beforeEach(async () => {
     },
   });
   invalidateCompanySettingsCache();
-  mockStripe.prices.list.mockResolvedValue({ data: [] });
+  mockStripe.prices.list.mockImplementation(() => listOf([] as Stripe.Price[]));
 });
 
 afterEach(async () => {
@@ -184,8 +194,8 @@ describe("processStripeEvent", () => {
 
 describe("syncCatalogFromStripe", () => {
   it("crée une prestation depuis un prix Stripe", async () => {
-    mockStripe.prices.list.mockResolvedValue({
-      data: [
+    mockStripe.prices.list.mockImplementation(() =>
+      listOf([
         {
           id: "price_1",
           active: true,
@@ -201,8 +211,8 @@ describe("syncCatalogFromStripe", () => {
             deleted: undefined,
           },
         } as unknown as Stripe.Price,
-      ],
-    });
+      ]),
+    );
 
     const actions = await syncCatalogFromStripe();
     expect(actions.some((a) => a.action === "create")).toBe(true);
@@ -297,5 +307,147 @@ describe("checkout document déjà payé", () => {
       },
     });
     await expect(createInvoiceCheckoutSession(inv.id)).rejects.toThrow(/déjà réglée/);
+  });
+});
+
+// --- Revue du lot Stripe (fix/stripe-revue) ---
+
+const subscriptionInvoiceEvent = (id: string, type: string, amountCents: number) =>
+  ({
+    id,
+    type,
+    data: {
+      object: {
+        id: `in_${id}`,
+        amount_due: amountCents,
+        total: amountCents,
+        amount_paid: 0,
+        billing_reason: "subscription_create",
+        period_start: Math.floor(Date.now() / 1000),
+        period_end: Math.floor(Date.now() / 1000) + 86400 * 30,
+        parent: { subscription_details: { subscription: "sub_rev_1" } },
+        lines: { data: [] },
+      },
+    },
+  }) as unknown as Stripe.Event;
+
+async function stripeSubscription() {
+  const client = await createClient();
+  const service = await prisma.service.create({
+    data: { name: "Maint", unitPriceCents: 4900, unit: "FORFAIT", active: true, isSubscription: true },
+  });
+  return prisma.subscription.create({
+    data: {
+      clientId: client.id,
+      serviceId: service.id,
+      label: "Maintenance",
+      amountCents: 4900,
+      billingDay: 1,
+      startDate: new Date(),
+      nextInvoiceAt: new Date(),
+      status: SubscriptionStatus.ACTIVE,
+      collectionMethod: SubscriptionCollectionMethod.STRIPE,
+      stripeSubscriptionId: "sub_rev_1",
+    },
+  });
+}
+
+describe("webhooks Stripe : revue", () => {
+  it("un traitement en échec n'est pas marqué traité : le renvoi de Stripe est retraité", async () => {
+    // Abonnement absent au premier envoi : erreur, donc réponse 500 et renvoi par Stripe.
+    const event = subscriptionInvoiceEvent("evt_retry", "invoice.finalized", 4900);
+    await expect(processStripeEvent(event)).rejects.toThrow();
+    expect(await prisma.stripeWebhookEvent.count({ where: { eventId: "evt_retry" } })).toBe(0);
+
+    await stripeSubscription();
+    const again = await processStripeEvent(event);
+    expect(again.duplicate).toBe(false);
+    expect(await prisma.invoice.count({ where: { stripeInvoiceId: "in_evt_retry" } })).toBe(1);
+    expect((await processStripeEvent(event)).duplicate).toBe(true);
+  });
+
+  it("facture d'abonnement à 0 € (essai) : aucune facture ERP numérotée", async () => {
+    await stripeSubscription();
+    const res = await processStripeEvent(subscriptionInvoiceEvent("evt_zero", "invoice.finalized", 0));
+    expect(res.handled).toMatch(/0 €/);
+    expect(await prisma.invoice.count()).toBe(0);
+  });
+
+  it("prélèvement d'abonnement (PaymentIntent sans document ERP) : ignoré, sans erreur", async () => {
+    const event = {
+      id: "evt_pi_sub",
+      type: "payment_intent.succeeded",
+      data: { object: { id: "pi_sub", amount: 4900, amount_received: 4900, payment_method_types: ["sepa_debit"], metadata: {} } },
+    } as unknown as Stripe.Event;
+    const res = await processStripeEvent(event);
+    expect(res.handled).toMatch(/ignoré/);
+    expect(await prisma.payment.count()).toBe(0);
+  });
+});
+
+describe("Checkout : revue", () => {
+  it("abonnement prélevé au montant ERP et à sa périodicité (mensuelle ou annuelle)", async () => {
+    const { subscriptionPriceData } = await import("@/lib/stripe/checkout.js");
+    const monthly = subscriptionPriceData({
+      amountCents: 3900,
+      billingInterval: null,
+      label: "Maintenance négociée",
+      service: { stripeProductId: "prod_1", billingInterval: "MONTH" },
+    });
+    expect(monthly).toMatchObject({ unit_amount: 3900, recurring: { interval: "month" }, product: "prod_1" });
+    const yearly = subscriptionPriceData({
+      amountCents: 39000,
+      billingInterval: "YEAR",
+      label: "Maintenance annuelle",
+      service: { stripeProductId: null, billingInterval: "MONTH" },
+    });
+    expect(yearly).toMatchObject({ unit_amount: 39000, recurring: { interval: "year" }, product_data: { name: "Maintenance annuelle" } });
+  });
+
+  it("jalon : refusé avant la signature, et pour un 2e acompte en attente de son étape", async () => {
+    const { assertMilestonePayable } = await import("@/lib/stripe/checkout.js");
+    const base = { status: "DUE" as const, position: 1 };
+    expect(() => assertMilestonePayable({ ...base, quote: { quoteStatus: "SENT", paymentPlan: null } })).toThrow(/signé/);
+    expect(() =>
+      assertMilestonePayable({ status: "PENDING", position: 2, quote: { quoteStatus: "ACCEPTED", paymentPlan: "THREE" } }),
+    ).toThrow(/étape/);
+    expect(() =>
+      assertMilestonePayable({ status: "DUE", position: 2, quote: { quoteStatus: "ACCEPTED", paymentPlan: "THREE" } }),
+    ).not.toThrow();
+  });
+});
+
+describe("catalogue : revue", () => {
+  it("rapproche par nom seulement une prestation non liée ; une prestation liée ailleurs n'est pas reprise", async () => {
+    await prisma.service.create({
+      data: { name: "Site vitrine", unitPriceCents: 129000, unit: "FORFAIT", active: true, stripePriceId: "price_autre" },
+    });
+    mockStripe.prices.list.mockImplementation(() =>
+      listOf([
+        {
+          id: "price_nouveau",
+          active: true,
+          currency: "eur",
+          unit_amount: 99000,
+          type: "one_time",
+          product: { id: "prod_x", active: true, name: "Site vitrine", description: null },
+        } as unknown as Stripe.Price,
+      ]),
+    );
+    await syncCatalogFromStripe();
+    const liee = await prisma.service.findFirstOrThrow({ where: { stripePriceId: "price_autre" } });
+    expect(liee.unitPriceCents).toBe(129000);
+    expect(await prisma.service.count({ where: { stripePriceId: "price_nouveau" } })).toBe(1);
+  });
+});
+
+describe("jeton de paiement : revue", () => {
+  it("signé avec une clé dérivée, pas avec SESSION_SECRET directement", async () => {
+    const { createHmac } = await import("node:crypto");
+    const token = signPayToken("invoice", "inv_1");
+    const [body, sig] = token.split(".");
+    const rawKeySig = createHmac("sha256", process.env.SESSION_SECRET!).update(body!).digest("base64url");
+    expect(sig).not.toBe(rawKeySig);
+    expect(verifyPayToken(token)).toEqual({ kind: "invoice", id: "inv_1" });
   });
 });

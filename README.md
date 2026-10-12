@@ -93,7 +93,7 @@ Réglages ERP : **Paramètres > Paiements** (interrupteur Stripe, clé secrète,
 
 Dans le [tableau de bord Stripe](https://dashboard.stripe.com/) :
 
-1. Désactiver l'envoi des factures et des reçus aux clients (Billing / Customer emails) — l'ERP envoie les siens.
+1. Désactiver l'envoi des factures et des reçus aux clients (Settings, Customer emails) : la facture légale est celle de l'ERP, le client en recevrait sinon deux.
 2. Laisser Stripe gérer les avis préalables de prélèvement SEPA.
 3. Activer carte, prélèvement SEPA et virements bancaires (customer_balance).
 4. Choisir le rythme des versements et déclarer l'IBAN Revolut Pro.

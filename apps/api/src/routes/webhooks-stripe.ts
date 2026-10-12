@@ -13,7 +13,10 @@ export const webhooksStripeRoutes: FastifyPluginAsync = async (app) => {
     },
   );
 
-  app.post("/api/webhooks/stripe", async (request, reply) => {
+  app.post(
+    "/api/webhooks/stripe",
+    { config: { rateLimit: { max: 300, timeWindow: "1 minute" } } },
+    async (request, reply) => {
     const rawBody =
       typeof request.body === "string"
         ? request.body
@@ -57,5 +60,6 @@ export const webhooksStripeRoutes: FastifyPluginAsync = async (app) => {
       request.log.error({ err, eventId: event.id, type: event.type }, "stripe_webhook_error");
       return reply.code(500).send({ error: "Traitement échoué" });
     }
-  });
+    },
+  );
 };
