@@ -2,6 +2,7 @@ import type { FastifyPluginAsync } from "fastify";
 import { z } from "zod";
 import { SubscriptionStatus } from "@prisma/client";
 import { requireAuth } from "@/lib/auth.js";
+import { StripeSubscriptionSyncError } from "@/lib/stripe/subscription-control.js";
 import {
   createSubscription,
   listSubscriptions,
@@ -118,34 +119,27 @@ export const subscriptionsRoutes: FastifyPluginAsync = async (app) => {
     }
   });
 
-  app.post<{ Params: { id: string } }>("/api/subscriptions/:id/pause", async (request, reply) => {
-    await requireAuth(request, reply);
-    if (reply.sent) return;
-    const sub = await pauseSubscription(request.params.id);
-    return sub;
-  });
-
-  app.post<{ Params: { id: string } }>("/api/subscriptions/:id/resume", async (request, reply) => {
-    await requireAuth(request, reply);
-    if (reply.sent) return;
-    try {
-      const sub = await resumeSubscription(request.params.id);
-      return sub;
-    } catch (err) {
-      if (err instanceof SubscriptionError) {
-        return reply.code(400).send({ error: err.message });
+  // Suspendre, reprendre, clôturer : sous prélèvement Stripe, l'action est faite d'abord
+  // dans Stripe ; si Stripe échoue, l'état ERP ne change pas (502 et message clair).
+  const endSchema = z.object({ endDate: z.string().date().optional() }).nullable().optional();
+  for (const kind of ["pause", "resume", "end"] as const) {
+    app.post<{ Params: { id: string } }>(`/api/subscriptions/:id/${kind}`, async (request, reply) => {
+      await requireAuth(request, reply);
+      if (reply.sent) return;
+      const parsed = endSchema.safeParse(request.body);
+      if (!parsed.success) return reply.code(400).send({ error: parsed.error.flatten() });
+      const id = request.params.id;
+      try {
+        if (kind === "pause") return await pauseSubscription(id);
+        if (kind === "resume") return await resumeSubscription(id);
+        return await endSubscription(id, parsed.data?.endDate ? new Date(parsed.data.endDate) : undefined);
+      } catch (err) {
+        if (err instanceof SubscriptionError) return reply.code(400).send({ error: err.message });
+        if (err instanceof StripeSubscriptionSyncError) return reply.code(502).send({ error: err.message });
+        throw err;
       }
-      throw err;
-    }
-  });
-
-  app.post<{ Params: { id: string } }>("/api/subscriptions/:id/end", async (request, reply) => {
-    await requireAuth(request, reply);
-    if (reply.sent) return;
-    const body = request.body as { endDate?: string } | null;
-    const sub = await endSubscription(request.params.id, body?.endDate ? new Date(body.endDate) : undefined);
-    return sub;
-  });
+    });
+  }
 
   // Révision légale : émet un devis d'avenant au nouveau montant (envoyé au client).
   // L'abonnement est mis à jour + facture émise à l'acceptation du devis.

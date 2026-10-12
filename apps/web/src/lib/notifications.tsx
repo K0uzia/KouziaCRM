@@ -19,7 +19,8 @@ export type NotificationKind =
   | "quote_rejected"
   | "payment"
   | "testimonial"
-  | "deposit_due";
+  | "deposit_due"
+  | "subscription_stripe";
 
 export type NotificationItem = {
   id: string;

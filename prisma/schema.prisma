@@ -831,6 +831,9 @@ model Subscription {
   lastInvoiceId   String?
   /// Échéance (nextInvoiceAt) pour laquelle le rappel J-30 de renouvellement annuel est parti
   renewalReminderSentFor DateTime?
+  /// Changement d'état venu de Stripe (ENDED | PAUSED | ACTIVE) : résiliation, impayés ou pause faits côté Stripe
+  stripeStatusChange    String?
+  stripeStatusChangedAt DateTime?
   invoices        Invoice[]
   sourceLines     InvoiceLine[]
   createdAt       DateTime           @default(now())

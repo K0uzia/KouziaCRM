@@ -187,16 +187,43 @@ export async function handleStripeInvoicePaid(
   });
 }
 
+/** État ERP correspondant à un abonnement Stripe (une pause Stripe garde le statut « active »). */
+export function erpStatusFromStripe(
+  stripeSub: Pick<Stripe.Subscription, "status" | "pause_collection">,
+  current: SubscriptionStatus,
+): SubscriptionStatus {
+  const s = stripeSub.status;
+  if (s === "canceled" || s === "unpaid" || s === "incomplete_expired") return SubscriptionStatus.ENDED;
+  if (s === "paused" || stripeSub.pause_collection) return SubscriptionStatus.PAUSED;
+  if (s === "active" || s === "trialing" || s === "past_due") return SubscriptionStatus.ACTIVE;
+  return current;
+}
+
+export type StripeStatusChange = {
+  subscriptionId: string;
+  label: string;
+  clientName: string;
+  from: SubscriptionStatus;
+  to: SubscriptionStatus;
+  reason: string;
+};
+
+/**
+ * Aligne l'abonnement ERP sur Stripe (montant, périodicité, état).
+ * Renvoie le changement d'état quand il vient de Stripe (résiliation ou pause faite dans
+ * le tableau de bord, impayés après relances) ; null si l'ERP était déjà dans cet état,
+ * par exemple quand l'action a été lancée depuis l'ERP.
+ */
 export async function syncSubscriptionFromStripe(
   stripeSub: Stripe.Subscription,
-): Promise<void> {
+): Promise<StripeStatusChange | null> {
   const erpId = stripeSub.metadata?.erpSubscriptionId;
   const sub = erpId
     ? await prisma.subscription.findUnique({ where: { id: erpId } })
     : await prisma.subscription.findUnique({
         where: { stripeSubscriptionId: stripeSub.id },
       });
-  if (!sub) return;
+  if (!sub) return null;
 
   const price = stripeSub.items.data[0]?.price;
   const amountCents = price?.unit_amount ?? sub.amountCents;
@@ -207,18 +234,10 @@ export async function syncSubscriptionFromStripe(
         ? "MONTH"
         : sub.billingInterval;
 
-  let status: SubscriptionStatus = sub.status;
-  if (stripeSub.status === "canceled" || stripeSub.status === "unpaid") {
-    status = SubscriptionStatus.ENDED;
-  } else if (stripeSub.status === "paused") {
-    status = SubscriptionStatus.PAUSED;
-  } else if (
-    stripeSub.status === "active" ||
-    stripeSub.status === "trialing" ||
-    stripeSub.status === "past_due"
-  ) {
-    status = SubscriptionStatus.ACTIVE;
-  }
+  // Clôturé est définitif dans l'ERP : un événement Stripe tardif ne le rouvre pas.
+  const status =
+    sub.status === SubscriptionStatus.ENDED ? sub.status : erpStatusFromStripe(stripeSub, sub.status);
+  const changed = status !== sub.status;
 
   await prisma.subscription.update({
     where: { id: sub.id },
@@ -228,12 +247,32 @@ export async function syncSubscriptionFromStripe(
       amountCents: amountCents ?? sub.amountCents,
       billingInterval: interval,
       status,
+      ...(changed ? { stripeStatusChange: status, stripeStatusChangedAt: new Date() } : {}),
       endDate:
         status === SubscriptionStatus.ENDED
           ? new Date((stripeSub.ended_at ?? Date.now() / 1000) * 1000)
           : sub.endDate,
     },
   });
+
+  if (!changed) return null;
+  const client = await prisma.client.findUnique({ where: { id: sub.clientId }, select: { displayName: true } });
+  const reason =
+    stripeSub.status === "unpaid" || stripeSub.cancellation_details?.reason === "payment_failed"
+      ? "prélèvements impayés après les relances Stripe"
+      : stripeSub.pause_collection || stripeSub.status === "paused"
+        ? "prélèvement suspendu dans Stripe"
+        : status === SubscriptionStatus.ACTIVE
+          ? "prélèvement repris dans Stripe"
+          : "résiliation faite dans Stripe";
+  return {
+    subscriptionId: sub.id,
+    label: sub.label,
+    clientName: client?.displayName ?? "Client",
+    from: sub.status,
+    to: status,
+    reason,
+  };
 }
 
 /** Envoie au client le lien pour mettre en place le prélèvement Stripe. */
