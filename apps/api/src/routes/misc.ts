@@ -495,7 +495,11 @@ export const miscRoutes: FastifyPluginAsync = async (app) => {
       return reply.code(400).send({ error: parsed.error.flatten() });
     }
     const result = await deleteMessages(parsed.data.messageIds, parsed.data.permanent === true);
-    return { ok: true, deleted: result.deleted };
+    // Rien mis à la corbeille : erreur explicite, les messages sont conservés.
+    if (result.deleted === 0 && result.kept > 0) {
+      return reply.code(409).send({ error: result.reason ?? "Suppression impossible : messages conservés." });
+    }
+    return { ok: true, deleted: result.deleted, kept: result.kept };
   });
 
   app.post("/api/emails/trash/empty", async (request, reply) => {

@@ -1,7 +1,7 @@
 // Contrôle mobile de l'admin (Playwright, Chromium) : `npm run check:mobile`.
 // Échoue sur : scroll horizontal, élément sorti de son conteneur coupé (ou de l'écran),
-// cible d'action de moins de 44 px. Écrans : navigation.ts, onglets des réglages, fiches,
-// modales de création. Lecture seule : rien n'est enregistré (modales ouvertes puis fermées).
+// cible d'action de moins de 44 px, texte tronqué illisible (case de moins de 80 px, 120 px en
+// liste). Écrans : navigation.ts, onglets des réglages, fiches, modales de création. Lecture seule : rien n'est enregistré (modales ouvertes puis fermées).
 //
 // Prérequis : l'admin tourne (npm run dev) sur une base de recette, et un compte admin de test :
 //   CHECK_MOBILE_EMAIL, CHECK_MOBILE_PASSWORD, CHECK_MOBILE_TOTP (secret base32, si 2FA activée)
@@ -19,7 +19,7 @@ const WIDTHS = (process.env.CHECK_MOBILE_WIDTHS ?? "320,375").split(",").map(Num
 const TAP = 44;
 const TOLERANCE = 2;
 
-type Issue = { kind: "scroll" | "clip" | "target" | "state"; detail: string; selector: string };
+type Issue = { kind: "scroll" | "clip" | "target" | "state" | "lisible"; detail: string; selector: string };
 type Result = { screen: string; width: number; issues: Issue[] };
 
 function totp(secretBase32: string): string {
@@ -67,7 +67,7 @@ async function login(page: Page) {
 const MEASURE = readFileSync(path.resolve("scripts/check-mobile.measure.js"), "utf8").trim();
 
 async function measure(page: Page): Promise<Issue[]> {
-  return page.evaluate(`(${MEASURE})(${JSON.stringify({ tap: TAP, tolerance: TOLERANCE })})`);
+  return page.evaluate(`(${MEASURE})(${JSON.stringify({ tap: TAP, tolerance: TOLERANCE, minText: 80, listCell: 120 })})`);
 }
 
 async function settle(page: Page) {

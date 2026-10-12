@@ -52,6 +52,7 @@ export async function listNotifications(since: Date): Promise<NotificationItem[]
         threadId: true,
         fromName: true,
         fromAddress: true,
+        replyToAddress: true,
         subject: true,
         createdAt: true,
         thread: { select: { client: { select: { displayName: true } } } },
@@ -117,11 +118,12 @@ export async function listNotifications(since: Date): Promise<NotificationItem[]
       id: `mail:${m.id}`,
       kind: "mail" as const,
       title: `Nouveau message${m.thread?.client ? ` de ${m.thread.client.displayName}` : ""}`,
-      body: `${m.fromName || m.fromAddress} : ${m.subject}`,
+      // Formulaire du site (Web3Forms) : le prospect est dans Reply-To.
+      body: `${m.replyToAddress || m.fromName || m.fromAddress} : ${m.subject}`,
       href: `/inbox/${m.threadId}`,
       at: m.createdAt.toISOString(),
       mail: {
-        from: m.fromName || m.fromAddress,
+        from: m.replyToAddress || m.fromName || m.fromAddress,
         subject: m.subject,
         client: m.thread?.client?.displayName ?? null,
       },

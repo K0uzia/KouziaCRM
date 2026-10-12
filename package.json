@@ -25,6 +25,7 @@
     "catalog": "tsx --env-file=.env scripts/apply-catalog.ts",
     "stripe:push-catalog": "tsx --env-file=.env --tsconfig apps/api/tsconfig.json scripts/stripe-push-catalog.ts",
     "mail:repair": "tsx --env-file=.env scripts/mail-repair.ts",
+    "seed:mail-demo": "tsx scripts/seed-mail-demo.ts",
     "admin:2fa-reset": "tsx --env-file=.env --tsconfig apps/api/tsconfig.json scripts/admin-2fa-reset.ts",
     "db:studio": "prisma studio",
     "worker": "tsx watch --env-file=.env --tsconfig apps/api/tsconfig.json scripts/worker.ts",

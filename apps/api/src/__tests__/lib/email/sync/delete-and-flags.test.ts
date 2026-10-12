@@ -81,6 +81,22 @@ describe("deleteMessage", () => {
   });
 });
 
+describe("mise à la corbeille impossible", () => {
+  it("message présent sur le serveur, sans Corbeille : conservé, jamais supprimé définitivement", async () => {
+    const account = await prisma.mailAccount.create({ data: { email: "contact@example.com", isDefault: true } });
+    const inbox = await prisma.mailFolder.create({
+      data: { accountId: account.id, imapPath: "INBOX", displayName: "INBOX", role: "INBOX" },
+    });
+    const { message } = await createThreadWithMessage({ messageId: "<serveur@test.local>" });
+    await prisma.emailMessage.update({ where: { id: message.id }, data: { folderId: inbox.id, imapUid: 42 } });
+
+    const result = await deleteMessages([message.id]);
+    expect(result).toMatchObject({ deleted: 0, kept: 1 });
+    expect(result.reason).toMatch(/conservé/);
+    expect(await prisma.emailMessage.findUnique({ where: { id: message.id } })).not.toBeNull();
+  });
+});
+
 describe("setMessageFlags", () => {
   it("marque un message lu en local sans IMAP", async () => {
     const { message, thread } = await createThreadWithMessage({

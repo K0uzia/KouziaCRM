@@ -16,6 +16,7 @@ function ago(iso: string): string {
 export function NotificationBell() {
   const n = useNotifications();
   const [open, setOpen] = useState(false);
+  const [testReport, setTestReport] = useState<string[] | null>(null);
   const rootRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const panelId = useId();
@@ -140,6 +141,20 @@ export function NotificationBell() {
                 Activer les notifications de l'appareil
               </button>
             )}
+            <button
+              type="button"
+              className="min-h-11 w-full rounded-[var(--radius-sm)] border border-[var(--border-strong)] px-3 text-left hover:bg-[var(--surface-hover)]"
+              onClick={() => void n.testAlerts().then(setTestReport)}
+            >
+              Tester la notification et le son
+            </button>
+            {testReport ? (
+              <ul role="status" className="list-disc space-y-0.5 pl-4 text-[var(--muted)]">
+                {testReport.map((line) => (
+                  <li key={line}>{line}</li>
+                ))}
+              </ul>
+            ) : null}
           </div>
         </div>
       ) : null}

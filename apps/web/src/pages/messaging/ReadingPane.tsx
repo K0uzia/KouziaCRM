@@ -13,8 +13,10 @@ import { Button } from "@/components/ui/Button";
 import { MessageBody } from "@/pages/messaging/MessageBody";
 import { AttachmentList } from "@/pages/messaging/AttachmentList";
 import { QuoteValidationBlock } from "@/pages/messaging/QuoteValidationBlock";
-import { formatDate, formatTime } from "@/lib/format";
+import { formatDate, formatShortDate, formatTime } from "@/lib/format";
+import { Link } from "react-router-dom";
 import { senderLabel } from "@kouzia-erp/email-sender";
+import { formProspectName } from "@/pages/messaging/sender";
 
 type Props = {
   threadId: string | null;
@@ -77,6 +79,7 @@ type ThreadDetail = {
     quote: { number: string | null };
   }>;
   quoteConfirmationHint?: boolean;
+  client?: { id: string; displayName: string } | null;
 };
 
 function bodyFromMessage(msg: ThreadMessage): MessageBodyPayload | null {
@@ -252,12 +255,33 @@ export function ReadingPane({
 
   return (
     <div className="flex h-full flex-col">
-      <div className="flex min-w-0 flex-wrap items-center gap-2 border-b border-[var(--border)] p-3">
+      {/* En-tête collant : retour, favori, suppression ; « Répondre » ici sur grand écran. */}
+      <div className="sticky top-0 z-10 flex min-w-0 items-center gap-2 border-b border-[var(--border)] bg-[var(--bg)] p-2 md:p-3">
         {backButton}
         {latest ? (
           <>
+            <span className="flex-1" />
+            <span className="hidden md:block">
             <Button
               variant="secondary"
+              onClick={() => onReply({
+                  threadId: thread.id,
+                  messageId: latest.messageId,
+                  subject: thread.subject.startsWith("Re:") ? thread.subject : `Re: ${thread.subject}`,
+                  fromAddress: latest.fromAddress,
+                  replyToAddress: latest.replyToAddress,
+                  receivedAt: latest.receivedAt,
+                  snippet: latest.snippet ?? "",
+                })}
+            >
+              <FontAwesomeIcon icon={faReply} className="h-4 w-4" aria-hidden />
+              Répondre
+            </Button>
+            </span>
+            <Button
+              variant="ghost"
+              aria-label={latest.isStarred ? "Retirer des favoris" : "Ajouter aux favoris"}
+              aria-pressed={latest.isStarred}
               onClick={() =>
                 void api(`/api/emails/messages/${latest.id}/flags`, {
                   method: "PATCH",
@@ -265,29 +289,15 @@ export function ReadingPane({
                 }).then(onRefresh)
               }
             >
-              <FontAwesomeIcon icon={faStar} className="h-4 w-4" />
+              <FontAwesomeIcon
+                icon={faStar}
+                className={`h-4 w-4 ${latest.isStarred ? "text-[var(--warning)]" : ""}`}
+                aria-hidden
+              />
             </Button>
             <Button
-              variant="secondary"
-              onClick={() =>
-                onReply({
-                  threadId: thread.id,
-                  messageId: latest.messageId,
-                  subject: thread.subject.startsWith("Re:")
-                    ? thread.subject
-                    : `Re: ${thread.subject}`,
-                  fromAddress: latest.fromAddress,
-                  replyToAddress: latest.replyToAddress,
-                  receivedAt: latest.receivedAt,
-                  snippet: latest.snippet ?? "",
-                })
-              }
-            >
-              <FontAwesomeIcon icon={faReply} className="h-4 w-4" />
-              Répondre
-            </Button>
-            <Button
-              variant="secondary"
+              variant="ghost"
+              aria-label="Supprimer le message"
               onClick={() =>
                 void api(`/api/emails/messages/${latest.id}`, { method: "DELETE" })
                   .then(() => {
@@ -297,14 +307,19 @@ export function ReadingPane({
                   .catch((e: Error) => toast.error(e.message))
               }
             >
-              <FontAwesomeIcon icon={faTrash} className="h-4 w-4" />
+              <FontAwesomeIcon icon={faTrash} className="h-4 w-4" aria-hidden />
             </Button>
           </>
         ) : null}
       </div>
 
       <div className="custom-scrollbar flex-1 overflow-y-auto p-4 md:px-8">
-        <h2 className="text-lg font-semibold">{thread.subject}</h2>
+        <h2 className="text-lg font-semibold leading-snug break-words">{thread.subject}</h2>
+        {thread.client ? (
+          <Link to={`/clients/${thread.client.id}`} className="link mt-1 inline-flex min-h-11 items-center text-sm">
+            Client : {thread.client.displayName}
+          </Link>
+        ) : null}
         <QuoteValidationBlock
           threadId={thread.id}
           pendingQuotes={thread.pendingQuotes ?? []}
@@ -322,24 +337,39 @@ export function ReadingPane({
           {thread.messages.map((msg) => {
             const open = expandedId === msg.id;
             const body = bodies[msg.id] ?? (open ? bodyFromMessage(msg) : null);
-            const sender = senderLabel(msg.fromName, msg.fromAddress);
+            // Formulaire du site : le prospect (Reply-To, nom dans le corps) est l'expéditeur réel.
+            const viaForm = msg.direction !== "OUTBOUND" && Boolean(msg.replyToAddress);
+            const senderAddress = viaForm ? msg.replyToAddress! : msg.fromAddress;
+            const sender = viaForm
+              ? (formProspectName(msg.bodyText ?? msg.snippet) ?? senderLabel(null, senderAddress))
+              : senderLabel(msg.fromName, msg.fromAddress);
             return (
               <li key={msg.id} className="rounded-lg border border-[var(--border)]">
                 <button
                   type="button"
-                  className="flex w-full flex-col px-4 py-3 text-left"
+                  aria-expanded={open}
+                  className="flex w-full min-w-0 flex-col px-4 py-3 text-left"
                   onClick={() => void expandMessage(msg.id)}
                 >
-                  <span className="text-sm font-medium">
-                    {sender}
-                    {sender !== msg.fromAddress ? (
-                      <span className="font-normal text-[var(--muted)]"> · {msg.fromAddress}</span>
-                    ) : null}
+                  <span className="flex min-w-0 items-baseline gap-2">
+                    <span className="min-w-0 flex-1 truncate text-sm font-semibold">{sender}</span>
+                    <time dateTime={msg.receivedAt} className="shrink-0 whitespace-nowrap text-xs text-[var(--muted)]">
+                      {formatShortDate(msg.receivedAt)}
+                    </time>
                   </span>
+                  {sender !== senderAddress ? (
+                    <span className="truncate text-xs text-[var(--muted)]">{senderAddress}</span>
+                  ) : null}
+                  {viaForm ? (
+                    <span className="text-xs text-[var(--muted)]">via le formulaire kouzia.com</span>
+                  ) : null}
+                  {!open && msg.snippet ? (
+                    <span className="mt-0.5 truncate text-sm text-[var(--muted)]">{msg.snippet}</span>
+                  ) : null}
                   <span className="text-xs text-[var(--muted)]">
-                    {formatDate(msg.receivedAt)} · {formatTime(msg.receivedAt)}
-                    {" · "}
                     {msg.direction === "OUTBOUND" ? "Envoyé" : "Reçu"}
+                    {" · "}
+                    {formatDate(msg.receivedAt)} {formatTime(msg.receivedAt)}
                     {!msg.isRead ? " · Non lu" : ""}
                     {msg.attachments.length > 0 || msg.hasAttachments ? (
                       <>
@@ -378,6 +408,22 @@ export function ReadingPane({
           })}
         </ol>
       </div>
+      {latest ? (
+        <div className="border-t border-[var(--border)] bg-[var(--bg)] p-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] md:hidden">
+          <Button className="w-full" onClick={() => onReply({
+                  threadId: thread.id,
+                  messageId: latest.messageId,
+                  subject: thread.subject.startsWith("Re:") ? thread.subject : `Re: ${thread.subject}`,
+                  fromAddress: latest.fromAddress,
+                  replyToAddress: latest.replyToAddress,
+                  receivedAt: latest.receivedAt,
+                  snippet: latest.snippet ?? "",
+                })}>
+            <FontAwesomeIcon icon={faReply} className="h-4 w-4" aria-hidden />
+            Répondre
+          </Button>
+        </div>
+      ) : null}
     </div>
   );
 }

@@ -66,3 +66,6 @@ Export_*.pdf
 # Bases SQLite locales
 *.db
 *.db-journal
+
+# Scripts de recette jetables (captures, mesures) : jamais versionnés.
+scripts/.tmp-check/

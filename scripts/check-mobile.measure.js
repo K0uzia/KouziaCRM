@@ -1,6 +1,6 @@
 // Mesure exécutée DANS la page par scripts/check-mobile.ts (injectée telle quelle, sans transpilation).
 // Critères repris de l'audit mobile de la recette : scroll de page, élément hors de l'écran,
-// conteneur qui coupe son contenu, cible d'action de moins de 44 px.
+// conteneur qui coupe son contenu, cible d'action de moins de 44 px, texte tronqué illisible.
 (function measure(opts) {
   var TAP = opts.tap;
   var TOL = opts.tolerance;
@@ -69,6 +69,15 @@
     }
     if (r.left < -TOL && r.right > 0 && s.position !== "fixed" && !scrollableAncestor(e)) {
       issues.push({ kind: "clip", detail: "bord gauche " + Math.round(r.left) + " < 0", selector: label(e) });
+    }
+
+    // Lisibilité : texte coupé par une ellipse dans une case trop étroite pour être lu
+    // (moins de 80 px, ou moins de 120 px dans une ligne de liste ou une cellule de tableau).
+    if (s.textOverflow === "ellipsis" && e.scrollWidth > e.clientWidth + 1 && (e.textContent || "").trim()) {
+      var minWidth = e.closest("main li, main td, main [role=row]") ? opts.listCell : opts.minText;
+      if (e.clientWidth < minWidth) {
+        issues.push({ kind: "lisible", detail: "texte coupé dans " + e.clientWidth + " px (< " + minWidth + ")", selector: label(e) });
+      }
     }
 
     // Cibles d'action.

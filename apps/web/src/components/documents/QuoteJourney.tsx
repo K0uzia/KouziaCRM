@@ -99,7 +99,7 @@ export function QuoteJourney({
         })}
       </ol>
       {project ? (
-        <Link to={`/clients/${quote.clientId}?tab=projets`} className="link mt-3 inline-block text-sm">
+        <Link to={`/clients/${quote.clientId}?tab=projets`} className="link mt-2 inline-flex min-h-11 items-center text-sm">
           Voir le projet ({project.progress} %)
         </Link>
       ) : accepted && !rejected ? (

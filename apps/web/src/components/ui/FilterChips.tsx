@@ -14,18 +14,21 @@ export function FilterChips<T extends string>({
   onChange,
   label,
   className = "",
+  wrap = false,
 }: {
   options: ReadonlyArray<FilterChipOption<T>>;
   value: T;
   onChange: (id: T) => void;
   label: string;
   className?: string;
+  /** Retour à la ligne plutôt que défilement horizontal (aucune puce coupée au bord de l'écran). */
+  wrap?: boolean;
 }) {
   return (
     <div
       role="group"
       aria-label={label}
-      className={`-mx-3 flex gap-1.5 overflow-x-auto px-3 no-scrollbar sm:mx-0 sm:flex-wrap sm:px-0 ${className}`}
+      className={`${wrap ? "flex-wrap" : "-mx-3 overflow-x-auto px-3 no-scrollbar sm:mx-0 sm:flex-wrap sm:px-0"} flex gap-1.5 ${className}`}
     >
       {options.map((o) => {
         const active = o.id === value;

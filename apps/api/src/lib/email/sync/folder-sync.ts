@@ -646,19 +646,27 @@ export async function moveMessageToFolder(
   });
 }
 
-async function deleteResolvedMessage(message: MessageWithFolder, permanent: boolean): Promise<void> {
-  const trash = await prisma.mailFolder.findFirst({
-    where: { role: MailFolderRole.TRASH, isVirtual: false },
-  });
+/** Mise à la corbeille impossible : le message est CONSERVÉ (jamais de suppression définitive à la place). */
+export class TrashUnavailableError extends Error {}
 
-  if (!permanent && trash && message.folder?.role !== MailFolderRole.TRASH) {
-    if (message.folder && message.imapUid) {
-      try {
-        await moveMessageToFolder(message.id, trash.id);
-        return;
-      } catch {
-        /* IMAP indisponible : suppression locale ci-dessous. */
-      }
+async function deleteResolvedMessage(message: MessageWithFolder, permanent: boolean): Promise<void> {
+  // Suppression simple = mise à la corbeille. Si elle échoue (pas de Corbeille, IMAP injoignable),
+  // on s'arrête : supprimer définitivement à la place détruirait un message que l'interface dit récupérable.
+  // Message présent sur le serveur IMAP : jamais détruit à la place d'une mise à la corbeille.
+  // Enregistrement purement local (sans dossier IMAP) : rien à conserver côté boîte, suppression locale.
+  const onServer = Boolean(message.folder && message.imapUid);
+  if (!permanent && onServer && message.folder?.role !== MailFolderRole.TRASH) {
+    const trash = await prisma.mailFolder.findFirst({
+      where: { role: MailFolderRole.TRASH, isVirtual: false },
+    });
+    if (!trash) {
+      throw new TrashUnavailableError("Corbeille indisponible : message conservé.");
+    }
+    try {
+      await moveMessageToFolder(message.id, trash.id);
+      return;
+    } catch {
+      throw new TrashUnavailableError("Boîte mail injoignable : message conservé, réessayez plus tard.");
     }
   }
 
@@ -703,32 +711,40 @@ export async function deleteMessage(
 export async function deleteMessages(
   messageIds: string[],
   permanent = false,
-): Promise<{ deleted: number }> {
+): Promise<{ deleted: number; kept: number; reason: string | null }> {
   let deleted = 0;
+  let kept = 0;
+  let reason: string | null = null;
   const seen = new Set<string>();
   for (const id of messageIds) {
     const messages = await resolveMessagesForDelete(id);
     for (const message of messages) {
       if (seen.has(message.id)) continue;
       seen.add(message.id);
-      await deleteResolvedMessage(message, permanent);
-      deleted++;
+      try {
+        await deleteResolvedMessage(message, permanent);
+        deleted++;
+      } catch (err) {
+        if (!(err instanceof TrashUnavailableError)) throw err;
+        kept++;
+        reason = err.message;
+      }
     }
   }
-  return { deleted };
+  return { deleted, kept, reason };
 }
 
 /** Supprime définitivement tous les messages du dossier Corbeille. */
-export async function emptyTrashFolder(): Promise<{ deleted: number }> {
+export async function emptyTrashFolder(): Promise<{ deleted: number; kept: number; reason: string | null }> {
   const trash = await prisma.mailFolder.findFirst({
     where: { role: MailFolderRole.TRASH, isVirtual: false },
   });
-  if (!trash) return { deleted: 0 };
+  if (!trash) return { deleted: 0, kept: 0, reason: null };
   const rows = await prisma.emailMessage.findMany({
     where: { folderId: trash.id },
     select: { id: true },
   });
-  if (rows.length === 0) return { deleted: 0 };
+  if (rows.length === 0) return { deleted: 0, kept: 0, reason: null };
   return deleteMessages(
     rows.map((r) => r.id),
     true,
