@@ -1,4 +1,4 @@
-import { useMemo, useState, type ReactNode } from "react";
+import { useMemo, useState, type MouseEvent, type ReactNode } from "react";
 import DataTableBase, {
   createTheme,
   type TableColumn,
@@ -311,6 +311,21 @@ export function DataTable<T>({
     : filtered;
   const hasToolbar = Boolean(searchable || toolbar);
 
+  // Clic de ligne géré ici : la bibliothèque ne le déclenche que si la cible porte
+  // data-tag="allowRowEvents" (la cellule seule, pas le texte qu'elle contient).
+  // Ignorés : liens, boutons et champs, colonnes d'actions, et un texte en cours de sélection.
+  function handleTableClick(e: MouseEvent<HTMLDivElement>) {
+    if (!onRowClick) return;
+    const target = e.target as Element;
+    if (window.getSelection()?.toString()) return;
+    if (target.closest("a, button, input, select, textarea, label, summary, [role='button']")) return;
+    const cell = target.closest(".rdt_TableCell");
+    if (!cell || cell.getAttribute("data-tag") !== "allowRowEvents") return;
+    const rowId = target.closest(".rdt_TableRow")?.id.replace(/^row-/, "");
+    const row = filtered.find((r) => r && typeof r === "object" && "id" in r && String((r as { id: unknown }).id) === rowId);
+    if (row) onRowClick(row);
+  }
+
   return (
     <section className="ui-card min-w-0 overflow-hidden">
       {hasToolbar ? (
@@ -370,7 +385,7 @@ export function DataTable<T>({
             ) : null}
           </div>
 
-          <div className={`ui-table-wrap hidden min-w-0 md:block ${onRowClick ? "ui-rows-clickable" : ""}`}>
+          <div className="ui-table-wrap hidden min-w-0 md:block" onClick={handleTableClick}>
             <DataTableBase
               columns={sizedColumns}
               data={filtered}
@@ -391,7 +406,6 @@ export function DataTable<T>({
               noDataComponent={<EmptyState title={emptyTitle} hint={emptyHint} />}
               highlightOnHover
               pointerOnHover={Boolean(onRowClick)}
-              onRowClicked={onRowClick ? (row) => onRowClick(row) : undefined}
             />
           </div>
         </>
