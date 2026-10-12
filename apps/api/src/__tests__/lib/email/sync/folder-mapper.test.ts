@@ -20,6 +20,13 @@ describe("folder-mapper", () => {
     expect(detectFolderRole("Random/Folder", overrides)).toBe("CUSTOM");
   });
 
+  it("le drapeau special-use du serveur l'emporte sur le nom du dossier", () => {
+    expect(detectFolderRole("Elementos eliminados", {}, "\\Trash")).toBe("TRASH");
+    expect(detectFolderRole("Corbeille", {}, "\\Trash")).toBe("TRASH");
+    expect(detectFolderRole("INBOX.Trash", {})).toBe("TRASH");
+    expect(detectFolderRole("Courrier indésirable", {}, "\\Junk")).toBe("JUNK");
+  });
+
   it("extrait le nom affiché en français", () => {
     expect(folderDisplayName("INBOX.Sent")).toBe("Envoyés");
     expect(folderDisplayName("INBOX", "INBOX")).toBe("Boîte de réception");

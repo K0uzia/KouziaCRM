@@ -222,10 +222,11 @@ export async function discoverAndEnsureFolders(): Promise<MailFolder[]> {
       paths.unshift("INBOX");
     }
 
+    const specialUseByPath = new Map(listed.map((m) => [m.path, m.specialUse ?? null]));
     const allPaths = Array.from(new Set([...paths, ...forcedPaths]));
     for (const imapPath of allPaths) {
       if (!imapPath) continue;
-      const role = detectFolderRole(imapPath, overrides);
+      const role = detectFolderRole(imapPath, overrides, specialUseByPath.get(imapPath));
       folders.push(await upsertFolderFromServer({ accountId: account.id, imapPath, role }));
     }
 

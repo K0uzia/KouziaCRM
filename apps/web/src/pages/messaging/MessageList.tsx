@@ -316,7 +316,7 @@ export function MessageList({
         ) : null}
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
           <label
-            className={`min-h-11 items-center gap-2 text-xs text-[var(--muted)] ${selecting ? "inline-flex" : "hidden md:inline-flex"}`}
+            className={`inline-flex min-h-11 items-center gap-2 text-xs text-[var(--muted)] ${selecting ? "" : "invisible md:visible"}`}
           >
             <input
               type="checkbox"

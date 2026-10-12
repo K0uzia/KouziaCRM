@@ -14,9 +14,20 @@ export const STANDARD_FOLDER_CANDIDATES: Record<
   ARCHIVE: ["Archive", "INBOX.Archive", "Archives"],
 };
 
+/** Drapeaux special-use annoncés par le serveur (RFC 6154) : plus fiables que le nom du dossier. */
+const SPECIAL_USE_ROLES: Record<string, Exclude<MailFolderRole, "CUSTOM">> = {
+  "\\inbox": "INBOX",
+  "\\sent": "SENT",
+  "\\drafts": "DRAFTS",
+  "\\trash": "TRASH",
+  "\\junk": "JUNK",
+  "\\archive": "ARCHIVE",
+};
+
 export function detectFolderRole(
   imapPath: string,
   overrides: Partial<FolderMapping>,
+  specialUse?: string | null,
 ): MailFolderRole {
   const normalized = imapPath.toLowerCase();
   for (const [role, path] of Object.entries(overrides) as Array<
@@ -26,6 +37,8 @@ export function detectFolderRole(
       return role;
     }
   }
+  const announced = specialUse ? SPECIAL_USE_ROLES[specialUse.toLowerCase()] : undefined;
+  if (announced) return announced;
   for (const [role, candidates] of Object.entries(STANDARD_FOLDER_CANDIDATES) as Array<
     [Exclude<MailFolderRole, "CUSTOM">, string[]]
   >) {
