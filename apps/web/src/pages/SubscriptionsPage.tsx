@@ -24,8 +24,7 @@ import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { StatStrip } from "@/components/ui/StatStrip";
 import { Tabs, useTabParam } from "@/components/ui/Tabs";
 import { Segmented } from "@/components/ui/Segmented";
-import { DataTable, type TableColumn } from "@/components/ui/DataTable";
-import { useMediaQuery } from "@/lib/use-media-query";
+import { DataTable, type DataColumn } from "@/components/ui/DataTable";
 import {
   INTERVAL_OPTIONS,
   monthlyEquivalentCents,
@@ -406,10 +405,7 @@ export function SubscriptionsPage() {
     fn();
   }
 
-  // Sous 75 rem (barre latérale comprise), la date reste dans le panneau du contrat et sur les cartes.
-  const wideTable = useMediaQuery("(min-width: 75rem)");
-
-  const contractColumns: TableColumn<Subscription>[] = [
+  const contractColumns: DataColumn<Subscription>[] = [
     {
       name: "Client",
       grow: 2,
@@ -451,7 +447,7 @@ export function SubscriptionsPage() {
     {
       name: "Échéance",
       width: "10rem",
-      omit: !wideTable,
+      showFrom: 1200,
       selector: (s) => s.nextInvoiceAt,
       sortable: true,
       cell: (s) => <span className="whitespace-nowrap text-[var(--muted)]">{formatDate(s.nextInvoiceAt)}</span>,

@@ -11,7 +11,7 @@
 import { createHmac } from "node:crypto";
 import { readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { chromium, type Page } from "playwright";
+import { chromium, type BrowserContext, type Page } from "playwright";
 import { NAV_SECTIONS, SETTINGS_ITEM } from "../apps/web/src/lib/navigation";
 import { SETTINGS_TABS } from "../apps/web/src/pages/settings/types";
 
@@ -127,10 +127,21 @@ async function main() {
   const browser = await chromium.launch();
   const results: Result[] = [];
   try {
+    // Une seule connexion pour toutes les largeurs : la connexion admin est limitée en débit
+    // (10 essais par 15 min et par IP), et chaque largeur se reconnectait.
+    let session: Awaited<ReturnType<BrowserContext["storageState"]>> | undefined;
     for (const width of WIDTHS) {
-      const context = await browser.newContext({ viewport: { width, height: 740 }, deviceScaleFactor: 2, hasTouch: true });
+      const context = await browser.newContext({
+        viewport: { width, height: 740 },
+        deviceScaleFactor: 2,
+        hasTouch: true,
+        ...(session ? { storageState: session } : {}),
+      });
       const page = await context.newPage();
-      await login(page);
+      if (!session) {
+        await login(page);
+        session = await context.storageState();
+      }
 
       // Fiches : première ligne de chaque liste (lien de la 1re colonne ou carte mobile).
       const details: typeof screens = [];

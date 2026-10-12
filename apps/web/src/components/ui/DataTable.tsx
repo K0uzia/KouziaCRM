@@ -1,4 +1,4 @@
-import { useMemo, useState, type MouseEvent, type ReactNode } from "react";
+import { useMemo, useState, useSyncExternalStore, type MouseEvent, type ReactNode } from "react";
 import DataTableBase, {
   createTheme,
   type TableColumn,
@@ -29,15 +29,19 @@ createTheme(
 );
 
 const customStyles: TableProps<never>["customStyles"] = {
+  // La bibliothèque met min-width: fit-content : un e-mail ou un nom long élargissait le tableau
+  // au-delà de son conteneur (défilement horizontal). Les cellules tronquent à la place.
   table: {
     style: {
       width: "100%",
+      minWidth: 0,
       tableLayout: "fixed",
     },
   },
   tableWrapper: {
     style: {
       width: "100%",
+      minWidth: 0,
       overflowX: "auto",
     },
   },
@@ -116,8 +120,20 @@ const customStyles: TableProps<never>["customStyles"] = {
   },
 };
 
+/**
+ * Colonne de tableau. showFrom : affichée seulement à partir de cette largeur d'écran (px), pour
+ * qu'aucun tableau ne défile horizontalement de 768 à 1280 px (l'option hide de la bibliothèque
+ * ne retirait pas la colonne du calcul de largeur). Les cartes mobiles gardent tous les champs.
+ */
+export type DataColumn<T> = TableColumn<T> & { showFrom?: number };
+
+function subscribeResize(onChange: () => void) {
+  window.addEventListener("resize", onChange);
+  return () => window.removeEventListener("resize", onChange);
+}
+
 export type DataTableProps<T> = {
-  columns: TableColumn<T>[];
+  columns: DataColumn<T>[];
   data: T[];
   pagination?: boolean;
   perPage?: number;
@@ -271,9 +287,13 @@ export function DataTable<T>({
   const [mobilePage, setMobilePage] = useState(1);
   // Une colonne à largeur fixe ne prend pas de part de l'espace libre (grow vaut 1 par défaut
   // dans la bibliothèque, ce qui faisait déborder le tableau).
+  const viewport = useSyncExternalStore(subscribeResize, () => window.innerWidth, () => 1280);
   const sizedColumns = useMemo(
-    () => columns.map((c) => (c.width && c.grow === undefined ? { ...c, grow: 0 } : c)),
-    [columns],
+    () =>
+      columns
+        .filter((c) => !c.showFrom || viewport >= c.showFrom)
+        .map(({ showFrom: _showFrom, ...c }) => (c.width && c.grow === undefined ? { ...c, grow: 0 } : c)),
+    [columns, viewport],
   );
 
   const filtered = useMemo(() => {

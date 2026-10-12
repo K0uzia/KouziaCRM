@@ -13,8 +13,7 @@ import { Badge, Card, PageHeader } from "@/components/ui/Card";
 import { Modal, ModalActions } from "@/components/ui/Modal";
 import { Field, Input } from "@/components/ui/Field";
 import { FilterChips } from "@/components/ui/FilterChips";
-import { DataTable, type TableColumn } from "@/components/ui/DataTable";
-import { Media } from "react-data-table-component";
+import { DataTable, type DataColumn } from "@/components/ui/DataTable";
 import { Avatar } from "@/components/ui/Avatar";
 import {
   ClientFormEditor,
@@ -61,7 +60,7 @@ export function ClientsPage() {
       .finally(() => setLoading(false));
   }, [correspondenceFilter]);
 
-  const columns: TableColumn<Client>[] = [
+  const columns: DataColumn<Client>[] = [
     {
       name: "Client",
       selector: (c) => c.displayName,
@@ -103,13 +102,13 @@ export function ClientsPage() {
       selector: (c) => c.city ?? "",
       sortable: true,
       width: "9rem",
-      hide: Media.MD,
-      cell: (c) => <span className="truncate text-[var(--muted)]">{c.city ?? "-"}</span>,
+      showFrom: 1280,
+      cell: (c) => <span className="py-1 whitespace-normal break-words text-[var(--muted)]">{c.city ?? "-"}</span>,
     },
     {
       name: "Dernier échange",
       width: "9.5rem",
-      hide: Media.LG,
+      showFrom: 1280,
       cell: (c) =>
         c.lastExchange ? (
           <Link
