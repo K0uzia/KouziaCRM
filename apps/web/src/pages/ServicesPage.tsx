@@ -7,9 +7,11 @@ import { useFeatures } from "@/lib/features";
 import { Button } from "@/components/ui/Button";
 import { Badge, Card, EmptyState, PageHeader } from "@/components/ui/Card";
 import { Modal, ModalActions } from "@/components/ui/Modal";
-import { Field, Input, Textarea } from "@/components/ui/Field";
+import { Field, Input, Select, Textarea } from "@/components/ui/Field";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { FilterChips } from "@/components/ui/FilterChips";
+import { Segmented } from "@/components/ui/Segmented";
+import { INTERVAL_OPTIONS, type BillingInterval } from "@/lib/billing-interval";
 
 type Service = {
   id: string;
@@ -25,7 +27,20 @@ type Service = {
   billingInterval?: string | null;
 };
 
-const emptyForm = { name: "", description: "", priceEuros: "", active: true };
+const emptyForm = {
+  name: "",
+  description: "",
+  priceEuros: "",
+  active: true,
+  kind: "ONE_OFF" as "ONE_OFF" | "SUBSCRIPTION",
+  billingInterval: "MONTH" as BillingInterval,
+  billingDay: "1",
+};
+
+const KIND_OPTIONS = [
+  { id: "ONE_OFF", label: "Ponctuelle" },
+  { id: "SUBSCRIPTION", label: "Abonnement" },
+] as const;
 
 /** Équivalent hors taxe si l'entreprise devient assujettie (TVA 20 % prise sur le prix affiché). */
 export function htEquivalent(cents: number): string {
@@ -46,6 +61,8 @@ export function ServicesPage() {
   const [busy, setBusy] = useState(false);
   const [form, setForm] = useState(emptyForm);
   const [view, setView] = useState<"active" | "archived">("active");
+  // Clé d'idempotence Stripe : une par ouverture du formulaire (un double envoi ne crée rien de plus).
+  const [requestId, setRequestId] = useState("");
 
   async function load() {
     setRows(await api<Service[]>("/api/services?subscription=0"));
@@ -60,6 +77,7 @@ export function ServicesPage() {
   function openCreate() {
     setEditing(null);
     setForm(emptyForm);
+    setRequestId(crypto.randomUUID());
     setOpen(true);
   }
 
@@ -70,7 +88,11 @@ export function ServicesPage() {
       description: s.description ?? "",
       priceEuros: (s.unitPriceCents / 100).toFixed(2),
       active: s.active,
+      kind: s.isSubscription ? "SUBSCRIPTION" : "ONE_OFF",
+      billingInterval: s.billingInterval === "YEAR" ? "YEAR" : "MONTH",
+      billingDay: String(s.defaultBillingDay ?? 1),
     });
+    setRequestId(crypto.randomUUID());
     setOpen(true);
   }
 
@@ -84,14 +106,20 @@ export function ServicesPage() {
         unitPriceEuros: Number(form.priceEuros),
         unit: "FORFAIT",
         active: form.active,
-        isSubscription: false,
+        isSubscription: form.kind === "SUBSCRIPTION",
+        billingInterval: form.kind === "SUBSCRIPTION" ? form.billingInterval : null,
+        defaultBillingDay: Number(form.billingDay) || 1,
+        requestId,
       };
       if (editing) {
         await api(`/api/services/${editing.id}`, { method: "PUT", body: JSON.stringify(body) });
-        toast.success("Prestation mise à jour");
+        toast.success(
+          linkedPriceChange ? "Prestation mise à jour : nouveau prix créé dans Stripe" : "Prestation mise à jour",
+        );
       } else {
         await api("/api/services", { method: "POST", body: JSON.stringify(body) });
-        toast.success("Prestation créée");
+        const where = form.kind === "SUBSCRIPTION" ? " (dans Abonnements > Offres)" : "";
+        toast.success(moduleStripeEnabled ? `Prestation créée dans l'ERP et dans Stripe${where}` : `Prestation créée${where}`);
       }
       setOpen(false);
       await load();
@@ -145,6 +173,8 @@ export function ServicesPage() {
   const archived = rows.filter((r) => !r.active);
   const visible = view === "active" ? active : archived;
   const priceCents = Math.round(Number(form.priceEuros || 0) * 100);
+  // Prestation liée : un nouveau montant crée un nouveau prix Stripe.
+  const linkedPriceChange = Boolean(editing?.stripePriceId) && priceCents !== editing?.unitPriceCents;
 
   return (
     <div>
@@ -152,16 +182,14 @@ export function ServicesPage() {
         title="Prestations"
         subtitle={
           moduleStripeEnabled
-            ? "Catalogue synchronisé depuis Stripe. Nom, prix et périodicité se modifient dans le tableau de bord Stripe."
+            ? "Catalogue synchronisé avec Stripe : ce que vous créez, modifiez ou archivez ici l'est aussi dans Stripe."
             : "Catalogue à prix fixe, repris dans les devis et factures. Prix TTC : montant final payé par le client."
         }
         actions={
-          moduleStripeEnabled ? undefined : (
-            <Button onClick={openCreate}>
-              <FontAwesomeIcon icon={faPlus} className="h-3.5 w-3.5" aria-hidden />
-              Nouvelle prestation
-            </Button>
-          )
+          <Button onClick={openCreate}>
+            <FontAwesomeIcon icon={faPlus} className="h-3.5 w-3.5" aria-hidden />
+            Nouvelle prestation
+          </Button>
         }
       />
 
@@ -229,8 +257,7 @@ export function ServicesPage() {
                         <FontAwesomeIcon icon={faPen} className="h-3.5 w-3.5" aria-hidden />
                       </Button>
                     ) : null}
-                    {/* Prestation liée à Stripe : suppression et prix gérés dans Stripe. */}
-                    {s.active && !s.stripeProductId ? (
+                    {s.active ? (
                       <>
                         <Button
                           variant="danger-ghost"
@@ -260,9 +287,49 @@ export function ServicesPage() {
         open={open}
         onClose={() => setOpen(false)}
         title={editing ? "Modifier la prestation" : "Nouvelle prestation"}
-        description="Prix fixe repris tel quel dans les devis. Vous pourrez l'ajuster ligne par ligne."
+        description={
+          moduleStripeEnabled
+            ? "Créée ou modifiée aussi dans Stripe. Prix fixe repris tel quel dans les devis."
+            : "Prix fixe repris tel quel dans les devis. Vous pourrez l'ajuster ligne par ligne."
+        }
       >
         <form onSubmit={onSubmit} className="space-y-4">
+          {/* Groupes de boutons hors d'un <label> (il nommerait le premier bouton). */}
+          {editing ? null : (
+            <div className="space-y-1.5">
+              <p className="text-sm font-medium text-[var(--text)]">Type</p>
+              <Segmented
+                label="Type de prestation"
+                options={KIND_OPTIONS}
+                value={form.kind}
+                onChange={(kind) => setForm({ ...form, kind })}
+                className="w-full"
+              />
+            </div>
+          )}
+          {!editing && form.kind === "SUBSCRIPTION" ? (
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <div className="space-y-1.5">
+                <p className="text-sm font-medium text-[var(--text)]">Facturation</p>
+                <Segmented
+                  label="Périodicité de l'abonnement"
+                  options={INTERVAL_OPTIONS}
+                  value={form.billingInterval}
+                  onChange={(billingInterval) => setForm({ ...form, billingInterval })}
+                  className="w-full"
+                />
+              </div>
+              <Field label="Jour de facturation">
+                <Select value={form.billingDay} onChange={(e) => setForm({ ...form, billingDay: e.target.value })}>
+                  {Array.from({ length: 28 }, (_, d) => d + 1).map((d) => (
+                    <option key={d} value={String(d)}>
+                      Le {d}
+                    </option>
+                  ))}
+                </Select>
+              </Field>
+            </div>
+          ) : null}
           <Field label="Nom">
             <Input required maxLength={120} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
           </Field>
@@ -270,10 +337,16 @@ export function ServicesPage() {
             <Textarea value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} rows={3} />
           </Field>
           <Field
-            label="Prix TTC (€)"
+            label={
+              form.kind === "SUBSCRIPTION"
+                ? form.billingInterval === "YEAR"
+                  ? "Prix TTC par an (€)"
+                  : "Prix TTC par mois (€)"
+                : "Prix TTC (€)"
+            }
             hint={
-              editing?.stripePriceId
-                ? "Prix géré dans Stripe : modifiez-le dans le catalogue Stripe, il est repris ici à la synchro."
+              linkedPriceChange
+                ? `Un nouveau prix est créé dans Stripe et l'ancien (${formatEUR(editing?.unitPriceCents ?? 0)}) est archivé. Les abonnements en cours ne changent pas : ils gardent l'ancien prix.`
                 : priceCents > 0
                 ? `Montant payé par le client. Si vous devenez assujetti à la TVA, ce prix reste le même : ${htEquivalent(priceCents)} HT + TVA 20 %.`
                 : "Montant payé par le client (franchise de TVA : rien n'est ajouté)."
@@ -286,7 +359,6 @@ export function ServicesPage() {
               step="0.01"
               min="0"
               value={form.priceEuros}
-              readOnly={Boolean(editing?.stripePriceId)}
               onChange={(e) => setForm({ ...form, priceEuros: e.target.value })}
             />
           </Field>
@@ -313,7 +385,7 @@ export function ServicesPage() {
       <ConfirmDialog
         open={Boolean(deleting)}
         title="Supprimer la prestation"
-        message={`« ${deleting?.name ?? ""} » sera supprimée. Si elle figure déjà sur un devis, une facture ou un abonnement, elle sera archivée à la place pour garder l'historique intact.`}
+        message={`« ${deleting?.name ?? ""} » sera supprimée. Si elle figure déjà sur un devis, une facture ou un abonnement, elle sera archivée à la place pour garder l'historique intact.${deleting?.stripeProductId ? " Elle est aussi archivée dans Stripe : les abonnements Stripe en cours continuent." : ""}`}
         confirmLabel="Supprimer"
         danger
         busy={busy}
