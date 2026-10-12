@@ -8,7 +8,8 @@ export type NotificationKind =
   | "quote_rejected"
   | "payment"
   | "testimonial"
-  | "deposit_due";
+  | "deposit_due"
+  | "subscription_stripe";
 
 export type NotificationItem = {
   /** Identifiant stable (type + id source) : sert à dédoublonner côté interface. */
@@ -36,7 +37,7 @@ function eur(cents: number): string {
 export async function listNotifications(since: Date): Promise<NotificationItem[]> {
   const recentMail = new Date(Date.now() - MAIL_RECENT_MS);
 
-  const [mails, accepted, rejected, payments, testimonials, depositsDue] = await Promise.all([
+  const [mails, accepted, rejected, payments, testimonials, depositsDue, stripeSubs] = await Promise.all([
     prisma.emailMessage.findMany({
       where: {
         direction: EmailDirection.INBOUND,
@@ -111,6 +112,19 @@ export async function listNotifications(since: Date): Promise<NotificationItem[]
         quote: { select: { id: true, number: true, client: { select: { displayName: true } } } },
       },
     }),
+    // Abonnement clôturé, suspendu ou repris côté Stripe (tableau de bord, impayés).
+    prisma.subscription.findMany({
+      where: { stripeStatusChangedAt: { gt: since } },
+      orderBy: { stripeStatusChangedAt: "desc" },
+      take: MAX_ITEMS,
+      select: {
+        id: true,
+        label: true,
+        stripeStatusChange: true,
+        stripeStatusChangedAt: true,
+        client: { select: { displayName: true } },
+      },
+    }),
   ]);
 
   const items: NotificationItem[] = [
@@ -168,6 +182,17 @@ export async function listNotifications(since: Date): Promise<NotificationItem[]
       href: `/quotes/${d.quote.id}`,
       at: (d.triggeredAt ?? new Date()).toISOString(),
     })),
+    ...stripeSubs.map((s) => {
+      const state = s.stripeStatusChange === "ENDED" ? "clôturé" : s.stripeStatusChange === "PAUSED" ? "suspendu" : "repris";
+      return {
+        id: `subscription_stripe:${s.id}:${(s.stripeStatusChangedAt ?? new Date()).getTime()}`,
+        kind: "subscription_stripe" as const,
+        title: `Abonnement ${state} depuis Stripe`,
+        body: `${s.client.displayName} : « ${s.label} ».`,
+        href: "/abonnements",
+        at: (s.stripeStatusChangedAt ?? new Date()).toISOString(),
+      };
+    }),
   ];
 
   return items.sort((a, b) => b.at.localeCompare(a.at)).slice(0, MAX_ITEMS);

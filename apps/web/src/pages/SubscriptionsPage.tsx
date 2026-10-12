@@ -372,11 +372,14 @@ export function SubscriptionsPage() {
   }
 
   async function action(id: string, kind: "pause" | "resume" | "end") {
+    const viaStripe = Boolean(rows.find((r) => r.id === id)?.stripeSubscriptionId);
     try {
       await api(`/api/subscriptions/${id}/${kind}`, { method: "POST" });
-      toast.success(
-        kind === "pause" ? "Abonnement suspendu" : kind === "resume" ? "Abonnement repris" : "Abonnement clôturé",
-      );
+      const done =
+        kind === "pause" ? "Abonnement suspendu" : kind === "resume" ? "Abonnement repris" : "Abonnement clôturé";
+      const stripeDone =
+        kind === "pause" ? "prélèvement Stripe suspendu" : kind === "resume" ? "prélèvement Stripe repris" : "prélèvement Stripe résilié";
+      toast.success(viaStripe ? `${done} (${stripeDone})` : done);
       await load();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Erreur");
@@ -726,7 +729,7 @@ export function SubscriptionsPage() {
       <ConfirmDialog
         open={Boolean(endTarget)}
         title="Clôturer cet abonnement"
-        message={`« ${endTarget?.label ?? ""} » (${endTarget?.client.displayName ?? ""}) : plus aucune facture ne sera émise. Les factures déjà émises ne changent pas.`}
+        message={`« ${endTarget?.label ?? ""} » (${endTarget?.client.displayName ?? ""}) : plus aucune facture ne sera émise${endTarget?.stripeSubscriptionId ? " et le prélèvement Stripe sera résilié" : ""}. Les factures déjà émises ne changent pas.`}
         confirmLabel="Clôturer"
         danger
         onConfirm={() => {

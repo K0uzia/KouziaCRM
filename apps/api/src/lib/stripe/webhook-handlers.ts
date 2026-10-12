@@ -165,7 +165,14 @@ async function handleEvent(event: Stripe.Event): Promise<string> {
     }
     case "customer.subscription.updated":
     case "customer.subscription.deleted": {
-      await syncSubscriptionFromStripe(event.data.object as Stripe.Subscription);
+      const change = await syncSubscriptionFromStripe(event.data.object as Stripe.Subscription);
+      if (change) {
+        const state = change.to === "ENDED" ? "clôturé" : change.to === "PAUSED" ? "suspendu" : "repris";
+        await alertAdmin(
+          `Abonnement ${state} depuis Stripe : ${change.clientName}`,
+          `L'abonnement « ${change.label} » de ${change.clientName} est passé à « ${state} » dans l'ERP (${change.reason}). Aucune action n'a été faite depuis l'ERP : vérifiez la situation avec le client.`,
+        );
+      }
       break;
     }
     case "product.created":

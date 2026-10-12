@@ -11,6 +11,7 @@ import { prisma } from "@/lib/prisma.js";
 import { issueInvoiceWithin, issueQuote } from "@/lib/invoices/transitions.js";
 import { sendDocumentPdf } from "@/lib/email/send-document-pdf.js";
 import { getCompanySettings } from "@/lib/company.js";
+import { applyStripeSubscriptionAction } from "@/lib/stripe/subscription-control.js";
 
 /** Périodicité d'un abonnement ; null en base vaut MONTH. */
 export type BillingInterval = "MONTH" | "YEAR";
@@ -218,7 +219,19 @@ export async function updateSubscription(
   });
 }
 
+/** Abonnement prélevé par Stripe : l'action est faite d'abord dans Stripe ; en cas d'échec, rien ne change. */
+async function findForStatusChange(id: string) {
+  const sub = await prisma.subscription.findUnique({ where: { id } });
+  if (!sub) throw new SubscriptionError("Abonnement introuvable");
+  return sub;
+}
+
 export async function pauseSubscription(id: string) {
+  const sub = await findForStatusChange(id);
+  if (sub.status !== SubscriptionStatus.ACTIVE) {
+    throw new SubscriptionError("Seul un abonnement actif peut être suspendu");
+  }
+  if (sub.stripeSubscriptionId) await applyStripeSubscriptionAction(sub.stripeSubscriptionId, "pause");
   return prisma.subscription.update({
     where: { id },
     data: { status: SubscriptionStatus.PAUSED },
@@ -231,6 +244,7 @@ export async function resumeSubscription(id: string) {
   if (sub.status !== SubscriptionStatus.PAUSED) {
     throw new SubscriptionError("Seul un abonnement en pause peut être repris");
   }
+  if (sub.stripeSubscriptionId) await applyStripeSubscriptionAction(sub.stripeSubscriptionId, "resume");
   // Repousse la prochaine échéance au prochain billingDay >= now.
   return prisma.subscription.update({
     where: { id },
@@ -242,6 +256,11 @@ export async function resumeSubscription(id: string) {
 }
 
 export async function endSubscription(id: string, endDate?: Date) {
+  const sub = await findForStatusChange(id);
+  if (sub.status === SubscriptionStatus.ENDED) {
+    throw new SubscriptionError("Cet abonnement est déjà clôturé");
+  }
+  if (sub.stripeSubscriptionId) await applyStripeSubscriptionAction(sub.stripeSubscriptionId, "cancel");
   return prisma.subscription.update({
     where: { id },
     data: {
