@@ -1,4 +1,5 @@
 import { getStripe } from "@/lib/stripe/client.js";
+import { assertSameMode } from "@/lib/stripe/mode.js";
 
 /**
  * Stripe a refusé ou n'a pas pu exécuter l'action : l'ERP ne change pas l'état de
@@ -23,9 +24,15 @@ function isMissing(err: unknown): boolean {
 /**
  * Applique côté Stripe la clôture, la suspension ou la reprise d'un abonnement prélevé.
  * Suspension : pause_collection « void » (factures Stripe annulées pendant la pause,
- * aucun prélèvement). Un abonnement déjà absent de Stripe vaut résiliation faite.
+ * aucun prélèvement). Un abonnement absent de Stripe vaut résiliation faite, seulement si son
+ * mode est connu et égal à celui de la clé : sinon « introuvable » veut dire « autre mode ».
  */
-export async function applyStripeSubscriptionAction(stripeSubscriptionId: string, action: Action): Promise<void> {
+export async function applyStripeSubscriptionAction(
+  stripeSubscriptionId: string,
+  action: Action,
+  livemode: boolean | null,
+): Promise<void> {
+  await assertSameMode(livemode, "Cet abonnement");
   try {
     const stripe = await getStripe();
     if (action === "cancel") {
@@ -36,7 +43,7 @@ export async function applyStripeSubscriptionAction(stripeSubscriptionId: string
       await stripe.subscriptions.update(stripeSubscriptionId, { pause_collection: "" });
     }
   } catch (err) {
-    if (action === "cancel" && isMissing(err)) return;
+    if (action === "cancel" && livemode !== null && isMissing(err)) return;
     const detail = err instanceof Error && err.message ? ` Détail Stripe : ${err.message.replace(/\.$/, "")}.` : "";
     throw new StripeSubscriptionSyncError(`${FAILURE[action]}${detail}`);
   }

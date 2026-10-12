@@ -235,6 +235,7 @@ export const settingsRoutes: FastifyPluginAsync = async (app) => {
       bankName: z.string().max(120).optional().nullable(),
       stripeSecretKey: z.string().optional().nullable(),
       stripeWebhookSecret: z.string().optional().nullable(),
+      confirmStripeModeChange: z.boolean().optional(),
       depositCount: z.number().int().min(2).max(2).optional(),
       depositPercent1Bps: z.number().int().min(0).max(10000).optional(),
       depositPercent2Bps: z.number().int().min(0).max(10000).optional(),
@@ -261,7 +262,9 @@ export const settingsRoutes: FastifyPluginAsync = async (app) => {
       return serialize(updated);
     } catch (e) {
       const status = (e as { statusCode?: number }).statusCode ?? 500;
-      return reply.code(status).send({ error: e instanceof Error ? e.message : "Erreur" });
+      // code « stripe_mode_change » : l'interface demande confirmation puis renvoie avec confirmStripeModeChange.
+      const code = (e as { code?: string }).code;
+      return reply.code(status).send({ error: e instanceof Error ? e.message : "Erreur", ...(code ? { code } : {}) });
     }
   });
 

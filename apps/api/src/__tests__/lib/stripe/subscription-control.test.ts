@@ -12,6 +12,7 @@ const update = vi.fn(async (_id: string, _params: unknown): Promise<unknown> => 
 vi.mock("@/lib/stripe/client.js", async (orig) => ({
   ...(await orig<typeof import("@/lib/stripe/client.js")>()),
   getStripe: vi.fn(async () => ({ subscriptions: { cancel, update } })),
+  getStripeConfig: vi.fn(async () => ({ secretKey: "sk_test_x", webhookSecret: null, mode: "test", enabled: true })),
 }));
 
 const { endSubscription, pauseSubscription, resumeSubscription } = await import(
@@ -85,8 +86,9 @@ describe("ERP vers Stripe : clôturer, suspendre, reprendre", () => {
     expect(after.status).toBe(SubscriptionStatus.ACTIVE);
   });
 
-  it("abonnement déjà absent de Stripe : la clôture se fait", async () => {
+  it("abonnement déjà absent de Stripe (même mode que la clé) : la clôture se fait", async () => {
     const sub = await stripeSub();
+    await prisma.subscription.update({ where: { id: sub.id }, data: { stripeLivemode: false } });
     cancel.mockRejectedValueOnce(Object.assign(new Error("No such subscription"), { code: "resource_missing" }));
     expect((await endSubscription(sub.id)).status).toBe(SubscriptionStatus.ENDED);
   });

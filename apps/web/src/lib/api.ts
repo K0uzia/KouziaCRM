@@ -16,14 +16,17 @@ export async function api<T>(path: string, init?: RequestInit): Promise<T> {
 
   if (!res.ok) {
     let message = res.statusText;
+    let code: string | undefined;
     try {
       const body = await res.json();
       if (typeof body.error === "string") message = body.error;
       else if (body.error?.formErrors) message = "Données invalides";
+      if (typeof body.code === "string") code = body.code;
     } catch {
       /* ignore */
     }
-    throw new Error(message || `HTTP ${res.status}`);
+    // status et code (ex. « stripe_mode_change ») : l'appelant peut demander une confirmation.
+    throw Object.assign(new Error(message || `HTTP ${res.status}`), { status: res.status, code });
   }
 
   if (res.status === 204) return undefined as T;

@@ -231,7 +231,7 @@ export async function pauseSubscription(id: string) {
   if (sub.status !== SubscriptionStatus.ACTIVE) {
     throw new SubscriptionError("Seul un abonnement actif peut être suspendu");
   }
-  if (sub.stripeSubscriptionId) await applyStripeSubscriptionAction(sub.stripeSubscriptionId, "pause");
+  if (sub.stripeSubscriptionId) await applyStripeSubscriptionAction(sub.stripeSubscriptionId, "pause", sub.stripeLivemode);
   return prisma.subscription.update({
     where: { id },
     data: { status: SubscriptionStatus.PAUSED },
@@ -244,7 +244,7 @@ export async function resumeSubscription(id: string) {
   if (sub.status !== SubscriptionStatus.PAUSED) {
     throw new SubscriptionError("Seul un abonnement en pause peut être repris");
   }
-  if (sub.stripeSubscriptionId) await applyStripeSubscriptionAction(sub.stripeSubscriptionId, "resume");
+  if (sub.stripeSubscriptionId) await applyStripeSubscriptionAction(sub.stripeSubscriptionId, "resume", sub.stripeLivemode);
   // Repousse la prochaine échéance au prochain billingDay >= now.
   return prisma.subscription.update({
     where: { id },
@@ -260,7 +260,7 @@ export async function endSubscription(id: string, endDate?: Date) {
   if (sub.status === SubscriptionStatus.ENDED) {
     throw new SubscriptionError("Cet abonnement est déjà clôturé");
   }
-  if (sub.stripeSubscriptionId) await applyStripeSubscriptionAction(sub.stripeSubscriptionId, "cancel");
+  if (sub.stripeSubscriptionId) await applyStripeSubscriptionAction(sub.stripeSubscriptionId, "cancel", sub.stripeLivemode);
   return prisma.subscription.update({
     where: { id },
     data: {
