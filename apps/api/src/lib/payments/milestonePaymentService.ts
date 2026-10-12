@@ -159,7 +159,7 @@ export async function activateMilestoneCheckout(
   const settings = await getCompanySettings();
   if (!settings.moduleStripeEnabled) {
     throw new MilestonePaymentError(
-      "Stripe désactivé. Collez un lien de paiement sur le jalon (Paramètres > Paiements).",
+      "Stripe désactivé. Collez un lien de paiement sur le jalon (Réglages > Paiements).",
       400,
     );
   }

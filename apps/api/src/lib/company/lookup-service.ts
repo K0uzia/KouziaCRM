@@ -3,7 +3,7 @@ import { fetchCompanyFromOpenData, type InpiImportResult } from "@/lib/company/i
 
 /**
  * Payload renvoyé aux formulaires clients (ERP + Kouzia).
- * Même source que Paramètres > Import INPI (`fetchCompanyFromOpenData`).
+ * Même source que Réglages > Import INPI (`fetchCompanyFromOpenData`).
  */
 export type EntrepriseApiPayload = InpiImportResult & {
   verifiedAt: string;

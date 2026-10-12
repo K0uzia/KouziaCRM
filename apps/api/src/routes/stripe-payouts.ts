@@ -1,12 +1,61 @@
 import type { FastifyPluginAsync } from "fastify";
 import { requireAuth } from "@/lib/auth.js";
+import { z } from "zod";
 import { prisma } from "@/lib/prisma.js";
+import { createManualPayout, getPayoutPreview, PayoutError } from "@/lib/stripe/payouts.js";
+import { StripeConfigError } from "@/lib/stripe/client.js";
+
+const payoutSchema = z.object({
+  amountCents: z.number().int().positive(),
+  /** Identifiant tiré à l'ouverture de la fenêtre : clé d'idempotence côté Stripe. */
+  requestId: z.string().uuid(),
+});
+
+function payoutFailure(reply: { code: (n: number) => { send: (b: unknown) => unknown } }, e: unknown) {
+  if (e instanceof PayoutError || e instanceof StripeConfigError) {
+    return reply.code(e.statusCode).send({ error: e.message });
+  }
+  throw e;
+}
 
 /**
  * Versements Stripe vers le compte bancaire, en lecture seule : le vrai rapprochement entre
  * les encaissements Stripe et la banque (remplace le rapprochement Revolut Business).
  */
 export const stripePayoutsRoutes: FastifyPluginAsync = async (app) => {
+  // Fenêtre « Verser » : solde disponible, compte de destination, délai.
+  app.get("/api/stripe/payouts/preview", async (request, reply) => {
+    await requireAuth(request, reply);
+    if (reply.sent) return;
+    try {
+      return await getPayoutPreview();
+    } catch (e) {
+      return payoutFailure(reply, e);
+    }
+  });
+
+  // Versement manuel du solde Stripe vers le compte bancaire (bouton « Verser »).
+  app.post(
+    "/api/stripe/payouts",
+    { config: { rateLimit: { max: 5, timeWindow: "15 minutes" } } },
+    async (request, reply) => {
+      await requireAuth(request, reply);
+      if (reply.sent) return;
+      const parsed = payoutSchema.safeParse(request.body);
+      if (!parsed.success) return reply.code(400).send({ error: "Montant ou requête invalide." });
+      try {
+        const result = await createManualPayout({ ...parsed.data, actorEmail: request.user?.email ?? null });
+        request.log.info(
+          { event: "stripe_payout_requested", payoutId: result.stripePayoutId, amountCents: result.amountCents, by: request.user?.email },
+          "versement Stripe demandé",
+        );
+        return result;
+      } catch (e) {
+        return payoutFailure(reply, e);
+      }
+    },
+  );
+
   app.get("/api/stripe/payouts", async (request, reply) => {
     await requireAuth(request, reply);
     if (reply.sent) return;

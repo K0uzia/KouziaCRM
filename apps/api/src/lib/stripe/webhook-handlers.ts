@@ -189,6 +189,7 @@ async function handleEvent(event: Stripe.Event): Promise<string> {
             ? new Date(payout.arrival_date * 1000)
             : null,
           status: payout.status,
+          failureMessage: payout.failure_message ?? null,
         },
         update: {
           amountCents: payout.amount,
@@ -196,6 +197,7 @@ async function handleEvent(event: Stripe.Event): Promise<string> {
             ? new Date(payout.arrival_date * 1000)
             : null,
           status: payout.status,
+          failureMessage: payout.failure_message ?? null,
         },
       });
 
