@@ -9,6 +9,7 @@ import { prisma } from "@/lib/prisma.js";
 import { resolveClientPortalUrl } from "@/lib/email/portal-url.js";
 import { assertStripeEnabled, getStripe } from "@/lib/stripe/client.js";
 import { ensureStripeCustomer } from "@/lib/stripe/customers.js";
+import { keyLivemode } from "@/lib/stripe/mode.js";
 
 export class StripeCheckoutError extends Error {
   statusCode: number;
@@ -183,20 +184,27 @@ export async function createMilestoneCheckoutSession(milestoneId: string): Promi
 
 /**
  * Prix de l'échéance : le montant de l'abonnement ERP et sa périodicité (mensuelle ou annuelle).
- * La prestation Stripe liée sert de produit si elle existe ; sinon, le libellé de l'abonnement.
+ * La prestation Stripe liée sert de produit si elle existe dans le mode de la clé (keyLive) ;
+ * sinon, le libellé de l'abonnement.
  */
-export function subscriptionPriceData(sub: {
-  amountCents: number;
-  billingInterval: string | null;
-  label: string;
-  service: { stripeProductId: string | null; billingInterval: string | null };
-}) {
+export function subscriptionPriceData(
+  sub: {
+    amountCents: number;
+    billingInterval: string | null;
+    label: string;
+    service: { stripeProductId: string | null; billingInterval: string | null; stripeLivemode?: boolean | null };
+  },
+  keyLive?: boolean,
+) {
   const interval = (sub.billingInterval ?? sub.service.billingInterval) === "YEAR" ? "year" : "month";
+  const productUsable =
+    sub.service.stripeProductId &&
+    (keyLive === undefined || sub.service.stripeLivemode == null || sub.service.stripeLivemode === keyLive);
   return {
     currency: "eur",
     unit_amount: sub.amountCents,
     recurring: { interval },
-    ...(sub.service.stripeProductId ? { product: sub.service.stripeProductId } : { product_data: { name: sub.label } }),
+    ...(productUsable ? { product: sub.service.stripeProductId! } : { product_data: { name: sub.label } }),
   } as const;
 }
 
@@ -234,7 +242,7 @@ export async function createSubscriptionCheckoutSession(
     mode: "subscription",
     customer: customerId,
     allowed_payment_method_types: ["card", "sepa_debit"],
-    line_items: [{ price_data: subscriptionPriceData(sub), quantity: 1 }],
+    line_items: [{ price_data: subscriptionPriceData(sub, await keyLivemode()), quantity: 1 }],
     subscription_data: {
       metadata: { erpSubscriptionId: sub.id, erpClientId: sub.clientId },
       ...(trialEnd ? { trial_end: trialEnd } : {}),

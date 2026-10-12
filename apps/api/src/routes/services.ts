@@ -5,6 +5,7 @@ import { requireAuth } from "@/lib/auth.js";
 import { prisma } from "@/lib/prisma.js";
 import { eurosToCents } from "@/lib/money.js";
 import { getStripe } from "@/lib/stripe/client.js";
+import { StripeModeError, assertSameMode } from "@/lib/stripe/mode.js";
 
 const serviceSchema = z.object({
   name: z.string().min(1),
@@ -70,6 +71,12 @@ export const servicesRoutes: FastifyPluginAsync = async (app) => {
     // Prestation liée à Stripe : prix et type appartiennent au prix Stripe (lecture seule ici).
     // Nom et description sont repoussés vers le produit Stripe, sinon la synchro horaire les écraserait.
     if (existing.stripeProductId) {
+      try {
+        await assertSameMode(existing.stripeLivemode, "Cette prestation");
+      } catch (e) {
+        if (e instanceof StripeModeError) return reply.code(409).send({ error: e.message });
+        throw e;
+      }
       try {
         const stripe = await getStripe();
         await stripe.products.update(existing.stripeProductId, {

@@ -72,8 +72,10 @@ export function toPublicSettings(settings: CompanySettings): PublicCompanySettin
     rest[key] = value;
   }
 
-  let stripeMode: "test" | "live" | null = null;
-  if (settings.stripeSecretKeyHint) {
+  // Mode enregistré avec la clé (stripeKeyMode) ; à défaut, déduit de l'indice.
+  let stripeMode: "test" | "live" | null =
+    settings.stripeKeyMode === "live" || settings.stripeKeyMode === "test" ? settings.stripeKeyMode : null;
+  if (!stripeMode && settings.stripeSecretKeyHint) {
     // L'indice ne révèle pas le mode ; on le déduit si la clé est encore en clair côté save.
     // Mode exposé seulement via test-stripe après coup. Ici : null sauf hint sk_test/sk_live.
     const hint = settings.stripeSecretKeyHint;

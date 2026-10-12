@@ -294,6 +294,8 @@ model CompanySettings {
   reminderInvoiceDays Int @default(7)
   /// Abonnement annuel : mois offerts par rapport à 12 mensualités (remise proposée par défaut)
   annualFreeMonths Int @default(2)
+  /// Mode de la dernière clé Stripe enregistrée (« test » ou « live ») : changement signalé
+  stripeKeyMode String?
   /// Afficher les montants sur le suivi public client
   publicTrackingShowAmounts Boolean @default(false)
   /// URL du portail client (suivi devis / factures)
@@ -645,6 +647,8 @@ model Client {
   projects            ClientProject[]
   /// Identifiant Customer Stripe (cus_…)
   stripeCustomerId    String?       @unique
+  /// Mode Stripe de stripeCustomerId : true = live, false = test
+  stripeCustomerLivemode Boolean?
 
   @@index([displayName])
   @@index([type])
@@ -779,6 +783,8 @@ model Service {
   stripeProductId     String?
   /// Identifiant Price Stripe (price_…) : une prestation ERP = un prix
   stripePriceId       String?     @unique
+  /// Mode Stripe des identifiants ci-dessus : true = live, false = test
+  stripeLivemode      Boolean?
   /// MONTH | YEAR | null (prestation ponctuelle)
   billingInterval     String?
   createdAt           DateTime    @default(now())
@@ -823,6 +829,8 @@ model Subscription {
   collectionMethod SubscriptionCollectionMethod @default(MANUAL_TRANSFER)
   /// Identifiant Subscription Stripe (sub_…)
   stripeSubscriptionId String?       @unique
+  /// Mode Stripe de stripeSubscriptionId : true = live, false = test
+  stripeLivemode       Boolean?
   /// MONTH | YEAR (copie du prix Stripe)
   billingInterval String?
   /// Prochaine date d'émission de facture

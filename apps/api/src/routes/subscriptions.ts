@@ -3,6 +3,7 @@ import { z } from "zod";
 import { SubscriptionStatus } from "@prisma/client";
 import { requireAuth } from "@/lib/auth.js";
 import { StripeSubscriptionSyncError } from "@/lib/stripe/subscription-control.js";
+import { StripeModeError } from "@/lib/stripe/mode.js";
 import {
   createSubscription,
   listSubscriptions,
@@ -136,6 +137,7 @@ export const subscriptionsRoutes: FastifyPluginAsync = async (app) => {
       } catch (err) {
         if (err instanceof SubscriptionError) return reply.code(400).send({ error: err.message });
         if (err instanceof StripeSubscriptionSyncError) return reply.code(502).send({ error: err.message });
+        if (err instanceof StripeModeError) return reply.code(409).send({ error: err.message });
         throw err;
       }
     });

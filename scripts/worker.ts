@@ -72,6 +72,9 @@ async function runStripeCatalogSync() {
   try {
     const settings = await getCompanySettings();
     if (!settings.moduleStripeEnabled || !settings.stripeSecretKeyEncrypted) return;
+    // Mode des identifiants enregistrés complété avant toute synchro (garde-fou live/test).
+    const { backfillStripeModes } = await import("../apps/api/src/lib/stripe/mode.js");
+    await backfillStripeModes();
     const { syncCatalogFromStripe } = await import(
       "../apps/api/src/lib/stripe/catalog.js"
     );

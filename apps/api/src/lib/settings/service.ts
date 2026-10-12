@@ -1,6 +1,7 @@
 import type { CompanySettings, Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma.js";
-import { encryptOptional } from "@/lib/crypto.js";
+import { decryptOptional, encryptOptional } from "@/lib/crypto.js";
+import { detectStripeMode } from "@/lib/stripe/client.js";
 import { getCompanySettings, invalidateCompanySettingsCache } from "@/lib/company.js";
 import {
   ATTACHMENT_DEFAULTS,
@@ -263,6 +264,8 @@ export type PaymentsPatch = {
   bankName?: string | null;
   stripeSecretKey?: string | null;
   stripeWebhookSecret?: string | null;
+  /** Clé d'un autre mode (test ou live) que la précédente : enregistrée seulement si confirmé. */
+  confirmStripeModeChange?: boolean;
   depositCount?: number;
   depositPercent1Bps?: number;
   depositPercent2Bps?: number;
@@ -281,6 +284,11 @@ export type PaymentsPatch = {
   moduleStripeEnabled?: boolean;
 };
 
+/** Message affiché avant d'enregistrer une clé d'un autre mode. */
+export function stripeModeChangeMessage(from: "test" | "live", to: "test" | "live"): string {
+  return `Cette clé est en mode ${to}, la précédente était en mode ${from}. En mode ${to}, les prestations, clients et abonnements liés en mode ${from} ne seront ni modifiés ni archivés, mais leurs paiements et prélèvements ne pourront pas être gérés depuis l'ERP tant que la clé ${from} n'est pas remise. Les webhooks ${from} seront ignorés : pensez au secret de signature ${to}.`;
+}
+
 export async function savePaymentsTab(
   patch: PaymentsPatch,
   actor?: AuditActor | null,
@@ -296,6 +304,20 @@ export async function savePaymentsTab(
     current.stripeWebhookSecretHint,
     patch.stripeWebhookSecret,
   );
+
+  // Changement de mode de clé (live vers test ou l'inverse) : confirmation explicite. Les objets
+  // Stripe enregistrés (prestations, clients, abonnements) n'existent que dans leur mode.
+  const newKey = patch.stripeSecretKey?.trim();
+  const newMode = newKey ? detectStripeMode(newKey) : null;
+  const previousKey = decryptOptional(current.stripeSecretKeyEncrypted);
+  const storedMode = current.stripeKeyMode === "live" || current.stripeKeyMode === "test" ? current.stripeKeyMode : null;
+  const previousMode = storedMode ?? (previousKey ? detectStripeMode(previousKey) : null);
+  if (newMode && previousMode && newMode !== previousMode && !patch.confirmStripeModeChange) {
+    throw Object.assign(new Error(stripeModeChangeMessage(previousMode, newMode)), {
+      statusCode: 409,
+      code: "stripe_mode_change",
+    });
+  }
 
   const p1 = patch.depositPercent1Bps ?? current.depositPercent1Bps;
   const p2 = patch.depositPercent2Bps ?? current.depositPercent2Bps;
@@ -341,6 +363,7 @@ export async function savePaymentsTab(
       ...(patch.bankName !== undefined ? { bankName: emptyToNull(patch.bankName) } : {}),
       stripeSecretKeyEncrypted: stripeKey.encrypted,
       stripeSecretKeyHint: stripeKey.hint,
+      ...(newMode ? { stripeKeyMode: newMode } : {}),
       stripeWebhookSecretEncrypted: stripeWebhook.encrypted,
       stripeWebhookSecretHint: stripeWebhook.hint,
       depositCount: 2,

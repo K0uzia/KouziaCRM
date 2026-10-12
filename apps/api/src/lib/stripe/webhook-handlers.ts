@@ -6,6 +6,8 @@ import { getCompanySettings } from "@/lib/company.js";
 import { mailEnqueue } from "@/lib/email/mailer/index.js";
 import { getStripe } from "@/lib/stripe/client.js";
 import { syncCatalogFromStripe } from "@/lib/stripe/catalog.js";
+import { alertAdmin } from "@/lib/stripe/alert.js";
+import { keyLivemode, modeLabel } from "@/lib/stripe/mode.js";
 import {
   handleStripeInvoicePaid,
   issueErpInvoiceFromStripeInvoice,
@@ -50,18 +52,6 @@ function isSubscriptionInvoice(invoice: Stripe.Invoice): boolean {
   return Boolean(invoice.billing_reason?.startsWith("subscription") || invoice.parent?.subscription_details);
 }
 
-async function alertAdmin(subject: string, text: string): Promise<void> {
-  const settings = await getCompanySettings();
-  const to = settings.email?.trim();
-  if (!to) return;
-  await mailEnqueue({
-    to,
-    subject,
-    text,
-    kind: "stripe_alert",
-    bodyTextForMessage: text,
-  });
-}
 
 async function feeFromPaymentIntent(pi: Stripe.PaymentIntent): Promise<number | null> {
   try {
@@ -91,6 +81,13 @@ export async function processStripeEvent(event: Stripe.Event): Promise<{
   handled: string;
 }> {
   if (await alreadyProcessed(event)) return { duplicate: true, handled: event.type };
+  // Événement de l'autre mode (clé test en production, ou l'inverse) : ignoré, il ne doit
+  // modifier ni le catalogue ni les abonnements.
+  const live = await keyLivemode();
+  if (typeof event.livemode === "boolean" && event.livemode !== live) {
+    await recordEvent(event);
+    return { duplicate: false, handled: `ignoré (événement ${modeLabel(event.livemode)}, clé ${modeLabel(live)})` };
+  }
   const handled = await handleEvent(event);
   await recordEvent(event);
   return { duplicate: false, handled };
@@ -138,6 +135,7 @@ async function handleEvent(event: Stripe.Event): Promise<string> {
           await linkSubscriptionFromCheckout({
             erpSubscriptionId,
             stripeSubscriptionId: stripeSubId,
+            livemode: event.livemode,
           });
         }
       }

@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/Button";
 import { Card, PageHeader } from "@/components/ui/Card";
 import { Field, Input, Select, Textarea } from "@/components/ui/Field";
 import { Modal, ModalActions } from "@/components/ui/Modal";
+import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { AddressAutocomplete, type AddressValue } from "@/components/forms/AddressAutocomplete";
 import { SettingsTabNav } from "@/pages/settings/TabNav";
 import { SecretField } from "@/pages/settings/SecretField";
@@ -270,6 +271,10 @@ export function SettingsPage() {
     };
   }, [form]);
 
+  const [modeChange, setModeChange] = useState<{ path: string; body: Record<string, unknown>; message: string } | null>(
+    null,
+  );
+
   async function save(path: string, body: unknown) {
     setBusy(true);
     try {
@@ -292,6 +297,11 @@ export function SettingsPage() {
         setPreviews(prev.previews);
       }
     } catch (e) {
+      // Clé Stripe d'un autre mode (test ou live) : confirmation explicite avant d'enregistrer.
+      if ((e as { code?: string }).code === "stripe_mode_change" && body && typeof body === "object") {
+        setModeChange({ path, body: body as Record<string, unknown>, message: (e as Error).message });
+        return;
+      }
       toast.error(e instanceof Error ? e.message : "Erreur");
     } finally {
       setBusy(false);
@@ -1989,6 +1999,22 @@ export function SettingsPage() {
           </ModalActions>
         </form>
       </Modal>
+
+      <ConfirmDialog
+        open={Boolean(modeChange)}
+        title="Changer de mode Stripe ?"
+        message={modeChange?.message ?? ""}
+        confirmLabel="Enregistrer cette clé"
+        danger
+        busy={busy}
+        onConfirm={() => {
+          if (!modeChange) return;
+          const next = modeChange;
+          setModeChange(null);
+          void save(next.path, { ...next.body, confirmStripeModeChange: true });
+        }}
+        onClose={() => setModeChange(null)}
+      />
     </div>
   );
 }

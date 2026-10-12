@@ -67,6 +67,9 @@ async function main() {
     const { backfillClientEmailHashes } = await import("@/lib/clients/backfill-email-hash.js");
     const n = await backfillClientEmailHashes();
     if (n > 0) app.log.info(`[boot] emailHash backfill: ${n} client(s)`);
+    const { backfillStripeModes } = await import("@/lib/stripe/mode.js");
+    const modes = await backfillStripeModes();
+    if (modes > 0) app.log.info(`[boot] mode Stripe complété : ${modes} identifiant(s)`);
   } catch (err) {
     app.log.warn({ err }, "[boot] hydrateSettingsFromEnv / backfill");
   }

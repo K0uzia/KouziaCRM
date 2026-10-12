@@ -2,10 +2,22 @@ import { ServiceUnit } from "@prisma/client";
 import type Stripe from "stripe";
 import { prisma } from "@/lib/prisma.js";
 import { getStripe } from "@/lib/stripe/client.js";
+import { alertAdmin } from "@/lib/stripe/alert.js";
+import { keyLivemode, modeLabel } from "@/lib/stripe/mode.js";
+
+/**
+ * Filet : une synchro qui archiverait d'un coup plus de 3 prestations, ou plus de 20 % des
+ * prestations liées (à partir de 2 : une seule archivée reste permise sur un petit catalogue),
+ * est refusée (clé d'un autre compte, catalogue vidé par erreur…).
+ */
+export const MAX_ARCHIVE_COUNT = 3;
+export const MAX_ARCHIVE_SHARE = 0.2;
+// Une alerte au plus toutes les 24 h par processus (la synchro tourne chaque heure).
+let lastBlockedAlertAt = 0;
 
 export type CatalogSyncAction = {
   name: string;
-  action: "create" | "update" | "archive" | "same";
+  action: "create" | "update" | "archive" | "same" | "blocked";
   stripePriceId: string | null;
 };
 
@@ -27,6 +39,7 @@ function serviceName(product: Stripe.Product, price: Stripe.Price): string {
 /** Recopie les Products/Prices Stripe actifs vers les prestations ERP. */
 export async function syncCatalogFromStripe(): Promise<CatalogSyncAction[]> {
   const stripe = await getStripe();
+  const live = await keyLivemode();
   const actions: CatalogSyncAction[] = [];
   const seenPriceIds = new Set<string>();
 
@@ -53,6 +66,7 @@ export async function syncCatalogFromStripe(): Promise<CatalogSyncAction[]> {
       stripeProductId: product.id,
       stripePriceId: price.id,
       billingInterval,
+      stripeLivemode: price.livemode,
     };
 
     // Rapprochement par prix Stripe ; par nom seulement pour une prestation ERP pas encore liée.
@@ -74,6 +88,7 @@ export async function syncCatalogFromStripe(): Promise<CatalogSyncAction[]> {
       existing.stripePriceId !== data.stripePriceId ||
       existing.stripeProductId !== data.stripeProductId ||
       existing.billingInterval !== data.billingInterval ||
+      existing.stripeLivemode !== data.stripeLivemode ||
       !existing.active;
 
     if (changed) {
@@ -87,14 +102,32 @@ export async function syncCatalogFromStripe(): Promise<CatalogSyncAction[]> {
     }
   }
 
-  // Prestations liées à Stripe mais plus présentes : archive.
+  // Prestations liées à Stripe mais plus présentes : archive. Seulement celles du mode de la
+  // clé : avec une clé test, les prestations live sont introuvables mais toujours valables.
+  const linked = await prisma.service.count({
+    where: { active: true, stripePriceId: { not: null }, stripeLivemode: live },
+  });
   const orphaned = await prisma.service.findMany({
     where: {
       active: true,
       stripePriceId: { not: null },
+      stripeLivemode: live,
       NOT: { stripePriceId: { in: [...seenPriceIds] } },
     },
   });
+  if (orphaned.length > MAX_ARCHIVE_COUNT || (orphaned.length >= 2 && orphaned.length > linked * MAX_ARCHIVE_SHARE)) {
+    for (const s of orphaned) actions.push({ name: s.name, action: "blocked", stripePriceId: s.stripePriceId });
+    if (Date.now() - lastBlockedAlertAt > 24 * 3_600_000) {
+      lastBlockedAlertAt = Date.now();
+      await alertAdmin(
+        "Synchro Stripe bloquée : archivage massif refusé",
+        `La synchro du catalogue Stripe (clé ${modeLabel(live)}) aurait archivé ${orphaned.length} prestation(s) sur ${linked} : ${orphaned
+          .map((s) => s.name)
+          .join(", ")}. Rien n'a été archivé. Vérifiez la clé Stripe (compte, mode test ou live) dans Réglages > Paiements, ou archivez ces prestations une à une.`,
+      );
+    }
+    return actions;
+  }
   for (const s of orphaned) {
     await prisma.service.update({
       where: { id: s.id },

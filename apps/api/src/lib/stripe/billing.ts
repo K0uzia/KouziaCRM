@@ -24,11 +24,14 @@ import { renderEmailHtml } from "@/lib/email/layout.js";
 export async function linkSubscriptionFromCheckout(opts: {
   erpSubscriptionId: string;
   stripeSubscriptionId: string;
+  /** Mode de l'objet Stripe (event.livemode). */
+  livemode: boolean;
 }): Promise<void> {
   await prisma.subscription.update({
     where: { id: opts.erpSubscriptionId },
     data: {
       stripeSubscriptionId: opts.stripeSubscriptionId,
+      stripeLivemode: opts.livemode,
       collectionMethod: SubscriptionCollectionMethod.STRIPE,
       status: SubscriptionStatus.ACTIVE,
     },
@@ -243,6 +246,7 @@ export async function syncSubscriptionFromStripe(
     where: { id: sub.id },
     data: {
       stripeSubscriptionId: stripeSub.id,
+      stripeLivemode: stripeSub.livemode,
       collectionMethod: SubscriptionCollectionMethod.STRIPE,
       amountCents: amountCents ?? sub.amountCents,
       billingInterval: interval,
