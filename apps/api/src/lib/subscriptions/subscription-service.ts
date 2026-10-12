@@ -238,20 +238,21 @@ export async function pauseSubscription(id: string) {
   });
 }
 
-export async function resumeSubscription(id: string) {
+export async function resumeSubscription(id: string, now: Date = new Date()) {
   const sub = await prisma.subscription.findUnique({ where: { id } });
   if (!sub) throw new SubscriptionError("Abonnement introuvable");
   if (sub.status !== SubscriptionStatus.PAUSED) {
     throw new SubscriptionError("Seul un abonnement en pause peut être repris");
   }
   if (sub.stripeSubscriptionId) await applyStripeSubscriptionAction(sub.stripeSubscriptionId, "resume", sub.stripeLivemode);
-  // Repousse la prochaine échéance au prochain billingDay >= now.
+  // L'échéance prévue est gardée ; si elle est passée pendant la suspension, elle va à la
+  // prochaine date de facturation (aujourd'hui compris), sans facturer la période suspendue.
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const nextInvoiceAt =
+    sub.nextInvoiceAt >= today ? sub.nextInvoiceAt : computeNextInvoiceAt(sub.billingDay, today);
   return prisma.subscription.update({
     where: { id },
-    data: {
-      status: SubscriptionStatus.ACTIVE,
-      nextInvoiceAt: computeNextInvoiceAt(sub.billingDay, new Date()),
-    },
+    data: { status: SubscriptionStatus.ACTIVE, nextInvoiceAt },
   });
 }
 
