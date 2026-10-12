@@ -30,7 +30,7 @@ export type QuarterRef = {
   deadline: Date;
 };
 
-/** Trimestre civil contenant `ref` (1–4). */
+/** Trimestre civil contenant `ref` (1 à 4). */
 export function currentQuarter(ref: Date = new Date()): QuarterRef {
   const year = ref.getFullYear();
   const quarter = Math.floor(ref.getMonth() / 3) + 1;

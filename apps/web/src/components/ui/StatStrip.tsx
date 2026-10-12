@@ -3,6 +3,8 @@ import { Link } from "react-router-dom";
 
 export type StatItem = {
   label: string;
+  /** Libellé court quand les cases sont étroites (moins de 640 px, ou 4 colonnes entre 1024 et 1279 px) ; le libellé complet reste lu par les lecteurs d'écran. */
+  shortLabel?: string;
   value: ReactNode;
   /** Ligne secondaire (contexte, échéance). */
   hint?: ReactNode;
@@ -38,7 +40,18 @@ export function StatStrip({ items, className = "" }: { items: StatItem[]; classN
         const lastOdd = i === items.length - 1 && items.length % 2 === 1 && items.length > 1;
         const content = (
           <>
-            <dt className="truncate text-xs font-medium text-[var(--muted)] sm:text-sm">{s.label}</dt>
+            <dt className="truncate text-xs font-medium text-[var(--muted)] sm:text-sm">
+              {s.shortLabel ? (
+                <>
+                  <span aria-hidden className="hidden max-sm:inline lg:max-xl:inline">
+                    {s.shortLabel}
+                  </span>
+                  <span className="max-sm:sr-only lg:max-xl:sr-only">{s.label}</span>
+                </>
+              ) : (
+                s.label
+              )}
+            </dt>
             <dd
               className={`mt-1.5 font-display text-xl font-semibold tabular-nums tracking-tight sm:text-2xl ${toneClass[s.tone ?? "default"]}`}
             >
@@ -54,7 +67,7 @@ export function StatStrip({ items, className = "" }: { items: StatItem[]; classN
                 s.value
               )}
             </dd>
-            {s.hint ? <dd className="mt-1 truncate text-xs text-[var(--muted)]">{s.hint}</dd> : null}
+            {s.hint ? <dd className="mt-1 text-xs text-[var(--muted)]">{s.hint}</dd> : null}
           </>
         );
         return (

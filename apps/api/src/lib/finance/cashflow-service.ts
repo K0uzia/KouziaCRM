@@ -36,7 +36,7 @@ export function endOfIsoWeek(ref: Date): Date {
   return new Date(start.getFullYear(), start.getMonth(), start.getDate() + 6, 23, 59, 59, 999);
 }
 
-/** Trimestre civil (1–4) contenant `ref`. */
+/** Trimestre civil (1 à 4) contenant `ref`. */
 export function currentQuarterBounds(ref: Date = new Date()): {
   year: number;
   quarter: number;
@@ -56,7 +56,7 @@ export function currentQuarterBounds(ref: Date = new Date()): {
 
 /**
  * Bornes [start, end] selon le toggle Semaine / Mois / Trimestre / Année.
- *  -  Semaine : semaine ISO (lun–dim) courante
+ *  -  Semaine : semaine ISO (lundi à dimanche) courante
  *  -  Mois : mois civil courant
  *  -  Trimestre : trimestre civil courant (3 mois)
  *  -  Année : année civile courante

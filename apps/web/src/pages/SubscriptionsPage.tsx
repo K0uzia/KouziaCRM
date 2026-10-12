@@ -24,6 +24,8 @@ import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { StatStrip } from "@/components/ui/StatStrip";
 import { Tabs, useTabParam } from "@/components/ui/Tabs";
 import { Segmented } from "@/components/ui/Segmented";
+import { DataTable, type TableColumn } from "@/components/ui/DataTable";
+import { useMediaQuery } from "@/lib/use-media-query";
 import {
   INTERVAL_OPTIONS,
   monthlyEquivalentCents,
@@ -97,6 +99,22 @@ function suggestEuros(svc: Service, interval: BillingInterval, freeMonths: numbe
 /** Libellé par défaut d'une offre : « Nom : mensuel » ou « Nom : annuel ». */
 function defaultLabel(svc: Service, interval: BillingInterval): string {
   return `${svc.name} : ${periodAdjective(interval)}`;
+}
+
+function SubscriptionBadges({ s, stripeEnabled }: { s: Subscription; stripeEnabled: boolean }) {
+  const badge = statusBadge[s.status];
+  const stripeActive = s.collectionMethod === "STRIPE" && !!s.stripeSubscriptionId;
+  const stripePending = stripeEnabled && s.status !== "ENDED" && !s.stripeSubscriptionId;
+  return (
+    <span className="inline-flex flex-wrap items-center gap-1.5 whitespace-nowrap">
+      <Badge tone={badge.tone}>{badge.label}</Badge>
+      {stripeActive ? (
+        <Badge tone="green">Stripe actif</Badge>
+      ) : stripePending ? (
+        <Badge tone="amber">Lien à envoyer</Badge>
+      ) : null}
+    </span>
+  );
 }
 
 function stripeProductUrl(productId: string): string {
@@ -375,6 +393,73 @@ export function SubscriptionsPage() {
   }
 
   const [tab, setTab] = useTabParam(["contrats", "offres"] as const, "contrats");
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [endTarget, setEndTarget] = useState<Subscription | null>(null);
+  const selected = rows.find((r) => r.id === selectedId) ?? null;
+
+  /** Ferme le panneau du contrat avant d'ouvrir une autre fenêtre. */
+  function fromPanel(fn: () => void) {
+    setSelectedId(null);
+    fn();
+  }
+
+  // Sous 75 rem (barre latérale comprise), la date reste dans le panneau du contrat et sur les cartes.
+  const wideTable = useMediaQuery("(min-width: 75rem)");
+
+  const contractColumns: TableColumn<Subscription>[] = [
+    {
+      name: "Client",
+      grow: 2,
+      selector: (s) => s.client.displayName,
+      sortable: true,
+      cell: (s) => (
+        // Bouton dans la 1re colonne : ouverture du panneau au clavier.
+        <span className="min-w-0 py-1">
+          <button
+            type="button"
+            onClick={() => setSelectedId(s.id)}
+            className="block min-h-11 max-w-full whitespace-normal text-left font-medium text-[var(--text)] hover:text-[var(--primary)]"
+          >
+            {s.client.displayName}
+          </button>
+          <span className="block whitespace-normal text-xs text-[var(--muted)]">{s.service.name}</span>
+        </span>
+      ),
+    },
+    {
+      name: "Libellé",
+      grow: 2,
+      selector: (s) => s.label,
+      cell: (s) => <span className="py-2 whitespace-normal">{s.label}</span>,
+    },
+    {
+      name: "Montant",
+      width: "9rem",
+      right: true,
+      selector: (s) => monthlyEquivalentCents(s.amountCents, s.billingInterval),
+      sortable: true,
+      cell: (s) => (
+        <span className="whitespace-nowrap tabular-nums">
+          <span className="font-medium">{formatEUR(s.amountCents)}</span>{" "}
+          <span className="text-[var(--muted)]">{periodSuffix(s.billingInterval)}</span>
+        </span>
+      ),
+    },
+    {
+      name: "Échéance",
+      width: "10rem",
+      omit: !wideTable,
+      selector: (s) => s.nextInvoiceAt,
+      sortable: true,
+      cell: (s) => <span className="whitespace-nowrap text-[var(--muted)]">{formatDate(s.nextInvoiceAt)}</span>,
+    },
+    {
+      name: "Statut",
+      width: "12rem",
+      selector: (s) => s.status,
+      cell: (s) => <SubscriptionBadges s={s} stripeEnabled={moduleStripeEnabled} />,
+    },
+  ];
 
   if (!featuresLoading && !moduleSubscriptionsEnabled) {
     return <Navigate to="/services" replace />;
@@ -413,6 +498,7 @@ export function SubscriptionsPage() {
             return [
               {
                 label: "Revenu mensuel récurrent",
+                shortLabel: "Revenu mensuel",
                 value: formatEUR(
                   active.reduce((acc, r) => acc + monthlyEquivalentCents(r.amountCents, r.billingInterval), 0),
                 ),
@@ -439,147 +525,39 @@ export function SubscriptionsPage() {
         ]}
       >
         {tab === "contrats" ? (
-            <Card className="overflow-hidden">
-              {rows.length === 0 ? (
-                <EmptyState
-                  title="Aucun abonnement"
-                  hint="Créez un contrat de maintenance mensuel ou annuel : chaque échéance sera facturée automatiquement."
-                />
-              ) : (
-                <div className="ui-table-wrap max-md:overflow-visible">
-                  <table className="ui-table ui-table-stack">
-                    <thead>
-                      <tr>
-                        <th className="nowrap">Client</th>
-                        <th className="wrap">Libellé</th>
-                        <th className="nowrap text-right">Montant</th>
-                        <th className="nowrap">Jour</th>
-                        <th className="nowrap">Prochaine facture</th>
-                        <th className="nowrap">Statut</th>
-                        <th className="nowrap">Prélèvement</th>
-                        <th className="col-actions" />
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {rows.map((s) => {
-                        const badge = statusBadge[s.status];
-                        const stripeActive = s.collectionMethod === "STRIPE" && !!s.stripeSubscriptionId;
-                        const stripePending =
-                          moduleStripeEnabled &&
-                          s.status !== "ENDED" &&
-                          !s.stripeSubscriptionId;
-                        return (
-                          <tr key={s.id}>
-                            <td className="nowrap" data-label="Client">
-                              <div>
-                                <p className="font-medium">{s.client.displayName}</p>
-                                <p className="text-xs text-[var(--muted)]">{s.service.name}</p>
-                              </div>
-                            </td>
-                            <td className="wrap" data-label="Libellé">
-                              <span>{s.label}</span>
-                            </td>
-                            <td className="nowrap text-right tabular-nums font-medium" data-label="Montant">
-                              <span>
-                                {formatEUR(s.amountCents)}{" "}
-                                <span className="font-normal text-[var(--muted)]">{periodSuffix(s.billingInterval)}</span>
-                              </span>
-                            </td>
-                            <td className="nowrap" data-label="Jour">{s.billingDay}</td>
-                            <td className="nowrap text-[var(--muted)]" data-label="Prochaine facture">
-                              {formatDate(s.nextInvoiceAt)}
-                            </td>
-                            <td className="nowrap" data-label="Statut">
-                              <Badge tone={badge.tone}>{badge.label}</Badge>
-                            </td>
-                            <td className="nowrap" data-label="Prélèvement">
-                              {stripeActive ? (
-                                <Badge tone="green">Stripe actif</Badge>
-                              ) : stripePending ? (
-                                <Badge tone="amber">Lien à envoyer</Badge>
-                              ) : (
-                                <span className="text-xs text-[var(--muted)]">Virement</span>
-                              )}
-                            </td>
-                            <td className="col-actions">
-                              <div className="flex justify-end gap-1 max-md:flex-wrap">
-                              {stripePending ? (
-                                <Button
-                                  variant="ghost"
-                                  className="px-2 text-xs"
-                                  onClick={() => void resendStripeSetup(s.id)}
-                                  aria-label="Renvoyer le lien de prélèvement"
-                                  title="Renvoyer le lien de prélèvement"
-                                >
-                                  <FontAwesomeIcon icon={faEnvelope} className="h-3 w-3" />
-                                </Button>
-                              ) : null}
-                              {s.status !== "ENDED" ? (
-                                <Button
-                                  variant="ghost"
-                                  className="px-2 text-xs"
-                                  onClick={() => openEdit(s)}
-                                  aria-label="Modifier (libellé, jour)"
-                                  title="Modifier (libellé, jour)"
-                                >
-                                  <FontAwesomeIcon icon={faPen} className="h-3 w-3" />
-                                </Button>
-                              ) : null}
-                              {s.status === "ACTIVE" ? (
-                                <Button
-                                  variant="ghost"
-                                  className="px-2 text-xs"
-                                  onClick={() => openRevise(s)}
-                                  aria-label="Réviser le montant ou la périodicité (avenant)"
-                                  title="Réviser le montant ou la périodicité (avenant)"
-                                >
-                                  <FontAwesomeIcon icon={faSync} className="h-3 w-3" />
-                                </Button>
-                              ) : null}
-                              {s.status === "ACTIVE" ? (
-                                <Button
-                                  variant="ghost"
-                                  className="px-2 text-xs"
-                                  onClick={() => void action(s.id, "pause")}
-                                  aria-label="Suspendre"
-                                  title="Suspendre"
-                                >
-                                  <FontAwesomeIcon icon={faPause} className="h-3 w-3" />
-                                </Button>
-                              ) : null}
-                              {s.status === "PAUSED" ? (
-                                <Button
-                                  variant="ghost"
-                                  className="px-2 text-xs"
-                                  onClick={() => void action(s.id, "resume")}
-                                  aria-label="Reprendre"
-                                  title="Reprendre"
-                                >
-                                  <FontAwesomeIcon icon={faPlay} className="h-3 w-3" />
-                                </Button>
-                              ) : null}
-                              {s.status !== "ENDED" ? (
-                                <Button
-                                  variant="ghost"
-                                  className="px-2 text-xs"
-                                  onClick={() => void action(s.id, "end")}
-                                  aria-label="Clôturer"
-                                  title="Clôturer"
-                                >
-                                  <FontAwesomeIcon icon={faStop} className="h-3 w-3" />
-                                </Button>
-                              ) : null}
-                            </div>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-                </div>
+            <DataTable
+              columns={contractColumns}
+              data={rows}
+              searchable={["client.displayName", "label", "service.name"]}
+              searchPlaceholder="Rechercher un contrat…"
+              countLabel={rows.length > 1 ? "contrats" : "contrat"}
+              emptyTitle="Aucun abonnement"
+              emptyHint="Créez un contrat de maintenance mensuel ou annuel : chaque échéance sera facturée automatiquement."
+              onRowClick={(s) => setSelectedId(s.id)}
+              renderMobileCard={(s) => (
+                // Carte entière = bouton : ouvre le panneau du contrat et ses actions.
+                <button
+                  type="button"
+                  onClick={() => setSelectedId(s.id)}
+                  className="flex w-full min-w-0 flex-col gap-2 rounded-[var(--radius)] border border-[var(--border)] bg-[var(--surface)] p-3.5 text-left"
+                >
+                  <span className="flex w-full min-w-0 items-start justify-between gap-3">
+                    <span className="min-w-0">
+                      <span className="block font-semibold text-[var(--text)]">{s.client.displayName}</span>
+                      <span className="block text-sm text-[var(--muted)]">{s.label}</span>
+                    </span>
+                    <span className="shrink-0 whitespace-nowrap text-right tabular-nums">
+                      <span className="block font-medium">{formatEUR(s.amountCents)}</span>
+                      <span className="block text-xs text-[var(--muted)]">{periodSuffix(s.billingInterval)}</span>
+                    </span>
+                  </span>
+                  <span className="flex w-full flex-wrap items-center justify-between gap-2 text-sm text-[var(--muted)]">
+                    <span>Prochaine facture : {formatDate(s.nextInvoiceAt)}</span>
+                    <SubscriptionBadges s={s} stripeEnabled={moduleStripeEnabled} />
+                  </span>
+                </button>
               )}
-            </Card>
-
+            />
         ) : (
             <Card className="overflow-hidden">
               {offers.length === 0 ? (
@@ -670,6 +648,95 @@ export function SubscriptionsPage() {
       />
 
       <Modal
+        open={Boolean(selected)}
+        onClose={() => setSelectedId(null)}
+        title={selected ? selected.client.displayName : "Contrat"}
+        description={selected ? selected.label : undefined}
+      >
+        {selected ? (
+          <div className="space-y-5">
+            <dl className="grid grid-cols-2 gap-x-4 gap-y-3 text-sm">
+              <div className="min-w-0">
+                <dt className="text-xs text-[var(--muted)]">Montant</dt>
+                <dd className="mt-0.5 font-medium tabular-nums">
+                  {formatEUR(selected.amountCents)} {periodSuffix(selected.billingInterval)}
+                </dd>
+              </div>
+              <div className="min-w-0">
+                <dt className="text-xs text-[var(--muted)]">Prochaine facture</dt>
+                <dd className="mt-0.5">{formatDate(selected.nextInvoiceAt)}</dd>
+              </div>
+              <div className="min-w-0">
+                <dt className="text-xs text-[var(--muted)]">Offre</dt>
+                <dd className="mt-0.5">{selected.service.name}</dd>
+              </div>
+              <div className="min-w-0">
+                <dt className="text-xs text-[var(--muted)]">Jour de prélèvement</dt>
+                <dd className="mt-0.5">Le {selected.billingDay}</dd>
+              </div>
+              <div className="col-span-2 min-w-0">
+                <dt className="text-xs text-[var(--muted)]">Statut</dt>
+                <dd className="mt-1">
+                  <SubscriptionBadges s={selected} stripeEnabled={moduleStripeEnabled} />
+                </dd>
+              </div>
+            </dl>
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+              {selected.status !== "ENDED" ? (
+                <Button variant="secondary" onClick={() => fromPanel(() => openEdit(selected))}>
+                  <FontAwesomeIcon icon={faPen} className="h-3.5 w-3.5" aria-hidden />
+                  Modifier
+                </Button>
+              ) : null}
+              {selected.status === "ACTIVE" ? (
+                <Button variant="secondary" onClick={() => fromPanel(() => openRevise(selected))}>
+                  <FontAwesomeIcon icon={faSync} className="h-3.5 w-3.5" aria-hidden />
+                  Réviser (avenant)
+                </Button>
+              ) : null}
+              {moduleStripeEnabled && selected.status !== "ENDED" && !selected.stripeSubscriptionId ? (
+                <Button variant="secondary" onClick={() => void resendStripeSetup(selected.id)}>
+                  <FontAwesomeIcon icon={faEnvelope} className="h-3.5 w-3.5" aria-hidden />
+                  Renvoyer le lien de prélèvement
+                </Button>
+              ) : null}
+              {selected.status === "ACTIVE" ? (
+                <Button variant="secondary" onClick={() => fromPanel(() => void action(selected.id, "pause"))}>
+                  <FontAwesomeIcon icon={faPause} className="h-3.5 w-3.5" aria-hidden />
+                  Suspendre
+                </Button>
+              ) : null}
+              {selected.status === "PAUSED" ? (
+                <Button variant="secondary" onClick={() => fromPanel(() => void action(selected.id, "resume"))}>
+                  <FontAwesomeIcon icon={faPlay} className="h-3.5 w-3.5" aria-hidden />
+                  Reprendre
+                </Button>
+              ) : null}
+              {selected.status !== "ENDED" ? (
+                <Button variant="danger-ghost" onClick={() => fromPanel(() => setEndTarget(selected))}>
+                  <FontAwesomeIcon icon={faStop} className="h-3.5 w-3.5" aria-hidden />
+                  Clôturer
+                </Button>
+              ) : null}
+            </div>
+          </div>
+        ) : null}
+      </Modal>
+
+      <ConfirmDialog
+        open={Boolean(endTarget)}
+        title="Clôturer cet abonnement"
+        message={`« ${endTarget?.label ?? ""} » (${endTarget?.client.displayName ?? ""}) : plus aucune facture ne sera émise. Les factures déjà émises ne changent pas.`}
+        confirmLabel="Clôturer"
+        danger
+        onConfirm={() => {
+          if (endTarget) void action(endTarget.id, "end");
+          setEndTarget(null);
+        }}
+        onClose={() => setEndTarget(null)}
+      />
+
+      <Modal
         open={open}
         onClose={() => setOpen(false)}
         title={editingId ? "Modifier l'abonnement" : "Nouvel abonnement"}
@@ -735,7 +802,7 @@ export function SubscriptionsPage() {
             </Select>
           </Field>
           {editingId ? (
-            <Field label="Facturation" hint="Pour passer au mensuel ou à l'annuel, utilisez Réviser (↻).">
+            <Field label="Facturation" hint="Pour passer au mensuel ou à l'annuel, utilisez « Réviser (avenant) » dans le contrat.">
               <Input value={form.billingInterval === "YEAR" ? "Annuelle" : "Mensuelle"} disabled readOnly />
             </Field>
           ) : (
@@ -804,7 +871,7 @@ export function SubscriptionsPage() {
           </div>
           <p className="text-xs text-[var(--muted)]">
             {editingId
-              ? "Édition administrative (libellé, jour de prélèvement). Pour changer le montant ou la périodicité, utilisez le bouton Réviser (↻) : il émet un devis d'avenant au client et met à jour l'abonnement à l'acceptation."
+              ? "Édition administrative (libellé, jour de prélèvement). Pour changer le montant ou la périodicité, utilisez « Réviser (avenant) » dans le contrat : il émet un devis d'avenant au client et met à jour l'abonnement à l'acceptation."
               : form.billingInterval === "YEAR"
                 ? "Une facture sera émise automatiquement chaque année à cette date (numéro légal alloué, snapshot client figé). Le client reçoit un rappel 30 jours avant chaque renouvellement. Si SMTP est configuré, le PDF lui est envoyé."
                 : "Une facture sera émise automatiquement chaque mois à cette date (numéro légal alloué, snapshot client figé). Si SMTP est configuré, le PDF sera envoyé au client."}
