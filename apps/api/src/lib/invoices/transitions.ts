@@ -544,6 +544,7 @@ export async function convertQuoteToInvoice(quoteId: string) {
             lineTotalCents: line.lineTotalCents,
             isSubscription: line.isSubscription,
             billingDay: line.billingDay,
+            billingInterval: line.billingInterval,
             serviceId: line.serviceId,
             subscriptionId: line.subscriptionId,
           })),

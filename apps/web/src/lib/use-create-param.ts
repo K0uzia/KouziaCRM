@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { useSearchParams } from "react-router-dom";
 
 export type CreateParams = { clientId?: string };
@@ -10,6 +10,12 @@ export type CreateParams = { clientId?: string };
  */
 export function useCreateParam(open: (params: CreateParams) => void) {
   const [params, setParams] = useSearchParams();
+  // `open` change à chaque rendu chez l'appelant : hors des dépendances, sinon l'effet
+  // se rejoue avant que `new` ne disparaisse de l'URL et boucle (« Maximum update depth »).
+  const openRef = useRef(open);
+  useEffect(() => {
+    openRef.current = open;
+  });
 
   useEffect(() => {
     if (params.get("new") !== "1") return;
@@ -18,6 +24,6 @@ export function useCreateParam(open: (params: CreateParams) => void) {
     next.delete("new");
     next.delete("clientId");
     setParams(next, { replace: true });
-    open({ clientId });
-  }, [params, setParams, open]);
+    openRef.current({ clientId });
+  }, [params, setParams]);
 }

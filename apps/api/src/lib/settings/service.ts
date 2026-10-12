@@ -275,6 +275,7 @@ export type PaymentsPatch = {
   split3Step2TriggerText?: string;
   paymentButtonLeadDays?: number;
   projectMilestoneMidBps?: number;
+  annualFreeMonths?: number;
   moduleBankEnabled?: boolean;
   moduleSubscriptionsEnabled?: boolean;
   moduleStripeEnabled?: boolean;
@@ -360,6 +361,7 @@ export async function savePaymentsTab(
       ...(patch.projectMilestoneMidBps !== undefined
         ? { projectMilestoneMidBps: patch.projectMilestoneMidBps }
         : {}),
+      ...(patch.annualFreeMonths !== undefined ? { annualFreeMonths: patch.annualFreeMonths } : {}),
       ...(patch.moduleBankEnabled !== undefined
         ? { moduleBankEnabled: patch.moduleBankEnabled }
         : {}),

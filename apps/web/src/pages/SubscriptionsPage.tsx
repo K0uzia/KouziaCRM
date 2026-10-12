@@ -23,6 +23,16 @@ import { useCreateParam } from "@/lib/use-create-param";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { StatStrip } from "@/components/ui/StatStrip";
 import { Tabs, useTabParam } from "@/components/ui/Tabs";
+import { Segmented } from "@/components/ui/Segmented";
+import {
+  INTERVAL_OPTIONS,
+  monthlyEquivalentCents,
+  normalizeInterval,
+  periodAdjective,
+  periodSuffix,
+  suggestedAmountCents,
+  type BillingInterval,
+} from "@/lib/billing-interval";
 
 type SubscriptionStatus = "ACTIVE" | "PAUSED" | "ENDED";
 
@@ -31,6 +41,7 @@ type Subscription = {
   label: string;
   amountCents: number;
   billingDay: number;
+  billingInterval?: string | null;
   startDate: string;
   endDate: string | null;
   status: SubscriptionStatus;
@@ -51,6 +62,7 @@ type Service = {
   defaultBillingDay?: number;
   active?: boolean;
   stripeProductId?: string | null;
+  billingInterval?: string | null;
 };
 
 const emptyOfferForm = {
@@ -73,8 +85,19 @@ const emptyForm = {
   label: "",
   amountEuros: "",
   billingDay: "1",
+  billingInterval: "MONTH" as BillingInterval,
   startDate: new Date().toISOString().slice(0, 10),
 };
+
+/** Montant proposé (en euros, saisie) pour une offre et une périodicité. */
+function suggestEuros(svc: Service, interval: BillingInterval, freeMonths: number): string {
+  return (suggestedAmountCents(svc.unitPriceCents, svc.billingInterval, interval, freeMonths) / 100).toFixed(2);
+}
+
+/** Libellé par défaut d'une offre : « Nom : mensuel » ou « Nom : annuel ». */
+function defaultLabel(svc: Service, interval: BillingInterval): string {
+  return `${svc.name} : ${periodAdjective(interval)}`;
+}
 
 function stripeProductUrl(productId: string): string {
   return `https://dashboard.stripe.com/products/${productId}`;
@@ -102,19 +125,25 @@ export function SubscriptionsPage() {
   const [reviseId, setReviseId] = useState<string | null>(null);
   const [reviseAmount, setReviseAmount] = useState("");
   const [reviseLabel, setReviseLabel] = useState("");
+  const [reviseInterval, setReviseInterval] = useState<BillingInterval>("MONTH");
   const [reviseBusy, setReviseBusy] = useState(false);
+  const [freeMonths, setFreeMonths] = useState(2);
+  const [loaded, setLoaded] = useState(false);
 
   async function load() {
-    const [subs, cls, svcs, catalog] = await Promise.all([
+    const [subs, cls, svcs, catalog, settings] = await Promise.all([
       api<Subscription[]>("/api/subscriptions"),
       api<Client[]>("/api/clients").catch(() => [] as Client[]),
       api<Service[]>("/api/services?active=1&subscription=1").catch(() => [] as Service[]),
       api<Service[]>("/api/services?subscription=1").catch(() => [] as Service[]),
+      api<{ annualFreeMonths?: number }>("/api/settings").catch(() => null),
     ]);
     setRows(subs);
     setClients(cls);
     setServices(svcs);
     setOffers(catalog);
+    if (typeof settings?.annualFreeMonths === "number") setFreeMonths(settings.annualFreeMonths);
+    setLoaded(true);
   }
 
   useEffect(() => {
@@ -175,18 +204,43 @@ export function SubscriptionsPage() {
     setEditingId(null);
     // Offre présélectionnée : son prix, son libellé et son jour de prélèvement aussi.
     const svc = services[0];
+    const interval = normalizeInterval(svc?.billingInterval);
     setForm({
       ...emptyForm,
       clientId: clients[0]?.id ?? "",
       serviceId: svc?.id ?? "",
-      amountEuros: svc ? (svc.unitPriceCents / 100).toFixed(2) : "",
-      label: svc ? `${svc.name} : mensuel` : "",
+      billingInterval: interval,
+      amountEuros: svc ? suggestEuros(svc, interval, freeMonths) : "",
+      label: svc ? defaultLabel(svc, interval) : "",
       billingDay: svc?.defaultBillingDay ? String(svc.defaultBillingDay) : emptyForm.billingDay,
     });
     setOpen(true);
   }
 
-  useCreateParam(openCreate);
+  /** Montant saisi à la main (différent du montant proposé) : on ne l'écrase pas. */
+  function amountTyped(svc: Service | undefined, interval: BillingInterval): boolean {
+    return form.amountEuros !== "" && (!svc || form.amountEuros !== suggestEuros(svc, interval, freeMonths));
+  }
+
+  function changeInterval(next: BillingInterval) {
+    const svc = services.find((x) => x.id === form.serviceId);
+    const typed = amountTyped(svc, form.billingInterval);
+    setForm({
+      ...form,
+      billingInterval: next,
+      amountEuros: svc && !typed ? suggestEuros(svc, next, freeMonths) : form.amountEuros,
+      label: svc && form.label === defaultLabel(svc, form.billingInterval) ? defaultLabel(svc, next) : form.label,
+    });
+  }
+
+  // Arrivée par « Créer > Nouvel abonnement » : on attend les offres pour préremplir le formulaire.
+  const [createRequested, setCreateRequested] = useState(false);
+  useCreateParam(() => setCreateRequested(true));
+  useEffect(() => {
+    if (!createRequested || !loaded) return;
+    setCreateRequested(false);
+    openCreate();
+  }, [createRequested, loaded]);
 
   const [offerToArchive, setOfferToArchive] = useState<Service | null>(null);
 
@@ -209,16 +263,31 @@ export function SubscriptionsPage() {
       label: s.label,
       amountEuros: (s.amountCents / 100).toString(),
       billingDay: String(s.billingDay),
+      billingInterval: normalizeInterval(s.billingInterval),
       startDate: s.startDate.slice(0, 10),
     });
     setOpen(true);
   }
 
+  const revising = rows.find((r) => r.id === reviseId) ?? null;
+
   function openRevise(s: Subscription) {
     setReviseId(s.id);
     setReviseAmount((s.amountCents / 100).toString());
     setReviseLabel(s.label);
+    setReviseInterval(normalizeInterval(s.billingInterval));
     setReviseOpen(true);
+  }
+
+  function changeReviseInterval(next: BillingInterval) {
+    if (!revising) return;
+    const cents = suggestedAmountCents(revising.amountCents, revising.billingInterval, next, freeMonths);
+    setReviseInterval(next);
+    setReviseAmount((cents / 100).toFixed(2));
+    const suffix = `: ${periodAdjective(reviseInterval)}`;
+    if (reviseLabel.endsWith(suffix)) {
+      setReviseLabel(`${reviseLabel.slice(0, -suffix.length)}: ${periodAdjective(next)}`);
+    }
   }
 
   async function onReviseSubmit(e: FormEvent) {
@@ -233,6 +302,7 @@ export function SubscriptionsPage() {
           body: JSON.stringify({
             amountEuros: Number(reviseAmount),
             label: reviseLabel.trim() || undefined,
+            billingInterval: reviseInterval,
           }),
         },
       );
@@ -258,6 +328,7 @@ export function SubscriptionsPage() {
         label: form.label,
         amountEuros: Number(form.amountEuros),
         billingDay: Number(form.billingDay),
+        billingInterval: form.billingInterval,
         startDate: form.startDate,
       };
       if (editingId) {
@@ -313,7 +384,7 @@ export function SubscriptionsPage() {
     <div>
       <PageHeader
         title="Abonnements"
-        subtitle="Contrats de maintenance mensuels : une facture est émise automatiquement chaque mois."
+        subtitle="Contrats de maintenance mensuels ou annuels : chaque échéance est facturée automatiquement."
         actions={
           <>
             {!moduleStripeEnabled ? (
@@ -342,8 +413,12 @@ export function SubscriptionsPage() {
             return [
               {
                 label: "Revenu mensuel récurrent",
-                value: formatEUR(active.reduce((acc, r) => acc + r.amountCents, 0)),
-                hint: "TTC, contrats actifs",
+                value: formatEUR(
+                  active.reduce((acc, r) => acc + monthlyEquivalentCents(r.amountCents, r.billingInterval), 0),
+                ),
+                hint: active.some((r) => normalizeInterval(r.billingInterval) === "YEAR")
+                  ? "TTC, contrats actifs, annuels ramenés au mois"
+                  : "TTC, contrats actifs",
                 tone: "success" as const,
               },
               { label: "Contrats actifs", value: String(active.length) },
@@ -368,7 +443,7 @@ export function SubscriptionsPage() {
               {rows.length === 0 ? (
                 <EmptyState
                   title="Aucun abonnement"
-                  hint="Créez un contrat de maintenance mensuel : une facture sera émise automatiquement chaque mois."
+                  hint="Créez un contrat de maintenance mensuel ou annuel : chaque échéance sera facturée automatiquement."
                 />
               ) : (
                 <div className="ui-table-wrap max-md:overflow-visible">
@@ -377,7 +452,7 @@ export function SubscriptionsPage() {
                       <tr>
                         <th className="nowrap">Client</th>
                         <th className="wrap">Libellé</th>
-                        <th className="nowrap text-right">Montant/mois</th>
+                        <th className="nowrap text-right">Montant</th>
                         <th className="nowrap">Jour</th>
                         <th className="nowrap">Prochaine facture</th>
                         <th className="nowrap">Statut</th>
@@ -396,12 +471,19 @@ export function SubscriptionsPage() {
                         return (
                           <tr key={s.id}>
                             <td className="nowrap" data-label="Client">
-                              <p className="font-medium">{s.client.displayName}</p>
-                              <p className="text-xs text-[var(--muted)]">{s.service.name}</p>
+                              <div>
+                                <p className="font-medium">{s.client.displayName}</p>
+                                <p className="text-xs text-[var(--muted)]">{s.service.name}</p>
+                              </div>
                             </td>
-                            <td className="wrap" data-label="Libellé">{s.label}</td>
-                            <td className="nowrap text-right tabular-nums font-medium" data-label="Montant/mois">
-                              {formatEUR(s.amountCents)}
+                            <td className="wrap" data-label="Libellé">
+                              <span>{s.label}</span>
+                            </td>
+                            <td className="nowrap text-right tabular-nums font-medium" data-label="Montant">
+                              <span>
+                                {formatEUR(s.amountCents)}{" "}
+                                <span className="font-normal text-[var(--muted)]">{periodSuffix(s.billingInterval)}</span>
+                              </span>
                             </td>
                             <td className="nowrap" data-label="Jour">{s.billingDay}</td>
                             <td className="nowrap text-[var(--muted)]" data-label="Prochaine facture">
@@ -420,7 +502,7 @@ export function SubscriptionsPage() {
                               )}
                             </td>
                             <td className="col-actions">
-                              <div className="flex justify-end gap-1">
+                              <div className="flex justify-end gap-1 max-md:flex-wrap">
                               {stripePending ? (
                                 <Button
                                   variant="ghost"
@@ -448,8 +530,8 @@ export function SubscriptionsPage() {
                                   variant="ghost"
                                   className="px-2 text-xs"
                                   onClick={() => openRevise(s)}
-                                  aria-label="Réviser le montant (avenant)"
-                                  title="Réviser le montant (avenant)"
+                                  aria-label="Réviser le montant ou la périodicité (avenant)"
+                                  title="Réviser le montant ou la périodicité (avenant)"
                                 >
                                   <FontAwesomeIcon icon={faSync} className="h-3 w-3" />
                                 </Button>
@@ -517,12 +599,16 @@ export function SubscriptionsPage() {
                         <div className="min-w-0 flex-1">
                           <p className="font-medium">{o.name}</p>
                           {o.description ? <p className="mt-1 text-sm text-[var(--muted)]">{o.description}</p> : null}
-                          <p className="mt-1 text-xs text-[var(--muted)]">Facturée le {o.defaultBillingDay ?? 1} de chaque mois</p>
+                          <p className="mt-1 text-xs text-[var(--muted)]">
+                            {normalizeInterval(o.billingInterval) === "YEAR"
+                              ? "Facturée chaque année"
+                              : `Facturée le ${o.defaultBillingDay ?? 1} de chaque mois`}
+                          </p>
                         </div>
                         <div className="flex shrink-0 items-center justify-between gap-4 sm:justify-end">
                           <div className="sm:text-right">
                             <p className="font-display text-lg font-semibold tabular-nums">{formatEUR(o.unitPriceCents)}</p>
-                            <p className="text-xs text-[var(--muted)]">TTC / mois</p>
+                            <p className="text-xs text-[var(--muted)]">TTC {periodSuffix(o.billingInterval)}</p>
                           </div>
                           <div className="flex gap-1">
                             {moduleStripeEnabled && o.stripeProductId ? (
@@ -586,7 +672,7 @@ export function SubscriptionsPage() {
       <Modal
         open={open}
         onClose={() => setOpen(false)}
-        title={editingId ? "Modifier l'abonnement" : "Nouvel abonnement mensuel"}
+        title={editingId ? "Modifier l'abonnement" : "Nouvel abonnement"}
       >
         <form onSubmit={onSubmit} className="space-y-4">
           <Field label="Client">
@@ -609,7 +695,7 @@ export function SubscriptionsPage() {
             hint={(() => {
               // Le select natif tronque son libellé sur mobile : le détail complet est repris dessous.
               const svc = services.find((s) => s.id === form.serviceId);
-              return svc ? `${svc.name}, ${formatEUR(svc.unitPriceCents)} par mois` : undefined;
+              return svc ? `${svc.name}, ${formatEUR(svc.unitPriceCents)} ${periodSuffix(svc.billingInterval)}` : undefined;
             })()}
           >
             <Select
@@ -618,18 +704,21 @@ export function SubscriptionsPage() {
               onChange={(e) => {
                 const id = e.target.value;
                 const svc = services.find((s) => s.id === id);
-                // Montant saisi à la main (différent du prix de l'offre précédente) : conservé.
+                // Montant saisi à la main (différent du montant proposé) : conservé.
                 const prev = services.find((s) => s.id === form.serviceId);
-                const typed =
-                  form.amountEuros !== "" &&
-                  (!prev || Number(form.amountEuros) !== prev.unitPriceCents / 100);
+                const typed = amountTyped(prev, form.billingInterval);
                 setForm({
                   ...form,
                   serviceId: id,
                   amountEuros: svc && !typed
-                    ? (svc.unitPriceCents / 100).toFixed(2)
+                    ? suggestEuros(svc, form.billingInterval, freeMonths)
                     : form.amountEuros,
-                  label: form.label || (svc ? `${svc.name} : mensuel` : ""),
+                  label:
+                    !form.label || (prev && form.label === defaultLabel(prev, form.billingInterval))
+                      ? svc
+                        ? defaultLabel(svc, form.billingInterval)
+                        : ""
+                      : form.label,
                   billingDay: svc?.defaultBillingDay
                     ? String(svc.defaultBillingDay)
                     : form.billingDay,
@@ -640,11 +729,34 @@ export function SubscriptionsPage() {
               <option value="">Choisir une offre…</option>
               {services.map((s) => (
                 <option key={s.id} value={s.id}>
-                  {s.name}, {formatEUR(s.unitPriceCents)}/mois
+                  {s.name}, {formatEUR(s.unitPriceCents)} {periodSuffix(s.billingInterval)}
                 </option>
               ))}
             </Select>
           </Field>
+          {editingId ? (
+            <Field label="Facturation" hint="Pour passer au mensuel ou à l'annuel, utilisez Réviser (↻).">
+              <Input value={form.billingInterval === "YEAR" ? "Annuelle" : "Mensuelle"} disabled readOnly />
+            </Field>
+          ) : (
+            // Groupe de boutons : hors d'un <label>, qui nommerait le premier bouton.
+            <div className="space-y-1.5">
+              <p className="text-sm font-medium text-[var(--text)]">Facturation</p>
+              <Segmented
+                label="Périodicité de facturation"
+                options={INTERVAL_OPTIONS}
+                value={form.billingInterval}
+                onChange={changeInterval}
+                className="w-full"
+              />
+              {form.billingInterval === "YEAR" ? (
+                <p className="text-xs text-[var(--muted)]">
+                  Montant proposé : 12 mensualités moins {freeMonths} mois offert{freeMonths > 1 ? "s" : ""} (Réglages
+                  &gt; Paiements), modifiable.
+                </p>
+              ) : null}
+            </div>
+          )}
           <Field label="Libellé de la facture">
             <Input
               required
@@ -655,7 +767,7 @@ export function SubscriptionsPage() {
           </Field>
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
             <Field
-              label="Montant/mois (€)"
+              label={form.billingInterval === "YEAR" ? "Montant par an (€)" : "Montant par mois (€)"}
               hint={editingId ? "Via un nouveau devis (légal)" : undefined}
             >
               <Input
@@ -692,8 +804,10 @@ export function SubscriptionsPage() {
           </div>
           <p className="text-xs text-[var(--muted)]">
             {editingId
-              ? "Édition administrative (libellé, jour de prélèvement). Pour changer le montant, utilisez le bouton Réviser (↻) : il émet un devis d'avenant au client et met à jour l'abonnement à l'acceptation."
-              : "Une facture sera émise automatiquement chaque mois à cette date (numéro légal alloué, snapshot client figé). Si SMTP est configuré, le PDF sera envoyé au client."}
+              ? "Édition administrative (libellé, jour de prélèvement). Pour changer le montant ou la périodicité, utilisez le bouton Réviser (↻) : il émet un devis d'avenant au client et met à jour l'abonnement à l'acceptation."
+              : form.billingInterval === "YEAR"
+                ? "Une facture sera émise automatiquement chaque année à cette date (numéro légal alloué, snapshot client figé). Le client reçoit un rappel 30 jours avant chaque renouvellement. Si SMTP est configuré, le PDF lui est envoyé."
+                : "Une facture sera émise automatiquement chaque mois à cette date (numéro légal alloué, snapshot client figé). Si SMTP est configuré, le PDF sera envoyé au client."}
           </p>
           <ModalActions>
             <Button type="button" variant="secondary" onClick={() => setOpen(false)}>
@@ -713,7 +827,23 @@ export function SubscriptionsPage() {
         description="Un devis de révision est émis et envoyé au client. L'abonnement passe au nouveau montant à l'acceptation, et la facture correspondante est émise."
       >
         <form onSubmit={onReviseSubmit} className="space-y-4">
-          <Field label="Nouveau montant/mois (€)">
+          {revising?.stripeSubscriptionId ? (
+            <p className="text-xs text-[var(--muted)]">
+              Prélèvement Stripe actif : la périodicité se change dans Stripe.
+            </p>
+          ) : (
+            <div className="space-y-1.5">
+              <p className="text-sm font-medium text-[var(--text)]">Facturation</p>
+              <Segmented
+                label="Périodicité de facturation"
+                options={INTERVAL_OPTIONS}
+                value={reviseInterval}
+                onChange={changeReviseInterval}
+                className="w-full"
+              />
+            </div>
+          )}
+          <Field label={reviseInterval === "YEAR" ? "Nouveau montant par an (€)" : "Nouveau montant par mois (€)"}>
             <Input
               required
               type="number"
@@ -732,8 +862,9 @@ export function SubscriptionsPage() {
             />
           </Field>
           <p className="text-xs text-[var(--muted)]">
-            Ex. ajout d'un site à gérer : le nouveau montant remplace l'ancien à l'acceptation du
-            devis. Le mois en cours reste facturé à l'ancien montant ; le suivant l'est au nouveau.
+            {revising && reviseInterval !== normalizeInterval(revising.billingInterval)
+              ? `Passage ${reviseInterval === "YEAR" ? "à l'annuel" : "au mensuel"} : il s'applique à la prochaine échéance (${formatDate(revising.nextInvoiceAt)}) si le client accepte le devis avant. La période en cours reste facturée comme prévu.`
+              : "Ex. ajout d'un site à gérer : le nouveau montant remplace l'ancien à l'acceptation du devis. La période en cours reste facturée à l'ancien montant ; la suivante l'est au nouveau."}
           </p>
           <ModalActions>
             <Button type="button" variant="secondary" onClick={() => setReviseOpen(false)} disabled={reviseBusy}>

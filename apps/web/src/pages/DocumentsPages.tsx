@@ -107,6 +107,7 @@ type Doc = {
     lineTotalCents: number;
     isSubscription?: boolean;
     billingDay?: number | null;
+    billingInterval?: string | null;
     serviceId?: string | null;
   }>;
   milestones?: Milestone[];
@@ -959,11 +960,16 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
                       <td className="px-5 py-3 sm:px-6" data-label="Désignation">
                         <div className="flex flex-wrap items-center gap-2">
                           <span className="font-medium">{l.description}</span>
-                          {l.isSubscription ? <Badge tone="amber">Mensuel</Badge> : null}
+                          {l.isSubscription ? (
+                            <Badge tone="amber">{l.billingInterval === "YEAR" ? "Annuel" : "Mensuel"}</Badge>
+                          ) : null}
                         </div>
                         {l.isSubscription ? (
                           <p className="mt-1 max-w-xl text-xs text-[var(--muted)]">
-                            Facturé le {l.billingDay ?? "…"} de chaque mois. Ce document inclut la 1re échéance.
+                            {l.billingInterval === "YEAR"
+                              ? "Facturé chaque année à la date anniversaire."
+                              : `Facturé le ${l.billingDay ?? "…"} de chaque mois.`}{" "}
+                            Ce document inclut la 1re échéance.
                           </p>
                         ) : null}
                       </td>
@@ -986,7 +992,13 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
               <div className="min-w-0 space-y-3 text-sm sm:max-w-md">
               {(doc.lines ?? []).some((l) => l.isSubscription) ? (
                 <div className="rounded-[var(--radius)] border border-[var(--border)] bg-[var(--bg)] p-3 text-sm">
-                  <p className="font-medium">Récurrence mensuelle</p>
+                  <p className="font-medium">
+                    {(doc.lines ?? []).every((l) => !l.isSubscription || l.billingInterval === "YEAR")
+                      ? "Récurrence annuelle"
+                      : (doc.lines ?? []).some((l) => l.isSubscription && l.billingInterval === "YEAR")
+                        ? "Récurrence"
+                        : "Récurrence mensuelle"}
+                  </p>
                   <ul className="mt-2 list-disc space-y-1.5 pl-5 text-[var(--muted)]">
                     {(doc.lines ?? [])
                       .filter((l) => l.isSubscription)
@@ -994,10 +1006,10 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
                         <li key={i}>
                           <span className="text-[var(--text)]">{l.description}</span>
                           {" : "}
-                          {formatEUR(l.unitPriceCents)} TTC facturés chaque mois
-                          {l.billingDay ? ` le ${l.billingDay}` : ""}.
-                          {" "}
-                          Les mois suivants seront facturés automatiquement.
+                          {formatEUR(l.unitPriceCents)} TTC facturés{" "}
+                          {l.billingInterval === "YEAR"
+                            ? "chaque année à la date anniversaire. Les années suivantes seront facturées automatiquement, avec un rappel au client 30 jours avant."
+                            : `chaque mois${l.billingDay ? ` le ${l.billingDay}` : ""}. Les mois suivants seront facturés automatiquement.`}
                         </li>
                       ))}
                   </ul>
@@ -1622,6 +1634,7 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
               unitPriceEuros: String(l.unitPriceCents / 100),
               isSubscription: Boolean(l.isSubscription),
               billingDay: String(l.billingDay ?? 1),
+              billingInterval: l.billingInterval === "YEAR" ? "YEAR" : "MONTH",
               serviceId: l.serviceId ?? "",
             })),
           }}

@@ -329,8 +329,18 @@ h3 {
     white-space: normal;
     word-break: break-word;
   }
+  /* En carte, une cellule « nowrap » ne doit ni rester sur une ligne ni élargir la carte. */
+  .ui-table-stack tbody td.nowrap,
+  .ui-table-stack tbody td.col-actions {
+    width: 100%;
+    white-space: normal;
+  }
+  .ui-table-stack tbody td > * {
+    min-width: 0;
+  }
   .ui-table-stack tbody td::before {
     content: attr(data-label);
+    text-align: left;
     color: var(--muted);
     font-size: 0.75rem;
     font-weight: 500;

@@ -292,6 +292,8 @@ model CompanySettings {
   reminderQuoteDays Int @default(7)
   /// Jours après échéance avant 1re relance facture
   reminderInvoiceDays Int @default(7)
+  /// Abonnement annuel : mois offerts par rapport à 12 mensualités (remise proposée par défaut)
+  annualFreeMonths Int @default(2)
   /// Afficher les montants sur le suivi public client
   publicTrackingShowAmounts Boolean @default(false)
   /// URL du portail client (suivi devis / factures)
@@ -827,6 +829,8 @@ model Subscription {
   nextInvoiceAt   DateTime
   /// Dernière facture générée par cet abonnement
   lastInvoiceId   String?
+  /// Échéance (nextInvoiceAt) pour laquelle le rappel J-30 de renouvellement annuel est parti
+  renewalReminderSentFor DateTime?
   invoices        Invoice[]
   sourceLines     InvoiceLine[]
   createdAt       DateTime           @default(now())
@@ -1003,6 +1007,8 @@ model InvoiceLine {
   /// Ligne d'abonnement mensuel (1ʳᵉ échéance dans le total du document)
   isSubscription   Boolean        @default(false)
   billingDay       Int?
+  /// MONTH | YEAR (null = MONTH) : périodicité de l'abonnement de la ligne
+  billingInterval  String?
   serviceId        String?
   service          Service?       @relation(fields: [serviceId], references: [id])
   /// Rempli quand le Subscription a été créé (idempotence)

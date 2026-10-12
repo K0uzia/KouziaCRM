@@ -12,15 +12,34 @@ import { issueInvoiceWithin, issueQuote } from "@/lib/invoices/transitions.js";
 import { sendDocumentPdf } from "@/lib/email/send-document-pdf.js";
 import { getCompanySettings } from "@/lib/company.js";
 
+/** Périodicité d'un abonnement ; null en base vaut MONTH. */
+export type BillingInterval = "MONTH" | "YEAR";
+
+export function normalizeInterval(value: string | null | undefined): BillingInterval {
+  return value === "YEAR" ? "YEAR" : "MONTH";
+}
+
+/** Nombre de mois couverts par une échéance. */
+export function periodMonths(interval: string | null | undefined): number {
+  return normalizeInterval(interval) === "YEAR" ? 12 : 1;
+}
+
+/** Équivalent mensuel d'une échéance (MRR) : un montant annuel compte pour 1/12. */
+export function monthlyEquivalentCents(amountCents: number, interval: string | null | undefined): number {
+  return Math.round(amountCents / periodMonths(interval));
+}
+
 export type CreateSubscriptionInput = {
   clientId: string;
   serviceId: string;
   label: string;
   amountCents: number;
   billingDay: number;
+  /** Montant par échéance : par mois (MONTH) ou par an (YEAR). Défaut MONTH. */
+  billingInterval?: BillingInterval;
   startDate: Date;
   endDate?: Date | null;
-  /** Si true : 1ʳᵉ échéance déjà facturée (devis) → nextInvoiceAt = mois suivant */
+  /** Si true : 1ʳᵉ échéance déjà facturée (devis) → nextInvoiceAt = période suivante */
   skipCurrentPeriod?: boolean;
 };
 
@@ -51,6 +70,16 @@ export function computeNextInvoiceAt(
     out.setMonth(out.getMonth() + 1);
   }
   return out;
+}
+
+function addDays(d: Date, days: number): Date {
+  const out = new Date(d);
+  out.setDate(out.getDate() + days);
+  return out;
+}
+
+function fmtDay(d: Date): string {
+  return d.toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit", year: "numeric" });
 }
 
 function addMonths(d: Date, months: number): Date {
@@ -84,12 +113,13 @@ export async function createSubscription(
   }
 
   const startDate = data.startDate ?? new Date();
+  const billingInterval = normalizeInterval(data.billingInterval);
   let nextInvoiceAt = computeNextInvoiceAt(data.billingDay, startDate);
   if (data.skipCurrentPeriod) {
-    // Mois suivant au billingDay (1ʳᵉ échéance déjà dans le devis/facture)
+    // Période suivante au billingDay (1ʳᵉ échéance déjà dans le devis/facture)
     nextInvoiceAt = new Date(
       startDate.getFullYear(),
-      startDate.getMonth() + 1,
+      startDate.getMonth() + periodMonths(billingInterval),
       data.billingDay,
       0,
       0,
@@ -105,6 +135,7 @@ export async function createSubscription(
       label: data.label,
       amountCents: data.amountCents,
       billingDay: data.billingDay,
+      billingInterval,
       startDate,
       endDate: data.endDate ?? null,
       status: SubscriptionStatus.ACTIVE,
@@ -142,7 +173,9 @@ export async function getSubscription(id: string) {
 
 export async function updateSubscription(
   id: string,
-  patch: Partial<Pick<CreateSubscriptionInput, "label" | "amountCents" | "billingDay" | "endDate">>,
+  patch: Partial<
+    Pick<CreateSubscriptionInput, "label" | "amountCents" | "billingDay" | "endDate" | "billingInterval">
+  >,
   db: Db = prisma,
 ) {
   if (patch.billingDay !== undefined) validateBillingDay(patch.billingDay);
@@ -152,6 +185,16 @@ export async function updateSubscription(
   if (!current) throw new SubscriptionError("Abonnement introuvable");
   if (current.status === SubscriptionStatus.ENDED) {
     throw new SubscriptionError("Un abonnement clôturé n'est plus modifiable");
+  }
+  // Changement de périodicité : il prend effet à la prochaine échéance (nextInvoiceAt
+  // inchangé). Un prélèvement Stripe suit son propre prix : on ne le change pas d'ici.
+  const intervalChanges =
+    patch.billingInterval !== undefined &&
+    normalizeInterval(patch.billingInterval) !== normalizeInterval(current.billingInterval);
+  if (intervalChanges && current.stripeSubscriptionId) {
+    throw new SubscriptionError(
+      "Prélèvement Stripe actif : changez la périodicité dans Stripe, puis l'abonnement se mettra à jour.",
+    );
   }
 
   // Si billingDay change et qu'aucune facture n'a encore été émise pour le cycle courant,
@@ -167,6 +210,7 @@ export async function updateSubscription(
       label: patch.label,
       amountCents: patch.amountCents,
       billingDay: patch.billingDay,
+      billingInterval: intervalChanges ? normalizeInterval(patch.billingInterval) : undefined,
       endDate: patch.endDate,
       nextInvoiceAt,
     },
@@ -229,6 +273,8 @@ export async function generateDueSubscriptionInvoices(now: Date = new Date()): P
   let generated = 0;
   for (const sub of due) {
     const issueDate = sub.nextInvoiceAt;
+    const yearly = normalizeInterval(sub.billingInterval) === "YEAR";
+    const followingInvoiceAt = addMonths(issueDate, periodMonths(sub.billingInterval));
 
     // Idempotence : une facture existe déjà pour ce cycle ?
     const existing = await prisma.invoice.findFirst({
@@ -245,7 +291,7 @@ export async function generateDueSubscriptionInvoices(now: Date = new Date()): P
       // Cycle déjà facturé : on avance juste nextInvoiceAt pour ne pas boucler.
       await prisma.subscription.update({
         where: { id: sub.id },
-        data: { nextInvoiceAt: addMonths(issueDate, 1) },
+        data: { nextInvoiceAt: followingInvoiceAt },
       });
       continue;
     }
@@ -262,13 +308,15 @@ export async function generateDueSubscriptionInvoices(now: Date = new Date()): P
           status: InvoiceStatus.DRAFT,
           clientId: sub.clientId,
           subscriptionId: sub.id,
-          paymentTerms: "Prélèvement mensuel : paiement à réception",
+          paymentTerms: yearly
+            ? "Échéance annuelle : paiement à réception"
+            : "Prélèvement mensuel : paiement à réception",
           subtotalCents: sub.amountCents,
           totalCents: sub.amountCents,
           lines: {
             create: {
               position: 1,
-              description: sub.label,
+              description: yearly ? `${sub.label} : période du ${fmtDay(issueDate)} au ${fmtDay(addDays(followingInvoiceAt, -1))}` : sub.label,
               quantity: 1,
               unitPriceCents: sub.amountCents,
               lineTotalCents: sub.amountCents,
@@ -283,7 +331,7 @@ export async function generateDueSubscriptionInvoices(now: Date = new Date()): P
         where: { id: sub.id },
         data: {
           lastInvoiceId: emitted.id,
-          nextInvoiceAt: addMonths(issueDate, 1),
+          nextInvoiceAt: followingInvoiceAt,
         },
       });
 
@@ -307,6 +355,9 @@ export type MrrSnapshot = {
     id: string;
     label: string;
     amountCents: number;
+    billingInterval: BillingInterval;
+    /** Équivalent mensuel (montant annuel / 12) */
+    monthlyCents: number;
     clientDisplayName: string;
     nextInvoiceAt: Date;
   }>;
@@ -324,24 +375,23 @@ export async function computeMrrCents(now: Date = new Date()): Promise<MrrSnapsh
     orderBy: { nextInvoiceAt: "asc" },
   });
 
-  const mrrCents = active.reduce((s: number, sub: { amountCents: number }) => s + sub.amountCents, 0);
+  const bySubscription = active.map((sub) => ({
+    id: sub.id,
+    label: sub.label,
+    amountCents: sub.amountCents,
+    billingInterval: normalizeInterval(sub.billingInterval),
+    monthlyCents: monthlyEquivalentCents(sub.amountCents, sub.billingInterval),
+    clientDisplayName: sub.client.displayName,
+    nextInvoiceAt: sub.nextInvoiceAt,
+  }));
+  const mrrCents = bySubscription.reduce((s, sub) => s + sub.monthlyCents, 0);
+  // ARR : montants réellement facturés sur 12 mois (sans l'arrondi du /12 des annuels).
+  const arrCents = bySubscription.reduce((s, sub) => s + sub.amountCents * (12 / periodMonths(sub.billingInterval)), 0);
   return {
     mrrCents,
-    arrCents: mrrCents * 12,
+    arrCents,
     activeCount: active.length,
-    bySubscription: active.map((sub: {
-      id: string;
-      label: string;
-      amountCents: number;
-      nextInvoiceAt: Date;
-      client: { displayName: string };
-    }) => ({
-      id: sub.id,
-      label: sub.label,
-      amountCents: sub.amountCents,
-      clientDisplayName: sub.client.displayName,
-      nextInvoiceAt: sub.nextInvoiceAt,
-    })),
+    bySubscription,
   };
 }
 
@@ -356,12 +406,15 @@ export type RevisionResult = {
  * l'émet (numéro D-YYYY-NNNN) et envoie le PDF au client. L'abonnement n'est
  * mis à jour qu'à l'acceptation du devis (conversion en facture), ce qui
  * émet alors la facture correspondante.
+ * Un changement de périodicité (mensuel ou annuel) passe aussi par ce devis :
+ * il s'applique à la prochaine échéance, une fois le devis accepté.
  */
 export async function createSubscriptionRevision(opts: {
   subscriptionId: string;
   amountCents: number;
   label?: string;
   billingDay?: number;
+  billingInterval?: BillingInterval;
 }): Promise<RevisionResult> {
   validateAmount(opts.amountCents);
   if (opts.billingDay !== undefined) validateBillingDay(opts.billingDay);
@@ -377,6 +430,12 @@ export async function createSubscriptionRevision(opts: {
 
   const label = opts.label?.trim() || sub.label;
   const billingDay = opts.billingDay ?? sub.billingDay;
+  const billingInterval = normalizeInterval(opts.billingInterval ?? sub.billingInterval);
+  if (billingInterval !== normalizeInterval(sub.billingInterval) && sub.stripeSubscriptionId) {
+    throw new SubscriptionError(
+      "Prélèvement Stripe actif : changez la périodicité dans Stripe, puis l'abonnement se mettra à jour.",
+    );
+  }
   const amountCents = opts.amountCents;
 
   // Création du devis d'avenant (brouillon) avec une ligne abonnement.
@@ -397,6 +456,7 @@ export async function createSubscriptionRevision(opts: {
           lineTotalCents: amountCents,
           isSubscription: true,
           billingDay,
+          billingInterval,
           serviceId: sub.serviceId,
         },
       },

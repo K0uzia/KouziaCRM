@@ -75,6 +75,7 @@ describe("buildInvoicePdfPayload charte dynamique", () => {
             lineTotalCents: 100000,
             isSubscription: false,
             billingDay: null,
+            billingInterval: null,
             serviceId: null,
             subscriptionId: null,
           },

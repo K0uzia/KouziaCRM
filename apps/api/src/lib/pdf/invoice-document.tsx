@@ -206,6 +206,13 @@ function fmtMoney(cents: number) {
   return formatEUR(cents);
 }
 
+function subscriptionHeading(lines: Array<{ isSubscription?: boolean; billingInterval?: string | null }>) {
+  const subs = lines.filter((l) => l.isSubscription);
+  if (subs.every((l) => l.billingInterval === "YEAR")) return "Engagement d'abonnement annuel";
+  if (subs.every((l) => l.billingInterval !== "YEAR")) return "Engagement d'abonnement mensuel";
+  return "Engagement d'abonnement";
+}
+
 function fmtQty(q: number) {
   return Number.isInteger(q) ? String(q) : String(q).replace(".", ",");
 }
@@ -294,6 +301,7 @@ export type InvoicePdfData = {
       lineTotalCents: number;
       isSubscription?: boolean;
       billingDay?: number | null;
+      billingInterval?: string | null;
     }>;
     legalClauses?: Array<{ title: string; body: string }>;
   };
@@ -474,9 +482,10 @@ export function InvoiceDocument({ company, client, invoice }: InvoicePdfData) {
                 <Text style={{ color: INK }}>{line.description}</Text>
                 {line.isSubscription ? (
                   <Text style={styles.lineNote}>
-                    Abonnement mensuel, facturé chaque mois
-                    {line.billingDay ? ` le ${line.billingDay}` : ""} : {fmtMoney(line.unitPriceCents)}.
-                    Ce document inclut la 1re échéance.
+                    {line.billingInterval === "YEAR"
+                      ? "Abonnement annuel, facturé chaque année à la date anniversaire"
+                      : `Abonnement mensuel, facturé chaque mois${line.billingDay ? ` le ${line.billingDay}` : ""}`}{" "}
+                    : {fmtMoney(line.unitPriceCents)}. Ce document inclut la 1re échéance.
                   </Text>
                 ) : null}
               </View>
@@ -534,13 +543,16 @@ export function InvoiceDocument({ company, client, invoice }: InvoicePdfData) {
 
         {invoice.lines.some((l) => l.isSubscription) ? (
           <View style={[styles.box, styles.section]} wrap={false}>
-            <Text style={styles.h2}>Engagement d&apos;abonnement mensuel</Text>
+            <Text style={styles.h2}>{subscriptionHeading(invoice.lines)}</Text>
             {invoice.lines
               .filter((l) => l.isSubscription)
               .map((l, i) => (
                 <Text key={i} style={{ marginTop: 2 }}>
-                  {l.description} : {fmtMoney(l.unitPriceCents)} facturés automatiquement chaque mois
-                  {l.billingDay ? ` le ${l.billingDay}` : ""}. Le total de ce document inclut la 1re
+                  {l.description} : {fmtMoney(l.unitPriceCents)} facturés automatiquement{" "}
+                  {l.billingInterval === "YEAR"
+                    ? "chaque année à la date anniversaire"
+                    : `chaque mois${l.billingDay ? ` le ${l.billingDay}` : ""}`}
+                  . Le total de ce document inclut la 1re
                   échéance ; les échéances suivantes feront l&apos;objet de factures séparées.
                 </Text>
               ))}

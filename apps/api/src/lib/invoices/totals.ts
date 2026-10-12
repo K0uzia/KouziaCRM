@@ -7,6 +7,8 @@ export type LineInput = {
   position?: number;
   isSubscription?: boolean;
   billingDay?: number | null;
+  /** MONTH | YEAR ; null ou absent = MONTH */
+  billingInterval?: string | null;
   serviceId?: string | null;
   subscriptionId?: string | null;
 };
@@ -51,6 +53,7 @@ export function computeLineTotals(lines: LineInput[], discount: DiscountInput = 
         isSubscription && Number.isInteger(billingDay) && billingDay! >= 1 && billingDay! <= 28
           ? billingDay
           : null,
+      billingInterval: isSubscription && line.billingInterval === "YEAR" ? "YEAR" : null,
       serviceId: isSubscription ? line.serviceId || null : null,
       subscriptionId: line.subscriptionId ?? null,
     };
@@ -86,7 +89,7 @@ export function assertSubscriptionLinesValid(
     if (!line.isSubscription) continue;
     const day = Number(line.billingDay);
     if (!Number.isInteger(day) || day < 1 || day > 28) {
-      throw new Error("Jour de facturation d'abonnement invalide (1–28)");
+      throw new Error("Jour de facturation d'abonnement invalide (1 à 28)");
     }
     if (!line.serviceId) {
       throw new Error("Une ligne abonnement doit être liée à une prestation du catalogue");

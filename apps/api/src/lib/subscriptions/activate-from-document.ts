@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma.js";
 import {
   createSubscription,
   updateSubscription,
+  normalizeInterval,
   SubscriptionError,
   type Db,
 } from "@/lib/subscriptions/subscription-service.js";
@@ -16,7 +17,7 @@ export type ActivateSubscriptionsResult = {
 /**
  * Crée ou met à jour l'abonnement des lignes `isSubscription` d'un document.
  * Règle : un seul abonnement actif par client. Si un abonnement actif existe
- * déjà, on le met à jour (montant/libellé/jour) au lieu d'en créer un second.
+ * déjà, on le met à jour (montant/libellé/jour/périodicité) au lieu d'en créer un second.
  * Idempotent via InvoiceLine.subscriptionId.
  * skipCurrentPeriod : la 1ʳᵉ échéance est déjà dans le total du document.
  */
@@ -70,6 +71,7 @@ export async function activateSubscriptionsFromDocument(
           label: line.description,
           amountCents: line.unitPriceCents,
           billingDay: line.billingDay,
+          billingInterval: normalizeInterval(line.billingInterval),
         },
         db,
       );
@@ -83,6 +85,7 @@ export async function activateSubscriptionsFromDocument(
           label: line.description,
           amountCents: line.unitPriceCents,
           billingDay: line.billingDay,
+          billingInterval: normalizeInterval(line.billingInterval),
           startDate: new Date(),
           skipCurrentPeriod: true,
         },

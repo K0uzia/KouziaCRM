@@ -22,6 +22,7 @@ const createSchema = z.object({
   label: z.string().min(1).max(200),
   amountEuros: z.coerce.number().min(0.01),
   billingDay: z.number().int().min(1).max(28),
+  billingInterval: z.enum(["MONTH", "YEAR"]).default("MONTH"),
   startDate: z.string().optional(),
   endDate: z.string().optional().nullable(),
 });
@@ -73,6 +74,7 @@ export const subscriptionsRoutes: FastifyPluginAsync = async (app) => {
         label: parsed.data.label,
         amountCents: toCents(parsed.data.amountEuros),
         billingDay: parsed.data.billingDay,
+        billingInterval: parsed.data.billingInterval,
         startDate: parsed.data.startDate ? new Date(parsed.data.startDate) : new Date(),
         endDate: parseDate(parsed.data.endDate),
       });
@@ -154,6 +156,7 @@ export const subscriptionsRoutes: FastifyPluginAsync = async (app) => {
       amountEuros: z.coerce.number().min(0.01),
       label: z.string().min(1).max(200).optional(),
       billingDay: z.number().int().min(1).max(28).optional(),
+      billingInterval: z.enum(["MONTH", "YEAR"]).optional(),
     });
     const parsed = schema.safeParse(request.body);
     if (!parsed.success) {
@@ -165,6 +168,7 @@ export const subscriptionsRoutes: FastifyPluginAsync = async (app) => {
         amountCents: toCents(parsed.data.amountEuros),
         label: parsed.data.label,
         billingDay: parsed.data.billingDay,
+        billingInterval: parsed.data.billingInterval,
       });
       return reply.code(201).send(result);
     } catch (err) {

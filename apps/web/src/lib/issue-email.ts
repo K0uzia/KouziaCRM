@@ -7,6 +7,7 @@ type IssueEmailDoc = {
     description: string;
     isSubscription?: boolean;
     billingDay?: number | null;
+    billingInterval?: string | null;
     unitPriceCents: number;
   }>;
 };
@@ -29,12 +30,15 @@ export function buildIssueEmailDraft(
   ];
 
   if (subs.length > 0) {
-    lines.push("Ce document inclut un engagement d'abonnement mensuel :");
+    const yearly = (s: (typeof subs)[number]) => s.billingInterval === "YEAR";
+    const kindLabel = subs.every(yearly) ? "annuel" : subs.some(yearly) ? "" : "mensuel";
+    lines.push(`Ce document inclut un engagement d'abonnement${kindLabel ? ` ${kindLabel}` : ""} :`);
     lines.push("");
     for (const s of subs) {
       const day = s.billingDay ? ` le ${s.billingDay}` : "";
+      const when = yearly(s) ? "chaque année à la date anniversaire" : `chaque mois${day}`;
       lines.push(
-        `- ${s.description} : ${formatEUR(s.unitPriceCents)} facturés chaque mois${day}. La 1re échéance est incluse dans ce document.`,
+        `- ${s.description} : ${formatEUR(s.unitPriceCents)} facturés ${when}. La 1re échéance est incluse dans ce document.`,
       );
     }
     lines.push("");
