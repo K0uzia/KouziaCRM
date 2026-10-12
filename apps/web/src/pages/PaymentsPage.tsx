@@ -8,7 +8,7 @@ import { Badge, PageHeader } from "@/components/ui/Card";
 import { Modal } from "@/components/ui/Modal";
 import { Button } from "@/components/ui/Button";
 import { StatStrip } from "@/components/ui/StatStrip";
-import { DataTable, type TableColumn } from "@/components/ui/DataTable";
+import { DataTable, type DataColumn } from "@/components/ui/DataTable";
 import { PaymentForm } from "@/components/payments/PaymentForm";
 import { Field, Select } from "@/components/ui/Field";
 import { useCreateParam } from "@/lib/use-create-param";
@@ -81,7 +81,7 @@ export function PaymentsPage() {
     })
     .reduce((s, p) => s + p.amountCents, 0);
 
-  const columns: TableColumn<Payment>[] = [
+  const columns: DataColumn<Payment>[] = [
     {
       name: "Date",
       selector: (p) => p.paidAt,
@@ -122,6 +122,7 @@ export function PaymentsPage() {
     },
     {
       name: "Mode",
+      showFrom: 1280,
       selector: (p) => p.method,
       sortable: true,
       width: "150px",
@@ -139,9 +140,10 @@ export function PaymentsPage() {
     },
     {
       name: "Frais Stripe",
+      showFrom: 1280,
       selector: (p) => p.feeCents ?? 0,
       sortable: true,
-      width: "120px",
+      width: "140px",
       right: true,
       cell: (p) =>
         p.feeCents != null ? (
@@ -152,6 +154,7 @@ export function PaymentsPage() {
     },
     {
       name: "Versement",
+      showFrom: 1440,
       selector: (p) => p.stripePayout?.arrivalDate ?? "",
       sortable: true,
       width: "140px",

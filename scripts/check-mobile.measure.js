@@ -43,6 +43,17 @@
   var root = document.documentElement;
   if (root.scrollWidth > vw + TOL) issues.push({ kind: "scroll", detail: "page " + root.scrollWidth + " > " + vw, selector: "html" });
 
+  // Tablette et bureau (768 px et plus) : aucun tableau ne défile horizontalement
+  // (colonnes masquées selon la largeur plutôt qu'un défilement interne).
+  if (vw >= 768) {
+    var tables = document.querySelectorAll("table, [role=table]");
+    for (var t = 0; t < tables.length; t++) {
+      if (!visible(tables[t])) continue;
+      var box = scrollableAncestor(tables[t]);
+      if (box) issues.push({ kind: "tableau", detail: "défilement horizontal " + box.scrollWidth + " > " + box.clientWidth, selector: label(box) });
+    }
+  }
+
   var all = Array.prototype.filter.call(document.querySelectorAll("body *"), visible);
   for (var i = 0; i < all.length; i++) {
     var e = all[i];
@@ -80,8 +91,8 @@
       }
     }
 
-    // Cibles d'action.
-    if (e.matches("a[href], button, input:not([type=hidden]), select, textarea, summary, [role=button], [role=tab], [role=menuitem], [role=checkbox], [role=switch]")) {
+    // Cibles d'action de 44 px : règle tactile, contrôlée sous 768 px seulement (souris au-delà).
+    if (vw < 768 && e.matches("a[href], button, input:not([type=hidden]), select, textarea, summary, [role=button], [role=tab], [role=menuitem], [role=checkbox], [role=switch]")) {
       var inline = e.tagName === "A" && s.display === "inline" && e.closest("p, li, dd, td");
       if (inline || scrollableAncestor(e)) continue;
       var t = e.matches("input[type=checkbox], input[type=radio]") ? e.closest("label") || e : stretchedTarget(e);

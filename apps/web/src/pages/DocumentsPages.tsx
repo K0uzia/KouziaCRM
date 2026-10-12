@@ -19,8 +19,7 @@ import { Badge, Card, PageHeader } from "@/components/ui/Card";
 import { Modal, ModalActions } from "@/components/ui/Modal";
 import { FilterChips } from "@/components/ui/FilterChips";
 import { StatStrip, type StatItem } from "@/components/ui/StatStrip";
-import { DataTable, type TableColumn } from "@/components/ui/DataTable";
-import { Media } from "react-data-table-component";
+import { DataTable, type DataColumn } from "@/components/ui/DataTable";
 import { DocumentFormEditor } from "@/components/documents/DocumentForm";
 import { DocumentNumberBadge } from "@/components/documents/DocumentNumberBadge";
 import { InvoiceTypeBadge } from "@/components/documents/InvoiceTypeBadge";
@@ -195,7 +194,7 @@ function DocumentsListPage({
 
   const detailPath = (d: Doc) => (isQuote ? `/quotes/${d.id}` : `/invoices/${d.id}`);
 
-  const docColumns: TableColumn<Doc>[] = [
+  const docColumns: DataColumn<Doc>[] = [
     {
       name: "Numéro",
       selector: (d) => d.number ?? "",
@@ -258,12 +257,12 @@ function DocumentsListPage({
             name: "Valable jusqu'au",
             selector: (d: Doc) => d.validUntil ?? "",
             sortable: true,
-            width: "9.5rem",
-            hide: Media.LG,
+            width: "10.5rem",
+            showFrom: 1280,
             cell: (d: Doc) => <span className="text-[var(--muted)]">{d.validUntil ? formatDate(d.validUntil) : "-"}</span>,
           },
         ]
-      : []) as TableColumn<Doc>[]),
+      : []) as DataColumn<Doc>[]),
     {
       name: "Montant",
       selector: (d) => d.totalCents,

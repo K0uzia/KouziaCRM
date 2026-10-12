@@ -1,25 +1,28 @@
 // Contrôle mobile de l'admin (Playwright, Chromium) : `npm run check:mobile`.
 // Échoue sur : scroll horizontal, élément sorti de son conteneur coupé (ou de l'écran),
 // cible d'action de moins de 44 px, texte tronqué illisible (case de moins de 80 px, 120 px en
-// liste). Écrans : navigation.ts, onglets des réglages, fiches, modales de création. Lecture seule : rien n'est enregistré (modales ouvertes puis fermées).
+// liste) ; à partir de 768 px, tableau qui défile horizontalement. Écrans : navigation.ts, onglets des réglages, fiches, modales de création. Lecture seule : rien n'est enregistré (modales ouvertes puis fermées).
 //
 // Prérequis : l'admin tourne (npm run dev) sur une base de recette, et un compte admin de test :
 //   CHECK_MOBILE_EMAIL, CHECK_MOBILE_PASSWORD, CHECK_MOBILE_TOTP (secret base32, si 2FA activée)
-//   CHECK_MOBILE_URL (défaut http://localhost:5173), CHECK_MOBILE_WIDTHS (défaut « 320,375 »)
+//   CHECK_MOBILE_URL (défaut http://localhost:5173), CHECK_MOBILE_WIDTHS (défaut « 320,375 »,
+//   ou --widths=… ; npm run check:wide = 768, 1024 et 1280)
 //   CHECK_MOBILE_REPORT (chemin d'un rapport JSON, facultatif)
 import { createHmac } from "node:crypto";
 import { readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { chromium, type Page } from "playwright";
+import { chromium, type BrowserContext, type Page } from "playwright";
 import { NAV_SECTIONS, SETTINGS_ITEM } from "../apps/web/src/lib/navigation";
 import { SETTINGS_TABS } from "../apps/web/src/pages/settings/types";
 
 const BASE = (process.env.CHECK_MOBILE_URL ?? "http://localhost:5173").replace(/\/$/, "");
-const WIDTHS = (process.env.CHECK_MOBILE_WIDTHS ?? "320,375").split(",").map(Number).filter(Boolean);
+// --widths=768,1024,1280 (npm run check:wide) : l'option prime sur la variable d'environnement.
+const WIDTHS_ARG = process.argv.find((a) => a.startsWith("--widths="))?.slice("--widths=".length);
+const WIDTHS = (WIDTHS_ARG ?? process.env.CHECK_MOBILE_WIDTHS ?? "320,375").split(",").map(Number).filter(Boolean);
 const TAP = 44;
 const TOLERANCE = 2;
 
-type Issue = { kind: "scroll" | "clip" | "target" | "state" | "lisible"; detail: string; selector: string };
+type Issue = { kind: "scroll" | "clip" | "target" | "state" | "lisible" | "tableau"; detail: string; selector: string };
 type Result = { screen: string; width: number; issues: Issue[] };
 
 function totp(secretBase32: string): string {
@@ -124,10 +127,21 @@ async function main() {
   const browser = await chromium.launch();
   const results: Result[] = [];
   try {
+    // Une seule connexion pour toutes les largeurs : la connexion admin est limitée en débit
+    // (10 essais par 15 min et par IP), et chaque largeur se reconnectait.
+    let session: Awaited<ReturnType<BrowserContext["storageState"]>> | undefined;
     for (const width of WIDTHS) {
-      const context = await browser.newContext({ viewport: { width, height: 740 }, deviceScaleFactor: 2, hasTouch: true });
+      const context = await browser.newContext({
+        viewport: { width, height: 740 },
+        deviceScaleFactor: 2,
+        hasTouch: true,
+        ...(session ? { storageState: session } : {}),
+      });
       const page = await context.newPage();
-      await login(page);
+      if (!session) {
+        await login(page);
+        session = await context.storageState();
+      }
 
       // Fiches : première ligne de chaque liste (lien de la 1re colonne ou carte mobile).
       const details: typeof screens = [];

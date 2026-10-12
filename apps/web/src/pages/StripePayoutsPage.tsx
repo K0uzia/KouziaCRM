@@ -7,7 +7,7 @@ import { Badge, PageHeader } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { Modal } from "@/components/ui/Modal";
 import { StatStrip } from "@/components/ui/StatStrip";
-import { DataTable, type TableColumn } from "@/components/ui/DataTable";
+import { DataTable, type DataColumn } from "@/components/ui/DataTable";
 
 type PayoutPayment = {
   id: string;
@@ -62,9 +62,9 @@ export function StripePayoutsPage() {
   }, [load]);
   useLiveRefresh(() => void load(), (i) => i.kind === "payment");
 
-  const columns: TableColumn<Payout>[] = [
+  const columns: DataColumn<Payout>[] = [
     {
-      name: "Arrivée sur le compte",
+      name: "Arrivée",
       selector: (p) => p.arrivalDate ?? "",
       sortable: true,
       cell: (p) => (p.arrivalDate ? formatDate(p.arrivalDate) : "Date à venir"),
@@ -78,7 +78,7 @@ export function StripePayoutsPage() {
     },
     { name: "Encaissé", selector: (p) => p.grossCents, right: true, cell: (p) => formatEUR(p.grossCents) },
     { name: "Frais Stripe", selector: (p) => p.feeCents, right: true, cell: (p) => formatEUR(p.feeCents) },
-    { name: "Paiements", selector: (p) => p.payments.length, right: true },
+    { name: "Paiements", selector: (p) => p.payments.length, right: true, showFrom: 1280 },
     {
       name: "État",
       selector: (p) => p.status,

@@ -259,7 +259,7 @@ export function ReceiptsBookPage() {
                     <th className="nowrap">Date</th>
                     <th>Facture</th>
                     <th>Client</th>
-                    <th>Nature</th>
+                    <th className="md:max-xl:hidden">Nature</th>
                     <th className="nowrap">Règlement</th>
                     <th className="nowrap text-right">Encaissé</th>
                     <th className="nowrap text-right">Total facture</th>
@@ -296,7 +296,7 @@ export function ReceiptsBookPage() {
                           ) : null}
                         </div>
                       </td>
-                      <td className="wrap text-[var(--muted)]" title={r.nature} data-label="Nature">
+                      <td className="wrap text-[var(--muted)] md:max-xl:hidden" title={r.nature} data-label="Nature">
                         {r.nature}
                       </td>
                       <td className="nowrap" data-label="Règlement">{r.paymentMethodLabel}</td>

@@ -6,6 +6,7 @@ import {
   createSubscription,
   generateDueSubscriptionInvoices,
   monthlyEquivalentCents,
+  resumeSubscription,
   SubscriptionError,
   updateSubscription,
 } from "@/lib/subscriptions/subscription-service.js";
@@ -126,5 +127,43 @@ describe("abonnement annuel", () => {
     await expect(updateSubscription(sub.id, { billingInterval: "YEAR" })).rejects.toBeInstanceOf(
       SubscriptionError,
     );
+  });
+});
+
+describe("reprise après suspension", () => {
+  async function paused(nextInvoiceAt: Date, billingDay = 5) {
+    const c = await createClient();
+    const s = await createService();
+    return prisma.subscription.create({
+      data: {
+        clientId: c.id,
+        serviceId: s.id,
+        label: "Maintenance",
+        amountCents: 2_900,
+        billingDay,
+        startDate: new Date(2026, 0, 1),
+        nextInvoiceAt,
+        status: "PAUSED",
+      },
+    });
+  }
+
+  it("échéance encore à venir : inchangée (0 jour de décalage)", async () => {
+    const sub = await paused(new Date(2026, 9, 30));
+    const resumed = await resumeSubscription(sub.id, new Date(2026, 9, 12, 23));
+    expect(resumed.nextInvoiceAt).toEqual(new Date(2026, 9, 30));
+  });
+
+  it("échéance passée pendant la suspension : prochaine date de facturation, sans rattrapage", async () => {
+    const sub = await paused(new Date(2026, 9, 5));
+    const resumed = await resumeSubscription(sub.id, new Date(2026, 10, 20, 10));
+    expect(resumed.nextInvoiceAt).toEqual(new Date(2026, 11, 5));
+    expect(await generateDueSubscriptionInvoices(new Date(2026, 10, 20, 11))).toBe(0);
+  });
+
+  it("reprise le jour même de la date de facturation : facturée aujourd'hui", async () => {
+    const sub = await paused(new Date(2026, 9, 5));
+    const resumed = await resumeSubscription(sub.id, new Date(2026, 10, 5, 15));
+    expect(resumed.nextInvoiceAt).toEqual(new Date(2026, 10, 5));
   });
 });
