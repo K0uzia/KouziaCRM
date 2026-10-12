@@ -596,6 +596,15 @@ export const invoicesRoutes: FastifyPluginAsync = async (app) => {
           ? await issueQuote(request.params.id, issueDate, validUntil ?? dueDate)
           : await issueInvoice(request.params.id, issueDate, dueDate);
       let paymentWarning: string | null = null;
+      // Devis : échéance payable en ligne sous le minimum Stripe (avertissement non bloquant).
+      let minimumWarning: string | null = null;
+      if (doc.documentType === InvoiceDocumentType.QUOTE) {
+        const settings = await getCompanySettings();
+        if (settings.moduleStripeEnabled) {
+          const { quoteOnlineMinimumWarning } = await import("@/lib/stripe/minimum.js");
+          minimumWarning = quoteOnlineMinimumWarning(doc.paymentPlanOffer, issued.totalCents, settings);
+        }
+      }
       if (doc.documentType === InvoiceDocumentType.INVOICE && body.payment) {
         try {
           await applyPaymentLinkChoice(issued.id, body.payment);
@@ -619,6 +628,7 @@ export const invoicesRoutes: FastifyPluginAsync = async (app) => {
         emailReason: mail.reason ?? null,
         subscriptionsCreated,
         warning: paymentWarning,
+        minimumWarning,
       };
     } catch (e) {
       request.log.error({ err: e }, "[issue]");

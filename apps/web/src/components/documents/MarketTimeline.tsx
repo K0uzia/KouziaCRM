@@ -4,6 +4,10 @@ import { formatEUR } from "@/lib/api";
 import { Button } from "@/components/ui/Button";
 import { Badge, Card } from "@/components/ui/Card";
 import { Input } from "@/components/ui/Field";
+import { useFeatures } from "@/lib/features";
+
+/** Minimum d'un paiement en ligne Stripe en euros (Checkout le refuse en dessous). */
+const ONLINE_MIN_CENTS = 50;
 
 export type MarketMilestone = {
   id: string;
@@ -108,6 +112,7 @@ export function MarketTimeline({
   const soldeMilestone = milestones.find((m) => isSoldeOf(m));
   const canSolde = signed && depositsPaid && Boolean(soldeMilestone) && !soldeMilestone?.invoiceId;
   const [drafts, setDrafts] = useState<Record<string, string>>({});
+  const { moduleStripeEnabled } = useFeatures();
 
   return (
     <Card className="overflow-hidden">
@@ -205,6 +210,11 @@ export function MarketTimeline({
                       ? ` · échéance ${new Date(m.dueDate).toLocaleDateString("fr-FR")}`
                       : ""}
                   </p>
+                  {moduleStripeEnabled && m.status !== "PAID" && m.status !== "CANCELLED" && m.amountCents > 0 && m.amountCents < ONLINE_MIN_CENTS ? (
+                    <p className="mt-1 text-xs text-[var(--warning)]">
+                      Sous {formatEUR(ONLINE_MIN_CENTS)} : non payable en ligne, à régler par virement.
+                    </p>
+                  ) : null}
                   {m.checkoutUrl ? (
                     <a
                       href={m.checkoutUrl}

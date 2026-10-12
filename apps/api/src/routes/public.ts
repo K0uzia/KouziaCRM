@@ -802,6 +802,18 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
         const { verifyPayToken } = await import("@/lib/stripe/pay-token.js");
         const parsed = verifyPayToken(request.params.token);
         if (!parsed || !(kinds as readonly string[]).includes(parsed.kind)) return reply.redirect(portal, 303);
+        const { payPageInfo, renderPayPage, PAY_PAGE_CSP } = await import("@/lib/stripe/pay-page.js");
+        const info = await payPageInfo(parsed.kind, parsed.id);
+        if (!info) return reply.redirect(portal, 303);
+        // Page réaffichée avec un message (montant sous le minimum, Checkout indisponible) plutôt
+        // qu'une redirection muette : le client sait quoi faire.
+        const page = (notice: string) =>
+          reply
+            .header("Content-Security-Policy", PAY_PAGE_CSP)
+            .header("Cache-Control", "no-store")
+            .type("text/html; charset=utf-8")
+            .send(renderPayPage({ ...info, notice }));
+        if (!info.button) return page(info.notice ?? "Paiement en ligne indisponible.");
         try {
           const checkout = await import("@/lib/stripe/checkout.js");
           const url =
@@ -813,7 +825,11 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
           return reply.redirect(url, 303);
         } catch (err) {
           request.log.warn({ err: err instanceof Error ? err.message : String(err), kind: parsed.kind });
-          return reply.redirect(portal, 303);
+          const { getCompanySettings } = await import("@/lib/company.js");
+          const email = (await getCompanySettings()).email?.trim();
+          return page(
+            `Le paiement en ligne n'a pas pu démarrer. Réessayez dans quelques minutes, ou réglez par virement${email ? ` et écrivez-nous à ${email}` : ""}.`,
+          );
         }
       },
     );

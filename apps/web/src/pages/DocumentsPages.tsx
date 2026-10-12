@@ -637,6 +637,7 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
         emailReason?: string | null;
         subscriptionsCreated?: number;
         warning?: string | null;
+        minimumWarning?: string | null;
       }>(`/api/invoices/${id}/issue`, {
         method: "POST",
         body: JSON.stringify({
@@ -650,6 +651,7 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
       });
       setIssueOpen(false);
       if (res.warning) toast.error(`Lien de paiement : ${res.warning}`);
+      if (res.minimumWarning) toast.warning(res.minimumWarning, { duration: 12000 });
       const kindLabel = isQuote ? "Devis" : "Facture";
       if (sendEmailOnIssue && res.emailed) {
         toast.success(`${kindLabel} émis et envoyé par email`);
