@@ -16,6 +16,7 @@ import { QuoteValidationBlock } from "@/pages/messaging/QuoteValidationBlock";
 import { formatDate, formatShortDate, formatTime } from "@/lib/format";
 import { Link } from "react-router-dom";
 import { senderLabel } from "@kouzia-erp/email-sender";
+import { formProspectName } from "@/pages/messaging/sender";
 
 type Props = {
   threadId: string | null;
@@ -336,7 +337,12 @@ export function ReadingPane({
           {thread.messages.map((msg) => {
             const open = expandedId === msg.id;
             const body = bodies[msg.id] ?? (open ? bodyFromMessage(msg) : null);
-            const sender = senderLabel(msg.fromName, msg.fromAddress);
+            // Formulaire du site : le prospect (Reply-To, nom dans le corps) est l'expéditeur réel.
+            const viaForm = msg.direction !== "OUTBOUND" && Boolean(msg.replyToAddress);
+            const senderAddress = viaForm ? msg.replyToAddress! : msg.fromAddress;
+            const sender = viaForm
+              ? (formProspectName(msg.bodyText ?? msg.snippet) ?? senderLabel(null, senderAddress))
+              : senderLabel(msg.fromName, msg.fromAddress);
             return (
               <li key={msg.id} className="rounded-lg border border-[var(--border)]">
                 <button
@@ -351,8 +357,11 @@ export function ReadingPane({
                       {formatShortDate(msg.receivedAt)}
                     </time>
                   </span>
-                  {sender !== msg.fromAddress ? (
-                    <span className="truncate text-xs text-[var(--muted)]">{msg.fromAddress}</span>
+                  {sender !== senderAddress ? (
+                    <span className="truncate text-xs text-[var(--muted)]">{senderAddress}</span>
+                  ) : null}
+                  {viaForm ? (
+                    <span className="text-xs text-[var(--muted)]">via le formulaire kouzia.com</span>
                   ) : null}
                   {!open && msg.snippet ? (
                     <span className="mt-0.5 truncate text-sm text-[var(--muted)]">{msg.snippet}</span>

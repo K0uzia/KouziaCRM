@@ -16,6 +16,7 @@ import { FilterChips } from "@/components/ui/FilterChips";
 import { Button } from "@/components/ui/Button";
 import { Input, Select } from "@/components/ui/Field";
 import { senderLabel } from "@kouzia-erp/email-sender";
+import { formProspectName } from "@/pages/messaging/sender";
 
 type Props = {
   messages: MailMessageItem[];
@@ -67,7 +68,7 @@ function personLabel(msg: MailMessageItem): string {
     const to = msg.toAddresses?.[0] ?? "";
     return to ? named(null, to) : "Destinataire inconnu";
   }
-  if (msg.replyToAddress) return named(null, msg.replyToAddress);
+  if (msg.replyToAddress) return formProspectName(msg.snippet) ?? named(null, msg.replyToAddress);
   return named(msg.fromName, msg.fromAddress);
 }
 
@@ -86,6 +87,19 @@ function companyTag(msg: MailMessageItem): string | null {
 
 /** Appui long (téléphone) : sélection du message, comme Gmail. */
 const LONG_PRESS_MS = 450;
+
+/**
+ * Après un appui long, le relâchement du doigt produit un clic : il est neutralisé partout dans la
+ * page (capture), pour qu'il ne déclenche jamais un bouton apparu entre-temps sous le doigt.
+ */
+function swallowNextClick() {
+  const stop = (e: Event) => {
+    e.stopPropagation();
+    e.preventDefault();
+  };
+  document.addEventListener("click", stop, { capture: true, once: true });
+  window.setTimeout(() => document.removeEventListener("click", stop, { capture: true }), 800);
+}
 
 function ClientTag({ label }: { label: string }) {
   return (
@@ -139,7 +153,6 @@ export function MessageList({
   const [ctx, setCtx] = useState<CtxMenu | null>(null);
   const pointerType = useRef("mouse");
   const pressTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
-  const longPressed = useRef(false);
   const ctxRef = useRef<HTMLDivElement | null>(null);
   const allIds = messages.map((m) => m.id);
   const allSelected = allIds.length > 0 && allIds.every((id) => selectedIds.has(id));
@@ -274,7 +287,13 @@ export function MessageList({
           <FilterChips wrap label="Filtres du dossier" value={viewFilter} onChange={onViewFilterChange} options={viewFilters} />
         </div>
         {selecting ? (
-          <div className="flex flex-wrap items-center gap-2" role="toolbar" aria-label="Messages sélectionnés">
+          // Téléphone : barre en surimpression au-dessus des onglets du bas, hors du flux, pour que la
+          // liste ne bouge pas sous le doigt (sinon le relâchement d'un appui long tombe sur un bouton).
+          <div
+            className="fixed inset-x-0 bottom-[calc(3.5rem+env(safe-area-inset-bottom))] z-30 flex flex-wrap items-center gap-2 border-t border-[var(--border)] bg-[var(--surface)] p-2 shadow-[var(--shadow)] lg:static lg:border-0 lg:bg-transparent lg:p-0 lg:shadow-none"
+            role="toolbar"
+            aria-label="Messages sélectionnés"
+          >
             <span className="text-sm font-medium">{selectedIds.size} sélectionné(s)</span>
             <Button variant="secondary" className="text-xs" onClick={() => onBulkRead(true)}>
               Lu
@@ -320,7 +339,7 @@ export function MessageList({
           ) : null}
         </div>
       </div>
-      <ul className="custom-scrollbar flex-1 overflow-y-auto">
+      <ul className={`custom-scrollbar flex-1 overflow-y-auto ${selecting ? "pb-28 lg:pb-0" : ""}`}>
         {messages.map((msg) => {
           const name = personLabel(msg);
           const clientTag = companyTag(msg) ?? msg.thread?.client?.displayName ?? null;
@@ -360,21 +379,16 @@ export function MessageList({
                   onPointerDown={(e) => {
                     pointerType.current = e.pointerType;
                     if (e.pointerType !== "touch") return;
-                    longPressed.current = false;
                     clearTimeout(pressTimer.current);
                     pressTimer.current = setTimeout(() => {
-                      longPressed.current = true;
                       onToggleSelect(msg.id);
+                      swallowNextClick();
                     }, LONG_PRESS_MS);
                   }}
                   onPointerUp={() => clearTimeout(pressTimer.current)}
                   onPointerLeave={() => clearTimeout(pressTimer.current)}
                   onPointerCancel={() => clearTimeout(pressTimer.current)}
                   onClick={() => {
-                    if (longPressed.current) {
-                      longPressed.current = false;
-                      return;
-                    }
                     // En mode sélection, un appui ajoute ou retire le message au lieu de l'ouvrir.
                     if (selecting) onToggleSelect(msg.id);
                     else onSelect(msg.id);

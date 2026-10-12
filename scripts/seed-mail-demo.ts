@@ -26,9 +26,31 @@ type Demo = {
   isStarred?: boolean;
   hasAttachments?: boolean;
   withClient?: boolean;
+  /** Corps complet (sinon : extrait et une longue adresse). */
+  body?: string;
 };
 
 const DEMOS: Demo[] = [
+  {
+    id: "demo-7",
+    fromName: "Sophie Martin-Durand",
+    fromAddress: "sophie.martin-durand@cabinet-osteopathie-martin-durand.example.com",
+    subject: "Re: Votre devis D-2026-0011 : site vitrine et fiche Google Maps",
+    snippet: "Merci, le devis me convient. Je le signe ce soir depuis mon espace client.",
+    hoursAgo: 30,
+    withClient: true,
+    body: [
+      "Merci, le devis me convient. Je le signe ce soir depuis mon espace client.",
+      "",
+      "Sophie",
+      "",
+      "Le 10 oct. 2026 à 14:02, Kouzia <contact@kouzia.example.com> a écrit :",
+      "> Bonjour Sophie,",
+      "> vous trouverez ci-joint le devis pour le site vitrine et la fiche Google Maps.",
+      "> Vous pouvez le signer depuis votre espace client.",
+      "> Alexandre",
+    ].join("\n"),
+  },
   {
     id: "demo-1",
     fromName: "Marie-Charlotte de La Rochefoucauld-Montbazon",
@@ -131,7 +153,9 @@ async function main() {
         toAddresses: JSON.stringify([d.to ?? "contact@kouzia.example.com"]),
         subject: d.subject,
         snippet: d.snippet,
-        bodyText: `${d.snippet}\n\nhttps://www.example.com/une-adresse-tres-longue-pour-verifier-le-retour-a-la-ligne/${d.id}?suivi=abcdefghijklmnopqrstuvwxyz0123456789`,
+        bodyText:
+          d.body ??
+          `${d.snippet}\n\nhttps://www.example.com/une-adresse-tres-longue-pour-verifier-le-retour-a-la-ligne/${d.id}?suivi=abcdefghijklmnopqrstuvwxyz0123456789`,
         bodyFetched: true,
         receivedAt,
         isRead: d.isRead ?? direction === EmailDirection.OUTBOUND,

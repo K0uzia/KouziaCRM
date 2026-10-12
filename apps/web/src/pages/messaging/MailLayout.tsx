@@ -225,21 +225,40 @@ export function MailLayout() {
         method: "POST",
         body: JSON.stringify({ messageIds: ids, permanent }),
       });
+      const originFolderId = selectedFolderId;
       setSelectedIds(new Set());
       const deletedCurrent = messages.some(
         (m) => ids.includes(m.id) && m.threadId === threadId,
       );
       if (deletedCurrent) backToList();
       await refresh();
-      toast.success(
-        permanent
-          ? ids.length === 1
-            ? "Message supprimé définitivement"
-            : "Messages supprimés définitivement"
-          : ids.length === 1
-            ? "Message déplacé vers la corbeille"
-            : "Messages déplacés vers la corbeille",
-      );
+      if (permanent) {
+        toast.success(ids.length === 1 ? "Message supprimé définitivement" : "Messages supprimés définitivement");
+      } else {
+        toast.success(ids.length === 1 ? "Message déplacé vers la corbeille" : "Messages déplacés vers la corbeille", {
+          duration: 8000,
+          action: originFolderId
+            ? {
+                label: "Annuler",
+                onClick: () => {
+                  void Promise.all(
+                    ids.map((id) =>
+                      api(`/api/emails/messages/${id}/move`, {
+                        method: "POST",
+                        body: JSON.stringify({ folderId: originFolderId }),
+                      }),
+                    ),
+                  )
+                    .then(() => {
+                      toast.success(ids.length === 1 ? "Message restauré" : "Messages restaurés");
+                      return refresh();
+                    })
+                    .catch((err: Error) => toast.error(err.message));
+                },
+              }
+            : undefined,
+        });
+      }
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Suppression impossible");
     }
