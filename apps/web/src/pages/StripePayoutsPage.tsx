@@ -36,8 +36,8 @@ type Data = {
 
 const STATUS: Record<string, { label: string; tone: "green" | "amber" | "red" | "neutral" }> = {
   paid: { label: "Arrivé", tone: "green" },
-  in_transit: { label: "En route", tone: "amber" },
-  pending: { label: "En préparation", tone: "amber" },
+  in_transit: { label: "En cours", tone: "amber" },
+  pending: { label: "Prévu", tone: "amber" },
   failed: { label: "Échec", tone: "red" },
   canceled: { label: "Annulé", tone: "neutral" },
 };
@@ -86,6 +86,12 @@ export function StripePayoutsPage() {
     },
   ];
 
+  const openPayout = (p: Payout) =>
+    setDetail({
+      title: `Versement ${p.arrivalDate ? `du ${formatDate(p.arrivalDate)}` : "à venir"} : ${formatEUR(p.amountCents)}`,
+      payments: p.payments,
+    });
+
   const totalPaid = data?.payouts.filter((p) => p.status === "paid").reduce((s, p) => s + p.amountCents, 0) ?? 0;
   const totalFees = data?.payouts.reduce((s, p) => s + p.feeCents, 0) ?? 0;
 
@@ -108,7 +114,7 @@ export function StripePayoutsPage() {
           { label: "Versé sur le compte", value: formatEUR(totalPaid), tone: "success" },
           { label: "Frais Stripe", value: formatEUR(totalFees) },
           {
-            label: "En attente de versement",
+            label: "À verser",
             value: formatEUR(data?.pending.grossCents ?? 0),
             hint: data?.pending.payments.length ? `${data.pending.payments.length} paiement(s)` : "rien en attente",
             tone: data?.pending.payments.length ? "primary" : "default",
@@ -134,14 +140,15 @@ export function StripePayoutsPage() {
         perPage={25}
         emptyTitle={data ? "Aucun versement" : "Chargement…"}
         emptyHint="Les versements apparaissent ici quand Stripe vire vos encaissements sur votre compte."
-        onRowClick={(p) =>
-          setDetail({
-            title: `Versement ${p.arrivalDate ? `du ${formatDate(p.arrivalDate)}` : "à venir"} : ${formatEUR(p.amountCents)}`,
-            payments: p.payments,
-          })
-        }
+        onRowClick={openPayout}
         renderMobileCard={(p) => (
-          <div className="flex items-start justify-between gap-3">
+          // Les cartes mobiles n'héritent pas du clic de ligne : la carte est elle-même un bouton.
+          <button
+            type="button"
+            onClick={() => openPayout(p)}
+            className="flex w-full items-start justify-between gap-3 text-left"
+            aria-label={`Détail du versement de ${formatEUR(p.amountCents)}`}
+          >
             <div className="min-w-0">
               <p className="font-medium tabular-nums">{formatEUR(p.amountCents)}</p>
               <p className="text-sm text-[var(--muted)]">
@@ -150,7 +157,7 @@ export function StripePayoutsPage() {
               </p>
             </div>
             <Badge tone={STATUS[p.status]?.tone ?? "neutral"}>{STATUS[p.status]?.label ?? p.status}</Badge>
-          </div>
+          </button>
         )}
       />
 
