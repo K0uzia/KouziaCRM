@@ -15,6 +15,7 @@
     "check:lockfile": "node scripts/check-lockfile.mjs",
     "check:mobile": "tsx scripts/check-mobile.ts",
     "check:wide": "tsx scripts/check-mobile.ts --widths=768,1024,1280",
+    "push:keys": "tsx scripts/push-keys.ts",
     "prebuild": "npm run check:lockfile",
     "build": "npm run build -w @kouzia-erp/web",
     "start": "tsx --env-file=.env --tsconfig apps/api/tsconfig.json apps/api/src/index.ts",

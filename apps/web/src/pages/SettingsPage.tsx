@@ -11,6 +11,7 @@ import { AddressAutocomplete, type AddressValue } from "@/components/forms/Addre
 import { SettingsTabNav } from "@/pages/settings/TabNav";
 import { SecretField } from "@/pages/settings/SecretField";
 import { SecurityTab } from "@/pages/settings/SecurityTab";
+import { NotificationsTab } from "@/pages/settings/NotificationsTab";
 import {
   SETTINGS_TABS,
   type PublicSettings,
@@ -1907,6 +1908,7 @@ export function SettingsPage() {
             </Card>
           ) : null}
 
+          {tab === "notifications" ? <NotificationsTab /> : null}
           {tab === "security" ? <SecurityTab /> : null}
 
           {tab === "legal" ? (

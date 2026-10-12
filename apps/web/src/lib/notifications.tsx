@@ -20,7 +20,8 @@ export type NotificationKind =
   | "payment"
   | "testimonial"
   | "deposit_due"
-  | "subscription_stripe";
+  | "subscription_stripe"
+  | "client_onboarded";
 
 export type NotificationItem = {
   id: string;
@@ -291,7 +292,7 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
               report.push("Notification envoyée. Si rien ne s'affiche, vérifiez les réglages Windows (Notifications, mode Ne pas déranger).");
             } catch {
               setDesktopPermission("unsupported");
-              report.push("Ce navigateur bloque les notifications dans une page (téléphone : notifications push à venir).");
+              report.push("Ce navigateur bloque les notifications dans une page : activez les notifications push dans Réglages > Notifications.");
             }
           } else {
             report.push("Notifications refusées pour ce site : autorisez-les dans les réglages du navigateur (cadenas, Notifications).");

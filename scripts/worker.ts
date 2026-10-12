@@ -32,6 +32,16 @@ async function runMaintenance() {
   }
 }
 
+async function runPushDispatch() {
+  try {
+    const { dispatchPushNotifications } = await import("../apps/api/src/lib/push/dispatch");
+    const sent = await dispatchPushNotifications();
+    if (sent > 0) console.log(`[worker] push envoyées=${sent}`);
+  } catch (err) {
+    console.error("[worker] push error", err);
+  }
+}
+
 async function runOutbox() {
   try {
     const result = await processEmailOutbox();
@@ -122,6 +132,7 @@ if (process.env.MAIL_IDLE !== "false") {
 const tasks = [
   cron.schedule("*/30 * * * * *", () => {
     void runOutbox();
+    void runPushDispatch();
   }),
   cron.schedule("* * * * *", () => {
     runMailPollFallback()

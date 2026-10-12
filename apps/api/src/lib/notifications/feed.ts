@@ -9,7 +9,8 @@ export type NotificationKind =
   | "payment"
   | "testimonial"
   | "deposit_due"
-  | "subscription_stripe";
+  | "subscription_stripe"
+  | "client_onboarded";
 
 export type NotificationItem = {
   /** Identifiant stable (type + id source) : sert à dédoublonner côté interface. */
@@ -37,7 +38,7 @@ function eur(cents: number): string {
 export async function listNotifications(since: Date): Promise<NotificationItem[]> {
   const recentMail = new Date(Date.now() - MAIL_RECENT_MS);
 
-  const [mails, accepted, rejected, payments, testimonials, depositsDue, stripeSubs] = await Promise.all([
+  const [mails, accepted, rejected, payments, testimonials, depositsDue, stripeSubs, onboarded] = await Promise.all([
     prisma.emailMessage.findMany({
       where: {
         direction: EmailDirection.INBOUND,
@@ -125,6 +126,14 @@ export async function listNotifications(since: Date): Promise<NotificationItem[]
         client: { select: { displayName: true } },
       },
     }),
+    // Fiche remplie par le client depuis le site (/nouveau-client ou invitation) : pas les
+    // clients créés par l'administrateur lui-même.
+    prisma.client.findMany({
+      where: { onboardingCompletedAt: { gt: since } },
+      orderBy: { onboardingCompletedAt: "desc" },
+      take: MAX_ITEMS,
+      select: { id: true, displayName: true, onboardingCompletedAt: true },
+    }),
   ]);
 
   const items: NotificationItem[] = [
@@ -193,6 +202,14 @@ export async function listNotifications(since: Date): Promise<NotificationItem[]
         at: (s.stripeStatusChangedAt ?? new Date()).toISOString(),
       };
     }),
+    ...onboarded.map((c) => ({
+      id: `client_onboarded:${c.id}:${(c.onboardingCompletedAt ?? new Date()).getTime()}`,
+      kind: "client_onboarded" as const,
+      title: "Nouveau client",
+      body: `${c.displayName} a rempli sa fiche depuis le site.`,
+      href: `/clients/${c.id}`,
+      at: (c.onboardingCompletedAt ?? new Date()).toISOString(),
+    })),
   ];
 
   return items.sort((a, b) => b.at.localeCompare(a.at)).slice(0, MAX_ITEMS);
