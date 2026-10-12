@@ -60,6 +60,7 @@ const lineSchema = z.object({
   unitPriceEuros: z.coerce.number(),
   isSubscription: z.boolean().optional().default(false),
   billingDay: z.coerce.number().int().min(1).max(28).optional().nullable(),
+  billingInterval: z.enum(["MONTH", "YEAR"]).optional().nullable(),
   serviceId: z.string().optional().nullable(),
 });
 
@@ -195,6 +196,7 @@ export const invoicesRoutes: FastifyPluginAsync = async (app) => {
         unitPriceCents: eurosToCents(l.unitPriceEuros),
         isSubscription: l.isSubscription,
         billingDay: l.billingDay,
+        billingInterval: l.billingInterval,
         serviceId: l.serviceId,
       }));
       try {
@@ -483,6 +485,7 @@ export const invoicesRoutes: FastifyPluginAsync = async (app) => {
               unitPriceCents: eurosToCents(l.unitPriceEuros),
               isSubscription: l.isSubscription,
               billingDay: l.billingDay,
+              billingInterval: l.billingInterval,
               serviceId: l.serviceId,
               subscriptionId:
                 existingLines.find((e) => e.position === idx + 1)?.subscriptionId ?? null,
@@ -500,6 +503,7 @@ export const invoicesRoutes: FastifyPluginAsync = async (app) => {
             position: l.position,
             isSubscription: l.isSubscription,
             billingDay: l.billingDay,
+            billingInterval: l.billingInterval,
             serviceId: l.serviceId,
             subscriptionId: l.subscriptionId,
           }));

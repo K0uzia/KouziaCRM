@@ -247,6 +247,7 @@ export const settingsRoutes: FastifyPluginAsync = async (app) => {
       split3Step2TriggerText: z.string().trim().min(1).max(200).optional(),
       paymentButtonLeadDays: z.number().int().min(0).max(30).optional(),
       projectMilestoneMidBps: z.number().int().min(1000).max(9000).optional(),
+      annualFreeMonths: z.number().int().min(0).max(6).optional(),
       moduleBankEnabled: z.boolean().optional(),
       moduleSubscriptionsEnabled: z.boolean().optional(),
       moduleStripeEnabled: z.boolean().optional(),

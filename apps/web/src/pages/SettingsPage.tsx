@@ -426,6 +426,7 @@ export function SettingsPage() {
       paymentChoiceDefault: form.paymentChoiceDefault,
       split3Step2TriggerText: form.split3Step2TriggerText,
       paymentButtonLeadDays: form.paymentButtonLeadDays,
+      annualFreeMonths: form.annualFreeMonths,
       moduleSubscriptionsEnabled: form.moduleSubscriptionsEnabled,
       moduleStripeEnabled: form.moduleStripeEnabled,
     });
@@ -1190,10 +1191,31 @@ export function SettingsPage() {
                   <span>
                     <span className="font-medium">Abonnements / maintenance</span>
                     <span className="mt-0.5 block text-xs text-[var(--muted)]">
-                      Contrats mensuels récurrents.
+                      Contrats récurrents, facturés au mois ou à l&apos;année.
                     </span>
                   </span>
                 </label>
+                {form.moduleSubscriptionsEnabled ?? true ? (
+                  <Field
+                    label="Abonnement annuel : mois offerts"
+                    hint={`Montant annuel proposé = prix mensuel × ${12 - (form.annualFreeMonths ?? 2)}. Modifiable contrat par contrat.`}
+                    className="sm:max-w-xs"
+                  >
+                    <Input
+                      type="number"
+                      min={0}
+                      max={6}
+                      inputMode="numeric"
+                      value={form.annualFreeMonths ?? 2}
+                      onChange={(e) =>
+                        setForm({
+                          ...form,
+                          annualFreeMonths: Math.min(6, Math.max(0, Math.round(Number(e.target.value) || 0))),
+                        })
+                      }
+                    />
+                  </Field>
+                ) : null}
                 <label className="flex min-h-11 items-start gap-3 text-sm">
                   <input
                     type="checkbox"

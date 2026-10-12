@@ -435,6 +435,7 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
         subscriptions: subscriptions.map((s) => ({
           label: s.label,
           billingDay: s.billingDay,
+          billingInterval: s.billingInterval === "YEAR" ? "YEAR" : "MONTH",
           nextInvoiceAt: s.nextInvoiceAt,
           ...(showAmounts ? { amountCents: s.amountCents } : {}),
         })),

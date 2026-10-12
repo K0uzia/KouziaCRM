@@ -138,6 +138,7 @@ export function buildInvoicePdfPayload({
       lineTotalCents: l.lineTotalCents,
       isSubscription: l.isSubscription,
       billingDay: l.billingDay,
+      billingInterval: l.billingInterval,
     })),
     legalClauses: (legalClauses ?? []).map((c) => ({ title: c.title, body: c.body })),
     acceptance:

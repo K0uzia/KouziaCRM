@@ -307,6 +307,7 @@ export const clientsRoutes: FastifyPluginAsync = async (app) => {
           label: s.label,
           amountCents: s.amountCents,
           billingDay: s.billingDay,
+          billingInterval: s.billingInterval === "YEAR" ? "YEAR" : "MONTH",
           status: s.status,
           startDate: s.startDate.toISOString(),
           endDate: s.endDate?.toISOString() ?? null,

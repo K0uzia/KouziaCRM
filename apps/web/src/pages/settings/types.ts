@@ -81,6 +81,7 @@ export type PublicSettings = {
   paymentChoiceDefault: boolean;
   split3Step2TriggerText: string;
   paymentButtonLeadDays: number;
+  annualFreeMonths?: number;
   projectMilestoneMidBps: number;
   moduleBankEnabled: boolean;
   moduleSubscriptionsEnabled: boolean;

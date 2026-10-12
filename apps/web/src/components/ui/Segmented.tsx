@@ -28,7 +28,7 @@ export function Segmented<T extends string>({
             onClick={() => onChange(o.id)}
             className={`min-h-11 flex-1 rounded-[calc(var(--radius-sm)-0.125rem)] px-3 text-sm transition-colors ${
               active
-                ? "bg-[var(--surface-hover)] font-medium text-[var(--text)] shadow-[var(--shadow-sm)]"
+                ? "bg-[var(--surface-hover)] font-medium text-[var(--text)] shadow-[inset_0_0_0_1px_var(--primary)]"
                 : "text-[var(--muted)] hover:text-[var(--text)]"
             }`}
           >

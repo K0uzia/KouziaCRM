@@ -6,6 +6,14 @@ import { ModalActions } from "@/components/ui/Modal";
 import { Field, Input, Select, Textarea } from "@/components/ui/Field";
 import type { Client } from "@/components/clients/ClientForm";
 import type { ClientNeed } from "@/components/clients/NeedsEditor";
+import { Segmented } from "@/components/ui/Segmented";
+import {
+  INTERVAL_OPTIONS,
+  normalizeInterval,
+  periodSuffix,
+  suggestedAmountCents,
+  type BillingInterval,
+} from "@/lib/billing-interval";
 
 export type DocLine = {
   description: string;
@@ -13,6 +21,7 @@ export type DocLine = {
   unitPriceEuros: string;
   isSubscription: boolean;
   billingDay: string;
+  billingInterval: BillingInterval;
   serviceId: string;
 };
 
@@ -33,7 +42,7 @@ export type DocumentFormValues = {
   paymentPlanOffer: "" | "TWO" | "THREE" | "CHOICE";
 };
 
-type PlanSettings = { paymentChoiceDefault: boolean; split3MinTotalCents: number };
+type PlanSettings = { paymentChoiceDefault: boolean; split3MinTotalCents: number; annualFreeMonths?: number };
 
 type QuoteOpt = {
   id: string;
@@ -50,6 +59,7 @@ type ServiceOpt = {
   unitPriceCents: number;
   isSubscription?: boolean;
   defaultBillingDay?: number;
+  billingInterval?: string | null;
 };
 
 const emptyLine = (): DocLine => ({
@@ -58,6 +68,7 @@ const emptyLine = (): DocLine => ({
   unitPriceEuros: "",
   isSubscription: false,
   billingDay: "1",
+  billingInterval: "MONTH",
   serviceId: "",
 });
 
@@ -101,10 +112,10 @@ export function DocumentFormEditor({
   });
   const [planSettings, setPlanSettings] = useState<PlanSettings | null>(null);
   useEffect(() => {
-    if (documentType !== "QUOTE") return;
     api<PlanSettings>("/api/settings")
       .then((s) => {
         setPlanSettings(s);
+        if (documentType !== "QUOTE") return;
         // Nouveau devis : formule par défaut des réglages.
         setForm((f) => (f.paymentPlanOffer ? f : { ...f, paymentPlanOffer: s.paymentChoiceDefault ? "CHOICE" : "TWO" }));
       })
@@ -153,7 +164,7 @@ export function DocumentFormEditor({
   async function copyQuoteLines(quoteId: string) {
     try {
       const q = await api<{
-        lines?: Array<{ description: string; quantity: number; unitPriceCents: number; isSubscription?: boolean; billingDay?: number | null; serviceId?: string | null }>;
+        lines?: Array<{ description: string; quantity: number; unitPriceCents: number; isSubscription?: boolean; billingDay?: number | null; billingInterval?: string | null; serviceId?: string | null }>;
       }>(`/api/invoices/${quoteId}`);
       const lines = (q.lines ?? []).map((l) => ({
         description: l.description,
@@ -161,6 +172,7 @@ export function DocumentFormEditor({
         unitPriceEuros: (l.unitPriceCents / 100).toFixed(2),
         isSubscription: Boolean(l.isSubscription),
         billingDay: String(l.billingDay ?? 1),
+        billingInterval: normalizeInterval(l.billingInterval),
         serviceId: l.serviceId ?? "",
       }));
       if (lines.length) setForm((f) => ({ ...f, lines }));
@@ -199,6 +211,7 @@ export function DocumentFormEditor({
       unitPriceEuros: (svc.unitPriceCents / 100).toFixed(2),
       isSubscription: isSub,
       billingDay: String(svc.defaultBillingDay ?? 1),
+      billingInterval: normalizeInterval(svc.billingInterval),
       quantity: "1",
     };
     setForm((f) => {
@@ -206,6 +219,18 @@ export function DocumentFormEditor({
       const lines = emptyIndex >= 0 ? f.lines.map((l, i) => (i === emptyIndex ? line : l)) : [...f.lines, line];
       return { ...f, lines };
     });
+  }
+
+  /** Mensuel ou annuel : prix repris de l'offre, moins les mois offerts des réglages en annuel. */
+  function changeLineInterval(index: number, next: BillingInterval) {
+    const line = form.lines[index];
+    if (!line || line.billingInterval === next) return;
+    const svc = services.find((x) => x.id === line.serviceId);
+    const freeMonths = planSettings?.annualFreeMonths ?? 2;
+    const cents = svc
+      ? suggestedAmountCents(svc.unitPriceCents, svc.billingInterval, next, freeMonths)
+      : suggestedAmountCents(Math.round((Number(line.unitPriceEuros) || 0) * 100), line.billingInterval, next, freeMonths);
+    updateLine(index, { billingInterval: next, unitPriceEuros: (cents / 100).toFixed(2) });
   }
 
   function addLine() {
@@ -275,6 +300,7 @@ export function DocumentFormEditor({
           unitPriceEuros: Number(l.unitPriceEuros),
           isSubscription: l.isSubscription,
           billingDay: l.isSubscription ? Number(l.billingDay) || 1 : null,
+          billingInterval: l.isSubscription ? l.billingInterval : null,
           serviceId: l.isSubscription ? l.serviceId : null,
         })),
       };
@@ -428,10 +454,10 @@ export function DocumentFormEditor({
               </optgroup>
             ) : null}
             {monthly.length ? (
-              <optgroup label="Maintenance (par mois)">
+              <optgroup label="Abonnements">
                 {monthly.map((sv) => (
                   <option key={sv.id} value={sv.id}>
-                    {sv.name} : {eur(sv.unitPriceCents / 100)} / mois
+                    {sv.name} : {eur(sv.unitPriceCents / 100)} {periodSuffix(sv.billingInterval)}
                   </option>
                 ))}
               </optgroup>
@@ -446,10 +472,13 @@ export function DocumentFormEditor({
               <li key={i} className="rounded-[var(--radius)] border border-[var(--border)] bg-[var(--bg-subtle)] p-3">
                 {line.isSubscription ? (
                   <div className="mb-2 flex flex-wrap items-center gap-2 text-xs">
-                    <span className="rounded-full bg-[var(--warning-soft)] px-2 py-0.5 font-medium text-[var(--warning)]">
-                      Maintenance mensuelle
-                    </span>
-                    <label className="flex items-center gap-1.5 text-[var(--muted)]">
+                    <Segmented
+                      label={`Ligne ${i + 1} : périodicité de l'abonnement`}
+                      options={INTERVAL_OPTIONS}
+                      value={line.billingInterval}
+                      onChange={(next) => changeLineInterval(i, next)}
+                    />
+                    <label className="flex flex-wrap items-center gap-1.5 text-[var(--muted)]">
                       Facturée le
                       <select
                         className="rounded-[var(--radius-sm)] border border-[var(--border-input)] bg-[var(--surface-raised)] px-1.5 py-1 text-[var(--text)]"
@@ -463,7 +492,9 @@ export function DocumentFormEditor({
                           </option>
                         ))}
                       </select>
-                      de chaque mois (1re échéance incluse dans ce document)
+                      {line.billingInterval === "YEAR"
+                        ? "du mois, chaque année à la date anniversaire (1re année incluse dans ce document)"
+                        : "de chaque mois (1re échéance incluse dans ce document)"}
                     </label>
                   </div>
                 ) : null}
@@ -495,7 +526,7 @@ export function DocumentFormEditor({
                     inputMode="decimal"
                     step="0.01"
                     aria-label={`Ligne ${i + 1} : prix unitaire TTC en euros`}
-                    placeholder={line.isSubscription ? "€ / mois" : "Prix TTC"}
+                    placeholder={line.isSubscription ? `€ ${periodSuffix(line.billingInterval)}` : "Prix TTC"}
                     value={line.unitPriceEuros}
                     onChange={(e) => updateLine(i, { unitPriceEuros: e.target.value })}
                   />
