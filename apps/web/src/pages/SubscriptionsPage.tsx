@@ -103,7 +103,7 @@ function defaultLabel(svc: Service, interval: BillingInterval): string {
 
 function SubscriptionBadges({ s, stripeEnabled }: { s: Subscription; stripeEnabled: boolean }) {
   const badge = statusBadge[s.status];
-  const stripeActive = s.collectionMethod === "STRIPE" && !!s.stripeSubscriptionId;
+  const stripeActive = s.status !== "ENDED" && s.collectionMethod === "STRIPE" && !!s.stripeSubscriptionId;
   const stripePending = stripeEnabled && s.status !== "ENDED" && !s.stripeSubscriptionId;
   return (
     <span className="inline-flex flex-wrap items-center gap-1.5 whitespace-nowrap">

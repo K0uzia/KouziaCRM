@@ -37,7 +37,7 @@ export async function applyStripeSubscriptionAction(stripeSubscriptionId: string
     }
   } catch (err) {
     if (action === "cancel" && isMissing(err)) return;
-    const detail = err instanceof Error && err.message ? ` (${err.message})` : "";
+    const detail = err instanceof Error && err.message ? ` Détail Stripe : ${err.message.replace(/\.$/, "")}.` : "";
     throw new StripeSubscriptionSyncError(`${FAILURE[action]}${detail}`);
   }
 }
