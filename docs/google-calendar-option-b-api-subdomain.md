@@ -1,4 +1,4 @@
-# Google Agenda : option B (permanente) — `api.kouzia.com`
+# Google Agenda : option B (permanente) : `api.kouzia.com`
 
 Objectif : login Google + sync Agenda, **sans** casser le site Hostinger `kouzia.com`,
 **sans** SSH, **sans** tunnel jetable au quotidien.
@@ -20,7 +20,7 @@ Après Google, Kouzia te renvoie tout seul sur le LAN (`WEB_ORIGIN`).
 
 ---
 
-## 1. Cloudflare — route du tunnel
+## 1. Cloudflare : route du tunnel
 
 1. Va sur [dash.cloudflare.com](https://dash.cloudflare.com) → **Networking** → **Tunnels**
 2. Clique le **nom** de ton tunnel (celui déjà sur le CT)
@@ -41,7 +41,7 @@ Sur le CT, les logs cloudflared doivent finir par montrer un ingress du genre
 
 ---
 
-## 2. Hostinger — DNS (un seul enregistrement)
+## 2. Hostinger : DNS (un seul enregistrement)
 
 hPanel → **Domaines** → **kouzia.com** → **DNS** → Ajouter :
 
@@ -61,7 +61,7 @@ Règles :
 > node -e 'const t=require("fs").readFileSync("/etc/kouzia/cloudflare-tunnel.token","utf8").trim();const p=JSON.parse(Buffer.from((t.split(".")[1]||t).replace(/-/g,"+").replace(/_/g,"/"),"base64").toString());console.log(p.t+".cfargotunnel.com")'
 > ```
 
-Attends 2–10 minutes.
+Attends 2 à 10 minutes.
 
 ---
 
@@ -94,7 +94,7 @@ curl -sI http://127.0.0.1:3000/api/health
 
 ---
 
-## 4. Google Cloud — URI de redirection
+## 4. Google Cloud : URI de redirection
 
 Client OAuth **Application Web** → **URI de redirection autorisés** → Ajouter :
 
@@ -106,7 +106,7 @@ Enregistrer. Garder **ID client** + **Secret** (déjà faits si tu les as).
 
 ---
 
-## 5. CT — `.env` Kouzia
+## 5. CT : `.env` Kouzia
 
 Dans `/opt/kouziacrm/.env` :
 
@@ -160,14 +160,14 @@ comme origine.
 1. Va sur [dash.cloudflare.com](https://dash.cloudflare.com) (compte qui a déjà ton tunnel)
 2. Menu de gauche : **Domains** / **Domaines** (pas Zero Trust, pas Tunnels)
 3. Bouton **Onboard a domain** / **Ajouter un domaine**  
-   (anciennement « Add a site » — le libellé a changé)
+   (anciennement « Add a site » : le libellé a changé)
 4. Domaine : **`kouzia.com`** (apex, sans `www`, sans `api.`)
 5. Continue → choisis le plan **Free** / **Gratuit**
 6. Laisse scanner / importer les DNS → vérifie MX Hostinger + A/CNAME du site
 7. Continue → note les **2 nameservers** Cloudflare affichés
 8. **Hostinger** → Domaines → `kouzia.com` → **Nameservers** → personnalisés  
    = les 2 nameservers Cloudflare (remplace ceux de Hostinger)
-9. Attends le statut **Active** sur Cloudflare (souvent 5–60 min, parfois plus)
+9. Attends le statut **Active** sur Cloudflare (souvent 5 à 60 min, parfois plus)
 10. Cloudflare → domaine `kouzia.com` → **DNS** → enregistrement `api` :
     - Type **CNAME**
     - Nom `api`

@@ -6,7 +6,7 @@
 export type MonthRef = {
   /** Année civile */
   year: number;
-  /** Mois 1–12 */
+  /** Mois 1 à 12 */
   month: number;
   /** Premier jour 00:00:00.000 */
   start: Date;
@@ -33,7 +33,7 @@ export function monthLabelFr(year: number, month: number): string {
   return `${MONTH_NAMES_FR[month - 1]} ${year}`;
 }
 
-/** Bornes [1er, dernier] du mois `month` (1–12) de `year`. */
+/** Bornes [1er, dernier] du mois `month` (1 à 12) de `year`. */
 export function monthBounds(year: number, month: number): MonthRef {
   if (month < 1 || month > 12) {
     throw new Error(`Mois invalide: ${month}`);
