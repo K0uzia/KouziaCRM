@@ -229,12 +229,12 @@ export function ServicesPage() {
                   </div>
                   {s.description ? <p className="mt-1 text-sm text-[var(--muted)]">{s.description}</p> : null}
                 </div>
-                <div className="flex shrink-0 items-center justify-between gap-4 sm:justify-end">
+                <div className="flex shrink-0 flex-wrap items-center justify-between gap-x-4 gap-y-2 sm:justify-end">
                   <div className="text-left sm:text-right">
                     <p className="font-display text-lg font-semibold tabular-nums">{formatEUR(s.unitPriceCents)}</p>
                     <p className="text-xs text-[var(--muted)]">TTC, prix fixe</p>
                   </div>
-                  <div className="flex gap-1">
+                  <div className="flex flex-wrap justify-end gap-1">
                     {moduleStripeEnabled && s.stripeProductId ? (
                       <a
                         href={stripeProductUrl(s.stripeProductId)}
