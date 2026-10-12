@@ -19,6 +19,8 @@ import { useLiveRefresh } from "@/lib/notifications";
 import { api, formatEUR } from "@/lib/api";
 import { formatAgoMinutes, formatDate, MAIL_SYNC_STALE_MIN, minutesSince } from "@/lib/format";
 import { useAuth } from "@/lib/auth";
+import { useFeatures } from "@/lib/features";
+import { PayoutDialog } from "@/components/payouts/PayoutDialog";
 import { Button, ButtonLink } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { Segmented } from "@/components/ui/Segmented";
@@ -167,6 +169,8 @@ export function DashboardPage() {
   const [cfeObligation, setCfeObligation] = useState<CfeObligation | null>(null);
   const [remindersRunBusy, setRemindersRunBusy] = useState(false);
   const [threads, setThreads] = useState<ThreadRow[] | null>(null);
+  const [payoutOpen, setPayoutOpen] = useState(false);
+  const { moduleStripeEnabled } = useFeatures();
   const [liveTick, setLiveTick] = useState(0);
   useLiveRefresh(() => setLiveTick((t) => t + 1));
 
@@ -372,6 +376,19 @@ export function DashboardPage() {
           { label: "Reste net", value: formatEUR(cf.resteNetCents), hint: "après URSSAF et provisions", tone: "success" },
           { label: "Salaire disponible", value: formatEUR(cf.resteNetCents), hint: "versable ce mois-ci", tone: "success" },
         ]}
+      />
+      {moduleStripeEnabled ? (
+        <div className="mt-3 flex justify-end">
+          <Button variant="secondary" onClick={() => setPayoutOpen(true)}>
+            Verser sur mon compte
+          </Button>
+        </div>
+      ) : null}
+      <PayoutDialog
+        open={payoutOpen}
+        onClose={() => setPayoutOpen(false)}
+        suggestedCents={Math.max(0, cf.resteNetCents)}
+        onDone={() => setLiveTick((t) => t + 1)}
       />
 
       <div className="mt-6 grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1fr)_24rem]">

@@ -63,7 +63,7 @@ export function extractCompanyDates(
 
 /**
  * Source unique de vérité pour Settings (import INPI) et formulaires clients.
- * S'appuie sur l'API Recherche d'entreprises (même pipeline que Paramètres > Identité).
+ * S'appuie sur l'API Recherche d'entreprises (même pipeline que Réglages > Identité).
  */
 export async function fetchCompanyFromOpenData(sirenOrUrl: string): Promise<InpiImportResult> {
   const siren = extractSiren(sirenOrUrl);

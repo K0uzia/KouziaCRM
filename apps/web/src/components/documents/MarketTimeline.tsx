@@ -210,7 +210,7 @@ export function MarketTimeline({
                       href={m.checkoutUrl}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="mt-1 inline-block text-xs text-[var(--primary)] hover:underline"
+                      className="inline-flex min-h-11 items-center text-xs text-[var(--primary)] hover:underline"
                     >
                       Lien de paiement
                     </a>

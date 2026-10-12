@@ -26,7 +26,7 @@ export async function getStripeConfig(): Promise<{
   const settings = await getCompanySettings();
   const secretKey = decryptOptional(settings.stripeSecretKeyEncrypted);
   if (!secretKey) {
-    throw new StripeConfigError("Clé secrète Stripe absente (Paramètres > Paiements)");
+    throw new StripeConfigError("Clé secrète Stripe absente (Réglages > Paiements)");
   }
   return {
     secretKey,
@@ -46,13 +46,13 @@ export async function assertStripeEnabled(): Promise<void> {
   const settings = await getCompanySettings();
   if (!settings.moduleStripeEnabled) {
     throw new StripeConfigError(
-      "Le module Stripe n'est pas activé (Paramètres > Paiements).",
+      "Le module Stripe n'est pas activé (Réglages > Paiements).",
       409,
     );
   }
   const key = decryptOptional(settings.stripeSecretKeyEncrypted);
   if (!key) {
-    throw new StripeConfigError("Clé secrète Stripe absente (Paramètres > Paiements).", 409);
+    throw new StripeConfigError("Clé secrète Stripe absente (Réglages > Paiements).", 409);
   }
 }
 

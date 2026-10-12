@@ -97,7 +97,7 @@ export function CompanyLookup({
           companyVerifiedAt: data.verifiedAt ?? new Date().toISOString(),
           locked: false,
         });
-        // Même champs que Paramètres > Identité après import INPI
+        // Même champs que Réglages > Identité après import INPI
         if (data.postalCode || data.city || data.addressLine1) {
           onAddressPrefill?.({
             addressLine1: data.addressLine1 ?? "",

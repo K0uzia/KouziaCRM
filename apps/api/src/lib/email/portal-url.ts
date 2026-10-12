@@ -1,7 +1,7 @@
 import { getCompanySettings } from "@/lib/company.js";
 
 /**
- * URL du portail client (Paramètres > Entreprise, puis CLIENT_PORTAL_URL, puis origine publique + /suivi/).
+ * URL du portail client (Réglages > Entreprise, puis CLIENT_PORTAL_URL, puis origine publique + /suivi/).
  * Toujours avec une barre finale : le site (Astro, trailingSlash « always ») sert /suivi/ sans redirection.
  */
 export async function resolveClientPortalUrl(): Promise<string> {

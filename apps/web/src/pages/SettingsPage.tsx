@@ -110,6 +110,14 @@ export function SettingsPage() {
   const [requireSmtpPass, setRequireSmtpPass] = useState(false);
   const [stripeKey, setStripeKey] = useState("");
   const [stripeWebhook, setStripeWebhook] = useState("");
+  // Compte de versement lu dans Stripe (dernier versement) ; texte générique s'il est inconnu.
+  const [payoutAccount, setPayoutAccount] = useState<{ bankName: string | null; last4: string } | null>(null);
+  useEffect(() => {
+    if (!form?.moduleStripeEnabled) return;
+    api<{ destination: { bankName: string | null; last4: string } | null }>("/api/stripe/payouts/preview")
+      .then((p) => setPayoutAccount(p.destination))
+      .catch(() => setPayoutAccount(null));
+  }, [form?.moduleStripeEnabled]);
   const [testEmailTo, setTestEmailTo] = useState("");
   const [checklist, setChecklist] = useState<Checklist | null>(null);
   const [clauses, setClauses] = useState<LegalClause[]>([]);
@@ -1202,7 +1210,11 @@ export function SettingsPage() {
                     <span className="font-medium">Paiements Stripe</span>
                     <span className="mt-0.5 block text-xs text-[var(--muted)]">
                       Liens de paiement automatiques (carte, virement, prélèvement SEPA) et
-                      synchronisation du catalogue. L&apos;argent est versé sur le compte bancaire enregistré dans Stripe.
+                      synchronisation du catalogue. L&apos;argent est versé sur{" "}
+                      {payoutAccount
+                        ? `le compte ${payoutAccount.bankName ? `${payoutAccount.bankName} ` : ""}se terminant par ${payoutAccount.last4}`
+                        : "le compte bancaire enregistré dans Stripe"}
+                      .
                     </span>
                   </span>
                 </label>

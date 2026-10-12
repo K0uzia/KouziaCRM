@@ -1047,6 +1047,11 @@ model StripePayout {
   /// Date d'arrivée prévue sur le compte bancaire
   arrivalDate     DateTime?
   status          String
+  /// Versement demandé depuis l'ERP (bouton « Verser ») : auteur et date ; null = versement automatique Stripe.
+  requestedByEmail String?
+  requestedAt     DateTime?
+  /// Motif de l'échec renvoyé par Stripe (payout.failed)
+  failureMessage  String?
   createdAt       DateTime  @default(now())
   payments        Payment[]
 
