@@ -1092,7 +1092,7 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
                 <ul className="divide-y divide-[var(--border)] text-sm">
                   {linked.map((inv) => (
                     <li key={inv.id} className="flex flex-wrap items-center justify-between gap-2 py-2">
-                      <Link to={`/invoices/${inv.id}`} className="font-medium hover:text-[var(--primary)]">
+                      <Link to={`/invoices/${inv.id}`} className="inline-flex min-h-11 items-center font-medium hover:text-[var(--primary)]">
                         {inv.invoiceType === "ACOMPTE"
                           ? "Acompte"
                           : inv.invoiceType === "SOLDE"

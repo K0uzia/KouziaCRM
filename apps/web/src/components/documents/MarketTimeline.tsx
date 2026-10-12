@@ -228,7 +228,7 @@ export function MarketTimeline({
                   {m.invoice?.number ? (
                     <Link
                       to={`/invoices/${m.invoice.id}`}
-                      className="mt-1 ml-2 inline-block font-mono text-xs text-[var(--primary)] hover:underline"
+                      className="ml-2 inline-flex min-h-11 items-center font-mono text-xs text-[var(--primary)] hover:underline"
                     >
                       {m.invoice.number}
                     </Link>
