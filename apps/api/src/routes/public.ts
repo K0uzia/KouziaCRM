@@ -757,69 +757,58 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
     },
   );
 
-  // Paiement Stripe : crée une session Checkout neuve à chaque clic (lien ERP permanent).
-  app.get<{ Params: { token: string } }>(
-    "/api/public/pay/:token",
-    {
-      config: {
-        rateLimit: { max: 60, timeWindow: "15 minutes" },
+  // Liens de paiement Stripe (jeton signé, lien ERP permanent). GET : page sans effet, que les
+  // antivirus de messagerie peuvent précharger ; POST (bouton) : nouvelle session Checkout.
+  for (const [path, kinds] of [
+    ["/api/public/pay/:token", ["invoice", "milestone"]],
+    ["/api/public/subscribe/:token", ["subscribe"]],
+  ] as const) {
+    app.get<{ Params: { token: string } }>(
+      path,
+      { config: { rateLimit: { max: 60, timeWindow: "15 minutes" } } },
+      async (request, reply) => {
+        const { resolveClientPortalUrl } = await import("@/lib/email/portal-url.js");
+        const { verifyPayToken } = await import("@/lib/stripe/pay-token.js");
+        const { payPageInfo, renderPayPage, PAY_PAGE_CSP } = await import("@/lib/stripe/pay-page.js");
+        const parsed = verifyPayToken(request.params.token);
+        const info =
+          parsed && (kinds as readonly string[]).includes(parsed.kind)
+            ? await payPageInfo(parsed.kind, parsed.id)
+            : null;
+        if (!info) return reply.redirect(await resolveClientPortalUrl());
+        return reply
+          .header("Content-Security-Policy", PAY_PAGE_CSP)
+          .header("Cache-Control", "no-store")
+          .type("text/html; charset=utf-8")
+          .send(renderPayPage(info));
       },
-    },
-    async (request, reply) => {
-      const { resolveClientPortalUrl } = await import("@/lib/email/portal-url.js");
-      const portal = await resolveClientPortalUrl();
-      const { verifyPayToken } = await import("@/lib/stripe/pay-token.js");
-      const parsed = verifyPayToken(request.params.token);
-      if (!parsed || (parsed.kind !== "invoice" && parsed.kind !== "milestone")) {
-        return reply.redirect(portal);
-      }
-      try {
-        const { createInvoiceCheckoutSession, createMilestoneCheckoutSession } =
-          await import("@/lib/stripe/checkout.js");
-        const url =
-          parsed.kind === "invoice"
-            ? await createInvoiceCheckoutSession(parsed.id)
-            : await createMilestoneCheckoutSession(parsed.id);
-        return reply.redirect(url);
-      } catch (err) {
-        request.log.warn({
-          err: err instanceof Error ? err.message : String(err),
-          kind: parsed.kind,
-        });
-        return reply.redirect(portal);
-      }
-    },
-  );
+    );
 
-  // Abonnement Stripe : Checkout mode subscription (prélèvement SEPA / carte).
-  app.get<{ Params: { token: string } }>(
-    "/api/public/subscribe/:token",
-    {
-      config: {
-        rateLimit: { max: 30, timeWindow: "15 minutes" },
+    app.post<{ Params: { token: string } }>(
+      path,
+      { config: { rateLimit: { max: 30, timeWindow: "15 minutes" } } },
+      async (request, reply) => {
+        const { resolveClientPortalUrl } = await import("@/lib/email/portal-url.js");
+        const portal = await resolveClientPortalUrl();
+        const { verifyPayToken } = await import("@/lib/stripe/pay-token.js");
+        const parsed = verifyPayToken(request.params.token);
+        if (!parsed || !(kinds as readonly string[]).includes(parsed.kind)) return reply.redirect(portal, 303);
+        try {
+          const checkout = await import("@/lib/stripe/checkout.js");
+          const url =
+            parsed.kind === "invoice"
+              ? await checkout.createInvoiceCheckoutSession(parsed.id)
+              : parsed.kind === "milestone"
+                ? await checkout.createMilestoneCheckoutSession(parsed.id)
+                : await checkout.createSubscriptionCheckoutSession(parsed.id);
+          return reply.redirect(url, 303);
+        } catch (err) {
+          request.log.warn({ err: err instanceof Error ? err.message : String(err), kind: parsed.kind });
+          return reply.redirect(portal, 303);
+        }
       },
-    },
-    async (request, reply) => {
-      const { resolveClientPortalUrl } = await import("@/lib/email/portal-url.js");
-      const portal = await resolveClientPortalUrl();
-      const { verifyPayToken } = await import("@/lib/stripe/pay-token.js");
-      const parsed = verifyPayToken(request.params.token);
-      if (!parsed || parsed.kind !== "subscribe") {
-        return reply.redirect(portal);
-      }
-      try {
-        const { createSubscriptionCheckoutSession } = await import("@/lib/stripe/checkout.js");
-        const url = await createSubscriptionCheckoutSession(parsed.id);
-        return reply.redirect(url);
-      } catch (err) {
-        request.log.warn({
-          err: err instanceof Error ? err.message : String(err),
-          kind: "subscribe",
-        });
-        return reply.redirect(portal);
-      }
-    },
-  );
+    );
+  }
 };
 
 /** Tronque une IPv4 en /24 pour les logs (privacy). */

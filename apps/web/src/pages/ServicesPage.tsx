@@ -269,7 +269,9 @@ export function ServicesPage() {
           <Field
             label="Prix TTC (€)"
             hint={
-              priceCents > 0
+              editing?.stripePriceId
+                ? "Prix géré dans Stripe : modifiez-le dans le catalogue Stripe, il est repris ici à la synchro."
+                : priceCents > 0
                 ? `Montant payé par le client. Si vous devenez assujetti à la TVA, ce prix reste le même : ${htEquivalent(priceCents)} HT + TVA 20 %.`
                 : "Montant payé par le client (franchise de TVA : rien n'est ajouté)."
             }
@@ -281,6 +283,7 @@ export function ServicesPage() {
               step="0.01"
               min="0"
               value={form.priceEuros}
+              readOnly={Boolean(editing?.stripePriceId)}
               onChange={(e) => setForm({ ...form, priceEuros: e.target.value })}
             />
           </Field>
