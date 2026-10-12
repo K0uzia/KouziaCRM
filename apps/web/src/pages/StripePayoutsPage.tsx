@@ -156,7 +156,9 @@ export function StripePayoutsPage() {
                 {formatEUR(p.feeCents)}
               </p>
             </div>
-            <Badge tone={STATUS[p.status]?.tone ?? "neutral"}>{STATUS[p.status]?.label ?? p.status}</Badge>
+            <span className="shrink-0 whitespace-nowrap">
+              <Badge tone={STATUS[p.status]?.tone ?? "neutral"}>{STATUS[p.status]?.label ?? p.status}</Badge>
+            </span>
           </button>
         )}
       />

@@ -1202,7 +1202,7 @@ export function SettingsPage() {
                     <span className="font-medium">Paiements Stripe</span>
                     <span className="mt-0.5 block text-xs text-[var(--muted)]">
                       Liens de paiement automatiques (carte, virement, prélèvement SEPA) et
-                      synchronisation du catalogue. L&apos;argent est versé sur le Revolut Pro.
+                      synchronisation du catalogue. L&apos;argent est versé sur le compte bancaire enregistré dans Stripe.
                     </span>
                   </span>
                 </label>

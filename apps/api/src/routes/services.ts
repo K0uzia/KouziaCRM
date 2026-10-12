@@ -4,6 +4,7 @@ import { ServiceUnit } from "@prisma/client";
 import { requireAuth } from "@/lib/auth.js";
 import { prisma } from "@/lib/prisma.js";
 import { eurosToCents } from "@/lib/money.js";
+import { getStripe } from "@/lib/stripe/client.js";
 
 const serviceSchema = z.object({
   name: z.string().min(1),
@@ -63,6 +64,33 @@ export const servicesRoutes: FastifyPluginAsync = async (app) => {
     if (!parsed.success) {
       return reply.code(400).send({ error: "Données invalides", details: parsed.error.flatten() });
     }
+    const existing = await prisma.service.findUnique({ where: { id: request.params.id } });
+    if (!existing) return reply.code(404).send({ error: "Prestation introuvable" });
+
+    // Prestation liée à Stripe : prix et type appartiennent au prix Stripe (lecture seule ici).
+    // Nom et description sont repoussés vers le produit Stripe, sinon la synchro horaire les écraserait.
+    if (existing.stripeProductId) {
+      try {
+        const stripe = await getStripe();
+        await stripe.products.update(existing.stripeProductId, {
+          name: parsed.data.name,
+          description: parsed.data.description?.trim() || "",
+        });
+      } catch (e) {
+        return reply.code(502).send({
+          error: `Stripe n'a pas accepté la modification : ${e instanceof Error ? e.message : "erreur"}`,
+        });
+      }
+      return prisma.service.update({
+        where: { id: existing.id },
+        data: {
+          name: parsed.data.name,
+          description: parsed.data.description ?? null,
+          defaultBillingDay: existing.isSubscription ? parsed.data.defaultBillingDay : 1,
+        },
+      });
+    }
+
     const updated = await prisma.service.update({
       where: { id: request.params.id },
       data: {

@@ -13,6 +13,7 @@ import {
 } from "@fortawesome/free-solid-svg-icons";
 import { api, formatEUR } from "@/lib/api";
 import { useFeatures } from "@/lib/features";
+import { NAV_SECTIONS, SETTINGS_ITEM } from "@/lib/navigation";
 import {
   invoiceStatusLabel,
   quoteStatusLabel,
@@ -129,9 +130,14 @@ export function CommandPalette({
 }) {
   const navigate = useNavigate();
   const features = useFeatures();
-  const navItems = NAV_ITEMS.filter(
-    (item) => !item.feature || features[item.feature],
-  );
+  // Pages : arborescence unique de navigation.ts (réglages compris), mots-clés en complément.
+  const navItems = [...NAV_SECTIONS.flatMap((section) => section.items), SETTINGS_ITEM]
+    .filter((item) => !item.feature || features[item.feature as keyof typeof features])
+    .map((item) => ({
+      label: item.label,
+      to: item.to,
+      keywords: NAV_ITEMS.find((k) => k.to === item.to)?.keywords ?? "",
+    }));
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<SearchResult>(EMPTY_RESULT);
   const [searching, setSearching] = useState(false);
@@ -290,9 +296,8 @@ export function CommandPalette({
             </Command.Group>
           ) : null}
 
-          {!hasQuery ? (
-            <>
-              <Command.Group heading="Aller à" className={GROUP_CLASS}>
+          {/* Pages : proposées aussi pendant la saisie (filtrées par cmdk sur le libellé et les mots-clés). */}
+          <Command.Group heading="Aller à" className={GROUP_CLASS}>
                 {navItems.map((item) => (
                   <Command.Item
                     key={item.to}
@@ -304,8 +309,10 @@ export function CommandPalette({
                     {item.label}
                   </Command.Item>
                 ))}
-              </Command.Group>
+          </Command.Group>
 
+          {!hasQuery ? (
+            <>
               <Command.Group heading="Créer" className={GROUP_CLASS}>
                 {QUICK_ACTIONS.map((item) => (
                   <Command.Item
