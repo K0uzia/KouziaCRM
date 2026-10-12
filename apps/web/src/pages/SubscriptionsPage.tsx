@@ -1,7 +1,17 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { Navigate } from "react-router-dom";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { faPlus, faPlay, faPause, faStop, faPen, faSync, faTrash } from "@fortawesome/free-solid-svg-icons";
+import {
+  faPlus,
+  faPlay,
+  faPause,
+  faStop,
+  faPen,
+  faSync,
+  faTrash,
+  faEnvelope,
+  faArrowUpRightFromSquare,
+} from "@fortawesome/free-solid-svg-icons";
 import { toast } from "sonner";
 import { api, formatEUR, formatDate } from "@/lib/api";
 import { useFeatures } from "@/lib/features";
@@ -25,6 +35,8 @@ type Subscription = {
   endDate: string | null;
   status: SubscriptionStatus;
   nextInvoiceAt: string;
+  collectionMethod?: string | null;
+  stripeSubscriptionId?: string | null;
   client: { id: string; displayName: string; clientNumber: string | null };
   service: { id: string; name: string };
 };
@@ -38,6 +50,7 @@ type Service = {
   isSubscription?: boolean;
   defaultBillingDay?: number;
   active?: boolean;
+  stripeProductId?: string | null;
 };
 
 const emptyOfferForm = {
@@ -63,8 +76,16 @@ const emptyForm = {
   startDate: new Date().toISOString().slice(0, 10),
 };
 
+function stripeProductUrl(productId: string): string {
+  return `https://dashboard.stripe.com/products/${productId}`;
+}
+
 export function SubscriptionsPage() {
-  const { moduleSubscriptionsEnabled, loading: featuresLoading } = useFeatures();
+  const {
+    moduleSubscriptionsEnabled,
+    moduleStripeEnabled,
+    loading: featuresLoading,
+  } = useFeatures();
   const [rows, setRows] = useState<Subscription[]>([]);
   const [clients, setClients] = useState<Client[]>([]);
   const [services, setServices] = useState<Service[]>([]);
@@ -273,6 +294,15 @@ export function SubscriptionsPage() {
     }
   }
 
+  async function resendStripeSetup(id: string) {
+    try {
+      await api(`/api/subscriptions/${id}/resend-setup`, { method: "POST", body: "{}" });
+      toast.success("Lien de prélèvement renvoyé au client");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Envoi impossible");
+    }
+  }
+
   const [tab, setTab] = useTabParam(["contrats", "offres"] as const, "contrats");
 
   if (!featuresLoading && !moduleSubscriptionsEnabled) {
@@ -286,10 +316,12 @@ export function SubscriptionsPage() {
         subtitle="Contrats de maintenance mensuels : une facture est émise automatiquement chaque mois."
         actions={
           <>
-            <Button variant="secondary" onClick={openCreateOffer}>
-              <FontAwesomeIcon icon={faPlus} className="h-3.5 w-3.5" aria-hidden />
-              Nouvelle offre
-            </Button>
+            {!moduleStripeEnabled ? (
+              <Button variant="secondary" onClick={openCreateOffer}>
+                <FontAwesomeIcon icon={faPlus} className="h-3.5 w-3.5" aria-hidden />
+                Nouvelle offre
+              </Button>
+            ) : null}
             <Button onClick={openCreate}>
               <FontAwesomeIcon icon={faPlus} className="h-3.5 w-3.5" aria-hidden />
               Nouvel abonnement
@@ -349,12 +381,18 @@ export function SubscriptionsPage() {
                         <th className="nowrap">Jour</th>
                         <th className="nowrap">Prochaine facture</th>
                         <th className="nowrap">Statut</th>
+                        <th className="nowrap">Prélèvement</th>
                         <th className="col-actions" />
                       </tr>
                     </thead>
                     <tbody>
                       {rows.map((s) => {
                         const badge = statusBadge[s.status];
+                        const stripeActive = s.collectionMethod === "STRIPE" && !!s.stripeSubscriptionId;
+                        const stripePending =
+                          moduleStripeEnabled &&
+                          s.status !== "ENDED" &&
+                          !s.stripeSubscriptionId;
                         return (
                           <tr key={s.id}>
                             <td className="nowrap" data-label="Client">
@@ -372,8 +410,28 @@ export function SubscriptionsPage() {
                             <td className="nowrap" data-label="Statut">
                               <Badge tone={badge.tone}>{badge.label}</Badge>
                             </td>
+                            <td className="nowrap" data-label="Prélèvement">
+                              {stripeActive ? (
+                                <Badge tone="green">Stripe actif</Badge>
+                              ) : stripePending ? (
+                                <Badge tone="amber">Lien à envoyer</Badge>
+                              ) : (
+                                <span className="text-xs text-[var(--muted)]">Virement</span>
+                              )}
+                            </td>
                             <td className="col-actions">
                               <div className="flex justify-end gap-1">
+                              {stripePending ? (
+                                <Button
+                                  variant="ghost"
+                                  className="px-2 text-xs"
+                                  onClick={() => void resendStripeSetup(s.id)}
+                                  aria-label="Renvoyer le lien de prélèvement"
+                                  title="Renvoyer le lien de prélèvement"
+                                >
+                                  <FontAwesomeIcon icon={faEnvelope} className="h-3 w-3" />
+                                </Button>
+                              ) : null}
                               {s.status !== "ENDED" ? (
                                 <Button
                                   variant="ghost"
@@ -467,24 +525,43 @@ export function SubscriptionsPage() {
                             <p className="text-xs text-[var(--muted)]">TTC / mois</p>
                           </div>
                           <div className="flex gap-1">
-                            <Button
-                              variant="ghost"
-                              className="px-0"
-                              aria-label={`Modifier ${o.name}`}
-                              title="Modifier"
-                              onClick={() => openEditOffer(o)}
-                            >
-                              <FontAwesomeIcon icon={faPen} className="h-3.5 w-3.5" aria-hidden />
-                            </Button>
-                            <Button
-                              variant="danger-ghost"
-                              className="px-0"
-                              aria-label={`Archiver ${o.name}`}
-                              title="Archiver"
-                              onClick={() => setOfferToArchive(o)}
-                            >
-                              <FontAwesomeIcon icon={faTrash} className="h-3.5 w-3.5" aria-hidden />
-                            </Button>
+                            {moduleStripeEnabled && o.stripeProductId ? (
+                              <a
+                                href={stripeProductUrl(o.stripeProductId)}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="inline-flex min-h-11 items-center gap-1.5 px-2 text-sm text-[var(--primary)] hover:underline"
+                              >
+                                Modifier dans Stripe
+                                <FontAwesomeIcon
+                                  icon={faArrowUpRightFromSquare}
+                                  className="h-3 w-3"
+                                  aria-hidden
+                                />
+                              </a>
+                            ) : null}
+                            {!moduleStripeEnabled ? (
+                              <>
+                                <Button
+                                  variant="ghost"
+                                  className="px-0"
+                                  aria-label={`Modifier ${o.name}`}
+                                  title="Modifier"
+                                  onClick={() => openEditOffer(o)}
+                                >
+                                  <FontAwesomeIcon icon={faPen} className="h-3.5 w-3.5" aria-hidden />
+                                </Button>
+                                <Button
+                                  variant="danger-ghost"
+                                  className="px-0"
+                                  aria-label={`Archiver ${o.name}`}
+                                  title="Archiver"
+                                  onClick={() => setOfferToArchive(o)}
+                                >
+                                  <FontAwesomeIcon icon={faTrash} className="h-3.5 w-3.5" aria-hidden />
+                                </Button>
+                              </>
+                            ) : null}
                           </div>
                         </div>
                       </li>

@@ -182,4 +182,21 @@ export const subscriptionsRoutes: FastifyPluginAsync = async (app) => {
     const generated = await generateDueSubscriptionInvoices();
     return { generated };
   });
+
+  /** Renvoie le lien de mise en place du prélèvement Stripe. */
+  app.post<{ Params: { id: string } }>(
+    "/api/subscriptions/:id/resend-setup",
+    async (request, reply) => {
+      await requireAuth(request, reply);
+      if (reply.sent) return;
+      const sub = await getSubscription(request.params.id);
+      if (!sub) return reply.code(404).send({ error: "Introuvable" });
+      if (sub.stripeSubscriptionId) {
+        return reply.code(409).send({ error: "Le prélèvement Stripe est déjà actif" });
+      }
+      const { sendSubscriptionSetupEmail } = await import("@/lib/stripe/billing.js");
+      await sendSubscriptionSetupEmail(sub.id);
+      return { ok: true };
+    },
+  );
 };

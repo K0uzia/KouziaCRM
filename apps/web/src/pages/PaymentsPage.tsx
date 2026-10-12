@@ -19,12 +19,20 @@ type Payment = {
   paidAt: string;
   method: string;
   reference: string | null;
+  feeCents: number | null;
+  stripePaymentIntentId: string | null;
   invoice: {
     id: string;
     number: string | null;
     totalCents: number;
     status: string;
     client: { displayName: string };
+  } | null;
+  stripePayout: {
+    id: string;
+    arrivalDate: string | null;
+    status: string;
+    amountCents: number;
   } | null;
 };
 
@@ -128,6 +136,35 @@ export function PaymentsPage() {
       cell: (p) => (
         <span className="tabular-nums font-medium">{formatEUR(p.amountCents)}</span>
       ),
+    },
+    {
+      name: "Frais Stripe",
+      selector: (p) => p.feeCents ?? 0,
+      sortable: true,
+      width: "120px",
+      right: true,
+      cell: (p) =>
+        p.feeCents != null ? (
+          <span className="tabular-nums text-[var(--muted)]">{formatEUR(p.feeCents)}</span>
+        ) : (
+          <span className="text-[var(--muted)]">-</span>
+        ),
+    },
+    {
+      name: "Versement",
+      selector: (p) => p.stripePayout?.arrivalDate ?? "",
+      sortable: true,
+      width: "140px",
+      cell: (p) =>
+        p.stripePayout?.arrivalDate ? (
+          <span className="text-sm text-[var(--muted)]" title={p.stripePayout.status}>
+            {formatDate(p.stripePayout.arrivalDate)}
+          </span>
+        ) : p.stripePaymentIntentId ? (
+          <span className="text-xs text-[var(--muted)]">En attente</span>
+        ) : (
+          <span className="text-[var(--muted)]">-</span>
+        ),
     },
   ];
 

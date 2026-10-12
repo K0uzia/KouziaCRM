@@ -107,7 +107,7 @@ export function renderDepositFailedAdminEmail(opts: {
     ? `[Kouzia] Acompte payé - ${opts.quoteNumber}`
     : `[Kouzia] Paiement échoué - ${opts.quoteNumber}`;
   const text = [
-    opts.isSuccess ? "Acompte encaissé" : "Échec de paiement Revolut",
+    opts.isSuccess ? "Acompte encaissé" : "Échec de paiement",
     "",
     `Devis : ${opts.quoteNumber}`,
     `Client : ${opts.clientName}`,

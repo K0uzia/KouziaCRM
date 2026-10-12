@@ -129,6 +129,7 @@ export const bankStatusLabel: Record<string, string> = {
 export const paymentMethodLabel: Record<string, string> = {
   BANK_TRANSFER: "Virement",
   CARD: "Carte",
+  SEPA_DEBIT: "Prélèvement SEPA",
   CHECK: "Chèque",
   CASH: "Espèces",
   OTHER: "Autre",

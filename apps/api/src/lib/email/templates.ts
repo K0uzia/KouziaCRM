@@ -40,7 +40,7 @@ export type EmailContentInput = {
   extraLines?: string[];
   /** URL portail client (sinon résolue automatiquement). */
   clientPortalUrl?: string | null;
-  /** Lien Revolut : déclenche le bouton HTML minimal. */
+  /** Lien de paiement : déclenche le bouton HTML minimal. */
   paymentUrl?: string | null;
   brandPrimaryColor?: string;
   /** Montant payé (centimes) pour payment_received. */

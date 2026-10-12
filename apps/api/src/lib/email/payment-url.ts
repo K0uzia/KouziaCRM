@@ -5,9 +5,8 @@ import {
   MilestoneStatus,
 } from "@prisma/client";
 import { prisma } from "@/lib/prisma.js";
-import { decryptOptional } from "@/lib/crypto.js";
 import { activateMilestoneCheckout } from "@/lib/payments/milestonePaymentService.js";
-import { createRevolutOrder } from "@/lib/revolut/merchantService.js";
+import { buildPayUrl } from "@/lib/stripe/pay-urls.js";
 
 type InvoiceWithRelations = {
   id: string;
@@ -34,7 +33,7 @@ function paidCents(invoice: InvoiceWithRelations): number {
   return invoice.payments.reduce((s, p) => s + p.amountCents, 0);
 }
 
-/** Résout ou crée un lien Revolut pour une facture impayée (jalon ou facture simple). */
+/** Résout ou crée un lien de paiement ERP (Stripe) pour une facture impayée. */
 export async function resolveInvoicePaymentUrl(
   invoice: InvoiceWithRelations,
 ): Promise<string | null> {
@@ -58,7 +57,7 @@ export async function resolveInvoicePaymentUrl(
 
   const { getCompanySettings } = await import("@/lib/company.js");
   const settings = await getCompanySettings();
-  if (!settings.moduleMerchantApiEnabled) {
+  if (!settings.moduleStripeEnabled) {
     return null;
   }
 
@@ -76,32 +75,13 @@ export async function resolveInvoicePaymentUrl(
     }
   }
 
-  if (
-    invoice.invoiceType === InvoiceType.SIMPLE &&
-    !invoice.revolutOrderId &&
-    invoice.totalCents > 0
-  ) {
-    try {
-      const clientEmail = decryptOptional(invoice.client.emailEncrypted);
-      const order = await createRevolutOrder({
-        amountCents: invoice.totalCents - paidCents(invoice),
-        description: `Facture ${invoice.number ?? invoice.id}`,
-        customerEmail: clientEmail,
-        reference: invoice.id,
-      });
-      if (order.checkoutUrl) {
-        await prisma.invoice.update({
-          where: { id: invoice.id },
-          data: {
-            revolutOrderId: order.id,
-            checkoutUrl: order.checkoutUrl,
-          },
-        });
-        return order.checkoutUrl;
-      }
-    } catch (err) {
-      console.error("[payment-url] commande Revolut facture simple", err);
-    }
+  if (invoice.invoiceType === InvoiceType.SIMPLE && invoice.totalCents > 0) {
+    const url = buildPayUrl("invoice", invoice.id);
+    await prisma.invoice.update({
+      where: { id: invoice.id },
+      data: { checkoutUrl: url },
+    });
+    return url;
   }
 
   return null;

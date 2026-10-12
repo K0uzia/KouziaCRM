@@ -68,7 +68,7 @@ Flux :
 
 ### Portail client (suivi devis / acomptes)
 
-Workflow : le client **valide d'abord le devis** (portail `/suivi` ou réponse email), puis reçoit le lien de paiement de l'acompte. La confirmation de paiement part après encaissement Revolut.
+Workflow : le client **valide d'abord le devis** (portail `/suivi` ou réponse email), puis reçoit le lien de paiement de l'acompte. La confirmation de paiement part après encaissement Stripe (webhook).
 
 | Variable | Rôle |
 |----------|------|
@@ -84,6 +84,35 @@ Variables à ajouter dans `.env` :
 | `PUBLIC_WEB_ORIGIN` | Origine Kouzia (CORS + lien email) |
 | `CLIENT_PORTAL_URL` | URL espace client `/suivi` (emails devis, paramètres ERP) |
 | `VITE_PUBLIC_SITE_URL` | Redirection legacy `/onboarding/:token` |
+
+### Paiements Stripe
+
+Stripe encaisse (carte, virement, prélèvement SEPA) ; l'ERP reste seul émetteur des devis, factures et reçus. Les versements partent vers le Revolut Pro.
+
+Réglages ERP : **Paramètres > Paiements** (interrupteur Stripe, clé secrète, secret webhook, tester, synchroniser le catalogue).
+
+Dans le [tableau de bord Stripe](https://dashboard.stripe.com/) :
+
+1. Désactiver l'envoi des factures et des reçus aux clients (Billing / Customer emails) — l'ERP envoie les siens.
+2. Laisser Stripe gérer les avis préalables de prélèvement SEPA.
+3. Activer carte, prélèvement SEPA et virements bancaires (customer_balance).
+4. Choisir le rythme des versements et déclarer l'IBAN Revolut Pro.
+5. Webhook vers `https://<votre-api>/api/webhooks/stripe` avec les événements : `payment_intent.succeeded`, `payment_intent.payment_failed`, `checkout.session.completed`, `invoice.finalized`, `invoice.paid`, `invoice.payment_failed`, `customer.subscription.updated`, `customer.subscription.deleted`, `product.*`, `price.*`, `payout.paid`, `payout.failed`, `charge.refunded`, `charge.dispute.created`.
+
+Catalogue :
+
+```bash
+# Une fois : pousser le catalogue ERP actuel vers Stripe (test puis live)
+npm run stripe:push-catalog
+# Ensuite Stripe est la source de vérité ; sync horaire + bouton dans les réglages
+```
+
+Dev local avec la Stripe CLI :
+
+```bash
+stripe listen --forward-to localhost:3001/api/webhooks/stripe
+# Coller le whsec_… affiché dans Paramètres > Paiements
+```
 
 ## Terminé = vérifié
 

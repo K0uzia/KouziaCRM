@@ -68,14 +68,14 @@ describe("lien de paiement d'une facture", () => {
     expect((await prisma.invoice.findUniqueOrThrow({ where: { id: inv.id } })).checkoutUrl).toBeNull();
   });
 
-  it("refuse un brouillon, et la génération sans module Revolut Merchant", async () => {
+  it("refuse un brouillon, et la génération sans module Stripe", async () => {
     const client = await createClient();
     const draft = await draftDoc(client.id, "INVOICE");
     await expect(setInvoicePaymentLink(draft.id, "https://pay.test/x")).rejects.toThrow(/Émettez/);
     await issueInvoice(draft.id);
-    await prisma.companySettings.updateMany({ data: { moduleMerchantApiEnabled: false } });
+    await prisma.companySettings.updateMany({ data: { moduleStripeEnabled: false } });
     invalidateCompanySettingsCache();
-    await expect(generateInvoicePaymentLink(draft.id)).rejects.toThrow(/Revolut Merchant/);
+    await expect(generateInvoicePaymentLink(draft.id)).rejects.toThrow(/Stripe/);
   });
 });
 

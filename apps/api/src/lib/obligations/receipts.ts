@@ -3,6 +3,7 @@ import type { PaymentMethod } from "@prisma/client";
 const LABELS: Record<PaymentMethod, string> = {
   BANK_TRANSFER: "Virement",
   CARD: "Carte",
+  SEPA_DEBIT: "Prélèvement SEPA",
   CHECK: "Chèque",
   CASH: "Espèces",
   OTHER: "Autre",

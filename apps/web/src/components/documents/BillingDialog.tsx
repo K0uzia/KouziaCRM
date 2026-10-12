@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/Button";
 import { Modal, ModalActions } from "@/components/ui/Modal";
 import { Field, Input, Textarea } from "@/components/ui/Field";
 
-/** Choix envoyé à l'API : aucun lien, lien collé, ou lien créé via Revolut Merchant. */
+/** Choix envoyé à l'API : aucun lien, lien collé, ou lien Stripe automatique. */
 export type PaymentChoice = { mode: "none" } | { mode: "manual"; url: string } | { mode: "auto" };
 
 export type PaymentFieldsState = { mode: "none" | "manual" | "auto"; url: string };
@@ -30,15 +30,15 @@ export function PaymentLinkFields({
   onChange: (next: PaymentFieldsState) => void;
   noneLabel?: string;
 }) {
-  const { moduleMerchantApiEnabled } = useFeatures();
+  const { moduleStripeEnabled } = useFeatures();
   const options: Array<{ mode: PaymentFieldsState["mode"]; label: string; hint?: string }> = [
     {
       mode: "manual",
-      label: "Coller un lien de paiement Revolut",
-      hint: "Créé depuis l'application Revolut Business (Demander un paiement).",
+      label: "Coller un lien de paiement",
+      hint: "URL https de paiement (exception).",
     },
-    ...(moduleMerchantApiEnabled
-      ? [{ mode: "auto" as const, label: "Créer le lien automatiquement (Revolut Merchant)" }]
+    ...(moduleStripeEnabled
+      ? [{ mode: "auto" as const, label: "Lien Stripe automatique (carte ou virement)" }]
       : []),
     { mode: "none", label: noneLabel },
   ];

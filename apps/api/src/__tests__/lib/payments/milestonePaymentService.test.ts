@@ -1,4 +1,3 @@
-import { createHmac } from "node:crypto";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   InvoiceDocumentType,
@@ -9,40 +8,14 @@ import {
 } from "@prisma/client";
 import { prisma } from "@/lib/prisma.js";
 import { resetDb } from "../../helpers/db.js";
+import { seedCompanySettings, createClient } from "../../helpers/factories.js";
 import {
-  seedCompanySettings,
-  createClient,
-} from "../../helpers/factories.js";
-import {
-  markMilestonePaidFromRevolut,
   onQuoteAcceptedByClient,
   prepareFirstDepositCheckoutOnQuoteSent,
 } from "@/lib/payments/milestonePaymentService.js";
-import {
-  verifyRevolutWebhookSignature,
-} from "@/lib/revolut/merchantService.js";
-import * as merchantService from "@/lib/revolut/merchantService.js";
-
-vi.mock("@/lib/revolut/merchantService.js", async (importOriginal) => {
-  const actual = await importOriginal<typeof merchantService>();
-  return {
-    ...actual,
-    createRevolutOrder: vi.fn(
-      async (input: { amountCents: number; reference: string }) => ({
-        id: `ord_${input.reference}`,
-        token: "tok_test",
-        checkoutUrl: `https://sandbox.revolut.com/checkout/${input.reference}`,
-        state: "pending",
-      }),
-    ),
-    getRevolutMerchantConfig: vi.fn(async () => ({
-      apiKey: "sk_test",
-      webhookSecret: "whsec_test",
-      mode: "sandbox" as const,
-      baseUrl: "https://sandbox-merchant.revolut.com",
-    })),
-  };
-});
+import { markPaidFromOnlinePayment } from "@/lib/stripe/mark-paid.js";
+import { encrypt } from "@/lib/crypto.js";
+import { PaymentMethod } from "@prisma/client";
 
 vi.mock("@/lib/email/smtp.js", () => ({
   sendEmail: vi.fn(async () => undefined),
@@ -50,13 +23,14 @@ vi.mock("@/lib/email/smtp.js", () => ({
 }));
 
 beforeEach(async () => {
+  process.env.SESSION_SECRET = process.env.SESSION_SECRET || "test-session-secret-32chars!!";
   await resetDb();
   await seedCompanySettings();
-    await prisma.companySettings.updateMany({
+  await prisma.companySettings.updateMany({
     data: {
-      revolutMerchantApiKeyEncrypted: "enc:test",
-      revolutWebhookSecretEncrypted: "enc:whsec",
-      moduleMerchantApiEnabled: true,
+      stripeSecretKeyEncrypted: encrypt("sk_test_fake"),
+      stripeWebhookSecretEncrypted: encrypt("whsec_test"),
+      moduleStripeEnabled: true,
       depositCount: 2,
       depositPercent1Bps: 3000,
       depositPercent2Bps: 7000,
@@ -72,7 +46,7 @@ afterEach(async () => {
 });
 
 describe("milestone payment service", () => {
-  it("crée les jalons à l'émission du devis sans checkout Revolut", async () => {
+  it("crée les jalons à l'émission du devis sans checkout", async () => {
     const client = await createClient();
     const quote = await prisma.invoice.create({
       data: {
@@ -97,8 +71,6 @@ describe("milestone payment service", () => {
     expect(milestone?.amountCents).toBe(30000);
     expect(milestone?.status).toBe(MilestoneStatus.PENDING);
     expect(milestone?.checkoutUrl).toBeNull();
-    expect(milestone?.revolutOrderId).toBeNull();
-    expect(merchantService.createRevolutOrder).not.toHaveBeenCalled();
 
     const all = await prisma.paymentMilestone.findMany({
       where: { quoteId: quote.id },
@@ -109,7 +81,7 @@ describe("milestone payment service", () => {
     expect(all[1]?.amountCents).toBe(70000);
   });
 
-  it("crée le checkout Revolut après acceptation du devis", async () => {
+  it("crée le lien ERP Stripe après acceptation du devis", async () => {
     const client = await createClient();
     const quote = await prisma.invoice.create({
       data: {
@@ -133,14 +105,11 @@ describe("milestone payment service", () => {
 
     expect(milestone?.amountCents).toBe(30000);
     expect(milestone?.status).toBe(MilestoneStatus.DUE);
-    expect(milestone?.checkoutUrl).toContain("checkout");
-    expect(merchantService.createRevolutOrder).toHaveBeenCalledWith(
-      expect.objectContaining({ amountCents: 30000, reference: milestone?.id }),
-    );
+    expect(milestone?.checkoutUrl).toContain("/api/public/pay/");
   });
 
-  it("accepte le devis sans API Merchant : acompte à payer, sans checkout", async () => {
-    await prisma.companySettings.updateMany({ data: { moduleMerchantApiEnabled: false } });
+  it("accepte le devis sans Stripe : acompte à payer, sans checkout", async () => {
+    await prisma.companySettings.updateMany({ data: { moduleStripeEnabled: false } });
     const client = await createClient();
     const quote = await prisma.invoice.create({
       data: {
@@ -163,7 +132,6 @@ describe("milestone payment service", () => {
     });
     expect(milestone?.status).toBe(MilestoneStatus.DUE);
     expect(milestone?.checkoutUrl).toBeNull();
-    expect(merchantService.createRevolutOrder).not.toHaveBeenCalled();
   });
 
   it("ne recrée pas de checkout à l'acceptation si l'acompte est déjà payé", async () => {
@@ -197,10 +165,12 @@ describe("milestone payment service", () => {
 
     await onQuoteAcceptedByClient(quote.id);
 
-    expect(merchantService.createRevolutOrder).not.toHaveBeenCalled();
+    const milestones = await prisma.paymentMilestone.findMany({ where: { quoteId: quote.id } });
+    expect(milestones.filter((m) => m.position === 1)).toHaveLength(1);
+    expect(milestones[0]?.checkoutUrl).toBeNull();
   });
 
-  it("ignore un webhook Revolut dupliqué (idempotence)", async () => {
+  it("enregistre un paiement Stripe une seule fois (idempotence PI)", async () => {
     const client = await createClient();
     const quote = await prisma.invoice.create({
       data: {
@@ -236,56 +206,31 @@ describe("milestone payment service", () => {
         amountCents: 15000,
         triggerText: "Signature",
         status: MilestoneStatus.DUE,
-        revolutOrderId: "ord_dup",
       },
     });
 
-    const eventId = `evt_dup_${Date.now()}_${Math.random().toString(36).slice(2)}`;
-    const payload = { event: "ORDER_COMPLETED", order: { id: "ord_dup" } };
-    const first = await markMilestonePaidFromRevolut({
+    const first = await markPaidFromOnlinePayment({
+      amountCents: 15000,
+      method: PaymentMethod.CARD,
+      paymentIntentId: "pi_idem_1",
+      feeCents: 45,
       milestoneId: milestone.id,
-      revolutOrderId: "ord_dup",
-      revolutPaymentId: "pay_1",
-      eventId,
-      eventType: "ORDER_COMPLETED",
-      payload,
+      notes: "Paiement Stripe",
     });
-
     expect(first.duplicate).toBe(false);
     expect(await prisma.payment.count()).toBe(1);
 
-    const second = await markMilestonePaidFromRevolut({
+    const second = await markPaidFromOnlinePayment({
+      amountCents: 15000,
+      method: PaymentMethod.CARD,
+      paymentIntentId: "pi_idem_1",
+      feeCents: 45,
       milestoneId: milestone.id,
-      revolutOrderId: "ord_dup",
-      revolutPaymentId: "pay_1",
-      eventId,
-      eventType: "ORDER_COMPLETED",
-      payload,
     });
-
     expect(second.duplicate).toBe(true);
     expect(await prisma.payment.count()).toBe(1);
-  });
-});
 
-describe("verifyRevolutWebhookSignature intégration", () => {
-  it("rejette un timestamp trop ancien", () => {
-    const secret = "whsec_test";
-    const rawBody = "{}";
-    const timestamp = String(Date.now() - 10 * 60 * 1000);
-    const payloadToSign = `v1.${timestamp}.${rawBody}`;
-    const signature =
-      "v1=" +
-      createHmac("sha256", secret).update(payloadToSign).digest("hex");
-
-    expect(
-      verifyRevolutWebhookSignature({
-        rawBody,
-        timestamp,
-        signatureHeader: signature,
-        signingSecret: secret,
-        maxSkewMs: 60_000,
-      }),
-    ).toBe(false);
+    const pay = await prisma.payment.findFirst();
+    expect(pay?.feeCents).toBe(45);
   });
 });

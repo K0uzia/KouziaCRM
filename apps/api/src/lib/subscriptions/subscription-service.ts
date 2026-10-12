@@ -3,6 +3,7 @@ import {
   InvoiceStatus,
   InvoiceType,
   QuoteStatus,
+  SubscriptionCollectionMethod,
   SubscriptionStatus,
   type Prisma,
 } from "@prisma/client";
@@ -216,6 +217,8 @@ export async function generateDueSubscriptionInvoices(now: Date = new Date()): P
   const due = await prisma.subscription.findMany({
     where: {
       status: SubscriptionStatus.ACTIVE,
+      // Stripe Billing émet les factures via webhook (invoice.finalized).
+      collectionMethod: { not: SubscriptionCollectionMethod.STRIPE },
       nextInvoiceAt: { lte: now },
       // Ne pas facturer au-delà de la date de fin éventuelle
       OR: [{ endDate: null }, { endDate: { gte: now } }],

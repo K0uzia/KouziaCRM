@@ -28,7 +28,10 @@ import {
   assertQuoteEditable,
   DocumentFlowError,
 } from "@/lib/invoices/documentFlowService.js";
-import { activateSubscriptionsFromDocument } from "@/lib/subscriptions/activate-from-document.js";
+import {
+  activateSubscriptionsFromDocument,
+  notifyStripeSubscriptionSetup,
+} from "@/lib/subscriptions/activate-from-document.js";
 
 export type { ClientSnapshot };
 export {
@@ -104,9 +107,17 @@ export async function issueInvoiceWithin(
 
 export async function issueInvoice(invoiceId: string, issueDate = new Date(), dueDate?: Date) {
   const settings = await getCompanySettings();
-  return prisma.$transaction((tx) =>
+  const issued = await prisma.$transaction((tx) =>
     issueInvoiceWithin(tx, invoiceId, issueDate, dueDate, settings),
   );
+  const lines = await prisma.invoiceLine.findMany({
+    where: { invoiceId, subscriptionId: { not: null } },
+    select: { subscriptionId: true },
+  });
+  await notifyStripeSubscriptionSetup(
+    lines.map((l) => l.subscriptionId!).filter(Boolean),
+  );
+  return issued;
 }
 
 /** Émet un devis (numéro D-YYYY-NNN, QuoteStatus SENT) et crée les jalons acompte / solde. */
@@ -397,9 +408,11 @@ export async function acceptQuoteByClient(
       include: { lines: true, client: true },
     });
     if (plan && settings) await applyPlanMilestones(tx, quoteId, pending.totalCents, plan, settings);
-    await activateSubscriptionsFromDocument(quoteId, tx);
-    return result;
+    const subs = await activateSubscriptionsFromDocument(quoteId, tx);
+    return { result, subscriptionIds: subs.subscriptionIds };
   });
+  await notifyStripeSubscriptionSetup(updated.subscriptionIds);
+  const accepted = updated.result;
 
   const acceptance = await logQuoteAcceptance(quoteId, signerName, audit.source ?? "PORTAL", {
     threadId: audit.threadId,
@@ -420,7 +433,7 @@ export async function acceptQuoteByClient(
   const { recordQuoteAcceptanceProof } = await import("@/lib/invoices/acceptance-proof.js");
   await recordQuoteAcceptanceProof(acceptance.id, quoteId);
 
-  return updated;
+  return accepted;
 }
 
 /** Validation admin depuis la messagerie (fil lié à un client). */
@@ -575,8 +588,13 @@ export async function convertQuoteToInvoice(quoteId: string) {
       }
     }
 
-    return { ...created, subscriptionsCreated: subs.created };
+    return {
+      ...created,
+      subscriptionsCreated: subs.created,
+      subscriptionIds: subs.subscriptionIds,
+    };
   });
 
+  await notifyStripeSubscriptionSetup(invoice.subscriptionIds ?? []);
   return invoice;
 }

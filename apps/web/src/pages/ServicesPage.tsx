@@ -1,8 +1,9 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { faPen, faPlus, faTrash } from "@fortawesome/free-solid-svg-icons";
+import { faPen, faPlus, faTrash, faArrowUpRightFromSquare } from "@fortawesome/free-solid-svg-icons";
 import { toast } from "sonner";
 import { api, formatEUR } from "@/lib/api";
+import { useFeatures } from "@/lib/features";
 import { Button } from "@/components/ui/Button";
 import { Badge, Card, EmptyState, PageHeader } from "@/components/ui/Card";
 import { Modal, ModalActions } from "@/components/ui/Modal";
@@ -19,6 +20,9 @@ type Service = {
   active: boolean;
   isSubscription: boolean;
   defaultBillingDay: number;
+  stripeProductId?: string | null;
+  stripePriceId?: string | null;
+  billingInterval?: string | null;
 };
 
 const emptyForm = { name: "", description: "", priceEuros: "", active: true };
@@ -28,7 +32,12 @@ export function htEquivalent(cents: number): string {
   return formatEUR(Math.round(cents / 1.2));
 }
 
+function stripeProductUrl(productId: string): string {
+  return `https://dashboard.stripe.com/products/${productId}`;
+}
+
 export function ServicesPage() {
+  const { moduleStripeEnabled } = useFeatures();
   const [rows, setRows] = useState<Service[]>([]);
   const [loading, setLoading] = useState(true);
   const [open, setOpen] = useState(false);
@@ -141,12 +150,18 @@ export function ServicesPage() {
     <div>
       <PageHeader
         title="Prestations"
-        subtitle="Catalogue à prix fixe, repris dans les devis et factures. Prix TTC : montant final payé par le client."
+        subtitle={
+          moduleStripeEnabled
+            ? "Catalogue synchronisé depuis Stripe. Nom, prix et périodicité se modifient dans le tableau de bord Stripe."
+            : "Catalogue à prix fixe, repris dans les devis et factures. Prix TTC : montant final payé par le client."
+        }
         actions={
-          <Button onClick={openCreate}>
-            <FontAwesomeIcon icon={faPlus} className="h-3.5 w-3.5" aria-hidden />
-            Nouvelle prestation
-          </Button>
+          moduleStripeEnabled ? undefined : (
+            <Button onClick={openCreate}>
+              <FontAwesomeIcon icon={faPlus} className="h-3.5 w-3.5" aria-hidden />
+              Nouvelle prestation
+            </Button>
+          )
         }
       />
 
@@ -192,7 +207,18 @@ export function ServicesPage() {
                     <p className="text-xs text-[var(--muted)]">TTC, prix fixe</p>
                   </div>
                   <div className="flex gap-1">
-                    {s.active ? (
+                    {moduleStripeEnabled && s.stripeProductId ? (
+                      <a
+                        href={stripeProductUrl(s.stripeProductId)}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="inline-flex min-h-11 items-center gap-1.5 px-2 text-sm text-[var(--primary)] hover:underline"
+                      >
+                        Modifier dans Stripe
+                        <FontAwesomeIcon icon={faArrowUpRightFromSquare} className="h-3 w-3" aria-hidden />
+                      </a>
+                    ) : null}
+                    {s.active && !moduleStripeEnabled ? (
                       <>
                         <Button
                           variant="ghost"
@@ -213,11 +239,12 @@ export function ServicesPage() {
                           <FontAwesomeIcon icon={faTrash} className="h-3.5 w-3.5" aria-hidden />
                         </Button>
                       </>
-                    ) : (
+                    ) : null}
+                    {!s.active && !moduleStripeEnabled ? (
                       <Button variant="secondary" className="px-3 text-sm" onClick={() => void restore(s)}>
                         Réactiver
                       </Button>
-                    )}
+                    ) : null}
                   </div>
                 </div>
               </li>

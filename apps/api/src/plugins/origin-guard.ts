@@ -15,7 +15,7 @@ export async function originGuardPlugin(app: FastifyInstance): Promise<void> {
 
   app.addHook("onRequest", async (request: FastifyRequest, reply: FastifyReply) => {
     if (SAFE.has(request.method)) return;
-    // Webhooks externes (Revolut Merchant, etc.) : pas d'Origin navigateur
+    // Webhooks externes (Stripe, etc.) : pas d'Origin navigateur
     if (request.url.startsWith("/api/webhooks/")) return;
 
     const origin = request.headers.origin;

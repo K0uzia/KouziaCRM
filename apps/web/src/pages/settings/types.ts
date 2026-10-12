@@ -70,7 +70,6 @@ export type PublicSettings = {
   latePenaltiesText: string;
   earlyPaymentDiscountText: string;
   paymentConditions: string;
-  revolutMerchantMode: string;
   depositCount: number;
   depositPercent1Bps: number;
   depositPercent2Bps: number;
@@ -85,7 +84,7 @@ export type PublicSettings = {
   projectMilestoneMidBps: number;
   moduleBankEnabled: boolean;
   moduleSubscriptionsEnabled: boolean;
-  moduleMerchantApiEnabled: boolean;
+  moduleStripeEnabled: boolean;
   reminderDepositMinus7Days: number;
   reminderDepositMinus1Days: number;
   reminderDepositPlus3Days: number;
@@ -101,8 +100,8 @@ export type PublicSettings = {
   secrets: {
     smtpPass: SecretMeta;
     imapPass: SecretMeta;
-    revolutMerchantApiKey: SecretMeta;
-    revolutWebhookSecret: SecretMeta;
+    stripeSecretKey: SecretMeta;
+    stripeWebhookSecret: SecretMeta;
     googleCalendarRefreshToken: SecretMeta;
   };
   emailDefaults: {
@@ -123,7 +122,8 @@ export type PublicSettings = {
     hostinger: PublicSettings["emailDefaults"];
     mailpit: PublicSettings["emailDefaults"];
   };
-  revolutWebhookUrl: string;
+  stripeWebhookUrl: string;
+  stripeMode: "test" | "live" | null;
 };
 
 export type SettingsTabId =

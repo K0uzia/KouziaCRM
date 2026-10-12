@@ -76,9 +76,26 @@ async function runImapIfDue() {
   }
 }
 
+async function runStripeCatalogSync() {
+  try {
+    const settings = await getCompanySettings();
+    if (!settings.moduleStripeEnabled || !settings.stripeSecretKeyEncrypted) return;
+    const { syncCatalogFromStripe } = await import(
+      "../apps/api/src/lib/stripe/catalog.js"
+    );
+    const actions = await syncCatalogFromStripe();
+    if (actions.length > 0) {
+      console.log(`[worker] stripe catalog sync actions=${actions.length}`);
+    }
+  } catch (err) {
+    console.error("[worker] stripe catalog sync error", err);
+  }
+}
+
 async function runHourly() {
   await runBankSync();
   await runMaintenance();
+  await runStripeCatalogSync();
   try {
     const activated = await activateDueMilestoneCheckouts();
     if (activated > 0) {

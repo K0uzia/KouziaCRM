@@ -7,11 +7,12 @@ import {
 } from "@prisma/client";
 import { prisma } from "@/lib/prisma.js";
 import { WorkflowError } from "@/lib/invoices/workflow.js";
+import { buildPayUrl } from "@/lib/stripe/pay-urls.js";
 
 /**
  * Lien de paiement d'une facture émise (acompte, solde ou facture simple).
- * - « manual » : lien Revolut (ou autre) collé à la main ;
- * - « auto » : commande créée via le module Revolut Merchant ;
+ * - « manual » : lien (ou autre) collé à la main ;
+ * - « auto » : lien ERP permanent qui ouvre Stripe Checkout ;
  * - « none » : pas de paiement en ligne (virement, IBAN sur la facture).
  * Le lien est aussi reporté sur l'échéance du devis quand la facture en vient.
  */
@@ -84,27 +85,42 @@ export async function setInvoicePaymentLink(invoiceId: string, rawUrl: string | 
   return url;
 }
 
-/** Crée un lien via Revolut Merchant (module activé dans les paramètres). */
+/** Crée un lien ERP permanent (Stripe Checkout à chaque clic). */
 export async function generateInvoicePaymentLink(invoiceId: string): Promise<string> {
   const { getCompanySettings } = await import("@/lib/company.js");
   const settings = await getCompanySettings();
-  if (!settings.moduleMerchantApiEnabled) {
+  if (!settings.moduleStripeEnabled) {
     throw new WorkflowError(
-      "Le module Revolut Merchant n'est pas activé : collez un lien de paiement Revolut à la place.",
+      "Le module Stripe n'est pas activé : collez un lien de paiement à la place.",
       409,
     );
   }
   const invoice = await loadPayable(invoiceId);
-  // On repart de zéro : un lien collé auparavant ne doit pas masquer la création.
-  if (invoice.checkoutUrl) {
-    await prisma.invoice.update({ where: { id: invoice.id }, data: { checkoutUrl: null } });
-  }
-  const { resolveInvoicePaymentUrl } = await import("@/lib/email/payment-url.js");
-  const url = await resolveInvoicePaymentUrl({ ...invoice, checkoutUrl: null });
-  if (!url) throw new WorkflowError("Revolut n'a pas renvoyé de lien de paiement.", 502);
-  if (url !== invoice.checkoutUrl) {
-    await prisma.invoice.update({ where: { id: invoice.id }, data: { checkoutUrl: url } });
-  }
+  const url =
+    invoice.sourceMilestone
+      ? buildPayUrl("milestone", invoice.sourceMilestone.id)
+      : buildPayUrl("invoice", invoice.id);
+
+  await prisma.$transaction(async (tx) => {
+    await tx.invoice.update({
+      where: { id: invoice.id },
+      data: { checkoutUrl: url, revolutOrderId: null },
+    });
+    if (invoice.sourceMilestone) {
+      await tx.paymentMilestone.update({
+        where: { id: invoice.sourceMilestone.id },
+        data: {
+          checkoutUrl: url,
+          status:
+            invoice.sourceMilestone.status === MilestoneStatus.PENDING ||
+            invoice.sourceMilestone.status === MilestoneStatus.OVERDUE ||
+            invoice.sourceMilestone.status === MilestoneStatus.FAILED
+              ? MilestoneStatus.DUE
+              : invoice.sourceMilestone.status,
+        },
+      });
+    }
+  });
   return url;
 }
 

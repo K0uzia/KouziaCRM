@@ -233,9 +233,8 @@ export const settingsRoutes: FastifyPluginAsync = async (app) => {
       bankBic: z.string().max(11).optional().nullable(),
       bankAccountHolder: z.string().max(200).optional().nullable(),
       bankName: z.string().max(120).optional().nullable(),
-      revolutMerchantApiKey: z.string().optional().nullable(),
-      revolutWebhookSecret: z.string().optional().nullable(),
-      revolutMerchantMode: z.enum(["sandbox", "production"]).optional(),
+      stripeSecretKey: z.string().optional().nullable(),
+      stripeWebhookSecret: z.string().optional().nullable(),
       depositCount: z.number().int().min(2).max(2).optional(),
       depositPercent1Bps: z.number().int().min(0).max(10000).optional(),
       depositPercent2Bps: z.number().int().min(0).max(10000).optional(),
@@ -250,7 +249,7 @@ export const settingsRoutes: FastifyPluginAsync = async (app) => {
       projectMilestoneMidBps: z.number().int().min(1000).max(9000).optional(),
       moduleBankEnabled: z.boolean().optional(),
       moduleSubscriptionsEnabled: z.boolean().optional(),
-      moduleMerchantApiEnabled: z.boolean().optional(),
+      moduleStripeEnabled: z.boolean().optional(),
     });
     const parsed = schema.safeParse(request.body);
     if (!parsed.success) {
@@ -265,39 +264,32 @@ export const settingsRoutes: FastifyPluginAsync = async (app) => {
     }
   });
 
-  app.post("/api/settings/payments/test-revolut", async (request, reply) => {
+  app.post("/api/settings/payments/test-stripe", async (request, reply) => {
     await requireAuth(request, reply);
     if (reply.sent) return;
-    const settings = await getCompanySettings();
-    const key = decryptOptional(settings.revolutMerchantApiKeyEncrypted);
-    if (!key) {
-      return reply.code(400).send({ error: "Clé API Merchant absente. Enregistrez-la puis retestez." });
-    }
-    const mode = settings.revolutMerchantMode === "production" ? "production" : "sandbox";
-    const base =
-      mode === "production"
-        ? "https://merchant.revolut.com"
-        : "https://sandbox-merchant.revolut.com";
     try {
-      const res = await fetch(`${base}/api/orders?limit=1`, {
-        headers: {
-          Authorization: `Bearer ${key}`,
-          "Revolut-Api-Version": "2024-09-01",
-          Accept: "application/json",
-        },
-      });
-      if (res.status === 401 || res.status === 403) {
-        return reply.code(400).send({
-          error: `Revolut a refusé la clé (${res.status}). Vérifiez le mode ${mode} et la clé secrète Merchant.`,
-        });
-      }
-      if (!res.ok && res.status >= 500) {
-        return reply.code(400).send({ error: `Revolut indisponible (${res.status})` });
-      }
-      return { ok: true, mode, status: res.status };
+      const { testStripeConnection } = await import("@/lib/stripe/client.js");
+      return await testStripeConnection();
     } catch (e) {
       return reply.code(400).send({
-        error: e instanceof Error ? e.message : "Connexion Revolut impossible",
+        error: e instanceof Error ? e.message : "Connexion Stripe impossible",
+      });
+    }
+  });
+
+  app.post("/api/settings/payments/sync-catalog", async (request, reply) => {
+    await requireAuth(request, reply);
+    if (reply.sent) return;
+    try {
+      const { assertStripeEnabled } = await import("@/lib/stripe/client.js");
+      await assertStripeEnabled();
+      const { syncCatalogFromStripe } = await import("@/lib/stripe/catalog.js");
+      const actions = await syncCatalogFromStripe();
+      return { ok: true, actions };
+    } catch (e) {
+      const status = (e as { statusCode?: number }).statusCode ?? 400;
+      return reply.code(status).send({
+        error: e instanceof Error ? e.message : "Synchronisation impossible",
       });
     }
   });

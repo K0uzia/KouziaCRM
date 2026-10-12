@@ -11,6 +11,8 @@ const OMIT = new Set([
   "imapPassEncrypted",
   "revolutMerchantApiKeyEncrypted",
   "revolutWebhookSecretEncrypted",
+  "stripeSecretKeyEncrypted",
+  "stripeWebhookSecretEncrypted",
   "googleCalendarRefreshTokenEncrypted",
 ]);
 
@@ -30,13 +32,15 @@ export type PublicCompanySettings = Omit<
   | "imapPassEncrypted"
   | "revolutMerchantApiKeyEncrypted"
   | "revolutWebhookSecretEncrypted"
+  | "stripeSecretKeyEncrypted"
+  | "stripeWebhookSecretEncrypted"
   | "googleCalendarRefreshTokenEncrypted"
 > & {
   secrets: {
     smtpPass: { set: boolean; hint: string | null };
     imapPass: { set: boolean; hint: string | null };
-    revolutMerchantApiKey: { set: boolean; hint: string | null };
-    revolutWebhookSecret: { set: boolean; hint: string | null };
+    stripeSecretKey: { set: boolean; hint: string | null };
+    stripeWebhookSecret: { set: boolean; hint: string | null };
     googleCalendarRefreshToken: { set: boolean; hint: string | null };
   };
   smtpEncryptionResolved: string;
@@ -45,7 +49,8 @@ export type PublicCompanySettings = Omit<
     hostinger: typeof HOSTINGER_MAIL_DEFAULTS;
     mailpit: typeof MAILPIT_MAIL_DEFAULTS;
   };
-  revolutWebhookUrl: string;
+  stripeWebhookUrl: string;
+  stripeMode: "test" | "live" | null;
 };
 
 export function publicApiBaseUrl(): string {
@@ -56,8 +61,8 @@ export function publicApiBaseUrl(): string {
   return raw.replace(/\/$/, "");
 }
 
-export function revolutWebhookUrl(): string {
-  return `${publicApiBaseUrl()}/api/webhooks/revolut`;
+export function stripeWebhookUrl(): string {
+  return `${publicApiBaseUrl()}/api/webhooks/stripe`;
 }
 
 export function toPublicSettings(settings: CompanySettings): PublicCompanySettings {
@@ -66,6 +71,16 @@ export function toPublicSettings(settings: CompanySettings): PublicCompanySettin
     if (OMIT.has(key)) continue;
     rest[key] = value;
   }
+
+  let stripeMode: "test" | "live" | null = null;
+  if (settings.stripeSecretKeyHint) {
+    // L'indice ne révèle pas le mode ; on le déduit si la clé est encore en clair côté save.
+    // Mode exposé seulement via test-stripe après coup. Ici : null sauf hint sk_test/sk_live.
+    const hint = settings.stripeSecretKeyHint;
+    if (hint.includes("live")) stripeMode = "live";
+    else if (hint.includes("test")) stripeMode = "test";
+  }
+
   return {
     ...(rest as Omit<
       CompanySettings,
@@ -73,18 +88,20 @@ export function toPublicSettings(settings: CompanySettings): PublicCompanySettin
       | "imapPassEncrypted"
       | "revolutMerchantApiKeyEncrypted"
       | "revolutWebhookSecretEncrypted"
+      | "stripeSecretKeyEncrypted"
+      | "stripeWebhookSecretEncrypted"
       | "googleCalendarRefreshTokenEncrypted"
     >),
     secrets: {
       smtpPass: secretMeta(settings.smtpPassHint, settings.smtpPassEncrypted),
       imapPass: secretMeta(settings.imapPassHint, settings.imapPassEncrypted),
-      revolutMerchantApiKey: secretMeta(
-        settings.revolutMerchantApiKeyHint,
-        settings.revolutMerchantApiKeyEncrypted,
+      stripeSecretKey: secretMeta(
+        settings.stripeSecretKeyHint,
+        settings.stripeSecretKeyEncrypted,
       ),
-      revolutWebhookSecret: secretMeta(
-        settings.revolutWebhookSecretHint,
-        settings.revolutWebhookSecretEncrypted,
+      stripeWebhookSecret: secretMeta(
+        settings.stripeWebhookSecretHint,
+        settings.stripeWebhookSecretEncrypted,
       ),
       googleCalendarRefreshToken: secretMeta(
         settings.googleCalendarRefreshTokenHint,
@@ -100,6 +117,7 @@ export function toPublicSettings(settings: CompanySettings): PublicCompanySettin
       hostinger: HOSTINGER_MAIL_DEFAULTS,
       mailpit: MAILPIT_MAIL_DEFAULTS,
     },
-    revolutWebhookUrl: revolutWebhookUrl(),
+    stripeWebhookUrl: stripeWebhookUrl(),
+    stripeMode,
   };
 }

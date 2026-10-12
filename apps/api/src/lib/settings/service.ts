@@ -261,9 +261,8 @@ export type PaymentsPatch = {
   bankBic?: string | null;
   bankAccountHolder?: string | null;
   bankName?: string | null;
-  revolutMerchantApiKey?: string | null;
-  revolutWebhookSecret?: string | null;
-  revolutMerchantMode?: "sandbox" | "production";
+  stripeSecretKey?: string | null;
+  stripeWebhookSecret?: string | null;
   depositCount?: number;
   depositPercent1Bps?: number;
   depositPercent2Bps?: number;
@@ -278,7 +277,7 @@ export type PaymentsPatch = {
   projectMilestoneMidBps?: number;
   moduleBankEnabled?: boolean;
   moduleSubscriptionsEnabled?: boolean;
-  moduleMerchantApiEnabled?: boolean;
+  moduleStripeEnabled?: boolean;
 };
 
 export async function savePaymentsTab(
@@ -286,15 +285,15 @@ export async function savePaymentsTab(
   actor?: AuditActor | null,
 ): Promise<CompanySettings> {
   const current = await getCompanySettings();
-  const apiKey = applyEncryptedSecret(
-    current.revolutMerchantApiKeyEncrypted,
-    current.revolutMerchantApiKeyHint,
-    patch.revolutMerchantApiKey,
+  const stripeKey = applyEncryptedSecret(
+    current.stripeSecretKeyEncrypted,
+    current.stripeSecretKeyHint,
+    patch.stripeSecretKey,
   );
-  const webhook = applyEncryptedSecret(
-    current.revolutWebhookSecretEncrypted,
-    current.revolutWebhookSecretHint,
-    patch.revolutWebhookSecret,
+  const stripeWebhook = applyEncryptedSecret(
+    current.stripeWebhookSecretEncrypted,
+    current.stripeWebhookSecretHint,
+    patch.stripeWebhookSecret,
   );
 
   const p1 = patch.depositPercent1Bps ?? current.depositPercent1Bps;
@@ -318,8 +317,8 @@ export async function savePaymentsTab(
   }
 
   const extra: string[] = [];
-  if (apiKey.changed) extra.push("revolutMerchantApiKey");
-  if (webhook.changed) extra.push("revolutWebhookSecret");
+  if (stripeKey.changed) extra.push("stripeSecretKey");
+  if (stripeWebhook.changed) extra.push("stripeWebhookSecret");
 
   const iban =
     patch.bankIban !== undefined
@@ -339,13 +338,10 @@ export async function savePaymentsTab(
         ? { bankAccountHolder: emptyToNull(patch.bankAccountHolder) }
         : {}),
       ...(patch.bankName !== undefined ? { bankName: emptyToNull(patch.bankName) } : {}),
-      revolutMerchantApiKeyEncrypted: apiKey.encrypted,
-      revolutMerchantApiKeyHint: apiKey.hint,
-      revolutWebhookSecretEncrypted: webhook.encrypted,
-      revolutWebhookSecretHint: webhook.hint,
-      ...(patch.revolutMerchantMode !== undefined
-        ? { revolutMerchantMode: patch.revolutMerchantMode }
-        : {}),
+      stripeSecretKeyEncrypted: stripeKey.encrypted,
+      stripeSecretKeyHint: stripeKey.hint,
+      stripeWebhookSecretEncrypted: stripeWebhook.encrypted,
+      stripeWebhookSecretHint: stripeWebhook.hint,
       depositCount: 2,
       depositPercent1Bps: p1,
       depositPercent2Bps: p2,
@@ -370,8 +366,8 @@ export async function savePaymentsTab(
       ...(patch.moduleSubscriptionsEnabled !== undefined
         ? { moduleSubscriptionsEnabled: patch.moduleSubscriptionsEnabled }
         : {}),
-      ...(patch.moduleMerchantApiEnabled !== undefined
-        ? { moduleMerchantApiEnabled: patch.moduleMerchantApiEnabled }
+      ...(patch.moduleStripeEnabled !== undefined
+        ? { moduleStripeEnabled: patch.moduleStripeEnabled }
         : {}),
     },
     "payments",

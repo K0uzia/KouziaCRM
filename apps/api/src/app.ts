@@ -26,7 +26,7 @@ import { quotesMarketRoutes } from "@/routes/quotes-market.js";
 import { subscriptionsRoutes } from "@/routes/subscriptions.js";
 import { bankRoutes } from "@/routes/bank.js";
 import { payoutsRoutes } from "@/routes/payouts.js";
-import { webhooksRevolutRoutes } from "@/routes/webhooks-revolut.js";
+import { webhooksStripeRoutes } from "@/routes/webhooks-stripe.js";
 import { testimonialsRoutes } from "@/routes/testimonials.js";
 import { projectsRoutes } from "@/routes/projects.js";
 import { notificationsRoutes } from "@/routes/notifications.js";
@@ -155,7 +155,7 @@ export async function buildApp(opts: BuildAppOptions = {}): Promise<FastifyInsta
   await app.register(subscriptionsRoutes);
   await app.register(bankRoutes);
   await app.register(payoutsRoutes);
-  await app.register(webhooksRevolutRoutes);
+  await app.register(webhooksStripeRoutes);
   await app.register(testimonialsRoutes);
   await app.register(projectsRoutes);
   await app.register(notificationsRoutes);

@@ -5,6 +5,8 @@ const SECRET_FIELD_NAMES = [
   "imapPassEncrypted",
   "revolutMerchantApiKeyEncrypted",
   "revolutWebhookSecretEncrypted",
+  "stripeSecretKeyEncrypted",
+  "stripeWebhookSecretEncrypted",
   "googleCalendarRefreshTokenEncrypted",
 ] as const;
 

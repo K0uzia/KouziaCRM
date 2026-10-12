@@ -102,3 +102,27 @@ export async function activateSubscriptionsFromDocument(
 
   return { created, updated, subscriptionIds };
 }
+
+/** Après commit : envoie le lien de prélèvement Stripe si le module est actif. */
+export async function notifyStripeSubscriptionSetup(
+  subscriptionIds: string[],
+): Promise<void> {
+  if (subscriptionIds.length === 0) return;
+  const { getCompanySettings } = await import("@/lib/company.js");
+  const settings = await getCompanySettings();
+  if (!settings.moduleStripeEnabled) return;
+  const { sendSubscriptionSetupEmail } = await import("@/lib/stripe/billing.js");
+  for (const id of subscriptionIds) {
+    const sub = await prisma.subscription.findUnique({
+      where: { id },
+      select: { stripeSubscriptionId: true },
+    });
+    if (sub && !sub.stripeSubscriptionId) {
+      try {
+        await sendSubscriptionSetupEmail(id);
+      } catch (err) {
+        console.error("[subscriptions] envoi lien prélèvement Stripe", err);
+      }
+    }
+  }
+}

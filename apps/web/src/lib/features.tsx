@@ -13,13 +13,13 @@ import { useAuth } from "@/lib/auth";
 export type FeatureFlags = {
   moduleBankEnabled: boolean;
   moduleSubscriptionsEnabled: boolean;
-  moduleMerchantApiEnabled: boolean;
+  moduleStripeEnabled: boolean;
 };
 
 const DEFAULTS: FeatureFlags = {
   moduleBankEnabled: false,
   moduleSubscriptionsEnabled: true,
-  moduleMerchantApiEnabled: false,
+  moduleStripeEnabled: false,
 };
 
 type FeaturesCtx = FeatureFlags & {
@@ -46,8 +46,7 @@ export function FeaturesProvider({ children }: { children: ReactNode }) {
         moduleBankEnabled: data.moduleBankEnabled ?? DEFAULTS.moduleBankEnabled,
         moduleSubscriptionsEnabled:
           data.moduleSubscriptionsEnabled ?? DEFAULTS.moduleSubscriptionsEnabled,
-        moduleMerchantApiEnabled:
-          data.moduleMerchantApiEnabled ?? DEFAULTS.moduleMerchantApiEnabled,
+        moduleStripeEnabled: data.moduleStripeEnabled ?? DEFAULTS.moduleStripeEnabled,
       });
     } catch {
       setFlags(DEFAULTS);

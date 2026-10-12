@@ -32,7 +32,7 @@ import {
   planTemplate,
 } from "@/lib/quotes/payment-plans.js";
 import { assertMilestoneInvoiced, assertQuoteSigned } from "@/lib/invoices/workflow.js";
-import { createRevolutOrder } from "@/lib/revolut/merchantService.js";
+import { buildPayUrl } from "@/lib/stripe/pay-urls.js";
 
 export class MilestonePaymentError extends Error {
   statusCode: number;
@@ -152,9 +152,9 @@ export async function activateMilestoneCheckout(
   }
 
   const settings = await getCompanySettings();
-  if (!settings.moduleMerchantApiEnabled) {
+  if (!settings.moduleStripeEnabled) {
     throw new MilestonePaymentError(
-      "API Merchant désactivée. Collez un lien Revolut Pro sur le jalon (Paramètres > Paiements).",
+      "Stripe désactivé. Collez un lien de paiement sur le jalon (Paramètres > Paiements).",
       400,
     );
   }
@@ -163,26 +163,13 @@ export async function activateMilestoneCheckout(
   const depositTotal =
     (await prisma.paymentMilestone.count({ where: { quoteId: milestone.quoteId } })) ||
     2;
-  const isLast =
-    milestone.position === depositTotal ||
-    /solde/i.test(milestone.label);
-  const description = isLast
-    ? `Solde - devis ${quoteRef}`
-    : `${milestone.label} - devis ${quoteRef}`;
-
+  const checkoutUrl = buildPayUrl("milestone", milestone.id);
   const clientEmail = decryptOptional(milestone.quote.client.emailEncrypted);
-  const order = await createRevolutOrder({
-    amountCents: milestone.amountCents,
-    description,
-    customerEmail: clientEmail,
-    reference: milestone.id,
-  });
 
   const updated = await prisma.paymentMilestone.update({
     where: { id: milestone.id },
     data: {
-      revolutOrderId: order.id,
-      checkoutUrl: order.checkoutUrl,
+      checkoutUrl,
       status:
         milestone.status === MilestoneStatus.PENDING ||
         milestone.status === MilestoneStatus.OVERDUE ||
@@ -193,7 +180,14 @@ export async function activateMilestoneCheckout(
     include: { quote: { include: { client: true } } },
   });
 
-  if (opts.sendEmail !== false && order.checkoutUrl && clientEmail) {
+  if (milestone.invoiceId) {
+    await prisma.invoice.update({
+      where: { id: milestone.invoiceId },
+      data: { checkoutUrl },
+    });
+  }
+
+  if (opts.sendEmail !== false && checkoutUrl && clientEmail) {
     const brand = buildEmailBrand(settings);
     const content = renderDepositCheckoutEmail({
       brand,
@@ -203,7 +197,7 @@ export async function activateMilestoneCheckout(
       clientName: milestone.quote.client.displayName,
       quoteNumber: quoteRef,
       amountCents: milestone.amountCents,
-      checkoutUrl: order.checkoutUrl,
+      checkoutUrl,
       depositIndex: milestone.position,
       depositTotal,
       label: milestone.label,
@@ -224,7 +218,7 @@ export async function activateMilestoneCheckout(
   return updated;
 }
 
-/** Colle un lien de paiement Revolut Pro (sans API Merchant) et envoie l'email optionnel. */
+/** Colle un lien de paiement à la main et envoie l'email optionnel. */
 export async function setManualMilestonePaymentLink(
   milestoneId: string,
   checkoutUrl: string,
@@ -371,8 +365,8 @@ export async function onQuoteAcceptedByClient(quoteId: string) {
             : first.status,
       },
     });
-    // Sans API Merchant (Revolut Pro), le jalon reste « À payer » : lien collé à la main ou virement.
-    if (settings.moduleMerchantApiEnabled) {
+    // Sans Stripe, le jalon reste « À payer » : lien collé à la main ou virement.
+    if (settings.moduleStripeEnabled) {
       try {
         await activateMilestoneCheckout(first.id, { sendEmail: true });
       } catch (err) {
@@ -384,7 +378,7 @@ export async function onQuoteAcceptedByClient(quoteId: string) {
 
 export async function activateDueMilestoneCheckouts(): Promise<number> {
   const settings = await getCompanySettings();
-  if (!settings.moduleMerchantApiEnabled) return 0;
+  if (!settings.moduleStripeEnabled) return 0;
   const leadDays = settings.paymentButtonLeadDays ?? 7;
   const threshold = new Date();
   threshold.setDate(threshold.getDate() + leadDays);
@@ -420,138 +414,6 @@ export async function activateDueMilestoneCheckouts(): Promise<number> {
   });
 
   return activated;
-}
-
-export async function markMilestonePaidFromRevolut(opts: {
-  milestoneId: string;
-  revolutOrderId: string;
-  revolutPaymentId?: string | null;
-  eventId: string;
-  eventType: string;
-  payload: Record<string, unknown>;
-}) {
-  const milestoneBefore = await prisma.paymentMilestone.findUnique({
-    where: { id: opts.milestoneId },
-  });
-  if (!milestoneBefore) {
-    throw new MilestonePaymentError("Jalon introuvable", 404);
-  }
-  if (!milestoneBefore.invoiceId && milestoneBefore.status !== MilestoneStatus.PAID) {
-    await generateMilestoneInvoice(milestoneBefore.id);
-  }
-
-  const result = await prisma.$transaction(async (tx) => {
-    const existing = await tx.revolutWebhookEvent.findUnique({
-      where: { eventId: opts.eventId },
-    });
-    if (existing) return { duplicate: true as const, milestone: null };
-
-    const milestone = await tx.paymentMilestone.findUnique({
-      where: { id: opts.milestoneId },
-    });
-    if (!milestone) {
-      throw new MilestonePaymentError("Jalon introuvable", 404);
-    }
-
-    await tx.revolutWebhookEvent.create({
-      data: {
-        eventId: opts.eventId,
-        eventType: opts.eventType,
-        payload: opts.payload as Prisma.InputJsonValue,
-        milestoneId: milestone.id,
-      },
-    });
-
-    if (milestone.status === MilestoneStatus.PAID) {
-      return { duplicate: false as const, milestone };
-    }
-
-    const invoiceId = milestone.invoiceId;
-    if (!invoiceId) {
-      throw new MilestonePaymentError("Facture d'acompte introuvable", 500);
-    }
-
-    const invoice = await tx.invoice.findUniqueOrThrow({
-      where: { id: invoiceId },
-      include: { payments: true },
-    });
-
-    const paidSoFar = invoice.payments.reduce((s, p) => s + p.amountCents, 0);
-    const remaining = invoice.totalCents - paidSoFar;
-    if (remaining > 0) {
-      await tx.payment.create({
-        data: {
-          invoiceId: invoice.id,
-          amountCents: remaining,
-          paidAt: new Date(),
-          method: PaymentMethod.CARD,
-          reference: opts.revolutPaymentId ?? opts.revolutOrderId,
-          notes: "Paiement Revolut Merchant",
-        },
-      });
-      if (invoice.status !== InvoiceStatus.PAID) {
-        await tx.invoice.update({
-          where: { id: invoice.id },
-          data: { status: InvoiceStatus.PAID },
-        });
-      }
-      await syncMilestoneOnInvoicePaid(invoice.id, tx);
-    }
-
-    const updated = await tx.paymentMilestone.update({
-      where: { id: milestone.id },
-      data: {
-        status: MilestoneStatus.PAID,
-        paidAt: new Date(),
-        paymentMethod: PaymentMethod.CARD,
-        revolutOrderId: opts.revolutOrderId,
-        revolutPaymentId: opts.revolutPaymentId ?? null,
-        checkoutUrl: null,
-      },
-    });
-
-    return { duplicate: false as const, milestone: updated };
-  });
-  if (!result.duplicate && result.milestone) {
-    const { startProjectForQuote } = await import("@/lib/projects/lifecycle.js");
-    await startProjectForQuote(result.milestone.quoteId);
-  }
-  return result;
-}
-
-export async function markMilestoneFailedFromRevolut(opts: {
-  milestoneId: string;
-  revolutOrderId: string;
-  eventId: string;
-  eventType: string;
-  payload: Record<string, unknown>;
-}) {
-  return prisma.$transaction(async (tx) => {
-    const existing = await tx.revolutWebhookEvent.findUnique({
-      where: { eventId: opts.eventId },
-    });
-    if (existing) return { duplicate: true as const };
-
-    await tx.revolutWebhookEvent.create({
-      data: {
-        eventId: opts.eventId,
-        eventType: opts.eventType,
-        payload: opts.payload as Prisma.InputJsonValue,
-        milestoneId: opts.milestoneId,
-      },
-    });
-
-    await tx.paymentMilestone.update({
-      where: { id: opts.milestoneId },
-      data: {
-        status: MilestoneStatus.FAILED,
-        revolutOrderId: opts.revolutOrderId,
-        checkoutUrl: null,
-      },
-    });
-
-    return { duplicate: false as const };
-  });
 }
 
 export async function markMilestonePaidManually(opts: {

@@ -19,7 +19,7 @@ import {
 export type FeatureFlags = {
   moduleBankEnabled: boolean;
   moduleSubscriptionsEnabled: boolean;
-  moduleMerchantApiEnabled: boolean;
+  moduleStripeEnabled: boolean;
 };
 
 export type NavItem = {

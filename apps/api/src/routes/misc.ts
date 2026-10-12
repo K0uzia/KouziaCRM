@@ -145,7 +145,16 @@ export const miscRoutes: FastifyPluginAsync = async (app) => {
       take: pageSize,
       include: {
         invoice: {
-          select: { id: true, number: true, client: { select: { displayName: true } } },
+          select: {
+            id: true,
+            number: true,
+            totalCents: true,
+            status: true,
+            client: { select: { displayName: true } },
+          },
+        },
+        stripePayout: {
+          select: { id: true, arrivalDate: true, status: true, amountCents: true },
         },
       },
     });

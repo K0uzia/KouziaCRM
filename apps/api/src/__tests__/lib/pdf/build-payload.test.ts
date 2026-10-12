@@ -63,6 +63,7 @@ describe("buildInvoicePdfPayload charte dynamique", () => {
         issuedAt: issueDate,
         revolutOrderId: null,
         checkoutUrl: null,
+        stripeInvoiceId: null,
         lines: [
           {
             id: "l1",
@@ -110,9 +111,12 @@ describe("buildInvoicePdfPayload charte dynamique", () => {
             amountCents: 100000,
             paidAt,
             method: PaymentMethod.CARD,
-            reference: "pay_revolut",
+            reference: "pay_stripe",
             notes: null,
             createdAt: paidAt,
+            stripePaymentIntentId: null,
+            feeCents: null,
+            stripePayoutId: null,
           },
         ],
       },

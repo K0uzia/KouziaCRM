@@ -30,7 +30,7 @@ const viaTunnel = (host: string, extra: Record<string, string> = {}) => ({
 describe("isPublicRoute", () => {
   it("routes publiques seulement, d'après le motif du routeur", () => {
     expect(isPublicRoute("/api/public/tracking")).toBe(true);
-    expect(isPublicRoute("/api/webhooks/revolut")).toBe(true);
+    expect(isPublicRoute("/api/webhooks/stripe")).toBe(true);
     expect(isPublicRoute("/api/google/calendar/callback")).toBe(true);
     expect(isPublicRoute("/api/health")).toBe(true);
     expect(isPublicRoute("/api/auth/login")).toBe(false);

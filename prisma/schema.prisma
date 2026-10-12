@@ -46,6 +46,7 @@ enum PaymentMethod {
   CHECK
   CASH
   OTHER
+  SEPA_DEBIT
 }
 
 enum EmailDirection {
@@ -432,8 +433,15 @@ model CompanySettings {
   /// Modules ERP (affichage nav + pages). Banque off par défaut (Revolut Pro sans API).
   moduleBankEnabled          Boolean @default(false)
   moduleSubscriptionsEnabled Boolean @default(true)
-  /// API Merchant Revolut (liens auto). Off = coller un lien Revolut Pro à la main.
+  /// @deprecated remplacé par moduleStripeEnabled. Conservé en base (SQLite).
   moduleMerchantApiEnabled   Boolean @default(false)
+
+  /// Stripe : encaissement en ligne, catalogue et abonnements.
+  moduleStripeEnabled              Boolean @default(false)
+  stripeSecretKeyEncrypted         String?
+  stripeSecretKeyHint              String?
+  stripeWebhookSecretEncrypted     String?
+  stripeWebhookSecretHint          String?
 
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
@@ -633,6 +641,8 @@ model Client {
 
   testimonials        ClientTestimonial[]
   projects            ClientProject[]
+  /// Identifiant Customer Stripe (cus_…)
+  stripeCustomerId    String?       @unique
 
   @@index([displayName])
   @@index([type])
@@ -763,6 +773,12 @@ model Service {
   isSubscription      Boolean     @default(false)
   /// Jour de facturation par défaut (1-28) si isSubscription
   defaultBillingDay   Int         @default(1)
+  /// Identifiant Product Stripe (prod_…)
+  stripeProductId     String?
+  /// Identifiant Price Stripe (price_…) : une prestation ERP = un prix
+  stripePriceId       String?     @unique
+  /// MONTH | YEAR | null (prestation ponctuelle)
+  billingInterval     String?
   createdAt           DateTime    @default(now())
   updatedAt           DateTime    @updatedAt
   subscriptions       Subscription[]
@@ -770,6 +786,7 @@ model Service {
 
   @@index([active])
   @@index([name])
+  @@index([stripeProductId])
 }
 
 enum SubscriptionStatus {
@@ -781,6 +798,8 @@ enum SubscriptionStatus {
 enum SubscriptionCollectionMethod {
   MANUAL_TRANSFER
   SEPA_DEBIT
+  /// Encaissement géré par Stripe Billing (webhooks invoice.*)
+  STRIPE
 }
 
 model Subscription {
@@ -800,6 +819,10 @@ model Subscription {
   endDate         DateTime?
   status          SubscriptionStatus @default(ACTIVE)
   collectionMethod SubscriptionCollectionMethod @default(MANUAL_TRANSFER)
+  /// Identifiant Subscription Stripe (sub_…)
+  stripeSubscriptionId String?       @unique
+  /// MONTH | YEAR (copie du prix Stripe)
+  billingInterval String?
   /// Prochaine date d'émission de facture
   nextInvoiceAt   DateTime
   /// Dernière facture générée par cet abonnement
@@ -889,9 +912,12 @@ model Invoice {
   reminderCount     Int                 @default(0)
   nextReminderAt    DateTime?
   issuedAt          DateTime?
-  /// Revolut Merchant (facture simple ou lien de paiement direct)
+  /// @deprecated Revolut Merchant. Conservé en base (SQLite).
   revolutOrderId    String?
+  /// Lien ERP permanent /api/public/pay/… (ou URL collée à la main)
   checkoutUrl       String?
+  /// Identifiant Invoice Stripe (in_…) : une échéance Billing = une facture ERP
+  stripeInvoiceId   String?             @unique
   createdAt         DateTime            @default(now())
   updatedAt         DateTime            @updatedAt
   quoteAcceptanceAudits QuoteAcceptanceAudit[]
@@ -997,11 +1023,48 @@ model Payment {
   method      PaymentMethod @default(BANK_TRANSFER)
   reference   String?
   notes       String?
+  /// Identifiant PaymentIntent Stripe (pi_…)
+  stripePaymentIntentId String? @unique
+  /// Frais Stripe (centimes) : information, hors livre des recettes
+  feeCents    Int?
+  /// Versement Stripe vers Revolut qui a inclus ce paiement
+  stripePayoutId String?
+  stripePayout   StripePayout? @relation(fields: [stripePayoutId], references: [id], onDelete: SetNull)
   createdAt   DateTime      @default(now())
   bankTransaction BankTransaction?
 
   @@index([invoiceId])
   @@index([paidAt])
+  @@index([stripePayoutId])
+}
+
+/// Versement Stripe vers le compte bancaire (Revolut Pro).
+model StripePayout {
+  id              String    @id @default(cuid())
+  /// Identifiant Payout Stripe (po_…)
+  stripePayoutId  String    @unique
+  amountCents     Int
+  /// Date d'arrivée prévue sur le compte bancaire
+  arrivalDate     DateTime?
+  status          String
+  createdAt       DateTime  @default(now())
+  payments        Payment[]
+
+  @@index([arrivalDate])
+  @@index([status])
+}
+
+/// Événement webhook Stripe traité (idempotence).
+model StripeWebhookEvent {
+  id          String   @id @default(cuid())
+  /// Identifiant unique Stripe (evt_…)
+  eventId     String   @unique
+  eventType   String
+  payload     Json
+  processedAt DateTime @default(now())
+
+  @@index([eventType])
+  @@index([processedAt])
 }
 
 enum BankTxStatus {

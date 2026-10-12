@@ -55,6 +55,7 @@ const MILESTONE_STATUS_LABEL: Record<string, string> = {
 const PAYMENT_METHOD_LABEL: Record<string, string> = {
   CARD: "Carte bancaire",
   BANK_TRANSFER: "Virement",
+  SEPA_DEBIT: "Prélèvement SEPA",
   CHECK: "Chèque",
   CASH: "Espèces",
   OTHER: "Autre",

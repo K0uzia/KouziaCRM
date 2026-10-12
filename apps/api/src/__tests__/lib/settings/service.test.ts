@@ -66,8 +66,8 @@ describe("settings secrets", () => {
       smtpPass: "HiddenPass42",
     });
     await savePaymentsTab({
-      revolutMerchantApiKey: "sk_test_abcdef",
-      revolutWebhookSecret: "whsec_xyz",
+      stripeSecretKey: "sk_test_abcdef",
+      stripeWebhookSecret: "whsec_xyz",
     });
     invalidateCompanySettingsCache();
     const pub = toPublicSettings(await getCompanySettings());
@@ -77,7 +77,7 @@ describe("settings secrets", () => {
     expect(pub).not.toHaveProperty("smtpPassEncrypted");
     expect(pub.secrets.smtpPass.set).toBe(true);
     expect(pub.secrets.smtpPass.hint).toBe("••••••••ss42");
-    expect(pub.secrets.revolutMerchantApiKey.set).toBe(true);
+    expect(pub.secrets.stripeSecretKey.set).toBe(true);
   });
 
   it("journalise les champs modifiés sans valeur secrète", async () => {

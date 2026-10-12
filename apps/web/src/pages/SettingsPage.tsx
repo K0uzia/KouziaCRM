@@ -108,8 +108,8 @@ export function SettingsPage() {
   const [smtpPass, setSmtpPass] = useState("");
   const [imapPass, setImapPass] = useState("");
   const [requireSmtpPass, setRequireSmtpPass] = useState(false);
-  const [revolutKey, setRevolutKey] = useState("");
-  const [revolutWebhook, setRevolutWebhook] = useState("");
+  const [stripeKey, setStripeKey] = useState("");
+  const [stripeWebhook, setStripeWebhook] = useState("");
   const [testEmailTo, setTestEmailTo] = useState("");
   const [checklist, setChecklist] = useState<Checklist | null>(null);
   const [clauses, setClauses] = useState<LegalClause[]>([]);
@@ -148,8 +148,8 @@ export function SettingsPage() {
     setTestEmailTo(s.email || "");
     setSmtpPass("");
     setImapPass("");
-    setRevolutKey("");
-    setRevolutWebhook("");
+    setStripeKey("");
+    setStripeWebhook("");
     void loadGoogleStatus();
   }
 
@@ -273,8 +273,8 @@ export function SettingsPage() {
       setForm(withTwoDepositMilestones(updated));
       setSmtpPass("");
       setImapPass("");
-      setRevolutKey("");
-      setRevolutWebhook("");
+      setStripeKey("");
+      setStripeWebhook("");
       if (path.includes("/payments")) {
         await refreshFeatures();
       }
@@ -405,9 +405,8 @@ export function SettingsPage() {
       bankBic: form.bankBic,
       bankAccountHolder: form.bankAccountHolder,
       bankName: form.bankName,
-      revolutMerchantApiKey: revolutKey || undefined,
-      revolutWebhookSecret: revolutWebhook || undefined,
-      revolutMerchantMode: form.revolutMerchantMode,
+      stripeSecretKey: stripeKey || undefined,
+      stripeWebhookSecret: stripeWebhook || undefined,
       depositCount: 2,
       depositPercent1Bps: form.depositPercent1Bps,
       depositPercent2Bps: form.depositPercent2Bps,
@@ -421,7 +420,7 @@ export function SettingsPage() {
       paymentButtonLeadDays: form.paymentButtonLeadDays,
       moduleBankEnabled: form.moduleBankEnabled,
       moduleSubscriptionsEnabled: form.moduleSubscriptionsEnabled,
-      moduleMerchantApiEnabled: form.moduleMerchantApiEnabled,
+      moduleStripeEnabled: form.moduleStripeEnabled,
     });
   }
 
@@ -588,16 +587,36 @@ export function SettingsPage() {
     }
   }
 
-  async function testRevolut() {
+  async function testStripe() {
     setBusy(true);
     try {
-      const res = await api<{ ok: boolean; mode: string }>("/api/settings/payments/test-revolut", {
+      const res = await api<{ ok: boolean; mode: string }>("/api/settings/payments/test-stripe", {
         method: "POST",
         body: "{}",
       });
-      toast.success(`API Merchant OK (${res.mode})`);
+      toast.success(`Stripe OK (${res.mode})`);
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Échec Revolut");
+      toast.error(e instanceof Error ? e.message : "Échec Stripe");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function syncStripeCatalog() {
+    setBusy(true);
+    try {
+      const res = await api<{
+        ok: boolean;
+        actions: Array<{ action: string }>;
+      }>("/api/settings/payments/sync-catalog", { method: "POST", body: "{}" });
+      const created = res.actions.filter((a) => a.action === "create").length;
+      const updated = res.actions.filter((a) => a.action === "update").length;
+      const archived = res.actions.filter((a) => a.action === "archive").length;
+      toast.success(
+        `Catalogue synchronisé (${created} créé·s, ${updated} mis à jour, ${archived} archivé·s)`,
+      );
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Échec synchronisation");
     } finally {
       setBusy(false);
     }
@@ -669,7 +688,7 @@ export function SettingsPage() {
   async function copyWebhook() {
     if (!form) return;
     try {
-      await navigator.clipboard.writeText(form.revolutWebhookUrl);
+      await navigator.clipboard.writeText(form.stripeWebhookUrl);
       toast.success("URL copiée");
     } catch {
       toast.error("Copie impossible");
@@ -1188,38 +1207,35 @@ export function SettingsPage() {
                   <input
                     type="checkbox"
                     className="mt-1"
-                    checked={form.moduleMerchantApiEnabled ?? false}
+                    checked={form.moduleStripeEnabled ?? false}
                     onChange={(e) =>
                       setForm({
                         ...form,
-                        moduleMerchantApiEnabled: e.target.checked,
+                        moduleStripeEnabled: e.target.checked,
                       })
                     }
                   />
                   <span>
-                    <span className="font-medium">API Merchant Revolut (liens auto)</span>
+                    <span className="font-medium">Paiements Stripe</span>
                     <span className="mt-0.5 block text-xs text-[var(--muted)]">
-                      Réservé au Merchant Business. Avec Pro : désactivé, collez les Payment
-                      Links à la main sur chaque devis.
+                      Liens de paiement automatiques (carte, virement, prélèvement SEPA) et
+                      synchronisation du catalogue. L&apos;argent est versé sur le Revolut Pro.
                     </span>
                   </span>
                 </label>
               </Card>
 
-              {!form.moduleMerchantApiEnabled ? (
+              {!form.moduleStripeEnabled ? (
                 <Card className="space-y-2 border border-[var(--border)] bg-[var(--primary-soft)]/40 p-5">
                   <h3 className="text-sm font-semibold">Paiements B2B (pro, restos, assos)</h3>
                   <p className="text-xs leading-relaxed text-[var(--muted)]">
-                    Pour des clients professionnels, le plus simple reste le{" "}
+                    Sans Stripe, le plus simple reste le{" "}
                     <strong className="text-[var(--text)]">virement SEPA</strong> sur
                     l&apos;IBAN Revolut Pro (affiché sur le PDF). Référence = n° de facture.
                   </p>
                   <ol className="list-decimal space-y-1.5 pl-5 text-xs leading-relaxed text-[var(--muted)]">
                     <li>Devis dans l&apos;ERP → validation client sur /suivi.</li>
-                    <li>
-                      Émettre la facture d&apos;acompte (ou coller un Payment Link Revolut si
-                      le client préfère payer en ligne).
-                    </li>
+                    <li>Émettre la facture d&apos;acompte.</li>
                     <li>
                       Le client vire → vous voyez le crédit dans Revolut →{" "}
                       <strong className="text-[var(--text)]">Marquer payé</strong> / enregistrer
@@ -1227,12 +1243,6 @@ export function SettingsPage() {
                     </li>
                     <li>Livraison → facture de solde, même logique.</li>
                   </ol>
-                  <p className="text-xs text-[var(--muted)]">
-                    Tiime (ou une autre PA) servira surtout pour la{" "}
-                    <strong className="text-[var(--text)]">facture électronique B2B 2026</strong>
-                    , pas pour remplacer l'ERP. Laissez l&apos;activité B2C désactivée dans
-                    Déclarations si vous ne facturez pas de particuliers.
-                  </p>
                 </Card>
               ) : null}
 
@@ -1268,58 +1278,61 @@ export function SettingsPage() {
                 </div>
               </Card>
 
-              {form.moduleMerchantApiEnabled ? (
+              {form.moduleStripeEnabled ? (
               <Card className="space-y-4 border border-[var(--border)] p-5">
                 <div className="flex flex-wrap items-center gap-2">
-                  <h3 className="text-sm font-semibold">Revolut Merchant (encaissement en ligne)</h3>
-                  {form.revolutMerchantMode === "production" ? (
+                  <h3 className="text-sm font-semibold">Stripe (encaissement en ligne)</h3>
+                  {form.stripeMode === "live" ? (
                     <span className="rounded-full bg-[var(--warning-soft)] px-2.5 py-0.5 text-xs font-medium text-[var(--warning)]">
-                      Mode production
+                      Mode live
                     </span>
-                  ) : (
+                  ) : form.stripeMode === "test" ? (
                     <span className="rounded-full bg-[var(--info-soft)] px-2.5 py-0.5 text-xs font-medium text-[var(--info)]">
-                      Sandbox
+                      Mode test
                     </span>
-                  )}
+                  ) : null}
                 </div>
                 <p className="text-xs text-[var(--muted)]">
-                  Distinct de l&apos;API Business (rapprochement bancaire / virements). Clés générées
-                  dans le portail Merchant Revolut.
+                  Clés dans le tableau de bord Stripe. Le mode test ou live se déduit du préfixe
+                  de la clé (<code className="text-[var(--text)]">sk_test_</code> /{" "}
+                  <code className="text-[var(--text)]">sk_live_</code>). Désactivez l&apos;envoi
+                  des factures et reçus Stripe aux clients — l&apos;ERP reste seul émetteur.
                 </p>
                 <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                   <SecretField
-                    label="Clé API secrète"
-                    value={revolutKey}
-                    onChange={setRevolutKey}
-                    secret={form.secrets.revolutMerchantApiKey}
+                    label="Clé secrète"
+                    value={stripeKey}
+                    onChange={setStripeKey}
+                    secret={form.secrets.stripeSecretKey}
                   />
                   <SecretField
                     label="Secret webhook"
-                    value={revolutWebhook}
-                    onChange={setRevolutWebhook}
-                    secret={form.secrets.revolutWebhookSecret}
+                    value={stripeWebhook}
+                    onChange={setStripeWebhook}
+                    secret={form.secrets.stripeWebhookSecret}
                   />
-                  <Field label="Mode">
-                    <Select
-                      value={form.revolutMerchantMode}
-                      onChange={(e) => setForm({ ...form, revolutMerchantMode: e.target.value })}
-                    >
-                      <option value="sandbox">Sandbox</option>
-                      <option value="production">Production</option>
-                    </Select>
-                  </Field>
                 </div>
-                <Field label="URL webhook (à coller dans le portail Merchant)">
+                <Field label="URL webhook (à coller dans Stripe)">
                   <div className="flex gap-2">
-                    <Input readOnly value={form.revolutWebhookUrl} />
+                    <Input readOnly value={form.stripeWebhookUrl} />
                     <Button type="button" variant="secondary" onClick={() => void copyWebhook()}>
                       Copier
                     </Button>
                   </div>
                 </Field>
-                <Button type="button" variant="secondary" disabled={busy} onClick={() => void testRevolut()}>
-                  Tester la connexion API
-                </Button>
+                <div className="flex flex-wrap gap-2">
+                  <Button type="button" variant="secondary" disabled={busy} onClick={() => void testStripe()}>
+                    Tester la connexion
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    disabled={busy}
+                    onClick={() => void syncStripeCatalog()}
+                  >
+                    Synchroniser le catalogue
+                  </Button>
+                </div>
               </Card>
               ) : null}
 
