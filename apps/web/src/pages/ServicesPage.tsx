@@ -218,17 +218,20 @@ export function ServicesPage() {
                         <FontAwesomeIcon icon={faArrowUpRightFromSquare} className="h-3 w-3" aria-hidden />
                       </a>
                     ) : null}
-                    {s.active && !moduleStripeEnabled ? (
+                    {s.active ? (
+                      <Button
+                        variant="ghost"
+                        className="px-0"
+                        aria-label={`Modifier ${s.name}`}
+                        title="Modifier"
+                        onClick={() => openEdit(s)}
+                      >
+                        <FontAwesomeIcon icon={faPen} className="h-3.5 w-3.5" aria-hidden />
+                      </Button>
+                    ) : null}
+                    {/* Prestation liée à Stripe : suppression et prix gérés dans Stripe. */}
+                    {s.active && !s.stripeProductId ? (
                       <>
-                        <Button
-                          variant="ghost"
-                          className="px-0"
-                          aria-label={`Modifier ${s.name}`}
-                          title="Modifier"
-                          onClick={() => openEdit(s)}
-                        >
-                          <FontAwesomeIcon icon={faPen} className="h-3.5 w-3.5" aria-hidden />
-                        </Button>
                         <Button
                           variant="danger-ghost"
                           className="px-0"
@@ -240,7 +243,7 @@ export function ServicesPage() {
                         </Button>
                       </>
                     ) : null}
-                    {!s.active && !moduleStripeEnabled ? (
+                    {!s.active && !s.stripeProductId ? (
                       <Button variant="secondary" className="px-3 text-sm" onClick={() => void restore(s)}>
                         Réactiver
                       </Button>

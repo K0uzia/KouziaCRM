@@ -33,7 +33,9 @@ export function StatStrip({ items, className = "" }: { items: StatItem[]; classN
     <dl
       className={`ui-card grid gap-px overflow-hidden bg-[var(--border)] ${cols[items.length] ?? cols[4]} ${className}`}
     >
-      {items.map((s) => {
+      {items.map((s, i) => {
+        // Nombre impair sur 2 colonnes (téléphone) : la dernière case prend toute la largeur, sans vide.
+        const lastOdd = i === items.length - 1 && items.length % 2 === 1 && items.length > 1;
         const content = (
           <>
             <dt className="truncate text-xs font-medium text-[var(--muted)] sm:text-sm">{s.label}</dt>
@@ -58,7 +60,7 @@ export function StatStrip({ items, className = "" }: { items: StatItem[]; classN
         return (
           <div
             key={s.label}
-            className={`relative min-w-0 bg-[var(--surface)] p-4 sm:p-5 ${s.to ? "transition-colors hover:bg-[var(--surface-raised)]" : ""}`}
+            className={`relative min-w-0 bg-[var(--surface)] p-4 sm:p-5 ${lastOdd ? "col-span-2 sm:col-span-1" : ""} ${s.to ? "transition-colors hover:bg-[var(--surface-raised)]" : ""}`}
           >
             {content}
           </div>

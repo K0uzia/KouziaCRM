@@ -48,8 +48,8 @@ const ReceiptsBookPage = lazy(() =>
 const ObligationsPage = lazy(() =>
   import("@/pages/ObligationsPage").then((m) => ({ default: m.ObligationsPage })),
 );
-const BanquePage = lazy(() =>
-  import("@/pages/BankPage").then((m) => ({ default: m.BankPage })),
+const StripePayoutsPage = lazy(() =>
+  import("@/pages/StripePayoutsPage").then((m) => ({ default: m.StripePayoutsPage })),
 );
 const UrssafPage = lazy(() =>
   import("@/pages/OtherPages").then((m) => ({ default: m.UrssafPage })),
@@ -119,7 +119,8 @@ export default function App() {
           <Route path="payments" element={<PaymentsPage />} />
           <Route path="receipts" element={<ReceiptsBookPage />} />
           <Route path="obligations" element={<ObligationsPage />} />
-          <Route path="banque" element={<BanquePage />} />
+          <Route path="versements" element={<StripePayoutsPage />} />
+          <Route path="banque" element={<Navigate to="/versements" replace />} />
           <Route path="urssaf" element={<UrssafPage />} />
           <Route path="inbox" element={<InboxPage />} />
           <Route path="inbox/compose" element={<ComposePage />} />

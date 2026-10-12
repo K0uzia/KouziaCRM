@@ -77,7 +77,7 @@ export function PaymentLinkFields({
           <Input
             type="url"
             inputMode="url"
-            placeholder="https://checkout.revolut.com/..."
+            placeholder="https://…"
             value={value.url}
             onChange={(e) => onChange({ ...value, url: e.target.value })}
             autoFocus

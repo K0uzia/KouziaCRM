@@ -1243,7 +1243,7 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
                 <p className="mt-2 break-all font-mono text-xs text-[var(--muted)]">{doc.checkoutUrl}</p>
               ) : (
                 <p className="mt-2 text-[var(--muted)]">
-                  Ajoutez un lien Revolut : il apparaît en bouton « Payer en ligne » dans l'email et l'espace client.
+                  Ajoutez un lien de paiement : il apparaît en bouton « Payer en ligne » dans l'email et l'espace client.
                 </p>
               )}
               <div className="mt-3 flex flex-wrap gap-2">

@@ -23,7 +23,6 @@ import { Button, ButtonLink } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { Segmented } from "@/components/ui/Segmented";
 import { StatStrip } from "@/components/ui/StatStrip";
-import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 
 const RevenueChart = lazy(() => import("@/components/dashboard/RevenueChart"));
 
@@ -165,10 +164,6 @@ export function DashboardPage() {
   const [obligations, setObligations] = useState<ObligationsSummary | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-  const [payoutEnabled, setPayoutEnabled] = useState(false);
-  const [payoutHasBeneficiary, setPayoutHasBeneficiary] = useState(false);
-  const [payoutConfirm, setPayoutConfirm] = useState(false);
-  const [payoutBusy, setPayoutBusy] = useState(false);
   const [cfeObligation, setCfeObligation] = useState<CfeObligation | null>(null);
   const [remindersRunBusy, setRemindersRunBusy] = useState(false);
   const [threads, setThreads] = useState<ThreadRow[] | null>(null);
@@ -200,22 +195,16 @@ export function DashboardPage() {
       api<DashboardData>(url),
       api<ReminderRow[]>("/api/reminders/pending").catch(() => [] as ReminderRow[]),
       api<MrrData>("/api/subscriptions/mrr").catch(() => null as MrrData | null),
-      api<{ enabled: boolean; hasBeneficiary: boolean }>("/api/payouts/status").catch(() => ({
-        enabled: false,
-        hasBeneficiary: false,
-      })),
       api<{ items: Array<{ type: string; label: string; dueDate: string; amountCents: number | null; displayStatus: string }> }>(
         "/api/obligations",
       ).catch(() => ({ items: [] })),
       api<ObligationsSummary>("/api/obligations/summary").catch(() => null),
     ])
-      .then(([d, r, m, p, ob, os]) => {
+      .then(([d, r, m, ob, os]) => {
         if (cancelled) return;
         setData(d);
         setReminders(r);
         setMrr(m);
-        setPayoutEnabled(p.enabled);
-        setPayoutHasBeneficiary(p.hasBeneficiary);
         setObligations(os);
         const cfe = ob.items
           .filter((i) => i.type === "CFE_PAYMENT" && i.displayStatus !== "DONE")
@@ -291,19 +280,6 @@ export function DashboardPage() {
             { id: "year", label: "Année" },
           ]}
         />
-        {payoutEnabled && payoutHasBeneficiary ? (
-          <Button
-            variant="secondary"
-            disabled={!data || data.cashflow.resteNetCents <= 0}
-            onClick={() => setPayoutConfirm(true)}
-          >
-            Virer mon salaire
-          </Button>
-        ) : payoutEnabled ? (
-          <ButtonLink to="/settings?tab=payments" variant="secondary">
-            Configurer mon virement
-          </ButtonLink>
-        ) : null}
       </div>
     </div>
   );
@@ -657,31 +633,6 @@ export function DashboardPage() {
         </div>
       </div>
 
-      <ConfirmDialog
-        open={payoutConfirm}
-        onClose={() => !payoutBusy && setPayoutConfirm(false)}
-        title="Virer mon salaire"
-        message={`Créer un brouillon Revolut de ${formatEUR(cf.resteNetCents)} (reste net du mois) vers le compte personnel ? Le virement restera à confirmer dans l'app Revolut Business.`}
-        confirmLabel="Créer le brouillon"
-        busy={payoutBusy}
-        onConfirm={() => {
-          void (async () => {
-            setPayoutBusy(true);
-            try {
-              await api("/api/payouts/salary", {
-                method: "POST",
-                body: JSON.stringify({ amountCents: cf.resteNetCents }),
-              });
-              toast.success("Brouillon créé : confirmez dans Revolut");
-              setPayoutConfirm(false);
-            } catch (e) {
-              toast.error(e instanceof Error ? e.message : "Échec");
-            } finally {
-              setPayoutBusy(false);
-            }
-          })();
-        }}
-      />
     </div>
   );
 }
