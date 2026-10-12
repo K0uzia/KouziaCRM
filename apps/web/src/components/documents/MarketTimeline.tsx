@@ -262,7 +262,7 @@ export function MarketTimeline({
                     inputMode="url"
                     aria-label={`Lien de paiement : ${m.label}`}
                     className="py-2 text-xs"
-                    placeholder="https://revolut.me/… ou lien Payment Link"
+                    placeholder="https://… (lien de paiement)"
                     value={draft}
                     onChange={(e) =>
                       setDrafts((prev) => ({ ...prev, [m.id]: e.target.value }))

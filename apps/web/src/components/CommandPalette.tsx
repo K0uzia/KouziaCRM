@@ -54,7 +54,7 @@ const NAV_ITEMS: Array<{
   label: string;
   to: string;
   keywords: string;
-  feature?: "moduleBankEnabled" | "moduleSubscriptionsEnabled";
+  feature?: "moduleStripeEnabled" | "moduleSubscriptionsEnabled";
 }> = [
   { label: "Accueil", to: "/", keywords: "dashboard home" },
   { label: "Clients", to: "/clients", keywords: "activité contact" },
@@ -72,10 +72,10 @@ const NAV_ITEMS: Array<{
     feature: "moduleSubscriptionsEnabled",
   },
   {
-    label: "Virements reçus",
-    to: "/banque",
-    keywords: "revolut banque finances",
-    feature: "moduleBankEnabled",
+    label: "Versements Stripe",
+    to: "/versements",
+    keywords: "stripe banque virements finances frais",
+    feature: "moduleStripeEnabled",
   },
   { label: "Démarches à faire", to: "/obligations", keywords: "urssaf cfe finances" },
   { label: "Historique URSSAF", to: "/urssaf", keywords: "cotisations finances" },

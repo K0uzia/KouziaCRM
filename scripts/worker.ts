@@ -8,7 +8,6 @@ import { generateDueSubscriptionInvoices } from "../apps/api/src/lib/subscriptio
 import { sendDueReminders, sendDueDepositReminders } from "../apps/api/src/lib/reminders/send";
 import { syncObligations } from "../apps/api/src/lib/obligations/obligation-service";
 import { sendDueObligationEmails } from "../apps/api/src/lib/obligations/email-reminders";
-import { importTransactions } from "../apps/api/src/lib/revolut/importTransactions";
 import { activateDueMilestoneCheckouts } from "../apps/api/src/lib/payments/milestonePaymentService";
 import { getCompanySettings } from "../apps/api/src/lib/company";
 import { prisma } from "../apps/api/src/lib/prisma";
@@ -28,15 +27,6 @@ async function runMaintenance() {
     );
   } catch (err) {
     console.error(`[worker] maintenance error`, err);
-  }
-}
-
-async function runBankSync() {
-  try {
-    const result = await importTransactions({ force: false });
-    console.log(`[worker] bank sync`, result);
-  } catch (err) {
-    console.error(`[worker] bank sync error`, err);
   }
 }
 
@@ -93,7 +83,6 @@ async function runStripeCatalogSync() {
 }
 
 async function runHourly() {
-  await runBankSync();
   await runMaintenance();
   await runStripeCatalogSync();
   try {
@@ -115,7 +104,7 @@ async function runHourly() {
 }
 
 console.log(
-  "[worker] Kouzia ERP worker démarré - outbox 30s + IMAP IDLE/poll 60s + banque/maintenance horaire",
+  "[worker] Kouzia ERP worker démarré - outbox 30s + IMAP IDLE/poll 60s + Stripe et maintenance horaires",
 );
 void runOutbox();
 void runImapIfDue();

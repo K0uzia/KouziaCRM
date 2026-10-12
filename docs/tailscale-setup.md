@@ -3,7 +3,7 @@
 Guide pour joindre l'interface admin Kouzia ERP (hébergée sur un CT Proxmox Alpine)
 depuis n'importe où, sans ouvrir de ports et **sans exposer l'ERP sur Internet**.
 
-Le site public `kouzia.com`, les webhooks Revolut et le callback Google Calendar
+Le site public `kouzia.com`, les webhooks Stripe et le callback Google Calendar
 continuent de passer par **Cloudflare Tunnel**. Tailscale ne remplace pas ce tunnel.
 
 ## Prérequis
@@ -36,7 +36,7 @@ PC maison (Wi-Fi)
 | `TRUST_PROXY` | `true` si Cloudflare Tunnel est actif | `true` |
 
 `PUBLIC_API_ORIGIN` ne doit **jamais** devenir une IP `100.x` ni un hostname `.ts.net`.
-Sinon Revolut, Google Calendar et `kouzia.com` cassent.
+Sinon Stripe, Google Calendar et `kouzia.com` cassent.
 
 ## 1. Compte Tailscale
 
@@ -173,7 +173,7 @@ L'URL tapée n'est ni `WEB_ORIGIN` ni `TAILSCALE_ORIGIN` (http vs https, port, M
 tailscale up --accept-dns=false
 ```
 
-**kouzia.com / Revolut / Google cassés après Tailscale**  
+**kouzia.com / Stripe / Google cassés après Tailscale**  
 `PUBLIC_API_ORIGIN` a été écrasé par une URL LAN ou `.ts.net`. Le remettre sur l'HTTPS Cloudflare. `kouziactl access` ne l'écrase plus s'il est déjà renseigné.
 
 **Google Calendar : redirect vers une IP LAN injoignable en 4G**  

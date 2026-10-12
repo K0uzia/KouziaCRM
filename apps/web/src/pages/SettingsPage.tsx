@@ -418,7 +418,6 @@ export function SettingsPage() {
       paymentChoiceDefault: form.paymentChoiceDefault,
       split3Step2TriggerText: form.split3Step2TriggerText,
       paymentButtonLeadDays: form.paymentButtonLeadDays,
-      moduleBankEnabled: form.moduleBankEnabled,
       moduleSubscriptionsEnabled: form.moduleSubscriptionsEnabled,
       moduleStripeEnabled: form.moduleStripeEnabled,
     });
@@ -1165,25 +1164,9 @@ export function SettingsPage() {
               <Card className="space-y-4 border border-[var(--border)] p-5">
                 <h3 className="text-sm font-semibold">Modules affichés</h3>
                 <p className="text-xs text-[var(--muted)]">
-                  Masquez ce que vous ne pouvez pas utiliser (ex. banque Revolut Pro sans API).
-                  Les clients, devis, factures et mails restent toujours disponibles.
+                  Masquez ce que vous n&apos;utilisez pas. Les clients, devis, factures et mails
+                  restent toujours disponibles.
                 </p>
-                <label className="flex min-h-11 items-start gap-3 text-sm">
-                  <input
-                    type="checkbox"
-                    className="mt-1"
-                    checked={form.moduleBankEnabled ?? false}
-                    onChange={(e) =>
-                      setForm({ ...form, moduleBankEnabled: e.target.checked })
-                    }
-                  />
-                  <span>
-                    <span className="font-medium">Banque / virements sync</span>
-                    <span className="mt-0.5 block text-xs text-[var(--muted)]">
-                      Nécessite Revolut Business API. Laissez désactivé avec Revolut Pro.
-                    </span>
-                  </span>
-                </label>
                 <label className="flex min-h-11 items-start gap-3 text-sm">
                   <input
                     type="checkbox"
@@ -1460,8 +1443,6 @@ export function SettingsPage() {
                 </label>
                 <SaveBar onSave={savePayments} />
               </Card>
-
-              <PayoutBeneficiaryCard />
             </div>
           ) : null}
 
@@ -1978,76 +1959,4 @@ export function SettingsPage() {
   );
 }
 
-type PayoutStatus = {
-  enabled: boolean;
-  hasBeneficiary: boolean;
-  beneficiaryLabel: string | null;
-};
 
-function PayoutBeneficiaryCard() {
-  const [status, setStatus] = useState<PayoutStatus | null>(null);
-  const [label, setLabel] = useState("Compte personnel");
-  const [name, setName] = useState("");
-  const [iban, setIban] = useState("");
-  const [busy, setBusy] = useState(false);
-
-  useEffect(() => {
-    api<PayoutStatus>("/api/payouts/status")
-      .then(setStatus)
-      .catch(() => setStatus(null));
-  }, []);
-
-  async function save(e: FormEvent) {
-    e.preventDefault();
-    const cleanIban = iban.replace(/\s+/g, "").toUpperCase();
-    if (cleanIban.length < 15) {
-      toast.error("IBAN trop court");
-      return;
-    }
-    setBusy(true);
-    try {
-      await api("/api/payouts/beneficiary", {
-        method: "PUT",
-        body: JSON.stringify({ label: label.trim(), name: name.trim(), iban: cleanIban }),
-      });
-      toast.success("Compte enregistré");
-      setName("");
-      setIban("");
-      setStatus(await api("/api/payouts/status"));
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Erreur");
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  if (!status) return null;
-  if (!status.enabled) return null;
-
-  return (
-    <Card className="space-y-4 border border-[var(--border)] p-5">
-      <h3 className="text-sm font-semibold">Virement de rémunération (Business API)</h3>
-      <p className="text-sm text-[var(--muted)]">
-        {status.hasBeneficiary
-          ? `Compte enregistré : ${status.beneficiaryLabel}. Titulaire et IBAN chiffrés.`
-          : "Aucun compte enregistré."}
-      </p>
-      <form onSubmit={save} className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-        <Field label="Libellé">
-          <Input value={label} onChange={(e) => setLabel(e.target.value)} required />
-        </Field>
-        <Field label="Titulaire">
-          <Input value={name} onChange={(e) => setName(e.target.value)} required />
-        </Field>
-        <Field label="IBAN">
-          <Input value={iban} onChange={(e) => setIban(e.target.value)} required />
-        </Field>
-        <div className="flex items-end sm:col-span-2 sm:justify-end">
-          <Button type="submit" disabled={busy} className="w-full sm:w-auto">
-            {busy ? "Enregistrement…" : status.hasBeneficiary ? "Remplacer" : "Enregistrer"}
-          </Button>
-        </div>
-      </form>
-    </Card>
-  );
-}
