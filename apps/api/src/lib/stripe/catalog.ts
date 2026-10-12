@@ -44,7 +44,20 @@ export async function syncCatalogFromStripe(): Promise<CatalogSyncAction[]> {
   const seenPriceIds = new Set<string>();
 
   // Toutes les pages : au-delà de 100 prix, une prestation non lue serait archivée à tort.
-  for await (const price of stripe.prices.list({ active: true, expand: ["data.product"], limit: 100 })) {
+  const prices: Stripe.Price[] = [];
+  for await (const price of stripe.prices.list({ active: true, expand: ["data.product"], limit: 100 })) prices.push(price);
+
+  // Produit + périodicité ayant un prix actif créé depuis l'ERP (changement de prix en cours) :
+  // un prix actif PLUS ANCIEN de ce couple, non relié, est l'ancien prix, pas une nouvelle
+  // prestation. Un prix plus récent (créé ensuite dans le tableau de bord Stripe) est importé.
+  const replacementCreatedAt = new Map<string, number>();
+  for (const p of prices) {
+    if (!p.metadata?.erpServiceId) continue;
+    const key = `${typeof p.product === "string" ? p.product : p.product.id}:${intervalFromPrice(p)}`;
+    replacementCreatedAt.set(key, Math.max(replacementCreatedAt.get(key) ?? 0, p.created));
+  }
+
+  for (const price of prices) {
     const product = price.product;
     if (typeof product === "string" || product.deleted) continue;
     if (!product.active) continue;
@@ -80,6 +93,11 @@ export async function syncCatalogFromStripe(): Promise<CatalogSyncAction[]> {
     // Ancien prix encore actif pendant un changement de prix : le produit est déjà relié avec la
     // même périodicité et ce prix n'est plus celui par défaut. Pas de seconde prestation.
     const defaultPriceId = typeof product.default_price === "string" ? product.default_price : product.default_price?.id;
+    const replacedAt = replacementCreatedAt.get(`${product.id}:${billingInterval}`);
+    if (!existing && !price.metadata?.erpServiceId && replacedAt !== undefined && price.created <= replacedAt) {
+      actions.push({ name, action: "same", stripePriceId: price.id });
+      continue;
+    }
     if (!existing && defaultPriceId && defaultPriceId !== price.id) {
       const sibling = await prisma.service.findFirst({
         where: { stripeProductId: product.id, billingInterval, stripePriceId: { not: null } },

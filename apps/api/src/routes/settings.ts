@@ -272,8 +272,10 @@ export const settingsRoutes: FastifyPluginAsync = async (app) => {
     await requireAuth(request, reply);
     if (reply.sent) return;
     try {
+      const body = z.object({ secretKey: z.string().max(1000).optional() }).safeParse(request.body ?? {});
+      if (!body.success) return reply.code(400).send({ error: "Données invalides" });
       const { testStripeConnection } = await import("@/lib/stripe/client.js");
-      return await testStripeConnection();
+      return await testStripeConnection(body.data.secretKey);
     } catch (e) {
       return reply.code(400).send({
         error: e instanceof Error ? e.message : "Connexion Stripe impossible",

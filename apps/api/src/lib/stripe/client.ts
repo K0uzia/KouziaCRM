@@ -1,6 +1,7 @@
 import Stripe from "stripe";
 import { getCompanySettings } from "@/lib/company.js";
 import { decryptOptional } from "@/lib/crypto.js";
+import { assertSecretKeyFormat, lengthHint } from "@/lib/stripe/key-check.js";
 
 export type StripeMode = "test" | "live";
 
@@ -57,9 +58,22 @@ export async function assertStripeEnabled(): Promise<void> {
 }
 
 /** Ping minimal : liste 1 customer pour valider la clé. */
-export async function testStripeConnection(): Promise<{ ok: true; mode: StripeMode }> {
-  const { secretKey, mode } = await getStripeConfig();
-  const stripe = new Stripe(secretKey);
-  await stripe.customers.list({ limit: 1 });
-  return { ok: true, mode };
+/**
+ * Ping minimal (liste 1 customer). Clé saisie (pas encore enregistrée) si fournie, sinon la clé
+ * enregistrée. Erreurs en clair : format de la clé, ou refus de Stripe avec la longueur suspecte.
+ */
+export async function testStripeConnection(typedKey?: string): Promise<{ ok: true; mode: StripeMode; tested: "saisie" | "enregistrée" }> {
+  const secretKey = typedKey?.trim() ? assertSecretKeyFormat(typedKey) : (await getStripeConfig()).secretKey;
+  try {
+    await new Stripe(secretKey).customers.list({ limit: 1 });
+  } catch (e) {
+    if ((e as { type?: string }).type === "StripeAuthenticationError") {
+      throw new StripeConfigError(
+        `Stripe refuse cette clé (${typedKey?.trim() ? "clé saisie" : "clé enregistrée"} : Invalid API Key).${lengthHint(secretKey)}`,
+        400,
+      );
+    }
+    throw e;
+  }
+  return { ok: true, mode: detectStripeMode(secretKey), tested: typedKey?.trim() ? "saisie" : "enregistrée" };
 }

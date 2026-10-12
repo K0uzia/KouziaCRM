@@ -237,6 +237,38 @@ describe("changer le prix d'une prestation liée", () => {
   });
 });
 
+describe("synchro pendant un changement de prix (recette réelle)", () => {
+  it("prix par défaut encore l'ancien, nouveau prix lu en premier : pas de prestation pour l'ancien", async () => {
+    const svc = await prisma.service.create({
+      data: { name: "Maintenance", unitPriceCents: 2_900, isSubscription: true, billingInterval: "MONTH", stripeProductId: "prod_1", stripePriceId: "price_m" },
+    });
+    stripe.prices.list.mockImplementation(() =>
+      listOf([
+        stripePrice("price_new", "price_m", { unit_amount: 3_400, created: 200, metadata: { erpServiceId: svc.id } }),
+        stripePrice("price_m", "price_m", { created: 100 }),
+      ]),
+    );
+    await syncCatalogFromStripe();
+    const all = await prisma.service.findMany();
+    expect(all).toHaveLength(1);
+    expect(all[0]).toMatchObject({ id: svc.id, stripePriceId: "price_new" });
+  });
+
+  it("prix plus récent créé ensuite dans le tableau de bord Stripe : importé", async () => {
+    const svc = await prisma.service.create({
+      data: { name: "Maintenance", unitPriceCents: 3_400, isSubscription: true, billingInterval: "MONTH", stripeProductId: "prod_1", stripePriceId: "price_new" },
+    });
+    stripe.prices.list.mockImplementation(() =>
+      listOf([
+        stripePrice("price_dash", "price_dash", { unit_amount: 3_900, created: 300 }),
+        stripePrice("price_new", "price_dash", { unit_amount: 3_400, created: 200, metadata: { erpServiceId: svc.id } }),
+      ]),
+    );
+    await syncCatalogFromStripe();
+    expect(await prisma.service.count({ where: { stripePriceId: "price_dash" } })).toBe(1);
+  });
+});
+
 describe("mode Stripe", () => {
   it("prestation créée : mode de la clé enregistré", async () => {
     const res = await app.inject({
