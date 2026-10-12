@@ -68,6 +68,17 @@ export function formatTime(value: string | Date | null | undefined): string {
   });
 }
 
+/** Date courte d'une liste de messages : 14:02 aujourd'hui, « 12 oct. » cette année, 12/10/25 sinon. */
+export function formatShortDate(value: string | Date | null | undefined, now = new Date()): string {
+  if (!value) return "";
+  const d = new Date(value);
+  if (d.toDateString() === now.toDateString()) return formatTime(d);
+  if (d.getFullYear() === now.getFullYear()) {
+    return d.toLocaleDateString("fr-FR", { day: "numeric", month: "short" });
+  }
+  return d.toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit", year: "2-digit" });
+}
+
 export const statusLabel: Record<string, string> = {
   DRAFT: "Brouillon",
   ISSUED: "Émis",

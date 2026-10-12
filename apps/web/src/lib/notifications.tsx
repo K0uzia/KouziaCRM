@@ -58,25 +58,28 @@ function useChime() {
   const ctxRef = useRef<AudioContext | null>(null);
 
   useEffect(() => {
-    // Les navigateurs n'autorisent l'audio qu'après une interaction : on prépare le contexte au premier clic.
+    // L'audio n'est autorisé qu'après un geste. Le contexte peut aussi repasser en pause (onglet en
+    // arrière-plan, changement de sortie audio) : chaque geste le relance, pas seulement le premier.
     const unlock = () => {
       if (!ctxRef.current) {
         const Ctor = window.AudioContext ?? (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
         if (Ctor) ctxRef.current = new Ctor();
       }
-      void ctxRef.current?.resume();
+      if (ctxRef.current?.state === "suspended") void ctxRef.current.resume().catch(() => undefined);
     };
-    window.addEventListener("pointerdown", unlock, { once: true });
-    window.addEventListener("keydown", unlock, { once: true });
+    window.addEventListener("pointerdown", unlock);
+    window.addEventListener("keydown", unlock);
     return () => {
       window.removeEventListener("pointerdown", unlock);
       window.removeEventListener("keydown", unlock);
     };
   }, []);
 
-  return useCallback((kind: NotificationKind) => {
+  return useCallback((kind: NotificationKind): boolean => {
     const ctx = ctxRef.current;
-    if (!ctx || ctx.state !== "running") return;
+    if (!ctx) return false;
+    if (ctx.state === "suspended") void ctx.resume().catch(() => undefined);
+    if (ctx.state === "closed") return false;
     const notes = kind === "quote_rejected" ? [660, 494] : kind === "mail" ? [784, 988] : [659, 880, 1047];
     notes.forEach((freq, i) => {
       const t = ctx.currentTime + i * 0.12;
@@ -91,6 +94,7 @@ function useChime() {
       osc.start(t);
       osc.stop(t + 0.4);
     });
+    return true;
   }, []);
 }
 
@@ -104,6 +108,8 @@ type Ctx = {
   setSoundEnabled: (v: boolean) => void;
   desktopPermission: NotificationPermission | "unsupported";
   requestDesktop: () => Promise<void>;
+  /** Bouton « Tester » : joue le son et affiche une notification de l'appareil, renvoie le diagnostic. */
+  testAlerts: () => Promise<string[]>;
   open: (item: NotificationItem) => void;
 };
 
@@ -259,9 +265,42 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
           }
         }
       },
+      testAlerts: async () => {
+        const report: string[] = [];
+        report.push(
+          !soundEnabled
+            ? "Son désactivé dans ce panneau."
+            : chime("mail")
+              ? "Son joué (vérifiez le volume de l'ordinateur et de l'onglet)."
+              : "Son indisponible : cliquez une fois dans la page puis réessayez.",
+        );
+        if (typeof Notification === "undefined") {
+          report.push("Ce navigateur ne gère pas les notifications.");
+        } else if (!window.isSecureContext) {
+          report.push("Notifications impossibles hors https : ouvrez l'ERP par son adresse https.");
+        } else {
+          let permission = Notification.permission;
+          if (permission === "default") {
+            permission = await Notification.requestPermission();
+            setDesktopPermission(permission);
+          }
+          if (permission === "granted") {
+            try {
+              new Notification("Test Kouzia", { body: "Les notifications de l'appareil fonctionnent.", icon: "/favicon.svg", tag: "kouzia-test" });
+              report.push("Notification envoyée. Si rien ne s'affiche, vérifiez les réglages Windows (Notifications, mode Ne pas déranger).");
+            } catch {
+              setDesktopPermission("unsupported");
+              report.push("Ce navigateur bloque les notifications dans une page (téléphone : notifications push à venir).");
+            }
+          } else {
+            report.push("Notifications refusées pour ce site : autorisez-les dans les réglages du navigateur (cadenas, Notifications).");
+          }
+        }
+        return report;
+      },
       open,
     }),
-    [items, seenAt, soundEnabled, desktopPermission, open],
+    [items, seenAt, soundEnabled, desktopPermission, open, chime],
   );
 
   return <NotificationsCtx.Provider value={value}>{children}</NotificationsCtx.Provider>;

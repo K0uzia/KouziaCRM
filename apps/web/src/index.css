@@ -76,6 +76,8 @@
   --gutter: 1rem;
   --tap: 2.75rem;
   --text-meta: 0.8125rem;
+  /* Libellés des onglets du bas : « Messages » entier sur 5 onglets à 320 px. */
+  --text-tab: clamp(0.6875rem, 0.45rem + 1.1vw, 0.8125rem);
   /* Mouvement */
   --duration-fast: 150ms;
   --duration-base: 300ms;

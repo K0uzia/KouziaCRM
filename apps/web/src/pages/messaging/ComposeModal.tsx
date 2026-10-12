@@ -2,6 +2,8 @@ import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { Button } from "@/components/ui/Button";
+import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
+import { faPaperPlane, faXmark } from "@fortawesome/free-solid-svg-icons";
 import { Field, Input, Textarea } from "@/components/ui/Field";
 import { ClientEmailCombobox } from "@/pages/messaging/ClientEmailCombobox";
 
@@ -80,17 +82,28 @@ export function ComposeModal({ open, onClose, onSent, defaults = {} }: Props) {
         className="absolute inset-0 bg-[var(--text)]/30 backdrop-blur-[2px]"
         onClick={onClose}
       />
-      <div className="relative z-10 flex max-h-[92vh] w-full min-w-0 flex-col overflow-hidden rounded-t-[var(--radius-lg)] border border-[var(--border)] bg-[var(--surface)] pb-[env(safe-area-inset-bottom)] shadow-[var(--shadow)] sm:max-w-2xl sm:rounded-[var(--radius-lg)]">
-        <div className="flex h-10 shrink-0 items-center justify-center sm:hidden" aria-hidden>
-          <div className="h-1 w-10 rounded-full bg-[var(--muted)]/40" />
-        </div>
-        <div className="flex shrink-0 items-center justify-between gap-3 border-b border-[var(--border)] px-4 py-2 sm:px-5 sm:py-3">
-          <h2 id="compose-title" className="min-w-0 truncate font-semibold">
-            Nouveau message
+      {/* Téléphone : plein écran, « Envoyer » toujours visible en haut ; grand écran : fenêtre centrée. */}
+      <div className="relative z-10 flex h-dvh w-full min-w-0 flex-col overflow-hidden bg-[var(--surface)] pb-[env(safe-area-inset-bottom)] sm:h-auto sm:max-h-[92vh] sm:max-w-2xl sm:rounded-[var(--radius-lg)] sm:border sm:border-[var(--border)] sm:shadow-[var(--shadow)]">
+        <div className="flex shrink-0 items-center gap-2 border-b border-[var(--border)] px-2 py-2 pt-[max(0.5rem,env(safe-area-inset-top))] sm:px-5 sm:py-3">
+          <span className="sm:hidden">
+            <Button variant="ghost" onClick={onClose} aria-label="Fermer sans envoyer">
+              <FontAwesomeIcon icon={faXmark} className="h-4 w-4" aria-hidden />
+            </Button>
+          </span>
+          <h2 id="compose-title" className="min-w-0 flex-1 truncate font-semibold">
+            {defaults.inReplyTo ? "Répondre" : "Nouveau message"}
           </h2>
-          <Button variant="secondary" onClick={onClose} aria-label="Fermer">
-            Fermer
-          </Button>
+          <span className="sm:hidden">
+            <Button disabled={pending} onClick={() => void send()}>
+              <FontAwesomeIcon icon={faPaperPlane} className="h-4 w-4" aria-hidden />
+              Envoyer
+            </Button>
+          </span>
+          <span className="hidden sm:block">
+            <Button variant="secondary" onClick={onClose}>
+              Fermer
+            </Button>
+          </span>
         </div>
         <div className="min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain p-4 sm:p-5">
           <Field label="À">
@@ -105,7 +118,7 @@ export function ComposeModal({ open, onClose, onSent, defaults = {} }: Props) {
           {!showCc ? (
             <button
               type="button"
-              className="text-sm text-[var(--primary)]"
+              className="inline-flex min-h-11 items-center text-sm text-[var(--primary)]"
               onClick={() => setShowCc(true)}
             >
               Cc / Cci
@@ -126,7 +139,7 @@ export function ComposeModal({ open, onClose, onSent, defaults = {} }: Props) {
           <div className="flex justify-end">
             <button
               type="button"
-              className="text-xs text-[var(--muted)]"
+              className="inline-flex min-h-11 items-center text-xs text-[var(--muted)]"
               onClick={() => setHtmlMode((v) => !v)}
             >
               {htmlMode ? "Mode texte brut" : "Mode HTML simple"}
@@ -140,7 +153,7 @@ export function ComposeModal({ open, onClose, onSent, defaults = {} }: Props) {
             />
           </Field>
         </div>
-        <div className="flex shrink-0 flex-col-reverse gap-2 border-t border-[var(--border)] px-4 py-4 sm:flex-row sm:justify-end sm:px-5 [&_button]:w-full sm:[&_button]:w-auto">
+        <div className="hidden shrink-0 justify-end gap-2 border-t border-[var(--border)] px-5 py-4 sm:flex">
           <Button variant="secondary" onClick={onClose}>
             Annuler
           </Button>

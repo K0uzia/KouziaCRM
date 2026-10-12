@@ -42,7 +42,7 @@ export function AcceptanceProofs({ quoteId }: { quoteId: string }) {
           </p>
           {p.ipAddress || p.userAgent || p.pdfSha256 ? (
             <details>
-              <summary className="cursor-pointer hover:text-[var(--text)]">Détails techniques</summary>
+              <summary className="flex min-h-11 cursor-pointer items-center hover:text-[var(--text)]">Détails techniques</summary>
               <div className="mt-1 space-y-0.5">
                 {p.ipAddress ? <p>IP : {p.ipAddress}</p> : null}
                 {p.userAgent ? <p className="break-all">Navigateur : {p.userAgent}</p> : null}
@@ -63,7 +63,7 @@ export function AcceptanceProofs({ quoteId }: { quoteId: string }) {
               href={`/api/quotes/${quoteId}/acceptances/${p.id}/pdf`}
               target="_blank"
               rel="noopener noreferrer"
-              className="link"
+              className="link inline-flex min-h-11 items-center"
             >
               PDF signé archivé
             </a>

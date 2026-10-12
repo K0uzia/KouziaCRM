@@ -135,6 +135,16 @@ const quoteDecisionSchema = z.discriminatedUnion("decision", [
   }),
 ]);
 
+/** Libellé de l'étape cochée « déclenche le 2e acompte » dans les étapes JSON d'un projet. */
+function flaggedStepLabel(steps: string | null | undefined): string | null {
+  try {
+    const list = JSON.parse(steps ?? "[]") as Array<{ label?: string; triggersDeposit2?: boolean }>;
+    return list.find((s) => s.triggersDeposit2)?.label ?? null;
+  } catch {
+    return null;
+  }
+}
+
 const SESSION_EXPIRED = { error: "Session expirée : reconnectez-vous." };
 const CODE_ERRORS: Record<Exclude<CodeCheck, "ok">, string> = {
   invalid: "Code incorrect ou expiré.",
@@ -246,6 +256,8 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
         include: {
           milestones: { orderBy: { position: "asc" } },
           payments: { orderBy: { paidAt: "asc" } },
+          // 3 fois : étape du projet de CE devis qui déclenchera le 2e acompte.
+          project: { select: { steps: true } },
         },
         take: 60,
       });
@@ -335,6 +347,8 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
             !requiresDeposit || firstMilestone?.status === "PAID";
           const quotePending = d.quoteStatus === "SENT";
           const offer = parsePaymentPlanOffer(d.paymentPlanOffer);
+          const awaitedStep =
+            d.paymentPlan === "THREE" ? flaggedStepLabel(d.project?.steps) : null;
           return {
             id: d.id,
             number: d.number,
@@ -378,6 +392,9 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
                     triggerText: m.triggerText,
                     triggerStepLabel: m.triggerStepLabel,
                     triggeredAt: m.triggeredAt,
+                    ...(m.position === 2 && m.status === "PENDING" && awaitedStep
+                      ? { awaitingStepLabel: awaitedStep }
+                      : {}),
                     dueDate: m.dueDate,
                     checkoutUrl:
                       m.checkoutUrl &&

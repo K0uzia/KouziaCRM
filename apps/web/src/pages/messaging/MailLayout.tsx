@@ -12,7 +12,7 @@ import { ComposeModal } from "@/pages/messaging/ComposeModal";
 import { useInboxSync } from "@/pages/messaging/useInboxSync";
 import { useMailNotifications } from "@/pages/messaging/useMailNotifications";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
-import { formatAgoMinutes, MAIL_SYNC_STALE_MIN, minutesSince } from "@/lib/format";
+import { formatAgoMinutes, formatDate, formatTime, MAIL_SYNC_STALE_MIN, minutesSince } from "@/lib/format";
 
 export type MailFolderItem = {
   id: string;
@@ -255,7 +255,7 @@ export function MailLayout() {
       inReplyTo: msg.messageId,
       subject: msg.subject.startsWith("Re:") ? msg.subject : `Re: ${msg.subject}`,
       to,
-      body: `\n\n---\nLe ${msg.receivedAt}, ${msg.fromAddress} a écrit :\n> ${msg.snippet}`,
+      body: `\n\n---\nLe ${formatDate(msg.receivedAt)} à ${formatTime(msg.receivedAt)}, ${msg.fromAddress} a écrit :\n> ${msg.snippet}`,
     });
   }
 
@@ -464,7 +464,7 @@ export function MailLayout() {
                   inReplyTo: msg.messageId,
                   subject: msg.subject.startsWith("Re:") ? msg.subject : `Re: ${msg.subject}`,
                   to: msg.replyToAddress || msg.fromAddress,
-                  body: `\n\n---\nLe ${msg.receivedAt}, ${msg.fromAddress} a écrit :\n> ${msg.snippet}`,
+                  body: `\n\n---\nLe ${formatDate(msg.receivedAt)} à ${formatTime(msg.receivedAt)}, ${msg.fromAddress} a écrit :\n> ${msg.snippet}`,
                 });
               }}
               onRefresh={() => void refresh()}

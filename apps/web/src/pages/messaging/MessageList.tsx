@@ -11,10 +11,10 @@ import {
   faTrash,
 } from "@fortawesome/free-solid-svg-icons";
 import type { MailMessageItem } from "@/pages/messaging/MailLayout";
-import { formatDate, formatTime } from "@/lib/format";
+import { formatShortDate } from "@/lib/format";
 import { FilterChips } from "@/components/ui/FilterChips";
 import { Button } from "@/components/ui/Button";
-import { Input } from "@/components/ui/Field";
+import { Input, Select } from "@/components/ui/Field";
 import { senderLabel } from "@kouzia-erp/email-sender";
 
 type Props = {
@@ -51,18 +51,24 @@ type CtxMenu = {
   y: number;
 };
 
+/**
+ * Nom affiché sur la ligne, comme Gmail : l'expéditeur réel (le client rattaché va dans le badge).
+ * Formulaire du site relayé (Web3Forms) : le prospect est dans Reply-To, pas dans From.
+ */
 function personLabel(msg: MailMessageItem): string {
   const c = msg.thread?.client;
-  if (c) {
-    const full = [c.firstName, c.lastName].filter(Boolean).join(" ").trim();
-    if (full) return full;
-    if (c.displayName?.trim()) return c.displayName.trim();
-  }
+  const clientName = c ? [c.firstName, c.lastName].filter(Boolean).join(" ").trim() || c.displayName?.trim() || "" : "";
+  // Sans nom d'affichage, le client rattaché est plus parlant qu'une adresse brute.
+  const named = (name: string | null | undefined, address: string) =>
+    name?.trim() && name.trim().toLowerCase() !== address.toLowerCase()
+      ? senderLabel(name, address)
+      : clientName || senderLabel(null, address);
   if (msg.direction === "OUTBOUND") {
     const to = msg.toAddresses?.[0] ?? "";
-    return to ? senderLabel(null, to) : "Destinataire inconnu";
+    return to ? named(null, to) : "Destinataire inconnu";
   }
-  return senderLabel(msg.fromName, msg.fromAddress);
+  if (msg.replyToAddress) return named(null, msg.replyToAddress);
+  return named(msg.fromName, msg.fromAddress);
 }
 
 function companyTag(msg: MailMessageItem): string | null {
@@ -78,16 +84,12 @@ function companyTag(msg: MailMessageItem): string | null {
   return null;
 }
 
-function contactEmail(msg: MailMessageItem): string | null {
-  if (msg.direction === "OUTBOUND") {
-    return msg.toAddresses?.[0] ?? null;
-  }
-  return msg.fromAddress || null;
-}
+/** Appui long (téléphone) : sélection du message, comme Gmail. */
+const LONG_PRESS_MS = 450;
 
 function ClientTag({ label }: { label: string }) {
   return (
-    <span className="inline-block shrink-0 rounded bg-teal-100 px-1.5 py-0.5 text-xs font-normal text-teal-800 dark:bg-teal-950/50 dark:text-teal-200">
+    <span className="inline-block max-w-[50%] shrink-0 truncate rounded-[var(--radius-sm)] bg-[var(--info-soft)] px-1.5 text-xs leading-5 text-[var(--info)]">
       {label}
     </span>
   );
@@ -129,12 +131,15 @@ export function MessageList({
     id: "all" | "unread" | "starred" | "attachments";
     label: string;
   }> = [
-    { id: "all", label: "Tous les messages" },
+    { id: "all", label: "Tout" },
     { id: "unread", label: "Non lus" },
     { id: "starred", label: "Favoris" },
     { id: "attachments", label: "Pièces jointes" },
   ];
   const [ctx, setCtx] = useState<CtxMenu | null>(null);
+  const pointerType = useRef("mouse");
+  const pressTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const longPressed = useRef(false);
   const ctxRef = useRef<HTMLDivElement | null>(null);
   const allIds = messages.map((m) => m.id);
   const allSelected = allIds.length > 0 && allIds.every((id) => selectedIds.has(id));
@@ -190,66 +195,110 @@ export function MessageList({
     );
   }
 
+  const selecting = selectedIds.size > 0;
+
   return (
     <div className="flex h-full flex-col">
-      <div className="border-b border-[var(--border)] p-3">
-        <div className="mb-2 flex items-center gap-2 md:hidden">
-          <Button variant="secondary" className="px-3" onClick={onOpenFolders}>
-            <FontAwesomeIcon icon={faBars} className="h-4 w-4" />
-            Dossiers
+      <div className="space-y-2 border-b border-[var(--border)] p-3">
+        <div className="flex items-center gap-2">
+          <Button
+            variant="secondary"
+            className="shrink-0 px-3 md:hidden"
+            onClick={onOpenFolders}
+            aria-label="Dossiers"
+          >
+            <FontAwesomeIcon icon={faBars} className="h-4 w-4" aria-hidden />
           </Button>
+          <div className="relative min-w-0 flex-1">
+            <FontAwesomeIcon
+              icon={faMagnifyingGlass}
+              className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 opacity-40"
+              aria-hidden
+            />
+            <Input
+              className="pl-9"
+              type="search"
+              aria-label="Rechercher dans les messages"
+              placeholder="Rechercher…"
+              value={search}
+              onChange={(e) => onSearchChange(e.target.value)}
+            />
+          </div>
         </div>
-        <FilterChips
-          className="mb-2"
-          label="Expéditeurs"
-          value={audience}
-          onChange={onAudienceChange}
-          options={filters.map((f) => ({
-            id: f.id,
-            label: f.label,
-            count:
-              f.id === "all"
-                ? audienceCounts?.all
-                : f.id === "clients"
-                  ? audienceCounts?.clients
-                  : audienceCounts?.external,
-          }))}
-        />
-        <div
-          className="-mx-4 mb-2 flex gap-1 overflow-x-auto border-b border-[var(--border)] px-4 no-scrollbar sm:mx-0 sm:px-0"
-          role="group"
-          aria-label="Filtres du dossier"
-        >
-          {viewFilters.map((f) => (
-            <button
-              key={f.id}
-              type="button"
-              aria-pressed={viewFilter === f.id}
-              className={`ui-chip shrink-0 border-b-2 px-3 text-sm transition-colors ${
-                viewFilter === f.id
-                  ? "border-[var(--primary)] font-medium text-[var(--text)]"
-                  : "border-transparent text-[var(--muted)] hover:text-[var(--text)]"
-              }`}
-              onClick={() => onViewFilterChange(f.id)}
-            >
-              {f.label}
-            </button>
-          ))}
+        {/* Téléphone : deux listes sur une ligne ; écran large : puces. */}
+        <div className="grid grid-cols-2 gap-2 md:hidden">
+          <Select
+            aria-label="Expéditeurs"
+            value={audience}
+            onChange={(e) => onAudienceChange(e.target.value as typeof audience)}
+          >
+            {filters.map((f) => {
+              const n = f.id === "all" ? audienceCounts?.all : f.id === "clients" ? audienceCounts?.clients : audienceCounts?.external;
+              return (
+                <option key={f.id} value={f.id}>
+                  {f.label}
+                  {n != null ? ` (${n})` : ""}
+                </option>
+              );
+            })}
+          </Select>
+          <Select
+            aria-label="Filtres du dossier"
+            value={viewFilter}
+            onChange={(e) => onViewFilterChange(e.target.value as typeof viewFilter)}
+          >
+            {viewFilters.map((f) => (
+              <option key={f.id} value={f.id}>
+                {f.label}
+              </option>
+            ))}
+          </Select>
         </div>
-        <div className="relative">
-          <FontAwesomeIcon
-            icon={faMagnifyingGlass}
-            className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 opacity-40"
+        <div className="hidden space-y-2 md:block">
+          <FilterChips
+            wrap
+            label="Expéditeurs"
+            value={audience}
+            onChange={onAudienceChange}
+            options={filters.map((f) => ({
+              id: f.id,
+              label: f.label,
+              count:
+                f.id === "all"
+                  ? audienceCounts?.all
+                  : f.id === "clients"
+                    ? audienceCounts?.clients
+                    : audienceCounts?.external,
+            }))}
           />
-          <Input
-            className="pl-9"
-            placeholder="Rechercher…"
-            value={search}
-            onChange={(e) => onSearchChange(e.target.value)}
-          />
+          <FilterChips wrap label="Filtres du dossier" value={viewFilter} onChange={onViewFilterChange} options={viewFilters} />
         </div>
-        <div className="mt-2 flex flex-wrap items-center gap-2">
-          <label className="inline-flex items-center gap-2 text-xs text-[var(--muted)]">
+        {selecting ? (
+          <div className="flex flex-wrap items-center gap-2" role="toolbar" aria-label="Messages sélectionnés">
+            <span className="text-sm font-medium">{selectedIds.size} sélectionné(s)</span>
+            <Button variant="secondary" className="text-xs" onClick={() => onBulkRead(true)}>
+              Lu
+            </Button>
+            <Button variant="secondary" className="text-xs" onClick={() => onBulkRead(false)}>
+              Non lu
+            </Button>
+            {onBulkStar ? (
+              <Button variant="secondary" className="text-xs" onClick={() => onBulkStar(true)}>
+                Favoris
+              </Button>
+            ) : null}
+            <Button variant="danger" className="text-xs" onClick={onBulkDelete}>
+              {isTrashFolder ? "Supprimer définitivement" : "Supprimer"}
+            </Button>
+            <Button variant="ghost" className="text-xs" onClick={onClearSelection}>
+              Annuler
+            </Button>
+          </div>
+        ) : null}
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+          <label
+            className={`min-h-11 items-center gap-2 text-xs text-[var(--muted)] ${selecting ? "inline-flex" : "hidden md:inline-flex"}`}
+          >
             <input
               type="checkbox"
               checked={allSelected}
@@ -260,147 +309,122 @@ export function MessageList({
                 if (allSelected) onClearSelection();
                 else onSelectAll(allIds);
               }}
-              aria-label="Tout sélectionner"
             />
             Tout sélectionner
           </label>
+          <p className="text-xs text-[var(--muted)]">{total} message(s)</p>
           {isTrashFolder && onEmptyTrash ? (
-            <Button variant="danger" className="h-8 px-3 text-xs" onClick={onEmptyTrash}>
+            <Button variant="danger" className="ml-auto text-xs" onClick={onEmptyTrash}>
               Vider la corbeille
             </Button>
           ) : null}
         </div>
-        {selectedIds.size > 0 ? (
-          <div className="mt-2 flex flex-wrap gap-2">
-            <Button variant="secondary" className="h-8 text-xs" onClick={() => onBulkRead(true)}>
-              Lu
-            </Button>
-            <Button variant="secondary" className="h-8 text-xs" onClick={() => onBulkRead(false)}>
-              Non lu
-            </Button>
-            {onBulkStar ? (
-              <Button
-                variant="secondary"
-                className="h-8 text-xs"
-                onClick={() => onBulkStar(true)}
-              >
-                Favoris
-              </Button>
-            ) : null}
-            <Button variant="danger" className="h-8 text-xs" onClick={onBulkDelete}>
-              {isTrashFolder ? "Supprimer définitivement" : "Supprimer"}
-            </Button>
-          </div>
-        ) : null}
-        <p className="mt-2 text-xs text-[var(--muted)]">{total} message(s)</p>
       </div>
       <ul className="custom-scrollbar flex-1 overflow-y-auto">
         {messages.map((msg) => {
           const name = personLabel(msg);
-          const email = contactEmail(msg);
-          const tag = companyTag(msg);
-          const emailDiffers =
-            Boolean(email) && name.toLowerCase() !== email!.toLowerCase();
+          const clientTag = companyTag(msg) ?? msg.thread?.client?.displayName ?? null;
+          // Badge client seulement s'il apporte une information (pas le même nom que l'expéditeur).
+          const tag = clientTag && clientTag.toLowerCase() !== name.toLowerCase() ? clientTag : null;
+          const unread = !msg.isRead;
+          const checked = selectedIds.has(msg.id);
           return (
             <li key={msg.id}>
               <div
-                className={`group flex items-center gap-2 border-b border-[var(--border)] px-3 py-2.5 ${
-                  selectedId === msg.id
-                    ? "bg-[var(--primary)]/5"
-                    : "hover:bg-[var(--surface-raised)]"
-                } ${!msg.isRead ? "font-semibold" : ""}`}
+                className={`group relative flex items-stretch border-b border-[var(--border)] ${
+                  checked
+                    ? "bg-[var(--primary-soft)]"
+                    : selectedId === msg.id
+                      ? "bg-[var(--surface-raised)]"
+                      : "hover:bg-[var(--surface-raised)]"
+                }`}
                 onContextMenu={(e) => {
                   e.preventDefault();
-                  setCtx({ msg, x: e.clientX, y: e.clientY });
+                  // Téléphone : l'appui long sélectionne (comme Gmail) ; souris : menu contextuel.
+                  if (pointerType.current === "mouse") setCtx({ msg, x: e.clientX, y: e.clientY });
                 }}
               >
-                <input
-                  type="checkbox"
-                  className="shrink-0"
-                  checked={selectedIds.has(msg.id)}
-                  onChange={() => onToggleSelect(msg.id)}
-                  aria-label={`Sélectionner ${msg.subject}`}
-                />
+                <label
+                  className={`min-w-11 shrink-0 cursor-pointer items-center justify-center ${selecting ? "flex" : "hidden md:flex"}`}
+                >
+                  <input
+                    type="checkbox"
+                    checked={checked}
+                    onChange={() => onToggleSelect(msg.id)}
+                    aria-label={`Sélectionner : ${msg.subject || "(sans objet)"}`}
+                  />
+                </label>
                 <button
                   type="button"
-                  className="min-w-0 flex-1 text-left"
-                  onClick={() => onSelect(msg.id)}
+                  className={`min-w-0 flex-1 py-2.5 pr-3 text-left ${selecting ? "" : "pl-3 md:pl-0"}`}
+                  onPointerDown={(e) => {
+                    pointerType.current = e.pointerType;
+                    if (e.pointerType !== "touch") return;
+                    longPressed.current = false;
+                    clearTimeout(pressTimer.current);
+                    pressTimer.current = setTimeout(() => {
+                      longPressed.current = true;
+                      onToggleSelect(msg.id);
+                    }, LONG_PRESS_MS);
+                  }}
+                  onPointerUp={() => clearTimeout(pressTimer.current)}
+                  onPointerLeave={() => clearTimeout(pressTimer.current)}
+                  onPointerCancel={() => clearTimeout(pressTimer.current)}
+                  onClick={() => {
+                    if (longPressed.current) {
+                      longPressed.current = false;
+                      return;
+                    }
+                    // En mode sélection, un appui ajoute ou retire le message au lieu de l'ouvrir.
+                    if (selecting) onToggleSelect(msg.id);
+                    else onSelect(msg.id);
+                  }}
                 >
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="min-w-0 flex-1">
-                      <div className="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-0.5">
-                        {!msg.isRead ? (
-                          <span
-                            className="size-1.5 shrink-0 rounded-full bg-[var(--primary)]"
-                            aria-label="Non lu"
-                          />
-                        ) : null}
-                        {msg.isStarred ? (
-                          <FontAwesomeIcon
-                            icon={faStar}
-                            className="h-3 w-3 shrink-0 text-[var(--warning)]"
-                            aria-label="Favori"
-                          />
-                        ) : null}
-                        {msg.hasAttachments ? (
-                          <FontAwesomeIcon
-                            icon={faPaperclip}
-                            className="h-3 w-3 shrink-0 text-[var(--muted)]"
-                            aria-label="Pièce jointe"
-                          />
-                        ) : null}
-                        {msg.direction === "OUTBOUND" ? (
-                          <span className="min-w-0 truncate text-sm">
-                            <span className="font-normal text-[var(--muted)]">À : </span>
-                            {name}
-                            {emailDiffers ? (
-                              <span className="font-normal text-[var(--muted)]">
-                                {" "}
-                                &lt;{email}&gt;
-                              </span>
-                            ) : null}
-                          </span>
-                        ) : (
-                          <span className="min-w-0 truncate text-sm">
-                            <span className="font-normal text-[var(--muted)]">De : </span>
-                            {name}
-                          </span>
-                        )}
-                        {tag ? (
-                          <>
-                            <span className="shrink-0 text-xs font-normal text-[var(--muted)]">
-                              -
-                            </span>
-                            <ClientTag label={tag} />
-                          </>
-                        ) : null}
-                      </div>
-                      {msg.direction !== "OUTBOUND" && emailDiffers ? (
-                        <p className="truncate text-xs font-normal text-[var(--muted)]">
-                          &lt;{email}&gt;
-                        </p>
-                      ) : null}
-                      <p className="truncate text-sm">
-                        <span className="font-normal text-[var(--muted)]">Sujet : </span>
-                        {msg.subject || "(sans objet)"}
-                      </p>
-                    </div>
-                    <time className="shrink-0 text-right text-xs font-normal text-[var(--muted)]">
-                      <span className="block">{formatDate(msg.receivedAt)}</span>
-                      <span className="block tabular-nums">{formatTime(msg.receivedAt)}</span>
+                  <span className="flex items-center gap-2">
+                    <span
+                      className={`size-2 shrink-0 rounded-full ${unread ? "bg-[var(--primary)]" : "bg-transparent"}`}
+                      aria-hidden
+                    />
+                    <span className={`min-w-0 flex-1 truncate text-sm text-[var(--text)] ${unread ? "font-semibold" : ""}`}>
+                      {msg.direction === "OUTBOUND" ? <span className="font-normal text-[var(--muted)]">À : </span> : null}
+                      {name}
+                    </span>
+                    <time
+                      dateTime={msg.receivedAt}
+                      className={`shrink-0 whitespace-nowrap text-xs tabular-nums ${unread ? "font-semibold text-[var(--primary)]" : "text-[var(--muted)]"}`}
+                    >
+                      {formatShortDate(msg.receivedAt)}
                     </time>
-                  </div>
+                  </span>
+                  <span className="mt-0.5 flex items-center gap-1.5 pl-4">
+                    <span className={`min-w-0 flex-1 truncate text-sm ${unread ? "font-semibold" : ""}`}>
+                      {msg.subject || "(sans objet)"}
+                    </span>
+                    {msg.hasAttachments ? (
+                      <FontAwesomeIcon
+                        icon={faPaperclip}
+                        className="h-3 w-3 shrink-0 text-[var(--muted)]"
+                        aria-label="Pièce jointe"
+                      />
+                    ) : null}
+                    {msg.isStarred ? (
+                      <FontAwesomeIcon icon={faStar} className="h-3 w-3 shrink-0 text-[var(--warning)]" aria-label="Favori" />
+                    ) : null}
+                  </span>
+                  <span className="mt-0.5 flex items-center gap-1.5 pl-4">
+                    {tag ? <ClientTag label={tag} /> : null}
+                    <span className="min-w-0 flex-1 truncate text-xs text-[var(--muted)]">{msg.snippet}</span>
+                  </span>
+                  {unread ? <span className="sr-only">, non lu</span> : null}
                 </button>
-                <div className="flex shrink-0 items-center gap-0.5 opacity-0 transition group-hover:opacity-100 focus-within:opacity-100">
+                <div className="hidden shrink-0 items-center gap-0.5 pr-1 opacity-0 transition group-hover:opacity-100 focus-within:opacity-100 lg:flex">
                   {actionBtn(
                     msg.isStarred ? "Retirer des favoris" : "Ajouter aux favoris",
                     faStar,
                     () => onToggleStar(msg),
                     msg.isStarred ? "active" : "default",
                   )}
-                  {msg.direction !== "OUTBOUND"
-                    ? actionBtn("Répondre", faReply, () => onReply(msg))
-                    : null}
+                  {msg.direction !== "OUTBOUND" ? actionBtn("Répondre", faReply, () => onReply(msg)) : null}
                   {actionBtn(
                     msg.isRead ? "Marquer non lu" : "Marquer lu",
                     msg.isRead ? faEnvelope : faEnvelopeOpen,

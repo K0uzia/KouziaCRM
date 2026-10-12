@@ -66,10 +66,10 @@ export function QuoteValidationBlock({
   }
 
   return (
-    <div className="mb-4 rounded-lg border border-teal-200 bg-teal-50/80 p-4">
+    <div className="mb-4 rounded-[var(--radius)] border border-[var(--info)]/40 bg-[var(--info-soft)] p-4">
       {pendingQuotes.length > 0 ? (
         <>
-          <p className="text-sm font-semibold text-teal-900">Devis en attente de validation</p>
+          <p className="text-sm font-semibold text-[var(--text)]">Devis en attente de validation</p>
           {quoteConfirmationHint ? (
             <p className="mt-2 rounded-[var(--radius-sm)] border border-[var(--warning)]/30 bg-[var(--warning-soft)] px-3 py-2 text-sm text-[var(--warning)]">
               Ce fil contient une formulation de validation (ex. « je valide », « bon pour accord »).
@@ -103,9 +103,9 @@ export function QuoteValidationBlock({
       ) : null}
 
       {acceptanceAudits.length > 0 ? (
-        <div className={pendingQuotes.length > 0 ? "mt-3 border-t border-teal-100 pt-3" : ""}>
-          <p className="text-xs font-medium text-teal-800">Validations récentes sur ce fil</p>
-          <ul className="mt-1 space-y-1 text-xs text-teal-900">
+        <div className={pendingQuotes.length > 0 ? "mt-3 border-t border-[var(--border)] pt-3" : ""}>
+          <p className="text-xs font-medium text-[var(--muted)]">Validations récentes sur ce fil</p>
+          <ul className="mt-1 space-y-1 text-xs text-[var(--text)]">
             {acceptanceAudits.map((a) => (
               <li key={a.id}>
                 {a.quote.number ?? "Devis"} validé par {a.signerName} le {formatDate(a.createdAt)}

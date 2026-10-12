@@ -1,4 +1,4 @@
-import { useMemo, type ReactNode } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import {
   buildEmailSrcDoc,
   sanitizeEmailHtml,
@@ -147,6 +147,9 @@ function ConversationBody({ text }: { text: string }) {
     return out;
   }, [text]);
 
+  // Citations repliées par défaut (comme Gmail) : le message lui-même reste lisible sur téléphone.
+  const [shownQuotes, setShownQuotes] = useState<Set<number>>(() => new Set());
+
   return (
     <div className="mt-3 space-y-3 text-[15px] leading-relaxed text-[var(--text)]">
       {blocks.map((block, bi) => {
@@ -162,12 +165,30 @@ function ConversationBody({ text }: { text: string }) {
           );
         });
         if (block.quote) {
+          const shown = shownQuotes.has(bi);
           return (
-            <div
-              key={bi}
-              className="border-l-2 border-[var(--border-strong)] pl-3 text-[13px] text-[var(--muted)]"
-            >
-              {content}
+            <div key={bi}>
+              <button
+                type="button"
+                aria-expanded={shown}
+                className="inline-flex min-h-11 items-center rounded-[var(--radius-sm)] px-2 text-sm text-[var(--muted)] hover:bg-[var(--surface-hover)] hover:text-[var(--text)]"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setShownQuotes((prev) => {
+                    const next = new Set(prev);
+                    if (next.has(bi)) next.delete(bi);
+                    else next.add(bi);
+                    return next;
+                  });
+                }}
+              >
+                {shown ? "Masquer le texte cité" : "··· Afficher le texte cité"}
+              </button>
+              {shown ? (
+                <div className="mt-1 border-l-2 border-[var(--border-strong)] pl-3 text-[13px] text-[var(--muted)]">
+                  {content}
+                </div>
+              ) : null}
             </div>
           );
         }

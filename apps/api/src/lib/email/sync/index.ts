@@ -104,7 +104,13 @@ export async function countMessagesByAudience(
 }
 
 export async function getMailFoldersWithCounts() {
-  const folders = await discoverAndEnsureFolders();
+  // Boîte injoignable (panne, identifiants changés) : les dossiers et messages déjà synchronisés
+  // restent consultables ; l'erreur reste visible dans syncStatus.
+  const folders = await discoverAndEnsureFolders().catch(async (err: unknown) => {
+    const cached = await prisma.mailFolder.findMany({ where: { isVirtual: false }, orderBy: { displayName: "asc" } });
+    if (cached.length === 0) throw err;
+    return cached;
+  });
   return {
     folders: folders.map((f) => ({
       id: f.id,
