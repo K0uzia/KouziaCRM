@@ -109,7 +109,8 @@ export async function createManualPayout(opts: {
       requestedByEmail: opts.actorEmail,
       requestedAt: new Date(),
     },
-    update: {},
+    // Le webhook payout.* peut avoir créé la ligne avant : l'auteur de la demande est complété.
+    update: { requestedByEmail: opts.actorEmail, requestedAt: new Date() },
   });
   return { stripePayoutId: payout.id, status: payout.status, amountCents: payout.amount };
 }

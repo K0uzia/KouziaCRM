@@ -637,6 +637,7 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
         emailReason?: string | null;
         subscriptionsCreated?: number;
         warning?: string | null;
+        minimumWarning?: string | null;
       }>(`/api/invoices/${id}/issue`, {
         method: "POST",
         body: JSON.stringify({
@@ -650,6 +651,7 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
       });
       setIssueOpen(false);
       if (res.warning) toast.error(`Lien de paiement : ${res.warning}`);
+      if (res.minimumWarning) toast.warning(res.minimumWarning, { duration: 12000 });
       const kindLabel = isQuote ? "Devis" : "Facture";
       if (sendEmailOnIssue && res.emailed) {
         toast.success(`${kindLabel} émis et envoyé par email`);
@@ -1090,7 +1092,7 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
                 <ul className="divide-y divide-[var(--border)] text-sm">
                   {linked.map((inv) => (
                     <li key={inv.id} className="flex flex-wrap items-center justify-between gap-2 py-2">
-                      <Link to={`/invoices/${inv.id}`} className="font-medium hover:text-[var(--primary)]">
+                      <Link to={`/invoices/${inv.id}`} className="inline-flex min-h-11 items-center font-medium hover:text-[var(--primary)]">
                         {inv.invoiceType === "ACOMPTE"
                           ? "Acompte"
                           : inv.invoiceType === "SOLDE"

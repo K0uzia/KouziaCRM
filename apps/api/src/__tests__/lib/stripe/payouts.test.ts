@@ -81,6 +81,17 @@ describe("versement manuel Stripe (bouton Verser)", () => {
     expect(await prisma.stripePayout.count()).toBe(1);
   });
 
+  it("recette réelle : webhook payout.* arrivé avant la fin, l'auteur de la demande est quand même enregistré", async () => {
+    mockStripe.payouts.create.mockImplementationOnce(async (params: Stripe.PayoutCreateParams) => {
+      await prisma.stripePayout.create({ data: { stripePayoutId: "po_race", amountCents: params.amount, status: "paid" } });
+      return { id: "po_race", amount: params.amount, status: "paid", arrival_date: Math.floor(Date.now() / 1000) };
+    });
+    await createManualPayout({ amountCents: 1_000, requestId: "33333333-3333-4333-8333-333333333333", actorEmail: "admin@kouzia.test" });
+    const row = await prisma.stripePayout.findUniqueOrThrow({ where: { stripePayoutId: "po_race" } });
+    expect(row.requestedByEmail).toBe("admin@kouzia.test");
+    expect(row.requestedAt).not.toBeNull();
+  });
+
   it("échec côté Stripe : erreur claire, rien d'enregistré", async () => {
     failCreate = true;
     await expect(createManualPayout({ amountCents: 1_000, requestId: "33333333-3333-4333-8333-333333333333", actorEmail: null })).rejects.toMatchObject({ statusCode: 502 });

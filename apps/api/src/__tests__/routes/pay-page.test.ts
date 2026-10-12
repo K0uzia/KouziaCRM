@@ -30,7 +30,7 @@ beforeEach(async () => {
   createInvoiceCheckoutSession.mockClear();
 });
 
-async function unpaidInvoice() {
+async function unpaidInvoice(totalCents = 12900) {
   const client = await createClient();
   return prisma.invoice.create({
     data: {
@@ -39,8 +39,8 @@ async function unpaidInvoice() {
       status: InvoiceStatus.ISSUED,
       number: "F-2026-0042",
       clientId: client.id,
-      subtotalCents: 12900,
-      totalCents: 12900,
+      subtotalCents: totalCents,
+      totalCents,
       issueDate: new Date(),
     },
   });
@@ -102,6 +102,38 @@ describe("lien de paiement", () => {
     });
     expect(res.statusCode).toBe(303);
     expect(res.headers.location).toBe("https://checkout.stripe.com/c/pay/cs_test_sub");
+  });
+
+  it("montant sous 0,50 € : message et contact, sans bouton ; le POST ne crée pas de session", async () => {
+    await prisma.companySettings.updateMany({ data: { email: "contact@kouzia.test" } });
+    const inv = await unpaidInvoice(30);
+    const url = `/api/public/pay/${signPayToken("invoice", inv.id)}`;
+    const get = await app.inject({ method: "GET", url });
+    expect(get.body).toContain("Montant inférieur au minimum accepté par le paiement en ligne (0,50");
+    expect(get.body).toContain("contact@kouzia.test");
+    expect(get.body).not.toContain("<form");
+    const post = await app.inject({
+      method: "POST",
+      url,
+      headers: { origin: "https://api.kouzia.com", "content-type": "application/x-www-form-urlencoded" },
+      payload: "",
+    });
+    expect(post.statusCode).toBe(200);
+    expect(post.body).toContain("Montant inférieur au minimum");
+    expect(createInvoiceCheckoutSession).not.toHaveBeenCalled();
+  });
+
+  it("Checkout indisponible : la page l'explique au lieu d'une redirection muette", async () => {
+    const inv = await unpaidInvoice();
+    createInvoiceCheckoutSession.mockRejectedValueOnce(new Error("Stripe down"));
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/public/pay/${signPayToken("invoice", inv.id)}`,
+      headers: { origin: "https://api.kouzia.com" },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toContain("Le paiement en ligne n&#39;a pas pu démarrer");
+    expect(res.body).toContain("<form");
   });
 
   it("jeton falsifié : retour à l'espace client, rien de créé", async () => {

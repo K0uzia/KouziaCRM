@@ -2,6 +2,7 @@ import type { CompanySettings, Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma.js";
 import { decryptOptional, encryptOptional } from "@/lib/crypto.js";
 import { detectStripeMode } from "@/lib/stripe/client.js";
+import { assertSecretKeyFormat, assertWebhookSecretFormat } from "@/lib/stripe/key-check.js";
 import { getCompanySettings, invalidateCompanySettingsCache } from "@/lib/company.js";
 import {
   ATTACHMENT_DEFAULTS,
@@ -294,20 +295,25 @@ export async function savePaymentsTab(
   actor?: AuditActor | null,
 ): Promise<CompanySettings> {
   const current = await getCompanySettings();
+  // Clé et secret collés : nettoyés et contrôlés (clé publiable, secret inversé…) avant tout.
+  const typedKey = patch.stripeSecretKey?.trim() ? assertSecretKeyFormat(patch.stripeSecretKey) : patch.stripeSecretKey;
+  const typedWebhook = patch.stripeWebhookSecret?.trim()
+    ? assertWebhookSecretFormat(patch.stripeWebhookSecret)
+    : patch.stripeWebhookSecret;
   const stripeKey = applyEncryptedSecret(
     current.stripeSecretKeyEncrypted,
     current.stripeSecretKeyHint,
-    patch.stripeSecretKey,
+    typedKey,
   );
   const stripeWebhook = applyEncryptedSecret(
     current.stripeWebhookSecretEncrypted,
     current.stripeWebhookSecretHint,
-    patch.stripeWebhookSecret,
+    typedWebhook,
   );
 
   // Changement de mode de clé (live vers test ou l'inverse) : confirmation explicite. Les objets
   // Stripe enregistrés (prestations, clients, abonnements) n'existent que dans leur mode.
-  const newKey = patch.stripeSecretKey?.trim();
+  const newKey = typedKey?.trim();
   const newMode = newKey ? detectStripeMode(newKey) : null;
   const previousKey = decryptOptional(current.stripeSecretKeyEncrypted);
   const storedMode = current.stripeKeyMode === "live" || current.stripeKeyMode === "test" ? current.stripeKeyMode : null;

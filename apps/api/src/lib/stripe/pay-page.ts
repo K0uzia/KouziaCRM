@@ -1,6 +1,8 @@
 import { prisma } from "@/lib/prisma.js";
 import { formatEUR } from "@/lib/money.js";
 import type { PayTokenKind } from "@/lib/stripe/pay-token.js";
+import { getCompanySettings } from "@/lib/company.js";
+import { belowOnlineMinimum, onlineMinimumMessage } from "@/lib/stripe/minimum.js";
 
 /**
  * Page intermédiaire d'un lien de paiement : le GET n'a aucun effet (les antivirus de messagerie
@@ -10,7 +12,15 @@ import type { PayTokenKind } from "@/lib/stripe/pay-token.js";
 const escapeHtml = (s: string) =>
   s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
 
-export type PayPageInfo = { title: string; detail: string; button: string } | null;
+/** button null : pas de paiement en ligne possible, notice explique quoi faire. */
+export type PayPageInfo = { title: string; detail: string; button: string | null; notice?: string } | null;
+
+/** Sous le minimum Stripe : page sans bouton, avec le message et le contact. */
+async function withMinimum(info: NonNullable<PayPageInfo>, amountCents: number): Promise<NonNullable<PayPageInfo>> {
+  if (!belowOnlineMinimum(amountCents)) return info;
+  const settings = await getCompanySettings();
+  return { ...info, button: null, notice: onlineMinimumMessage(settings.email) };
+}
 
 /** Libellé et montant affichés avant le paiement ; null si le document n'est plus payable. */
 export async function payPageInfo(kind: PayTokenKind, id: string): Promise<PayPageInfo> {
@@ -19,25 +29,34 @@ export async function payPageInfo(kind: PayTokenKind, id: string): Promise<PayPa
     if (!inv || inv.status === "PAID" || inv.status === "CANCELLED") return null;
     const remaining = inv.totalCents - inv.payments.reduce((s, p) => s + p.amountCents, 0);
     if (remaining <= 0) return null;
-    return { title: `Facture ${inv.number ?? ""}`.trim(), detail: `Montant à régler : ${formatEUR(remaining)}`, button: "Payer" };
+    return withMinimum(
+      { title: `Facture ${inv.number ?? ""}`.trim(), detail: `Montant à régler : ${formatEUR(remaining)}`, button: "Payer" },
+      remaining,
+    );
   }
   if (kind === "milestone") {
     const m = await prisma.paymentMilestone.findUnique({ where: { id }, include: { quote: true } });
     if (!m || m.status === "PAID" || m.status === "CANCELLED") return null;
-    return {
-      title: `${m.label}, devis ${m.quote.number ?? ""}`.trim(),
-      detail: `Montant à régler : ${formatEUR(m.amountCents)}`,
-      button: "Payer",
-    };
+    return withMinimum(
+      {
+        title: `${m.label}, devis ${m.quote.number ?? ""}`.trim(),
+        detail: `Montant à régler : ${formatEUR(m.amountCents)}`,
+        button: "Payer",
+      },
+      m.amountCents,
+    );
   }
   const sub = await prisma.subscription.findUnique({ where: { id } });
   if (!sub || sub.status === "ENDED" || sub.stripeSubscriptionId) return null;
   const period = sub.billingInterval === "YEAR" ? "par an" : "par mois";
-  return {
-    title: sub.label,
-    detail: `Prélèvement de ${formatEUR(sub.amountCents)} ${period}, par prélèvement SEPA ou carte bancaire.`,
-    button: "Mettre en place le prélèvement",
-  };
+  return withMinimum(
+    {
+      title: sub.label,
+      detail: `Prélèvement de ${formatEUR(sub.amountCents)} ${period}, par prélèvement SEPA ou carte bancaire.`,
+      button: "Mettre en place le prélèvement",
+    },
+    sub.amountCents,
+  );
 }
 
 export function renderPayPage(info: NonNullable<PayPageInfo>): string {
@@ -54,6 +73,7 @@ body{margin:0;min-height:100vh;display:grid;place-items:center;padding:1rem;back
 main{width:100%;max-width:26rem;padding:1.5rem;border:1px solid #232d47;border-radius:1rem;background:#121a2e}
 h1{margin:0 0 .5rem;font-size:1.25rem}
 p{margin:0 0 1.25rem;color:#9aa1bf}
+.notice{padding:.75rem 1rem;border:1px solid #6b4a10;border-radius:.75rem;background:#2a1f0b;color:#ffd58a}
 button{width:100%;min-height:2.75rem;border:0;border-radius:.75rem;background:#ff9f0a;color:#1a1204;font:600 1rem system-ui,sans-serif;cursor:pointer}
 button:focus-visible{outline:3px solid #e8eaf8;outline-offset:2px}
 </style>
@@ -62,7 +82,8 @@ button:focus-visible{outline:3px solid #e8eaf8;outline-offset:2px}
 <main>
 <h1>${escapeHtml(info.title)}</h1>
 <p>${escapeHtml(info.detail)}</p>
-<form method="post"><button type="submit">${escapeHtml(info.button)}</button></form>
+${info.notice ? `<p class="notice" role="alert">${escapeHtml(info.notice)}</p>` : ""}
+${info.button ? `<form method="post"><button type="submit">${escapeHtml(info.button)}</button></form>` : ""}
 </main>
 </body>
 </html>`;

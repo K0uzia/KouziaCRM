@@ -53,27 +53,31 @@ function isSubscriptionInvoice(invoice: Stripe.Invoice): boolean {
 }
 
 
-async function feeFromPaymentIntent(pi: Stripe.PaymentIntent): Promise<number | null> {
-  try {
-    const stripe = await getStripe();
-    const full = await stripe.paymentIntents.retrieve(pi.id, {
-      expand: ["latest_charge.balance_transaction"],
-    });
-    const charge = full.latest_charge;
-    if (!charge || typeof charge === "string") return null;
-    const bt = charge.balance_transaction;
-    if (!bt || typeof bt === "string") return null;
-    return bt.fee;
-  } catch {
-    return null;
-  }
+/** Moyen réellement utilisé (charge), pas la liste des moyens proposés au client. */
+export function methodFromChargeType(type: string | undefined): PaymentMethod {
+  if (type === "sepa_debit") return PaymentMethod.SEPA_DEBIT;
+  if (type === "customer_balance") return PaymentMethod.BANK_TRANSFER;
+  return PaymentMethod.CARD;
 }
 
-function methodFromPaymentIntent(pi: Stripe.PaymentIntent): PaymentMethod {
-  const types = pi.payment_method_types ?? [];
-  if (types.includes("sepa_debit")) return PaymentMethod.SEPA_DEBIT;
-  if (types.includes("customer_balance")) return PaymentMethod.BANK_TRANSFER;
-  return PaymentMethod.CARD;
+/**
+ * Moyen utilisé et frais Stripe d'un paiement. Les frais (balance transaction) arrivent souvent
+ * après payment_intent.succeeded : null ici, complétés par charge.updated.
+ */
+async function chargeDetails(pi: Stripe.PaymentIntent): Promise<{ method: PaymentMethod; feeCents: number | null }> {
+  try {
+    const stripe = await getStripe();
+    const full = await stripe.paymentIntents.retrieve(pi.id, { expand: ["latest_charge.balance_transaction"] });
+    const charge = full.latest_charge;
+    if (!charge || typeof charge === "string") return { method: methodFromChargeType(undefined), feeCents: null };
+    const bt = charge.balance_transaction;
+    return {
+      method: methodFromChargeType(charge.payment_method_details?.type),
+      feeCents: bt && typeof bt !== "string" ? bt.fee : null,
+    };
+  } catch {
+    return { method: methodFromChargeType(undefined), feeCents: null };
+  }
 }
 
 export async function processStripeEvent(event: Stripe.Event): Promise<{
@@ -100,16 +104,29 @@ async function handleEvent(event: Stripe.Event): Promise<string> {
       const meta = pi.metadata ?? {};
       // Prélèvement d'abonnement (Billing) : pas de métadonnées ERP, invoice.paid s'en charge.
       if (!meta.erpInvoiceId && !meta.erpMilestoneId) return `${event.type}:ignoré (sans document ERP)`;
-      const feeCents = await feeFromPaymentIntent(pi);
+      const { method, feeCents } = await chargeDetails(pi);
       await markPaidFromOnlinePayment({
         amountCents: pi.amount_received || pi.amount,
-        method: methodFromPaymentIntent(pi),
+        method,
         paymentIntentId: pi.id,
         feeCents,
         milestoneId: meta.erpMilestoneId || null,
         invoiceId: meta.erpInvoiceId || null,
         notes: "Paiement Stripe",
       });
+      break;
+    }
+    case "charge.updated": {
+      // Frais Stripe connus après coup : complète le paiement ERP enregistré sans frais.
+      const charge = event.data.object as Stripe.Charge;
+      const piId = typeof charge.payment_intent === "string" ? charge.payment_intent : charge.payment_intent?.id;
+      if (!piId || !charge.balance_transaction) return `${event.type}:ignoré`;
+      const payment = await prisma.payment.findUnique({ where: { stripePaymentIntentId: piId } });
+      if (!payment || payment.feeCents !== null) return `${event.type}:rien à compléter`;
+      const stripe = await getStripe();
+      const btId = typeof charge.balance_transaction === "string" ? charge.balance_transaction : charge.balance_transaction.id;
+      const bt = await stripe.balanceTransactions.retrieve(btId);
+      await prisma.payment.update({ where: { id: payment.id }, data: { feeCents: bt.fee } });
       break;
     }
     case "payment_intent.payment_failed": {

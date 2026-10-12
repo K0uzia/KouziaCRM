@@ -35,7 +35,7 @@ beforeEach(async () => {
 });
 
 describe("prestation liée à Stripe", () => {
-  it("nom et description modifiables et repoussés vers Stripe ; prix inchangé", async () => {
+  it("nom et description modifiables et repoussés vers Stripe ; même prix : aucun nouveau prix", async () => {
     const svc = await prisma.service.create({
       data: { name: "Site vitrine", unitPriceCents: 129_000, unit: "FORFAIT", active: true, stripeProductId: "prod_1", stripePriceId: "price_1" },
     });
@@ -43,7 +43,7 @@ describe("prestation liée à Stripe", () => {
       method: "PUT",
       url: `/api/services/${svc.id}`,
       headers: { cookie },
-      payload: { name: "Site vitrine (5 pages)", description: "Jusqu'à 5 pages", unitPriceEuros: 1 },
+      payload: { name: "Site vitrine (5 pages)", description: "Jusqu'à 5 pages", unitPriceEuros: 1290 },
     });
     expect(res.statusCode).toBe(200);
     expect(productsUpdate).toHaveBeenCalledWith("prod_1", { name: "Site vitrine (5 pages)", description: "Jusqu'à 5 pages" });

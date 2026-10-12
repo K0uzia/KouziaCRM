@@ -63,6 +63,7 @@ const mockStripe = {
   },
   balanceTransactions: {
     list: vi.fn(async () => ({ data: [] })),
+    retrieve: vi.fn(async (id: string) => ({ id, fee: 27 })),
   },
 };
 
@@ -189,6 +190,48 @@ describe("processStripeEvent", () => {
       InvoiceStatus.PAID,
     );
     expect((await prisma.payment.findFirstOrThrow()).feeCents).toBe(42);
+  });
+
+  it("recette réelle : carte payée alors que le virement était proposé, frais connus après coup", async () => {
+    const client = await createClient();
+    const inv = await prisma.invoice.create({
+      data: {
+        documentType: InvoiceDocumentType.INVOICE,
+        invoiceType: InvoiceType.SIMPLE,
+        status: InvoiceStatus.ISSUED,
+        number: "F-2026-0003",
+        clientId: client.id,
+        subtotalCents: 6000,
+        totalCents: 6000,
+        issueDate: new Date(),
+      },
+    });
+    mockStripe.paymentIntents.retrieve.mockImplementationOnce(async (id: string) => ({
+      id,
+      latest_charge: { payment_method_details: { type: "card" }, balance_transaction: null },
+    }) as never);
+    await processStripeEvent({
+      id: "evt_pi_card",
+      type: "payment_intent.succeeded",
+      data: {
+        object: {
+          id: "pi_card_1",
+          amount: 6000,
+          amount_received: 6000,
+          payment_method_types: ["card", "customer_balance"],
+          metadata: { erpInvoiceId: inv.id },
+        },
+      },
+    } as unknown as Stripe.Event);
+    const payment = await prisma.payment.findFirstOrThrow({ where: { stripePaymentIntentId: "pi_card_1" } });
+    expect(payment).toMatchObject({ method: "CARD", feeCents: null });
+
+    await processStripeEvent({
+      id: "evt_charge_updated",
+      type: "charge.updated",
+      data: { object: { id: "ch_1", payment_intent: "pi_card_1", balance_transaction: "txn_1" } },
+    } as unknown as Stripe.Event);
+    expect((await prisma.payment.findUniqueOrThrow({ where: { id: payment.id } })).feeCents).toBe(27);
   });
 });
 

@@ -608,11 +608,16 @@ export function SettingsPage() {
   async function testStripe() {
     setBusy(true);
     try {
-      const res = await api<{ ok: boolean; mode: string }>("/api/settings/payments/test-stripe", {
+      // Clé saisie testée avant d'être enregistrée ; champ vide : la clé enregistrée.
+      const res = await api<{ ok: boolean; mode: string; tested: string }>("/api/settings/payments/test-stripe", {
         method: "POST",
-        body: "{}",
+        body: JSON.stringify(stripeKey.trim() ? { secretKey: stripeKey } : {}),
       });
-      toast.success(`Stripe OK (${res.mode})`);
+      toast.success(
+        res.tested === "saisie"
+          ? `Clé saisie acceptée par Stripe (mode ${res.mode}). Enregistrez pour l'utiliser.`
+          : `Stripe OK (clé enregistrée, mode ${res.mode})`,
+      );
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Échec Stripe");
     } finally {
