@@ -3,12 +3,14 @@ import type { FastifyInstance } from "fastify";
 import { InvoiceDocumentType, InvoiceStatus, InvoiceType } from "@prisma/client";
 import { prisma } from "@/lib/prisma.js";
 import { resetDb } from "../helpers/db.js";
-import { createClient, seedCompanySettings } from "../helpers/factories.js";
+import { createClient, createService, seedCompanySettings } from "../helpers/factories.js";
 
 const createInvoiceCheckoutSession = vi.fn(async () => "https://checkout.stripe.com/c/pay/cs_test_123");
+const createSubscriptionCheckoutSession = vi.fn(async () => "https://checkout.stripe.com/c/pay/cs_test_sub");
 vi.mock("@/lib/stripe/checkout.js", async (orig) => ({
   ...(await orig<typeof import("@/lib/stripe/checkout.js")>()),
   createInvoiceCheckoutSession,
+  createSubscriptionCheckoutSession,
 }));
 
 process.env.SESSION_SECRET = process.env.SESSION_SECRET || "test-session-secret-32chars!!";
@@ -64,6 +66,42 @@ describe("lien de paiement", () => {
     });
     expect(res.statusCode).toBe(303);
     expect(res.headers.location).toBe("https://checkout.stripe.com/c/pay/cs_test_123");
+  });
+
+  it("POST du navigateur (formulaire urlencoded, corps vide) : 303 vers Stripe, pas de 415", async () => {
+    const inv = await unpaidInvoice();
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/public/pay/${signPayToken("invoice", inv.id)}`,
+      headers: { origin: "https://api.kouzia.com", "content-type": "application/x-www-form-urlencoded" },
+      payload: "",
+    });
+    expect(res.statusCode).toBe(303);
+    expect(res.headers.location).toBe("https://checkout.stripe.com/c/pay/cs_test_123");
+  });
+
+  it("mise en place du prélèvement : même formulaire, envoi réel du navigateur, 303 vers Stripe", async () => {
+    const client = await createClient();
+    const service = await createService();
+    const sub = await prisma.subscription.create({
+      data: {
+        clientId: client.id,
+        serviceId: service.id,
+        label: "Maintenance",
+        amountCents: 2_900,
+        billingDay: 1,
+        startDate: new Date(),
+        nextInvoiceAt: new Date(Date.now() + 86_400_000),
+      },
+    });
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/public/subscribe/${signPayToken("subscribe", sub.id)}`,
+      headers: { origin: "https://api.kouzia.com", "content-type": "application/x-www-form-urlencoded" },
+      payload: "",
+    });
+    expect(res.statusCode).toBe(303);
+    expect(res.headers.location).toBe("https://checkout.stripe.com/c/pay/cs_test_sub");
   });
 
   it("jeton falsifié : retour à l'espace client, rien de créé", async () => {

@@ -170,6 +170,14 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
     }
   });
 
+  // Formulaire HTML de la page de paiement (bouton « Payer ») : le navigateur envoie
+  // application/x-www-form-urlencoded. Aucun champ n'est lu : corps ignoré, taille plafonnée.
+  app.addContentTypeParser(
+    "application/x-www-form-urlencoded",
+    { parseAs: "string", bodyLimit: 1024 },
+    (_request, _body, done) => done(null, {}),
+  );
+
   // Connexion, étape 1 : un code part si l'adresse est celle d'un client.
   // Réponse identique dans tous les cas : on ne peut pas tester qui est client.
   app.post(
