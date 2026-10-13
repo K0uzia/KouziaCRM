@@ -231,7 +231,10 @@ export function AppLayout() {
             tabIndex={-1}
             aria-label="Fermer le menu"
             className="absolute inset-0 bg-[var(--bg)]/75"
-            onClick={() => setDrawerOpen(false)}
+            onClick={() => {
+              setDrawerOpen(false);
+              returnFocus();
+            }}
           />
           <div
             ref={drawerRef}
