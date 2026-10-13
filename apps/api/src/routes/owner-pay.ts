@@ -31,10 +31,9 @@ export const ownerPayRoutes: FastifyPluginAsync = async (app) => {
   app.get("/api/owner-pay", async (request, reply) => {
     await requireAuth(request, reply);
     if (reply.sent) return;
-    const [summary, withdrawals] = await Promise.all([
-      getOwnerPaySummary(),
-      prisma.ownerWithdrawal.findMany({ orderBy: [{ date: "desc" }, { createdAt: "desc" }], take: 50 }),
-    ]);
+    // Appels l'un après l'autre : une erreur dans le second ne laisse pas le premier rejeté sans gestionnaire.
+    const summary = await getOwnerPaySummary();
+    const withdrawals = await prisma.ownerWithdrawal.findMany({ orderBy: [{ date: "desc" }, { createdAt: "desc" }], take: 50 });
     return { ...summary, withdrawals };
   });
 

@@ -44,8 +44,10 @@ build:
 worker:
 	npm run worker
 
+# Migrations puis client Prisma : un client en retard sur le schéma ferait échouer l'API.
 db-deploy:
 	npm run db:deploy
+	npm run db:generate
 
 db-seed:
 	npm run db:seed

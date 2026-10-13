@@ -3,7 +3,13 @@ import { getAdminPublicHost } from "@/lib/tunnel-hosts.js";
 import { enableWal, prisma } from "@/lib/prisma.js";
 import { buildApp } from "@/app.js";
 import { hydrateSettingsFromEnv } from "@/lib/settings/service.js";
-import { checkPendingMigrations } from "@/lib/migration-check.js";
+import { checkPendingMigrations, checkPrismaClientUpToDate } from "@/lib/migration-check.js";
+
+// Une promesse rejetée sans gestionnaire ne doit jamais arrêter l'ERP (Node le fait par défaut) :
+// on journalise, la requête concernée a déjà échoué de son côté.
+process.on("unhandledRejection", (reason) => {
+  console.error("[process] promesse rejetée non gérée (le serveur continue)", reason);
+});
 
 async function main() {
   // Compat .env legacy : AUTH_SECRET -> SESSION_SECRET (géré par assertSecurityEnv)
@@ -18,6 +24,20 @@ async function main() {
       "[boot] ATTENTION : admin injoignable par le tunnel : ADMIN_PUBLIC_ORIGIN absent du .env " +
         '(ex. ADMIN_PUBLIC_ORIGIN="https://erp.kouzia.com"). Le LAN et Tailscale fonctionnent.',
     );
+  }
+
+  // Client Prisma en retard sur le schéma (migrations appliquées sans prisma generate) :
+  // les tables ou champs récents seraient absents et chaque requête dessus échouerait.
+  const stale = checkPrismaClientUpToDate();
+  if (stale.length > 0) {
+    const message =
+      `[boot] client Prisma pas à jour (absents : ${stale.slice(0, 8).join(", ")}${stale.length > 8 ? "…" : ""}). ` +
+      "Lancer `npx prisma generate` (dev : make dev le fait ; prod : kouziactl update).";
+    if (process.env.NODE_ENV !== "production") {
+      console.error(message);
+      process.exit(1);
+    }
+    console.error(message);
   }
 
   // Base en retard sur le schéma : chaque requête sur une table modifiée échouerait (500).
