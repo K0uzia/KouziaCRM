@@ -473,6 +473,7 @@ export async function saveIdentityTab(
         : {}),
       ...(patch.paymentConditions !== undefined ? { paymentConditions: patch.paymentConditions } : {}),
       ...(patch.brandLogoPath !== undefined ? { brandLogoPath: patch.brandLogoPath } : {}),
+      ...(patch.mediationClause !== undefined ? { mediationClause: emptyToNull(patch.mediationClause) } : {}),
     },
     "identity",
     actor,

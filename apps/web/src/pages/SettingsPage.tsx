@@ -2116,6 +2116,7 @@ export function SettingsPage() {
                 >
                   <Textarea
                     rows={3}
+                    maxLength={1000}
                     value={form.mediationClause ?? ""}
                     onChange={(e) => setForm({ ...form, mediationClause: e.target.value || null })}
                   />
