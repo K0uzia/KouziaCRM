@@ -477,7 +477,10 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
           nextInvoiceAt: s.nextInvoiceAt,
           ...(showAmounts ? { amountCents: s.amountCents } : {}),
           // Prélèvement Stripe pas encore en place : lien pour le mettre en place (SEPA ou carte).
-          ...(settings.moduleStripeEnabled && !s.stripeSubscriptionId ? { setupUrl: buildPayUrl("subscribe", s.id) } : {}),
+          // Pas de mise en place du prélèvement sur un abonnement en cours de résiliation.
+          ...(settings.moduleStripeEnabled && !s.stripeSubscriptionId && !s.cancellationRequestedAt && !(s.endDate && s.endDate > new Date())
+            ? { setupUrl: buildPayUrl("subscribe", s.id) }
+            : {}),
           id: s.id,
           ...portalSubscriptionFields(s, settings.nonRenewalNoticeDays),
         })),

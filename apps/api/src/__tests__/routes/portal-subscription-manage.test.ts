@@ -179,6 +179,7 @@ describe("/suivi : gestion des abonnements", () => {
 
     const after = (await app.inject({ method: "GET", url: "/api/public/tracking", cookies: { kz_portal } })).json();
     expect(after.subscriptions[0]).toMatchObject({ manage: null, cancellationRequestedAt: at });
+    expect(after.subscriptions[0].setupUrl).toBeUndefined();
     expect(after.subscriptions[0].renewalDeadline).toBeUndefined();
   });
 
