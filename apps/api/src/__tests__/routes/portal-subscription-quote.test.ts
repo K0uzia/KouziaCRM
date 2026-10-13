@@ -120,6 +120,8 @@ describe("espace client : devis d'abonnement seul", () => {
     expect(body.subscriptionSetupUrl).toMatch(/\/api\/public\/subscribe\//);
 
     const after = (await app.inject({ method: "GET", url: "/api/public/tracking", cookies: { kz_portal } })).json();
+    // Rien n'est dû au titre du devis : l'abonnement facturera chaque période.
+    expect(after.paymentHistory.totalDueCents).toBe(0);
     expect(after.subscriptions).toHaveLength(1);
     expect(after.subscriptions[0]).toMatchObject({ billingInterval: "YEAR", amountCents: 12000, setupUrl: body.subscriptionSetupUrl });
   });
