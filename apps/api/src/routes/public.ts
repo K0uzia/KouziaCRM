@@ -57,6 +57,7 @@ import {
   TestimonialError,
 } from "@/lib/testimonials/service.js";
 import { listPortalProjects } from "@/lib/projects/service.js";
+import { reviewInviteEligible } from "@/lib/projects/review-invite.js";
 
 const emailSchema = z.object({ email: z.string().trim().email().max(254) });
 const codeSchema = z.string().trim().regex(/^\d{6}$/);
@@ -308,6 +309,7 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
 
       const testimonialSubmitted = await clientHasSubmittedTestimonial(client.id);
       const projects = await listPortalProjects(client.id);
+      const reviewEligible = await reviewInviteEligible(client.id);
 
       const email = decryptOptional(client.emailEncrypted);
       return {
@@ -455,6 +457,8 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
           sentAt: e.sentAt.toISOString(),
         })),
         testimonialSubmitted,
+        // Projet livré : « À faire » propose de laisser un avis Google (lien porté par le site).
+        reviewInvite: { eligible: reviewEligible },
         // Bloc « Avancement » de /suivi : affiché dès que la liste est présente.
         ...(projects.length > 0 ? { projects } : {}),
       };

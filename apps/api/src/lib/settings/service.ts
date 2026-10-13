@@ -70,6 +70,8 @@ export type GeneralPatch = {
   decennalePolicyNumber?: string | null;
   decennaleCoverageZone?: string | null;
   publicTrackingShowAmounts?: boolean;
+  reviewInviteEnabled?: boolean;
+  googleReviewUrl?: string | null;
   clientPortalUrl?: string | null;
   inpiUrl?: string | null;
 };
@@ -112,6 +114,8 @@ export async function saveGeneralTab(
       ...(patch.publicTrackingShowAmounts !== undefined
         ? { publicTrackingShowAmounts: patch.publicTrackingShowAmounts }
         : {}),
+      ...(patch.reviewInviteEnabled !== undefined ? { reviewInviteEnabled: patch.reviewInviteEnabled } : {}),
+      ...(patch.googleReviewUrl !== undefined ? { googleReviewUrl: emptyToNull(patch.googleReviewUrl) } : {}),
       ...(patch.clientPortalUrl !== undefined
         ? { clientPortalUrl: emptyToNull(patch.clientPortalUrl) }
         : {}),

@@ -102,13 +102,13 @@ model MailFolder {
 
 /// État de connexion sync (bannière UI)
 model MailSyncStatus {
-  id              String   @id @default("default")
-  connected       Boolean  @default(false)
-  idleActive      Boolean  @default(false)
-  lastError       String?
-  lastSyncAt      DateTime?
-  reconnectAt     DateTime?
-  updatedAt       DateTime @updatedAt
+  id          String    @id @default("default")
+  connected   Boolean   @default(false)
+  idleActive  Boolean   @default(false)
+  lastError   String?
+  lastSyncAt  DateTime?
+  reconnectAt DateTime?
+  updatedAt   DateTime  @updatedAt
 }
 
 enum UrssafPeriodicity {
@@ -265,118 +265,122 @@ model Session {
 
 /// Identité émetteur (seedée depuis l'attestation INPI)
 model CompanySettings {
-  id            String   @id @default(cuid())
-  legalName     String
-  tradeName     String?
-  siren         String
-  siret         String
-  apeCode       String
-  addressLine1  String
-  addressLine2  String?
-  postalCode    String
-  city          String
-  country       String   @default("FRANCE")
-  email         String?
-  phone         String?
-  website       String?
-  vatRegime     String   @default("FRANCHISE_BASE_293B")
-  vatMention    String   @default("TVA non applicable, art. 293 B du CGI")
+  id                        String            @id @default(cuid())
+  legalName                 String
+  tradeName                 String?
+  siren                     String
+  siret                     String
+  apeCode                   String
+  addressLine1              String
+  addressLine2              String?
+  postalCode                String
+  city                      String
+  country                   String            @default("FRANCE")
+  email                     String?
+  phone                     String?
+  website                   String?
+  vatRegime                 String            @default("FRANCHISE_BASE_293B")
+  vatMention                String            @default("TVA non applicable, art. 293 B du CGI")
   /// Enveloppe trésorerie / frais (budget perso, pas légal)
-  treasuryRateBps Int    @default(1420)
+  treasuryRateBps           Int               @default(1420)
   /// Enveloppe placements / épargne (budget perso)
-  placementRateBps Int   @default(1000)
-  urssafPeriodicity UrssafPeriodicity @default(MONTHLY)
+  placementRateBps          Int               @default(1000)
+  urssafPeriodicity         UrssafPeriodicity @default(MONTHLY)
   /// Jour limite URSSAF (légal AE : 15 du mois suivant) - conservé pour compat
-  urssafDeadlineDay Int  @default(15)
-  publicodesRegime String @default("AE_BNC_LIBERAL")
-  invoicePrefix String   @default("")
+  urssafDeadlineDay         Int               @default(15)
+  publicodesRegime          String            @default("AE_BNC_LIBERAL")
+  invoicePrefix             String            @default("")
   /// Templates de numérotation : {prefix}, {year}, {counter}
-  invoiceNumberTemplate    String @default("F-{year}-{counter}")
-  quoteNumberTemplate      String @default("D-{year}-{counter}")
-  creditNoteNumberTemplate String @default("A-{year}-{counter}")
+  invoiceNumberTemplate     String            @default("F-{year}-{counter}")
+  quoteNumberTemplate       String            @default("D-{year}-{counter}")
+  creditNoteNumberTemplate  String            @default("A-{year}-{counter}")
   /// Largeur du compteur (padding), défaut 4 → 0001
-  numberCounterWidth       Int    @default(4)
+  numberCounterWidth        Int               @default(4)
   /// Reprise legacy : JSON { "FACTURE:2026": 7 } = lastValue initial avant incrément
-  numberingLegacyStarts    Json?
+  numberingLegacyStarts     Json?
   /// @deprecated préférer LegalClause - conservé en fallback
-  paymentConditions String @default("Paiement à réception")
+  paymentConditions         String            @default("Paiement à réception")
   /// @deprecated préférer LegalClause
-  latePenaltiesText String @default("En cas de retard de paiement, une pénalité égale à 3 fois le taux d'intérêt légal sera due, ainsi qu'une indemnité forfaitaire de 40 € pour frais de recouvrement.")
+  latePenaltiesText         String            @default("En cas de retard de paiement, une pénalité égale à 3 fois le taux d'intérêt légal sera due, ainsi qu'une indemnité forfaitaire de 40 € pour frais de recouvrement.")
   /// Mention obligatoire : conditions d'escompte en cas de paiement anticipé
-  earlyPaymentDiscountText String @default("Escompte pour paiement anticipé : néant")
+  earlyPaymentDiscountText  String            @default("Escompte pour paiement anticipé : néant")
   /// @deprecated préférer LegalClause
-  legalMentions String?
+  legalMentions             String?
   /// @deprecated préférer LegalClause
-  suspensionClause String @default("En cas de non-paiement d'une échéance, les prestations peuvent être suspendues jusqu'à régularisation.")
+  suspensionClause          String            @default("En cas de non-paiement d'une échéance, les prestations peuvent être suspendues jusqu'à régularisation.")
   /// Jours après émission avant 1re relance devis
-  reminderQuoteDays Int @default(7)
+  reminderQuoteDays         Int               @default(7)
   /// Jours après échéance avant 1re relance facture
-  reminderInvoiceDays Int @default(7)
+  reminderInvoiceDays       Int               @default(7)
   /// Abonnement annuel : mois offerts par rapport à 12 mensualités (remise proposée par défaut)
-  annualFreeMonths Int @default(2)
+  annualFreeMonths          Int               @default(2)
   /// Mode de la dernière clé Stripe enregistrée (« test » ou « live ») : changement signalé
-  stripeKeyMode String?
+  stripeKeyMode             String?
   /// Notifications push : dernier événement de la cloche déjà envoyé (pas de doublon)
-  pushDispatchedAt DateTime?
+  pushDispatchedAt          DateTime?
   /// Afficher les montants sur le suivi public client
-  publicTrackingShowAmounts Boolean @default(false)
+  publicTrackingShowAmounts Boolean           @default(false)
+  /// Invitation à laisser un avis Google : e-mail au passage d'un projet à DONE (une fois par projet)
+  /// et bouton dans l'espace client. Sans lien d'avis, rien n'est proposé.
+  reviewInviteEnabled       Boolean           @default(true)
+  googleReviewUrl           String?           @default("https://g.page/r/Cb8yzZKdc-SEEBM/review/")
   /// URL du portail client (suivi devis / factures)
-  clientPortalUrl String?
+  clientPortalUrl           String?
   /// Date de création de l'entreprise (INPI) pour délais initiaux
-  businessStartDate DateTime?
+  businessStartDate         DateTime?
   /// Date d'immatriculation au RNE (INPI / open data)
-  rneRegistrationDate DateTime?
+  rneRegistrationDate       DateTime?
   /// Dernière année de revenus déclarée (ex. 2025 = revenus 2025 déclarés en 2026)
   lastIncomeTaxDeclaredYear Int?
   /// Montant CFE par défaut (centimes), saisi à réception de l'avis
-  cfeAmountCents Int @default(25000)
+  cfeAmountCents            Int               @default(25000)
   /// IBAN du compte pro (affiché sur factures pour virement client)
-  bankIban String?
+  bankIban                  String?
   /// BIC / SWIFT
-  bankBic String?
+  bankBic                   String?
   /// Titulaire du compte pro
-  bankAccountHolder String?
+  bankAccountHolder         String?
   /// Nom de la banque (ex. Revolut)
-  bankName String?
+  bankName                  String?
   /// Facture des particuliers (médiation conso)
-  b2cActivity Boolean @default(false)
+  b2cActivity               Boolean           @default(false)
   /// Mention médiation consommation (affichée sur le PDF si b2cActivity=true)
-  mediationClause String?
+  mediationClause           String?
   /// Rappel déclaration revenus : mois (1-12), défaut avril
-  incomeTaxReminderMonth Int @default(4)
+  incomeTaxReminderMonth    Int               @default(4)
   /// Rappel déclaration revenus : jour, défaut 15
-  incomeTaxReminderDay Int @default(15)
+  incomeTaxReminderDay      Int               @default(15)
   /// Liens officiels (JSON) : urssafDeclaration, impotsPro, impotsParticulier
-  officialLinks Json?
+  officialLinks             Json?
   /// Lien fiche entreprise data.inpi.fr
-  inpiUrl String?
+  inpiUrl                   String?
   /// SMTP optionnel (prioritaire sur les variables d'environnement si renseigné)
-  smtpHost          String?
-  smtpPort          Int?
-  smtpSecure        Boolean @default(false)
+  smtpHost                  String?
+  smtpPort                  Int?
+  smtpSecure                Boolean           @default(false)
   /// SSL | STARTTLS | NONE (null = dérivé de smtpSecure)
-  smtpEncryption    String?
-  smtpUser          String?
-  smtpPassEncrypted String?
-  smtpPassHint      String?
-  smtpFrom          String?
-  smtpFromName      String?
-  smtpReplyTo       String?
+  smtpEncryption            String?
+  smtpUser                  String?
+  smtpPassEncrypted         String?
+  smtpPassHint              String?
+  smtpFrom                  String?
+  smtpFromName              String?
+  smtpReplyTo               String?
   /// Expéditeur des e-mails automatiques (codes, invitation, accès, alertes), ex. noreply@kouzia.com.
   /// Vide : smtpFrom. Les réponses vont au Reply-To (contact@).
-  transactionalFrom String?
+  transactionalFrom         String?
   /// Plafond d'envois (emails / minute)
-  emailThrottlePerMinute Int @default(30)
+  emailThrottlePerMinute    Int               @default(30)
 
   /// IMAP (réception). Prioritaire sur IMAP_* du .env si hôte + utilisateur renseignés.
-  imapHost          String?
-  imapPort          Int?
-  imapSecure        Boolean @default(true)
-  imapUser          String?
-  imapPassEncrypted String?
-  imapPassHint      String?
-  imapMailbox       String  @default("INBOX")
-  imapPollIntervalMinutes Int @default(15)
+  imapHost                String?
+  imapPort                Int?
+  imapSecure              Boolean @default(true)
+  imapUser                String?
+  imapPassEncrypted       String?
+  imapPassHint            String?
+  imapMailbox             String  @default("INBOX")
+  imapPollIntervalMinutes Int     @default(15)
 
   /// Mapping dossiers IMAP (null = auto-détection Hostinger)
   imapFolderInbox   String?
@@ -387,7 +391,7 @@ model CompanySettings {
   imapFolderArchive String?
 
   /// Signature email (HTML) insérée dans les nouveaux messages
-  emailSignatureHtml String?
+  emailSignatureHtml        String?
   /// Notifications navigateur pour nouveaux emails
   emailBrowserNotifications Boolean @default(false)
 
@@ -396,12 +400,12 @@ model CompanySettings {
   attachmentMaxMessageMb Int @default(80)
 
   /// Identité légale (PDF, emails, portail)
-  legalForm              String?
-  rcsMention             String?
-  vatIntraNumber         String?
-  decennaleInsurer       String?
-  decennalePolicyNumber  String?
-  decennaleCoverageZone  String?
+  legalForm             String?
+  rcsMention            String?
+  vatIntraNumber        String?
+  decennaleInsurer      String?
+  decennalePolicyNumber String?
+  decennaleCoverageZone String?
 
   /// Charte documents (PDF / emails)
   brandPrimaryColor   String  @default("#0f766e")
@@ -410,32 +414,32 @@ model CompanySettings {
   pdfFooterText       String?
 
   /// Revolut Merchant API (encaissement en ligne). Distinct de la Business API bancaire.
-  revolutMerchantApiKeyEncrypted   String?
-  revolutMerchantApiKeyHint        String?
-  revolutWebhookSecretEncrypted    String?
-  revolutWebhookSecretHint         String?
+  revolutMerchantApiKeyEncrypted String?
+  revolutMerchantApiKeyHint      String?
+  revolutWebhookSecretEncrypted  String?
+  revolutWebhookSecretHint       String?
   /// sandbox | production
-  revolutMerchantMode              String @default("sandbox")
+  revolutMerchantMode            String  @default("sandbox")
 
   /// Échéancier d'acomptes (bps, 10000 = 100 %) : acompte + solde
-  depositCount            Int @default(2)
-  depositPercent1Bps      Int @default(3000)
-  depositPercent2Bps      Int @default(7000)
-  depositPercent3Bps      Int @default(0)
+  depositCount           Int     @default(2)
+  depositPercent1Bps     Int     @default(3000)
+  depositPercent2Bps     Int     @default(7000)
+  depositPercent3Bps     Int     @default(0)
   /// Paiement en 3 fois : acompte, 2e acompte (étape de projet), solde. Somme = 10000.
-  split3Percent1Bps       Int @default(3000)
-  split3Percent2Bps       Int @default(4000)
-  split3Percent3Bps       Int @default(3000)
+  split3Percent1Bps      Int     @default(3000)
+  split3Percent2Bps      Int     @default(4000)
+  split3Percent3Bps      Int     @default(3000)
   /// Total minimal (centimes) pour proposer le 3 fois ; en dessous, l'offre retombe sur 2 fois.
-  split3MinTotalCents     Int @default(50000)
+  split3MinTotalCents    Int     @default(50000)
   /// Nouveaux devis : proposer au client le choix entre 2 et 3 fois.
-  paymentChoiceDefault    Boolean @default(false)
+  paymentChoiceDefault   Boolean @default(false)
   /// Déclencheur imprimé pour le 2e acompte du 3 fois.
-  split3Step2TriggerText  String @default("À la validation de l'étape définie dans le suivi de projet")
+  split3Step2TriggerText String  @default("À la validation de l'étape définie dans le suivi de projet")
   /// Jours avant échéance où le bouton de paiement Revolut est créé / activé
-  paymentButtonLeadDays   Int @default(7)
+  paymentButtonLeadDays  Int     @default(7)
   /// Position du jalon 2 sur la durée du projet (5000 = 50 %)
-  projectMilestoneMidBps  Int @default(5000)
+  projectMilestoneMidBps Int     @default(5000)
 
   /// Rappels d'acomptes (délais en jours, activables)
   reminderDepositMinus7Days    Int     @default(7)
@@ -463,14 +467,14 @@ model CompanySettings {
   moduleMerchantApiEnabled   Boolean @default(false)
 
   /// Stripe : encaissement en ligne, catalogue et abonnements.
-  moduleStripeEnabled              Boolean @default(false)
-  stripeSecretKeyEncrypted         String?
-  stripeSecretKeyHint              String?
-  stripeWebhookSecretEncrypted     String?
-  stripeWebhookSecretHint          String?
+  moduleStripeEnabled          Boolean @default(false)
+  stripeSecretKeyEncrypted     String?
+  stripeSecretKeyHint          String?
+  stripeWebhookSecretEncrypted String?
+  stripeWebhookSecretHint      String?
 
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 
 /// Journal des modifications de Paramètres (jamais de valeurs secrètes)
@@ -512,28 +516,28 @@ model LegalClause {
 
 /// Obligation administrative générique (URSSAF, CFE, impôts, etc.)
 model Obligation {
-  id             String           @id @default(cuid())
-  type           ObligationType
+  id                        String                  @id @default(cuid())
+  type                      ObligationType
   /// Clé période : "2026-07", "2026-Q2", "2026", "ONCE"
-  period         String
-  dueDate        DateTime
-  status         ObligationStatus @default(PENDING)
-  completedAt    DateTime?
+  period                    String
+  dueDate                   DateTime
+  status                    ObligationStatus        @default(PENDING)
+  completedAt               DateTime?
   /// Montant dû en centimes (nullable si inconnu)
-  amountCents    Int?
-  notes          String?
-  label          String
+  amountCents               Int?
+  notes                     String?
+  label                     String
   /// Justificatif PDF téléversé (chemin relatif data/uploads/…)
-  attachmentPath String?
-  attachmentName String?
-  attachmentMime String?
+  attachmentPath            String?
+  attachmentName            String?
+  attachmentMime            String?
   /// Id événement Google Calendar (échéance / clôture)
-  googleCalendarEventId String?
+  googleCalendarEventId     String?
   /// Id événement Google Calendar (ouverture de la fenêtre déclarative)
   googleCalendarOpenEventId String?
-  createdAt      DateTime         @default(now())
-  updatedAt      DateTime         @updatedAt
-  reminderLogs   ObligationReminderLog[]
+  createdAt                 DateTime                @default(now())
+  updatedAt                 DateTime                @updatedAt
+  reminderLogs              ObligationReminderLog[]
 
   @@unique([type, period])
   @@index([status])
@@ -595,80 +599,80 @@ model Counter {
 
 /// Historique des déclarations / virements URSSAF (période M ou trimestre)
 model UrssafDeclaration {
-  id              String                   @id @default(cuid())
+  id             String                  @id @default(cuid())
   /// Clé unique période : "2026-07" (mensuel) ou "2026-Q2" (trimestriel)
-  periodKey       String                   @unique
-  periodicity     UrssafPeriodicity
-  periodStart     DateTime
-  periodEnd       DateTime
-  deadline        DateTime
+  periodKey      String                  @unique
+  periodicity    UrssafPeriodicity
+  periodStart    DateTime
+  periodEnd      DateTime
+  deadline       DateTime
   /// CA encaissé de la période (centimes)
-  encaisseCents   Int
+  encaisseCents  Int
   /// Montant dû calculé Publicodes (centimes)
-  amountDueCents  Int
-  status          UrssafDeclarationStatus  @default(DUE)
-  paidAt          DateTime?
-  paymentRef      String?
-  notes           String?
-  createdAt       DateTime                 @default(now())
-  updatedAt       DateTime                 @updatedAt
+  amountDueCents Int
+  status         UrssafDeclarationStatus @default(DUE)
+  paidAt         DateTime?
+  paymentRef     String?
+  notes          String?
+  createdAt      DateTime                @default(now())
+  updatedAt      DateTime                @updatedAt
 
   @@index([status])
   @@index([deadline])
 }
 
 model Client {
-  id             String        @id @default(cuid())
+  id                    String                 @id @default(cuid())
   /// Numéro public CLI-0001
-  clientNumber   String?       @unique
-  type           ClientType
-  displayName    String
-  firstName      String?
-  lastName       String?
-  companyName    String?
-  emailEncrypted String?
+  clientNumber          String?                @unique
+  type                  ClientType
+  displayName           String
+  firstName             String?
+  lastName              String?
+  companyName           String?
+  emailEncrypted        String?
   /// HMAC-SHA256 de l'email normalisé (lookup messagerie sans decrypt)
-  emailHash      String?       @unique
-  phoneEncrypted String?
-  siretEncrypted String?
-  sirenEncrypted String?
+  emailHash             String?                @unique
+  phoneEncrypted        String?
+  siretEncrypted        String?
+  sirenEncrypted        String?
   /// Code NAF/APE (open data)
-  apeCode        String?
+  apeCode               String?
   /// Date de dernière vérification via recherche-entreprises
-  companyVerifiedAt DateTime?
-  addressLine1   String?
-  addressLine2   String?
-  postalCode     String?
-  city           String?
-  country        String        @default("FRANCE")
+  companyVerifiedAt     DateTime?
+  addressLine1          String?
+  addressLine2          String?
+  postalCode            String?
+  city                  String?
+  country               String                 @default("FRANCE")
   /// Code INSEE commune (BAN)
-  addressCityCode String?
-  addressLat     Float?
-  addressLon     Float?
-  notes          String?
+  addressCityCode       String?
+  addressLat            Float?
+  addressLon            Float?
+  notes                 String?
   /// JSON [{ id, label, done }] : besoins notés en rendez-vous (ordre du tableau = ordre affiché)
-  needs          String    @default("[]")
+  needs                 String                 @default("[]")
   /// Date à laquelle le client a complété son onboarding (via invitation)
-  onboardingCompletedAt  DateTime?
+  onboardingCompletedAt DateTime?
   /// Date du dernier envoi de l'e-mail d'accès à l'espace client
-  accessEmailSentAt      DateTime?
+  accessEmailSentAt     DateTime?
   /// Première connexion à l'espace client par code e-mail : l'adresse est confirmée
-  emailVerifiedAt        DateTime?
-  createdAt      DateTime      @default(now())
-  updatedAt      DateTime      @updatedAt
-  portalCodes    PortalCode[]
-  portalSessions PortalSession[]
-  invoices       Invoice[]
-  emailThreads   EmailThread[]
-  emailEvents    ClientEmailEvent[]
-  subscriptions  Subscription[]
-  onboardingAsExisting OnboardingInvitation[] @relation("OnboardingExisting")
-  onboardingAsCreated  OnboardingInvitation[] @relation("OnboardingCreated")
+  emailVerifiedAt       DateTime?
+  createdAt             DateTime               @default(now())
+  updatedAt             DateTime               @updatedAt
+  portalCodes           PortalCode[]
+  portalSessions        PortalSession[]
+  invoices              Invoice[]
+  emailThreads          EmailThread[]
+  emailEvents           ClientEmailEvent[]
+  subscriptions         Subscription[]
+  onboardingAsExisting  OnboardingInvitation[] @relation("OnboardingExisting")
+  onboardingAsCreated   OnboardingInvitation[] @relation("OnboardingCreated")
 
-  testimonials        ClientTestimonial[]
-  projects            ClientProject[]
+  testimonials           ClientTestimonial[]
+  projects               ClientProject[]
   /// Identifiant Customer Stripe (cus_…)
-  stripeCustomerId    String?       @unique
+  stripeCustomerId       String?             @unique
   /// Mode Stripe de stripeCustomerId : true = live, false = test
   stripeCustomerLivemode Boolean?
 
@@ -716,28 +720,30 @@ model PortalSession {
 
 /// Avancement d'un projet client, affiché dans l'espace client (/suivi) quand visible.
 model ClientProject {
-  id              String   @id @default(cuid())
-  clientId        String
-  client          Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
-  name            String
+  id                 String    @id @default(cuid())
+  clientId           String
+  client             Client    @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  name               String
   /// 0 à 100
-  progress        Int      @default(0)
+  progress           Int       @default(0)
   /// JSON [{ label, status: done|current|todo, date?: YYYY-MM-DD }]
-  steps           String   @default("[]")
+  steps              String    @default("[]")
   /// JSON [{ label, url (https) }]
-  links           String   @default("[]")
+  links              String    @default("[]")
   /// JSON [{ label, done, note? }]
-  checklist       String   @default("[]")
-  visibleOnPortal Boolean  @default(true)
-  position        Int      @default(0)
+  checklist          String    @default("[]")
+  visibleOnPortal    Boolean   @default(true)
+  position           Int       @default(0)
   /// Devis d'origine : le projet naît de la facture d'acompte (ou totale) de ce devis.
-  quoteId         String?  @unique
-  quote           Invoice? @relation("QuoteProject", fields: [quoteId], references: [id], onDelete: SetNull)
+  quoteId            String?   @unique
+  quote              Invoice?  @relation("QuoteProject", fields: [quoteId], references: [id], onDelete: SetNull)
   /// PLANNED (acompte facturé, en attente de paiement) | ACTIVE (démarré) | DONE
-  status          String   @default("ACTIVE")
-  startedAt       DateTime?
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  status             String    @default("ACTIVE")
+  startedAt          DateTime?
+  /// Invitation à laisser un avis envoyée (une seule fois par projet, au passage à DONE).
+  reviewInviteSentAt DateTime?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
 
   @@index([clientId, position])
 }
@@ -768,51 +774,51 @@ model ClientEmailEvent {
 /// existingClientId null = création d'un nouveau client à la soumission ;
 /// existingClientId renseigné = mise à jour du client existant.
 model OnboardingInvitation {
-  id              String    @id @default(cuid())
+  id               String    @id @default(cuid())
   /// Email de destination de l'invitation
-  email           String
+  email            String
   /// Token secret du lien /onboarding/:token (legacy hex) ou jti HMAC
-  token           String    @unique
+  token            String    @unique
   /// Identifiant unique pour idempotence HMAC (UUID)
-  jti             String?   @unique
+  jti              String?   @unique
   /// Date d'expiration du token
-  expiresAt       DateTime
+  expiresAt        DateTime
   /// Date de soumission du formulaire (null = pas encore rempli)
-  usedAt          DateTime?
+  usedAt           DateTime?
   /// Client existant à mettre à jour (null = nouveau client à créer)
-  existingClient  Client?   @relation("OnboardingExisting", fields: [existingClientId], references: [id], onDelete: SetNull)
+  existingClient   Client?   @relation("OnboardingExisting", fields: [existingClientId], references: [id], onDelete: SetNull)
   existingClientId String?
   /// Client créé à la soumission (quand existingClient est null)
-  createdClient   Client?   @relation("OnboardingCreated", fields: [createdClientId], references: [id], onDelete: SetNull)
+  createdClient    Client?   @relation("OnboardingCreated", fields: [createdClientId], references: [id], onDelete: SetNull)
   createdClientId  String?
-  createdAt       DateTime  @default(now())
+  createdAt        DateTime  @default(now())
 
   @@index([email])
 }
 
 model Service {
-  id                  String      @id @default(cuid())
-  name                String
-  description         String?
-  unitPriceCents      Int
-  unit                ServiceUnit @default(FORFAIT)
-  active              Boolean     @default(true)
+  id                String         @id @default(cuid())
+  name              String
+  description       String?
+  unitPriceCents    Int
+  unit              ServiceUnit    @default(FORFAIT)
+  active            Boolean        @default(true)
   /// Prestation d'abonnement mensuel (utilisable sur devis/facture)
-  isSubscription      Boolean     @default(false)
+  isSubscription    Boolean        @default(false)
   /// Jour de facturation par défaut (1-28) si isSubscription
-  defaultBillingDay   Int         @default(1)
+  defaultBillingDay Int            @default(1)
   /// Identifiant Product Stripe (prod_…)
-  stripeProductId     String?
+  stripeProductId   String?
   /// Identifiant Price Stripe (price_…) : une prestation ERP = un prix
-  stripePriceId       String?     @unique
+  stripePriceId     String?        @unique
   /// Mode Stripe des identifiants ci-dessus : true = live, false = test
-  stripeLivemode      Boolean?
+  stripeLivemode    Boolean?
   /// MONTH | YEAR | null (prestation ponctuelle)
-  billingInterval     String?
-  createdAt           DateTime    @default(now())
-  updatedAt           DateTime    @updatedAt
-  subscriptions       Subscription[]
-  invoiceLines        InvoiceLine[]
+  billingInterval   String?
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
+  subscriptions     Subscription[]
+  invoiceLines      InvoiceLine[]
 
   @@index([active])
   @@index([name])
@@ -833,41 +839,41 @@ enum SubscriptionCollectionMethod {
 }
 
 model Subscription {
-  id              String             @id @default(cuid())
-  clientId        String
-  client          Client             @relation(fields: [clientId], references: [id])
-  serviceId       String
-  service         Service            @relation(fields: [serviceId], references: [id])
+  id                     String                       @id @default(cuid())
+  clientId               String
+  client                 Client                       @relation(fields: [clientId], references: [id])
+  serviceId              String
+  service                Service                      @relation(fields: [serviceId], references: [id])
   /// Libellé de la facture récurrente (ex. "Maintenance site web : mensuel")
-  label           String
+  label                  String
   /// Montant HT par échéance (centimes). Franchise TVA → HT = TTC.
-  amountCents     Int
+  amountCents            Int
   /// Jour du mois de facturation (1-28 pour éviter débordement)
-  billingDay      Int
-  startDate       DateTime
+  billingDay             Int
+  startDate              DateTime
   /// null = actif indéfiniment
-  endDate         DateTime?
-  status          SubscriptionStatus @default(ACTIVE)
-  collectionMethod SubscriptionCollectionMethod @default(MANUAL_TRANSFER)
+  endDate                DateTime?
+  status                 SubscriptionStatus           @default(ACTIVE)
+  collectionMethod       SubscriptionCollectionMethod @default(MANUAL_TRANSFER)
   /// Identifiant Subscription Stripe (sub_…)
-  stripeSubscriptionId String?       @unique
+  stripeSubscriptionId   String?                      @unique
   /// Mode Stripe de stripeSubscriptionId : true = live, false = test
-  stripeLivemode       Boolean?
+  stripeLivemode         Boolean?
   /// MONTH | YEAR (copie du prix Stripe)
-  billingInterval String?
+  billingInterval        String?
   /// Prochaine date d'émission de facture
-  nextInvoiceAt   DateTime
+  nextInvoiceAt          DateTime
   /// Dernière facture générée par cet abonnement
-  lastInvoiceId   String?
+  lastInvoiceId          String?
   /// Échéance (nextInvoiceAt) pour laquelle le rappel J-30 de renouvellement annuel est parti
   renewalReminderSentFor DateTime?
   /// Changement d'état venu de Stripe (ENDED | PAUSED | ACTIVE) : résiliation, impayés ou pause faits côté Stripe
-  stripeStatusChange    String?
-  stripeStatusChangedAt DateTime?
-  invoices        Invoice[]
-  sourceLines     InvoiceLine[]
-  createdAt       DateTime           @default(now())
-  updatedAt       DateTime           @updatedAt
+  stripeStatusChange     String?
+  stripeStatusChangedAt  DateTime?
+  invoices               Invoice[]
+  sourceLines            InvoiceLine[]
+  createdAt              DateTime                     @default(now())
+  updatedAt              DateTime                     @updatedAt
 
   @@index([status])
   @@index([nextInvoiceAt])
@@ -875,89 +881,90 @@ model Subscription {
 }
 
 model Invoice {
-  id                String              @id @default(cuid())
+  id                    String                 @id @default(cuid())
   /// Numéro légal (documentNumber) : null en brouillon, unique et immuable une fois émis
-  number            String?             @unique
-  documentType      InvoiceDocumentType @default(INVOICE)
+  number                String?                @unique
+  documentType          InvoiceDocumentType    @default(INVOICE)
   /// SIMPLE | ACOMPTE | SOLDE (chaque facture reste autonome)
-  invoiceType       InvoiceType         @default(SIMPLE)
-  status            InvoiceStatus       @default(DRAFT)
+  invoiceType           InvoiceType            @default(SIMPLE)
+  status                InvoiceStatus          @default(DRAFT)
   /// Statut métier devis (null pour factures / avoirs)
-  quoteStatus       QuoteStatus?
+  quoteStatus           QuoteStatus?
   /// Décision du client sur un devis : horodatage, motif de refus, nom du signataire
-  quoteDecidedAt    DateTime?
-  quoteRejectReason String?
+  quoteDecidedAt        DateTime?
+  quoteRejectReason     String?
   /// Nom saisi lors d'une acceptation en ligne (vaut bon pour accord)
-  quoteSignerName   String?
-  clientId          String
-  client            Client              @relation(fields: [clientId], references: [id])
-  clientSnapshot    Json?
-  issueDate         DateTime?
+  quoteSignerName       String?
+  clientId              String
+  client                Client                 @relation(fields: [clientId], references: [id])
+  clientSnapshot        Json?
+  issueDate             DateTime?
   /// Date de réalisation de la prestation (mention obligatoire, distincte de l'émission)
-  serviceDate       DateTime?
+  serviceDate           DateTime?
   /// Référence du bon de commande de l'acheteur, quand il en fournit un
-  purchaseOrderRef  String?
-  dueDate           DateTime?
-  validUntil        DateTime?
-  sequenceYear      Int?
-  sequenceNumber    Int?
-  currency          String              @default("EUR")
-  subtotalCents     Int                 @default(0)
-  totalCents        Int                 @default(0)
+  purchaseOrderRef      String?
+  dueDate               DateTime?
+  validUntil            DateTime?
+  sequenceYear          Int?
+  sequenceNumber        Int?
+  currency              String                 @default("EUR")
+  subtotalCents         Int                    @default(0)
+  totalCents            Int                    @default(0)
   /// NONE | PERCENT (discountValue en bps, 1000 = 10 %) | FIXED (discountValue en centimes)
-  discountType      String              @default("NONE")
-  discountValue     Int                 @default(0)
+  discountType          String                 @default("NONE")
+  discountValue         Int                    @default(0)
   /// Total du marché (devis) figé à l'émission d'un acompte/solde
-  marketTotalCents  Int?
-  notes             String?
-  paymentTerms      String?             @default("Paiement à réception")
+  marketTotalCents      Int?
+  notes                 String?
+  paymentTerms          String?                @default("Paiement à réception")
   /// Facture d'origine pour un avoir (originalInvoiceId)
-  creditedInvoiceId String?
-  creditedInvoice   Invoice?            @relation("CreditNotes", fields: [creditedInvoiceId], references: [id])
-  creditNotes       Invoice[]           @relation("CreditNotes")
+  creditedInvoiceId     String?
+  creditedInvoice       Invoice?               @relation("CreditNotes", fields: [creditedInvoiceId], references: [id])
+  creditNotes           Invoice[]              @relation("CreditNotes")
   /// Motif métier de l'avoir (uniquement CREDIT_NOTE)
-  creditReason         CreditNoteReason?
-  creditReasonDetail   String?
-  refundMethod         RefundMethod?
+  creditReason          CreditNoteReason?
+  creditReasonDetail    String?
+  refundMethod          RefundMethod?
   /// Confirmation CGV : acompte remboursable (null si non applicable)
-  cgvDepositRefundable Boolean?
+  cgvDepositRefundable  Boolean?
   /// Devis : formules proposées, TWO | THREE | CHOICE (null = échéancier historique). Figée à l'émission.
-  paymentPlanOffer  String?
+  paymentPlanOffer      String?
   /// Devis accepté : formule retenue, TWO | THREE.
-  paymentPlan       String?
+  paymentPlan           String?
   /// Checklist suivi post-avoir (JSON)
-  creditFollowUp       Json?
+  creditFollowUp        Json?
   /// Pivot marché : devis commun (nullable si facture hors marché)
-  quoteId           String?
-  quote             Invoice?            @relation("MarketInvoices", fields: [quoteId], references: [id])
-  marketInvoices    Invoice[]           @relation("MarketInvoices")
+  quoteId               String?
+  quote                 Invoice?               @relation("MarketInvoices", fields: [quoteId], references: [id])
+  marketInvoices        Invoice[]              @relation("MarketInvoices")
   /// @deprecated préférer quoteId - conservé pour compat conversions
-  sourceQuoteId     String?
-  sourceQuote       Invoice?            @relation("QuoteConversions", fields: [sourceQuoteId], references: [id])
-  convertedInvoices Invoice[]           @relation("QuoteConversions")
+  sourceQuoteId         String?
+  sourceQuote           Invoice?               @relation("QuoteConversions", fields: [sourceQuoteId], references: [id])
+  convertedInvoices     Invoice[]              @relation("QuoteConversions")
   /// Jalon d'origine (FK côté facture, sync avec PaymentMilestone.invoiceId)
-  milestoneId       String?             @unique
-  sourceMilestone   PaymentMilestone?   @relation("MilestoneInvoice", fields: [milestoneId], references: [id])
+  milestoneId           String?                @unique
+  sourceMilestone       PaymentMilestone?      @relation("MilestoneInvoice", fields: [milestoneId], references: [id])
   /// Abonnement d'origine (null pour les factures ponctuelles)
-  subscriptionId    String?
-  subscription      Subscription?       @relation(fields: [subscriptionId], references: [id])
-  lines             InvoiceLine[]
-  payments          Payment[]
-  bankTransactions  BankTransaction[]
-  milestones        PaymentMilestone[]  @relation("QuoteMilestones")
-  lastReminderAt    DateTime?
-  reminderCount     Int                 @default(0)
-  nextReminderAt    DateTime?
-  issuedAt          DateTime?
+  subscriptionId        String?
+  subscription          Subscription?          @relation(fields: [subscriptionId], references: [id])
+  lines                 InvoiceLine[]
+  payments              Payment[]
+  bankTransactions      BankTransaction[]
+  milestones            PaymentMilestone[]     @relation("QuoteMilestones")
+  lastReminderAt        DateTime?
+  reminderCount         Int                    @default(0)
+  nextReminderAt        DateTime?
+  issuedAt              DateTime?
   /// @deprecated Revolut Merchant. Conservé en base (SQLite).
-  revolutOrderId    String?
+  revolutOrderId        String?
   /// Lien ERP permanent /api/public/pay/… (ou URL collée à la main)
-  checkoutUrl       String?
+  checkoutUrl           String?
   /// Identifiant Invoice Stripe (in_…) : une échéance Billing = une facture ERP
-  stripeInvoiceId   String?             @unique
-  createdAt         DateTime            @default(now())
-  updatedAt         DateTime            @updatedAt
+  stripeInvoiceId       String?                @unique
+  createdAt             DateTime               @default(now())
+  updatedAt             DateTime               @updatedAt
   quoteAcceptanceAudits QuoteAcceptanceAudit[]
+  project               ClientProject?         @relation("QuoteProject")
 
   @@unique([sequenceYear, sequenceNumber, documentType])
   @@index([status])
@@ -972,40 +979,39 @@ model Invoice {
   @@index([documentType, status])
   @@index([documentType, quoteStatus])
   @@index([clientId, documentType])
-  project           ClientProject? @relation("QuoteProject")
   @@index([revolutOrderId])
 }
 
 model PaymentMilestone {
-  id              String          @id @default(cuid())
-  quoteId         String
-  quote           Invoice         @relation("QuoteMilestones", fields: [quoteId], references: [id], onDelete: Cascade)
-  position        Int
-  label           String
-  percentBps      Int
-  amountCents     Int
-  triggerText     String
-  status          MilestoneStatus @default(PENDING)
+  id               String                @id @default(cuid())
+  quoteId          String
+  quote            Invoice               @relation("QuoteMilestones", fields: [quoteId], references: [id], onDelete: Cascade)
+  position         Int
+  label            String
+  percentBps       Int
+  amountCents      Int
+  triggerText      String
+  status           MilestoneStatus       @default(PENDING)
   /// Date d'échéance du règlement (signature devis ou jalon projet)
-  dueDate         DateTime?
+  dueDate          DateTime?
   /// Revolut Merchant (encaissement en ligne)
-  revolutOrderId    String?
-  revolutPaymentId  String?
+  revolutOrderId   String?
+  revolutPaymentId String?
   /// 2e acompte du 3 fois : étape de projet qui l'a rendu exigible, et quand.
-  triggerStepLabel  String?
-  triggeredAt       DateTime?
-  checkoutUrl       String?
-  paidAt            DateTime?
-  paymentMethod     PaymentMethod?
-  manualReference   String?
-  manualNotes       String?
+  triggerStepLabel String?
+  triggeredAt      DateTime?
+  checkoutUrl      String?
+  paidAt           DateTime?
+  paymentMethod    PaymentMethod?
+  manualReference  String?
+  manualNotes      String?
   /// Facture générée pour ce jalon (dénormalisé, sync avec Invoice.milestoneId)
-  invoiceId       String?
+  invoiceId        String?
   /// Facture d'acompte/solde générée (lien 1-1 via Invoice.milestoneId)
-  generatedInvoice Invoice?       @relation("MilestoneInvoice")
-  webhookEvents   RevolutWebhookEvent[]
-  createdAt       DateTime        @default(now())
-  updatedAt       DateTime        @updatedAt
+  generatedInvoice Invoice?              @relation("MilestoneInvoice")
+  webhookEvents    RevolutWebhookEvent[]
+  createdAt        DateTime              @default(now())
+  updatedAt        DateTime              @updatedAt
 
   @@index([quoteId])
   @@index([status])
@@ -1015,12 +1021,12 @@ model PaymentMilestone {
 }
 
 model RevolutWebhookEvent {
-  id          String    @id @default(cuid())
+  id          String            @id @default(cuid())
   /// Identifiant unique Revolut (idempotence)
-  eventId     String    @unique
+  eventId     String            @unique
   eventType   String
   payload     Json
-  processedAt DateTime  @default(now())
+  processedAt DateTime          @default(now())
   milestoneId String?
   milestone   PaymentMilestone? @relation(fields: [milestoneId], references: [id], onDelete: SetNull)
 
@@ -1029,24 +1035,24 @@ model RevolutWebhookEvent {
 }
 
 model InvoiceLine {
-  id               String         @id @default(cuid())
-  invoiceId        String
-  invoice          Invoice        @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
-  position         Int
-  description      String
-  quantity         Decimal
-  unitPriceCents   Int
-  lineTotalCents   Int
+  id              String        @id @default(cuid())
+  invoiceId       String
+  invoice         Invoice       @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  position        Int
+  description     String
+  quantity        Decimal
+  unitPriceCents  Int
+  lineTotalCents  Int
   /// Ligne d'abonnement mensuel (1ʳᵉ échéance dans le total du document)
-  isSubscription   Boolean        @default(false)
-  billingDay       Int?
+  isSubscription  Boolean       @default(false)
+  billingDay      Int?
   /// MONTH | YEAR (null = MONTH) : périodicité de l'abonnement de la ligne
-  billingInterval  String?
-  serviceId        String?
-  service          Service?       @relation(fields: [serviceId], references: [id])
+  billingInterval String?
+  serviceId       String?
+  service         Service?      @relation(fields: [serviceId], references: [id])
   /// Rempli quand le Subscription a été créé (idempotence)
-  subscriptionId   String?
-  subscription     Subscription?  @relation(fields: [subscriptionId], references: [id])
+  subscriptionId  String?
+  subscription    Subscription? @relation(fields: [subscriptionId], references: [id])
 
   @@index([invoiceId])
   @@index([serviceId])
@@ -1054,23 +1060,23 @@ model InvoiceLine {
 }
 
 model Payment {
-  id          String        @id @default(cuid())
-  invoiceId   String?
-  invoice     Invoice?      @relation(fields: [invoiceId], references: [id])
-  amountCents Int
-  paidAt      DateTime
-  method      PaymentMethod @default(BANK_TRANSFER)
-  reference   String?
-  notes       String?
+  id                    String           @id @default(cuid())
+  invoiceId             String?
+  invoice               Invoice?         @relation(fields: [invoiceId], references: [id])
+  amountCents           Int
+  paidAt                DateTime
+  method                PaymentMethod    @default(BANK_TRANSFER)
+  reference             String?
+  notes                 String?
   /// Identifiant PaymentIntent Stripe (pi_…)
-  stripePaymentIntentId String? @unique
+  stripePaymentIntentId String?          @unique
   /// Frais Stripe (centimes) : information, hors livre des recettes
-  feeCents    Int?
+  feeCents              Int?
   /// Versement Stripe vers Revolut qui a inclus ce paiement
-  stripePayoutId String?
-  stripePayout   StripePayout? @relation(fields: [stripePayoutId], references: [id], onDelete: SetNull)
-  createdAt   DateTime      @default(now())
-  bankTransaction BankTransaction?
+  stripePayoutId        String?
+  stripePayout          StripePayout?    @relation(fields: [stripePayoutId], references: [id], onDelete: SetNull)
+  createdAt             DateTime         @default(now())
+  bankTransaction       BankTransaction?
 
   @@index([invoiceId])
   @@index([paidAt])
@@ -1079,20 +1085,20 @@ model Payment {
 
 /// Versement Stripe vers le compte bancaire (Revolut Pro).
 model StripePayout {
-  id              String    @id @default(cuid())
+  id               String    @id @default(cuid())
   /// Identifiant Payout Stripe (po_…)
-  stripePayoutId  String    @unique
-  amountCents     Int
+  stripePayoutId   String    @unique
+  amountCents      Int
   /// Date d'arrivée prévue sur le compte bancaire
-  arrivalDate     DateTime?
-  status          String
+  arrivalDate      DateTime?
+  status           String
   /// Versement demandé depuis l'ERP (bouton « Verser ») : auteur et date ; null = versement automatique Stripe.
   requestedByEmail String?
-  requestedAt     DateTime?
+  requestedAt      DateTime?
   /// Motif de l'échec renvoyé par Stripe (payout.failed)
-  failureMessage  String?
-  createdAt       DateTime  @default(now())
-  payments        Payment[]
+  failureMessage   String?
+  createdAt        DateTime  @default(now())
+  payments         Payment[]
 
   @@index([arrivalDate])
   @@index([status])
@@ -1133,28 +1139,28 @@ enum SalaryPayoutStatus {
 
 /// Transaction importée depuis Revolut Business (crédits / débits).
 model BankTransaction {
-  id                 String              @id @default(cuid())
+  id               String              @id @default(cuid())
   /// ID unique Revolut (idempotence)
-  revolutId          String              @unique
-  bookedAt           DateTime
+  revolutId        String              @unique
+  bookedAt         DateTime
   /// Positif = crédit entrant (encaissement), négatif = débit
-  amountCents        Int
-  currency           String              @default("EUR")
-  counterpartyName   String?
-  counterpartyIban   String?
-  reference          String?
+  amountCents      Int
+  currency         String              @default("EUR")
+  counterpartyName String?
+  counterpartyIban String?
+  reference        String?
   /// État brut Revolut (pending, completed, ...)
-  revolutState       String?
-  status             BankTxStatus        @default(UNMATCHED)
-  ignoreCategory     BankIgnoreCategory?
-  matchedInvoiceId   String?
-  matchedInvoice     Invoice?            @relation(fields: [matchedInvoiceId], references: [id])
-  paymentId          String?             @unique
-  payment            Payment?            @relation(fields: [paymentId], references: [id])
+  revolutState     String?
+  status           BankTxStatus        @default(UNMATCHED)
+  ignoreCategory   BankIgnoreCategory?
+  matchedInvoiceId String?
+  matchedInvoice   Invoice?            @relation(fields: [matchedInvoiceId], references: [id])
+  paymentId        String?             @unique
+  payment          Payment?            @relation(fields: [paymentId], references: [id])
   /// Suggestion JSON (ids factures + écarts) pour revue manuelle
-  suggestionsJson    String?
-  createdAt          DateTime            @default(now())
-  updatedAt          DateTime            @updatedAt
+  suggestionsJson  String?
+  createdAt        DateTime            @default(now())
+  updatedAt        DateTime            @updatedAt
 
   @@index([status])
   @@index([bookedAt])
@@ -1163,42 +1169,42 @@ model BankTransaction {
 }
 
 model BankSyncLog {
-  id            String   @id @default(cuid())
-  startedAt     DateTime
-  finishedAt    DateTime?
-  imported      Int      @default(0)
-  updated       Int      @default(0)
-  matchedAuto   Int      @default(0)
-  unmatched     Int      @default(0)
-  errorMessage  String?
-  createdAt     DateTime @default(now())
+  id           String    @id @default(cuid())
+  startedAt    DateTime
+  finishedAt   DateTime?
+  imported     Int       @default(0)
+  updated      Int       @default(0)
+  matchedAuto  Int       @default(0)
+  unmatched    Int       @default(0)
+  errorMessage String?
+  createdAt    DateTime  @default(now())
 
   @@index([startedAt])
 }
 
 /// Bénéficiaire virement (ex. compte perso) : PII chiffrées AES-GCM.
 model RevolutBeneficiary {
-  id             String   @id @default(cuid())
-  label          String
-  nameEncrypted  String
-  ibanEncrypted  String
-  active         Boolean  @default(true)
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
-  payouts        SalaryPayout[]
+  id            String         @id @default(cuid())
+  label         String
+  nameEncrypted String
+  ibanEncrypted String
+  active        Boolean        @default(true)
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+  payouts       SalaryPayout[]
 }
 
 model SalaryPayout {
-  id              String             @id @default(cuid())
-  amountCents     Int
-  currency        String             @default("EUR")
-  status          SalaryPayoutStatus @default(DRAFT)
-  revolutDraftId  String?
-  beneficiaryId   String?
-  beneficiary     RevolutBeneficiary? @relation(fields: [beneficiaryId], references: [id])
-  notes           String?
-  createdAt       DateTime           @default(now())
-  updatedAt       DateTime           @updatedAt
+  id             String              @id @default(cuid())
+  amountCents    Int
+  currency       String              @default("EUR")
+  status         SalaryPayoutStatus  @default(DRAFT)
+  revolutDraftId String?
+  beneficiaryId  String?
+  beneficiary    RevolutBeneficiary? @relation(fields: [beneficiaryId], references: [id])
+  notes          String?
+  createdAt      DateTime            @default(now())
+  updatedAt      DateTime            @updatedAt
 
   @@index([status])
   @@index([createdAt])
@@ -1228,18 +1234,18 @@ model EmailOutbox {
 }
 
 model EmailThread {
-  id              String         @id @default(cuid())
-  clientId        String?
-  client          Client?        @relation(fields: [clientId], references: [id])
-  subject         String
-  participants    String         // JSON string[]
-  lastMessageAt   DateTime
-  hasAttachments  Boolean        @default(false)
-  unreadCount     Int            @default(0)
-  isStarred       Boolean        @default(false)
-  createdAt       DateTime       @default(now())
-  updatedAt       DateTime       @updatedAt
-  messages        EmailMessage[]
+  id             String         @id @default(cuid())
+  clientId       String?
+  client         Client?        @relation(fields: [clientId], references: [id])
+  subject        String
+  participants   String // JSON string[]
+  lastMessageAt  DateTime
+  hasAttachments Boolean        @default(false)
+  unreadCount    Int            @default(0)
+  isStarred      Boolean        @default(false)
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+  messages       EmailMessage[]
 
   quoteAcceptanceAudits QuoteAcceptanceAudit[]
 
@@ -1250,72 +1256,72 @@ model EmailThread {
 }
 
 model QuoteAcceptanceAudit {
-  id         String       @id @default(cuid())
-  quoteId    String
-  quote      Invoice      @relation(fields: [quoteId], references: [id], onDelete: Cascade)
-  signerName String
+  id                  String       @id @default(cuid())
+  quoteId             String
+  quote               Invoice      @relation(fields: [quoteId], references: [id], onDelete: Cascade)
+  signerName          String
   /// PORTAL | THREAD | ADMIN
-  source     String
-  threadId   String?
-  thread     EmailThread? @relation(fields: [threadId], references: [id], onDelete: SetNull)
-  userId     String?
-  userEmail  String?
+  source              String
+  threadId            String?
+  thread              EmailThread? @relation(fields: [threadId], references: [id], onDelete: SetNull)
+  userId              String?
+  userEmail           String?
   /// Preuve de signature (portail) : IP et navigateur du signataire.
-  ipAddress  String?
-  userAgent  String?
+  ipAddress           String?
+  userAgent           String?
   /// PDF du devis signé, archivé dans data/uploads, et son empreinte SHA-256 (hex).
-  pdfPath    String?
-  pdfSha256  String?
+  pdfPath             String?
+  pdfSha256           String?
   /// Signature portail : TYPED (nom saisi) | DRAWN (tracé au doigt ou à la souris)
-  signatureMode   String?
+  signatureMode       String?
   /// Tracé de la signature (data URL PNG), seulement en mode DRAWN
-  signatureImage  String?
+  signatureImage      String?
   /// Société représentée (client professionnel)
-  signerCompany   String?
+  signerCompany       String?
   /// Adresse ayant reçu le code de signature, masquée (j***@exemple.fr)
   verifiedEmailMasked String?
-  codeVerifiedAt  DateTime?
+  codeVerifiedAt      DateTime?
   /// Devis tel que présenté au client juste avant sa signature, archivé, et son empreinte SHA-256
-  originalPdfPath   String?
-  originalPdfSha256 String?
+  originalPdfPath     String?
+  originalPdfSha256   String?
   /// Formule de paiement retenue à la signature (TWO | THREE)
-  paymentPlan       String?
-  createdAt  DateTime     @default(now())
+  paymentPlan         String?
+  createdAt           DateTime     @default(now())
 
   @@index([quoteId])
   @@index([threadId])
 }
 
 model EmailMessage {
-  id            String            @id @default(cuid())
-  threadId      String
-  thread        EmailThread       @relation(fields: [threadId], references: [id], onDelete: Cascade)
-  folderId      String?
-  folder        MailFolder?       @relation(fields: [folderId], references: [id], onDelete: SetNull)
-  direction     EmailDirection
-  messageId     String            @unique
-  inReplyTo     String?
+  id               String            @id @default(cuid())
+  threadId         String
+  thread           EmailThread       @relation(fields: [threadId], references: [id], onDelete: Cascade)
+  folderId         String?
+  folder           MailFolder?       @relation(fields: [folderId], references: [id], onDelete: SetNull)
+  direction        EmailDirection
+  messageId        String            @unique
+  inReplyTo        String?
   referencesHeader String?
-  fromAddress   String
-  fromName      String?
+  fromAddress      String
+  fromName         String?
   /// Reply-To d'un message entrant quand il diffère du From (formulaire Web3Forms : le prospect).
-  replyToAddress String?
-  toAddresses   String            // JSON string[]
-  ccAddresses   String?           // JSON string[]
-  subject       String
-  snippet       String?
-  bodyText      String?
-  bodyHtml      String?
-  bodyFetched   Boolean           @default(false)
-  receivedAt    DateTime
-  rawHeaders    String?
-  isRead        Boolean           @default(false)
-  isStarred     Boolean           @default(false)
-  hasAttachments Boolean          @default(false)
-  imapUid       Int?
-  orphaned      Boolean           @default(false)
-  createdAt     DateTime          @default(now())
-  attachments   EmailAttachment[]
+  replyToAddress   String?
+  toAddresses      String // JSON string[]
+  ccAddresses      String? // JSON string[]
+  subject          String
+  snippet          String?
+  bodyText         String?
+  bodyHtml         String?
+  bodyFetched      Boolean           @default(false)
+  receivedAt       DateTime
+  rawHeaders       String?
+  isRead           Boolean           @default(false)
+  isStarred        Boolean           @default(false)
+  hasAttachments   Boolean           @default(false)
+  imapUid          Int?
+  orphaned         Boolean           @default(false)
+  createdAt        DateTime          @default(now())
+  attachments      EmailAttachment[]
 
   @@index([threadId, receivedAt])
   @@index([fromAddress])
@@ -1339,11 +1345,11 @@ model EmailAttachment {
 
 /// Curseur IMAP (UID) par boîte
 model EmailSyncState {
-  id           String   @id @default(cuid())
-  mailbox      String   @unique
-  lastUid      Int      @default(0)
+  id           String    @id @default(cuid())
+  mailbox      String    @unique
+  lastUid      Int       @default(0)
   lastSyncedAt DateTime?
-  updatedAt    DateTime @updatedAt
+  updatedAt    DateTime  @updatedAt
 }
 
 enum TestimonialStatus {

@@ -48,8 +48,8 @@ beforeEach(async () => {
 });
 
 describe("expéditeur des e-mails automatiques", () => {
-  it("codes, invitation, accès et alertes partent de noreply@, réponses vers l'adresse habituelle", async () => {
-    for (const kind of ["portal_code", "onboarding", "access", "portal_alert", "admin_alert"]) {
+  it("codes, invitations, accès et alertes partent de noreply@, réponses vers l'adresse habituelle", async () => {
+    for (const kind of ["portal_code", "onboarding", "access", "portal_alert", "admin_alert", "review_invite"]) {
       const mail = await send(kind);
       expect(mail.from).toBe("Kouzia <noreply@kouzia.test>");
       expect(mail.replyTo).toBe("contact@kouzia.test");

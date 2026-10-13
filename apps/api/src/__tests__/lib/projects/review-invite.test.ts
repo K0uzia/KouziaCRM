@@ -1,0 +1,95 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { prisma } from "@/lib/prisma.js";
+import { invalidateCompanySettingsCache } from "@/lib/company.js";
+import { encrypt } from "@/lib/crypto.js";
+import { parsePayload } from "@/lib/email/mailer/outbox.js";
+import { resetDb } from "../../helpers/db.js";
+import { createClient, seedCompanySettings } from "../../helpers/factories.js";
+
+// SMTP « configuré » : l'email part dans la file d'envoi, jamais sur le réseau (pas de worker).
+vi.mock("@/lib/email/smtp.js", async (orig) => ({
+  ...(await orig<typeof import("@/lib/email/smtp.js")>()),
+  isSmtpConfigured: async () => true,
+}));
+
+const { createClientProject, projectInputSchema, updateClientProject } = await import("@/lib/projects/service.js");
+const { reviewInviteEligible } = await import("@/lib/projects/review-invite.js");
+
+const REVIEW_URL = "https://g.page/r/Cb8yzZKdc-SEEBM/review/";
+
+beforeEach(async () => {
+  await resetDb();
+  await seedCompanySettings();
+  // Les réglages survivent à resetDb : état connu à chaque test.
+  await prisma.companySettings.updateMany({ data: { reviewInviteEnabled: true, googleReviewUrl: REVIEW_URL } });
+  invalidateCompanySettingsCache();
+  await prisma.emailOutbox.deleteMany();
+});
+
+afterEach(async () => {
+  await resetDb();
+});
+
+const input = projectInputSchema.parse({ name: "Site vitrine", progress: 100 });
+
+async function projectFor(email: string | null = "lou@example.test") {
+  const client = await createClient({ displayName: "Lou Essai" });
+  if (email) {
+    await prisma.client.update({ where: { id: client.id }, data: { emailEncrypted: encrypt(email) } });
+  }
+  const project = await createClientProject(client.id, { ...input, status: "ACTIVE" });
+  return { client, project };
+}
+
+const invites = async () =>
+  (await prisma.emailOutbox.findMany()).map((r) => parsePayload(r.payload)).filter((p) => p.kind === "review_invite");
+
+describe("invitation à laisser un avis", () => {
+  it("envoie un e-mail au passage à DONE, une seule fois par projet", async () => {
+    const { client, project } = await projectFor();
+    expect(await reviewInviteEligible(client.id)).toBe(false);
+
+    const done = await updateClientProject(project.id, { ...input, status: "DONE" });
+    expect(done.reviewInviteSentAt).not.toBeNull();
+    const sent = await invites();
+    expect(sent).toHaveLength(1);
+    expect(sent[0]!.to).toBe("lou@example.test");
+    expect(sent[0]!.text).toContain(REVIEW_URL);
+    expect(sent[0]!.text).toContain("« Site vitrine »");
+    expect(await reviewInviteEligible(client.id)).toBe(true);
+
+    // Réouverture puis nouvelle livraison : pas de second e-mail.
+    await updateClientProject(project.id, { ...input, status: "ACTIVE" });
+    await updateClientProject(project.id, { ...input, status: "DONE" });
+    await updateClientProject(project.id, { ...input, status: "DONE" });
+    expect(await invites()).toHaveLength(1);
+  });
+
+  it("n'envoie rien et ne propose rien quand l'invitation est désactivée dans les réglages", async () => {
+    await prisma.companySettings.updateMany({ data: { reviewInviteEnabled: false } });
+    invalidateCompanySettingsCache();
+    const { client, project } = await projectFor();
+    const done = await updateClientProject(project.id, { ...input, status: "DONE" });
+    expect(done.reviewInviteSentAt).toBeNull();
+    expect(await invites()).toHaveLength(0);
+    expect(await reviewInviteEligible(client.id)).toBe(false);
+  });
+
+  it("n'envoie rien sans lien d'avis en https", async () => {
+    await prisma.companySettings.updateMany({ data: { googleReviewUrl: null } });
+    invalidateCompanySettingsCache();
+    const { project } = await projectFor();
+    await updateClientProject(project.id, { ...input, status: "DONE" });
+    expect(await invites()).toHaveLength(0);
+  });
+
+  it("sans e-mail client : le projet passe à DONE, sans invitation et sans repère posé", async () => {
+    const { client, project } = await projectFor(null);
+    const done = await updateClientProject(project.id, { ...input, status: "DONE" });
+    expect(done.status).toBe("DONE");
+    expect(done.reviewInviteSentAt).toBeNull();
+    expect(await invites()).toHaveLength(0);
+    // Le bouton de l'espace client reste proposé : le projet est livré.
+    expect(await reviewInviteEligible(client.id)).toBe(true);
+  });
+});
