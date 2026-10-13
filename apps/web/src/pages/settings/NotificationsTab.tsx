@@ -124,7 +124,7 @@ export function NotificationsTab() {
           </div>
         ) : !config ? (
           <div role="status" aria-busy="true" className="h-11 animate-pulse rounded-[var(--radius)] bg-[var(--surface-raised)]">
-            <span className="sr-only">Chargement…</span>
+            <span className="sr-only">Chargement des notifications…</span>
           </div>
         ) : support === "insecure" ? (
           <p className="text-sm text-[var(--warning)]">
