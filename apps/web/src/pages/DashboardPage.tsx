@@ -473,7 +473,8 @@ export function DashboardPage() {
                   <>
                     Encaissé par Stripe et en direct au-dessus ; frais, retenues et argent encore chez Stripe en
                     dessous ; la courbe suit ce qui arrive sur le compte pro.{" "}
-                    <Link to="/flux-stripe" className="link">
+                    {/* Souligné : dans une phrase, un lien ne se distingue pas par la seule couleur. */}
+                    <Link to="/flux-stripe" className="link underline! underline-offset-2">
                       Rapprochement détaillé
                     </Link>
                   </>

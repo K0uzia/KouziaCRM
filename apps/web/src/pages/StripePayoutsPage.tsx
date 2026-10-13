@@ -120,8 +120,11 @@ export function StripePayoutsPage() {
       title: `Versement ${p.arrivalDate ? `du ${formatDate(p.arrivalDate)}` : "à venir"} : ${formatEUR(p.amountCents)}`,
       payments: p.payments,
     });
+  // Paiements rattachés à l'arrivée du versement (payout.paid) : pas d'équation avant.
   const formula = (p: FluxPayout) =>
-    `${p.payments.length} paiement${p.payments.length > 1 ? "s" : ""} : ${formatEUR(p.grossCents)} − frais ${formatEUR(p.feeCents)}${
+    p.payments.length === 0
+      ? "paiements pas encore rattachés (connus à l'arrivée)"
+      : `${p.payments.length} paiement${p.payments.length > 1 ? "s" : ""} : ${formatEUR(p.grossCents)} − frais ${formatEUR(p.feeCents)}${
       p.deductionsCents ? ` − retenues ${formatEUR(p.deductionsCents)}` : ""
     } = ${formatEUR(p.expectedCents)}`;
 
@@ -130,7 +133,20 @@ export function StripePayoutsPage() {
       name: "Arrivée",
       selector: (p) => p.arrivalDate ?? "",
       sortable: true,
-      cell: (p) => (p.arrivalDate ? formatDate(p.arrivalDate) : "Date à venir"),
+      // Détail accessible au clavier : bouton dans la 1re colonne (la ligne reste cliquable).
+      cell: (p) => (
+        <button
+          type="button"
+          className="link inline-flex min-h-11 items-center"
+          aria-label={`Détail du versement de ${formatEUR(p.amountCents)}${p.arrivalDate ? ` du ${formatDate(p.arrivalDate)}` : ""}`}
+          onClick={(e) => {
+            e.stopPropagation();
+            openPayout(p);
+          }}
+        >
+          {p.arrivalDate ? formatDate(p.arrivalDate) : "Date à venir"}
+        </button>
+      ),
     },
     {
       name: "Viré",
@@ -138,7 +154,13 @@ export function StripePayoutsPage() {
       right: true,
       cell: (p) => <span className="font-medium tabular-nums">{formatEUR(p.amountCents)}</span>,
     },
-    { name: "Attendu", selector: (p) => p.expectedCents, right: true, cell: (p) => formatEUR(p.expectedCents), showFrom: 1024 },
+    {
+      name: "Attendu",
+      selector: (p) => p.expectedCents,
+      right: true,
+      cell: (p) => (p.payments.length === 0 ? <span className="text-[var(--muted)]">à l&apos;arrivée</span> : formatEUR(p.expectedCents)),
+      showFrom: 1024,
+    },
     { name: "Correspondance", selector: (p) => p.gapCents ?? 0, cell: (p) => <Match p={p} />, grow: 2 },
     {
       name: "État",
