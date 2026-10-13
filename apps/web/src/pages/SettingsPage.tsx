@@ -1355,13 +1355,13 @@ export function SettingsPage() {
                   <p className="text-xs leading-relaxed text-[var(--muted)]">
                     Sans Stripe, le plus simple reste le{" "}
                     <strong className="text-[var(--text)]">virement SEPA</strong> sur
-                    l&apos;IBAN Revolut Pro (affiché sur le PDF). Référence = n° de facture.
+                    l&apos;IBAN du compte pro (affiché sur le PDF). Référence = n° de facture.
                   </p>
                   <ol className="list-decimal space-y-1.5 pl-5 text-xs leading-relaxed text-[var(--muted)]">
                     <li>Devis dans l&apos;ERP → validation client sur /suivi.</li>
                     <li>Émettre la facture d&apos;acompte.</li>
                     <li>
-                      Le client vire → vous voyez le crédit dans Revolut →{" "}
+                      Le client vire → vous voyez le crédit sur le compte pro →{" "}
                       <strong className="text-[var(--text)]">Marquer payé</strong> / enregistrer
                       l&apos;encaissement dans l&apos;ERP.
                     </li>
