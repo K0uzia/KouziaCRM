@@ -142,6 +142,13 @@ export function AppLayout() {
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const drawerTrigger = useRef<HTMLButtonElement>(null);
+  // Bouton qui a ouvert le tiroir (menu de la barre supérieure ou « Plus » de la barre du bas).
+  const drawerOpener = useRef<HTMLElement | null>(null);
+  const openDrawer = (e: { currentTarget: HTMLElement }) => {
+    drawerOpener.current = e.currentTarget;
+    setDrawerOpen(true);
+  };
+  const returnFocus = () => (drawerOpener.current ?? drawerTrigger.current)?.focus();
   const drawerRef = useRef<HTMLDivElement>(null);
   const { pathname } = useLocation();
   const features = useFeatures();
@@ -170,14 +177,14 @@ export function AppLayout() {
     document.title = current ? `${current.label} · Kouzia ERP` : "Kouzia ERP";
   }, [current]);
 
-  // Tiroir mobile : focus dedans à l'ouverture, Échap ferme et rend le focus au bouton menu.
+  // Tiroir mobile : focus dedans à l'ouverture, Échap ferme et rend le focus au bouton qui l'a ouvert.
   useEffect(() => {
     if (!drawerOpen) return;
     drawerRef.current?.querySelector<HTMLElement>("a, button")?.focus();
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
         setDrawerOpen(false);
-        drawerTrigger.current?.focus();
+        returnFocus();
       }
     };
     document.addEventListener("keydown", onKey);
@@ -235,7 +242,7 @@ export function AppLayout() {
               type="button"
               onClick={() => {
                 setDrawerOpen(false);
-                drawerTrigger.current?.focus();
+                returnFocus();
               }}
               aria-label="Fermer le menu"
               className="absolute right-2 top-2 inline-flex min-h-11 min-w-11 items-center justify-center rounded-[var(--radius-sm)] text-[var(--muted)] hover:bg-[var(--surface-hover)] hover:text-[var(--text)]"
@@ -253,7 +260,7 @@ export function AppLayout() {
           <button
             ref={drawerTrigger}
             type="button"
-            onClick={() => setDrawerOpen(true)}
+            onClick={openDrawer}
             aria-label="Ouvrir le menu"
             aria-expanded={drawerOpen}
             aria-controls="menu-principal"
@@ -365,7 +372,7 @@ export function AppLayout() {
           })}
           <button
             type="button"
-            onClick={() => setDrawerOpen(true)}
+            onClick={openDrawer}
             aria-expanded={drawerOpen}
             aria-controls="menu-principal"
             className="flex min-h-14 flex-col items-center justify-center gap-1 text-xs text-[var(--muted)]"
