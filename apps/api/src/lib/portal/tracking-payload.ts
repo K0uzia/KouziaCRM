@@ -6,7 +6,7 @@ import {
   type Payment,
   type PaymentMilestone,
 } from "@prisma/client";
-import { signDocumentToken } from "@/lib/documents/public-token.js";
+import { signDocumentToken, signReceiptToken } from "@/lib/documents/public-token.js";
 
 type DocRow = Invoice & {
   payments: Payment[];
@@ -102,6 +102,8 @@ export function buildPaymentHistory(opts: {
     label: string;
     documentNumber: string | null;
     receiptToken: string | null;
+    /** Reçu PDF de ce règlement (archivé) ; receiptToken reste le lien de la facture. */
+    receiptPdfToken?: string | null;
   }> = [];
 
   for (const m of opts.milestones) {
@@ -137,10 +139,16 @@ export function buildPaymentHistory(opts: {
 
     // Facture d'un jalon payé : déjà comptée par l'entrée du jalon. Ne pas comparer les dates
     // (le jalon et le règlement sont horodatés séparément, à quelques millisecondes d'écart).
-    const coveredByMilestone = opts.milestones.some(
+    const coveredByMilestone = opts.milestones.find(
       (m) => m.status === MilestoneStatus.PAID && m.paidAt && m.generatedInvoice?.id === d.id,
     );
-    if (coveredByMilestone) continue;
+    if (coveredByMilestone) {
+      // Reçu du règlement de l'acompte : porté par l'entrée du jalon.
+      const entry = items.find((i) => i.id === `milestone-${coveredByMilestone.id}`);
+      const last = [...d.payments].sort((a, b) => b.paidAt.getTime() - a.paidAt.getTime())[0];
+      if (entry && last && d.number) entry.receiptPdfToken = signReceiptToken(last.id);
+      continue;
+    }
 
     for (const p of d.payments) {
       items.push({
@@ -152,6 +160,7 @@ export function buildPaymentHistory(opts: {
         label: `Règlement ${d.number ?? ""}`.trim(),
         documentNumber: d.number,
         receiptToken: d.number ? signDocumentToken(d.id) : null,
+        receiptPdfToken: d.number ? signReceiptToken(p.id) : null,
       });
     }
   }

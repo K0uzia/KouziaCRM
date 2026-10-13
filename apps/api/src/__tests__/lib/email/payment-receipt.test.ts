@@ -47,7 +47,7 @@ async function issuedInvoice() {
 }
 
 describe("reçu de paiement", () => {
-  it("envoie la facture acquittée en pièce jointe quand elle est soldée", async () => {
+  it("soldée : la facture (telle qu'émise) et le reçu du règlement en pièces jointes", async () => {
     const inv = await issuedInvoice();
     await prisma.payment.create({
       data: { invoiceId: inv.id, amountCents: 119000, paidAt: new Date(), method: "BANK_TRANSFER" },
@@ -59,10 +59,12 @@ describe("reçu de paiement", () => {
     const row = await prisma.emailOutbox.findFirstOrThrow();
     const payload = parsePayload(row.payload);
     expect(payload.to).toBe("lou@example.test");
-    expect(payload.subject).toBe(`Paiement reçu : facture ${inv.number} acquittée`);
+    expect(payload.subject).toBe(`Paiement reçu : facture ${inv.number} réglée`);
     expect(payload.text).toContain("1 190,00 €");
-    expect(payload.text).toContain("marquée acquittée");
+    expect(payload.text).toContain("La facture est entièrement réglée.");
+    expect(payload.text).not.toContain("acquittée");
     expect(payload.attachments?.[0]?.filename).toMatch(/^Facture_.*\.pdf$/);
+    expect(payload.attachments?.[1]?.filename).toMatch(/^Recu-.*\.pdf$/);
     expect(payload.html).toContain("Nous avons bien reçu votre paiement");
   });
 

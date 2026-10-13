@@ -122,7 +122,7 @@ const paySchema = z.object({
   method: z.nativeEnum(PaymentMethod).optional(),
   reference: z.string().optional().nullable(),
   notes: z.string().optional().nullable(),
-  /** Reçu envoyé au client (facture PDF à jour du paiement). Par défaut : oui. */
+  /** E-mail au client : reçu du règlement et facture (telle qu'émise). Par défaut : oui. */
   notifyClient: z.boolean().optional(),
 });
 

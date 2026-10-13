@@ -41,6 +41,17 @@ export function signDocumentToken(
   return `${body}.${sig}`;
 }
 
+/** Jeton du reçu d'un règlement (préfixe « receipt: » : inutilisable sur /api/public/documents). */
+export function signReceiptToken(paymentId: string): string {
+  return signDocumentToken(`receipt:${paymentId}`);
+}
+
+/** Identifiant du règlement d'un jeton de reçu ; null si invalide, expiré ou jeton de document. */
+export function verifyReceiptToken(token: string): string | null {
+  const id = verifyDocumentToken(token);
+  return id?.startsWith("receipt:") ? id.slice("receipt:".length) : null;
+}
+
 export function verifyDocumentToken(token: string): string | null {
   const [body, sig] = token.split(".");
   if (!body || !sig) return null;
