@@ -194,7 +194,7 @@ export function StripePayoutsPage() {
 
       {m ? (
         <Card className="mb-6 p-5 text-sm sm:p-6">
-          <h2 className="text-base font-semibold">Rapprochement de {m.label}</h2>
+          <h2 className="text-base font-semibold">Rapprochement {/^[aeiouyàâéèêîôû]/i.test(m.label) ? "d'" : "de "}{m.label}</h2>
           <dl className="mt-3 divide-y divide-[var(--border)]">
             <Row label="Encaissé par Stripe (carte, prélèvement)" value={formatEUR(m.encaisseStripeCents)} strong />
             <Row
@@ -213,8 +213,18 @@ export function StripePayoutsPage() {
             <Row label="− Versé sur le compte pro" value={`− ${formatEUR(m.verseCents)}`} />
             <Row label="− Encore chez Stripe, en attente" value={`− ${formatEUR(m.pendingCents)}`} />
             <Row label="− Remboursements et litiges" value={`− ${formatEUR(m.refundsDisputesCents)}`} />
+          </dl>
+          {/* Contrôle réel : ce que Stripe a viré, comparé à l'attendu (brut − frais − retenues). */}
+          <dl className="mt-3 border-t border-[var(--border)]">
             <Row
-              label="= Écart des versements"
+              label={
+                <>
+                  Écart avec les virements reçus
+                  <span className="block text-xs font-normal text-[var(--muted)]">
+                    viré par Stripe, comparé à l&apos;attendu des versements arrivés ce mois-ci
+                  </span>
+                </>
+              }
               strong
               value={
                 m.gapCents === 0 ? (
