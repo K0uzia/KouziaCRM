@@ -2,6 +2,7 @@ import {
   InvoiceDocumentType,
   InvoiceStatus,
   InvoiceType,
+  MilestoneStatus,
   QuoteStatus,
   type Prisma,
 } from "@prisma/client";
@@ -14,6 +15,7 @@ import {
   applyPlanMilestones,
   effectiveOffer,
   initialPlan,
+  isSubscriptionOnly,
   parsePaymentPlanOffer,
   PaymentPlanError,
   resolveAcceptedPlan,
@@ -148,8 +150,11 @@ export async function issueQuote(
     const validity =
       validUntil ??
       new Date(issueDate.getTime() + 30 * 24 * 60 * 60 * 1000);
-    // Offre de paiement figée à l'émission (seuil du 3 fois appliqué ici).
-    const offer = effectiveOffer(parsePaymentPlanOffer(quote.paymentPlanOffer), quote.totalCents, settings);
+    // Offre de paiement figée à l'émission (seuil du 3 fois appliqué ici). Abonnement seul :
+    // pas d'échéancier, chaque période est facturée par l'abonnement.
+    const offer = isSubscriptionOnly(quote.lines)
+      ? "NONE"
+      : effectiveOffer(parsePaymentPlanOffer(quote.paymentPlanOffer), quote.totalCents, settings);
 
     const updated = await tx.invoice.update({
       where: { id: quoteId },
@@ -170,8 +175,11 @@ export async function issueQuote(
       include: { lines: true, client: true, payments: true },
     });
 
+    // Jalons créés pendant le brouillon (affichage de la fiche, offre encore 2 fois) : retirés,
+    // un devis d'abonnement seul n'en a aucun. Un brouillon n'a jamais de jalon payé ni facturé.
+    if (offer === "NONE") await tx.paymentMilestone.deleteMany({ where: { quoteId, invoiceId: null } });
     if (offer === null) await ensureQuoteMilestones(quoteId, quote.totalCents, tx);
-    else await applyPlanMilestones(tx, quoteId, quote.totalCents, initialPlan(offer), settings);
+    else if (offer !== "NONE") await applyPlanMilestones(tx, quoteId, quote.totalCents, initialPlan(offer), settings);
     return updated;
   });
 
@@ -386,7 +394,8 @@ export async function acceptQuoteByClient(
   if (offer === null && audit.paymentPlan && audit.paymentPlan !== "TWO") {
     throw new PaymentPlanError("Cette formule de paiement n'est pas proposée sur ce devis.");
   }
-  const settings = plan ? await getCompanySettings() : null;
+  const settings = await getCompanySettings();
+  const subscriptionOnly = offer === "NONE";
 
   // Signature portail : on fige le devis tel que le client l'a lu, avant qu'il porte l'accord.
   const { captureQuoteBeforeSignature, archiveOriginalQuote } = await import(
@@ -407,11 +416,18 @@ export async function acceptQuoteByClient(
       },
       include: { lines: true, client: true },
     });
-    if (plan && settings) await applyPlanMilestones(tx, quoteId, pending.totalCents, plan, settings);
-    const subs = await activateSubscriptionsFromDocument(quoteId, tx);
-    return { result, subscriptionIds: subs.subscriptionIds };
+    if (plan) await applyPlanMilestones(tx, quoteId, pending.totalCents, plan, settings);
+    // Abonnement seul : la 1re échéance est due tout de suite et facturée par l'abonnement
+    // (Stripe après le mandat, sinon facture ERP immédiate), jamais par le devis.
+    const subs = await activateSubscriptionsFromDocument(
+      quoteId,
+      tx,
+      subscriptionOnly ? { firstPeriodNow: true, awaitStripe: settings.moduleStripeEnabled } : {},
+    );
+    return { result, subscriptionIds: subs.subscriptionIds, createdIds: subs.createdIds };
   });
-  await notifyStripeSubscriptionSetup(updated.subscriptionIds);
+  if (subscriptionOnly) await startSubscriptionBilling(updated.createdIds, settings.moduleStripeEnabled);
+  else await notifyStripeSubscriptionSetup(updated.subscriptionIds);
   const accepted = updated.result;
 
   const acceptance = await logQuoteAcceptance(quoteId, signerName, audit.source ?? "PORTAL", {
@@ -434,6 +450,27 @@ export async function acceptQuoteByClient(
   await recordQuoteAcceptanceProof(acceptance.id, quoteId);
 
   return accepted;
+}
+
+/**
+ * Devis d'abonnement seul signé : Stripe actif, le lien de prélèvement part (une fois) et Stripe
+ * prélève la 1re période au mandat ; sinon, la 1re facture d'abonnement est émise tout de suite.
+ */
+async function startSubscriptionBilling(createdIds: string[], stripeEnabled: boolean): Promise<void> {
+  if (createdIds.length === 0) return;
+  if (stripeEnabled) {
+    await notifyStripeSubscriptionSetup(createdIds);
+    return;
+  }
+  const { invoiceSubscriptionNow } = await import("@/lib/subscriptions/subscription-service.js");
+  for (const id of createdIds) {
+    try {
+      await invoiceSubscriptionNow(id);
+    } catch (err) {
+      // Le cron reprendra l'échéance (nextInvoiceAt est dépassé) : la signature reste acquise.
+      console.error(`[abonnement] 1re facture à la signature : ${id}`, err);
+    }
+  }
 }
 
 /** Validation admin depuis la messagerie (fil lié à un client). */
@@ -483,6 +520,11 @@ export async function convertQuoteToInvoice(quoteId: string) {
 
     if (quote.documentType !== InvoiceDocumentType.QUOTE) {
       throw new Error("Seuls les devis peuvent être convertis");
+    }
+    if (quote.paymentPlanOffer === "NONE") {
+      throw new Error(
+        "Devis d'abonnement : chaque échéance est facturée par l'abonnement, pas de facture depuis le devis.",
+      );
     }
     await assertQuoteSigned(quoteId, tx);
     if (
@@ -564,6 +606,16 @@ export async function convertQuoteToInvoice(quoteId: string) {
     });
 
     await ensureQuoteMilestones(quoteId, quote.totalCents, tx);
+    // Facture totale : les jalons d'acompte ne sont plus à payer. Sans cela, un lien de paiement
+    // resté actif encaisserait un acompte qu'aucune facture ne pourrait plus porter.
+    await tx.paymentMilestone.updateMany({
+      where: {
+        quoteId,
+        invoiceId: null,
+        status: { in: [MilestoneStatus.PENDING, MilestoneStatus.DUE, MilestoneStatus.OVERDUE, MilestoneStatus.FAILED] },
+      },
+      data: { status: MilestoneStatus.CANCELLED, checkoutUrl: null },
+    });
 
     const subs = await activateSubscriptionsFromDocument(quoteId, tx);
 

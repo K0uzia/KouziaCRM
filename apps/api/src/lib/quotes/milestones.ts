@@ -51,6 +51,9 @@ export async function ensureQuoteMilestones(
     where: { quoteId },
     orderBy: { position: "asc" },
   });
+  // Abonnement seul : aucun jalon, ni à l'émission ni plus tard.
+  const quote = await db.invoice.findUnique({ where: { id: quoteId }, select: { paymentPlanOffer: true } });
+  if (quote?.paymentPlanOffer === "NONE") return [];
 
   const amounts = computeMilestoneAmounts(totalCents);
   await db.paymentMilestone.createMany({

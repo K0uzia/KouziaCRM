@@ -63,6 +63,9 @@ type ServiceOpt = {
   billingInterval?: string | null;
 };
 
+const DEPOSIT_TERMS = "Acompte à la validation du devis, solde à la livraison (voir l'échéancier).";
+const SUBSCRIPTION_TERMS = "Abonnement sans acompte : chaque échéance est facturée, par prélèvement ou à réception de la facture.";
+
 const emptyLine = (): DocLine => ({
   description: "",
   quantity: "1",
@@ -97,7 +100,7 @@ export function DocumentFormEditor({
     paymentTerms:
       initial?.paymentTerms ??
       (documentType === "QUOTE"
-        ? "Acompte à la validation du devis, solde à la livraison (voir l'échéancier)."
+        ? DEPOSIT_TERMS
         : "Paiement à réception."),
     serviceDate: initial?.serviceDate ?? "",
     purchaseOrderRef: initial?.purchaseOrderRef ?? "",
@@ -270,6 +273,17 @@ export function DocumentFormEditor({
         : 0;
 
   const totalPreview = Math.max(0, subtotalPreview - discountPreview);
+  // Devis d'abonnement seul : ni acompte ni échéancier, l'abonnement facture chaque période.
+  const filledLines = form.lines.filter((l) => l.description.trim() || l.serviceId);
+  const subscriptionOnly = documentType === "QUOTE" && filledLines.length > 0 && filledLines.every((l) => l.isSubscription);
+  // Conditions par défaut : suivent la nature du devis tant qu'elles n'ont pas été modifiées.
+  useEffect(() => {
+    setForm((f) => {
+      if (subscriptionOnly && f.paymentTerms === DEPOSIT_TERMS) return { ...f, paymentTerms: SUBSCRIPTION_TERMS };
+      if (!subscriptionOnly && f.paymentTerms === SUBSCRIPTION_TERMS) return { ...f, paymentTerms: DEPOSIT_TERMS };
+      return f;
+    });
+  }, [subscriptionOnly]);
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
@@ -479,6 +493,13 @@ export function DocumentFormEditor({
                       value={line.billingInterval}
                       onChange={(next) => changeLineInterval(i, next)}
                     />
+                    {subscriptionOnly ? (
+                      <p className="text-[var(--muted)]">
+                        {line.billingInterval === "YEAR"
+                          ? "Facturé chaque année à partir de la signature, sans acompte"
+                          : "Facturé chaque mois à partir de la signature, sans acompte"}
+                      </p>
+                    ) : (
                     <label className="flex flex-wrap items-center gap-1.5 text-[var(--muted)]">
                       Facturée le
                       <select
@@ -497,6 +518,7 @@ export function DocumentFormEditor({
                         ? "du mois, chaque année à la date anniversaire (1re année incluse dans ce document)"
                         : "de chaque mois (1re échéance incluse dans ce document)"}
                     </label>
+                    )}
                   </div>
                 ) : null}
                 <div className="grid grid-cols-[4.5rem_1fr_auto] gap-2 sm:grid-cols-[1fr_5rem_8rem_auto]">
@@ -603,7 +625,13 @@ export function DocumentFormEditor({
             date d&apos;émission. Le client peut l&apos;accepter en ligne depuis son espace.
           </p>
         ) : null}
-        {isQuote ? (
+        {subscriptionOnly ? (
+          <p className="rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--bg-subtle)] px-3 py-2 text-sm text-[var(--muted)]">
+            <span className="font-medium text-[var(--text)]">Paiement : abonnement, sans acompte.</span> Après la
+            signature, le client met en place le prélèvement (ou reçoit sa 1re facture sans Stripe) ; chaque
+            échéance est ensuite facturée par l&apos;abonnement.
+          </p>
+        ) : isQuote ? (
           <Field
             label="Paiement"
             hint={

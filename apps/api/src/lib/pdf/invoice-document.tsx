@@ -252,6 +252,8 @@ export type InvoicePdfData = {
     }> | null;
     /** Devis signé : formule retenue par le client. */
     paymentPlanRetained?: string | null;
+    /** Devis d'abonnement seul : facturé à partir de la signature, sans acompte. */
+    subscriptionOnly?: boolean;
     balanceSummary?: {
       marketTotalCents: number;
       quoteNumber: string | null;
@@ -485,7 +487,10 @@ export function InvoiceDocument({ company, client, invoice }: InvoicePdfData) {
                     {line.billingInterval === "YEAR"
                       ? "Abonnement annuel, facturé chaque année à la date anniversaire"
                       : `Abonnement mensuel, facturé chaque mois${line.billingDay ? ` le ${line.billingDay}` : ""}`}{" "}
-                    : {fmtMoney(line.unitPriceCents)}. Ce document inclut la 1re échéance.
+                    : {fmtMoney(line.unitPriceCents)}.{" "}
+                    {invoice.subscriptionOnly
+                      ? "Facturé à partir de la signature, sans acompte."
+                      : "Ce document inclut la 1re échéance."}
                   </Text>
                 ) : null}
               </View>

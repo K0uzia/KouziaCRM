@@ -57,6 +57,18 @@ export function stripeInvoicePaymentIntentId(invoice: Stripe.Invoice): string | 
   return null;
 }
 
+/** Abonnement ERP visé par une facture Stripe : métadonnées de la facture, sinon de l'abonnement Stripe. */
+async function erpSubscriptionIdOf(stripeInvoice: Stripe.Invoice, stripeSubId: string): Promise<string | null> {
+  const fromInvoice = stripeInvoice.parent?.subscription_details?.metadata?.erpSubscriptionId;
+  if (fromInvoice) return fromInvoice;
+  try {
+    const stripeSub = await (await getStripe()).subscriptions.retrieve(stripeSubId);
+    return stripeSub.metadata?.erpSubscriptionId ?? null;
+  } catch {
+    return null;
+  }
+}
+
 /** Émet la facture ERP à partir d'une Invoice Stripe Billing finalisée. */
 export async function issueErpInvoiceFromStripeInvoice(
   stripeInvoice: Stripe.Invoice,
@@ -73,10 +85,27 @@ export async function issueErpInvoiceFromStripeInvoice(
     throw new Error("Invoice Stripe sans abonnement");
   }
 
-  const sub = await prisma.subscription.findUnique({
+  let sub = await prisma.subscription.findUnique({
     where: { stripeSubscriptionId: stripeSubId },
     include: { client: true, service: true },
   });
+  if (!sub) {
+    // Sans période d'essai, la 1re facture (invoice.finalized) peut arriver avant
+    // checkout.session.completed : liaison par les métadonnées posées à la création du Checkout.
+    const erpId = await erpSubscriptionIdOf(stripeInvoice, stripeSubId);
+    const candidate = erpId ? await prisma.subscription.findUnique({ where: { id: erpId } }) : null;
+    if (candidate && !candidate.stripeSubscriptionId) {
+      await linkSubscriptionFromCheckout({
+        erpSubscriptionId: candidate.id,
+        stripeSubscriptionId: stripeSubId,
+        livemode: stripeInvoice.livemode,
+      });
+      sub = await prisma.subscription.findUnique({
+        where: { stripeSubscriptionId: stripeSubId },
+        include: { client: true, service: true },
+      });
+    }
+  }
   if (!sub) {
     throw new Error(`Abonnement ERP introuvable pour ${stripeSubId}`);
   }
@@ -85,12 +114,13 @@ export async function issueErpInvoiceFromStripeInvoice(
     stripeInvoice.amount_due ??
     stripeInvoice.amount_paid ??
     sub.amountCents;
-  const periodStart = stripeInvoice.period_start
-    ? new Date(stripeInvoice.period_start * 1000)
-    : new Date();
-  const periodEnd = stripeInvoice.period_end
-    ? new Date(stripeInvoice.period_end * 1000)
-    : null;
+  // Période facturée : celle de la ligne d'abonnement. Les champs period_* de la facture
+  // désignent la période précédente (1re facture : début = fin), pas l'échéance réglée.
+  const linePeriod = stripeInvoice.lines?.data?.find((l) => l.period?.end)?.period;
+  const startSec = linePeriod?.start ?? stripeInvoice.period_start;
+  const endSec = linePeriod?.end ?? stripeInvoice.period_end;
+  const periodStart = startSec ? new Date(startSec * 1000) : new Date();
+  const periodEnd = endSec && endSec > (startSec ?? 0) ? new Date(endSec * 1000) : null;
   const label = periodEnd
     ? `${sub.label} (${periodStart.toLocaleDateString("fr-FR")} - ${periodEnd.toLocaleDateString("fr-FR")})`
     : sub.label;

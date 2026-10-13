@@ -3,6 +3,7 @@ import { z } from "zod";
 import { InvoiceDocumentType, InvoiceStatus } from "@prisma/client";
 import { prisma } from "@/lib/prisma.js";
 import { getCompanySettings } from "@/lib/company.js";
+import { buildPayUrl } from "@/lib/stripe/pay-urls.js";
 import { verifyDocumentToken } from "@/lib/documents/public-token.js";
 import {
   checkPortalCode,
@@ -147,6 +148,22 @@ function formatSignerName(firstName: string, lastName: string): string {
   return `${clean(firstName)} ${clean(lastName).toLocaleUpperCase("fr-FR")}`;
 }
 
+/**
+ * Après la signature d'un devis d'abonnement : lien de mise en place du prélèvement Stripe,
+ * affiché tout de suite dans l'espace client (l'e-mail part aussi, une seule fois).
+ */
+async function subscriptionSetupUrlOf(quoteId: string): Promise<{ subscriptionSetupUrl?: string }> {
+  const settings = await getCompanySettings();
+  if (!settings.moduleStripeEnabled) return {};
+  const line = await prisma.invoiceLine.findFirst({
+    where: { invoiceId: quoteId, isSubscription: true, subscriptionId: { not: null } },
+    select: { subscription: { select: { id: true, status: true, stripeSubscriptionId: true } } },
+  });
+  const sub = line?.subscription;
+  if (!sub || sub.stripeSubscriptionId || sub.status !== "ACTIVE") return {};
+  return { subscriptionSetupUrl: buildPayUrl("subscribe", sub.id) };
+}
+
 export const publicRoutes: FastifyPluginAsync = async (app) => {
   // fetch(…, { headers: { "Content-Type": "application/json" } }) sans corps (déconnexion) :
   // Fastify refuse un JSON vide (400) avant la route, la session resterait ouverte. Corps vide = pas de corps.
@@ -256,6 +273,7 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
           payments: { orderBy: { paidAt: "asc" } },
           // 3 fois : étape du projet de CE devis qui déclenchera le 2e acompte.
           project: { select: { steps: true } },
+          lines: { where: { isSubscription: true }, select: { billingInterval: true } },
         },
         take: 60,
       });
@@ -411,7 +429,18 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
               ? {
                   paymentPlanOffer: offer,
                   paymentPlan: parsePaymentPlan(d.paymentPlan),
-                  ...(quotePending
+                  // NONE : devis d'abonnement seul, ni formule ni échéancier (chaque période est facturée par l'abonnement).
+                  ...(offer === "NONE"
+                    ? {
+                        subscriptionBilling: {
+                          interval: d.lines.some((l) => l.billingInterval === "YEAR") ? "YEAR" : "MONTH",
+                          // Prélèvement Stripe : la 1re échéance est prélevée à sa mise en place. Sinon, facture.
+                          directDebit: settings.moduleStripeEnabled,
+                          ...(showAmounts ? { amountCents: d.totalCents } : {}),
+                        },
+                      }
+                    : {}),
+                  ...(quotePending && offer !== "NONE"
                     ? {
                         paymentPlans: describePlans(offer, d.totalCents, settings).map((p) => ({
                           plan: p.plan,
@@ -436,6 +465,8 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
           billingInterval: s.billingInterval === "YEAR" ? "YEAR" : "MONTH",
           nextInvoiceAt: s.nextInvoiceAt,
           ...(showAmounts ? { amountCents: s.amountCents } : {}),
+          // Prélèvement Stripe pas encore en place : lien pour le mettre en place (SEPA ou carte).
+          ...(settings.moduleStripeEnabled && !s.stripeSubscriptionId ? { setupUrl: buildPayUrl("subscribe", s.id) } : {}),
         })),
         emails: emailEvents.map((e) => ({
           id: e.id,
@@ -546,7 +577,7 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
             paymentPlan: data.paymentPlan,
           },
         );
-        return { quoteStatus: updated.quoteStatus };
+        return { quoteStatus: updated.quoteStatus, ...(await subscriptionSetupUrlOf(quote.id)) };
       } catch (e) {
         if (e instanceof QuoteDecisionError) {
           return reply.code(409).send({ error: e.message, code: e.code });
