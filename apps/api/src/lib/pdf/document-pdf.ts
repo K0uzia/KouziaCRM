@@ -76,6 +76,7 @@ export async function renderLoadedDocumentPdf(doc: LoadedDocumentForPdf): Promis
     invoice: buildInvoicePdfPayload({
       invoice: doc.invoice,
       legalClauses: doc.legalClauses,
+      clientType: doc.snapshot.type,
       balanceSummary: doc.balanceSummary,
       planSettings: doc.companyRaw,
     }),

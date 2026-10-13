@@ -1,6 +1,6 @@
 import type { FastifyPluginAsync } from "fastify";
 import { z } from "zod";
-import { LegalClauseKind } from "@prisma/client";
+import { LegalClauseAudience, LegalClauseKind } from "@prisma/client";
 import { requireAuth } from "@/lib/auth.js";
 import { prisma } from "@/lib/prisma.js";
 import {
@@ -13,6 +13,7 @@ const clauseSchema = z.object({
   title: z.string().min(1),
   body: z.string().min(1),
   active: z.boolean().optional().default(true),
+  audience: z.nativeEnum(LegalClauseAudience).optional(),
   position: z.number().int().optional(),
 });
 
@@ -58,6 +59,7 @@ export const legalClausesRoutes: FastifyPluginAsync = async (app) => {
         body: parsed.data.body,
         kind: existing.required ? existing.kind : parsed.data.kind,
         active: parsed.data.active,
+        audience: parsed.data.audience ?? existing.audience,
         position: parsed.data.position ?? existing.position,
       },
     });
