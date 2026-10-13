@@ -54,13 +54,12 @@ beforeEach(async () => {
     },
   });
   await prisma.payment.create({ data: { amountCents: 7900, paidAt: new Date() } });
-  await prisma.clientTestimonial.create({ data: { clientId: client.id, authorName: "Marie", body: "Très bien" } });
 });
 
 describe("état lu des notifications", () => {
-  it("marqué lu sur un appareil, lu sur tous : e-mail, paiement et avis", async () => {
+  it("marqué lu sur un appareil, lu sur tous : e-mail et paiement", async () => {
     const pc = await login();
-    expect(await unread(pc)).toBe(3);
+    expect(await unread(pc)).toBe(2);
 
     const res = await app.inject({ method: "POST", url: "/api/notifications/seen", headers: { cookie: pc } });
     expect(res.statusCode).toBe(200);

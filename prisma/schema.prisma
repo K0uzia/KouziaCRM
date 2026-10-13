@@ -1358,7 +1358,8 @@ enum TestimonialStatus {
   REJECTED
 }
 
-/// Avis client soumis depuis le portail de suivi, publié sur kouzia.com après validation.
+/// Ancien système d'avis interne (retiré : les avis passent par Google). Table conservée sans code :
+/// elle peut contenir des avis en production, sa suppression attend l'accord d'Alexandre.
 model ClientTestimonial {
   id          String            @id @default(cuid())
   clientId    String

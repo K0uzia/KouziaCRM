@@ -60,9 +60,6 @@ const InboxPage = lazy(() =>
 const ComposePage = lazy(() =>
   import("@/pages/messaging/ComposePage").then((m) => ({ default: m.ComposePage })),
 );
-const TestimonialsPage = lazy(() =>
-  import("@/pages/TestimonialsPage").then((m) => ({ default: m.TestimonialsPage })),
-);
 
 function PageFallback() {
   return (
@@ -125,7 +122,6 @@ export default function App() {
           <Route path="inbox" element={<InboxPage />} />
           <Route path="inbox/compose" element={<ComposePage />} />
           <Route path="inbox/:threadId" element={<InboxPage />} />
-          <Route path="avis" element={<TestimonialsPage />} />
           <Route path="settings" element={<SettingsPage />} />
         </Route>
         <Route path="*" element={<Navigate to="/" replace />} />

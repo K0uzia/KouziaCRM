@@ -7,7 +7,6 @@ export type NotificationKind =
   | "quote_accepted"
   | "quote_rejected"
   | "payment"
-  | "testimonial"
   | "deposit_due"
   | "subscription_stripe"
   | "client_onboarded";
@@ -38,7 +37,7 @@ function eur(cents: number): string {
 export async function listNotifications(since: Date): Promise<NotificationItem[]> {
   const recentMail = new Date(Date.now() - MAIL_RECENT_MS);
 
-  const [mails, accepted, rejected, payments, testimonials, depositsDue, stripeSubs, onboarded] = await Promise.all([
+  const [mails, accepted, rejected, payments, depositsDue, stripeSubs, onboarded] = await Promise.all([
     prisma.emailMessage.findMany({
       where: {
         direction: EmailDirection.INBOUND,
@@ -93,12 +92,6 @@ export async function listNotifications(since: Date): Promise<NotificationItem[]
         createdAt: true,
         invoice: { select: { id: true, number: true, client: { select: { displayName: true } } } },
       },
-    }),
-    prisma.clientTestimonial.findMany({
-      where: { createdAt: { gt: since } },
-      orderBy: { createdAt: "desc" },
-      take: MAX_ITEMS,
-      select: { id: true, authorName: true, createdAt: true },
     }),
     // Paiement en 3 fois : étape de projet faite, 2e acompte à facturer.
     prisma.paymentMilestone.findMany({
@@ -174,14 +167,6 @@ export async function listNotifications(since: Date): Promise<NotificationItem[]
       body: p.invoice ? `${p.invoice.client.displayName}, facture ${p.invoice.number ?? ""}` : "Paiement enregistré",
       href: p.invoice ? `/invoices/${p.invoice.id}` : "/payments",
       at: p.createdAt.toISOString(),
-    })),
-    ...testimonials.map((t) => ({
-      id: `testimonial:${t.id}`,
-      kind: "testimonial" as const,
-      title: "Nouvel avis client",
-      body: `${t.authorName} a laissé un avis à relire.`,
-      href: "/avis",
-      at: t.createdAt.toISOString(),
     })),
     ...depositsDue.map((d) => ({
       id: `deposit_due:${d.id}`,
