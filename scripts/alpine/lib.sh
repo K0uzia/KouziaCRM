@@ -42,6 +42,22 @@ ok()   { echo "${C_GREEN}OK${C_RESET} $*"; }
 warn() { echo "${C_YELLOW}WARN${C_RESET} $*" >&2; }
 die()  { echo "${C_RED}ERREUR${C_RESET} $*" >&2; exit 1; }
 
+# Version minimale de Node (notifications push : @block65/webcrypto-web-push, Node >= 22).
+KOUZIA_NODE_MIN=22
+
+# Arrêt propre, AVANT toute modification (git pull, npm ci, arrêt des services), si Node est trop ancien :
+# une mise à jour ne doit jamais rester à moitié déployée.
+require_node_min() {
+  local min="${1:-$KOUZIA_NODE_MIN}" major
+  major="$(node -p "process.versions.node.split('.')[0]" 2>/dev/null || echo 0)"
+  if [[ "$major" -lt "$min" ]]; then
+    echo "${C_RED}ERREUR${C_RESET} Node.js $min ou plus requis (installé : $(node -v 2>/dev/null || echo aucun)). Rien n'a été modifié." >&2
+    echo "  Alpine : apk add --no-cache nodejs-current npm   (ou passer le CT en Alpine 3.21 ou plus, Node 22)" >&2
+    echo "  Vérifier : node -v   puis relancer : kouziactl update" >&2
+    exit 1
+  fi
+}
+
 require_root() {
   [[ "$(id -u)" -eq 0 ]] || die "Exécuter en root (sudo)."
 }
