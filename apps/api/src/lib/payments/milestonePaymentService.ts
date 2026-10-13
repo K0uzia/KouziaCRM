@@ -83,6 +83,8 @@ export async function ensureQuoteMilestonesFromSettings(
     select: { paymentPlanOffer: true, paymentPlan: true },
   });
   const offer = parsePaymentPlanOffer(quote?.paymentPlanOffer);
+  // Abonnement seul : aucun jalon (donc ni acompte exigible ni lien de paiement).
+  if (offer === "NONE") return [];
   const template =
     offer === null
       ? await loadDepositTemplateFromSettings()

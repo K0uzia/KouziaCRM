@@ -42,6 +42,10 @@ export type CreateSubscriptionInput = {
   endDate?: Date | null;
   /** Si true : 1ʳᵉ échéance déjà facturée (devis) → nextInvoiceAt = période suivante */
   skipCurrentPeriod?: boolean;
+  /** Si true : 1ʳᵉ échéance due tout de suite (devis d'abonnement seul) → nextInvoiceAt = startDate */
+  firstPeriodNow?: boolean;
+  /** STRIPE : prélèvement attendu, le cron ERP ne facture pas (les factures viendront de Stripe). */
+  collectionMethod?: SubscriptionCollectionMethod;
 };
 
 export class SubscriptionError extends Error {}
@@ -116,7 +120,9 @@ export async function createSubscription(
   const startDate = data.startDate ?? new Date();
   const billingInterval = normalizeInterval(data.billingInterval);
   let nextInvoiceAt = computeNextInvoiceAt(data.billingDay, startDate);
-  if (data.skipCurrentPeriod) {
+  if (data.firstPeriodNow) {
+    nextInvoiceAt = startDate;
+  } else if (data.skipCurrentPeriod) {
     // Période suivante au billingDay (1ʳᵉ échéance déjà dans le devis/facture)
     nextInvoiceAt = new Date(
       startDate.getFullYear(),
@@ -141,6 +147,7 @@ export async function createSubscription(
       endDate: data.endDate ?? null,
       status: SubscriptionStatus.ACTIVE,
       nextInvoiceAt,
+      ...(data.collectionMethod ? { collectionMethod: data.collectionMethod } : {}),
     },
     include: { client: true, service: true },
   });
@@ -271,6 +278,100 @@ export async function endSubscription(id: string, endDate?: Date) {
   });
 }
 
+/** Factures dues d'un abonnement pour son échéance courante. @returns true si une facture a été émise. */
+async function invoiceSubscriptionCycle(sub: Prisma.SubscriptionGetPayload<{ include: { client: true; service: true } }>): Promise<boolean> {
+  const issueDate = sub.nextInvoiceAt;
+  const yearly = normalizeInterval(sub.billingInterval) === "YEAR";
+  const followingInvoiceAt = addMonths(issueDate, periodMonths(sub.billingInterval));
+
+  // Idempotence : une facture existe déjà pour ce cycle ?
+  // Toute facture non annulée datée dans ce cycle compte (une facture Stripe ou manuelle
+  // n'est pas forcément datée du jour exact de l'échéance).
+  const existing = await prisma.invoice.findFirst({
+    where: {
+      subscriptionId: sub.id,
+      status: { not: InvoiceStatus.CANCELLED },
+      issueDate: {
+        gte: new Date(issueDate.getFullYear(), issueDate.getMonth(), issueDate.getDate(), 0, 0, 0, 0),
+        lt: followingInvoiceAt,
+      },
+    },
+    select: { id: true },
+  });
+  if (existing) {
+    // Cycle déjà facturé : on avance juste nextInvoiceAt pour ne pas boucler.
+    await prisma.subscription.update({
+      where: { id: sub.id },
+      data: { nextInvoiceAt: followingInvoiceAt },
+    });
+    return false;
+  }
+
+  // Création, émission et avance de l'échéance dans une seule transaction :
+  // une facture émise dont nextInvoiceAt n'aurait pas avancé serait rejouée
+  // au cycle suivant, et un brouillon sans numéro resterait orphelin.
+  const settings = await getCompanySettings();
+  const issued = await prisma.$transaction(async (tx) => {
+    const invoice = await tx.invoice.create({
+      data: {
+        documentType: InvoiceDocumentType.INVOICE,
+        invoiceType: InvoiceType.SIMPLE,
+        status: InvoiceStatus.DRAFT,
+        clientId: sub.clientId,
+        subscriptionId: sub.id,
+        paymentTerms: yearly
+          ? "Échéance annuelle : paiement à réception"
+          : "Prélèvement mensuel : paiement à réception",
+        subtotalCents: sub.amountCents,
+        totalCents: sub.amountCents,
+        lines: {
+          create: {
+            position: 1,
+            description: yearly ? `${sub.label} : période du ${fmtDay(issueDate)} au ${fmtDay(addDays(followingInvoiceAt, -1))}` : sub.label,
+            quantity: 1,
+            unitPriceCents: sub.amountCents,
+            lineTotalCents: sub.amountCents,
+          },
+        },
+      },
+    });
+
+    const emitted = await issueInvoiceWithin(tx, invoice.id, issueDate, issueDate, settings);
+
+    await tx.subscription.update({
+      where: { id: sub.id },
+      data: {
+        lastInvoiceId: emitted.id,
+        nextInvoiceAt: followingInvoiceAt,
+      },
+    });
+
+    return emitted;
+  });
+
+  // Hors transaction : un envoi d'email raté ne doit pas défaire la facture.
+  await sendDocumentPdf(issued.id);
+
+  return true;
+}
+
+/**
+ * Émet tout de suite la 1re facture d'un abonnement dû (devis d'abonnement seul signé, sans Stripe).
+ * Même chemin que le cron : idempotent sur le cycle, puis l'échéance avance d'une période.
+ */
+export async function invoiceSubscriptionNow(subscriptionId: string, now: Date = new Date()): Promise<boolean> {
+  const sub = await prisma.subscription.findFirst({
+    where: {
+      id: subscriptionId,
+      status: SubscriptionStatus.ACTIVE,
+      collectionMethod: { not: SubscriptionCollectionMethod.STRIPE },
+      nextInvoiceAt: { lte: now },
+    },
+    include: { client: true, service: true },
+  });
+  return sub ? invoiceSubscriptionCycle(sub) : false;
+}
+
 /**
  * Génère et émet les factures dues pour tous les abonnements ACTIVE dont
  * nextInvoiceAt <= now. Idempotent : saute si une facture existe déjà pour
@@ -292,76 +393,7 @@ export async function generateDueSubscriptionInvoices(now: Date = new Date()): P
 
   let generated = 0;
   for (const sub of due) {
-    const issueDate = sub.nextInvoiceAt;
-    const yearly = normalizeInterval(sub.billingInterval) === "YEAR";
-    const followingInvoiceAt = addMonths(issueDate, periodMonths(sub.billingInterval));
-
-    // Idempotence : une facture existe déjà pour ce cycle ?
-    const existing = await prisma.invoice.findFirst({
-      where: {
-        subscriptionId: sub.id,
-        issueDate: {
-          gte: new Date(issueDate.getFullYear(), issueDate.getMonth(), issueDate.getDate(), 0, 0, 0, 0),
-          lte: new Date(issueDate.getFullYear(), issueDate.getMonth(), issueDate.getDate(), 23, 59, 59, 999),
-        },
-      },
-      select: { id: true },
-    });
-    if (existing) {
-      // Cycle déjà facturé : on avance juste nextInvoiceAt pour ne pas boucler.
-      await prisma.subscription.update({
-        where: { id: sub.id },
-        data: { nextInvoiceAt: followingInvoiceAt },
-      });
-      continue;
-    }
-
-    // Création, émission et avance de l'échéance dans une seule transaction :
-    // une facture émise dont nextInvoiceAt n'aurait pas avancé serait rejouée
-    // au cycle suivant, et un brouillon sans numéro resterait orphelin.
-    const settings = await getCompanySettings();
-    const issued = await prisma.$transaction(async (tx) => {
-      const invoice = await tx.invoice.create({
-        data: {
-          documentType: InvoiceDocumentType.INVOICE,
-          invoiceType: InvoiceType.SIMPLE,
-          status: InvoiceStatus.DRAFT,
-          clientId: sub.clientId,
-          subscriptionId: sub.id,
-          paymentTerms: yearly
-            ? "Échéance annuelle : paiement à réception"
-            : "Prélèvement mensuel : paiement à réception",
-          subtotalCents: sub.amountCents,
-          totalCents: sub.amountCents,
-          lines: {
-            create: {
-              position: 1,
-              description: yearly ? `${sub.label} : période du ${fmtDay(issueDate)} au ${fmtDay(addDays(followingInvoiceAt, -1))}` : sub.label,
-              quantity: 1,
-              unitPriceCents: sub.amountCents,
-              lineTotalCents: sub.amountCents,
-            },
-          },
-        },
-      });
-
-      const emitted = await issueInvoiceWithin(tx, invoice.id, issueDate, issueDate, settings);
-
-      await tx.subscription.update({
-        where: { id: sub.id },
-        data: {
-          lastInvoiceId: emitted.id,
-          nextInvoiceAt: followingInvoiceAt,
-        },
-      });
-
-      return emitted;
-    });
-
-    // Hors transaction : un envoi d'email raté ne doit pas défaire la facture.
-    await sendDocumentPdf(issued.id);
-
-    generated += 1;
+    if (await invoiceSubscriptionCycle(sub)) generated += 1;
   }
 
   return generated;

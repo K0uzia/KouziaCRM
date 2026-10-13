@@ -870,6 +870,8 @@ model Subscription {
   /// Changement d'état venu de Stripe (ENDED | PAUSED | ACTIVE) : résiliation, impayés ou pause faits côté Stripe
   stripeStatusChange     String?
   stripeStatusChangedAt  DateTime?
+  /// Lien de mise en place du prélèvement Stripe envoyé au client (un seul envoi automatique)
+  setupLinkSentAt        DateTime?
   invoices               Invoice[]
   sourceLines            InvoiceLine[]
   createdAt              DateTime                     @default(now())

@@ -553,7 +553,14 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
   );
   // Ordre imposé : un devis ne se facture qu'une fois émis puis signé (règle vérifiée aussi par l'API).
   const quoteSigned = isQuote && Boolean(doc.number) && doc.quoteStatus === "ACCEPTED";
-  const canCreateInvoice = quoteSigned;
+  // Devis d'abonnement seul (offre NONE figée à l'émission ; brouillon : déduit des lignes) :
+  // ni acompte ni facture depuis le devis, l'abonnement facture chaque période.
+  const docLines = doc.lines ?? [];
+  const subscriptionQuote =
+    isQuote &&
+    (doc.paymentPlanOffer === "NONE" ||
+      (doc.status === "DRAFT" && docLines.length > 0 && docLines.every((l) => l.isSubscription)));
+  const canCreateInvoice = quoteSigned && !subscriptionQuote;
   const lockedReason =
     doc.status === "DRAFT"
       ? "Étape 1 : émettez le devis (bouton Émettre) pour l'envoyer au client."
@@ -1016,12 +1023,26 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
                           <span className="text-[var(--text)]">{l.description}</span>
                           {" : "}
                           {formatEUR(l.unitPriceCents)} TTC facturés{" "}
-                          {l.billingInterval === "YEAR"
+                          {subscriptionQuote
+                            ? `${l.billingInterval === "YEAR" ? "chaque année" : "chaque mois"} à partir de la signature, sans acompte.`
+                            : l.billingInterval === "YEAR"
                             ? "chaque année à la date anniversaire. Les années suivantes seront facturées automatiquement, avec un rappel au client 30 jours avant."
                             : `chaque mois${l.billingDay ? ` le ${l.billingDay}` : ""}. Les mois suivants seront facturés automatiquement.`}
                         </li>
                       ))}
                   </ul>
+                  {subscriptionQuote ? (
+                    <p className="mt-2 text-[var(--muted)]">
+                      À la signature, l&apos;abonnement est créé : avec Stripe, le client met en place le prélèvement
+                      depuis son espace et chaque échéance est prélevée puis facturée ; sans Stripe, la 1re facture part
+                      tout de suite.{" "}
+                      {quoteSigned ? (
+                        <Link to="/abonnements" className="link">
+                          Voir les abonnements
+                        </Link>
+                      ) : null}
+                    </p>
+                  ) : null}
                 </div>
               ) : null}
                 {doc.paymentTerms ? (
@@ -1069,7 +1090,7 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
               Paiement au choix du client : il choisira 2 ou 3 fois à la signature.
             </p>
           ) : null}
-          {isQuote && market && doc.quoteStatus !== "REJECTED" && doc.quoteStatus !== "EXPIRED" ? (
+          {isQuote && !subscriptionQuote && market && doc.quoteStatus !== "REJECTED" && doc.quoteStatus !== "EXPIRED" ? (
             <MarketTimeline
               market={market}
               busyId={busyId}
@@ -1201,7 +1222,7 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
             ) : null}
           </Card>
 
-          {isQuote && doc.number ? (
+          {isQuote && doc.number && !subscriptionQuote ? (
             <Card className="p-5">
               <QuoteJourney
                 quote={{

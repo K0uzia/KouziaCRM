@@ -3,14 +3,27 @@ import { computeMilestoneAmounts, type MilestoneTemplate } from "@/lib/quotes/mi
 
 /** Formule retenue par le client. */
 export type PaymentPlan = "TWO" | "THREE";
-/** Formule(s) proposée(s) sur le devis. null = échéancier historique (devis émis avant la fonction). */
-export type PaymentPlanOffer = PaymentPlan | "CHOICE";
+/**
+ * Formule(s) proposée(s) sur le devis. null = échéancier historique (devis émis avant la fonction).
+ * NONE = devis d'abonnement seul : ni acompte ni échéancier, l'abonnement facture chaque période.
+ */
+export type PaymentPlanOffer = PaymentPlan | "CHOICE" | "NONE";
 
 export const PAYMENT_PLANS: readonly PaymentPlan[] = ["TWO", "THREE"];
 export const PAYMENT_PLAN_OFFERS: readonly PaymentPlanOffer[] = ["TWO", "THREE", "CHOICE"];
 
 export function parsePaymentPlanOffer(value: string | null | undefined): PaymentPlanOffer | null {
-  return value === "TWO" || value === "THREE" || value === "CHOICE" ? value : null;
+  return value === "TWO" || value === "THREE" || value === "CHOICE" || value === "NONE" ? value : null;
+}
+
+/** Devis dont toutes les lignes sont des abonnements : pas d'acompte, pas d'échéancier. */
+export function isSubscriptionOnly(lines: ReadonlyArray<{ isSubscription: boolean }>): boolean {
+  return lines.length > 0 && lines.every((l) => l.isSubscription);
+}
+
+/** Devis sans échéancier (abonnement seul, offre figée à l'émission). */
+export function hasNoMilestones(offer: string | null | undefined): boolean {
+  return offer === "NONE";
 }
 
 export function parsePaymentPlan(value: string | null | undefined): PaymentPlan | null {
@@ -55,12 +68,13 @@ export function effectiveOffer(
   totalCents: number,
   s: Pick<PlanSettings, "split3MinTotalCents">,
 ): PaymentPlanOffer | null {
-  if (offer === null || offer === "TWO") return offer;
+  if (offer === null || offer === "TWO" || offer === "NONE") return offer;
   return totalCents < s.split3MinTotalCents ? "TWO" : offer;
 }
 
 /** Formules que le client peut retenir. */
 export function plansOffered(offer: PaymentPlanOffer | null): PaymentPlan[] {
+  if (offer === "NONE") return [];
   if (offer === "CHOICE") return ["TWO", "THREE"];
   if (offer === "THREE") return ["THREE"];
   return ["TWO"];
@@ -96,7 +110,11 @@ export function resolveAcceptedPlan(
   offer: PaymentPlanOffer | null,
   requested: PaymentPlan | null | undefined,
   opts: { requireChoice: boolean },
-): PaymentPlan {
+): PaymentPlan | null {
+  if (offer === "NONE") {
+    if (requested) throw new PaymentPlanError("Ce devis d'abonnement n'a pas d'échéancier de paiement.");
+    return null;
+  }
   const offered = plansOffered(offer);
   if (requested) {
     if (!offered.includes(requested)) {

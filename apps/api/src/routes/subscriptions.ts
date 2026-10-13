@@ -2,6 +2,7 @@ import type { FastifyPluginAsync } from "fastify";
 import { z } from "zod";
 import { SubscriptionStatus } from "@prisma/client";
 import { requireAuth } from "@/lib/auth.js";
+import { prisma } from "@/lib/prisma.js";
 import { StripeSubscriptionSyncError } from "@/lib/stripe/subscription-control.js";
 import { StripeModeError } from "@/lib/stripe/mode.js";
 import {
@@ -196,6 +197,7 @@ export const subscriptionsRoutes: FastifyPluginAsync = async (app) => {
       }
       const { sendSubscriptionSetupEmail } = await import("@/lib/stripe/billing.js");
       await sendSubscriptionSetupEmail(sub.id);
+      await prisma.subscription.update({ where: { id: sub.id }, data: { setupLinkSentAt: new Date() } });
       return { ok: true };
     },
   );
