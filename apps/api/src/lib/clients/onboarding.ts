@@ -100,7 +100,8 @@ export async function sendOnboardingInvite(opts: {
 
     return { ok: true, sent: true, token };
   } catch (err) {
-    console.error(`[email] envoi invitation onboarding échoué pour ${email}`, err);
+    // Adresse masquée : jamais de donnée personnelle en clair dans les journaux.
+    console.error(`[email] envoi invitation onboarding échoué pour ${maskEmail(email)}`, err);
     return { ok: true, sent: false, reason: "error", token };
   }
 }
