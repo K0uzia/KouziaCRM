@@ -974,19 +974,22 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
                   {(doc.lines ?? []).map((l, i) => (
                     <tr key={i} className="border-t border-[var(--border)]">
                       <td className="px-5 py-3 sm:px-6" data-label="Désignation">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <span className="font-medium">{l.description}</span>
+                        {/* Un seul enfant : en cartes (mobile), la note ne devient pas une colonne étroite. */}
+                        <div className="min-w-0">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="font-medium">{l.description}</span>
+                            {l.isSubscription ? (
+                              <Badge tone="amber">{l.billingInterval === "YEAR" ? "Annuel" : "Mensuel"}</Badge>
+                            ) : null}
+                          </div>
                           {l.isSubscription ? (
-                            <Badge tone="amber">{l.billingInterval === "YEAR" ? "Annuel" : "Mensuel"}</Badge>
+                            <p className="mt-1 max-w-xl text-xs text-[var(--muted)]">
+                              {subscriptionQuote
+                                ? `Facturé chaque ${l.billingInterval === "YEAR" ? "année" : "mois"} à partir de la signature, sans acompte.`
+                                : `${l.billingInterval === "YEAR" ? "Facturé chaque année à la date anniversaire." : `Facturé le ${l.billingDay ?? "…"} de chaque mois.`} Ce document inclut la 1re échéance.`}
+                            </p>
                           ) : null}
                         </div>
-                        {l.isSubscription ? (
-                          <p className="mt-1 max-w-xl text-xs text-[var(--muted)]">
-                            {subscriptionQuote
-                              ? `Facturé chaque ${l.billingInterval === "YEAR" ? "année" : "mois"} à partir de la signature, sans acompte.`
-                              : `${l.billingInterval === "YEAR" ? "Facturé chaque année à la date anniversaire." : `Facturé le ${l.billingDay ?? "…"} de chaque mois.`} Ce document inclut la 1re échéance.`}
-                          </p>
-                        ) : null}
                       </td>
                       <td className="w-16 px-3 py-3 text-right tabular-nums" data-label="Qté">
                         {String(l.quantity)}
