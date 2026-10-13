@@ -94,6 +94,8 @@ export function NotificationsTab() {
 
   async function remove(d: PushDevice) {
     try {
+      // Cet appareil : le navigateur est aussi désabonné (sinon il garderait un abonnement inutile).
+      if (d.endpoint === thisEndpoint) await (await currentSubscription())?.unsubscribe();
       await api(`/api/push/subscriptions/${d.id}`, { method: "DELETE" });
       toast.success(`« ${d.label} » ne recevra plus de notifications`);
       setRemoving(null);
@@ -121,7 +123,9 @@ export function NotificationsTab() {
             </Button>
           </div>
         ) : !config ? (
-          <div className="h-11 animate-pulse rounded-[var(--radius)] bg-[var(--surface-raised)]" aria-busy="true" />
+          <div role="status" aria-busy="true" className="h-11 animate-pulse rounded-[var(--radius)] bg-[var(--surface-raised)]">
+            <span className="sr-only">Chargement…</span>
+          </div>
         ) : support === "insecure" ? (
           <p className="text-sm text-[var(--warning)]">
             Les notifications push ne fonctionnent qu&apos;en https : ouvrez l&apos;ERP par https://erp.kouzia.com,
