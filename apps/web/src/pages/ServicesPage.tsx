@@ -183,7 +183,7 @@ export function ServicesPage() {
         subtitle={
           moduleStripeEnabled
             ? "Catalogue synchronisé avec Stripe : ce que vous créez, modifiez ou archivez ici l'est aussi dans Stripe."
-            : "Catalogue à prix fixe, repris dans les devis et factures. Prix TTC : montant final payé par le client."
+            : "Catalogue à prix fixe, repris dans les devis et factures. Prix : montant final payé par le client (TVA non applicable)."
         }
         actions={
           <Button onClick={openCreate}>
@@ -232,7 +232,7 @@ export function ServicesPage() {
                 <div className="flex shrink-0 flex-wrap items-center justify-between gap-x-4 gap-y-2 sm:justify-end">
                   <div className="text-left sm:text-right">
                     <p className="font-display text-lg font-semibold tabular-nums">{formatEUR(s.unitPriceCents)}</p>
-                    <p className="text-xs text-[var(--muted)]">TTC, prix fixe</p>
+                    <p className="text-xs text-[var(--muted)]">Prix fixe</p>
                   </div>
                   <div className="flex flex-wrap justify-end gap-1">
                     {moduleStripeEnabled && s.stripeProductId ? (
@@ -340,9 +340,9 @@ export function ServicesPage() {
             label={
               form.kind === "SUBSCRIPTION"
                 ? form.billingInterval === "YEAR"
-                  ? "Prix TTC par an (€)"
-                  : "Prix TTC par mois (€)"
-                : "Prix TTC (€)"
+                  ? "Prix par an (€)"
+                  : "Prix par mois (€)"
+                : "Prix (€)"
             }
             hint={
               linkedPriceChange

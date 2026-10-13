@@ -258,7 +258,7 @@ export function CreditNoteWizard({
               ) : (
                 <p className="text-[var(--muted)]">
                   Un avoir est justifié uniquement pour rembourser / corriger un
-                  montant déjà encaissé. Montants TTC, en euros.
+                  montant déjà encaissé. Montants en euros.
                 </p>
               )}
 
@@ -344,7 +344,7 @@ export function CreditNoteWizard({
               </Field>
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <Field
-                  label="Montant TTC de l'avoir (€)"
+                  label="Montant de l'avoir (€)"
                   hint={`Max ${formatEUR(elig.maxCreditCents)}`}
                 >
                   <Input
@@ -424,7 +424,7 @@ export function CreditNoteWizard({
                   {reasonDetail ? ` - ${reasonDetail}` : ""}
                 </p>
                 <p>
-                  Montant TTC : <strong>{formatEUR(amountCents)}</strong>
+                  Montant : <strong>{formatEUR(amountCents)}</strong>
                 </p>
                 <p>
                   Remboursement :{" "}

@@ -52,6 +52,8 @@ type Subscription = {
   /** État brut Stripe (past_due, unpaid…) et résiliation programmée dans Stripe. */
   stripeStatus?: string | null;
   stripeCancelAt?: string | null;
+  /** Demande de résiliation faite par le client dans /suivi (abonnement par virement). */
+  cancellationRequestedAt?: string | null;
   client: { id: string; displayName: string; clientNumber: string | null };
   service: { id: string; name: string };
 };
@@ -115,6 +117,11 @@ function SubscriptionBadges({ s, stripeEnabled }: { s: Subscription; stripeEnabl
       {s.status !== "ENDED" && s.stripeCancelAt ? (
         <Badge tone="neutral" className="whitespace-normal">
           Résiliation programmée le {formatDate(s.stripeCancelAt)}
+        </Badge>
+      ) : null}
+      {s.status !== "ENDED" && s.cancellationRequestedAt ? (
+        <Badge tone="amber" className="whitespace-normal">
+          Résiliation demandée le {formatDate(s.cancellationRequestedAt)}
         </Badge>
       ) : null}
       {stripeActive ? (
@@ -512,8 +519,8 @@ export function SubscriptionsPage() {
                   active.reduce((acc, r) => acc + monthlyEquivalentCents(r.amountCents, r.billingInterval), 0),
                 ),
                 hint: active.some((r) => normalizeInterval(r.billingInterval) === "YEAR")
-                  ? "TTC, contrats actifs, annuels ramenés au mois"
-                  : "TTC, contrats actifs",
+                  ? "Contrats actifs, annuels ramenés au mois"
+                  : "Contrats actifs",
                 tone: "success" as const,
               },
               { label: "Contrats actifs", value: String(active.length) },
@@ -595,7 +602,7 @@ export function SubscriptionsPage() {
                         <div className="flex shrink-0 items-center justify-between gap-4 sm:justify-end">
                           <div className="sm:text-right">
                             <p className="font-display text-lg font-semibold tabular-nums">{formatEUR(o.unitPriceCents)}</p>
-                            <p className="text-xs text-[var(--muted)]">TTC {periodSuffix(o.billingInterval)}</p>
+                            <p className="text-xs text-[var(--muted)]">{periodSuffix(o.billingInterval)}</p>
                           </div>
                           <div className="flex gap-1">
                             {moduleStripeEnabled && o.stripeProductId ? (
@@ -973,7 +980,7 @@ export function SubscriptionsPage() {
             />
           </Field>
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <Field label="Prix TTC / mois (€)">
+            <Field label="Prix / mois (€)">
               <Input
                 required
                 type="number"

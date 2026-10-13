@@ -204,6 +204,7 @@ export async function handleStripePaymentFailed(stripeInvoice: Stripe.Invoice): 
   if (!sub) return "échec signalé (sans abonnement ERP)";
   // Paiement en attente de confirmation (3DS) : le client a déjà l'e-mail « confirmer le paiement ».
   if (invoice.stripeActionRequiredAt) return `échec signalé à l'admin (tentative ${attempt}, confirmation déjà demandée)`;
+  const url = await subscriptionPaymentUrl(sub);
   await send(
     invoice.clientId,
     "subscription_payment_failed",
@@ -214,7 +215,7 @@ export async function handleStripePaymentFailed(stripeInvoice: Stripe.Invoice): 
         amountCents,
         invoiceNumber: invoice.number,
         nextAttempt,
-        url: subscriptionPaymentUrl(sub),
+        url,
       }),
     invoice.id,
   );
@@ -391,9 +392,8 @@ export async function notifySubscriptionSync(result: StripeSyncResult): Promise<
     );
   }
   if (result.becameUnpaid) {
-    await send(sub.clientId, "subscription_suspended", (ctx) =>
-      renderSuspendedEmail({ ...ctx, label: sub.label, url: subscriptionPaymentUrl(sub) }),
-    );
+    const url = await subscriptionPaymentUrl(sub);
+    await send(sub.clientId, "subscription_suspended", (ctx) => renderSuspendedEmail({ ...ctx, label: sub.label, url }));
   }
   if (result.cancelScheduledAt) {
     const endsAt = result.cancelScheduledAt;

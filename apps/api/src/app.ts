@@ -129,8 +129,17 @@ export async function buildApp(opts: BuildAppOptions = {}): Promise<FastifyInsta
     parseOptions: {},
   });
 
+  // Limite de débit dépassée : { error } en français, lisible par le site et l'admin (json.error).
+  // Toute autre erreur garde le traitement par défaut de Fastify.
+  const RATE_LIMITED = "Trop de demandes : réessayez dans quelques minutes.";
   await app.register(rateLimit, {
     global: false,
+    errorResponseBuilder: (_request, context) =>
+      Object.assign(new Error(RATE_LIMITED), { statusCode: context.statusCode }),
+  });
+  app.setErrorHandler((error: Error & { statusCode?: number }, _request, reply) => {
+    if (error.statusCode === 429) return reply.code(429).send({ error: RATE_LIMITED });
+    return reply.send(error);
   });
 
   await app.register(multipart, {

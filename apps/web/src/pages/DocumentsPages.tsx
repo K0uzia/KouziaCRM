@@ -1005,8 +1005,8 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
                   <tr className="bg-[var(--bg-subtle)] text-xs uppercase tracking-[0.06em] text-[var(--muted)]">
                     <th className="px-5 py-2.5 text-left font-semibold sm:px-6">Désignation</th>
                     <th className="px-3 py-2.5 text-right font-semibold">Qté</th>
-                    <th className="px-3 py-2.5 text-right font-semibold">P.U. TTC</th>
-                    <th className="px-5 py-2.5 text-right font-semibold sm:px-6">Total TTC</th>
+                    <th className="px-3 py-2.5 text-right font-semibold">P.U.</th>
+                    <th className="px-5 py-2.5 text-right font-semibold sm:px-6">Total</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -1035,10 +1035,10 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
                       <td className="w-16 px-3 py-3 text-right tabular-nums" data-label="Qté">
                         {String(l.quantity)}
                       </td>
-                      <td className="w-28 px-3 py-3 text-right tabular-nums" data-label="P.U. TTC">
+                      <td className="w-28 px-3 py-3 text-right tabular-nums" data-label="P.U.">
                         {formatEUR(l.unitPriceCents)}
                       </td>
-                      <td className="w-32 px-5 py-3 text-right font-medium tabular-nums sm:px-6" data-label="Total TTC">
+                      <td className="w-32 px-5 py-3 text-right font-medium tabular-nums sm:px-6" data-label="Total">
                         {formatEUR(l.lineTotalCents)}
                       </td>
                     </tr>
@@ -1065,7 +1065,7 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
                         <li key={i}>
                           <span className="text-[var(--text)]">{l.description}</span>
                           {" : "}
-                          {formatEUR(l.unitPriceCents)} TTC facturés{" "}
+                          {formatEUR(l.unitPriceCents)} facturés{" "}
                           {subscriptionQuote || mixedQuote
                             ? `${l.billingInterval === "YEAR" ? "chaque année" : "chaque mois"} à partir ${
                                 subscriptionQuote ? "de la signature" : "de la livraison (projet terminé)"
@@ -1136,7 +1136,7 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
                   </>
                 ) : null}
                 <div className="flex items-baseline justify-between border-t border-[var(--border)] pt-2">
-                  <span className="font-medium">Total TTC</span>
+                  <span className="font-medium">Total</span>
                   <span className="font-display text-2xl font-semibold tabular-nums">{formatEUR(doc.totalCents)}</span>
                 </div>
               </div>

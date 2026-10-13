@@ -24,6 +24,11 @@ const MIN_ELAPSED_FOR_RENEWAL_MS = 300 * DAY_MS;
 
 const fmtDate = formatLongDate;
 
+/** Échéance qui est un renouvellement (et non la 1re facture de l'abonnement). */
+export function isRenewal(s: { nextInvoiceAt: Date; startDate: Date }): boolean {
+  return s.nextInvoiceAt.getTime() - s.startDate.getTime() >= MIN_ELAPSED_FOR_RENEWAL_MS;
+}
+
 /** Date limite pour refuser la reconduction : N jours avant le renouvellement (1 = la veille). */
 export function nonRenewalDeadline(renewalDate: Date, noticeDays: number): Date {
   return new Date(renewalDate.getTime() - Math.max(0, noticeDays) * DAY_MS);
@@ -98,6 +103,7 @@ export async function sendDueRenewalReminders(now: Date = new Date()): Promise<n
       status: SubscriptionStatus.ACTIVE,
       billingInterval: "YEAR",
       stripeCancelAt: null,
+      cancellationRequestedAt: null,
       nextInvoiceAt: { gt: now, lte: horizon },
     },
     include: { client: true },
@@ -106,7 +112,7 @@ export async function sendDueRenewalReminders(now: Date = new Date()): Promise<n
   const due = candidates.filter(
     (s) =>
       s.renewalReminderSentFor?.getTime() !== s.nextInvoiceAt.getTime() &&
-      s.nextInvoiceAt.getTime() - s.startDate.getTime() >= MIN_ELAPSED_FOR_RENEWAL_MS &&
+      isRenewal(s) &&
       (!s.endDate || s.endDate >= s.nextInvoiceAt),
   );
   if (due.length === 0) return 0;
@@ -130,7 +136,7 @@ export async function sendDueRenewalReminders(now: Date = new Date()): Promise<n
       deadline: nonRenewalDeadline(sub.nextInvoiceAt, settings.nonRenewalNoticeDays),
       manageUrl:
         sub.collectionMethod === SubscriptionCollectionMethod.STRIPE && sub.stripeSubscriptionId
-          ? subscriptionPaymentUrl(sub)
+          ? await subscriptionPaymentUrl(sub)
           : null,
     });
     await mailEnqueue({

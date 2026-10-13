@@ -133,7 +133,7 @@ export async function checkExpiringCards(now: Date = new Date()): Promise<number
         last4,
         expMonth,
         expYear,
-        url: subscriptionCardUpdateUrl(sub),
+        url: await subscriptionCardUpdateUrl(sub),
       });
       await mailEnqueue({
         to,
