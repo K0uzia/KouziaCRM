@@ -54,6 +54,18 @@ export type EcheanceCardData = {
   priorPeriod: PriorPeriodStatus;
   /** Trimestre civil précédent  -  payé ou non */
   previousQuarter: PriorPeriodStatus;
+  /**
+   * Période en cours (pas encore déclarable) : encaissements à ce jour et cotisations estimées.
+   * L'échéance ci-dessus porte sur la période close précédente ; sans ce bloc, un mois à 0 €
+   * masquerait le chiffre d'affaires du mois en cours.
+   */
+  enCours: {
+    periodKey: string;
+    periodLabel: string;
+    deadline: string;
+    encaisseCents: number;
+    estimatedDueCents: number;
+  };
 };
 
 export type DashboardSnapshotV2 = {
@@ -149,6 +161,11 @@ export async function getDashboardSnapshot(
     declPeriod.periodEnd,
     company.businessStartDate,
   );
+  const clippedUpcoming = clipPeriodToActivity(
+    upcoming.periodStart,
+    upcoming.periodEnd,
+    company.businessStartDate,
+  );
 
   const [
     periodCashflow,
@@ -160,6 +177,7 @@ export async function getDashboardSnapshot(
     previousQuarterStatus,
     issuedPending,
     drafts,
+    encaisseEnCours,
   ] = await Promise.all([
     getScopedCashflow(scope, now),
     invoiceId ? getInvoiceCashflow(invoiceId, now) : Promise.resolve(null),
@@ -177,6 +195,9 @@ export async function getDashboardSnapshot(
       take: 8,
     }),
     prisma.invoice.count({ where: { status: InvoiceStatus.DRAFT } }),
+    clippedUpcoming
+      ? sumEncaisseCents(clippedUpcoming.start, clippedUpcoming.end)
+      : Promise.resolve(0),
   ]);
 
   const breakdownDue = computeSocialChargesForEncaisse(encaisseDuePeriod);
@@ -211,6 +232,13 @@ export async function getDashboardSnapshot(
     nextPeriodLabel: nextFocus.label,
     priorPeriod,
     previousQuarter: previousQuarterStatus,
+    enCours: {
+      periodKey: upcoming.periodKey,
+      periodLabel: upcoming.label,
+      deadline: upcoming.deadline.toISOString(),
+      encaisseCents: encaisseEnCours,
+      estimatedDueCents: computeSocialChargesForEncaisse(encaisseEnCours).totalCents,
+    },
   };
 
   const cashflow =

@@ -32,6 +32,14 @@ type Echeance = {
   encaisseCents: number;
   amountDueCents: number;
   paidAt: string | null;
+  /** Période en cours, pas encore déclarable : encaissé à ce jour et cotisations estimées. */
+  enCours?: {
+    periodKey: string;
+    periodLabel: string;
+    deadline: string;
+    encaisseCents: number;
+    estimatedDueCents: number;
+  };
 };
 
 const declStatusLabel: Record<string, string> = {
@@ -124,6 +132,35 @@ export function UrssafPage() {
               <dd className={`mt-1 font-display text-xl font-semibold ${echeance.status === "late" ? "text-[var(--danger)]" : ""}`}>
                 {formatDate(echeance.deadline)}
               </dd>
+            </div>
+          </dl>
+        </Card>
+      ) : null}
+
+      {echeance?.enCours ? (
+        <Card className="overflow-hidden">
+          <div className="border-b border-[var(--border)] p-5">
+            <p className="text-xs font-semibold uppercase tracking-[0.08em] text-[var(--muted)]">Période en cours</p>
+            <h2 className="mt-1 text-lg font-semibold first-letter:uppercase">{echeance.enCours.periodLabel}</h2>
+            <p className="mt-1 text-sm text-[var(--muted)]">
+              Encaissements à ce jour : ils seront déclarés à la fin de la période. Le montant dû est une estimation,
+              provisionnée au tableau de bord.
+            </p>
+          </div>
+          <dl className="grid grid-cols-1 gap-px bg-[var(--border)] sm:grid-cols-3">
+            <div className="bg-[var(--surface)] p-5">
+              <dt className="text-xs text-[var(--muted)]">Encaissé à ce jour</dt>
+              <dd className="mt-1 font-display text-xl font-semibold tabular-nums">{formatEUR(echeance.enCours.encaisseCents)}</dd>
+            </div>
+            <div className="bg-[var(--surface)] p-5">
+              <dt className="text-xs text-[var(--muted)]">Cotisations estimées</dt>
+              <dd className="mt-1 font-display text-xl font-semibold tabular-nums text-[var(--primary)]">
+                {formatEUR(echeance.enCours.estimatedDueCents)}
+              </dd>
+            </div>
+            <div className="bg-[var(--surface)] p-5">
+              <dt className="text-xs text-[var(--muted)]">À déclarer avant le</dt>
+              <dd className="mt-1 font-display text-xl font-semibold">{formatDate(echeance.enCours.deadline)}</dd>
             </div>
           </dl>
         </Card>

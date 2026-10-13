@@ -339,7 +339,9 @@ export function DashboardPage() {
   }
 
   const cf = data.cashflow;
-  const echeanceDue = data.echeance && data.echeance.status !== "PAID" && data.echeance.amountDueCents > 0;
+  // Statuts en minuscules (paid, due, late, clear) : seule une échéance à payer ou en retard est « due ».
+  const echeanceDue =
+    data.echeance && (data.echeance.status === "due" || data.echeance.status === "late") && data.echeance.amountDueCents > 0;
   const pendingTotal = data.pendingWithBalance.reduce((s, i) => s + i.remaining, 0);
   const os = obligations?.summary;
   const obligationAlerts = os ? os.late + os.urgent + os.open : 0;
@@ -369,9 +371,14 @@ export function DashboardPage() {
             to: "/urssaf",
           },
           {
-            label: "CFE et trésorerie",
-            value: formatEUR(cf.cfeCents + cf.tresorerieCents),
-            hint: cfeObligation ? `CFE due le ${formatDate(cfeObligation.dueDate)}` : cf.cfeCents > 0 ? `dont CFE ${formatEUR(cf.cfeCents)}` : "CFE non renseignée",
+            label: "CFE provisionnée",
+            value: formatEUR(cf.cfeCents),
+            hint: cfeObligation ? `due le ${formatDate(cfeObligation.dueDate)}` : cf.cfeCents > 0 ? "provision mensuelle" : "CFE non renseignée",
+          },
+          {
+            label: "Trésorerie",
+            value: formatEUR(cf.tresorerieCents),
+            hint: "provision frais et placements",
           },
           { label: "Reste net", value: formatEUR(cf.resteNetCents), hint: "après URSSAF et provisions", tone: "success" },
           { label: "Salaire disponible", value: formatEUR(cf.resteNetCents), hint: "versable ce mois-ci", tone: "success" },
