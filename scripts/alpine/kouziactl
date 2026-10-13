@@ -108,6 +108,7 @@ Services / data :
   backup | restore | migrate
   mail-repair [--dry-run] [--since=AAAA-MM-JJ]   e-mails reçus classés à tort en envois
   catalog [--dry-run] [--update]   importe le catalogue des prestations (sans doublon)
+  archive-pdfs   archive le PDF des factures et avoirs émis qui n'en ont pas (rendu du moment)
   2fa-reset <email>   désactive la double authentification admin et ferme ses sessions (secours)
   push-keys [mailto:…]   clés des notifications push, écrites dans .env si absentes (jamais remplacées)
 
@@ -204,6 +205,11 @@ run_cmd() {
         [[ "$a" == "--dry-run" || "$a" =~ ^--since=[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]] || die "Usage : kouziactl mail-repair [--dry-run] [--since=AAAA-MM-JJ]"
       done
       run_as_app "cd '$KOUZIA_APP_DIR' && npm run --silent mail:repair -- $*"
+      ;;
+    archive-pdfs)
+      require_root
+      [[ $# -eq 0 ]] || die "Usage : kouziactl archive-pdfs"
+      run_as_app "cd '$KOUZIA_APP_DIR' && npm run --silent archive-pdfs"
       ;;
     catalog|catalogue)
       require_root

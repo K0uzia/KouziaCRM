@@ -8,6 +8,7 @@ import {
   type Prisma,
 } from "@prisma/client";
 import { prisma } from "@/lib/prisma.js";
+import { archiveIssuedDocument } from "@/lib/pdf/issued-archive.js";
 import { issueInvoiceWithin, issueQuote } from "@/lib/invoices/transitions.js";
 import { sendDocumentPdf } from "@/lib/email/send-document-pdf.js";
 import { getCompanySettings } from "@/lib/company.js";
@@ -350,6 +351,7 @@ async function invoiceSubscriptionCycle(sub: Prisma.SubscriptionGetPayload<{ inc
   });
 
   // Hors transaction : un envoi d'email raté ne doit pas défaire la facture.
+  await archiveIssuedDocument(issued.id);
   await sendDocumentPdf(issued.id);
 
   return true;

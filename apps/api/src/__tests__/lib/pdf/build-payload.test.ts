@@ -72,6 +72,9 @@ describe("buildInvoicePdfPayload charte dynamique", () => {
         stripeActionRequiredAt: null,
         stripeActionReminderCount: 0,
         stripeActionUrl: null,
+        pdfPath: null,
+        pdfSha256: null,
+        pdfArchivedAt: null,
         lines: [
           {
             id: "l1",

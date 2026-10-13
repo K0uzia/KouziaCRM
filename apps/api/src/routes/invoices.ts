@@ -1017,6 +1017,15 @@ export const invoicesRoutes: FastifyPluginAsync = async (app) => {
     if (invoice.status === InvoiceStatus.DRAFT || !invoice.number) {
       return reply.code(400).send({ error: "PDF disponible uniquement après émission" });
     }
+    // Facture ou avoir émis : PDF archivé à l'émission, servi tel quel (document immuable).
+    const { issuedDocumentPdf } = await import("@/lib/pdf/issued-archive.js");
+    const archived = await issuedDocumentPdf(invoice.id);
+    if (archived) {
+      return reply
+        .header("Content-Type", "application/pdf")
+        .header("Content-Disposition", `attachment; filename="${invoice.number}.pdf"`)
+        .send(archived);
+    }
 
     const company = await enrichCompanyForPdf(await getCompanySettings());
     const legalClauses = await listActiveLegalClauses();
