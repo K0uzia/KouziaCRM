@@ -83,6 +83,8 @@ type Doc = {
   paymentTerms: string | null;
   /** Devis : formules proposées (TWO | THREE | CHOICE) et formule retenue à la signature. */
   paymentPlanOffer?: string | null;
+  /** Devis : base de l'acompte et de l'échéancier (partie ponctuelle) ; null pour un devis antérieur. */
+  depositBaseCents?: number | null;
   paymentPlan?: string | null;
   client: {
     id: string;
@@ -108,6 +110,7 @@ type Doc = {
     billingDay?: number | null;
     billingInterval?: string | null;
     serviceId?: string | null;
+    subscriptionId?: string | null;
   }>;
   milestones?: Milestone[];
 };
@@ -490,6 +493,22 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
   const [linkBusy, setLinkBusy] = useState(false);
   const [linkPayment, setLinkPayment] = useState<PaymentFieldsState>({ mode: "manual", url: "" });
   const [linkSendEmail, setLinkSendEmail] = useState(true);
+  const [startBusy, setStartBusy] = useState(false);
+
+  /** Devis mixte signé : démarre l'abonnement sans attendre la fin du projet. */
+  async function startSubscription() {
+    if (!id) return;
+    setStartBusy(true);
+    try {
+      await api(`/api/quotes/${id}/start-subscription`, { method: "POST" });
+      toast.success("Abonnement démarré : lien de prélèvement envoyé, ou 1re facture émise sans Stripe");
+      await load();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Démarrage impossible");
+    } finally {
+      setStartBusy(false);
+    }
+  }
 
   async function load() {
     if (!id) return;
@@ -561,6 +580,15 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
     (doc.paymentPlanOffer === "NONE" ||
       (doc.status === "DRAFT" && docLines.length > 0 && docLines.every((l) => l.isSubscription)));
   const canCreateInvoice = quoteSigned && !subscriptionQuote;
+  // Devis mixte : l'abonnement démarre à la livraison (projet terminé) ; démarrage manuel possible.
+  const mixedQuote =
+    isQuote &&
+    !subscriptionQuote &&
+    docLines.some((l) => l.isSubscription) &&
+    docLines.some((l) => !l.isSubscription) &&
+    (doc.status === "DRAFT" || doc.depositBaseCents != null);
+  const subscriptionToStart =
+    mixedQuote && quoteSigned && docLines.some((l) => l.isSubscription && !l.subscriptionId);
   const lockedReason =
     doc.status === "DRAFT"
       ? "Étape 1 : émettez le devis (bouton Émettre) pour l'envoyer au client."
@@ -984,8 +1012,10 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
                           </div>
                           {l.isSubscription ? (
                             <p className="mt-1 max-w-xl text-xs text-[var(--muted)]">
-                              {subscriptionQuote
-                                ? `Facturé chaque ${l.billingInterval === "YEAR" ? "année" : "mois"} à partir de la signature, sans acompte.`
+                              {subscriptionQuote || mixedQuote
+                                ? `Facturé chaque ${l.billingInterval === "YEAR" ? "année" : "mois"} à partir ${
+                                    subscriptionQuote ? "de la signature" : "de la livraison (projet terminé)"
+                                  }, sans acompte.`
                                 : `${l.billingInterval === "YEAR" ? "Facturé chaque année à la date anniversaire." : `Facturé le ${l.billingDay ?? "…"} de chaque mois.`} Ce document inclut la 1re échéance.`}
                             </p>
                           ) : null}
@@ -1025,14 +1055,34 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
                           <span className="text-[var(--text)]">{l.description}</span>
                           {" : "}
                           {formatEUR(l.unitPriceCents)} TTC facturés{" "}
-                          {subscriptionQuote
-                            ? `${l.billingInterval === "YEAR" ? "chaque année" : "chaque mois"} à partir de la signature, sans acompte.`
+                          {subscriptionQuote || mixedQuote
+                            ? `${l.billingInterval === "YEAR" ? "chaque année" : "chaque mois"} à partir ${
+                                subscriptionQuote ? "de la signature" : "de la livraison (projet terminé)"
+                              }, sans acompte.`
                             : l.billingInterval === "YEAR"
                             ? "chaque année à la date anniversaire. Les années suivantes seront facturées automatiquement, avec un rappel au client 30 jours avant."
                             : `chaque mois${l.billingDay ? ` le ${l.billingDay}` : ""}. Les mois suivants seront facturés automatiquement.`}
                         </li>
                       ))}
                   </ul>
+                  {mixedQuote ? (
+                    <div className="mt-2 space-y-2 text-[var(--muted)]">
+                      <p>
+                        Acompte et échéancier portent sur la partie ponctuelle
+                        {doc.depositBaseCents != null ? ` (${formatEUR(doc.depositBaseCents)})` : ""}. L&apos;abonnement
+                        démarre quand le projet passe à « Terminé » : lien de prélèvement avec Stripe, sinon 1re facture.
+                      </p>
+                      {subscriptionToStart ? (
+                        <Button variant="secondary" disabled={startBusy} onClick={() => void startSubscription()}>
+                          {startBusy ? "Démarrage…" : "Démarrer l'abonnement maintenant"}
+                        </Button>
+                      ) : quoteSigned ? (
+                        <Link to="/abonnements" className="link">
+                          Voir les abonnements
+                        </Link>
+                      ) : null}
+                    </div>
+                  ) : null}
                   {subscriptionQuote ? (
                     <p className="mt-2 text-[var(--muted)]">
                       À la signature, l&apos;abonnement est créé : avec Stripe, le client met en place le prélèvement

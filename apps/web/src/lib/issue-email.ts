@@ -23,6 +23,8 @@ export function buildIssueEmailDraft(
   const subs = (doc.lines ?? []).filter((l) => l.isSubscription);
   // Devis d'abonnement seul : rien n'est facturé par le devis lui-même.
   const subscriptionOnly = kind === "QUOTE" && subs.length > 0 && subs.length === (doc.lines ?? []).length;
+  // Devis mixte : l'abonnement démarre à la livraison, hors acompte et échéancier.
+  const mixedQuote = kind === "QUOTE" && subs.length > 0 && !subscriptionOnly;
 
   const lines: string[] = [
     firstName ? `Bonjour ${firstName},` : "Bonjour,",
@@ -37,7 +39,9 @@ export function buildIssueEmailDraft(
     lines.push(
       subscriptionOnly
         ? `Ce devis porte sur un abonnement${kindLabel ? ` ${kindLabel}` : ""}, sans acompte :`
-        : `Ce document inclut un engagement d'abonnement${kindLabel ? ` ${kindLabel}` : ""} :`,
+        : mixedQuote
+          ? `Ce devis comprend aussi un abonnement${kindLabel ? ` ${kindLabel}` : ""}, hors acompte :`
+          : `Ce document inclut un engagement d'abonnement${kindLabel ? ` ${kindLabel}` : ""} :`,
     );
     lines.push("");
     for (const s of subs) {
@@ -46,13 +50,17 @@ export function buildIssueEmailDraft(
       lines.push(
         subscriptionOnly
           ? `- ${s.description} : ${formatEUR(s.unitPriceCents)} facturés ${yearly(s) ? "chaque année" : "chaque mois"} à partir de la signature, sans acompte.`
-          : `- ${s.description} : ${formatEUR(s.unitPriceCents)} facturés ${when}. La 1re échéance est incluse dans ce document.`,
+          : mixedQuote
+            ? `- ${s.description} : ${formatEUR(s.unitPriceCents)} facturés ${yearly(s) ? "chaque année" : "chaque mois"} à partir de la livraison.`
+            : `- ${s.description} : ${formatEUR(s.unitPriceCents)} facturés ${when}. La 1re échéance est incluse dans ce document.`,
       );
     }
     lines.push("");
     lines.push(
       subscriptionOnly
         ? "Après votre signature, chaque échéance fera l'objet d'une facture, envoyée automatiquement."
+        : mixedQuote
+          ? "L'acompte et l'échéancier portent sur la partie ponctuelle ; chaque échéance d'abonnement fera l'objet d'une facture."
         : "Les échéances suivantes feront l'objet de factures séparées, envoyées automatiquement.",
     );
     lines.push("");
