@@ -8,6 +8,7 @@ import { generateDueSubscriptionInvoices } from "../apps/api/src/lib/subscriptio
 import { sendDueRenewalReminders } from "../apps/api/src/lib/subscriptions/renewal-reminder";
 import { sendDueActionReminders } from "../apps/api/src/lib/subscriptions/dunning";
 import { checkExpiringCards } from "../apps/api/src/lib/subscriptions/card-expiry";
+import { archivePendingIssuedPdfs } from "../apps/api/src/lib/pdf/issued-archive";
 import { sendDueReminders, sendDueDepositReminders } from "../apps/api/src/lib/reminders/send";
 import { syncObligations } from "../apps/api/src/lib/obligations/obligation-service";
 import { sendDueObligationEmails } from "../apps/api/src/lib/obligations/email-reminders";
@@ -24,12 +25,14 @@ async function runMaintenance() {
     const renewalReminders = await sendDueRenewalReminders();
     const actionReminders = await sendDueActionReminders();
     const cardNotices = await checkExpiringCards();
+    // Factures et avoirs émis sans PDF archivé (émission sans accès, ou antérieurs à l'archivage).
+    const pdfArchived = await archivePendingIssuedPdfs();
     const remindersSent = await sendDueReminders();
     const depositRemindersSent = await sendDueDepositReminders();
     await syncObligations();
     const obligationEmails = await sendDueObligationEmails();
     console.log(
-      `[worker] maintenance: expired=${expired} remindersScheduled=${scheduled} subscriptionsInvoices=${subscriptions} renewalReminders=${renewalReminders} actionReminders=${actionReminders} cardNotices=${cardNotices} remindersSent=${remindersSent} depositReminders=${depositRemindersSent} obligationEmails=${obligationEmails}`,
+      `[worker] maintenance: expired=${expired} remindersScheduled=${scheduled} subscriptionsInvoices=${subscriptions} renewalReminders=${renewalReminders} actionReminders=${actionReminders} cardNotices=${cardNotices} pdfArchived=${pdfArchived} remindersSent=${remindersSent} depositReminders=${depositRemindersSent} obligationEmails=${obligationEmails}`,
     );
   } catch (err) {
     console.error(`[worker] maintenance error`, err);

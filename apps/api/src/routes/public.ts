@@ -682,6 +682,15 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
       if (!invoice || invoice.status === InvoiceStatus.DRAFT || !invoice.number) {
         return reply.code(404).send({ error: "Document introuvable" });
       }
+      // Facture ou avoir émis : PDF archivé, servi tel quel.
+      const { issuedDocumentPdf } = await import("@/lib/pdf/issued-archive.js");
+      const archived = await issuedDocumentPdf(invoice.id);
+      if (archived) {
+        return reply
+          .header("Content-Type", "application/pdf")
+          .header("Content-Disposition", `inline; filename="${invoice.number}.pdf"`)
+          .send(archived);
+      }
 
       const company = await enrichCompanyForPdf(await getCompanySettings());
       const legalClauses = await listActiveLegalClauses();

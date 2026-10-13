@@ -8,6 +8,7 @@ import {
 } from "@prisma/client";
 import type Stripe from "stripe";
 import { prisma } from "@/lib/prisma.js";
+import { archiveIssuedDocument } from "@/lib/pdf/issued-archive.js";
 import { getCompanySettings } from "@/lib/company.js";
 import { issueInvoiceWithin } from "@/lib/invoices/transitions.js";
 import { sendDocumentPdf } from "@/lib/email/send-document-pdf.js";
@@ -170,6 +171,7 @@ export async function issueErpInvoiceFromStripeInvoice(
   });
 
   // Pas d'e-mail Stripe : l'ERP envoie sa facture (impayée tant que invoice.paid n'est pas reçu).
+  await archiveIssuedDocument(issued.id);
   await sendDocumentPdf(issued.id);
   return { invoiceId: issued.id, created: true };
 }

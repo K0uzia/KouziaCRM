@@ -8,3 +8,9 @@ if (!process.env.ENCRYPTION_KEY)
   process.env.ENCRYPTION_KEY =
     "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
 if (!process.env.WEB_ORIGIN) process.env.WEB_ORIGIN = "http://localhost:5173";
+// PDF archivés des tests : hors du dossier data/uploads réel.
+if (!process.env.KOUZIA_UPLOADS_DIR) {
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  process.env.KOUZIA_UPLOADS_DIR = join(tmpdir(), "kouzia-test-uploads");
+}

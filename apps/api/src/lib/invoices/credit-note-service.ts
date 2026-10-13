@@ -8,6 +8,7 @@ import {
   RefundMethod,
 } from "@prisma/client";
 import { prisma } from "@/lib/prisma.js";
+import { archiveIssuedDocument } from "@/lib/pdf/issued-archive.js";
 import { getCompanySettings } from "@/lib/company.js";
 import { allocateCreditNoteNumber } from "@/lib/invoices/numberingService.js";
 import { buildClientSnapshot, type ClientSnapshot } from "@/lib/invoices/documentFlowService.js";
@@ -229,7 +230,7 @@ export async function createCreditNote(
     input.registerRefundPayment !== false &&
     input.refundMethod === RefundMethod.BANK_TRANSFER;
 
-  return prisma.$transaction(async (tx) => {
+  const creditNote = await prisma.$transaction(async (tx) => {
     const original = await tx.invoice.findUniqueOrThrow({
       where: { id: invoiceId },
       include: {
@@ -344,6 +345,8 @@ export async function createCreditNote(
 
     return creditNote;
   });
+  await archiveIssuedDocument(creditNote.id);
+  return creditNote;
 }
 
 /** Compat : annulation totale (ancien flux) si encaissement présent. */

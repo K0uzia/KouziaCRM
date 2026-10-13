@@ -5,6 +5,7 @@ import {
   MilestoneStatus,
   type Prisma,
 } from "@prisma/client";
+import { archiveIssuedDocument } from "@/lib/pdf/issued-archive.js";
 import { prisma } from "@/lib/prisma.js";
 import { depositBaseOf } from "@/lib/invoices/totals.js";
 import { assertDepositsPaid, assertQuoteSigned } from "@/lib/invoices/workflow.js";
@@ -399,6 +400,7 @@ export async function generateMilestoneInvoice(
     return { invoice: created, quoteId: milestone.quoteId };
   });
 
+  await archiveIssuedDocument(invoice.invoice.id);
   return invoice.invoice;
 }
 
@@ -412,7 +414,7 @@ export async function generateBalanceInvoice(
 ) {
   const issueDate = opts.issueDate ?? new Date();
 
-  return prisma.$transaction(async (tx) => {
+  const result = await prisma.$transaction(async (tx) => {
     const quote = await tx.invoice.findUniqueOrThrow({
       where: { id: quoteId },
       include: { milestones: { orderBy: { position: "asc" } } },
@@ -519,6 +521,8 @@ export async function generateBalanceInvoice(
 
     return { invoice, summary };
   });
+  await archiveIssuedDocument(result.invoice.id);
+  return result;
 }
 
 /** Synchronise le jalon quand sa facture passe PAID. */

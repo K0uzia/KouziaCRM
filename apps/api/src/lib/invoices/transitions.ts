@@ -7,6 +7,7 @@ import {
   type Prisma,
 } from "@prisma/client";
 import { prisma } from "@/lib/prisma.js";
+import { archiveIssuedDocument } from "@/lib/pdf/issued-archive.js";
 import { assertQuoteSigned } from "@/lib/invoices/workflow.js";
 import { getCompanySettings } from "@/lib/company.js";
 import { allocateInvoiceNumber, allocateQuoteNumber } from "@/lib/invoices/numberingService.js";
@@ -114,6 +115,7 @@ export async function issueInvoice(invoiceId: string, issueDate = new Date(), du
   const issued = await prisma.$transaction((tx) =>
     issueInvoiceWithin(tx, invoiceId, issueDate, dueDate, settings),
   );
+  await archiveIssuedDocument(invoiceId);
   const lines = await prisma.invoiceLine.findMany({
     where: { invoiceId, subscriptionId: { not: null } },
     select: { subscriptionId: true },

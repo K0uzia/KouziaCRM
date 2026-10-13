@@ -989,6 +989,11 @@ model Invoice {
   checkoutUrl                  String?
   /// Identifiant Invoice Stripe (in_…) : une échéance Billing = une facture ERP
   stripeInvoiceId              String?                @unique
+  /// Facture ou avoir émis : PDF archivé à l'émission (data/uploads), servi tel quel ensuite
+  pdfPath                      String?
+  /// Empreinte SHA-256 du PDF archivé
+  pdfSha256                    String?
+  pdfArchivedAt                DateTime?
   /// Facture Stripe : dernière tentative (attempt_count) pour laquelle l'e-mail d'échec est parti
   stripeFailureNotifiedAttempt Int?
   /// Facture Stripe payée après un échec : e-mail de régularisation envoyé

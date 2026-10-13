@@ -301,6 +301,19 @@ Une nouvelle version concernée s'ajoute à ce tableau.
 Le backup utilise l'API SQLite (`.backup`) qui gère correctement le mode WAL,
 contrairement à un `cp` brut qui peut produire un fichier incohérent.
 
+**Pièces archivées.** Les PDF de référence sont des fichiers sous `data/uploads`, inclus dans la
+sauvegarde (archive chiffrée `kouziacrm-<date>.uploads.tar.gz.gpg`, restaurée par
+`kouziactl restore --uploads …`) :
+
+- `signed-quotes/` : devis tels qu'acceptés (avant et après signature, SHA-256 sur la preuve) ;
+- `issued-documents/` : factures et avoirs, rendus une fois à l'émission (SHA-256 sur le document),
+  puis servis tels quels (téléchargement, `/suivi`, pièce jointe des e-mails). Modifier un réglage ou
+  une clause ne change plus le PDF d'un document émis. Le worker archive toutes les heures ce qui
+  manquerait.
+
+Après la mise à jour qui introduit l'archivage, lancer une fois `kouziactl archive-pdfs` : les factures et
+avoirs déjà émis sont archivés avec les réglages du moment (sans effet sur ceux déjà archivés).
+
 # Mise en place (une seule fois)
 
 Alpine (fait par install.sh) : passphrase dans `/etc/kouzia/backup-pass`,

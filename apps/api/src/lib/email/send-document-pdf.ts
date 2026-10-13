@@ -64,7 +64,9 @@ export async function sendDocumentPdf(
       return { sent: false, reason: "no_email" };
     }
 
-    const pdf = opts.pdf ?? (await renderLoadedDocumentPdf(doc));
+    // Facture ou avoir émis : le PDF archivé part en pièce jointe (jamais un nouveau rendu).
+    const { issuedDocumentPdf } = await import("@/lib/pdf/issued-archive.js");
+    const pdf = opts.pdf ?? (await issuedDocumentPdf(documentId, doc)) ?? (await renderLoadedDocumentPdf(doc));
 
     const isQuote = invoice.documentType === InvoiceDocumentType.QUOTE;
     const isCredit = invoice.documentType === InvoiceDocumentType.CREDIT_NOTE;
