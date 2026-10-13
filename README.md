@@ -91,13 +91,33 @@ Stripe encaisse (carte, virement, prélèvement SEPA) ; l'ERP reste seul émette
 
 Réglages ERP : **Paramètres > Paiements** (interrupteur Stripe, clé secrète, secret webhook, tester, synchroniser le catalogue).
 
-Dans le [tableau de bord Stripe](https://dashboard.stripe.com/) :
+#### Réglages Stripe en prod
 
-1. Désactiver l'envoi des factures et des reçus aux clients (Settings, Customer emails) : la facture légale est celle de l'ERP, le client en recevrait sinon deux.
-2. Laisser Stripe gérer les avis préalables de prélèvement SEPA.
-3. Activer carte, prélèvement SEPA et virements bancaires (customer_balance).
-4. Choisir le rythme des versements et déclarer l'IBAN Revolut Pro.
-5. Webhook vers `https://<votre-api>/api/webhooks/stripe` avec les événements : `payment_intent.succeeded`, `payment_intent.payment_failed`, `checkout.session.completed`, `invoice.finalized`, `invoice.paid`, `invoice.payment_failed`, `customer.subscription.updated`, `customer.subscription.deleted`, `product.*`, `price.*`, `payout.paid`, `payout.failed`, `charge.refunded`, `charge.dispute.created`, `charge.dispute.closed` (rapprochement « Flux Stripe » : montant des litiges).
+À régler dans le [tableau de bord Stripe](https://dashboard.stripe.com/), en **live** (et en test pour les essais). Ces réglages ne sont pas lisibles par l'API : l'ERP suppose l'état ci-dessous. Un e-mail activé à la fois chez Stripe et dans l'ERP arrive deux fois au client.
+
+L'ERP envoie lui-même, depuis l'adresse d'envoi des Réglages : factures, échec de prélèvement (une fois par tentative), paiement régularisé, confirmation de paiement requise (3DS, rappels à J+3, J+5 et J+7 tant que la facture n'est pas payée), carte qui expire (vérification mensuelle de la carte par défaut, un e-mail par carte et par date d'expiration), abonnement suspendu faute de paiement, accusé de résiliation (programmée ou annulée) et information annuelle de reconduction.
+
+**Après `kouziactl update` (déploiement de cette version), couper dans Stripe : cartes arrivant à expiration, lien hébergé de confirmation et ses rappels.** Avant ce déploiement, les laisser activés : l'ERP en production ne les envoie pas encore. Stripe envoie seul les avis préalables de prélèvement SEPA (obligatoires, non désactivables avec l'identifiant créancier de Stripe).
+
+1. **Facturation > Abonnements et e-mails**
+   - E-mails client : rappel de fin d'essai, renouvellements à venir, échec de paiement carte, échec de prélèvement bancaire, cartes arrivant à expiration **désactivés** (l'ERP s'en charge).
+   - Événement `invoice.upcoming` : 7 jours avant le renouvellement (sans effet sur l'ERP : l'information légale de reconduction est planifiée par l'ERP, 45 jours avant la date limite).
+   - Envoi des factures finalisées et des avoirs : **désactivé** (la facture légale est celle de l'ERP).
+   - Confirmation de paiement (3DS) : « lien hébergé si confirmation nécessaire » et ses rappels **désactivés** (l'ERP envoie la page de la facture sur `invoice.payment_action_required`). Paiement non finalisé sous 15 jours : abonnement « non payé », facture laissée en l'état.
+   - Mise à jour des moyens de paiement : page hébergée par Stripe.
+   - Échecs : 1er échec d'un renouvellement, abonnement laissé en retard (`past_due`, badge « En retard » dans l'ERP) ; toutes les tentatives échouées, abonnement **non payé** (`unpaid` : « Suspendu, impayé » dans l'ERP, e-mail au client) ; facture laissée en retard. Prélèvement SEPA : aucune nouvelle tentative (l'e-mail d'échec n'en promet pas et invite à régulariser).
+   - Litige ouvert : abonnement laissé en retard.
+   - Factures `send_invoice` : e-mails désactivés, abonnement non payé à 30 jours, facture laissée en retard à 60 jours.
+   - Mode de facturation : flexible.
+2. **Entreprise > E-mails client** : reçus de paiement réussi et de remboursement **désactivés**.
+3. **Portail client** (Facturation > Portail client), en test **et** en live : mise à jour du moyen de paiement, historique des factures, annulation **en fin de période** (pas immédiate), lien de retour vers `/suivi`. Les liens « Gérer mon abonnement » et « Régulariser le paiement » des e-mails (`/api/public/manage/…`) ouvrent ce portail, ou la page de paiement de l'échéance ouverte quand Stripe ne la retentera pas.
+4. Moyens de paiement : carte, prélèvement SEPA et virements bancaires (`customer_balance`).
+5. Versements : rythme choisi, IBAN du compte pro déclaré.
+6. Webhook vers `https://<votre-api>/api/webhooks/stripe` avec les événements : `payment_intent.succeeded`, `payment_intent.payment_failed`, `checkout.session.completed`, `invoice.finalized`, `invoice.paid`, `invoice.payment_failed`, `invoice.payment_action_required`, `invoice.marked_uncollectible`, `customer.subscription.updated`, `customer.subscription.deleted`, `product.*`, `price.*`, `payout.paid`, `payout.failed`, `charge.refunded`, `charge.dispute.created`, `charge.dispute.closed`.
+
+Une facture marquée non recouvrable dans Stripe reste émise et impayée dans l'ERP (badge « Non recouvrable », ni annulation ni avoir). Les factures d'abonnement prélevées par Stripe ne reçoivent jamais les relances de l'ERP.
+
+Information annuelle de reconduction (Code de la consommation, L215-1) : pour chaque abonnement annuel (ERP ou Stripe), e-mail dédié 45 jours avant la date limite pour refuser la reconduction, date affichée dans un encadré. Date limite réglable dans **Paramètres > Rappels** (par défaut la veille du renouvellement).
 
 Catalogue :
 

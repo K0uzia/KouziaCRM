@@ -47,6 +47,17 @@ export async function payPageInfo(kind: PayTokenKind, id: string): Promise<PayPa
     );
   }
   const sub = await prisma.subscription.findUnique({ where: { id } });
+  if (kind === "manage" || kind === "card") {
+    if (!sub || sub.status === "ENDED" || !sub.stripeSubscriptionId) return null;
+    return {
+      title: sub.label,
+      detail:
+        kind === "card"
+          ? "Mettre à jour la carte utilisée pour votre abonnement, dans l'espace sécurisé de Stripe."
+          : "Régler une échéance impayée ou changer de moyen de paiement, dans l'espace sécurisé de Stripe.",
+      button: "Continuer vers Stripe",
+    };
+  }
   if (!sub || sub.status === "ENDED" || sub.stripeSubscriptionId) return null;
   const period = sub.billingInterval === "YEAR" ? "par an" : "par mois";
   return withMinimum(
@@ -89,6 +100,6 @@ ${info.button ? `<form method="post"><button type="submit">${escapeHtml(info.but
 </html>`;
 }
 
-/** CSP de cette page : le POST redirige vers Stripe Checkout. */
+/** CSP de cette page : le POST redirige vers Stripe (Checkout, portail client ou page de facture). */
 export const PAY_PAGE_CSP =
-  "default-src 'none'; style-src 'unsafe-inline'; form-action 'self' https://checkout.stripe.com; base-uri 'none'; frame-ancestors 'none'";
+  "default-src 'none'; style-src 'unsafe-inline'; form-action 'self' https://checkout.stripe.com https://billing.stripe.com https://invoice.stripe.com; base-uri 'none'; frame-ancestors 'none'";

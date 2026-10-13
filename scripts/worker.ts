@@ -6,6 +6,8 @@ import { processEmailOutbox } from "../apps/api/src/lib/email/mailer";
 import { expireQuotes, scheduleReminders } from "../apps/api/src/lib/reminders";
 import { generateDueSubscriptionInvoices } from "../apps/api/src/lib/subscriptions/subscription-service";
 import { sendDueRenewalReminders } from "../apps/api/src/lib/subscriptions/renewal-reminder";
+import { sendDueActionReminders } from "../apps/api/src/lib/subscriptions/dunning";
+import { checkExpiringCards } from "../apps/api/src/lib/subscriptions/card-expiry";
 import { sendDueReminders, sendDueDepositReminders } from "../apps/api/src/lib/reminders/send";
 import { syncObligations } from "../apps/api/src/lib/obligations/obligation-service";
 import { sendDueObligationEmails } from "../apps/api/src/lib/obligations/email-reminders";
@@ -20,12 +22,14 @@ async function runMaintenance() {
     const scheduled = await scheduleReminders();
     const subscriptions = await generateDueSubscriptionInvoices();
     const renewalReminders = await sendDueRenewalReminders();
+    const actionReminders = await sendDueActionReminders();
+    const cardNotices = await checkExpiringCards();
     const remindersSent = await sendDueReminders();
     const depositRemindersSent = await sendDueDepositReminders();
     await syncObligations();
     const obligationEmails = await sendDueObligationEmails();
     console.log(
-      `[worker] maintenance: expired=${expired} remindersScheduled=${scheduled} subscriptionsInvoices=${subscriptions} renewalReminders=${renewalReminders} remindersSent=${remindersSent} depositReminders=${depositRemindersSent} obligationEmails=${obligationEmails}`,
+      `[worker] maintenance: expired=${expired} remindersScheduled=${scheduled} subscriptionsInvoices=${subscriptions} renewalReminders=${renewalReminders} actionReminders=${actionReminders} cardNotices=${cardNotices} remindersSent=${remindersSent} depositReminders=${depositRemindersSent} obligationEmails=${obligationEmails}`,
     );
   } catch (err) {
     console.error(`[worker] maintenance error`, err);

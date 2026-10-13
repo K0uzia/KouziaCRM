@@ -760,6 +760,7 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
   for (const [path, kinds] of [
     ["/api/public/pay/:token", ["invoice", "milestone"]],
     ["/api/public/subscribe/:token", ["subscribe"]],
+    ["/api/public/manage/:token", ["manage", "card"]],
   ] as const) {
     app.get<{ Params: { token: string } }>(
       path,
@@ -810,7 +811,11 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
               ? await checkout.createInvoiceCheckoutSession(parsed.id)
               : parsed.kind === "milestone"
                 ? await checkout.createMilestoneCheckoutSession(parsed.id)
-                : await checkout.createSubscriptionCheckoutSession(parsed.id);
+                : parsed.kind === "manage" || parsed.kind === "card"
+                  ? await (await import("@/lib/stripe/portal.js")).createSubscriptionPortalUrl(parsed.id, {
+                      updateCard: parsed.kind === "card",
+                    })
+                  : await checkout.createSubscriptionCheckoutSession(parsed.id);
           return reply.redirect(url, 303);
         } catch (err) {
           request.log.warn({ err: err instanceof Error ? err.message : String(err), kind: parsed.kind });

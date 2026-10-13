@@ -414,6 +414,7 @@ export async function savePaymentsTab(
 export type RemindersPatch = {
   reminderQuoteDays?: number;
   reminderInvoiceDays?: number;
+  nonRenewalNoticeDays?: number;
   reminderDepositMinus7Days?: number;
   reminderDepositMinus1Days?: number;
   reminderDepositPlus3Days?: number;

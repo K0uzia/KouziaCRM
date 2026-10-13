@@ -44,40 +44,67 @@ async function subscription(data: { billingInterval?: string; startDate?: Date; 
   });
 }
 
-describe("rappel J-30 du renouvellement annuel", () => {
-  it("part une seule fois dans les 30 jours qui précèdent l'échéance", async () => {
+describe("information annuelle de reconduction (L215-1)", () => {
+  it("part une seule fois, 45 jours avant la date limite (la veille du renouvellement)", async () => {
     const sub = await subscription();
-    expect(await sendDueRenewalReminders(new Date(2026, 10, 15))).toBe(0);
-    expect(await sendDueRenewalReminders(new Date(2026, 11, 10))).toBe(1);
-    expect(await sendDueRenewalReminders(new Date(2026, 11, 20))).toBe(0);
+    // Renouvellement le 1er janvier 2027, date limite le 31 décembre : envoi à partir du 16 novembre.
+    expect(await sendDueRenewalReminders(new Date(2026, 10, 10))).toBe(0);
+    expect(await sendDueRenewalReminders(new Date(2026, 10, 20))).toBe(1);
+    expect(await sendDueRenewalReminders(new Date(2026, 11, 1))).toBe(0);
 
     const call = vi.mocked(mailEnqueue).mock.calls[0]![0];
     expect(call.to).toBe("lou@example.test");
-    expect(call.subject).toBe("Renouvellement de votre abonnement annuel le 1 janvier 2027");
-    expect(call.text).toContain("Une facture de 3");
-    expect(call.text).toContain("ne souhaitez pas le renouveler");
+    expect(call.subject).toBe("Reconduction de votre abonnement annuel le 1 janvier 2027");
+    expect(call.text).toContain("Date limite pour refuser la reconduction : 31 décembre 2026");
+    expect(call.text).toContain("refuser cette reconduction, sans frais");
+    expect(call.text).toContain("une facture de 3");
+    // Encadré apparent dans la version HTML.
+    expect(call.html).toMatch(/border:2px solid[^>]*>Date limite pour refuser la reconduction : 31 décembre 2026</);
     const after = await prisma.subscription.findUniqueOrThrow({ where: { id: sub.id } });
     expect(after.renewalReminderSentFor).toEqual(new Date(2027, 0, 1));
   });
 
-  it("repart à l'échéance de l'année suivante", async () => {
-    const sub = await subscription();
-    await sendDueRenewalReminders(new Date(2026, 11, 10));
-    await prisma.subscription.update({ where: { id: sub.id }, data: { nextInvoiceAt: new Date(2028, 0, 1) } });
-    expect(await sendDueRenewalReminders(new Date(2027, 11, 10))).toBe(1);
+  it("date limite réglable : 30 jours avant le renouvellement, envoi 45 jours plus tôt", async () => {
+    await prisma.companySettings.updateMany({ data: { nonRenewalNoticeDays: 30 } });
+    await subscription();
+    // Date limite le 2 décembre 2026 : envoi à partir du 18 octobre.
+    expect(await sendDueRenewalReminders(new Date(2026, 9, 15))).toBe(0);
+    expect(await sendDueRenewalReminders(new Date(2026, 9, 20))).toBe(1);
+    expect(vi.mocked(mailEnqueue).mock.calls[0]![0].text).toContain("reconduction : 2 décembre 2026");
   });
 
-  it("ignore le mensuel, la 1re échéance, le prélèvement Stripe et un abonnement qui s'arrête", async () => {
+  it("repart à l'échéance de l'année suivante", async () => {
+    const sub = await subscription();
+    await sendDueRenewalReminders(new Date(2026, 10, 20));
+    await prisma.subscription.update({ where: { id: sub.id }, data: { nextInvoiceAt: new Date(2028, 0, 1) } });
+    expect(await sendDueRenewalReminders(new Date(2027, 10, 20))).toBe(1);
+  });
+
+  it("prélèvement Stripe : inclus, avec le lien de gestion de l'abonnement", async () => {
+    const sub = await subscription();
+    await prisma.subscription.update({
+      where: { id: sub.id },
+      data: { collectionMethod: SubscriptionCollectionMethod.STRIPE, stripeSubscriptionId: "sub_annuel" },
+    });
+    expect(await sendDueRenewalReminders(new Date(2026, 10, 20))).toBe(1);
+    const call = vi.mocked(mailEnqueue).mock.calls[0]![0];
+    expect(call.text).toContain("/api/public/manage/");
+    expect(call.text).toContain("le prélèvement de 3");
+  });
+
+  it("ignore le mensuel, la 1re échéance, un abonnement qui s'arrête, une résiliation programmée ou un impayé", async () => {
     await subscription({ billingInterval: "MONTH" });
     await subscription({ startDate: new Date(2026, 11, 1) });
-    const stripe = await subscription();
-    await prisma.subscription.update({
-      where: { id: stripe.id },
-      data: { collectionMethod: SubscriptionCollectionMethod.STRIPE },
-    });
     const ending = await subscription();
     await prisma.subscription.update({ where: { id: ending.id }, data: { endDate: new Date(2026, 11, 31) } });
-    expect(await sendDueRenewalReminders(new Date(2026, 11, 10))).toBe(0);
+    const cancelling = await subscription();
+    await prisma.subscription.update({
+      where: { id: cancelling.id },
+      data: { collectionMethod: SubscriptionCollectionMethod.STRIPE, stripeSubscriptionId: "sub_fin", stripeCancelAt: new Date(2027, 0, 1) },
+    });
+    const unpaid = await subscription();
+    await prisma.subscription.update({ where: { id: unpaid.id }, data: { status: "PAUSED", stripeStatus: "unpaid" } });
+    expect(await sendDueRenewalReminders(new Date(2026, 10, 20))).toBe(0);
     expect(mailEnqueue).not.toHaveBeenCalled();
   });
 });

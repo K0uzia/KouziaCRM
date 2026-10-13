@@ -61,6 +61,8 @@ export async function scheduleReminders(now = new Date()): Promise<number> {
     where: {
       documentType: InvoiceDocumentType.INVOICE,
       status: InvoiceStatus.ISSUED,
+      // Échéance Stripe : les e-mails d'échec et de régularisation suivent les événements Stripe.
+      stripeInvoiceId: null,
       OR: [{ nextReminderAt: null }, { nextReminderAt: { lte: now } }],
     },
     include: { payments: true },
@@ -124,6 +126,7 @@ export async function listPendingReminders(now = new Date()) {
         {
           documentType: InvoiceDocumentType.INVOICE,
           status: InvoiceStatus.ISSUED,
+          stripeInvoiceId: null,
         },
       ],
     },

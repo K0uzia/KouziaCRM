@@ -503,6 +503,7 @@ export function SettingsPage() {
     await save("/api/settings/reminders", {
       reminderQuoteDays: form.reminderQuoteDays,
       reminderInvoiceDays: form.reminderInvoiceDays,
+      nonRenewalNoticeDays: form.nonRenewalNoticeDays,
       reminderDepositMinus7Days: form.reminderDepositMinus7Days,
       reminderDepositMinus1Days: form.reminderDepositMinus1Days,
       reminderDepositPlus3Days: form.reminderDepositPlus3Days,
@@ -1610,6 +1611,19 @@ export function SettingsPage() {
                   />
                 </Field>
               </div>
+              <h3 className="pt-2 text-sm font-semibold">Reconduction des abonnements annuels</h3>
+              <Field
+                label="Date limite pour refuser la reconduction (j avant le renouvellement)"
+                hint="1 = la veille. L'e-mail d'information part 45 jours avant cette date, pour tous les abonnements annuels."
+              >
+                <Input
+                  type="number"
+                  min={1}
+                  max={60}
+                  value={form.nonRenewalNoticeDays}
+                  onChange={(e) => setForm({ ...form, nonRenewalNoticeDays: Number(e.target.value) })}
+                />
+              </Field>
               <h3 className="pt-2 text-sm font-semibold">Rappels d&apos;acomptes</h3>
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 {(

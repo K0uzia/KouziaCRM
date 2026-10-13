@@ -220,14 +220,17 @@ export async function handleStripeInvoicePaid(
   });
 }
 
-/** État ERP correspondant à un abonnement Stripe (une pause Stripe garde le statut « active »). */
+/**
+ * État ERP correspondant à un abonnement Stripe (une pause Stripe garde le statut « active »).
+ * « unpaid » (impayé après les relances) suspend sans clôturer : le paiement de l'échéance le relance.
+ */
 export function erpStatusFromStripe(
   stripeSub: Pick<Stripe.Subscription, "status" | "pause_collection">,
   current: SubscriptionStatus,
 ): SubscriptionStatus {
   const s = stripeSub.status;
-  if (s === "canceled" || s === "unpaid" || s === "incomplete_expired") return SubscriptionStatus.ENDED;
-  if (s === "paused" || stripeSub.pause_collection) return SubscriptionStatus.PAUSED;
+  if (s === "canceled" || s === "incomplete_expired") return SubscriptionStatus.ENDED;
+  if (s === "unpaid" || s === "paused" || stripeSub.pause_collection) return SubscriptionStatus.PAUSED;
   if (s === "active" || s === "trialing" || s === "past_due") return SubscriptionStatus.ACTIVE;
   return current;
 }
@@ -241,15 +244,36 @@ export type StripeStatusChange = {
   reason: string;
 };
 
+export type StripeSyncResult = {
+  subscriptionId: string;
+  /** Changement d'état venu de Stripe ; null si l'ERP était déjà dans cet état (action lancée depuis l'ERP). */
+  change: StripeStatusChange | null;
+  /** Vient de passer à « unpaid » : suspendu faute de paiement. */
+  becameUnpaid: boolean;
+  /** Résiliation en fin de période nouvellement programmée (portail client ou tableau de bord). */
+  cancelScheduledAt: Date | null;
+  /** Résiliation programmée puis annulée. */
+  cancelRevoked: boolean;
+};
+
+/** Date de fin d'une résiliation programmée (cancel_at, ou fin de période si cancel_at_period_end). */
+export function scheduledCancelDate(
+  stripeSub: Pick<Stripe.Subscription, "status" | "cancel_at" | "cancel_at_period_end" | "items">,
+): Date | null {
+  if (stripeSub.status === "canceled" || stripeSub.status === "incomplete_expired") return null;
+  if (stripeSub.cancel_at) return new Date(stripeSub.cancel_at * 1000);
+  const periodEnd = stripeSub.items?.data?.[0]?.current_period_end;
+  return stripeSub.cancel_at_period_end && periodEnd ? new Date(periodEnd * 1000) : null;
+}
+
 /**
- * Aligne l'abonnement ERP sur Stripe (montant, périodicité, état).
- * Renvoie le changement d'état quand il vient de Stripe (résiliation ou pause faite dans
- * le tableau de bord, impayés après relances) ; null si l'ERP était déjà dans cet état,
- * par exemple quand l'action a été lancée depuis l'ERP.
+ * Aligne l'abonnement ERP sur Stripe (montant, périodicité, état, résiliation programmée).
+ * Le changement d'état est renseigné quand il vient de Stripe (résiliation ou pause faite dans
+ * le tableau de bord, impayés après relances).
  */
 export async function syncSubscriptionFromStripe(
   stripeSub: Stripe.Subscription,
-): Promise<StripeStatusChange | null> {
+): Promise<StripeSyncResult | null> {
   const erpId = stripeSub.metadata?.erpSubscriptionId;
   const sub = erpId
     ? await prisma.subscription.findUnique({ where: { id: erpId } })
@@ -271,6 +295,10 @@ export async function syncSubscriptionFromStripe(
   const status =
     sub.status === SubscriptionStatus.ENDED ? sub.status : erpStatusFromStripe(stripeSub, sub.status);
   const changed = status !== sub.status;
+  const cancelAt = scheduledCancelDate(stripeSub);
+  const becameUnpaid = stripeSub.status === "unpaid" && sub.stripeStatus !== "unpaid";
+  const cancelScheduledAt = cancelAt && !sub.stripeCancelAt ? cancelAt : null;
+  const cancelRevoked = !cancelAt && Boolean(sub.stripeCancelAt) && status !== SubscriptionStatus.ENDED;
 
   await prisma.subscription.update({
     where: { id: sub.id },
@@ -281,6 +309,8 @@ export async function syncSubscriptionFromStripe(
       amountCents: amountCents ?? sub.amountCents,
       billingInterval: interval,
       status,
+      stripeStatus: stripeSub.status,
+      stripeCancelAt: cancelAt,
       ...(changed ? { stripeStatusChange: status, stripeStatusChangedAt: new Date() } : {}),
       endDate:
         status === SubscriptionStatus.ENDED
@@ -289,23 +319,31 @@ export async function syncSubscriptionFromStripe(
     },
   });
 
-  if (!changed) return null;
+  const base = { subscriptionId: sub.id, becameUnpaid, cancelScheduledAt, cancelRevoked };
+  if (!changed) return { ...base, change: null };
   const client = await prisma.client.findUnique({ where: { id: sub.clientId }, select: { displayName: true } });
   const reason =
-    stripeSub.status === "unpaid" || stripeSub.cancellation_details?.reason === "payment_failed"
-      ? "prélèvements impayés après les relances Stripe"
-      : stripeSub.pause_collection || stripeSub.status === "paused"
-        ? "prélèvement suspendu dans Stripe"
-        : status === SubscriptionStatus.ACTIVE
-          ? "prélèvement repris dans Stripe"
-          : "résiliation faite dans Stripe";
+    stripeSub.status === "unpaid"
+      ? "échéance impayée après les relances Stripe : suspendu jusqu'au paiement"
+      : stripeSub.cancellation_details?.reason === "payment_failed"
+        ? "prélèvements impayés après les relances Stripe"
+        : stripeSub.pause_collection || stripeSub.status === "paused"
+          ? "prélèvement suspendu dans Stripe"
+          : status === SubscriptionStatus.ACTIVE
+            ? "prélèvement repris dans Stripe"
+            : stripeSub.cancellation_details?.reason === "cancellation_requested"
+              ? "résiliation demandée par le client"
+              : "résiliation faite dans Stripe";
   return {
-    subscriptionId: sub.id,
-    label: sub.label,
-    clientName: client?.displayName ?? "Client",
-    from: sub.status,
-    to: status,
-    reason,
+    ...base,
+    change: {
+      subscriptionId: sub.id,
+      label: sub.label,
+      clientName: client?.displayName ?? "Client",
+      from: sub.status,
+      to: status,
+      reason,
+    },
   };
 }
 

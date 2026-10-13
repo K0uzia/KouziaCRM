@@ -312,6 +312,8 @@ model CompanySettings {
   reminderQuoteDays         Int               @default(7)
   /// Jours après échéance avant 1re relance facture
   reminderInvoiceDays       Int               @default(7)
+  /// Abonnement annuel : la date limite pour refuser la reconduction tombe N jours avant le renouvellement (1 = la veille)
+  nonRenewalNoticeDays      Int               @default(1)
   /// Abonnement annuel : mois offerts par rapport à 12 mensualités (remise proposée par défaut)
   annualFreeMonths          Int               @default(2)
   /// Mode de la dernière clé Stripe enregistrée (« test » ou « live ») : changement signalé
@@ -870,6 +872,14 @@ model Subscription {
   /// Changement d'état venu de Stripe (ENDED | PAUSED | ACTIVE) : résiliation, impayés ou pause faits côté Stripe
   stripeStatusChange     String?
   stripeStatusChangedAt  DateTime?
+  /// État brut de l'abonnement Stripe (active, past_due, unpaid, canceled…) : badges « en retard », « impayé »
+  stripeStatus           String?
+  /// Résiliation programmée dans Stripe (cancel_at_period_end) : date de fin ; null si aucune
+  stripeCancelAt         DateTime?
+  /// Dernière vérification de la carte par défaut (expiration), une fois par mois
+  cardCheckedAt          DateTime?
+  /// Carte pour laquelle l'avis d'expiration est parti : « pm_…:AAAA-MM »
+  cardExpiryNoticeFor    String?
   /// Lien de mise en place du prélèvement Stripe envoyé au client (un seul envoi automatique)
   setupLinkSentAt        DateTime?
   invoices               Invoice[]
@@ -883,93 +893,105 @@ model Subscription {
 }
 
 model Invoice {
-  id                    String                 @id @default(cuid())
+  id                           String                 @id @default(cuid())
   /// Numéro légal (documentNumber) : null en brouillon, unique et immuable une fois émis
-  number                String?                @unique
-  documentType          InvoiceDocumentType    @default(INVOICE)
+  number                       String?                @unique
+  documentType                 InvoiceDocumentType    @default(INVOICE)
   /// SIMPLE | ACOMPTE | SOLDE (chaque facture reste autonome)
-  invoiceType           InvoiceType            @default(SIMPLE)
-  status                InvoiceStatus          @default(DRAFT)
+  invoiceType                  InvoiceType            @default(SIMPLE)
+  status                       InvoiceStatus          @default(DRAFT)
   /// Statut métier devis (null pour factures / avoirs)
-  quoteStatus           QuoteStatus?
+  quoteStatus                  QuoteStatus?
   /// Décision du client sur un devis : horodatage, motif de refus, nom du signataire
-  quoteDecidedAt        DateTime?
-  quoteRejectReason     String?
+  quoteDecidedAt               DateTime?
+  quoteRejectReason            String?
   /// Nom saisi lors d'une acceptation en ligne (vaut bon pour accord)
-  quoteSignerName       String?
-  clientId              String
-  client                Client                 @relation(fields: [clientId], references: [id])
-  clientSnapshot        Json?
-  issueDate             DateTime?
+  quoteSignerName              String?
+  clientId                     String
+  client                       Client                 @relation(fields: [clientId], references: [id])
+  clientSnapshot               Json?
+  issueDate                    DateTime?
   /// Date de réalisation de la prestation (mention obligatoire, distincte de l'émission)
-  serviceDate           DateTime?
+  serviceDate                  DateTime?
   /// Référence du bon de commande de l'acheteur, quand il en fournit un
-  purchaseOrderRef      String?
-  dueDate               DateTime?
-  validUntil            DateTime?
-  sequenceYear          Int?
-  sequenceNumber        Int?
-  currency              String                 @default("EUR")
-  subtotalCents         Int                    @default(0)
-  totalCents            Int                    @default(0)
+  purchaseOrderRef             String?
+  dueDate                      DateTime?
+  validUntil                   DateTime?
+  sequenceYear                 Int?
+  sequenceNumber               Int?
+  currency                     String                 @default("EUR")
+  subtotalCents                Int                    @default(0)
+  totalCents                   Int                    @default(0)
   /// NONE | PERCENT (discountValue en bps, 1000 = 10 %) | FIXED (discountValue en centimes)
-  discountType          String                 @default("NONE")
-  discountValue         Int                    @default(0)
+  discountType                 String                 @default("NONE")
+  discountValue                Int                    @default(0)
   /// Total du marché (devis) figé à l'émission d'un acompte/solde
-  marketTotalCents      Int?
+  marketTotalCents             Int?
   /// Devis : base de l'acompte et de l'échéancier (partie ponctuelle, remise répartie), figée à
   /// l'émission. null = devis émis avant la fonction : le total sert de base.
-  depositBaseCents      Int?
-  notes                 String?
-  paymentTerms          String?                @default("Paiement à réception")
+  depositBaseCents             Int?
+  notes                        String?
+  paymentTerms                 String?                @default("Paiement à réception")
   /// Facture d'origine pour un avoir (originalInvoiceId)
-  creditedInvoiceId     String?
-  creditedInvoice       Invoice?               @relation("CreditNotes", fields: [creditedInvoiceId], references: [id])
-  creditNotes           Invoice[]              @relation("CreditNotes")
+  creditedInvoiceId            String?
+  creditedInvoice              Invoice?               @relation("CreditNotes", fields: [creditedInvoiceId], references: [id])
+  creditNotes                  Invoice[]              @relation("CreditNotes")
   /// Motif métier de l'avoir (uniquement CREDIT_NOTE)
-  creditReason          CreditNoteReason?
-  creditReasonDetail    String?
-  refundMethod          RefundMethod?
+  creditReason                 CreditNoteReason?
+  creditReasonDetail           String?
+  refundMethod                 RefundMethod?
   /// Confirmation CGV : acompte remboursable (null si non applicable)
-  cgvDepositRefundable  Boolean?
+  cgvDepositRefundable         Boolean?
   /// Devis : formules proposées, TWO | THREE | CHOICE (null = échéancier historique). Figée à l'émission.
-  paymentPlanOffer      String?
+  paymentPlanOffer             String?
   /// Devis accepté : formule retenue, TWO | THREE.
-  paymentPlan           String?
+  paymentPlan                  String?
   /// Checklist suivi post-avoir (JSON)
-  creditFollowUp        Json?
+  creditFollowUp               Json?
   /// Pivot marché : devis commun (nullable si facture hors marché)
-  quoteId               String?
-  quote                 Invoice?               @relation("MarketInvoices", fields: [quoteId], references: [id])
-  marketInvoices        Invoice[]              @relation("MarketInvoices")
+  quoteId                      String?
+  quote                        Invoice?               @relation("MarketInvoices", fields: [quoteId], references: [id])
+  marketInvoices               Invoice[]              @relation("MarketInvoices")
   /// @deprecated préférer quoteId - conservé pour compat conversions
-  sourceQuoteId         String?
-  sourceQuote           Invoice?               @relation("QuoteConversions", fields: [sourceQuoteId], references: [id])
-  convertedInvoices     Invoice[]              @relation("QuoteConversions")
+  sourceQuoteId                String?
+  sourceQuote                  Invoice?               @relation("QuoteConversions", fields: [sourceQuoteId], references: [id])
+  convertedInvoices            Invoice[]              @relation("QuoteConversions")
   /// Jalon d'origine (FK côté facture, sync avec PaymentMilestone.invoiceId)
-  milestoneId           String?                @unique
-  sourceMilestone       PaymentMilestone?      @relation("MilestoneInvoice", fields: [milestoneId], references: [id])
+  milestoneId                  String?                @unique
+  sourceMilestone              PaymentMilestone?      @relation("MilestoneInvoice", fields: [milestoneId], references: [id])
   /// Abonnement d'origine (null pour les factures ponctuelles)
-  subscriptionId        String?
-  subscription          Subscription?          @relation(fields: [subscriptionId], references: [id])
-  lines                 InvoiceLine[]
-  payments              Payment[]
-  bankTransactions      BankTransaction[]
-  milestones            PaymentMilestone[]     @relation("QuoteMilestones")
-  lastReminderAt        DateTime?
-  reminderCount         Int                    @default(0)
-  nextReminderAt        DateTime?
-  issuedAt              DateTime?
+  subscriptionId               String?
+  subscription                 Subscription?          @relation(fields: [subscriptionId], references: [id])
+  lines                        InvoiceLine[]
+  payments                     Payment[]
+  bankTransactions             BankTransaction[]
+  milestones                   PaymentMilestone[]     @relation("QuoteMilestones")
+  lastReminderAt               DateTime?
+  reminderCount                Int                    @default(0)
+  nextReminderAt               DateTime?
+  issuedAt                     DateTime?
   /// @deprecated Revolut Merchant. Conservé en base (SQLite).
-  revolutOrderId        String?
+  revolutOrderId               String?
   /// Lien ERP permanent /api/public/pay/… (ou URL collée à la main)
-  checkoutUrl           String?
+  checkoutUrl                  String?
   /// Identifiant Invoice Stripe (in_…) : une échéance Billing = une facture ERP
-  stripeInvoiceId       String?                @unique
-  createdAt             DateTime               @default(now())
-  updatedAt             DateTime               @updatedAt
-  quoteAcceptanceAudits QuoteAcceptanceAudit[]
-  project               ClientProject?         @relation("QuoteProject")
+  stripeInvoiceId              String?                @unique
+  /// Facture Stripe : dernière tentative (attempt_count) pour laquelle l'e-mail d'échec est parti
+  stripeFailureNotifiedAttempt Int?
+  /// Facture Stripe payée après un échec : e-mail de régularisation envoyé
+  stripeRecoveryNotifiedAt     DateTime?
+  /// Facture Stripe marquée non recouvrable dans Stripe (reste émise et impayée dans l'ERP)
+  stripeUncollectibleAt        DateTime?
+  /// Facture Stripe : confirmation de paiement (3DS) demandée au client, e-mail envoyé à cette date
+  stripeActionRequiredAt       DateTime?
+  /// Rappels de confirmation déjà envoyés (J+3, J+5, J+7)
+  stripeActionReminderCount    Int                    @default(0)
+  /// Page Stripe de la facture où confirmer le paiement (hosted_invoice_url)
+  stripeActionUrl              String?
+  createdAt                    DateTime               @default(now())
+  updatedAt                    DateTime               @updatedAt
+  quoteAcceptanceAudits        QuoteAcceptanceAudit[]
+  project                      ClientProject?         @relation("QuoteProject")
 
   @@unique([sequenceYear, sequenceNumber, documentType])
   @@index([status])

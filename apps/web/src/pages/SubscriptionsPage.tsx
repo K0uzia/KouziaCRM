@@ -49,6 +49,9 @@ type Subscription = {
   nextInvoiceAt: string;
   collectionMethod?: string | null;
   stripeSubscriptionId?: string | null;
+  /** État brut Stripe (past_due, unpaid…) et résiliation programmée dans Stripe. */
+  stripeStatus?: string | null;
+  stripeCancelAt?: string | null;
   client: { id: string; displayName: string; clientNumber: string | null };
   service: { id: string; name: string };
 };
@@ -104,9 +107,16 @@ function SubscriptionBadges({ s, stripeEnabled }: { s: Subscription; stripeEnabl
   const badge = statusBadge[s.status];
   const stripeActive = s.status !== "ENDED" && s.collectionMethod === "STRIPE" && !!s.stripeSubscriptionId;
   const stripePending = stripeEnabled && s.status !== "ENDED" && !s.stripeSubscriptionId;
+  const unpaid = s.status === "PAUSED" && s.stripeStatus === "unpaid";
   return (
     <span className="inline-flex flex-wrap items-center gap-1.5 whitespace-nowrap">
-      <Badge tone={badge.tone}>{badge.label}</Badge>
+      <Badge tone={unpaid ? "red" : badge.tone}>{unpaid ? "Suspendu, impayé" : badge.label}</Badge>
+      {s.status === "ACTIVE" && s.stripeStatus === "past_due" ? <Badge tone="amber">En retard</Badge> : null}
+      {s.status !== "ENDED" && s.stripeCancelAt ? (
+        <Badge tone="neutral" className="whitespace-normal">
+          Résiliation programmée le {formatDate(s.stripeCancelAt)}
+        </Badge>
+      ) : null}
       {stripeActive ? (
         <Badge tone="green">Stripe actif</Badge>
       ) : stripePending ? (

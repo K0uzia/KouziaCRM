@@ -7,5 +7,8 @@ export function buildPayUrl(kind: PayTokenKind, id: string): string {
   if (kind === "subscribe") {
     return `${publicApiBaseUrl()}/api/public/subscribe/${token}`;
   }
+  if (kind === "manage" || kind === "card") {
+    return `${publicApiBaseUrl()}/api/public/manage/${token}`;
+  }
   return `${publicApiBaseUrl()}/api/public/pay/${token}`;
 }
