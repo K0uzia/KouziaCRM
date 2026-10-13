@@ -4,7 +4,6 @@ import {
   faBoxOpen,
   faChartPie,
   faClipboardCheck,
-  faCommentDots,
   faEnvelope,
   faFileInvoice,
   faFileSignature,
@@ -96,7 +95,6 @@ export const NAV_SECTIONS: NavSection[] = [
     label: "Relation client",
     items: [
       { id: "inbox", to: "/inbox", label: "Messagerie", icon: faEnvelope, match: starts("/inbox"), badge: "unread" },
-      { id: "reviews", to: "/avis", label: "Avis clients", shortLabel: "Avis", icon: faCommentDots, match: starts("/avis") },
     ],
   },
 ];

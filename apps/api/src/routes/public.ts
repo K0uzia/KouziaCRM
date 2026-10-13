@@ -50,12 +50,6 @@ import {
   buildPaymentHistory,
 } from "@/lib/portal/tracking-payload.js";
 import { isValidSiren, isValidSiret } from "@kouzia/forms";
-import {
-  clientHasSubmittedTestimonial,
-  listPublishedTestimonials,
-  submitClientTestimonial,
-  TestimonialError,
-} from "@/lib/testimonials/service.js";
 import { listPortalProjects } from "@/lib/projects/service.js";
 import { reviewInviteEligible } from "@/lib/projects/review-invite.js";
 
@@ -106,11 +100,6 @@ const onboardingSubmitSchema = z.object({
   /** Honeypot anti-spam : doit rester vide (rempli = robot, voir POST /api/public/clients). */
   website: z.string().max(500).optional().nullable(),
   token: z.string().optional(),
-});
-
-const testimonialSubmitSchema = z.object({
-  authorName: z.string().min(2).max(80),
-  body: z.string().min(20).max(800),
 });
 
 /** Tracé de signature : PNG en data URL, 300 Ko au plus. */
@@ -307,7 +296,6 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
         showAmounts,
       });
 
-      const testimonialSubmitted = await clientHasSubmittedTestimonial(client.id);
       const projects = await listPortalProjects(client.id);
       const reviewEligible = await reviewInviteEligible(client.id);
 
@@ -456,7 +444,6 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
           documentNumber: e.documentNumber,
           sentAt: e.sentAt.toISOString(),
         })),
-        testimonialSubmitted,
         // Projet livré : « À faire » propose de laisser un avis Google (lien porté par le site).
         reviewInvite: { eligible: reviewEligible },
         // Bloc « Avancement » de /suivi : affiché dès que la liste est présente.
@@ -713,43 +700,6 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
         ipTrunc: truncateIp(request.ip),
       });
       return reply.code(201).send({ ok: true });
-    },
-  );
-
-  app.get("/api/public/testimonials", async () => {
-    return { items: await listPublishedTestimonials() };
-  });
-
-  app.post(
-    "/api/public/testimonials",
-    {
-      config: {
-        rateLimit: {
-          max: 8,
-          timeWindow: "15 minutes",
-        },
-      },
-    },
-    async (request, reply) => {
-      const parsed = testimonialSubmitSchema.safeParse(request.body);
-      if (!parsed.success) {
-        return reply.code(400).send({ error: "Données invalides" });
-      }
-      const client = await resolvePortalClient(request);
-      if (!client) return reply.code(401).send(SESSION_EXPIRED);
-      try {
-        await submitClientTestimonial({
-          clientId: client.id,
-          authorName: parsed.data.authorName,
-          body: parsed.data.body,
-        });
-        return reply.code(201).send({ ok: true });
-      } catch (e) {
-        if (e instanceof TestimonialError) {
-          return reply.code(e.statusCode).send({ error: e.message });
-        }
-        throw e;
-      }
     },
   );
 

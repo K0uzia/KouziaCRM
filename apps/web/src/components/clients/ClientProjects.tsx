@@ -270,8 +270,15 @@ export function ClientProjects({ clientId }: { clientId: string }) {
                 </div>
               </Field>
             </div>
-            <Field label="Statut" hint="Planifié : acompte facturé, en attente de paiement. Il passe en cours au paiement.">
-              <Select value={form.status} onChange={(e) => update({ status: e.target.value as ProjectStatus })}>
+            <Field label="Statut" hint="Planifié : acompte facturé, en attente de paiement. Il passe en cours au paiement. Terminé : projet livré, avancement à 100 %.">
+              <Select
+                value={form.status}
+                onChange={(e) => {
+                  const status = e.target.value as ProjectStatus;
+                  // Terminé = livré : jauge à 100 % (le serveur applique la même règle).
+                  update(status === "DONE" ? { status, progress: 100 } : { status });
+                }}
+              >
                 <option value="PLANNED">Planifié</option>
                 <option value="ACTIVE">En cours</option>
                 <option value="DONE">Terminé</option>

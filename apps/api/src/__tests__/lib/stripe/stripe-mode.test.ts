@@ -3,6 +3,7 @@ import type Stripe from "stripe";
 import { SubscriptionCollectionMethod, SubscriptionStatus } from "@prisma/client";
 import { prisma } from "@/lib/prisma.js";
 import { encrypt } from "@/lib/crypto.js";
+import { invalidateCompanySettingsCache } from "@/lib/company.js";
 import { resetDb } from "../../helpers/db.js";
 import { createClient, createService, seedCompanySettings } from "../../helpers/factories.js";
 
@@ -147,6 +148,9 @@ describe("synchro du catalogue", () => {
 
   it("filet : plus de 3 prestations à archiver d'un coup, refus et alerte", async () => {
     keyMode.current = "live";
+    // L'alerte part vers l'adresse de contact des réglages.
+    await prisma.companySettings.updateMany({ data: { email: "contact@exemple.test" } });
+    invalidateCompanySettingsCache();
     for (const n of [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]) await liveService(n);
     const actions = await syncCatalogFromStripe();
     expect(actions.filter((a) => a.action === "blocked")).toHaveLength(10);

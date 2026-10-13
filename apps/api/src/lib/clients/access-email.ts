@@ -7,7 +7,7 @@ import { formatPlainTextSignature } from "@/lib/email/signature.js";
 import { brandFromSettings } from "@/lib/email/templates.js";
 import { decryptOptional } from "@/lib/crypto.js";
 import { prisma } from "@/lib/prisma.js";
-import { CODE_TTL_MS } from "@/lib/portal/auth.js";
+import { CODE_TTL_MS, maskEmail } from "@/lib/portal/auth.js";
 
 /**
  * E-mails de l'espace client. Connexion par e-mail + code à usage unique :
@@ -53,7 +53,7 @@ async function sendNow(opts: {
   if (!email) return;
   if (!(await isSmtpConfigured())) {
     if (process.env.NODE_ENV !== "production" && opts.devCode) {
-      console.info(`[portail] SMTP non configuré, code pour ${email} : ${opts.devCode}`);
+      console.info(`[portail] SMTP non configuré, code pour ${maskEmail(email)} : ${opts.devCode}`);
     }
     return;
   }

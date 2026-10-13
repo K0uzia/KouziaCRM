@@ -81,12 +81,18 @@ function parseList<T>(raw: string, schema: z.ZodType<T>): T[] {
   }
 }
 
+/**
+ * Projet terminé = livré : la jauge affiche 100 %, quelle que soit la valeur saisie avant.
+ * Les étapes ne sont pas cochées d'office (une étape faite peut rendre le 2e acompte exigible).
+ */
+const progressOf = (status: string, progress: number) => (status === "DONE" ? 100 : progress);
+
 export function serializeProject(p: ClientProject) {
   return {
     id: p.id,
     clientId: p.clientId,
     name: p.name,
-    progress: p.progress,
+    progress: progressOf(p.status, p.progress),
     steps: parseList(p.steps, stepSchema),
     links: parseList(p.links, linkSchema),
     checklist: parseList(p.checklist, checklistItemSchema),
@@ -104,7 +110,7 @@ export function serializeProject(p: ClientProject) {
 function toData(input: ProjectInput) {
   return {
     name: input.name,
-    progress: input.progress,
+    progress: input.status ? progressOf(input.status, input.progress) : input.progress,
     steps: JSON.stringify(input.steps),
     links: JSON.stringify(input.links),
     checklist: JSON.stringify(input.checklist),

@@ -18,7 +18,6 @@ export type NotificationKind =
   | "quote_accepted"
   | "quote_rejected"
   | "payment"
-  | "testimonial"
   | "deposit_due"
   | "subscription_stripe"
   | "client_onboarded";

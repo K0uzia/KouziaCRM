@@ -71,6 +71,32 @@ const CHECKLIST_LABELS: Array<{ key: keyof Omit<Checklist, "id">; label: string 
   { key: "dedicatedBankAccount", label: "Compte bancaire dédié pro" },
 ];
 
+type IdentitySection = "legal" | "contact" | "address" | "extra";
+
+/** Champs de l'onglet Identité : libellé (toast) et section où l'erreur s'affiche. */
+const IDENTITY_FIELDS: Record<string, { label: string; section: IdentitySection }> = {
+  legalName: { label: "Nom légal", section: "legal" },
+  tradeName: { label: "Nom commercial", section: "legal" },
+  legalForm: { label: "Forme juridique", section: "legal" },
+  rcsMention: { label: "RCS / RNE", section: "legal" },
+  siren: { label: "SIREN", section: "legal" },
+  siret: { label: "SIRET", section: "legal" },
+  apeCode: { label: "APE", section: "legal" },
+  vatIntraNumber: { label: "N° TVA intracom", section: "legal" },
+  email: { label: "Email de contact", section: "contact" },
+  phone: { label: "Téléphone", section: "contact" },
+  website: { label: "Site web", section: "contact" },
+  clientPortalUrl: { label: "URL du portail client", section: "contact" },
+  googleReviewUrl: { label: "Lien vers le formulaire d'avis", section: "contact" },
+  addressLine1: { label: "Adresse", section: "address" },
+  addressLine2: { label: "Complément d'adresse", section: "address" },
+  postalCode: { label: "Code postal", section: "address" },
+  city: { label: "Ville", section: "address" },
+  decennaleInsurer: { label: "Décennale : assureur", section: "extra" },
+  decennalePolicyNumber: { label: "N° de police", section: "extra" },
+  decennaleCoverageZone: { label: "Zone de couverture", section: "extra" },
+};
+
 function isTab(v: string | null): v is SettingsTabId {
   return SETTINGS_TABS.some((t) => t.id === v);
 }
@@ -130,9 +156,9 @@ export function SettingsPage() {
   const [clauseModal, setClauseModal] = useState<LegalClause | "new" | null>(null);
   const [clauseForm, setClauseForm] = useState({ title: "", body: "", kind: "CUSTOM" });
   const [imapTest, setImapTest] = useState<string | null>(null);
-  const [identitySection, setIdentitySection] = useState<
-    "legal" | "contact" | "address" | "extra"
-  >("legal");
+  const [identitySection, setIdentitySection] = useState<IdentitySection>("legal");
+  // Erreur affichée tant que la valeur refusée n'a pas été modifiée.
+  const [fieldErrors, setFieldErrors] = useState<Record<string, { message: string; value: string }>>({});
   const [googleStatus, setGoogleStatus] = useState<{
     configured: boolean;
     connected: boolean;
@@ -289,6 +315,7 @@ export function SettingsPage() {
       setImapPass("");
       setStripeKey("");
       setStripeWebhook("");
+      setFieldErrors({});
       if (path.includes("/payments")) {
         await refreshFeatures();
       }
@@ -303,10 +330,27 @@ export function SettingsPage() {
         setModeChange({ path, body: body as Record<string, unknown>, message: (e as Error).message });
         return;
       }
+      const errors = (e as { fieldErrors?: Record<string, string> }).fieldErrors;
+      const sent = (body ?? {}) as Record<string, unknown>;
+      const keys = Object.keys(errors ?? {}).filter((k) => k in IDENTITY_FIELDS);
+      if (errors && keys.length) {
+        setFieldErrors(
+          Object.fromEntries(keys.map((k) => [k, { message: errors[k]!, value: String(sent[k] ?? "") }])),
+        );
+        setIdentitySection(IDENTITY_FIELDS[keys[0]!]!.section);
+        toast.error(`Vérifiez : ${keys.map((k) => IDENTITY_FIELDS[k]!.label).join(", ")}.`);
+        return;
+      }
       toast.error(e instanceof Error ? e.message : "Erreur");
     } finally {
       setBusy(false);
     }
+  }
+
+  function fieldError(key: string): string | undefined {
+    const err = fieldErrors[key];
+    const current = form ? String((form as unknown as Record<string, unknown>)[key] ?? "") : "";
+    return err && current === err.value ? err.message : undefined;
   }
 
   async function saveGeneral() {
@@ -792,42 +836,42 @@ export function SettingsPage() {
                     </Button>
                   </div>
                   <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                    <Field label="Nom légal">
+                    <Field label="Nom légal" error={fieldError("legalName")}>
                       <Input
                         value={form.legalName}
                         onChange={(e) => setForm({ ...form, legalName: e.target.value })}
                       />
                     </Field>
-                    <Field label="Nom commercial">
+                    <Field label="Nom commercial" error={fieldError("tradeName")}>
                       <Input
                         value={form.tradeName ?? ""}
                         onChange={(e) => setForm({ ...form, tradeName: e.target.value || null })}
                       />
                     </Field>
-                    <Field label="Forme juridique">
+                    <Field label="Forme juridique" error={fieldError("legalForm")}>
                       <Input
                         placeholder="EI"
                         value={form.legalForm ?? ""}
                         onChange={(e) => setForm({ ...form, legalForm: e.target.value || null })}
                       />
                     </Field>
-                    <Field label="RCS / RNE">
+                    <Field label="RCS / RNE" error={fieldError("rcsMention")}>
                       <Input
                         placeholder="RNE / non inscrit RCS"
                         value={form.rcsMention ?? ""}
                         onChange={(e) => setForm({ ...form, rcsMention: e.target.value || null })}
                       />
                     </Field>
-                    <Field label="SIREN">
+                    <Field label="SIREN" error={fieldError("siren")}>
                       <Input value={form.siren} onChange={(e) => setForm({ ...form, siren: e.target.value })} />
                     </Field>
-                    <Field label="SIRET">
+                    <Field label="SIRET" error={fieldError("siret")}>
                       <Input value={form.siret} onChange={(e) => setForm({ ...form, siret: e.target.value })} />
                     </Field>
-                    <Field label="APE">
+                    <Field label="APE" error={fieldError("apeCode")}>
                       <Input value={form.apeCode} onChange={(e) => setForm({ ...form, apeCode: e.target.value })} />
                     </Field>
-                    <Field label="N° TVA intracom">
+                    <Field label="N° TVA intracom" error={fieldError("vatIntraNumber")}>
                       <Input
                         placeholder="Franchise de base : laisser vide"
                         value={form.vatIntraNumber ?? ""}
@@ -840,26 +884,26 @@ export function SettingsPage() {
 
               {identitySection === "contact" ? (
                 <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                  <Field label="Email de contact">
+                  <Field label="Email de contact" error={fieldError("email")}>
                     <Input
                       type="email"
                       value={form.email ?? ""}
                       onChange={(e) => setForm({ ...form, email: e.target.value || null })}
                     />
                   </Field>
-                  <Field label="Téléphone">
+                  <Field label="Téléphone" error={fieldError("phone")}>
                     <Input
                       value={form.phone ?? ""}
                       onChange={(e) => setForm({ ...form, phone: e.target.value || null })}
                     />
                   </Field>
-                  <Field label="Site web">
+                  <Field label="Site web" error={fieldError("website")}>
                     <Input
                       value={form.website ?? ""}
                       onChange={(e) => setForm({ ...form, website: e.target.value || null })}
                     />
                   </Field>
-                  <Field label="URL du portail client">
+                  <Field label="URL du portail client" error={fieldError("clientPortalUrl")}>
                     <Input
                       placeholder="https://kouzia.com/suivi/"
                       value={form.clientPortalUrl ?? ""}
@@ -880,6 +924,7 @@ export function SettingsPage() {
                     </label>
                     <Field
                       label="Lien vers le formulaire d'avis"
+                      error={fieldError("googleReviewUrl")}
                       hint="Envoyé par e-mail (depuis l'adresse noreply) au passage d'un projet à « Terminé », une seule fois par projet, et proposé dans l'espace client."
                     >
                       <Input
@@ -912,17 +957,26 @@ export function SettingsPage() {
                   />
                 ) : null
               ) : null}
+              {identitySection === "address"
+                ? (["addressLine1", "addressLine2", "postalCode", "city"] as const)
+                    .filter((k) => fieldError(k))
+                    .map((k) => (
+                      <p key={k} role="alert" className="text-sm text-[var(--danger)]">
+                        {fieldError(k)}
+                      </p>
+                    ))
+                : null}
 
               {identitySection === "extra" ? (
                 <div className="space-y-4">
                   <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-                    <Field label="Décennale : assureur">
+                    <Field label="Décennale : assureur" error={fieldError("decennaleInsurer")}>
                       <Input
                         value={form.decennaleInsurer ?? ""}
                         onChange={(e) => setForm({ ...form, decennaleInsurer: e.target.value || null })}
                       />
                     </Field>
-                    <Field label="N° de police">
+                    <Field label="N° de police" error={fieldError("decennalePolicyNumber")}>
                       <Input
                         value={form.decennalePolicyNumber ?? ""}
                         onChange={(e) =>
@@ -930,7 +984,7 @@ export function SettingsPage() {
                         }
                       />
                     </Field>
-                    <Field label="Zone de couverture">
+                    <Field label="Zone de couverture" error={fieldError("decennaleCoverageZone")}>
                       <Input
                         value={form.decennaleCoverageZone ?? ""}
                         onChange={(e) =>

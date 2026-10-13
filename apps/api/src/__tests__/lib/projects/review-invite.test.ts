@@ -20,9 +20,6 @@ const REVIEW_URL = "https://g.page/r/Cb8yzZKdc-SEEBM/review/";
 beforeEach(async () => {
   await resetDb();
   await seedCompanySettings();
-  // Les réglages survivent à resetDb : état connu à chaque test.
-  await prisma.companySettings.updateMany({ data: { reviewInviteEnabled: true, googleReviewUrl: REVIEW_URL } });
-  invalidateCompanySettingsCache();
   await prisma.emailOutbox.deleteMany();
 });
 
@@ -91,5 +88,24 @@ describe("invitation à laisser un avis", () => {
     expect(await invites()).toHaveLength(0);
     // Le bouton de l'espace client reste proposé : le projet est livré.
     expect(await reviewInviteEligible(client.id)).toBe(true);
+  });
+});
+
+describe("projet terminé", () => {
+  it("affiche 100 % d'avancement, sans cocher les étapes ; rouvert, il reprend la valeur saisie", async () => {
+    const { project } = await projectFor();
+    const steps = [{ label: "Mise en ligne", status: "current" as const, date: null, triggersDeposit2: undefined }];
+    const done = await updateClientProject(project.id, { ...input, progress: 90, steps, status: "DONE" });
+    expect(done.progress).toBe(100);
+    expect(done.steps[0]!.status).toBe("current");
+    const reopened = await updateClientProject(project.id, { ...input, progress: 90, steps, status: "ACTIVE" });
+    expect(reopened.progress).toBe(90);
+  });
+
+  it("un projet déjà terminé en base avec moins de 100 % s'affiche à 100 %", async () => {
+    const { client, project } = await projectFor();
+    await prisma.clientProject.update({ where: { id: project.id }, data: { status: "DONE", progress: 90 } });
+    const { listPortalProjects } = await import("@/lib/projects/service.js");
+    expect((await listPortalProjects(client.id))[0]!.progress).toBe(100);
   });
 });
