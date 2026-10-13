@@ -148,7 +148,9 @@ export function AppLayout() {
     drawerOpener.current = e.currentTarget;
     setDrawerOpen(true);
   };
-  const returnFocus = () => (drawerOpener.current ?? drawerTrigger.current)?.focus();
+  // Après le rendu : tant que le tiroir est ouvert, le bouton est inerte et refuse le focus.
+  const returnFocus = () =>
+    requestAnimationFrame(() => (drawerOpener.current ?? drawerTrigger.current)?.focus());
   const drawerRef = useRef<HTMLDivElement>(null);
   const { pathname } = useLocation();
   const features = useFeatures();
@@ -169,9 +171,21 @@ export function AppLayout() {
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
+  // Navigation depuis le tiroir : il se ferme, puis le focus va au contenu de la nouvelle page
+  // (sinon il tomberait sur body, le lien cliqué ayant disparu).
+  const focusMainAfterNav = useRef(false);
+  const drawerOpenNow = useRef(drawerOpen);
+  drawerOpenNow.current = drawerOpen;
   useEffect(() => {
+    if (drawerOpenNow.current) focusMainAfterNav.current = true;
     setDrawerOpen(false);
   }, [pathname]);
+  useEffect(() => {
+    if (drawerOpen || !focusMainAfterNav.current) return;
+    focusMainAfterNav.current = false;
+    // Après le rendu sans inert : un élément inerte ne prend pas le focus.
+    requestAnimationFrame(() => document.getElementById("contenu")?.focus({ preventScroll: true }));
+  }, [drawerOpen]);
 
   useEffect(() => {
     document.title = current ? `${current.label} · Kouzia ERP` : "Kouzia ERP";
@@ -211,7 +225,9 @@ export function AppLayout() {
   return (
     <NotificationsProvider>
     <div className="flex h-dvh min-w-0 overflow-hidden bg-[var(--bg)]">
+      {/* Tiroir ouvert (modale) : le reste de la page est inerte, le focus ne sort pas du tiroir. */}
       <a
+        inert={drawerOpen || undefined}
         href="#contenu"
         className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-3 focus:z-50 focus:rounded-[var(--radius-sm)] focus:bg-[var(--primary)] focus:px-4 focus:py-3 focus:text-sm focus:font-semibold focus:text-[var(--primary-fg)]"
       >
@@ -219,7 +235,9 @@ export function AppLayout() {
       </a>
 
       {/* Barre latérale (bureau) */}
-      <aside className="hidden w-[var(--sidebar-w)] shrink-0 border-r border-[var(--border)] bg-[var(--bg-subtle)] lg:block">
+      <aside
+        inert={drawerOpen || undefined}
+        className="hidden w-[var(--sidebar-w)] shrink-0 border-r border-[var(--border)] bg-[var(--bg-subtle)] lg:block">
         <Sidebar pathname={pathname} unread={unreadCount} onLogout={() => void logout()} userLabel={userLabel} />
       </aside>
 
@@ -257,7 +275,7 @@ export function AppLayout() {
         </div>
       ) : null}
 
-      <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+      <div inert={drawerOpen || undefined} className="flex min-h-0 min-w-0 flex-1 flex-col">
         {/* Barre supérieure */}
         <header className="z-30 flex h-[var(--topbar-h)] min-w-0 shrink-0 items-center gap-1 border-b border-[var(--border)] bg-[var(--bg)] px-2 pt-[env(safe-area-inset-top)] sm:gap-3 sm:px-6">
           <button
