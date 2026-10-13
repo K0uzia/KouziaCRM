@@ -141,17 +141,22 @@ export async function applyPlanMilestones(
   s: PlanSettings,
 ): Promise<void> {
   const template = planTemplate(plan, s);
+  const amounts = computeMilestoneAmounts(totalCents, template);
   const existing = await tx.paymentMilestone.findMany({ where: { quoteId }, orderBy: { position: "asc" } });
+  // Montants compris : des jalons créés pendant le brouillon sur une autre base sont recalculés.
   const same =
     existing.length === template.length &&
-    existing.every((m, i) => m.percentBps === template[i]!.percentBps && m.label === template[i]!.label);
+    existing.every(
+      (m, i) =>
+        m.percentBps === template[i]!.percentBps && m.label === template[i]!.label && m.amountCents === amounts[i]!.amountCents,
+    );
   if (same) return;
   if (existing.some((m) => m.status !== MilestoneStatus.PENDING || m.invoiceId)) {
     throw new PaymentPlanError("L'échéancier de ce devis a déjà commencé : formule non modifiable.");
   }
   await tx.paymentMilestone.deleteMany({ where: { quoteId } });
   await tx.paymentMilestone.createMany({
-    data: computeMilestoneAmounts(totalCents, template).map((m) => ({
+    data: amounts.map((m) => ({
       quoteId,
       position: m.position,
       label: m.label,

@@ -90,6 +90,16 @@ describe("devis mixte", () => {
     expect((await issueQuote(small.quote.id)).paymentPlanOffer).toBe("TWO");
   });
 
+  it("jalons créés pendant le brouillon sur le total : recalculés sur la base à l'émission", async () => {
+    const { ensureQuoteMilestonesFromSettings } = await import("@/lib/payments/milestonePaymentService.js");
+    const { quote } = await mixedQuote();
+    const draft = await ensureQuoteMilestonesFromSettings(quote.id, 71900);
+    expect(draft.map((m) => m.amountCents)).toEqual([21570, 50330]);
+    await issueQuote(quote.id);
+    const ms = await prisma.paymentMilestone.findMany({ where: { quoteId: quote.id }, orderBy: { position: "asc" } });
+    expect(ms.map((m) => m.amountCents)).toEqual([20700, 48300]);
+  });
+
   it("signé : aucun abonnement à la signature ; facture totale sur la partie ponctuelle seulement", async () => {
     await setStripe(false);
     const { client, quote } = await mixedQuote({ discountCents: 7190 });
