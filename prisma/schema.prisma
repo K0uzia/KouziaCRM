@@ -1126,6 +1126,10 @@ model Payment {
   /// Versement Stripe vers le compte pro qui a inclus ce paiement
   stripePayoutId        String?
   stripePayout          StripePayout?    @relation(fields: [stripePayoutId], references: [id], onDelete: SetNull)
+  /// Reçu de ce règlement : PDF archivé (data/uploads/receipts), servi tel quel ensuite
+  receiptPdfPath        String?
+  receiptPdfSha256      String?
+  receiptArchivedAt     DateTime?
   createdAt             DateTime         @default(now())
   bankTransaction       BankTransaction?
 

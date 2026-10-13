@@ -318,6 +318,9 @@ sauvegarde (archive chiffrée `kouziacrm-<date>.uploads.tar.gz.gpg`, restaurée 
   puis servis tels quels (téléchargement, `/suivi`, pièce jointe des e-mails). Modifier un réglage ou
   une clause ne change plus le PDF d'un document émis. Le worker archive toutes les heures ce qui
   manquerait.
+- `receipts/` : reçu de chaque règlement (montant, moyen, reste dû, « facture acquittée » quand elle est
+  soldée), archivé à l'envoi de l'e-mail « Paiement reçu » ou au premier accès (`/suivi`). La facture émise ne
+  change pas avec les paiements : c'est le reçu qui atteste le règlement.
 
 Après la mise à jour qui introduit l'archivage, lancer une fois `kouziactl archive-pdfs` : les factures et
 avoirs déjà émis sont archivés avec les réglages du moment (sans effet sur ceux déjà archivés).

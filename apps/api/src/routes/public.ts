@@ -653,6 +653,25 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
     },
   );
 
+  // Reçu d'un règlement (lien receiptPdfToken de /suivi) : PDF archivé, servi tel quel.
+  app.get<{ Params: { token: string } }>(
+    "/api/public/receipts/:token",
+    { config: { rateLimit: { max: 30, timeWindow: "15 minutes" } } },
+    async (request, reply) => {
+      const { verifyReceiptToken } = await import("@/lib/documents/public-token.js");
+      const paymentId = verifyReceiptToken(request.params.token);
+      if (!paymentId) return reply.code(404).send({ error: "Lien invalide" });
+      const { paymentReceiptPdf } = await import("@/lib/pdf/receipt-archive.js");
+      const pdf = await paymentReceiptPdf(paymentId);
+      if (!pdf) return reply.code(404).send({ error: "Document introuvable" });
+      return reply
+        .header("Content-Type", "application/pdf")
+        .header("Content-Disposition", 'inline; filename="recu.pdf"')
+        .header("Cache-Control", "private, no-store")
+        .send(pdf);
+    },
+  );
+
   app.get<{ Params: { token: string } }>(
     "/api/public/documents/:token",
     {
