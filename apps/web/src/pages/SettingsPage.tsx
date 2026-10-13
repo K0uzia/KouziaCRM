@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
@@ -159,6 +159,7 @@ export function SettingsPage() {
   const [identitySection, setIdentitySection] = useState<IdentitySection>("legal");
   // Erreur affichée tant que la valeur refusée n'a pas été modifiée.
   const [fieldErrors, setFieldErrors] = useState<Record<string, { message: string; value: string }>>({});
+  const focusFirstError = useRef(false);
   const [googleStatus, setGoogleStatus] = useState<{
     configured: boolean;
     connected: boolean;
@@ -338,6 +339,7 @@ export function SettingsPage() {
           Object.fromEntries(keys.map((k) => [k, { message: errors[k]!, value: String(sent[k] ?? "") }])),
         );
         setIdentitySection(IDENTITY_FIELDS[keys[0]!]!.section);
+        focusFirstError.current = true;
         toast.error(`Vérifiez : ${keys.map((k) => IDENTITY_FIELDS[k]!.label).join(", ")}.`);
         return;
       }
@@ -346,6 +348,13 @@ export function SettingsPage() {
       setBusy(false);
     }
   }
+
+  // Après un refus : focus sur le premier champ en erreur, une fois la bonne section affichée.
+  useEffect(() => {
+    if (!focusFirstError.current || busy) return;
+    focusFirstError.current = false;
+    document.querySelector<HTMLElement>('[aria-invalid="true"]')?.focus();
+  }, [fieldErrors, identitySection, busy]);
 
   function fieldError(key: string): string | undefined {
     const err = fieldErrors[key];
@@ -769,7 +778,9 @@ export function SettingsPage() {
     return <p className="text-sm text-[var(--muted)]">Chargement…</p>;
   }
 
-  const SaveBar = ({ onSave }: { onSave: () => void }) => (
+  // Appelée comme une fonction, pas comme un composant déclaré dans le rendu : le bouton n'est pas
+  // remonté à chaque rendu et garde le focus.
+  const saveBar = (onSave: () => void) => (
     <div className="sticky bottom-0 mt-4 flex justify-end border-t border-[var(--border)] bg-[var(--surface)] pt-4 pb-[max(0.5rem,env(safe-area-inset-bottom))]">
       <Button type="button" disabled={busy} onClick={() => void onSave()} className="w-full sm:w-auto">
         {busy ? "Enregistrement…" : "Enregistrer cet onglet"}
@@ -1006,7 +1017,7 @@ export function SettingsPage() {
                 </div>
               ) : null}
 
-              <SaveBar onSave={saveGeneral} />
+              {saveBar(saveGeneral)}
             </Card>
           ) : null}
 
@@ -1260,7 +1271,7 @@ export function SettingsPage() {
                   </Field>
                 </div>
               </div>
-              <SaveBar onSave={saveEmail} />
+              {saveBar(saveEmail)}
             </Card>
           ) : null}
 
@@ -1571,7 +1582,7 @@ export function SettingsPage() {
                   />
                   Nouveaux devis : laisser le client choisir entre 2 et 3 fois
                 </label>
-                <SaveBar onSave={savePayments} />
+                {saveBar(savePayments)}
               </Card>
             </div>
           ) : null}
@@ -1643,7 +1654,7 @@ export function SettingsPage() {
                   );
                 })}
               </div>
-              <SaveBar onSave={saveReminders} />
+              {saveBar(saveReminders)}
             </Card>
           ) : null}
 
@@ -1718,7 +1729,7 @@ export function SettingsPage() {
                 </button>
                 .
               </p>
-              <SaveBar onSave={saveIdentity} />
+              {saveBar(saveIdentity)}
             </Card>
           ) : null}
 
@@ -1815,7 +1826,7 @@ export function SettingsPage() {
                     .join(" · ")}
                 </p>
               ) : null}
-              <SaveBar onSave={saveNumbering} />
+              {saveBar(saveNumbering)}
             </Card>
           ) : null}
 
@@ -1984,7 +1995,7 @@ export function SettingsPage() {
                   </ul>
                 </div>
               ) : null}
-              <SaveBar onSave={saveDeclarations} />
+              {saveBar(saveDeclarations)}
             </Card>
           ) : null}
 
