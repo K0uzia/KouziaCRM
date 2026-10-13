@@ -169,9 +169,10 @@ export function buildPaymentHistory(opts: {
     .filter((i) => i.amountCents < 0)
     .reduce((s, i) => s + Math.abs(i.amountCents), 0);
   // Devis d'abonnement seul (NONE) : rien n'est dû au titre du devis, l'abonnement facture chaque période.
+  // Partie ponctuelle du devis (base de l'échéancier) : l'abonnement est facturé à chaque période.
   const marketTotal = opts.docs
     .filter((d) => d.documentType === InvoiceDocumentType.QUOTE && d.paymentPlanOffer !== "NONE")
-    .reduce((max, d) => Math.max(max, d.totalCents), 0);
+    .reduce((max, d) => Math.max(max, d.depositBaseCents ?? d.totalCents), 0);
   const totalDueCents = Math.max(0, marketTotal - totalPaidCents + totalCreditCents);
 
   return {

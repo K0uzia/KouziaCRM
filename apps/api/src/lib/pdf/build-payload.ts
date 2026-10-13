@@ -110,13 +110,16 @@ export function buildInvoicePdfPayload({
     // Devis au choix non signé : les deux échéanciers ; devis signé : la formule retenue.
     paymentPlanChoice:
       isQuote && offer === "CHOICE" && !retained && planSettings
-        ? describePlans(offer, invoice.totalCents, planSettings).map((p) => ({
+        ? describePlans(offer, invoice.depositBaseCents ?? invoice.totalCents, planSettings).map((p) => ({
             title: PLAN_TITLE[p.plan],
             milestones: p.milestones,
           }))
         : null,
     paymentPlanRetained: isQuote && offer && retained ? PLAN_TITLE[retained] : null,
     subscriptionOnly: isQuote && (offer === "NONE" || isSubscriptionOnly(invoice.lines)),
+    // Devis mixte : l'abonnement démarre à la livraison, hors échéancier.
+    subscriptionFromDelivery:
+      isQuote && offer !== "NONE" && invoice.depositBaseCents !== null && invoice.lines.some((l) => l.isSubscription),
     balanceSummary: balanceSummary ?? null,
     milestones: invoice.milestones.map((m) => ({
       label: m.label,

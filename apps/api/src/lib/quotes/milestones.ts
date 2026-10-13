@@ -52,10 +52,14 @@ export async function ensureQuoteMilestones(
     orderBy: { position: "asc" },
   });
   // Abonnement seul : aucun jalon, ni à l'émission ni plus tard.
-  const quote = await db.invoice.findUnique({ where: { id: quoteId }, select: { paymentPlanOffer: true } });
+  const quote = await db.invoice.findUnique({
+    where: { id: quoteId },
+    select: { paymentPlanOffer: true, depositBaseCents: true },
+  });
   if (quote?.paymentPlanOffer === "NONE") return [];
 
-  const amounts = computeMilestoneAmounts(totalCents);
+  // Base figée à l'émission (partie ponctuelle) : elle prime sur le montant passé.
+  const amounts = computeMilestoneAmounts(quote?.depositBaseCents ?? totalCents);
   await db.paymentMilestone.createMany({
     data: amounts.map((m) => ({
       quoteId,

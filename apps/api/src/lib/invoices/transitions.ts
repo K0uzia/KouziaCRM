@@ -11,6 +11,7 @@ import { assertQuoteSigned } from "@/lib/invoices/workflow.js";
 import { getCompanySettings } from "@/lib/company.js";
 import { allocateInvoiceNumber, allocateQuoteNumber } from "@/lib/invoices/numberingService.js";
 import { ensureQuoteMilestones } from "@/lib/quotes/milestones.js";
+import { computeDepositBaseCents, depositBaseOf } from "@/lib/invoices/totals.js";
 import {
   applyPlanMilestones,
   effectiveOffer,
@@ -152,9 +153,12 @@ export async function issueQuote(
       new Date(issueDate.getTime() + 30 * 24 * 60 * 60 * 1000);
     // Offre de paiement figée à l'émission (seuil du 3 fois appliqué ici). Abonnement seul :
     // pas d'échéancier, chaque période est facturée par l'abonnement.
+    // Base de l'acompte, du 2 ou 3 fois et du seuil : la partie ponctuelle (l'abonnement est
+    // facturé à chaque période, il n'entre pas dans l'échéancier).
+    const depositBaseCents = computeDepositBaseCents(quote.lines, quote.subtotalCents, quote.totalCents);
     const offer = isSubscriptionOnly(quote.lines)
       ? "NONE"
-      : effectiveOffer(parsePaymentPlanOffer(quote.paymentPlanOffer), quote.totalCents, settings);
+      : effectiveOffer(parsePaymentPlanOffer(quote.paymentPlanOffer), depositBaseCents, settings);
 
     const updated = await tx.invoice.update({
       where: { id: quoteId },
@@ -171,6 +175,7 @@ export async function issueQuote(
         clientSnapshot: snapshot as unknown as Prisma.InputJsonValue,
         nextReminderAt: addDays(issueDate, settings.reminderQuoteDays),
         paymentPlanOffer: offer,
+        depositBaseCents,
       },
       include: { lines: true, client: true, payments: true },
     });
@@ -178,8 +183,8 @@ export async function issueQuote(
     // Jalons créés pendant le brouillon (affichage de la fiche, offre encore 2 fois) : retirés,
     // un devis d'abonnement seul n'en a aucun. Un brouillon n'a jamais de jalon payé ni facturé.
     if (offer === "NONE") await tx.paymentMilestone.deleteMany({ where: { quoteId, invoiceId: null } });
-    if (offer === null) await ensureQuoteMilestones(quoteId, quote.totalCents, tx);
-    else if (offer !== "NONE") await applyPlanMilestones(tx, quoteId, quote.totalCents, initialPlan(offer), settings);
+    if (offer === null) await ensureQuoteMilestones(quoteId, depositBaseCents, tx);
+    else if (offer !== "NONE") await applyPlanMilestones(tx, quoteId, depositBaseCents, initialPlan(offer), settings);
     return updated;
   });
 
@@ -384,9 +389,16 @@ export async function acceptQuoteByClient(
   // Formule retenue, validée avant toute écriture.
   const pending = await prisma.invoice.findUniqueOrThrow({
     where: { id: quoteId },
-    select: { paymentPlanOffer: true, totalCents: true },
+    select: {
+      paymentPlanOffer: true,
+      totalCents: true,
+      depositBaseCents: true,
+      lines: { select: { isSubscription: true } },
+    },
   });
   const offer = parsePaymentPlanOffer(pending.paymentPlanOffer);
+  // Devis mixte : l'abonnement démarre à la livraison (projet terminé), pas à la signature.
+  const deferSubscription = isDeferredSubscriptionQuote(pending);
   const plan =
     offer === null
       ? null
@@ -416,14 +428,16 @@ export async function acceptQuoteByClient(
       },
       include: { lines: true, client: true },
     });
-    if (plan) await applyPlanMilestones(tx, quoteId, pending.totalCents, plan, settings);
+    if (plan) await applyPlanMilestones(tx, quoteId, depositBaseOf(pending), plan, settings);
     // Abonnement seul : la 1re échéance est due tout de suite et facturée par l'abonnement
     // (Stripe après le mandat, sinon facture ERP immédiate), jamais par le devis.
-    const subs = await activateSubscriptionsFromDocument(
-      quoteId,
-      tx,
-      subscriptionOnly ? { firstPeriodNow: true, awaitStripe: settings.moduleStripeEnabled } : {},
-    );
+    const subs = deferSubscription
+      ? { subscriptionIds: [] as string[], createdIds: [] as string[] }
+      : await activateSubscriptionsFromDocument(
+          quoteId,
+          tx,
+          subscriptionOnly ? { firstPeriodNow: true, awaitStripe: settings.moduleStripeEnabled } : {},
+        );
     return { result, subscriptionIds: subs.subscriptionIds, createdIds: subs.createdIds };
   });
   if (subscriptionOnly) await startSubscriptionBilling(updated.createdIds, settings.moduleStripeEnabled);
@@ -456,6 +470,37 @@ export async function acceptQuoteByClient(
  * Devis d'abonnement seul signé : Stripe actif, le lien de prélèvement part (une fois) et Stripe
  * prélève la 1re période au mandat ; sinon, la 1re facture d'abonnement est émise tout de suite.
  */
+/** Devis mixte émis depuis la fonction : base figée, des lignes d'abonnement, pas abonnement seul. */
+export function isDeferredSubscriptionQuote(quote: {
+  depositBaseCents: number | null;
+  paymentPlanOffer: string | null;
+  lines: ReadonlyArray<{ isSubscription: boolean }>;
+}): boolean {
+  return quote.depositBaseCents !== null && quote.paymentPlanOffer !== "NONE" && quote.lines.some((l) => l.isSubscription);
+}
+
+/**
+ * Devis mixte signé : démarre l'abonnement à la livraison (projet terminé) ou à la demande.
+ * 1re échéance due tout de suite : lien de prélèvement Stripe (une fois) ou facture immédiate.
+ * Idempotent : un abonnement déjà relié aux lignes du devis n'est pas recréé.
+ * @returns les abonnements créés.
+ */
+export async function startDeferredSubscriptions(quoteId: string): Promise<string[]> {
+  const quote = await prisma.invoice.findUnique({
+    where: { id: quoteId },
+    select: { documentType: true, quoteStatus: true, depositBaseCents: true, paymentPlanOffer: true, lines: true },
+  });
+  if (!quote || quote.documentType !== InvoiceDocumentType.QUOTE || quote.quoteStatus !== QuoteStatus.ACCEPTED) return [];
+  if (!isDeferredSubscriptionQuote(quote)) return [];
+  if (quote.lines.filter((l) => l.isSubscription).every((l) => l.subscriptionId)) return [];
+  const settings = await getCompanySettings();
+  const subs = await prisma.$transaction((tx) =>
+    activateSubscriptionsFromDocument(quoteId, tx, { firstPeriodNow: true, awaitStripe: settings.moduleStripeEnabled }),
+  );
+  await startSubscriptionBilling(subs.createdIds, settings.moduleStripeEnabled);
+  return subs.createdIds;
+}
+
 async function startSubscriptionBilling(createdIds: string[], stripeEnabled: boolean): Promise<void> {
   if (createdIds.length === 0) return;
   if (stripeEnabled) {
@@ -562,6 +607,12 @@ export async function convertQuoteToInvoice(quoteId: string) {
       throw new Error("Ce devis a déjà été converti en facture");
     }
 
+    // Devis mixte : la facture totale porte la partie ponctuelle ; l'abonnement sera facturé à
+    // chaque période à partir de la livraison. Devis antérieur à la fonction : tout le devis.
+    const deferred = isDeferredSubscriptionQuote(quote);
+    const invoicedLines = deferred ? quote.lines.filter((l) => !l.isSubscription) : quote.lines;
+    const oneOffSubtotal = invoicedLines.reduce((sum, l) => sum + l.lineTotalCents, 0);
+    const invoiceTotal = deferred ? depositBaseOf(quote) : quote.totalCents;
     const created = await tx.invoice.create({
       data: {
         documentType: InvoiceDocumentType.INVOICE,
@@ -570,15 +621,18 @@ export async function convertQuoteToInvoice(quoteId: string) {
         clientId: quote.clientId,
         notes: quote.notes,
         paymentTerms: quote.paymentTerms ?? "Paiement à réception",
-        subtotalCents: quote.subtotalCents,
-        totalCents: quote.totalCents,
-        discountType: quote.discountType,
-        discountValue: quote.discountValue,
+        subtotalCents: deferred ? oneOffSubtotal : quote.subtotalCents,
+        totalCents: invoiceTotal,
+        ...(deferred
+          ? oneOffSubtotal > invoiceTotal
+            ? { discountType: "FIXED", discountValue: oneOffSubtotal - invoiceTotal }
+            : { discountType: "NONE", discountValue: 0 }
+          : { discountType: quote.discountType, discountValue: quote.discountValue }),
         quoteId: quote.id,
         sourceQuoteId: quote.id,
-        marketTotalCents: quote.totalCents,
+        marketTotalCents: invoiceTotal,
         lines: {
-          create: quote.lines.map((line) => ({
+          create: invoicedLines.map((line) => ({
             position: line.position,
             description: line.description,
             quantity: line.quantity,
@@ -605,7 +659,7 @@ export async function convertQuoteToInvoice(quoteId: string) {
       },
     });
 
-    await ensureQuoteMilestones(quoteId, quote.totalCents, tx);
+    await ensureQuoteMilestones(quoteId, depositBaseOf(quote), tx);
     // Facture totale : les jalons d'acompte ne sont plus à payer. Sans cela, un lien de paiement
     // resté actif encaisserait un acompte qu'aucune facture ne pourrait plus porter.
     await tx.paymentMilestone.updateMany({
@@ -617,7 +671,9 @@ export async function convertQuoteToInvoice(quoteId: string) {
       data: { status: MilestoneStatus.CANCELLED, checkoutUrl: null },
     });
 
-    const subs = await activateSubscriptionsFromDocument(quoteId, tx);
+    const subs = deferred
+      ? { created: 0, subscriptionIds: [] as string[] }
+      : await activateSubscriptionsFromDocument(quoteId, tx);
 
     // Propager subscriptionId des lignes devis → facture (même position)
     if (subs.subscriptionIds.length > 0) {

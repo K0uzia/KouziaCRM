@@ -37,6 +37,7 @@ describe("buildInvoicePdfPayload charte dynamique", () => {
         quoteId: null,
         creditedInvoiceId: null,
         marketTotalCents: null,
+        depositBaseCents: null,
         refundMethod: null,
         createdAt: issueDate,
         updatedAt: issueDate,

@@ -4,6 +4,7 @@ import { InvoiceDocumentType, InvoiceStatus } from "@prisma/client";
 import { prisma } from "@/lib/prisma.js";
 import { getCompanySettings } from "@/lib/company.js";
 import { buildPayUrl } from "@/lib/stripe/pay-urls.js";
+import { depositBaseOf } from "@/lib/invoices/totals.js";
 import { verifyDocumentToken } from "@/lib/documents/public-token.js";
 import {
   checkPortalCode,
@@ -273,7 +274,7 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
           payments: { orderBy: { paidAt: "asc" } },
           // 3 fois : étape du projet de CE devis qui déclenchera le 2e acompte.
           project: { select: { steps: true } },
-          lines: { where: { isSubscription: true }, select: { billingInterval: true } },
+          lines: { where: { isSubscription: true }, select: { billingInterval: true, unitPriceCents: true } },
         },
         take: 60,
       });
@@ -429,20 +430,23 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
               ? {
                   paymentPlanOffer: offer,
                   paymentPlan: parsePaymentPlan(d.paymentPlan),
-                  // NONE : devis d'abonnement seul, ni formule ni échéancier (chaque période est facturée par l'abonnement).
-                  ...(offer === "NONE"
+                  // Abonnement du devis : seul (NONE, démarre à la signature) ou avec une partie ponctuelle
+                  // (démarre à la livraison). L'échéancier ne porte que sur la partie ponctuelle.
+                  ...(d.lines.length > 0 && (offer === "NONE" || d.depositBaseCents !== null)
                     ? {
                         subscriptionBilling: {
                           interval: d.lines.some((l) => l.billingInterval === "YEAR") ? "YEAR" : "MONTH",
+                          startsAt: offer === "NONE" ? "SIGNATURE" : "DELIVERY",
                           // Prélèvement Stripe : la 1re échéance est prélevée à sa mise en place. Sinon, facture.
                           directDebit: settings.moduleStripeEnabled,
-                          ...(showAmounts ? { amountCents: d.totalCents } : {}),
+                          ...(showAmounts ? { amountCents: d.lines.reduce((s, l) => s + l.unitPriceCents, 0) } : {}),
                         },
+                        ...(offer !== "NONE" && showAmounts ? { oneOffTotalCents: depositBaseOf(d) } : {}),
                       }
                     : {}),
                   ...(quotePending && offer !== "NONE"
                     ? {
-                        paymentPlans: describePlans(offer, d.totalCents, settings).map((p) => ({
+                        paymentPlans: describePlans(offer, depositBaseOf(d), settings).map((p) => ({
                           plan: p.plan,
                           milestones: p.milestones.map(({ amountCents, ...m }) =>
                             showAmounts ? { ...m, amountCents } : m,

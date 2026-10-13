@@ -602,7 +602,7 @@ export const invoicesRoutes: FastifyPluginAsync = async (app) => {
         const settings = await getCompanySettings();
         if (settings.moduleStripeEnabled) {
           const { quoteOnlineMinimumWarning } = await import("@/lib/stripe/minimum.js");
-          minimumWarning = quoteOnlineMinimumWarning(doc.paymentPlanOffer, issued.totalCents, settings);
+          minimumWarning = quoteOnlineMinimumWarning(doc.paymentPlanOffer, issued.depositBaseCents ?? issued.totalCents, settings);
         }
       }
       if (doc.documentType === InvoiceDocumentType.INVOICE && body.payment) {

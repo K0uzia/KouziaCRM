@@ -91,6 +91,18 @@ export async function finalizeBilling(invoiceId: string, opts: BillingOptions) {
 }
 
 export const quotesMarketRoutes: FastifyPluginAsync = async (app) => {
+  // Devis mixte signé : démarrer l'abonnement sans attendre la fin du projet (ou sans projet).
+  app.post<{ Params: { id: string } }>("/api/quotes/:id/start-subscription", async (request, reply) => {
+    await requireAuth(request, reply);
+    if (reply.sent) return;
+    const { startDeferredSubscriptions } = await import("@/lib/invoices/transitions.js");
+    const created = await startDeferredSubscriptions(request.params.id);
+    if (created.length === 0) {
+      return reply.code(409).send({ error: "Aucun abonnement à démarrer pour ce devis (non signé, sans abonnement ou déjà démarré)." });
+    }
+    return { started: created.length };
+  });
+
   // Signature recueillie hors de l'espace client (papier, email signé) : tracée comme acceptation ADMIN.
   app.post<{ Params: { id: string } }>("/api/quotes/:id/sign-offline", async (request, reply) => {
     await requireAuth(request, reply);

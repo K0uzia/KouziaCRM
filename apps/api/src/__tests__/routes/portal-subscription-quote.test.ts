@@ -93,7 +93,7 @@ describe("espace client : devis d'abonnement seul", () => {
       requiresDeposit: false,
       depositPaid: true,
       canAcceptQuote: true,
-      subscriptionBilling: { interval: "YEAR", amountCents: 12000, directDebit: true },
+      subscriptionBilling: { interval: "YEAR", amountCents: 12000, directDebit: true, startsAt: "SIGNATURE" },
     });
     expect(doc.paymentPlans).toBeUndefined();
 
@@ -124,5 +124,31 @@ describe("espace client : devis d'abonnement seul", () => {
     expect(after.paymentHistory.totalDueCents).toBe(0);
     expect(after.subscriptions).toHaveLength(1);
     expect(after.subscriptions[0]).toMatchObject({ billingInterval: "YEAR", amountCents: 12000, setupUrl: body.subscriptionSetupUrl });
+  });
+
+  it("devis mixte : échéancier sur la partie ponctuelle, abonnement à la livraison", async () => {
+    const { kz_portal } = await setup();
+    const client = await prisma.client.findFirstOrThrow({ where: { emailHash: computeEmailHash(EMAIL) } });
+    const service = await prisma.service.findFirstOrThrow();
+    const quote = await prisma.invoice.create({
+      data: {
+        clientId: client.id, documentType: InvoiceDocumentType.QUOTE, status: InvoiceStatus.DRAFT,
+        subtotalCents: 71900, totalCents: 71900, paymentPlanOffer: "TWO",
+        lines: { create: [
+          { position: 1, description: "Site une page", quantity: 1, unitPriceCents: 69000, lineTotalCents: 69000 },
+          { position: 2, description: "Maintenance : mensuel", quantity: 1, unitPriceCents: 2900, lineTotalCents: 2900, isSubscription: true, billingDay: 1, serviceId: service.id },
+        ] },
+      },
+    });
+    await issueQuote(quote.id);
+    const t = (await app.inject({ method: "GET", url: "/api/public/tracking", cookies: { kz_portal } })).json();
+    const doc = t.documents.find((d: { id: string }) => d.id === quote.id);
+    expect(doc).toMatchObject({
+      paymentPlanOffer: "TWO",
+      oneOffTotalCents: 69000,
+      subscriptionBilling: { interval: "MONTH", startsAt: "DELIVERY", directDebit: true, amountCents: 2900 },
+    });
+    expect(doc.paymentPlans[0].milestones.map((m: { amountCents: number }) => m.amountCents)).toEqual([20700, 48300]);
+    expect(doc.milestones.map((m: { amountCents: number }) => m.amountCents)).toEqual([20700, 48300]);
   });
 });
