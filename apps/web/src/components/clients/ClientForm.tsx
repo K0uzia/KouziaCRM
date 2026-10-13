@@ -1,3 +1,4 @@
+import { CLIENT_TYPE_LABEL, type ClientType } from "@/lib/client-type";
 import { useEffect, useState, type FormEvent, type ReactNode } from "react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faChevronDown } from "@fortawesome/free-solid-svg-icons";
@@ -21,7 +22,7 @@ import {
 export type Client = {
   id: string;
   clientNumber?: string | null;
-  type: "B2B" | "B2C";
+  type: ClientType;
   displayName: string;
   firstName: string | null;
   lastName: string | null;
@@ -55,7 +56,7 @@ export type Client = {
 };
 
 export type ClientFormData = {
-  type: "B2B" | "B2C";
+  type: ClientType;
   firstName: string;
   lastName: string;
   companyName: string;
@@ -260,10 +261,11 @@ export function ClientFormEditor({
   return (
     <form onSubmit={onSubmit} className="space-y-5">
       <div className="flex gap-2 rounded-[var(--radius)] bg-[var(--bg)] p-1">
-        {(["B2C", "B2B"] as const).map((t) => (
+        {(["B2C", "B2B", "ASSOCIATION"] as const).map((t) => (
           <button
             key={t}
             type="button"
+            aria-pressed={form.type === t}
             onClick={() => set("type", t)}
             className={`min-h-11 flex-1 rounded-lg px-3 py-2 text-sm font-medium transition ${
               form.type === t
@@ -271,7 +273,7 @@ export function ClientFormEditor({
                 : "text-[var(--muted)] hover:text-[var(--text)]"
             }`}
           >
-            {t === "B2C" ? "Particulier" : "Professionnel"}
+            {CLIENT_TYPE_LABEL[t]}
           </button>
         ))}
       </div>
@@ -287,6 +289,7 @@ export function ClientFormEditor({
         </div>
       ) : (
         <CompanyLookup
+          nameLabel={form.type === "ASSOCIATION" ? "Nom de l'association" : "Raison sociale"}
           value={toCompanyValue(form)}
           onChange={(c) =>
             setForm((f) => ({

@@ -1,3 +1,4 @@
+import { isOrganization, type ClientTypeValue } from "@/lib/clients/client-type.js";
 import { prisma } from "@/lib/prisma.js";
 import { getCompanySettings } from "@/lib/company.js";
 import { encryptOptional } from "@/lib/crypto.js";
@@ -110,7 +111,7 @@ export async function sendOnboardingInvite(opts: {
 export type OnboardingView = {
   emailMasked: string;
   existingClientId: string | null;
-  existingType: "B2B" | "B2C" | null;
+  existingType: ClientTypeValue | null;
   displayName: string | null;
   completedAt: Date | null;
   brandName: string | null;
@@ -185,7 +186,7 @@ export async function getOnboardingView(token: string): Promise<OnboardingView |
 }
 
 export type OnboardingSubmission = {
-  type: "B2B" | "B2C";
+  type: ClientTypeValue;
   firstName?: string | null;
   lastName?: string | null;
   companyName?: string | null;
@@ -207,7 +208,7 @@ export type OnboardingSubmission = {
 };
 
 function buildDisplayName(d: OnboardingSubmission): string {
-  if (d.type === "B2B") return (d.companyName ?? "").trim() || "Société";
+  if (isOrganization(d.type)) return (d.companyName ?? "").trim() || (d.type === "ASSOCIATION" ? "Association" : "Société");
   return [d.firstName?.trim(), d.lastName?.trim()].filter(Boolean).join(" ") || "Client";
 }
 
@@ -230,7 +231,7 @@ async function toPrismaData(d: OnboardingSubmission) {
   let companyName = d.companyName?.trim() || null;
   let companyVerifiedAt: Date | null = null;
 
-  if (d.type === "B2B" && (siren || siret)) {
+  if (isOrganization(d.type) && (siren || siret)) {
     const verified = await verifyCompanyIdentifiers({
       siren,
       siret,
@@ -277,8 +278,11 @@ async function applySubmission(
   },
   data: OnboardingSubmission,
 ): Promise<{ ok: boolean; error?: string; alreadySubmitted?: boolean }> {
-  if (data.type === "B2B" && !data.companyName?.trim()) {
-    return { ok: false, error: "Raison sociale requise pour un professionnel" };
+  if (isOrganization(data.type) && !data.companyName?.trim()) {
+    return {
+      ok: false,
+      error: data.type === "ASSOCIATION" ? "Nom de l'association requis" : "Raison sociale requise pour un professionnel",
+    };
   }
   if (data.type === "B2C" && !data.lastName?.trim()) {
     return { ok: false, error: "Nom requis pour un particulier" };

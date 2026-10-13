@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { ClientType } from "@prisma/client";
+import { CLIENT_TYPES, isOrganization } from "@/lib/clients/client-type.js";
 import { isValidSiren, isValidSiret } from "@kouzia/forms";
 import { prisma } from "@/lib/prisma.js";
 import { decryptOptional, encryptOptional } from "@/lib/crypto.js";
@@ -13,7 +14,7 @@ import {
 
 export const clientInputSchema = z
   .object({
-    type: z.enum(["B2B", "B2C"]),
+    type: z.enum(CLIENT_TYPES),
     firstName: z.string().optional().nullable(),
     lastName: z.string().optional().nullable(),
     companyName: z.string().optional().nullable(),
@@ -48,10 +49,10 @@ export const clientInputSchema = z
     needs: needsInputSchema.optional(),
   })
   .superRefine((data, ctx) => {
-    if (data.type === "B2B" && !data.companyName?.trim()) {
+    if (isOrganization(data.type) && !data.companyName?.trim()) {
       ctx.addIssue({
         code: "custom",
-        message: "Raison sociale requise pour B2B",
+        message: data.type === "ASSOCIATION" ? "Nom de l'association requis" : "Raison sociale requise pour B2B",
         path: ["companyName"],
       });
     }
@@ -67,7 +68,7 @@ export const clientInputSchema = z
 export type ClientInput = z.infer<typeof clientInputSchema>;
 
 export function buildDisplayName(data: ClientInput): string {
-  if (data.type === "B2B") {
+  if (isOrganization(data.type)) {
     return data.companyName!.trim();
   }
   return [data.firstName?.trim(), data.lastName?.trim()].filter(Boolean).join(" ");
@@ -158,7 +159,7 @@ export async function toPrismaClientData(data: ClientInput) {
     ? new Date(data.companyVerifiedAt)
     : null;
 
-  if (data.type === "B2B" && (siren || siret)) {
+  if (isOrganization(data.type) && (siren || siret)) {
     const verified = await verifyCompanyIdentifiers({
       siren,
       siret,
