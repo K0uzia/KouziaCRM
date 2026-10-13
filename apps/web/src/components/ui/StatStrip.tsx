@@ -27,6 +27,12 @@ const cols: Record<number, string> = {
   4: "grid-cols-2 lg:grid-cols-4",
   5: "grid-cols-2 sm:grid-cols-3 xl:grid-cols-5",
   6: "grid-cols-2 sm:grid-cols-3 2xl:grid-cols-6",
+  7: "grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 2xl:grid-cols-7",
+};
+
+/** Dernière case d'un nombre impair : elle comble la ligne (2, 3 puis 4 colonnes), sans case vide. */
+const lastSpan: Record<number, string> = {
+  7: "col-span-2 sm:col-span-3 lg:col-span-2 2xl:col-span-1",
 };
 
 /** Bandeau d'indicateurs dans une seule carte ; les filets sont l'espace d'1 px entre cases. */
@@ -73,7 +79,7 @@ export function StatStrip({ items, className = "" }: { items: StatItem[]; classN
         return (
           <div
             key={s.label}
-            className={`relative min-w-0 bg-[var(--surface)] p-4 sm:p-5 ${lastOdd ? "col-span-2 sm:col-span-1" : ""} ${s.to ? "transition-colors hover:bg-[var(--surface-raised)]" : ""}`}
+            className={`relative min-w-0 bg-[var(--surface)] p-4 sm:p-5 ${lastOdd ? (lastSpan[items.length] ?? "col-span-2 sm:col-span-1") : ""} ${s.to ? "transition-colors hover:bg-[var(--surface-raised)]" : ""}`}
           >
             {content}
           </div>
