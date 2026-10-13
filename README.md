@@ -130,7 +130,7 @@ Avant un merge dans `main` :
 
 Playwright (Chromium, dépendance de développement) parcourt tous les écrans de `navigation.ts`,
 les onglets des Réglages, une fiche client, devis et facture, et les modales de création, à
-320 et 375 px. Il échoue sur un scroll horizontal, un élément sorti de son conteneur coupé ou de
+320, 375 et 414 px. Il échoue sur un scroll horizontal, un élément sorti de son conteneur coupé ou de
 l'écran, ou une cible d'action de moins de 44 px. Lecture seule : les modales sont ouvertes puis
 fermées.
 
@@ -142,7 +142,7 @@ CHECK_MOBILE_EMAIL=… CHECK_MOBILE_PASSWORD=… CHECK_MOBILE_TOTP=… npm run c
 
 `CHECK_MOBILE_TOTP` est le secret base32 du compte de test si sa double authentification est
 active. Options : `CHECK_MOBILE_URL` (défaut `http://localhost:5173`), `CHECK_MOBILE_WIDTHS`
-(défaut `320,375`), `CHECK_MOBILE_REPORT` (rapport JSON).
+(défaut `320,375,414`), `CHECK_MOBILE_REPORT` (rapport JSON).
 
 ## Docker (app + worker + Prisma Studio)
 
