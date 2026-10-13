@@ -314,6 +314,39 @@ describe("facture abonnement Stripe", () => {
     expect(second.invoiceId).toBe(first.invoiceId);
     expect(await prisma.invoice.count({ where: { stripeInvoiceId: "in_stripe_1" } })).toBe(1);
   });
+
+  it("1re facture arrivée avant checkout.session.completed : abonnement relié par ses métadonnées", async () => {
+    const client = await createClient();
+    const service = await prisma.service.create({
+      data: { name: "Maint", unitPriceCents: 2900, unit: "FORFAIT", active: true, isSubscription: true, billingInterval: "MONTH" },
+    });
+    const sub = await prisma.subscription.create({
+      data: {
+        clientId: client.id, serviceId: service.id, label: "Maintenance", amountCents: 2900, billingDay: 1,
+        startDate: new Date(), nextInvoiceAt: new Date(), status: SubscriptionStatus.ACTIVE,
+        collectionMethod: SubscriptionCollectionMethod.STRIPE,
+      },
+    });
+    const stripeInvoice = {
+      id: "in_avant_checkout",
+      livemode: false,
+      amount_due: 2900,
+      amount_paid: 0,
+      // 1re facture d'un abonnement : Stripe met period_start = period_end ; la vraie période est sur la ligne.
+      period_start: Math.floor(Date.now() / 1000),
+      period_end: Math.floor(Date.now() / 1000),
+      parent: { subscription_details: { subscription: "sub_sans_lien", metadata: { erpSubscriptionId: sub.id } } },
+      customer_email: null,
+      lines: { data: [{ period: { start: Math.floor(Date.now() / 1000), end: Math.floor(Date.now() / 1000) + 86400 * 30 } }] },
+    } as unknown as Stripe.Invoice;
+
+    const res = await issueErpInvoiceFromStripeInvoice(stripeInvoice);
+    expect(res.created).toBe(true);
+    const linked = await prisma.subscription.findUniqueOrThrow({ where: { id: sub.id } });
+    expect(linked).toMatchObject({ stripeSubscriptionId: "sub_sans_lien", stripeLivemode: false });
+    expect(linked.nextInvoiceAt.getTime()).toBeGreaterThan(Date.now() + 86400 * 1000 * 29);
+    expect(await prisma.invoice.count({ where: { subscriptionId: sub.id, totalCents: 2900 } })).toBe(1);
+  });
 });
 
 describe("signature webhook Stripe", () => {
