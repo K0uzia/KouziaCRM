@@ -31,6 +31,7 @@ import { renderInvoicePdf } from "@/lib/pdf/render.js";
 import { buildInvoicePdfPayload } from "@/lib/pdf/build-payload.js";
 import { enrichCompanyForPdf } from "@/lib/pdf/brand-assets.js";
 import { listActiveLegalClauses } from "@/lib/company/legal-clauses.js";
+import { CLIENT_TYPES, isOrganization } from "@/lib/clients/client-type.js";
 import {
   CancelRequestError,
   isStripeManaged,
@@ -74,7 +75,7 @@ const nameSchema = z
   .regex(/^\p{L}[\p{L}\s'’-]*$/u);
 
 const onboardingSubmitSchema = z.object({
-  type: z.enum(["B2B", "B2C"]),
+  type: z.enum(CLIENT_TYPES),
   firstName: z.string().optional().nullable(),
   lastName: z.string().optional().nullable(),
   companyName: z.string().optional().nullable(),
@@ -335,7 +336,7 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
         signer: {
           firstName: client.firstName ?? "",
           lastName: client.lastName ?? "",
-          companyName: client.type === "B2B" ? (client.companyName ?? client.displayName) : null,
+          companyName: isOrganization(client.type) ? (client.companyName ?? client.displayName) : null,
         },
         brand: {
           tradeName: settings.tradeName ?? settings.legalName,
@@ -634,7 +635,7 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
               mode: data.signatureMode,
               image: data.signatureMode === "DRAWN" ? (data.signatureImage ?? null) : null,
               company:
-                client.type === "B2B" ? (client.companyName ?? client.displayName) : null,
+                isOrganization(client.type) ? (client.companyName ?? client.displayName) : null,
               emailMasked: email ? maskEmail(email) : null,
               codeVerifiedAt: new Date(),
             },

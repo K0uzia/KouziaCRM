@@ -25,6 +25,8 @@ export type CompanyLookupProps = {
   errors?: Partial<Record<"siren" | "siret" | "companyName", string>>;
   disabled?: boolean;
   lookupPath?: (siren: string) => string;
+  /** Libellé du nom de la structure (« Nom de l'association » pour une association). */
+  nameLabel?: string;
 };
 
 type LookupResponse = {
@@ -54,6 +56,7 @@ export function CompanyLookup({
   errors,
   disabled,
   lookupPath = (siren) => `/api/entreprises/${siren}`,
+  nameLabel = "Raison sociale",
 }: CompanyLookupProps) {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
@@ -213,13 +216,13 @@ export function CompanyLookup({
         </div>
       </Field>
 
-      <Field label="Raison sociale" hint="Obligatoire" error={errors?.companyName}>
+      <Field label={nameLabel} hint="Obligatoire" error={errors?.companyName}>
         <Input
           required
           value={value.companyName}
           onChange={(e) => patch({ companyName: e.target.value })}
           disabled={disabled}
-          placeholder={busy ? "Récupération…" : "Raison sociale ou nom commercial"}
+          placeholder={busy ? "Récupération…" : nameLabel === "Raison sociale" ? "Raison sociale ou nom commercial" : nameLabel}
         />
       </Field>
 

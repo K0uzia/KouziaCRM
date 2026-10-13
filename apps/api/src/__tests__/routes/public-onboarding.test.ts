@@ -65,6 +65,34 @@ describe("POST /api/public/clients", () => {
   });
 });
 
+describe("POST /api/public/clients : association", () => {
+  it("crée une association avec son nom (sans SIREN), refuse sans nom", async () => {
+    const { token } = await invite("tresorier@asso.example");
+    const missing = await app.inject({
+      method: "POST",
+      url: "/api/public/clients",
+      payload: body(token, { type: "ASSOCIATION", firstName: null, lastName: null, companyName: "" }),
+    });
+    expect(missing.statusCode).toBe(400);
+    expect(await prisma.client.count()).toBe(0);
+
+    const created = await app.inject({
+      method: "POST",
+      url: "/api/public/clients",
+      payload: body(token, { type: "ASSOCIATION", firstName: "Sam", lastName: "Trésorier", companyName: "Les Amis du Moulin" }),
+    });
+    expect(created.statusCode).toBe(201);
+    const client = await prisma.client.findFirstOrThrow();
+    expect(client).toMatchObject({ type: "ASSOCIATION", displayName: "Les Amis du Moulin", companyName: "Les Amis du Moulin" });
+  });
+
+  it("type inconnu : 400", async () => {
+    const { token } = await invite();
+    const res = await app.inject({ method: "POST", url: "/api/public/clients", payload: body(token, { type: "SCI" }) });
+    expect(res.statusCode).toBe(400);
+  });
+});
+
 describe("routes d'onboarding historiques", () => {
   it("GET et POST /api/public/onboarding/:token n'existent plus", async () => {
     const { jti } = await invite();

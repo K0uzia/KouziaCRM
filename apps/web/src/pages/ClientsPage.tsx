@@ -1,3 +1,4 @@
+import { CLIENT_TYPE_LABEL, CLIENT_TYPE_SHORT, CLIENT_TYPE_TONE, isOrganization } from "@/lib/client-type";
 import { useCallback, useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
@@ -84,7 +85,7 @@ export function ClientsPage() {
       sortable: true,
       width: "8rem",
       cell: (c) => (
-        <Badge tone={c.type === "B2B" ? "violet" : "neutral"}>{c.type === "B2B" ? "Professionnel" : "Particulier"}</Badge>
+        <Badge tone={CLIENT_TYPE_TONE[c.type]}>{CLIENT_TYPE_LABEL[c.type]}</Badge>
       ),
     },
     {
@@ -169,7 +170,7 @@ export function ClientsPage() {
     <div>
       <PageHeader
         title="Clients"
-        subtitle="Particuliers et professionnels, coordonnées et historique des échanges."
+        subtitle="Particuliers, professionnels et associations : coordonnées et historique des échanges."
         actions={
           <>
             <Button variant="secondary" onClick={() => setInviteOpen(true)}>
@@ -218,7 +219,7 @@ export function ClientsPage() {
                   {[c.clientNumber, c.city].filter(Boolean).join(" · ")}
                 </p>
               </div>
-              <Badge tone={c.type === "B2B" ? "violet" : "neutral"}>{c.type === "B2B" ? "Pro" : "Particulier"}</Badge>
+              <Badge tone={CLIENT_TYPE_TONE[c.type]}>{CLIENT_TYPE_SHORT[c.type]}</Badge>
             </Link>
           )}
           searchable={["displayName", "clientNumber", "email", "city", "phone"]}
@@ -415,8 +416,8 @@ export function ClientDetailPage() {
         }
         subtitle={
           <span className="flex flex-wrap items-center gap-2">
-            <Badge tone={client.type === "B2B" ? "violet" : "neutral"}>
-              {client.type === "B2B" ? "Professionnel" : "Particulier"}
+            <Badge tone={CLIENT_TYPE_TONE[client.type]}>
+              {CLIENT_TYPE_LABEL[client.type]}
             </Badge>
             {client.clientNumber ? (
               <span className="font-mono text-xs text-[var(--primary)]">{client.clientNumber}</span>
@@ -514,7 +515,7 @@ export function ClientDetailPage() {
               <dt className="text-[var(--muted)]">Téléphone</dt>
               <dd>{formatPhoneFr(client.phone) || " - "}</dd>
             </div>
-            {client.type === "B2B" ? (
+            {isOrganization(client.type) ? (
               <div>
                 <dt className="text-[var(--muted)]">SIRET</dt>
                 <dd>{client.siret ?? " - "}</dd>

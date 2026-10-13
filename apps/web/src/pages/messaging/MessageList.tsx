@@ -77,8 +77,8 @@ function companyTag(msg: MailMessageItem): string | null {
   if (!c) return null;
   const company = c.companyName?.trim();
   if (company) return company;
-  // B2B sans companyName : displayName si différent du nom personne
-  if (c.type === "B2B" && c.displayName) {
+  // Structure sans companyName : displayName si différent du nom personne
+  if ((c.type === "B2B" || c.type === "ASSOCIATION") && c.displayName) {
     const person = [c.firstName, c.lastName].filter(Boolean).join(" ").trim();
     if (person && c.displayName !== person) return c.displayName;
   }

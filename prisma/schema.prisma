@@ -10,6 +10,8 @@ datasource db {
 enum ClientType {
   B2B
   B2C
+  /// Association (non-professionnel au sens du Code de la consommation)
+  ASSOCIATION
 }
 
 enum InvoiceStatus {

@@ -2,6 +2,7 @@ import { lookupEntreprise } from "@kouzia/forms";
 import { getCompanySettings, invalidateCompanySettingsCache } from "@/lib/company.js";
 import { parseBusinessStartDateInput } from "@/lib/company/business-start.js";
 import { prisma } from "@/lib/prisma.js";
+import { isAssociationCategory } from "@/lib/clients/client-type.js";
 
 export type InpiImportResult = {
   siren: string;
@@ -15,6 +16,9 @@ export type InpiImportResult = {
   citycode: string | null;
   country: string;
   legalForm: string | null;
+  /** Catégorie juridique INSEE et repère « association » (catégories 92xx). */
+  legalCategory: string | null;
+  isAssociation: boolean;
   rneRegistrationDate: string | null;
   businessStartDate: string | null;
   inpiUrl: string;
@@ -109,6 +113,8 @@ export async function fetchCompanyFromOpenData(sirenOrUrl: string): Promise<Inpi
     citycode: e.citycode,
     country: e.country,
     legalForm: e.legalForm,
+    legalCategory: e.legalCategory,
+    isAssociation: isAssociationCategory(e.legalCategory),
     rneRegistrationDate: e.creationDate,
     businessStartDate: e.creationDate,
     inpiUrl,

@@ -9,6 +9,8 @@ export type EntrepriseLookupResult = {
   tradeName: string | null;
   /** Forme juridique (libellé) */
   legalForm: string | null;
+  /** Catégorie juridique INSEE (code, ex. 9220 pour une association déclarée) */
+  legalCategory: string | null;
   apeCode: string | null;
   addressLine1: string | null;
   postalCode: string | null;
@@ -178,6 +180,7 @@ export async function lookupEntreprise(
       legalName: clean(hit.nom_raison_sociale) ?? clean(hit.nom_complet),
       tradeName: clean(siege.nom_commercial) ?? clean(hit.sigle),
       legalForm: legalFormLabel(hit),
+      legalCategory: clean(hit.nature_juridique),
       apeCode: clean(hit.activite_principale) ?? clean(siege.activite_principale),
       addressLine1: streetParts.length ? streetParts.join(" ") : clean(siege.geo_adresse),
       postalCode,
