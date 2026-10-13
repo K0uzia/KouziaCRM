@@ -20,12 +20,19 @@ const labels: Record<string, string> = {
 export function InvoiceTypeBadge({
   type,
   showSimple = false,
+  compact = false,
 }: {
   type?: string | null;
   showSimple?: boolean;
+  /** Dans une liste : badge resserré, sur la même ligne que le numéro. */
+  compact?: boolean;
 }) {
   if (!type) return null;
   if (type === "SIMPLE" && !showSimple) return null;
   const tone = tones[type] ?? "neutral";
-  return <Badge tone={tone}>{labels[type] ?? type}</Badge>;
+  return (
+    <Badge tone={tone} className={compact ? "shrink-0 px-1.5 py-0.5 leading-tight" : ""}>
+      {labels[type] ?? type}
+    </Badge>
+  );
 }

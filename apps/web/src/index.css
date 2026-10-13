@@ -115,19 +115,23 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
-button,
-a,
-[role="button"],
-input,
-select,
-textarea {
-  font: inherit;
-  touch-action: manipulation;
-}
+/* Dans @layer base : hors couche, ces règles l'emportaient sur les classes utilitaires de
+   Tailwind 4 (une couleur ou une taille posée sur un lien était ignorée). */
+@layer base {
+  button,
+  a,
+  [role="button"],
+  input,
+  select,
+  textarea {
+    font: inherit;
+    touch-action: manipulation;
+  }
 
-a {
-  color: inherit;
-  text-decoration: none;
+  a {
+    color: inherit;
+    text-decoration: none;
+  }
 }
 
 /* Liens texte (profils, tableaux) */

@@ -1,13 +1,32 @@
+/**
+ * Intl (fr-FR) sépare les milliers par une espace fine insécable (U+202F) que la police de
+ * l'interface affiche sans largeur (« 1743,00 € ») : remplacée par l'espace insécable (U+00A0),
+ * comme côté API (money.ts).
+ */
+export function frenchSpaces(text: string): string {
+  return text.replace(/[\u202F\u2009]/g, "\u00A0");
+}
+
+/** Montant en euros à partir de centimes : 1 743,00 €. */
 export function formatEUR(cents: number): string {
-  return new Intl.NumberFormat("fr-FR", {
-    style: "currency",
-    currency: "EUR",
-  }).format(cents / 100);
+  return euros(cents / 100);
+}
+
+/** Montant en euros (nombre d'euros), décimales au choix : 1 743 €. */
+export function euros(value: number, fractionDigits = 2): string {
+  return frenchSpaces(
+    new Intl.NumberFormat("fr-FR", {
+      style: "currency",
+      currency: "EUR",
+      minimumFractionDigits: fractionDigits,
+      maximumFractionDigits: fractionDigits,
+    }).format(value),
+  );
 }
 
 /** Nombre décimal à la française (virgule) : 12,5. */
 export function formatDecimal(value: number, maxFractionDigits = 2): string {
-  return new Intl.NumberFormat("fr-FR", { maximumFractionDigits: maxFractionDigits }).format(value);
+  return frenchSpaces(new Intl.NumberFormat("fr-FR", { maximumFractionDigits: maxFractionDigits }).format(value));
 }
 
 /** Taille de fichier : 820 o, 12 Ko, 1,5 Mo. */

@@ -1,6 +1,7 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { toast } from "sonner";
 import { api, formatEUR } from "@/lib/api";
+import { euros } from "@/lib/format";
 import { Button } from "@/components/ui/Button";
 import { ModalActions } from "@/components/ui/Modal";
 import { Field, Input, Select, Textarea } from "@/components/ui/Field";
@@ -327,7 +328,7 @@ export function DocumentFormEditor({
   }
 
   const isQuote = documentType === "QUOTE";
-  const eur = (n: number) => n.toLocaleString("fr-FR", { style: "currency", currency: "EUR" });
+  const eur = (n: number) => euros(n);
   const oneOff = services.filter((sv) => !sv.isSubscription);
   const monthly = services.filter((sv) => sv.isSubscription);
   const sectionTitle = "text-xs font-semibold uppercase tracking-[0.08em] text-[var(--muted)]";

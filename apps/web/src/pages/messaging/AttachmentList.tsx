@@ -27,7 +27,7 @@ export function AttachmentList({ attachments }: { attachments: Attachment[] }) {
           <li key={a.id}>
             <a
               href={`/api/emails/attachments/${a.id}`}
-              className="inline-flex max-w-full items-center gap-2 rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--surface-raised)] px-3 py-2 text-sm shadow-[var(--shadow-sm)] transition hover:border-[var(--primary)]/40 hover:bg-[var(--bg)]"
+              className="inline-flex min-h-11 max-w-full items-center gap-2 rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--surface-raised)] px-3 py-2 text-sm shadow-[var(--shadow-sm)] transition hover:border-[var(--primary)]/40 hover:bg-[var(--bg)]"
               download={a.filename}
             >
               <FontAwesomeIcon

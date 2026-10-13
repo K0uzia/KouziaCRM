@@ -1,11 +1,10 @@
 type DocKind = "INVOICE" | "CREDIT_NOTE" | "QUOTE" | string;
 
-/** Couleurs par nature de document / facture marché. */
-function colorClass(documentType: DocKind, invoiceType?: string | null): string {
-  if (documentType === "QUOTE") return "text-[var(--info)]";
-  if (documentType === "CREDIT_NOTE") return "text-[var(--danger)]";
-  if (invoiceType === "ACOMPTE") return "text-[var(--warning)]";
-  if (invoiceType === "SOLDE") return "text-[var(--info)]";
+/**
+ * Une seule couleur pour tous les numéros : le type (acompte, solde, avoir) est porté par le
+ * badge à côté (InvoiceTypeBadge), pas par la couleur seule.
+ */
+function colorClass(_documentType: DocKind, _invoiceType?: string | null): string {
   return "text-[var(--primary)]";
 }
 
