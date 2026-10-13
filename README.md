@@ -97,7 +97,7 @@ Dans le [tableau de bord Stripe](https://dashboard.stripe.com/) :
 2. Laisser Stripe gérer les avis préalables de prélèvement SEPA.
 3. Activer carte, prélèvement SEPA et virements bancaires (customer_balance).
 4. Choisir le rythme des versements et déclarer l'IBAN Revolut Pro.
-5. Webhook vers `https://<votre-api>/api/webhooks/stripe` avec les événements : `payment_intent.succeeded`, `payment_intent.payment_failed`, `checkout.session.completed`, `invoice.finalized`, `invoice.paid`, `invoice.payment_failed`, `customer.subscription.updated`, `customer.subscription.deleted`, `product.*`, `price.*`, `payout.paid`, `payout.failed`, `charge.refunded`, `charge.dispute.created`.
+5. Webhook vers `https://<votre-api>/api/webhooks/stripe` avec les événements : `payment_intent.succeeded`, `payment_intent.payment_failed`, `checkout.session.completed`, `invoice.finalized`, `invoice.paid`, `invoice.payment_failed`, `customer.subscription.updated`, `customer.subscription.deleted`, `product.*`, `price.*`, `payout.paid`, `payout.failed`, `charge.refunded`, `charge.dispute.created`, `charge.dispute.closed` (rapprochement « Flux Stripe » : montant des litiges).
 
 Catalogue :
 

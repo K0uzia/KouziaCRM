@@ -119,6 +119,8 @@ describe("buildInvoicePdfPayload charte dynamique", () => {
             stripePaymentIntentId: null,
             feeCents: null,
             stripePayoutId: null,
+            refundedCents: 0,
+            disputedCents: 0,
           },
         ],
       },

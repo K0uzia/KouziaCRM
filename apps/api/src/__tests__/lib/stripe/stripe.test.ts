@@ -61,8 +61,11 @@ const mockStripe = {
       },
     })),
   },
+  charges: {
+    retrieve: vi.fn(async (id: string) => ({ id, payment_intent: `pi_of_${id}` })),
+  },
   balanceTransactions: {
-    list: vi.fn(async () => ({ data: [] })),
+    list: vi.fn((_params?: unknown) => listOf([] as Stripe.BalanceTransaction[])),
     retrieve: vi.fn(async (id: string) => ({ id, fee: 27 })),
   },
 };
@@ -525,5 +528,48 @@ describe("jeton de paiement : revue", () => {
     const rawKeySig = createHmac("sha256", process.env.SESSION_SECRET!).update(body!).digest("base64url");
     expect(sig).not.toBe(rawKeySig);
     expect(verifyPayToken(token)).toEqual({ kind: "invoice", id: "inv_1" });
+  });
+});
+
+describe("rapprochement Stripe : montants des remboursements, litiges et retenues", () => {
+  async function stripePayment(pi: string, cents = 49000) {
+    const client = await createClient();
+    const inv = await prisma.invoice.create({
+      data: { documentType: InvoiceDocumentType.INVOICE, invoiceType: InvoiceType.SIMPLE, status: InvoiceStatus.PAID, clientId: client.id, subtotalCents: cents, totalCents: cents, issueDate: new Date() },
+    });
+    return prisma.payment.create({ data: { invoiceId: inv.id, amountCents: cents, paidAt: new Date(), stripePaymentIntentId: pi, feeCents: 1000 } });
+  }
+  const ev = (id: string, type: string, object: unknown) => ({ id, type, livemode: false, data: { object } }) as unknown as Stripe.Event;
+
+  it("remboursement : montant cumulé enregistré, sans double compte", async () => {
+    const pay = await stripePayment("pi_rf");
+    await processStripeEvent(ev("evt_rf_1", "charge.refunded", { id: "ch_rf", payment_intent: "pi_rf", amount_refunded: 3000, livemode: false }));
+    await processStripeEvent(ev("evt_rf_2", "charge.refunded", { id: "ch_rf", payment_intent: "pi_rf", amount_refunded: 5000, livemode: false }));
+    const after = await prisma.payment.findUniqueOrThrow({ where: { id: pay.id } });
+    expect(after.refundedCents).toBe(5000);
+    expect(after.notes).toBe("Remboursé Stripe");
+  });
+
+  it("litige ouvert puis gagné : retenu puis libéré", async () => {
+    const pay = await stripePayment("pi_dp");
+    await processStripeEvent(ev("evt_dp_1", "charge.dispute.created", { id: "dp_1", payment_intent: "pi_dp", amount: 49000, reason: "fraudulent", livemode: false }));
+    expect((await prisma.payment.findUniqueOrThrow({ where: { id: pay.id } })).disputedCents).toBe(49000);
+    await processStripeEvent(ev("evt_dp_2", "charge.dispute.closed", { id: "dp_1", payment_intent: "pi_dp", amount: 49000, status: "won", livemode: false }));
+    expect((await prisma.payment.findUniqueOrThrow({ where: { id: pay.id } })).disputedCents).toBe(0);
+  });
+
+  it("versement arrivé : paiements reliés et retenues (remboursements) enregistrées", async () => {
+    const pay = await stripePayment("pi_of_ch_po");
+    mockStripe.balanceTransactions.list.mockImplementationOnce(() =>
+      listOf([
+        { id: "txn_1", type: "charge", net: 48000, source: "ch_po" },
+        { id: "txn_2", type: "refund", net: -8000, source: "re_1" },
+        { id: "txn_3", type: "payout", net: -40000, source: "po_flux" },
+      ] as unknown as Stripe.BalanceTransaction[]),
+    );
+    await processStripeEvent(ev("evt_po_1", "payout.paid", { id: "po_flux", amount: 40000, arrival_date: Math.floor(Date.now() / 1000), status: "paid", livemode: false }));
+    const payout = await prisma.stripePayout.findUniqueOrThrow({ where: { stripePayoutId: "po_flux" } });
+    expect(payout.deductionsCents).toBe(8000);
+    expect((await prisma.payment.findUniqueOrThrow({ where: { id: pay.id } })).stripePayoutId).toBe(payout.id);
   });
 });
