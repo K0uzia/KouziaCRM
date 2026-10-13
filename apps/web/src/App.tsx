@@ -51,6 +51,9 @@ const ObligationsPage = lazy(() =>
 const StripePayoutsPage = lazy(() =>
   import("@/pages/StripePayoutsPage").then((m) => ({ default: m.StripePayoutsPage })),
 );
+const WithdrawalsPage = lazy(() =>
+  import("@/pages/WithdrawalsPage").then((m) => ({ default: m.WithdrawalsPage })),
+);
 const UrssafPage = lazy(() =>
   import("@/pages/OtherPages").then((m) => ({ default: m.UrssafPage })),
 );
@@ -117,6 +120,7 @@ export default function App() {
           <Route path="receipts" element={<ReceiptsBookPage />} />
           <Route path="obligations" element={<ObligationsPage />} />
           <Route path="versements" element={<StripePayoutsPage />} />
+          <Route path="retraits" element={<WithdrawalsPage />} />
           <Route path="banque" element={<Navigate to="/versements" replace />} />
           <Route path="urssaf" element={<UrssafPage />} />
           <Route path="inbox" element={<InboxPage />} />

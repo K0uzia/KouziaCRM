@@ -16,6 +16,7 @@ const TABLES = [
   "EmailOutbox",
   "Payment",
   "StripePayout",
+  "OwnerWithdrawal",
   "InvoiceLine",
   "PaymentMilestone",
   "Invoice",

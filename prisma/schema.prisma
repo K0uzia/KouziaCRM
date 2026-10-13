@@ -1106,6 +1106,18 @@ model StripePayout {
   @@index([status])
 }
 
+/// Retrait de l'entrepreneur saisi à la main (virement hors Stripe) : déduit du salaire disponible.
+model OwnerWithdrawal {
+  id             String   @id @default(cuid())
+  amountCents    Int
+  date           DateTime
+  note           String?
+  createdByEmail String?
+  createdAt      DateTime @default(now())
+
+  @@index([date])
+}
+
 /// Événement webhook Stripe traité (idempotence).
 model StripeWebhookEvent {
   id          String   @id @default(cuid())
