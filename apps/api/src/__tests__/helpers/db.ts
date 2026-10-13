@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma.js";
+import { invalidateCompanySettingsCache } from "@/lib/company.js";
 
 // Ordre enfants → parents (FK SQLite).
 const TABLES = [
@@ -38,7 +39,7 @@ const TABLES = [
   "SettingsAuditLog",
 ];
 
-/** Vide toutes les tables métier (garde User et CompanySettings seedés). */
+/** Vide toutes les tables métier (garde User ; CompanySettings est recréé par seedCompanySettings). */
 export async function resetDb(): Promise<void> {
   await prisma.$executeRawUnsafe("PRAGMA foreign_keys = OFF");
   try {
@@ -50,6 +51,7 @@ export async function resetDb(): Promise<void> {
   } finally {
     await prisma.$executeRawUnsafe("PRAGMA foreign_keys = ON");
   }
+  invalidateCompanySettingsCache();
 }
 
 /** Vide une table précise. */

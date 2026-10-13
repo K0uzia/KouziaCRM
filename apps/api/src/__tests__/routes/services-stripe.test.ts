@@ -9,6 +9,8 @@ const productsUpdate = vi.fn(async () => ({}));
 vi.mock("@/lib/stripe/client.js", async (orig) => ({
   ...(await orig<typeof import("@/lib/stripe/client.js")>()),
   getStripe: vi.fn(async () => ({ products: { update: productsUpdate } })),
+  // Clé de test explicite : le mode de la clé est lu avant toute écriture vers Stripe.
+  getStripeConfig: vi.fn(async () => ({ secretKey: "sk_test_x", webhookSecret: null, mode: "test", enabled: true })),
 }));
 
 const { buildApp } = await import("@/app.js");

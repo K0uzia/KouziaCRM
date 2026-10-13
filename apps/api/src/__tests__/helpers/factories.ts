@@ -4,7 +4,6 @@ import { invalidateCompanySettingsCache } from "@/lib/company.js";
 
 export async function seedCompanySettings(): Promise<void> {
   invalidateCompanySettingsCache();
-  const existing = await prisma.companySettings.findFirst();
   const data = {
     legalName: "Test SARL",
     tradeName: "Test",
@@ -36,11 +35,9 @@ export async function seedCompanySettings(): Promise<void> {
     depositPercent2Bps: 7000,
     depositPercent3Bps: 0,
   } satisfies Prisma.CompanySettingsCreateInput;
-  if (existing) {
-    await prisma.companySettings.update({ where: { id: existing.id }, data });
-  } else {
-    await prisma.companySettings.create({ data });
-  }
+  // Ligne recréée : les champs non listés reprennent leur valeur par défaut du schéma,
+  // un test ne peut plus hériter d'un réglage modifié par un autre.
+  await prisma.$transaction([prisma.companySettings.deleteMany(), prisma.companySettings.create({ data })]);
   invalidateCompanySettingsCache();
 }
 
