@@ -110,7 +110,16 @@ L'ERP envoie lui-même, depuis l'adresse d'envoi des Réglages : factures, éche
    - Factures `send_invoice` : e-mails désactivés, abonnement non payé à 30 jours, facture laissée en retard à 60 jours.
    - Mode de facturation : flexible.
 2. **Entreprise > E-mails client** : reçus de paiement réussi et de remboursement **désactivés**.
-3. **Portail client** (Facturation > Portail client), en test **et** en live : mise à jour du moyen de paiement, historique des factures, annulation **en fin de période** (pas immédiate), lien de retour vers `/suivi`. Les liens « Gérer mon abonnement » et « Régulariser le paiement » des e-mails (`/api/public/manage/…`) ouvrent ce portail, ou la page de paiement de l'échéance ouverte quand Stripe ne la retentera pas.
+3. **Portail client** (Facturation > Portail client), en test **et** en live, à l'identique :
+   - Factures : activé ;
+   - Informations client : désactivé (l'ERP reste la référence pour l'e-mail) ;
+   - Moyens de paiement : activé ;
+   - Annulations : activé, **en fin de période**, sans prorata, raison demandée ;
+   - Abonnements (changer d'offre) : désactivé ;
+   - Redirection : `https://kouzia.com/suivi/` ; politique de confidentialité : `https://kouzia.com/confidentialite/` ;
+   - Lien sans code : désactivé ; portail nouvelle génération (bêta) : désactivé.
+
+   L'ERP ouvre le portail sans imposer de configuration (celle par défaut s'applique), avec retour vers `/suivi`. Accès : bouton « Gérer mon abonnement » de `/suivi`, ou liens des e-mails. Les liens « Gérer mon abonnement » et « Régulariser le paiement » des e-mails (`/api/public/manage/…`) ouvrent ce portail, ou la page de paiement de l'échéance ouverte quand Stripe ne la retentera pas. Abonnement par virement : bouton « Demander la résiliation » de `/suivi` (accusé par e-mail au client, alerte à l'admin, badge « Résiliation demandée » dans Abonnements) ; l'admin clôture l'abonnement à la main.
 4. Moyens de paiement : carte, prélèvement SEPA et virements bancaires (`customer_balance`).
 5. Versements : rythme choisi, IBAN du compte pro déclaré.
 6. Webhook vers `https://<votre-api>/api/webhooks/stripe` avec les événements : `payment_intent.succeeded`, `payment_intent.payment_failed`, `checkout.session.completed`, `invoice.finalized`, `invoice.paid`, `invoice.payment_failed`, `invoice.payment_action_required`, `invoice.marked_uncollectible`, `customer.subscription.updated`, `customer.subscription.deleted`, `product.*`, `price.*`, `payout.paid`, `payout.failed`, `charge.refunded`, `charge.dispute.created`, `charge.dispute.closed`.

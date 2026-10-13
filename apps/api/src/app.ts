@@ -31,7 +31,7 @@ import { projectsRoutes } from "@/routes/projects.js";
 import { notificationsRoutes } from "@/routes/notifications.js";
 import { pushRoutes } from "@/routes/push.js";
 import { googleCalendarRoutes } from "@/routes/google-calendar.js";
-import { registerErrorHandler, setJsonSerializer } from "@/lib/http.js";
+import { RATE_LIMITED, registerErrorHandler, setJsonSerializer } from "@/lib/http.js";
 import { ensureDefaultLegalClauses } from "@/lib/company/legal-clauses.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -129,8 +129,11 @@ export async function buildApp(opts: BuildAppOptions = {}): Promise<FastifyInsta
     parseOptions: {},
   });
 
+  // Limite de débit dépassée : erreur 429 mise en forme par registerErrorHandler ({ error } en français).
   await app.register(rateLimit, {
     global: false,
+    errorResponseBuilder: (_request, context) =>
+      Object.assign(new Error(RATE_LIMITED), { statusCode: context.statusCode }),
   });
 
   await app.register(multipart, {

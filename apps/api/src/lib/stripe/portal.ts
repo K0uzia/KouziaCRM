@@ -1,21 +1,44 @@
+import { randomBytes } from "node:crypto";
 import type Stripe from "stripe";
 import { prisma } from "@/lib/prisma.js";
 import { resolveClientPortalUrl } from "@/lib/email/portal-url.js";
 import { assertStripeEnabled, getStripe } from "@/lib/stripe/client.js";
 import { buildPayUrl } from "@/lib/stripe/pay-urls.js";
+import { publicApiBaseUrl } from "@/lib/settings/public.js";
 import { StripeCheckoutError } from "@/lib/stripe/checkout.js";
+
+/** Jeton court des liens d'e-mail : 16 octets aléatoires, 22 caractères base64url. */
+export const SHORT_TOKEN = /^[A-Za-z0-9_-]{22}$/;
+
+/** Jeton court de l'abonnement, créé au premier lien envoyé (aléatoire, pas dérivé de l'identifiant). */
+async function publicTokenOf(subscriptionId: string): Promise<string> {
+  const sub = await prisma.subscription.findUniqueOrThrow({ where: { id: subscriptionId }, select: { publicToken: true } });
+  if (sub.publicToken) return sub.publicToken;
+  const token = randomBytes(16).toString("base64url");
+  // Deux envois simultanés : le premier jeton écrit est gardé.
+  await prisma.subscription.updateMany({ where: { id: subscriptionId, publicToken: null }, data: { publicToken: token } });
+  return (await prisma.subscription.findUniqueOrThrow({ where: { id: subscriptionId } })).publicToken!;
+}
+
+/** Abonnement visé par un jeton court ; null si inconnu. */
+export async function subscriptionIdFromShortToken(token: string): Promise<string | null> {
+  if (!SHORT_TOKEN.test(token)) return null;
+  const sub = await prisma.subscription.findUnique({ where: { publicToken: token }, select: { id: true } });
+  return sub?.id ?? null;
+}
 
 /**
  * Lien à mettre dans un e-mail pour régler, changer de moyen de paiement ou résilier : lien ERP
- * permanent vers le portail Stripe pour un abonnement déjà prélevé, sinon lien de mise en place.
+ * permanent et court vers le portail Stripe pour un abonnement déjà prélevé, sinon lien de mise en place.
  */
-export function subscriptionPaymentUrl(sub: { id: string; stripeSubscriptionId: string | null }): string {
-  return buildPayUrl(sub.stripeSubscriptionId ? "manage" : "subscribe", sub.id);
+export async function subscriptionPaymentUrl(sub: { id: string; stripeSubscriptionId: string | null }): Promise<string> {
+  if (!sub.stripeSubscriptionId) return buildPayUrl("subscribe", sub.id);
+  return `${publicApiBaseUrl()}/api/public/manage/${await publicTokenOf(sub.id)}`;
 }
 
-/** Lien permanent vers le changement de carte dans le portail Stripe (carte qui expire). */
-export function subscriptionCardUpdateUrl(sub: { id: string }): string {
-  return buildPayUrl("card", sub.id);
+/** Lien permanent et court vers le changement de carte dans le portail Stripe (carte qui expire). */
+export async function subscriptionCardUpdateUrl(sub: { id: string }): Promise<string> {
+  return `${publicApiBaseUrl()}/api/public/card/${await publicTokenOf(sub.id)}`;
 }
 
 function customerIdOf(stripeSub: Stripe.Subscription): string {

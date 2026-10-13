@@ -557,8 +557,8 @@ export function DocumentFormEditor({
                     type="number"
                     inputMode="decimal"
                     step="0.01"
-                    aria-label={`Ligne ${i + 1} : prix unitaire TTC en euros`}
-                    placeholder={line.isSubscription ? `€ ${periodSuffix(line.billingInterval)}` : "Prix TTC"}
+                    aria-label={`Ligne ${i + 1} : prix unitaire en euros`}
+                    placeholder={line.isSubscription ? `€ ${periodSuffix(line.billingInterval)}` : "Prix"}
                     value={line.unitPriceEuros}
                     onChange={(e) => updateLine(i, { unitPriceEuros: e.target.value })}
                   />
@@ -595,7 +595,7 @@ export function DocumentFormEditor({
             >
               <option value="NONE">Aucune</option>
               <option value="PERCENT">Pourcentage (%)</option>
-              <option value="FIXED">Montant fixe (€ TTC)</option>
+              <option value="FIXED">Montant fixe (€)</option>
             </Select>
             {form.discountType === "PERCENT" ? (
               <Input
@@ -610,7 +610,7 @@ export function DocumentFormEditor({
               />
             ) : form.discountType === "FIXED" ? (
               <Input
-                aria-label="Remise en euros TTC"
+                aria-label="Remise en euros"
                 type="number"
                 step="0.01"
                 min="0"
@@ -710,7 +710,7 @@ export function DocumentFormEditor({
               {eur(subtotalPreview)} − {eur(discountPreview)} =
             </span>
           ) : null}
-          <span className="text-[var(--muted)]">Total TTC </span>
+          <span className="text-[var(--muted)]">Total </span>
           <span className="font-display text-lg font-semibold tabular-nums">{eur(totalPreview)}</span>
         </div>
         <Button variant="secondary" onClick={onCancel} disabled={busy}>

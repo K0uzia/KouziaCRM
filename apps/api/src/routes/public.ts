@@ -31,6 +31,12 @@ import { renderInvoicePdf } from "@/lib/pdf/render.js";
 import { buildInvoicePdfPayload } from "@/lib/pdf/build-payload.js";
 import { enrichCompanyForPdf } from "@/lib/pdf/brand-assets.js";
 import { listActiveLegalClauses } from "@/lib/company/legal-clauses.js";
+import {
+  CancelRequestError,
+  isStripeManaged,
+  portalSubscriptionFields,
+  requestSubscriptionCancellation,
+} from "@/lib/subscriptions/self-service.js";
 import type { ClientSnapshot } from "@/lib/invoices/transitions.js";
 import {
   acceptQuoteByClient,
@@ -279,8 +285,9 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
         take: 60,
       });
 
+      // Clôturé : jamais affiché. Suspendu (impayé ou suspension manuelle) : affiché avec son état.
       const subscriptions = await prisma.subscription.findMany({
-        where: { clientId: client.id, status: "ACTIVE" },
+        where: { clientId: client.id, status: { in: ["ACTIVE", "PAUSED"] } },
         orderBy: { nextInvoiceAt: "asc" },
       });
 
@@ -470,7 +477,12 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
           nextInvoiceAt: s.nextInvoiceAt,
           ...(showAmounts ? { amountCents: s.amountCents } : {}),
           // Prélèvement Stripe pas encore en place : lien pour le mettre en place (SEPA ou carte).
-          ...(settings.moduleStripeEnabled && !s.stripeSubscriptionId ? { setupUrl: buildPayUrl("subscribe", s.id) } : {}),
+          // Pas de mise en place du prélèvement sur un abonnement en cours de résiliation.
+          ...(settings.moduleStripeEnabled && !s.stripeSubscriptionId && !s.cancellationRequestedAt && !(s.endDate && s.endDate > new Date())
+            ? { setupUrl: buildPayUrl("subscribe", s.id) }
+            : {}),
+          id: s.id,
+          ...portalSubscriptionFields(s, settings.nonRenewalNoticeDays),
         })),
         emails: emailEvents.map((e) => ({
           id: e.id,
@@ -484,6 +496,54 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
         // Bloc « Avancement » de /suivi : affiché dès que la liste est présente.
         ...(projects.length > 0 ? { projects } : {}),
       };
+    },
+  );
+
+  // Gestion d'un abonnement prélevé par Stripe : session du portail client, pour le client connecté.
+  app.post<{ Params: { id: string } }>(
+    "/api/public/subscriptions/:id/portal",
+    { config: { rateLimit: { max: 20, timeWindow: "15 minutes" } } },
+    async (request, reply) => {
+      const client = await resolvePortalClient(request);
+      if (!client) return reply.code(401).send(SESSION_EXPIRED);
+      const sub = await prisma.subscription.findUnique({ where: { id: request.params.id } });
+      // Même réponse qu'un abonnement inexistant : le portail ne révèle pas les données d'autrui.
+      if (!sub || sub.clientId !== client.id || sub.status === "ENDED") {
+        return reply.code(404).send({ error: "Abonnement introuvable" });
+      }
+      if (!isStripeManaged(sub)) {
+        return reply.code(409).send({ error: "Cet abonnement n'est pas prélevé en ligne : utilisez « Demander la résiliation »." });
+      }
+      try {
+        const { createSubscriptionPortalUrl } = await import("@/lib/stripe/portal.js");
+        return { url: await createSubscriptionPortalUrl(sub.id) };
+      } catch (err) {
+        request.log.warn({ err: err instanceof Error ? err.message : String(err) }, "portail Stripe indisponible");
+        return reply
+          .code(502)
+          .send({ error: "La gestion en ligne est indisponible pour le moment. Réessayez plus tard ou répondez à l'un de nos e-mails." });
+      }
+    },
+  );
+
+  // Abonnement par virement : demande de résiliation (accusé par e-mail, l'admin clôture à la main).
+  app.post<{ Params: { id: string } }>(
+    "/api/public/subscriptions/:id/cancel-request",
+    { config: { rateLimit: { max: 5, timeWindow: "15 minutes" } } },
+    async (request, reply) => {
+      const client = await resolvePortalClient(request);
+      if (!client) return reply.code(401).send(SESSION_EXPIRED);
+      const sub = await prisma.subscription.findUnique({ where: { id: request.params.id }, select: { clientId: true, status: true } });
+      if (!sub || sub.clientId !== client.id || sub.status === "ENDED") {
+        return reply.code(404).send({ error: "Abonnement introuvable" });
+      }
+      try {
+        const at = await requestSubscriptionCancellation(request.params.id);
+        return { cancellationRequestedAt: at.toISOString() };
+      } catch (err) {
+        if (err instanceof CancelRequestError) return reply.code(err.statusCode).send({ error: err.message });
+        throw err;
+      }
     },
   );
 
@@ -757,23 +817,31 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
 
   // Liens de paiement Stripe (jeton signé, lien ERP permanent). GET : page sans effet, que les
   // antivirus de messagerie peuvent précharger ; POST (bouton) : nouvelle session Checkout.
-  for (const [path, kinds] of [
-    ["/api/public/pay/:token", ["invoice", "milestone"]],
-    ["/api/public/subscribe/:token", ["subscribe"]],
-    ["/api/public/manage/:token", ["manage", "card"]],
+  // Jeton signé (lien long), ou jeton court d'abonnement pour /manage et /card (le chemin donne le type).
+  const resolveLink = async (token: string, kinds: readonly string[], shortKind: "manage" | "card" | null) => {
+    const { verifyPayToken } = await import("@/lib/stripe/pay-token.js");
+    const signed = verifyPayToken(token);
+    if (signed) return kinds.includes(signed.kind) ? signed : null;
+    if (!shortKind) return null;
+    const { subscriptionIdFromShortToken } = await import("@/lib/stripe/portal.js");
+    const id = await subscriptionIdFromShortToken(token);
+    return id ? { kind: shortKind, id } : null;
+  };
+
+  for (const [path, kinds, shortKind] of [
+    ["/api/public/pay/:token", ["invoice", "milestone"], null],
+    ["/api/public/subscribe/:token", ["subscribe"], null],
+    ["/api/public/manage/:token", ["manage", "card"], "manage"],
+    ["/api/public/card/:token", ["card"], "card"],
   ] as const) {
     app.get<{ Params: { token: string } }>(
       path,
       { config: { rateLimit: { max: 60, timeWindow: "15 minutes" } } },
       async (request, reply) => {
         const { resolveClientPortalUrl } = await import("@/lib/email/portal-url.js");
-        const { verifyPayToken } = await import("@/lib/stripe/pay-token.js");
         const { payPageInfo, renderPayPage, PAY_PAGE_CSP } = await import("@/lib/stripe/pay-page.js");
-        const parsed = verifyPayToken(request.params.token);
-        const info =
-          parsed && (kinds as readonly string[]).includes(parsed.kind)
-            ? await payPageInfo(parsed.kind, parsed.id)
-            : null;
+        const parsed = await resolveLink(request.params.token, kinds, shortKind);
+        const info = parsed ? await payPageInfo(parsed.kind, parsed.id) : null;
         if (!info) return reply.redirect(await resolveClientPortalUrl());
         return reply
           .header("Content-Security-Policy", PAY_PAGE_CSP)
@@ -789,9 +857,8 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
       async (request, reply) => {
         const { resolveClientPortalUrl } = await import("@/lib/email/portal-url.js");
         const portal = await resolveClientPortalUrl();
-        const { verifyPayToken } = await import("@/lib/stripe/pay-token.js");
-        const parsed = verifyPayToken(request.params.token);
-        if (!parsed || !(kinds as readonly string[]).includes(parsed.kind)) return reply.redirect(portal, 303);
+        const parsed = await resolveLink(request.params.token, kinds, shortKind);
+        if (!parsed) return reply.redirect(portal, 303);
         const { payPageInfo, renderPayPage, PAY_PAGE_CSP } = await import("@/lib/stripe/pay-page.js");
         const info = await payPageInfo(parsed.kind, parsed.id);
         if (!info) return reply.redirect(portal, 303);

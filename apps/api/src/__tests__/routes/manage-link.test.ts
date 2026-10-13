@@ -63,6 +63,36 @@ const post = (url: string) =>
   });
 
 describe("lien de gestion d'un abonnement prélevé (/api/public/manage)", () => {
+  it("jeton court : même page par /manage et /card ; jeton court inconnu : retour à l'espace client", async () => {
+    const sub = await stripeSub();
+    const { subscriptionPaymentUrl, subscriptionCardUpdateUrl } = await import("@/lib/stripe/portal.js");
+    const manageUrl = await subscriptionPaymentUrl(sub);
+    const cardUrl = await subscriptionCardUpdateUrl(sub);
+    const token = manageUrl.split("/").pop()!;
+    expect(token).toMatch(/^[A-Za-z0-9_-]{22}$/);
+    expect(cardUrl.endsWith(`/api/public/card/${token}`)).toBe(true);
+    expect(await subscriptionPaymentUrl(sub)).toBe(manageUrl);
+
+    const manage = await app.inject({ method: "GET", url: `/api/public/manage/${token}` });
+    expect(manage.body).toContain("résilier votre abonnement");
+    const card = await app.inject({ method: "GET", url: `/api/public/card/${token}` });
+    expect(card.body).toContain("Mettre à jour la carte");
+
+    retrieve.mockResolvedValueOnce({ status: "active", customer: "cus_1", latest_invoice: null });
+    const post = await app.inject({
+      method: "POST",
+      url: `/api/public/card/${token}`,
+      headers: { origin: "https://api.kouzia.com", "content-type": "application/x-www-form-urlencoded" },
+      payload: "",
+    });
+    expect(post.statusCode).toBe(303);
+    expect(createSession.mock.calls[0]![0]).toMatchObject({ flow_data: { type: "payment_method_update" } });
+
+    const unknown = await app.inject({ method: "GET", url: "/api/public/manage/AAAAAAAAAAAAAAAAAAAAAA" });
+    expect(unknown.statusCode).toBe(302);
+    expect(unknown.headers.location).not.toContain("stripe.com");
+  });
+
   it("GET : page sans appel à Stripe, CSP ouverte au portail et aux factures Stripe", async () => {
     const sub = await stripeSub();
     const res = await app.inject({ method: "GET", url: `/api/public/manage/${signPayToken("manage", sub.id)}` });

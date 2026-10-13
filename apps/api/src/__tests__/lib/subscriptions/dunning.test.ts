@@ -122,7 +122,7 @@ describe("échec de prélèvement (invoice.payment_failed)", () => {
     expect(mail!.subject).toBe("Prélèvement non abouti : Maintenance");
     expect(mail!.text).toContain("Le prélèvement de 49,00");
     expect(mail!.text).toContain("Une nouvelle tentative aura lieu le 20 octobre 2026");
-    expect(mail!.text).toContain("/api/public/manage/");
+    expect(mail!.text).toMatch(/\/api\/public\/manage\/[A-Za-z0-9_-]{22}\b/);
     expect(mail!.kind).toBe("subscription_payment_failed");
     expect(sentTo(ADMIN)).toHaveLength(1);
   });
@@ -290,7 +290,8 @@ describe("carte qui expire", () => {
     const [mail] = sentTo(CLIENT);
     expect(mail!.subject).toBe("Votre carte expire bientôt : Maintenance");
     expect(mail!.text).toContain("VISA se terminant par 4242");
-    expect(mail!.text).toContain("/api/public/manage/");
+    // Lien court : /api/public/card/<22 caractères>.
+    expect(mail!.text).toMatch(/\/api\/public\/card\/[A-Za-z0-9_-]{22}\b/);
 
     // Même mois : pas revérifié. Un mois plus tard, même carte : pas de second e-mail.
     expect(await checkExpiringCards(now)).toBe(0);

@@ -148,8 +148,8 @@ export function ReceiptsDocument(data: ReceiptsPdfData) {
         </View>
 
         <Text style={styles.legal}>
-          Registre chronologique des recettes (micro-entreprise). Montants TTC =
-          HT (franchise en base de TVA, art. 293 B du CGI). Conservez ce document
+          Registre chronologique des recettes (micro-entreprise). Montants hors TVA
+          (franchise en base de TVA, art. 293 B du CGI). Conservez ce document
           avec vos justificatifs pour le contrôle fiscal.
         </Text>
       </Page>

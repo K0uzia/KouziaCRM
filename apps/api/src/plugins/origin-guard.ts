@@ -18,7 +18,7 @@ export async function originGuardPlugin(app: FastifyInstance): Promise<void> {
     // Webhooks externes (Stripe, etc.) : pas d'Origin navigateur
     if (request.url.startsWith("/api/webhooks/")) return;
     // Liens de paiement : jeton signé, aucune session en jeu (pas de risque CSRF).
-    if (/^\/api\/public\/(pay|subscribe|manage)\//.test(request.url)) return;
+    if (/^\/api\/public\/(pay|subscribe|manage|card)\//.test(request.url)) return;
 
     const origin = request.headers.origin;
     if (origin) {

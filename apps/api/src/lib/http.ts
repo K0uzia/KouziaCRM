@@ -25,6 +25,9 @@ export function setJsonSerializer(app: {
   app.setReplySerializer((payload) => JSON.stringify(payload, jsonReplacer));
 }
 
+/** Message de la limite de débit, lisible par le site et l'admin (json.error). */
+export const RATE_LIMITED = "Trop de demandes : réessayez dans quelques minutes.";
+
 export function registerErrorHandler(app: {
   setErrorHandler: (
     handler: (
@@ -35,6 +38,10 @@ export function registerErrorHandler(app: {
   ) => void;
 }): void {
   app.setErrorHandler((error, request, reply) => {
+    if (error.statusCode === 429) {
+      void reply.code(429).send({ error: RATE_LIMITED });
+      return;
+    }
     request.log.error({ err: error }, "request error");
 
     if (error.validation) {
