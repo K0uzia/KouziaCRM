@@ -114,8 +114,11 @@ export function renderEmailHtml(opts: EmailLayoutOptions): string {
     .filter((s) => s.trim())
     .map(escapeHtml)
     .join(" · ");
-  const site = opts.brand.website?.trim()
-    ? `<br><a href="${escapeHtml(opts.brand.website.trim())}" style="color:#5b6478;">${escapeHtml(opts.brand.website.trim().replace(/^https?:\/\//, ""))}</a>`
+  // Site saisi sans schéma (« kouzia.com ») : lien absolu, sinon relatif et cassé dans le client mail.
+  const website = opts.brand.website?.trim();
+  const siteHref = website ? (/^https?:\/\//i.test(website) ? website : `https://${website}`) : "";
+  const site = website
+    ? `<br><a href="${escapeHtml(siteHref)}" style="color:#5b6478;">${escapeHtml(website.replace(/^https?:\/\//i, ""))}</a>`
     : "";
 
   return `<!doctype html>

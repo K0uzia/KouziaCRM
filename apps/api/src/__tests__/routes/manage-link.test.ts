@@ -68,6 +68,9 @@ describe("lien de gestion d'un abonnement prélevé (/api/public/manage)", () =>
     const res = await app.inject({ method: "GET", url: `/api/public/manage/${signPayToken("manage", sub.id)}` });
     expect(res.statusCode).toBe(200);
     expect(res.body).toContain("Continuer vers Stripe");
+    expect(res.body).toContain("<title>Gérer mon abonnement, Kouzia</title>");
+    expect(res.body).toContain("résilier votre abonnement");
+    expect(res.body).toContain("box-sizing:border-box");
     expect(res.headers["content-security-policy"]).toContain("https://billing.stripe.com https://invoice.stripe.com");
     expect(retrieve).not.toHaveBeenCalled();
   });

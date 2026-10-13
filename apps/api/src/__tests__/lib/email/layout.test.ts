@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formatEUR } from "@/lib/money.js";
+import { formatEUR, formatLongDate } from "@/lib/money.js";
 import { renderEmailHtml } from "@/lib/email/layout.js";
 import { htmlSignatureToPlain } from "@/lib/email/signature.js";
 import { readableOn, resolveBrandColors } from "@/lib/brand.js";
@@ -21,7 +21,22 @@ describe("montants", () => {
   });
 });
 
+describe("dates longues", () => {
+  it("écrit « 1er » le premier du mois, le jour seul sinon", () => {
+    expect(formatLongDate(new Date(2026, 11, 1))).toBe("1er décembre 2026");
+    expect(formatLongDate(new Date(2026, 11, 11))).toBe("11 décembre 2026");
+    expect(formatLongDate(new Date(2026, 11, 21))).toBe("21 décembre 2026");
+  });
+});
+
 describe("email HTML", () => {
+  it("site saisi sans schéma : lien absolu en https dans le pied", () => {
+    const html = renderEmailHtml({ text: "x", brand: { ...brand, website: "kouzia.com" } });
+    expect(html).toContain('href="https://kouzia.com"');
+    expect(html).toContain(">kouzia.com</a>");
+    expect(renderEmailHtml({ text: "x", brand: { ...brand, website: "http://a.test" } })).toContain('href="http://a.test"');
+  });
+
   it("contient tout le texte, pas seulement le bouton de paiement", () => {
     const html = renderEmailHtml({
       text: "Bonjour Lou,\n\nVeuillez trouver ci-joint la facture F-1.\n\nRégler en ligne : https://pay.test/x\n\nCordialement,\nKouzia",

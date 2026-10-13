@@ -54,7 +54,7 @@ describe("information annuelle de reconduction (L215-1)", () => {
 
     const call = vi.mocked(mailEnqueue).mock.calls[0]![0];
     expect(call.to).toBe("lou@example.test");
-    expect(call.subject).toBe("Reconduction de votre abonnement annuel le 1 janvier 2027");
+    expect(call.subject).toBe("Reconduction de votre abonnement annuel le 1er janvier 2027");
     expect(call.text).toContain("Date limite pour refuser la reconduction : 31 décembre 2026");
     expect(call.text).toContain("refuser cette reconduction, sans frais");
     expect(call.text).toContain("une facture de 3");

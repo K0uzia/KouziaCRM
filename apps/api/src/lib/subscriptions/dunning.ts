@@ -3,7 +3,7 @@ import type Stripe from "stripe";
 import { prisma } from "@/lib/prisma.js";
 import { getCompanySettings } from "@/lib/company.js";
 import { decryptOptional } from "@/lib/crypto.js";
-import { formatEUR } from "@/lib/money.js";
+import { formatEUR, formatLongDate } from "@/lib/money.js";
 import { mailEnqueue } from "@/lib/email/mailer/index.js";
 import { isSmtpConfigured } from "@/lib/email/smtp.js";
 import { buildEmailBrand } from "@/lib/email/deposit-templates.js";
@@ -22,9 +22,7 @@ import { subscriptionPaymentUrl } from "@/lib/stripe/portal.js";
  * prélèvement SEPA.
  */
 
-function fmtDate(d: Date): string {
-  return d.toLocaleDateString("fr-FR", { day: "numeric", month: "long", year: "numeric" });
-}
+const fmtDate = formatLongDate;
 
 type MailContext = {
   brand: EmailBrand;

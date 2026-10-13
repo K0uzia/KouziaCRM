@@ -13,7 +13,14 @@ const escapeHtml = (s: string) =>
   s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
 
 /** button null : pas de paiement en ligne possible, notice explique quoi faire. */
-export type PayPageInfo = { title: string; detail: string; button: string | null; notice?: string } | null;
+export type PayPageInfo = {
+  title: string;
+  detail: string;
+  button: string | null;
+  notice?: string;
+  /** Titre de l'onglet (défaut : « Paiement Kouzia »). */
+  pageTitle?: string;
+} | null;
 
 /** Sous le minimum Stripe : page sans bouton, avec le message et le contact. */
 async function withMinimum(info: NonNullable<PayPageInfo>, amountCents: number): Promise<NonNullable<PayPageInfo>> {
@@ -54,8 +61,9 @@ export async function payPageInfo(kind: PayTokenKind, id: string): Promise<PayPa
       detail:
         kind === "card"
           ? "Mettre à jour la carte utilisée pour votre abonnement, dans l'espace sécurisé de Stripe."
-          : "Régler une échéance impayée ou changer de moyen de paiement, dans l'espace sécurisé de Stripe.",
+          : "Régler une échéance, changer de moyen de paiement ou résilier votre abonnement, dans l'espace sécurisé de Stripe.",
       button: "Continuer vers Stripe",
+      pageTitle: "Gérer mon abonnement, Kouzia",
     };
   }
   if (!sub || sub.status === "ENDED" || sub.stripeSubscriptionId) return null;
@@ -77,9 +85,10 @@ export function renderPayPage(info: NonNullable<PayPageInfo>): string {
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="robots" content="noindex">
-<title>Paiement Kouzia</title>
+<title>${escapeHtml(info.pageTitle ?? "Paiement Kouzia")}</title>
 <style>
 :root{color-scheme:dark}
+*,*::before,*::after{box-sizing:border-box}
 body{margin:0;min-height:100vh;display:grid;place-items:center;padding:1rem;background:#0b1020;color:#e8eaf8;font:16px/1.5 system-ui,sans-serif}
 main{width:100%;max-width:26rem;padding:1.5rem;border:1px solid #232d47;border-radius:1rem;background:#121a2e}
 h1{margin:0 0 .5rem;font-size:1.25rem}
