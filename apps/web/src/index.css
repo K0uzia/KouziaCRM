@@ -149,6 +149,7 @@ body {
 /* Liens ligne (listes documents, factures liées) */
 .link-row {
   display: flex;
+  min-height: var(--tap);
   align-items: center;
   justify-content: space-between;
   gap: 0.5rem;
