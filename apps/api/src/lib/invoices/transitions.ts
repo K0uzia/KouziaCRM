@@ -175,6 +175,9 @@ export async function issueQuote(
       include: { lines: true, client: true, payments: true },
     });
 
+    // Jalons créés pendant le brouillon (affichage de la fiche, offre encore 2 fois) : retirés,
+    // un devis d'abonnement seul n'en a aucun. Un brouillon n'a jamais de jalon payé ni facturé.
+    if (offer === "NONE") await tx.paymentMilestone.deleteMany({ where: { quoteId, invoiceId: null } });
     if (offer === null) await ensureQuoteMilestones(quoteId, quote.totalCents, tx);
     else if (offer !== "NONE") await applyPlanMilestones(tx, quoteId, quote.totalCents, initialPlan(offer), settings);
     return updated;

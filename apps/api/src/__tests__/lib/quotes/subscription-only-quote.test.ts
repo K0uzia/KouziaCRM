@@ -89,6 +89,13 @@ describe("devis d'abonnement seul", () => {
     expect(await prisma.paymentMilestone.count({ where: { quoteId: quote.id } })).toBe(0);
   });
 
+  it("jalons créés pendant le brouillon (offre encore 2 fois) : retirés à l'émission", async () => {
+    const { quote } = await quoteWith([{ description: "Maintenance site : mensuel", unitPriceCents: 2900, sub: {} }]);
+    expect((await ensureQuoteMilestonesFromSettings(quote.id, 2900)).length).toBe(2);
+    await issueQuote(quote.id);
+    expect(await prisma.paymentMilestone.count({ where: { quoteId: quote.id } })).toBe(0);
+  });
+
   it("signé sans Stripe : abonnement créé et 1re facture émise tout de suite, sans acompte", async () => {
     await setStripe(false);
     const { client, quote } = await quoteWith([{ description: "Maintenance site : mensuel", unitPriceCents: 2900, sub: {} }]);
