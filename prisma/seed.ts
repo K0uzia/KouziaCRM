@@ -1,5 +1,6 @@
 import { PrismaClient } from "@prisma/client";
 import { applyCatalog } from "../apps/api/src/lib/services/catalog";
+import { ensureCompanySettings } from "../apps/api/src/lib/settings/seed-company";
 import argon2 from "argon2";
 
 const prisma = new PrismaClient();
@@ -49,73 +50,8 @@ async function main() {
     create: { email, name, passwordHash },
   });
 
-  const existing = await prisma.companySettings.findFirst();
-  if (!existing) {
-    await prisma.companySettings.create({
-      data: {
-        legalName: "Alexandre Kouziaeff",
-        tradeName: "Kouzia",
-        siren: "108580028",
-        siret: "10858002800018",
-        apeCode: "6201Z",
-        addressLine1: "13 Le Petit Moulin",
-        postalCode: "29690",
-        city: "Huelgoat",
-        country: "FRANCE",
-        website: "kouzia.com",
-        vatRegime: "FRANCHISE_BASE_293B",
-        vatMention: "TVA non applicable, art. 293 B du CGI",
-        treasuryRateBps: 1420,
-        placementRateBps: 1000,
-        urssafPeriodicity: "MONTHLY",
-        urssafDeadlineDay: 5,
-        publicodesRegime: "AE_BNC_LIBERAL",
-        paymentConditions: "Paiement à réception",
-        reminderQuoteDays: 7,
-        reminderInvoiceDays: 7,
-        publicTrackingShowAmounts: true,
-        businessStartDate: new Date(),
-        cfeAmountCents: 25000,
-        b2cActivity: true,
-        mediationClause:
-          "En cas de litige non résolu, le client peut recourir gratuitement à un médiateur de la consommation : voir medic.conso.fr",
-        incomeTaxReminderMonth: 4,
-        incomeTaxReminderDay: 15,
-        email: "contact@kouzia.com",
-        legalForm: "EI",
-        depositCount: 2,
-        depositPercent1Bps: 3000,
-        depositPercent2Bps: 7000,
-        depositPercent3Bps: 0,
-      },
-    });
-  } else {
-    const stillLegacyThree =
-      existing.depositCount === 3 &&
-      existing.depositPercent1Bps === 3000 &&
-      existing.depositPercent2Bps === 4000 &&
-      existing.depositPercent3Bps === 3000;
-    await prisma.companySettings.update({
-      where: { id: existing.id },
-      data: {
-        treasuryRateBps: 1420,
-        placementRateBps: 1000,
-        urssafPeriodicity: "MONTHLY",
-        urssafDeadlineDay: existing.urssafDeadlineDay || 5,
-        publicodesRegime: existing.publicodesRegime || "AE_BNC_LIBERAL",
-        businessStartDate: existing.businessStartDate ?? new Date(),
-        publicTrackingShowAmounts: true,
-        ...(stillLegacyThree
-          ? {
-              depositCount: 2,
-              depositPercent1Bps: 3000,
-              depositPercent2Bps: 7000,
-              depositPercent3Bps: 0,
-            }
-          : {}),
-      },
-    });
-  }
+  // Réglages : créés sur une base neuve ; sur une base existante, seuls les champs vides sont complétés.
+  await ensureCompanySettings(prisma);
 
   const checklist = await prisma.startupChecklist.findFirst();
   if (!checklist) {
