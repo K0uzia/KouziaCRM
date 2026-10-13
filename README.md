@@ -285,6 +285,17 @@ et changer le mot de passe si l'appareil a été perdu ou volé.
 4. Cloudflare Tunnel → `http://127.0.0.1:3000`
 5. Backup : voir section « Backup & restore » ci-dessous (ne pas utiliser `cp` brut)
 
+### Ordre de déploiement (ERP et site kouzia.com)
+
+Le site (dépôt KouziaWebsite) lit `/api/public/*`. Quand une version change le format d'une réponse ou d'une entrée publique, l'ordre compte :
+
+| Version (merge) | Ordre | Raison |
+| --- | --- | --- |
+| 57dd4db, gestion des abonnements dans /suivi | site **avant** `kouziactl update` | `/api/public/tracking` renvoie aussi les abonnements suspendus ; l'ancien /suivi les afficherait comme actifs. |
+| Type client « Association » (à venir) | `kouziactl update` **avant** le site | le nouveau formulaire /nouveau-client envoie `ASSOCIATION`, refusé (400) par un ERP plus ancien. |
+
+Une nouvelle version concernée s'ajoute à ce tableau.
+
 ## Backup & restore
 
 Le backup utilise l'API SQLite (`.backup`) qui gère correctement le mode WAL,

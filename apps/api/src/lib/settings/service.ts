@@ -442,6 +442,7 @@ export type IdentityPatch = {
   earlyPaymentDiscountText?: string;
   paymentConditions?: string;
   brandLogoPath?: string | null;
+  mediationClause?: string | null;
 };
 
 export async function saveIdentityTab(

@@ -540,6 +540,11 @@ export function SettingsPage() {
     });
   }
 
+  async function saveMediation() {
+    if (!form) return;
+    await save("/api/settings/identity", { mediationClause: form.mediationClause?.trim() || null });
+  }
+
   async function saveDeclarations() {
     if (!form) return;
     await save("/api/settings/declarations", {
@@ -2062,7 +2067,7 @@ export function SettingsPage() {
               </div>
               <Card className="divide-y divide-[var(--border)] border border-[var(--border)]">
                 {clauses.map((c) => (
-                  <div key={c.id} className="flex flex-wrap items-start justify-between gap-3 p-4">
+                  <div key={c.id} className="flex flex-col gap-3 p-4 sm:flex-row sm:items-start sm:justify-between">
                     <div className="min-w-0 flex-1">
                       <p className="text-sm font-medium">
                         {c.title}
@@ -2102,6 +2107,25 @@ export function SettingsPage() {
                     </div>
                   </div>
                 ))}
+              </Card>
+              <Card className="space-y-3 border border-[var(--border)] p-5">
+                <h3 className="text-sm font-semibold">Médiation de la consommation</h3>
+                <Field
+                  label="Mention du médiateur"
+                  hint="Nom, site et adresse du médiateur auquel vous avez adhéré. Imprimée sur les devis et factures des clients particuliers."
+                >
+                  <Textarea
+                    rows={3}
+                    value={form.mediationClause ?? ""}
+                    onChange={(e) => setForm({ ...form, mediationClause: e.target.value || null })}
+                  />
+                </Field>
+                {!form.mediationClause?.trim() ? (
+                  <p className="rounded-[var(--radius-sm)] border border-[var(--warning)] bg-[var(--warning-soft)] px-3 py-2 text-xs text-[var(--text)]">
+                    Aucun médiateur renseigné. Il est obligatoire dès que vous facturez des particuliers.
+                  </p>
+                ) : null}
+                {saveBar(saveMediation)}
               </Card>
             </section>
           ) : null}

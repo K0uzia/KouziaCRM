@@ -901,11 +901,13 @@ export async function listObligationsDashboard(now = new Date()): Promise<Obliga
     );
 
   const alerts: Array<{ kind: string; message: string }> = [];
-  if (settings.b2cActivity) {
+  // Médiateur : obligatoire dès qu'on facture des particuliers ; rappel tant que la clause est vide.
+  const consumerClients = settings.b2cActivity ? 1 : await prisma.client.count({ where: { type: "B2C" } });
+  if (consumerClients > 0 && !settings.mediationClause?.trim()) {
     alerts.push({
       kind: "mediation",
       message:
-        "Vous facturez des particuliers : vérifiez l'obligation de médiation de la consommation (amende jusqu'à 3 000 €).",
+        "Vous facturez des particuliers : adhérez à un médiateur de la consommation et renseignez sa mention (Réglages > Mentions légales). Amende jusqu'à 3 000 €.",
     });
   }
   if (bankThreshold.alert && !checklist.dedicatedBankAccount) {
