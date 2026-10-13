@@ -1077,7 +1077,7 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
                           {startBusy ? "Démarrage…" : "Démarrer l'abonnement maintenant"}
                         </Button>
                       ) : quoteSigned ? (
-                        <Link to="/abonnements" className="link">
+                        <Link to="/abonnements" className="link inline-flex min-h-11 items-center">
                           Voir les abonnements
                         </Link>
                       ) : null}
