@@ -406,7 +406,7 @@ export function DashboardPage() {
             <Card className="overflow-hidden">
               <SectionTitle
                 action={
-                  <Link to="/invoices" className="link min-h-11 content-center text-sm">
+                  <Link to="/invoices" className="link inline-flex min-h-11 min-w-11 items-center justify-center px-1 text-sm">
                     Toutes
                   </Link>
                 }

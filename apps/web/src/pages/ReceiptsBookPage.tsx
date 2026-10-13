@@ -281,7 +281,10 @@ export function ReceiptsBookPage() {
                                 invoiceType={r.invoiceType ?? undefined}
                               />
                             </Link>
-                            <InvoiceTypeBadge type={r.invoiceType ?? undefined} />
+                            <InvoiceTypeBadge
+                              type={r.documentType === "CREDIT_NOTE" ? "CREDIT_NOTE" : (r.invoiceType ?? undefined)}
+                              compact
+                            />
                           </div>
                         ) : (
                           <span className="text-xs text-[var(--muted)]">Sans facture</span>

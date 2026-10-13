@@ -8,6 +8,7 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
+import { euros } from "@/lib/format";
 
 export type RevenuePoint = {
   label: string;
@@ -18,12 +19,7 @@ export type RevenuePoint = {
   cfe: number;
 };
 
-const euro = (v: number) =>
-  new Intl.NumberFormat("fr-FR", {
-    style: "currency",
-    currency: "EUR",
-    maximumFractionDigits: 0,
-  }).format(v);
+const euro = (v: number) => euros(v, 0);
 
 export default function RevenueChart({ data }: { data: RevenuePoint[] }) {
   return (

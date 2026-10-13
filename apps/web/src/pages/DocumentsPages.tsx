@@ -176,11 +176,14 @@ function DocumentsListPage({
         className="block min-w-0 rounded-[var(--radius)] border border-[var(--border)] bg-[var(--surface)] p-3.5 transition-colors hover:border-[var(--border-strong)] hover:bg-[var(--surface-raised)]"
       >
         <div className="flex items-center justify-between gap-3">
-          <DocumentNumberBadge
-            number={d.number}
-            documentType={d.documentType}
-            invoiceType={d.invoiceType}
-          />
+          <span className="flex min-w-0 items-center gap-1.5">
+            <DocumentNumberBadge
+              number={d.number}
+              documentType={d.documentType}
+              invoiceType={d.invoiceType}
+            />
+            <InvoiceTypeBadge type={d.documentType === "CREDIT_NOTE" ? "CREDIT_NOTE" : d.invoiceType} compact />
+          </span>
           <span className="font-semibold tabular-nums">{formatEUR(d.totalCents)}</span>
         </div>
         <div className="mt-2 flex items-center justify-between gap-3">
@@ -199,17 +202,20 @@ function DocumentsListPage({
       name: "Numéro",
       selector: (d) => d.number ?? "",
       sortable: true,
-      width: "11rem",
+      width: "12.5rem",
+      // Gabarit unique : ligne 1 numéro et type, ligne 2 devis d'origine en texte secondaire.
       cell: (d) => (
-        <div className="flex min-w-0 flex-wrap items-center gap-2">
-          <Link to={detailPath(d)} className="rounded-[var(--radius-sm)] hover:opacity-80">
-            <DocumentNumberBadge number={d.number} documentType={d.documentType} invoiceType={d.invoiceType} />
-          </Link>
-          <InvoiceTypeBadge type={d.invoiceType} />
+        <div className="min-w-0 py-1">
+          <div className="flex items-center gap-1.5 whitespace-nowrap">
+            <Link to={detailPath(d)} className="rounded-[var(--radius-sm)] hover:opacity-80">
+              <DocumentNumberBadge number={d.number} documentType={d.documentType} invoiceType={d.invoiceType} />
+            </Link>
+            <InvoiceTypeBadge type={d.documentType === "CREDIT_NOTE" ? "CREDIT_NOTE" : d.invoiceType} compact />
+          </div>
           {!isQuote && (d.quote?.number || d.quoteId) ? (
             <Link
               to={`/quotes/${d.quoteId ?? d.quote?.id}`}
-              className="text-xs text-[var(--muted)] hover:text-[var(--primary)]"
+              className="mt-0.5 block text-[length:var(--text-meta)] text-[var(--muted)] hover:text-[var(--primary)]"
               onClick={(e) => e.stopPropagation()}
             >
               Devis {d.quote?.number ?? ""}
