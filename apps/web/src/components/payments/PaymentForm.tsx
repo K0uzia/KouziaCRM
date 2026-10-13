@@ -106,7 +106,7 @@ export function PaymentForm({
         <span>
           Envoyer le reçu au client
           <span className="block text-xs text-[var(--muted)]">
-            Email avec la facture à jour en PDF (acquittée si elle est soldée).
+            Email avec le reçu du paiement et la facture en PDF.
           </span>
         </span>
       </label>

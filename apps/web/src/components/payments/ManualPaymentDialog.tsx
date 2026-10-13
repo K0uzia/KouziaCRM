@@ -7,7 +7,7 @@ export type ManualPaymentInput = {
   method: "BANK_TRANSFER" | "CHECK" | "CASH" | "OTHER";
   reference: string | null;
   notes: string | null;
-  /** Reçu (facture acquittée en PDF) envoyé au client. */
+  /** Reçu du règlement et facture en PDF envoyés au client. */
   notifyClient: boolean;
 };
 
@@ -82,7 +82,7 @@ export function ManualPaymentDialog({
           />
           <span>
             Envoyer le reçu au client
-            <span className="block text-xs text-[var(--muted)]">Email avec la facture acquittée en PDF.</span>
+            <span className="block text-xs text-[var(--muted)]">Email avec le reçu du paiement et la facture en PDF.</span>
           </span>
         </label>
         <ModalActions>

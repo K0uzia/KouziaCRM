@@ -498,7 +498,7 @@ export async function markMilestonePaidManually(opts: {
 }
 
 /**
- * Acompte réglé : reçu au client (facture d'acompte en PDF, acquittée) et, pour un
+ * Acompte réglé : reçu du règlement et facture d'acompte au client et, pour un
  * paiement en ligne, alerte à l'administrateur.
  */
 export async function notifyDepositPaid(
