@@ -119,9 +119,11 @@ export default function App() {
           <Route path="payments" element={<PaymentsPage />} />
           <Route path="receipts" element={<ReceiptsBookPage />} />
           <Route path="obligations" element={<ObligationsPage />} />
-          <Route path="versements" element={<StripePayoutsPage />} />
+          <Route path="flux-stripe" element={<StripePayoutsPage />} />
+          {/* Ancienne adresse « Versements Stripe » : redirigée vers « Flux Stripe ». */}
+          <Route path="versements" element={<Navigate to="/flux-stripe" replace />} />
           <Route path="retraits" element={<WithdrawalsPage />} />
-          <Route path="banque" element={<Navigate to="/versements" replace />} />
+          <Route path="banque" element={<Navigate to="/flux-stripe" replace />} />
           <Route path="urssaf" element={<UrssafPage />} />
           <Route path="inbox" element={<InboxPage />} />
           <Route path="inbox/compose" element={<ComposePage />} />
