@@ -30,6 +30,19 @@ beforeEach(async () => {
 const patch = (payload: Record<string, unknown>) =>
   app.inject({ method: "PATCH", url: "/api/settings/general", headers: { cookie }, payload });
 
+describe("Réglages > Mentions légales : médiateur", () => {
+  it("enregistre la mention du médiateur, la relit, et la vide", async () => {
+    const save = (mediationClause: string | null) =>
+      app.inject({ method: "PATCH", url: "/api/settings/identity", headers: { cookie }, payload: { mediationClause } });
+    expect((await save("  Médiateur : CM2C, www.cm2c.net  ")).statusCode).toBe(200);
+    const read = await app.inject({ method: "GET", url: "/api/settings", headers: { cookie } });
+    expect(read.json().mediationClause).toBe("Médiateur : CM2C, www.cm2c.net");
+    await save("");
+    expect((await prisma.companySettings.findFirstOrThrow()).mediationClause).toBeNull();
+    expect((await save("x".repeat(1001))).statusCode).toBe(400);
+  });
+});
+
 describe("Réglages > Identité : erreurs par champ", () => {
   it("refuse les valeurs invalides avec un message en français par champ, sans rien enregistrer", async () => {
     const res = await patch({

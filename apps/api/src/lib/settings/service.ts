@@ -442,6 +442,7 @@ export type IdentityPatch = {
   earlyPaymentDiscountText?: string;
   paymentConditions?: string;
   brandLogoPath?: string | null;
+  mediationClause?: string | null;
 };
 
 export async function saveIdentityTab(
@@ -472,6 +473,7 @@ export async function saveIdentityTab(
         : {}),
       ...(patch.paymentConditions !== undefined ? { paymentConditions: patch.paymentConditions } : {}),
       ...(patch.brandLogoPath !== undefined ? { brandLogoPath: patch.brandLogoPath } : {}),
+      ...(patch.mediationClause !== undefined ? { mediationClause: emptyToNull(patch.mediationClause) } : {}),
     },
     "identity",
     actor,

@@ -352,6 +352,7 @@ export const settingsRoutes: FastifyPluginAsync = async (app) => {
       latePenaltiesText: z.string().max(500).optional(),
       earlyPaymentDiscountText: z.string().max(300).optional(),
       paymentConditions: z.string().max(300).optional(),
+      mediationClause: z.string().trim().max(1000).optional().nullable(),
     });
     const parsed = schema.safeParse(request.body);
     if (!parsed.success) {

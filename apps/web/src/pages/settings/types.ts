@@ -70,6 +70,8 @@ export type PublicSettings = {
   brandSecondaryColor: string;
   brandLogoPath: string | null;
   pdfFooterText: string | null;
+  /** Mention du médiateur de la consommation (PDF des clients particuliers). */
+  mediationClause: string | null;
   latePenaltiesText: string;
   earlyPaymentDiscountText: string;
   paymentConditions: string;

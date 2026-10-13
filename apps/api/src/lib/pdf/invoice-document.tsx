@@ -754,7 +754,8 @@ export function InvoiceDocument({ company, client, invoice }: InvoicePdfData) {
           {!(invoice.legalClauses?.length) && company.legalMentions ? (
             <Text>{company.legalMentions}</Text>
           ) : null}
-          {company.b2cActivity && company.mediationClause ? (
+          {/* Médiation de la consommation : obligatoire envers les particuliers (L616-1). */}
+          {client.type === "B2C" && company.mediationClause?.trim() ? (
             <Text style={{ marginTop: 4 }}>{company.mediationClause}</Text>
           ) : null}
           {company.pdfFooterText ? (
