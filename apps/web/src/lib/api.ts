@@ -17,16 +17,24 @@ export async function api<T>(path: string, init?: RequestInit): Promise<T> {
   if (!res.ok) {
     let message = res.statusText;
     let code: string | undefined;
+    let fieldErrors: Record<string, string> | undefined;
     try {
       const body = await res.json();
       if (typeof body.error === "string") message = body.error;
-      else if (body.error?.formErrors) message = "Données invalides";
+      else if (body.error?.formErrors) {
+        message = "Données invalides";
+        // Erreurs zod par champ (error.flatten()) : premier message de chaque champ.
+        const entries = Object.entries((body.error.fieldErrors ?? {}) as Record<string, string[] | undefined>)
+          .filter(([, list]) => list?.length)
+          .map(([key, list]) => [key, list![0]!] as const);
+        if (entries.length) fieldErrors = Object.fromEntries(entries);
+      }
       if (typeof body.code === "string") code = body.code;
     } catch {
       /* ignore */
     }
     // status et code (ex. « stripe_mode_change ») : l'appelant peut demander une confirmation.
-    throw Object.assign(new Error(message || `HTTP ${res.status}`), { status: res.status, code });
+    throw Object.assign(new Error(message || `HTTP ${res.status}`), { status: res.status, code, fieldErrors });
   }
 
   if (res.status === 204) return undefined as T;

@@ -50,8 +50,23 @@ function serialize(settings: Awaited<ReturnType<typeof getCompanySettings>>) {
   };
 }
 
-const optionalEmail = z.string().email().optional().nullable().or(z.literal(""));
 const hexColor = z.string().regex(/^#[0-9A-Fa-f]{6}$/);
+
+// Onglet Identité : messages en français, affichés sous le champ concerné (fieldErrors).
+// Champ facultatif vide accepté par refine : avec .or(z.literal("")), zod ne renverrait que « Invalid input ».
+const required = (label: string) => z.string().trim().min(1, `${label} : champ obligatoire`);
+const upTo = (max: number) => z.string().max(max, `${max} caractères au plus`).optional().nullable();
+const emptyOr = (ok: (v: string) => boolean, message: string) =>
+  z
+    .string()
+    .trim()
+    .max(300, "300 caractères au plus")
+    .refine((v) => v === "" || ok(v), { message })
+    .optional()
+    .nullable();
+const isEmail = (v: string) => z.string().email().safeParse(v).success;
+const isUrl = (v: string) => z.string().url().safeParse(v).success;
+const isHttpsUrl = (v: string) => isUrl(v) && v.startsWith("https://");
 
 function brandUploadsDir(): string {
   return path.resolve(process.cwd(), "data", "uploads", "brand");
@@ -68,37 +83,29 @@ export const settingsRoutes: FastifyPluginAsync = async (app) => {
     await requireAuth(request, reply);
     if (reply.sent) return;
     const schema = z.object({
-      legalName: z.string().min(1).optional(),
+      legalName: required("Nom légal").optional(),
       tradeName: z.string().optional().nullable(),
-      siren: z.string().regex(/^\d{9}$/).optional(),
-      siret: z.string().regex(/^\d{14}$/).optional(),
-      apeCode: z.string().min(1).optional(),
-      addressLine1: z.string().min(1).optional(),
+      siren: z.string().trim().regex(/^\d{9}$/, "Le SIREN compte 9 chiffres").optional(),
+      siret: z.string().trim().regex(/^\d{14}$/, "Le SIRET compte 14 chiffres").optional(),
+      apeCode: required("Code APE").optional(),
+      addressLine1: required("Adresse").optional(),
       addressLine2: z.string().optional().nullable(),
-      postalCode: z.string().min(1).optional(),
-      city: z.string().min(1).optional(),
+      postalCode: required("Code postal").optional(),
+      city: required("Ville").optional(),
       country: z.string().optional(),
-      email: optionalEmail,
+      email: emptyOr(isEmail, "Adresse e-mail invalide"),
       phone: z.string().optional().nullable(),
       website: z.string().optional().nullable(),
-      legalForm: z.string().max(80).optional().nullable(),
-      rcsMention: z.string().max(200).optional().nullable(),
-      vatIntraNumber: z.string().max(20).optional().nullable(),
-      decennaleInsurer: z.string().max(200).optional().nullable(),
-      decennalePolicyNumber: z.string().max(80).optional().nullable(),
-      decennaleCoverageZone: z.string().max(200).optional().nullable(),
+      legalForm: upTo(80),
+      rcsMention: upTo(200),
+      vatIntraNumber: upTo(20),
+      decennaleInsurer: upTo(200),
+      decennalePolicyNumber: upTo(80),
+      decennaleCoverageZone: upTo(200),
       publicTrackingShowAmounts: z.boolean().optional(),
       reviewInviteEnabled: z.boolean().optional(),
-      googleReviewUrl: z
-        .string()
-        .trim()
-        .max(300)
-        .refine((v) => v === "" || (z.string().url().safeParse(v).success && v.startsWith("https://")), {
-          message: "Le lien d'avis doit être une adresse https://",
-        })
-        .optional()
-        .nullable(),
-      clientPortalUrl: z.string().url().optional().nullable().or(z.literal("")),
+      googleReviewUrl: emptyOr(isHttpsUrl, "Le lien d'avis doit être une adresse https:// complète"),
+      clientPortalUrl: emptyOr(isUrl, "Adresse web complète attendue (https://…)"),
       inpiUrl: z.string().optional().nullable(),
     });
     const parsed = schema.safeParse(request.body);
