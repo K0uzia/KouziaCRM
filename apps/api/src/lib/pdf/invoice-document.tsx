@@ -254,6 +254,8 @@ export type InvoicePdfData = {
     paymentPlanRetained?: string | null;
     /** Devis d'abonnement seul : facturé à partir de la signature, sans acompte. */
     subscriptionOnly?: boolean;
+    /** Devis mixte : l'abonnement est facturé à partir de la livraison, hors échéancier. */
+    subscriptionFromDelivery?: boolean;
     balanceSummary?: {
       marketTotalCents: number;
       quoteNumber: string | null;
@@ -490,7 +492,9 @@ export function InvoiceDocument({ company, client, invoice }: InvoicePdfData) {
                     : {fmtMoney(line.unitPriceCents)}.{" "}
                     {invoice.subscriptionOnly
                       ? "Facturé à partir de la signature, sans acompte."
-                      : "Ce document inclut la 1re échéance."}
+                      : invoice.subscriptionFromDelivery
+                        ? "Facturé à partir de la livraison, hors acompte et échéancier."
+                        : "Ce document inclut la 1re échéance."}
                   </Text>
                 ) : null}
               </View>

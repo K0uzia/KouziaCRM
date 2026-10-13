@@ -218,6 +218,14 @@ export async function updateClientProject(id: string, input: ProjectInput) {
   await applyDepositTrigger(existing.quoteId, parseList(existing.steps, stepSchema), input.steps);
   const updated = await prisma.clientProject.update({ where: { id }, data: toData(input) });
   if (existing.status !== "DONE" && updated.status === "DONE") {
+    // Livraison d'un devis mixte : l'abonnement démarre maintenant (lien de prélèvement ou
+    // 1re facture). Comme l'invitation, il ne bloque jamais l'enregistrement du projet.
+    if (updated.quoteId) {
+      const { startDeferredSubscriptions } = await import("@/lib/invoices/transitions.js");
+      await startDeferredSubscriptions(updated.quoteId).catch((err) => {
+        console.error(`[projets] démarrage de l'abonnement à la livraison : ${id}`, err);
+      });
+    }
     // L'invitation ne bloque jamais l'enregistrement du projet.
     const sent = await sendReviewInviteOnDone(id).catch((err) => {
       console.error(`[projets] invitation à laisser un avis : ${id}`, err);

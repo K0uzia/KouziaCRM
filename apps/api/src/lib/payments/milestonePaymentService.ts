@@ -80,7 +80,7 @@ export async function ensureQuoteMilestonesFromSettings(
   // Formule du devis (retenue, sinon celle de l'émission) ; devis historique : réglages 2 fois.
   const quote = await db.invoice.findUnique({
     where: { id: quoteId },
-    select: { paymentPlanOffer: true, paymentPlan: true },
+    select: { paymentPlanOffer: true, paymentPlan: true, depositBaseCents: true },
   });
   const offer = parsePaymentPlanOffer(quote?.paymentPlanOffer);
   // Abonnement seul : aucun jalon (donc ni acompte exigible ni lien de paiement).
@@ -89,7 +89,8 @@ export async function ensureQuoteMilestonesFromSettings(
     offer === null
       ? await loadDepositTemplateFromSettings()
       : planTemplate(parsePaymentPlan(quote?.paymentPlan) ?? initialPlan(offer), await getCompanySettings());
-  const amounts = computeMilestoneAmounts(totalCents, template);
+  // Base figée à l'émission (partie ponctuelle) : elle prime sur le montant passé.
+  const amounts = computeMilestoneAmounts(quote?.depositBaseCents ?? totalCents, template);
   await db.paymentMilestone.createMany({
     data: amounts.map((m) => ({
       quoteId,

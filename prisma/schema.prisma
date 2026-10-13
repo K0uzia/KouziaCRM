@@ -917,6 +917,9 @@ model Invoice {
   discountValue         Int                    @default(0)
   /// Total du marché (devis) figé à l'émission d'un acompte/solde
   marketTotalCents      Int?
+  /// Devis : base de l'acompte et de l'échéancier (partie ponctuelle, remise répartie), figée à
+  /// l'émission. null = devis émis avant la fonction : le total sert de base.
+  depositBaseCents      Int?
   notes                 String?
   paymentTerms          String?                @default("Paiement à réception")
   /// Facture d'origine pour un avoir (originalInvoiceId)

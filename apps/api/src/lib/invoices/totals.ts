@@ -77,6 +77,26 @@ export function computeLineTotals(lines: LineInput[], discount: DiscountInput = 
   };
 }
 
+/**
+ * Base de l'acompte et de l'échéancier d'un devis : la partie ponctuelle (lignes hors abonnement),
+ * remise répartie au prorata. L'abonnement n'y entre pas : il est facturé à chaque période.
+ */
+export function computeDepositBaseCents(
+  lines: ReadonlyArray<{ isSubscription: boolean; lineTotalCents: number }>,
+  subtotalCents: number,
+  totalCents: number,
+): number {
+  const oneOff = lines.filter((l) => !l.isSubscription).reduce((s, l) => s + l.lineTotalCents, 0);
+  if (subtotalCents <= 0 || oneOff <= 0) return 0;
+  const discount = Math.max(0, subtotalCents - totalCents);
+  return Math.max(0, oneOff - Math.round((discount * oneOff) / subtotalCents));
+}
+
+/** Base d'un devis : figée à l'émission ; devis antérieur à la fonction (null) : son total. */
+export function depositBaseOf(quote: { depositBaseCents: number | null; totalCents: number }): number {
+  return quote.depositBaseCents ?? quote.totalCents;
+}
+
 /** Valide les lignes abonnement avant persist. */
 export function assertSubscriptionLinesValid(
   lines: Array<{

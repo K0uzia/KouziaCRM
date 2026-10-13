@@ -6,6 +6,7 @@ import {
   type Prisma,
 } from "@prisma/client";
 import { prisma } from "@/lib/prisma.js";
+import { depositBaseOf } from "@/lib/invoices/totals.js";
 import { assertDepositsPaid, assertQuoteSigned } from "@/lib/invoices/workflow.js";
 import { decryptOptional } from "@/lib/crypto.js";
 import { allocateInvoiceNumber } from "@/lib/invoices/numberingService.js";
@@ -138,9 +139,11 @@ export async function computeBalanceSummary(
 
   const existingSolde = marketInvoices.find((i) => i.invoiceType === InvoiceType.SOLDE);
   // Solde = marché - acomptes déjà émis (chaque facture d'acompte reste due séparément)
+  // Marché = partie ponctuelle du devis (l'abonnement est facturé à part, à chaque période).
+  const marketTotalCents = depositBaseOf(quote);
   const balanceDueCents = existingSolde
     ? existingSolde.totalCents
-    : Math.max(0, quote.totalCents - acomptesIssuedCents);
+    : Math.max(0, marketTotalCents - acomptesIssuedCents);
 
   const pendingMilestones = quote.milestones.filter(
     (m) => m.status === MilestoneStatus.PENDING && !m.invoiceId,
@@ -150,7 +153,7 @@ export async function computeBalanceSummary(
     quoteId: quote.id,
     quoteNumber: quote.number,
     quoteIssueDate: quote.issueDate?.toISOString() ?? null,
-    marketTotalCents: quote.totalCents,
+    marketTotalCents,
     acomptes,
     acomptesPaidCents,
     acomptesIssuedUnpaidCents,
@@ -184,7 +187,7 @@ export async function getMarketView(quoteId: string) {
     throw new DocumentFlowError("Devis introuvable", 404);
   }
 
-  await ensureQuoteMilestonesFromSettings(quote.id, quote.totalCents);
+  await ensureQuoteMilestonesFromSettings(quote.id, depositBaseOf(quote));
 
   const milestones = await prisma.paymentMilestone.findMany({
     where: { quoteId },
@@ -264,10 +267,10 @@ export async function getMarketView(quoteId: string) {
       milestonesPaid: paidMilestones,
       milestonesTotal: totalMilestones,
       encaisseCents,
-      marketTotalCents: quote.totalCents,
+      marketTotalCents: depositBaseOf(quote),
       encaissePercent:
-        quote.totalCents > 0
-          ? Math.round((encaisseCents / quote.totalCents) * 100)
+        depositBaseOf(quote) > 0
+          ? Math.round((encaisseCents / depositBaseOf(quote)) * 100)
           : 0,
     },
     balance: summary,
@@ -365,7 +368,7 @@ export async function generateMilestoneInvoice(
         milestoneId: milestone.id,
         quoteId: milestone.quoteId,
         sourceQuoteId: milestone.quoteId,
-        marketTotalCents: milestone.quote.totalCents,
+        marketTotalCents: depositBaseOf(milestone.quote),
         subtotalCents: milestone.amountCents,
         totalCents: milestone.amountCents,
         paymentTerms: milestone.triggerText,
@@ -483,7 +486,7 @@ export async function generateBalanceInvoice(
         milestoneId,
         quoteId: quote.id,
         sourceQuoteId: quote.id,
-        marketTotalCents: quote.totalCents,
+        marketTotalCents: depositBaseOf(quote),
         subtotalCents: summary.balanceDueCents,
         totalCents: summary.balanceDueCents,
         paymentTerms: "Solde à réception",

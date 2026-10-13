@@ -276,6 +276,15 @@ export function DocumentFormEditor({
   // Devis d'abonnement seul : ni acompte ni échéancier, l'abonnement facture chaque période.
   const filledLines = form.lines.filter((l) => l.description.trim() || l.serviceId);
   const subscriptionOnly = documentType === "QUOTE" && filledLines.length > 0 && filledLines.every((l) => l.isSubscription);
+  // Devis mixte : acompte et échéancier sur la partie ponctuelle ; l'abonnement démarre à la livraison.
+  const mixedQuote =
+    documentType === "QUOTE" && filledLines.some((l) => l.isSubscription) && filledLines.some((l) => !l.isSubscription);
+  const oneOffSubtotal = form.lines.reduce(
+    (sum, l) => (l.isSubscription ? sum : sum + (Number(l.quantity) || 0) * (Number(l.unitPriceEuros) || 0)),
+    0,
+  );
+  const oneOffPreview =
+    subtotalPreview > 0 ? Math.max(0, oneOffSubtotal - (discountPreview * oneOffSubtotal) / subtotalPreview) : 0;
   // Conditions par défaut : suivent la nature du devis tant qu'elles n'ont pas été modifiées.
   useEffect(() => {
     setForm((f) => {
@@ -493,11 +502,11 @@ export function DocumentFormEditor({
                       value={line.billingInterval}
                       onChange={(next) => changeLineInterval(i, next)}
                     />
-                    {subscriptionOnly ? (
+                    {subscriptionOnly || mixedQuote ? (
                       <p className="text-[var(--muted)]">
-                        {line.billingInterval === "YEAR"
-                          ? "Facturé chaque année à partir de la signature, sans acompte"
-                          : "Facturé chaque mois à partir de la signature, sans acompte"}
+                        {`Facturé chaque ${line.billingInterval === "YEAR" ? "année" : "mois"} à partir ${
+                          subscriptionOnly ? "de la signature" : "de la livraison (projet terminé)"
+                        }, sans acompte`}
                       </p>
                     ) : (
                     <label className="flex flex-wrap items-center gap-1.5 text-[var(--muted)]">
@@ -635,7 +644,13 @@ export function DocumentFormEditor({
           <Field
             label="Paiement"
             hint={
-              planSettings && form.paymentPlanOffer !== "TWO" && totalPreview * 100 < planSettings.split3MinTotalCents
+              mixedQuote
+                ? `Acompte et échéancier sur la partie ponctuelle (${formatEUR(Math.round(oneOffPreview * 100))}) ; l'abonnement démarre à la livraison.${
+                    planSettings && form.paymentPlanOffer !== "TWO" && oneOffPreview * 100 < planSettings.split3MinTotalCents
+                      ? ` Sous ${formatEUR(planSettings.split3MinTotalCents)}, le devis passera en 2 fois à l'émission.`
+                      : ""
+                  }`
+                : planSettings && form.paymentPlanOffer !== "TWO" && totalPreview * 100 < planSettings.split3MinTotalCents
                 ? `Sous ${formatEUR(planSettings.split3MinTotalCents)}, le devis passera en 2 fois à l'émission.`
                 : form.paymentPlanOffer === "CHOICE"
                   ? "Le client choisira à la signature ; les deux échéanciers figurent sur le devis."

@@ -230,7 +230,7 @@ describe("convertQuoteToInvoice", () => {
     expect(quote.status).toBe(InvoiceStatus.PAID);
   });
 
-  it("propage les lignes abonnement et leur subscriptionId vers la facture", async () => {
+  it("devis émis avant la base ponctuelle : propage les lignes abonnement et leur subscriptionId vers la facture", async () => {
     const client = await createClient();
     const service = await createService();
     const quoteId = await createDraftInvoice({
@@ -248,6 +248,9 @@ describe("convertQuoteToInvoice", () => {
       ],
     });
     await issueQuote(quoteId, new Date(2026, 5, 15));
+    // Devis antérieur à la fonction (base absente) : la facture totale reprend tout le devis.
+    // Devis mixte récent : voir mixed-quote.test.ts (abonnement à la livraison, hors facture).
+    await prisma.invoice.update({ where: { id: quoteId }, data: { depositBaseCents: null } });
     // L'abonnement est créé à la signature du devis ; la conversion le rattache sans doublon.
     await acceptQuoteByClient(quoteId, "Camille Dupont");
 
