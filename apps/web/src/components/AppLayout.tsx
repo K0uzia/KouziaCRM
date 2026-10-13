@@ -148,7 +148,9 @@ export function AppLayout() {
     drawerOpener.current = e.currentTarget;
     setDrawerOpen(true);
   };
-  const returnFocus = () => (drawerOpener.current ?? drawerTrigger.current)?.focus();
+  // Après le rendu : tant que le tiroir est ouvert, le bouton est inerte et refuse le focus.
+  const returnFocus = () =>
+    requestAnimationFrame(() => (drawerOpener.current ?? drawerTrigger.current)?.focus());
   const drawerRef = useRef<HTMLDivElement>(null);
   const { pathname } = useLocation();
   const features = useFeatures();
