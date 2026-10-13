@@ -66,7 +66,8 @@ export default function FlowsChart({ flows }: { flows: MonthlyFlow[] }) {
           }}
           cursor={{ fill: "rgb(139 92 246 / 0.08)" }}
         />
-        <Legend wrapperStyle={{ fontSize: 12, color: "var(--muted)", paddingTop: 8 }} />
+        {/* Ordre des séries (entrées puis sorties), pas l'ordre alphabétique par défaut. */}
+        <Legend itemSorter={null} wrapperStyle={{ fontSize: 12, color: "var(--muted)", paddingTop: 8 }} />
         <Bar dataKey="encaisse" stackId="flux" fill="var(--primary)" name="Encaissé" maxBarSize={26} />
         <Bar dataKey="urssaf" stackId="flux" fill="var(--danger)" name="URSSAF" maxBarSize={26} />
         <Bar dataKey="cfe" stackId="flux" fill="var(--accent-2)" name="CFE" maxBarSize={26} />
