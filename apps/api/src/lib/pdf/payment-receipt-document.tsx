@@ -101,7 +101,7 @@ export function PaymentReceiptDocument(data: PaymentReceiptPdfData) {
         </View>
 
         <View style={styles.section}>
-          <Text style={styles.label}>Facture réglée</Text>
+          <Text style={styles.label}>Facture concernée</Text>
           <View style={styles.row}>
             <Text>
               {invoice.label} {invoice.number}

@@ -661,12 +661,19 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
       const { verifyReceiptToken } = await import("@/lib/documents/public-token.js");
       const paymentId = verifyReceiptToken(request.params.token);
       if (!paymentId) return reply.code(404).send({ error: "Lien invalide" });
-      const { paymentReceiptPdf } = await import("@/lib/pdf/receipt-archive.js");
+      const { paymentReceiptPdf, receiptFileName } = await import("@/lib/pdf/receipt-archive.js");
       const pdf = await paymentReceiptPdf(paymentId);
-      if (!pdf) return reply.code(404).send({ error: "Document introuvable" });
+      const payment = pdf
+        ? await prisma.payment.findUnique({
+            where: { id: paymentId },
+            select: { paidAt: true, invoice: { select: { number: true } } },
+          })
+        : null;
+      if (!pdf || !payment?.invoice?.number) return reply.code(404).send({ error: "Document introuvable" });
+      const filename = receiptFileName(payment.invoice.number, payment.paidAt, paymentId);
       return reply
         .header("Content-Type", "application/pdf")
-        .header("Content-Disposition", 'inline; filename="recu.pdf"')
+        .header("Content-Disposition", `inline; filename="${filename}"`)
         .header("Cache-Control", "private, no-store")
         .send(pdf);
     },

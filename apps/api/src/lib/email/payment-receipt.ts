@@ -5,7 +5,7 @@ import { getCompanySettings } from "@/lib/company.js";
 import { brandFromSettings } from "@/lib/email/templates.js";
 import { formatPlainTextSignature } from "@/lib/email/signature.js";
 import { sendDocumentPdf, type SendDocumentPdfResult } from "@/lib/email/send-document-pdf.js";
-import { paymentReceiptPdf } from "@/lib/pdf/receipt-archive.js";
+import { paymentReceiptPdf, receiptFileName } from "@/lib/pdf/receipt-archive.js";
 
 /**
  * E-mail « Paiement reçu » : le REÇU de ce règlement (archivé) et la facture telle qu'émise (archivée).
@@ -62,14 +62,13 @@ export async function sendPaymentReceipt(
       "",
       signature,
     ].join("\n");
-    const day = (payment?.paidAt ?? new Date()).toISOString().slice(0, 10);
     return await sendDocumentPdf(invoice.id, {
       subject: remaining === 0 ? "Paiement reçu : facture {{numero}} réglée" : "Paiement reçu : facture {{numero}}",
       text,
-      extraAttachments: receipt
+      extraAttachments: receipt && payment
         ? [
             {
-              filename: `Recu-${invoice.number.replace(/[^A-Za-z0-9_-]/g, "_")}-${day}.pdf`,
+              filename: receiptFileName(invoice.number, payment.paidAt, payment.id),
               contentBase64: receipt.toString("base64"),
               contentType: "application/pdf",
             },

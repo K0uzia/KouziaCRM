@@ -26,6 +26,12 @@ const METHOD_LABEL: Record<string, string> = {
 
 const INVOICE_LABEL: Record<string, string> = { ACOMPTE: "Facture d'acompte", SOLDE: "Facture de solde" };
 
+/** Nom de fichier du reçu, unique par règlement : deux règlements du même jour ne s'écrasent pas. */
+export function receiptFileName(invoiceNumber: string, paidAt: Date, paymentId: string): string {
+  const safe = invoiceNumber.replace(/[^A-Za-z0-9_-]/g, "_");
+  return `Recu-${safe}-${paidAt.toISOString().slice(0, 10)}-${paymentId.slice(-6)}.pdf`;
+}
+
 const sha256 = (buf: Buffer) => createHash("sha256").update(buf).digest("hex");
 
 /** Données du reçu : réglé à la date du règlement (ordre paidAt puis création), reste dû. */
