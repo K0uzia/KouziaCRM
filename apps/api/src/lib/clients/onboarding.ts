@@ -17,6 +17,7 @@ import {
 } from "@/lib/address/france.js";
 import { computeEmailHash } from "@/lib/clients/email-hash.js";
 import { AddressValidationError } from "@/lib/clients.js";
+import { maskEmail } from "@/lib/portal/auth.js";
 
 export type OnboardingInviteResult = {
   ok: boolean;
@@ -115,12 +116,6 @@ export type OnboardingView = {
   brandName: string | null;
 };
 
-function maskEmail(email: string): string {
-  const [local, domain] = email.split("@");
-  if (!local || !domain) return "***";
-  const visible = local.slice(0, 1);
-  return `${visible}***@${domain}`;
-}
 
 async function brandName(): Promise<string | null> {
   try {
