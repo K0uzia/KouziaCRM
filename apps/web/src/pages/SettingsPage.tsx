@@ -38,6 +38,15 @@ type LegalClause = {
   required: boolean;
   active: boolean;
   position: number;
+  audience: ClauseAudience;
+};
+
+type ClauseAudience = "ALL" | "B2B" | "B2C";
+
+const AUDIENCE_LABEL: Record<ClauseAudience, string> = {
+  ALL: "Tous les clients",
+  B2B: "Clients professionnels",
+  B2C: "Clients particuliers",
 };
 
 type NumberingPreview = {
@@ -154,7 +163,14 @@ export function SettingsPage() {
   const [busy, setBusy] = useState(false);
   const [inpiQuery, setInpiQuery] = useState("");
   const [clauseModal, setClauseModal] = useState<LegalClause | "new" | null>(null);
-  const [clauseForm, setClauseForm] = useState({ title: "", body: "", kind: "CUSTOM" });
+  const [clauseToDelete, setClauseToDelete] = useState<LegalClause | null>(null);
+  const [clauseDeleting, setClauseDeleting] = useState(false);
+  const [clauseForm, setClauseForm] = useState<{ title: string; body: string; kind: string; audience: ClauseAudience }>({
+    title: "",
+    body: "",
+    kind: "CUSTOM",
+    audience: "ALL",
+  });
   const [imapTest, setImapTest] = useState<string | null>(null);
   const [identitySection, setIdentitySection] = useState<IdentitySection>("legal");
   // Erreur affichée tant que la valeur refusée n'a pas été modifiée.
@@ -743,6 +759,7 @@ export function SettingsPage() {
             title: clauseForm.title,
             body: clauseForm.body,
             kind: clauseForm.kind,
+            audience: clauseForm.audience,
             active: clauseModal.active,
           }),
         });
@@ -756,12 +773,16 @@ export function SettingsPage() {
   }
 
   async function deleteClause(id: string) {
+    setClauseDeleting(true);
     try {
       await api(`/api/legal-clauses/${id}`, { method: "DELETE" });
       setClauses(await api("/api/legal-clauses"));
+      setClauseToDelete(null);
       toast.success("Clause supprimée");
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Erreur");
+    } finally {
+      setClauseDeleting(false);
     }
   }
 
@@ -2032,7 +2053,7 @@ export function SettingsPage() {
                   variant="secondary"
                   className="h-8 px-3 text-xs"
                   onClick={() => {
-                    setClauseForm({ title: "", body: "", kind: "CUSTOM" });
+                    setClauseForm({ title: "", body: "", kind: "CUSTOM", audience: "ALL" });
                     setClauseModal("new");
                   }}
                 >
@@ -2049,6 +2070,11 @@ export function SettingsPage() {
                           <span className="ml-2 text-xs text-[var(--muted)]">obligatoire</span>
                         ) : null}
                       </p>
+                      {c.audience !== "ALL" ? (
+                        <p className="mt-0.5 text-xs font-medium text-[var(--primary)]">
+                          {AUDIENCE_LABEL[c.audience]} seulement
+                        </p>
+                      ) : null}
                       <p className="mt-1 whitespace-pre-wrap text-xs text-[var(--muted)]">{c.body}</p>
                     </div>
                     <div className="flex gap-2">
@@ -2057,7 +2083,7 @@ export function SettingsPage() {
                         variant="ghost"
                         className="h-8 px-2 text-xs"
                         onClick={() => {
-                          setClauseForm({ title: c.title, body: c.body, kind: c.kind });
+                          setClauseForm({ title: c.title, body: c.body, kind: c.kind, audience: c.audience });
                           setClauseModal(c);
                         }}
                       >
@@ -2068,7 +2094,7 @@ export function SettingsPage() {
                           type="button"
                           variant="ghost"
                           className="h-8 px-2 text-xs text-[var(--danger)]"
-                          onClick={() => void deleteClause(c.id)}
+                          onClick={() => setClauseToDelete(c)}
                         >
                           Supprimer
                         </Button>
@@ -2103,6 +2129,18 @@ export function SettingsPage() {
               onChange={(e) => setClauseForm({ ...clauseForm, body: e.target.value })}
             />
           </Field>
+          <Field label="S'imprime pour" hint="Selon le type du client du devis ou de la facture.">
+            <Select
+              value={clauseForm.audience}
+              onChange={(e) => setClauseForm({ ...clauseForm, audience: e.target.value as ClauseAudience })}
+            >
+              {(Object.keys(AUDIENCE_LABEL) as ClauseAudience[]).map((a) => (
+                <option key={a} value={a}>
+                  {AUDIENCE_LABEL[a]}
+                </option>
+              ))}
+            </Select>
+          </Field>
           <ModalActions>
             <Button type="button" variant="secondary" onClick={() => setClauseModal(null)}>
               Annuler
@@ -2111,6 +2149,17 @@ export function SettingsPage() {
           </ModalActions>
         </form>
       </Modal>
+
+      <ConfirmDialog
+        open={clauseToDelete !== null}
+        title="Supprimer la clause ?"
+        message={`« ${clauseToDelete?.title ?? ""} » ne s'imprimera plus sur les PDF des devis et factures.`}
+        confirmLabel="Supprimer"
+        danger
+        busy={clauseDeleting}
+        onConfirm={() => clauseToDelete && void deleteClause(clauseToDelete.id)}
+        onClose={() => setClauseToDelete(null)}
+      />
 
       <ConfirmDialog
         open={Boolean(modeChange)}

@@ -500,18 +500,27 @@ enum LegalClauseKind {
   CUSTOM
 }
 
+/// Clients auxquels une clause s'imprime (type du client du document)
+enum LegalClauseAudience {
+  ALL
+  B2B
+  B2C
+}
+
 /// Conditions / mentions légales gérables (comme le catalogue prestations)
 model LegalClause {
-  id        String          @id @default(cuid())
-  kind      LegalClauseKind @default(CUSTOM)
+  id        String              @id @default(cuid())
+  kind      LegalClauseKind     @default(CUSTOM)
   title     String
   body      String
   /// Clause légale obligatoire (non supprimable)
-  required  Boolean         @default(false)
-  active    Boolean         @default(true)
-  position  Int             @default(0)
-  createdAt DateTime        @default(now())
-  updatedAt DateTime        @updatedAt
+  required  Boolean             @default(false)
+  active    Boolean             @default(true)
+  /// ALL : tous les documents ; B2B ou B2C : seulement pour ce type de client
+  audience  LegalClauseAudience @default(ALL)
+  position  Int                 @default(0)
+  createdAt DateTime            @default(now())
+  updatedAt DateTime            @updatedAt
 
   @@index([active, position])
 }

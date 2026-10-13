@@ -8,6 +8,7 @@ import type {
 } from "@prisma/client";
 import type { ClientSnapshot } from "@/lib/invoices/transitions.js";
 import type { InvoicePdfData } from "@/lib/pdf/invoice-document.js";
+import { clausesForClient } from "@/lib/company/legal-clauses.js";
 import {
   describePlans,
   parsePaymentPlan,
@@ -36,6 +37,8 @@ type BalanceSummary = NonNullable<InvoicePdfData["invoice"]["balanceSummary"]>;
 export type BuildPdfPayloadInput = {
   invoice: InvoiceWithRelations;
   legalClauses?: LegalClause[];
+  /** Type du client du document (instantané à l'émission) : filtre les clauses B2B ou B2C. */
+  clientType: string | null;
   balanceSummary?: BalanceSummary | null;
   /** Réglages des formules : tableaux « au choix » d'un devis non encore signé. */
   planSettings?: PlanSettings | null;
@@ -70,6 +73,7 @@ const PAYMENT_METHOD_LABEL: Record<string, string> = {
 export function buildInvoicePdfPayload({
   invoice,
   legalClauses,
+  clientType,
   balanceSummary,
   planSettings,
 }: BuildPdfPayloadInput): InvoicePdfData["invoice"] {
@@ -145,7 +149,7 @@ export function buildInvoicePdfPayload({
       billingDay: l.billingDay,
       billingInterval: l.billingInterval,
     })),
-    legalClauses: (legalClauses ?? []).map((c) => ({ title: c.title, body: c.body })),
+    legalClauses: clausesForClient(legalClauses ?? [], clientType).map((c) => ({ title: c.title, body: c.body })),
     acceptance:
       invoice.quoteStatus === "ACCEPTED" && invoice.quoteSignerName && invoice.quoteDecidedAt
         ? acceptanceOf(

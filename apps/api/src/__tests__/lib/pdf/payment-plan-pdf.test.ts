@@ -42,7 +42,7 @@ async function payloadOf(id: string) {
   const doc = (await loadDocumentForPdf(id))!;
   const pdf = await renderLoadedDocumentPdf(doc);
   expect(pdf.subarray(0, 4).toString()).toBe("%PDF");
-  return buildInvoicePdfPayload({ invoice: doc.invoice, legalClauses: doc.legalClauses, planSettings: doc.companyRaw });
+  return buildInvoicePdfPayload({ invoice: doc.invoice, legalClauses: doc.legalClauses, planSettings: doc.companyRaw, clientType: "B2B" });
 }
 
 describe("PDF du paiement en 2 ou 3 fois", () => {

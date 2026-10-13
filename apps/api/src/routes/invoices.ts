@@ -1060,6 +1060,7 @@ export const invoicesRoutes: FastifyPluginAsync = async (app) => {
       invoice: buildInvoicePdfPayload({
         invoice,
         legalClauses,
+        clientType: snapshot.type,
         balanceSummary,
         planSettings: await getCompanySettings(),
       }),

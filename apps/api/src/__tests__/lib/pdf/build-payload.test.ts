@@ -16,6 +16,7 @@ describe("buildInvoicePdfPayload charte dynamique", () => {
     const paidAt = new Date("2026-03-10");
 
     const payload = buildInvoicePdfPayload({
+      clientType: "B2B",
       invoice: {
         id: "inv_1",
         number: "F-2026-0001",

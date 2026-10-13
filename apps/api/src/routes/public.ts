@@ -701,7 +701,12 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
       const buffer = await renderInvoicePdf({
         company,
         client: snapshot,
-        invoice: buildInvoicePdfPayload({ invoice, legalClauses, planSettings: await getCompanySettings() }),
+        invoice: buildInvoicePdfPayload({
+          invoice,
+          legalClauses,
+          clientType: snapshot.type,
+          planSettings: await getCompanySettings(),
+        }),
       });
 
       return reply

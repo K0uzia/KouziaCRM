@@ -408,7 +408,7 @@ describe("décision du client sur un devis", () => {
     const { loadDocumentForPdf } = await import("@/lib/pdf/document-pdf.js");
     const { buildInvoicePdfPayload } = await import("@/lib/pdf/build-payload.js");
     const doc = await loadDocumentForPdf(quoteId);
-    const payload = buildInvoicePdfPayload({ invoice: doc!.invoice, legalClauses: [] });
+    const payload = buildInvoicePdfPayload({ invoice: doc!.invoice, legalClauses: [], clientType: "B2B" });
     expect(payload.acceptance).toMatchObject({
       signerName: "Camille DUPONT",
       mode: "DRAWN",

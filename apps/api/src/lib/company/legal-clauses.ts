@@ -1,4 +1,4 @@
-import { LegalClauseKind } from "@prisma/client";
+import { LegalClauseAudience, LegalClauseKind, type LegalClause } from "@prisma/client";
 import { prisma } from "@/lib/prisma.js";
 
 export const DEFAULT_LEGAL_CLAUSES: Array<{
@@ -7,6 +7,9 @@ export const DEFAULT_LEGAL_CLAUSES: Array<{
   body: string;
   required: boolean;
   position: number;
+  audience?: LegalClauseAudience;
+  /** Créée sur une base neuve (ou par migration) seulement : supprimée par l'admin, elle ne revient pas. */
+  seedOnly?: boolean;
 }> = [
   {
     kind: LegalClauseKind.VAT,
@@ -28,6 +31,17 @@ export const DEFAULT_LEGAL_CLAUSES: Array<{
     body: "En cas de retard de paiement, une pénalité égale à 3 fois le taux d'intérêt légal sera due, ainsi qu'une indemnité forfaitaire de 40 € pour frais de recouvrement (art. L441-10 et D441-5 du code de commerce).",
     required: true,
     position: 2,
+    // Code de commerce : relations entre professionnels seulement.
+    audience: LegalClauseAudience.B2B,
+  },
+  {
+    kind: LegalClauseKind.PENALTY,
+    title: "Retard de paiement (particuliers)",
+    body: "En cas de retard de paiement, des intérêts au taux légal pourront être appliqués après mise en demeure (article 1231-6 du Code civil).",
+    required: false,
+    position: 2,
+    audience: LegalClauseAudience.B2C,
+    seedOnly: true,
   },
   {
     kind: LegalClauseKind.SUSPENSION,
@@ -49,7 +63,7 @@ export async function ensureDefaultLegalClauses() {
   const count = await prisma.legalClause.count();
   if (count === 0) {
     await prisma.legalClause.createMany({
-      data: DEFAULT_LEGAL_CLAUSES.map((c) => ({
+      data: DEFAULT_LEGAL_CLAUSES.map(({ seedOnly: _seedOnly, ...c }) => ({
         ...c,
         active: true,
       })),
@@ -58,7 +72,8 @@ export async function ensureDefaultLegalClauses() {
   }
 
   // Bases déjà seedées : ajouter les clauses manquantes par titre (sans doublon).
-  for (const clause of DEFAULT_LEGAL_CLAUSES) {
+  for (const { seedOnly, ...clause } of DEFAULT_LEGAL_CLAUSES) {
+    if (seedOnly) continue;
     const existing = await prisma.legalClause.findFirst({
       where: { title: clause.title },
     });
@@ -68,6 +83,11 @@ export async function ensureDefaultLegalClauses() {
       });
     }
   }
+}
+
+/** Clauses à imprimer pour un client de ce type (B2B ou B2C) ; type inconnu : clauses « tous » seulement. */
+export function clausesForClient<T extends Pick<LegalClause, "audience">>(clauses: T[], clientType: string | null | undefined): T[] {
+  return clauses.filter((c) => c.audience === LegalClauseAudience.ALL || c.audience === clientType);
 }
 
 export async function listActiveLegalClauses() {
