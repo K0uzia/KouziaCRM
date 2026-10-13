@@ -3,7 +3,7 @@ import type { FastifyInstance } from "fastify";
 import { prisma } from "@/lib/prisma.js";
 import { hashPassword, SESSION_COOKIE } from "@/lib/auth.js";
 import { resetDb } from "../helpers/db.js";
-import { seedCompanySettings } from "../helpers/factories.js";
+import { createClient, seedCompanySettings } from "../helpers/factories.js";
 
 const { buildApp } = await import("@/app.js");
 const ADMIN = "admin-retraits@kouzia.test";
@@ -29,6 +29,15 @@ beforeEach(async () => {
 describe("retraits manuels", () => {
   it("refuse sans session, valide la saisie, crée puis supprime", async () => {
     expect((await app.inject({ method: "GET", url: "/api/owner-pay" })).statusCode).toBe(401);
+    // Encaissement du jour : de quoi retirer 500 € (reste net après URSSAF et provisions).
+    const client = await createClient();
+    const inv = await prisma.invoice.create({
+      data: { documentType: "INVOICE", invoiceType: "SIMPLE", status: "PAID", clientId: client.id, issueDate: new Date(), subtotalCents: 300000, totalCents: 300000 },
+    });
+    await prisma.payment.create({ data: { invoiceId: inv.id, amountCents: 300000, paidAt: new Date() } });
+    const tooMuch = await app.inject({ method: "POST", url: "/api/owner-withdrawals", headers: { cookie }, payload: { amountCents: 10_000_000, date: "2026-10-02" } });
+    expect(tooMuch.statusCode).toBe(400);
+    expect(tooMuch.json().error.fieldErrors.amountCents[0]).toMatch(/^Au plus .* disponibles$/);
     const bad = await app.inject({ method: "POST", url: "/api/owner-withdrawals", headers: { cookie }, payload: { amountCents: 0, date: "13/10/2026" } });
     expect(bad.statusCode).toBe(400);
     const created = await app.inject({

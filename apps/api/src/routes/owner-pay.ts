@@ -16,6 +16,16 @@ function localNoon(date: string): Date {
   return new Date(y, m - 1, d, 12, 0, 0, 0);
 }
 
+const eur = (cents: number) =>
+  new Intl.NumberFormat("fr-FR", { style: "currency", currency: "EUR" }).format(cents / 100).replace(/[  ]/g, " ");
+
+/** Un retrait ne peut pas dépasser le salaire disponible (le cumul afficherait 0 € et masquerait l'écart). */
+function overAvailable(amountCents: number, availableCents: number) {
+  return amountCents > availableCents
+    ? { error: { formErrors: [], fieldErrors: { amountCents: [`Au plus ${eur(availableCents)} disponibles`] } } }
+    : null;
+}
+
 /** Salaire disponible (cumul) et retraits de l'entrepreneur (virements pro vers perso, saisis à la main). */
 export const ownerPayRoutes: FastifyPluginAsync = async (app) => {
   app.get("/api/owner-pay", async (request, reply) => {
@@ -33,6 +43,8 @@ export const ownerPayRoutes: FastifyPluginAsync = async (app) => {
     if (reply.sent) return;
     const parsed = withdrawalSchema.safeParse(request.body);
     if (!parsed.success) return reply.code(400).send({ error: parsed.error.flatten() });
+    const over = overAvailable(parsed.data.amountCents, (await getOwnerPaySummary()).availableCents);
+    if (over) return reply.code(400).send(over);
     const created = await prisma.ownerWithdrawal.create({
       data: {
         amountCents: parsed.data.amountCents,
@@ -49,6 +61,11 @@ export const ownerPayRoutes: FastifyPluginAsync = async (app) => {
     if (reply.sent) return;
     const parsed = withdrawalSchema.safeParse(request.body);
     if (!parsed.success) return reply.code(400).send({ error: parsed.error.flatten() });
+    const current = await prisma.ownerWithdrawal.findUnique({ where: { id: request.params.id } });
+    if (!current) return reply.code(404).send({ error: "Retrait introuvable" });
+    // Correction : le montant actuel du retrait redevient disponible.
+    const over = overAvailable(parsed.data.amountCents, (await getOwnerPaySummary()).availableCents + current.amountCents);
+    if (over) return reply.code(400).send(over);
     const updated = await prisma.ownerWithdrawal.updateMany({
       where: { id: request.params.id },
       data: { amountCents: parsed.data.amountCents, date: localNoon(parsed.data.date), note: parsed.data.note || null },

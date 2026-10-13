@@ -53,10 +53,20 @@ export function WithdrawalsPage() {
 
   const actions = (w: Withdrawal) => (
     <div className="flex flex-wrap justify-end gap-2">
-      <Button variant="secondary" className="px-3 text-xs" onClick={() => setDialog({ editing: w })}>
+      <Button
+        variant="secondary"
+        className="px-3 text-xs"
+        aria-label={`Corriger le retrait de ${formatEUR(w.amountCents)} du ${formatDate(w.date)}`}
+        onClick={() => setDialog({ editing: w })}
+      >
         Corriger
       </Button>
-      <Button variant="ghost" className="px-3 text-xs" onClick={() => setRemoving(w)}>
+      <Button
+        variant="ghost"
+        className="px-3 text-xs"
+        aria-label={`Supprimer le retrait de ${formatEUR(w.amountCents)} du ${formatDate(w.date)}`}
+        onClick={() => setRemoving(w)}
+      >
         Supprimer
       </Button>
     </div>

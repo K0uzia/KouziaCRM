@@ -56,6 +56,12 @@ export function WithdrawalDialog({
       setErrors({ amountCents: "Montant supérieur à 0 attendu" });
       return;
     }
+    // Plafond : le disponible (en correction, il inclut le montant actuel du retrait).
+    const limit = availableCents + (editing?.amountCents ?? 0);
+    if (cents > limit) {
+      setErrors({ amountCents: `Au plus ${formatEUR(limit)} disponibles` });
+      return;
+    }
     setBusy(true);
     try {
       const body = JSON.stringify({ amountCents: cents, date, note: note.trim() || null });
@@ -83,7 +89,7 @@ export function WithdrawalDialog({
       <form onSubmit={(e) => void submit(e)} className="space-y-4" noValidate>
         <Field
           label="Montant (€)"
-          hint={editing ? undefined : `Disponible : ${formatEUR(availableCents)}`}
+          hint={`Disponible : ${formatEUR(availableCents + (editing?.amountCents ?? 0))}`}
           error={errors.amountCents}
         >
           <Input
