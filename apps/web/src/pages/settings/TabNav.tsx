@@ -7,6 +7,7 @@ import {
   faEnvelope,
   faGavel,
   faHashtag,
+  faMobileScreenButton,
   faPalette,
   faScaleBalanced,
   faShieldHalved,
@@ -18,7 +19,7 @@ import { Select } from "@/components/ui/Field";
 const GROUPS: Array<{ label: string; ids: SettingsTabId[] }> = [
   { label: "Entreprise", ids: ["general", "identity", "declarations"] },
   { label: "Facturation", ids: ["payments", "numbering", "legal", "reminders"] },
-  { label: "Communication", ids: ["email"] },
+  { label: "Communication", ids: ["email", "notifications"] },
   { label: "Compte", ids: ["security"] },
 ];
 
@@ -31,6 +32,7 @@ const ICONS: Record<SettingsTabId, IconDefinition> = {
   legal: faGavel,
   reminders: faBell,
   email: faEnvelope,
+  notifications: faMobileScreenButton,
   security: faShieldHalved,
 };
 

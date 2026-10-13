@@ -61,6 +61,10 @@ async function main() {
 
   await app.listen({ port, host: "0.0.0.0" });
   app.log.info(`API Kouzia ERP sur :${port}`);
+  const { vapidStatus } = await import("@/lib/push/vapid.js");
+  const push = vapidStatus();
+  // Sans clés VAPID, l'ERP fonctionne : seules les notifications push sont désactivées.
+  if (!push.config) app.log.warn(`[boot] push désactivé : ${push.reason}`);
 
   try {
     await hydrateSettingsFromEnv();

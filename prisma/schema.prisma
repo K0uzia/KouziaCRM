@@ -188,6 +188,26 @@ model User {
   recoveryCodes              AdminRecoveryCode[]
   loginChallenges            AdminLoginChallenge[]
   devices                    AdminDevice[]
+  pushSubscriptions          PushSubscription[]
+}
+
+/// Abonnement aux notifications push d'un appareil (navigateur) : un par appareil, révocable.
+model PushSubscription {
+  id            String    @id @default(cuid())
+  userId        String
+  user          User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  /// URL du service push du navigateur (unique par appareil et navigateur)
+  endpoint      String    @unique
+  p256dh        String
+  auth          String
+  /// Nom affiché (ex. « Chrome sur Android »)
+  label         String
+  createdAt     DateTime  @default(now())
+  lastSuccessAt DateTime?
+  lastErrorAt   DateTime?
+  lastError     String?
+
+  @@index([userId])
 }
 
 /// Code de secours 2FA à usage unique, stocké haché (HMAC-SHA256).
@@ -296,6 +316,8 @@ model CompanySettings {
   annualFreeMonths Int @default(2)
   /// Mode de la dernière clé Stripe enregistrée (« test » ou « live ») : changement signalé
   stripeKeyMode String?
+  /// Notifications push : dernier événement de la cloche déjà envoyé (pas de doublon)
+  pushDispatchedAt DateTime?
   /// Afficher les montants sur le suivi public client
   publicTrackingShowAmounts Boolean @default(false)
   /// URL du portail client (suivi devis / factures)

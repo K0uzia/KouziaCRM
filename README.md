@@ -8,7 +8,7 @@ Hébergement cible : **Proxmox CT Alpine** (natif OpenRC) ou Ubuntu+Docker + **S
 
 ## Prérequis
 
-- Node.js 20+
+- Node.js 22+ (notifications push ; install et update s'arrêtent avant toute modification si Node est plus ancien)
 - npm
 - (Prod) Docker / Docker Compose
 

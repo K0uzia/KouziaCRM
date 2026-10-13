@@ -58,6 +58,8 @@ fi
 
 require_root
 require_cmd curl sqlite3 npm npx
+# Avant la sauvegarde, l'arrêt, le git pull et npm ci : rien ne change si Node est trop ancien.
+require_node_min
 disk_guard "$KOUZIA_APP_DIR" 400
 [[ -f "${KOUZIA_APP_DIR}/package.json" ]] || die "App introuvable dans $KOUZIA_APP_DIR (lancer install.sh d'abord)."
 

@@ -29,6 +29,7 @@ import { webhooksStripeRoutes } from "@/routes/webhooks-stripe.js";
 import { testimonialsRoutes } from "@/routes/testimonials.js";
 import { projectsRoutes } from "@/routes/projects.js";
 import { notificationsRoutes } from "@/routes/notifications.js";
+import { pushRoutes } from "@/routes/push.js";
 import { googleCalendarRoutes } from "@/routes/google-calendar.js";
 import { registerErrorHandler, setJsonSerializer } from "@/lib/http.js";
 import { ensureDefaultLegalClauses } from "@/lib/company/legal-clauses.js";
@@ -157,6 +158,7 @@ export async function buildApp(opts: BuildAppOptions = {}): Promise<FastifyInsta
   await app.register(testimonialsRoutes);
   await app.register(projectsRoutes);
   await app.register(notificationsRoutes);
+  await app.register(pushRoutes);
   await app.register(googleCalendarRoutes);
 
   // pendingMigrations > 0 : base en retard sur le code (contrôle d'après déploiement).

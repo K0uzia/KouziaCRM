@@ -6,6 +6,7 @@ import {
   faEnvelope,
   faFileInvoiceDollar,
   faRotate,
+  faUserPlus,
   faStar,
   faWallet,
   faXmark,
@@ -20,6 +21,7 @@ export const NOTIFICATION_KIND_STYLE: Record<NotificationKind, { icon: IconDefin
   payment: { icon: faWallet, tone: "bg-[var(--success-soft)] text-[var(--success)]" },
   testimonial: { icon: faStar, tone: "bg-[var(--primary-soft)] text-[var(--primary)]" },
   deposit_due: { icon: faFileInvoiceDollar, tone: "bg-[var(--warning-soft)] text-[var(--warning)]" },
+  client_onboarded: { icon: faUserPlus, tone: "bg-[var(--success-soft)] text-[var(--success)]" },
   subscription_stripe: { icon: faRotate, tone: "bg-[var(--warning-soft)] text-[var(--warning)]" },
 };
 

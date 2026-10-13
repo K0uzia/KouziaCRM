@@ -109,6 +109,7 @@ Services / data :
   mail-repair [--dry-run] [--since=AAAA-MM-JJ]   e-mails reçus classés à tort en envois
   catalog [--dry-run] [--update]   importe le catalogue des prestations (sans doublon)
   2fa-reset <email>   désactive la double authentification admin et ferme ses sessions (secours)
+  push-keys [mailto:…]   clés des notifications push, écrites dans .env si absentes (jamais remplacées)
 
 Défaut update = git pull si dépôt présent, puis npm/build si changé.
 EOF
@@ -210,6 +211,12 @@ run_cmd() {
         [[ "$a" == "--dry-run" || "$a" == "--update" ]] || die "Usage : kouziactl catalog [--dry-run] [--update]"
       done
       run_as_app "cd '$KOUZIA_APP_DIR' && npm run --silent catalog -- $*"
+      ;;
+    push-keys)
+      require_root
+      subject="${1:-mailto:contact@kouzia.com}"
+      [[ "$subject" =~ ^(mailto:|https://) ]] || die "Usage : kouziactl push-keys [mailto:adresse]"
+      run_as_app "cd '$KOUZIA_APP_DIR' && npm run --silent push:keys -- --env-file='$KOUZIA_APP_DIR/.env' --subject='$subject'"
       ;;
     2fa-reset)
       require_root

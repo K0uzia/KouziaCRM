@@ -85,11 +85,11 @@ apk add --no-cache \
 
 # Node 20+ requis
 NODE_MAJOR="$(node -p "process.versions.node.split('.')[0]" 2>/dev/null || echo 0)"
-if [[ "$NODE_MAJOR" -lt 20 ]]; then
-  warn "Node $NODE_MAJOR détecté (< 20). Tentative nodejs-current…"
-  apk add --no-cache nodejs-current npm || die "Node.js >= 20 requis. Passez Alpine 3.21+ ou installez Node manuellement."
+if [[ "$NODE_MAJOR" -lt "$KOUZIA_NODE_MIN" ]]; then
+  warn "Node $NODE_MAJOR détecté (< $KOUZIA_NODE_MIN). Tentative nodejs-current…"
+  apk add --no-cache nodejs-current npm || die "Node.js >= $KOUZIA_NODE_MIN requis. Passez Alpine 3.21+ ou installez Node manuellement."
   NODE_MAJOR="$(node -p "process.versions.node.split('.')[0]")"
-  [[ "$NODE_MAJOR" -ge 20 ]] || die "Node.js toujours < 20 après nodejs-current."
+  [[ "$NODE_MAJOR" -ge "$KOUZIA_NODE_MIN" ]] || die "Node.js toujours < $KOUZIA_NODE_MIN après nodejs-current."
 fi
 ok "Node $(node -v) / npm $(npm -v)"
 
