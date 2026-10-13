@@ -55,6 +55,14 @@ scripts/              worker IMAP
 data/                 kouziacrm.db
 ```
 
+**Migrations : écrites à la main.** Chaque changement de `schema.prisma` s'accompagne d'une migration SQL
+versionnée dans `prisma/migrations/`, additive et relue (`ALTER TABLE … ADD COLUMN`, `CREATE INDEX`,
+`UPDATE` ciblé). Ne jamais accepter les « RedefineTables » proposées par `prisma migrate dev` ou
+`migrate diff` : la base (construite par migrations) diffère du schéma sur l'ordre des colonnes, quelques
+valeurs par défaut et le type JSON (TEXT au lieu de JSONB), sans effet sur l'application, mais Prisma
+voudrait reconstruire CompanySettings, Invoice, InvoiceLine, Payment et StripeWebhookEvent. Jamais de
+`db push` sur une vraie base.
+
 ## Formulaire client public (Kouzia)
 
 Flux :
