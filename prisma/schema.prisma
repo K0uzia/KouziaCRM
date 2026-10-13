@@ -1077,7 +1077,11 @@ model Payment {
   stripePaymentIntentId String?          @unique
   /// Frais Stripe (centimes) : information, hors livre des recettes
   feeCents              Int?
-  /// Versement Stripe vers Revolut qui a inclus ce paiement
+  /// Remboursé par Stripe sur ce paiement (charge.amount_refunded, cumulé)
+  refundedCents         Int              @default(0)
+  /// En litige (charge.dispute.*) : remis à 0 si le litige est gagné
+  disputedCents         Int              @default(0)
+  /// Versement Stripe vers le compte pro qui a inclus ce paiement
   stripePayoutId        String?
   stripePayout          StripePayout?    @relation(fields: [stripePayoutId], references: [id], onDelete: SetNull)
   createdAt             DateTime         @default(now())
@@ -1102,6 +1106,8 @@ model StripePayout {
   requestedAt      DateTime?
   /// Motif de l'échec renvoyé par Stripe (payout.failed)
   failureMessage   String?
+  /// Retenues prises sur ce versement : remboursements, litiges, ajustements (somme positive)
+  deductionsCents  Int?
   createdAt        DateTime  @default(now())
   payments         Payment[]
 

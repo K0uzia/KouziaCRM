@@ -260,9 +260,9 @@ export function ReceiptsBookPage() {
                     <th>Facture</th>
                     <th>Client</th>
                     <th className="md:max-xl:hidden">Nature</th>
-                    <th className="nowrap">Règlement</th>
+                    <th className="nowrap md:max-xl:whitespace-normal!">Règlement</th>
                     <th className="nowrap text-right">Encaissé</th>
-                    <th className="nowrap text-right">Total facture</th>
+                    <th className="nowrap text-right md:max-xl:whitespace-normal!">Total facture</th>
                   </tr>
                 </thead>
                 <tbody>

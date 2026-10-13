@@ -226,12 +226,16 @@ async function handleEvent(event: Stripe.Event): Promise<string> {
       if (event.type === "payout.paid") {
         try {
           const stripe = await getStripe();
-          const txs = await stripe.balanceTransactions.list({
-            payout: payout.id,
-            type: "charge",
-            limit: 100,
-          });
-          for (const tx of txs.data) {
+          let deductionsCents = 0;
+          const chargeTxs: Stripe.BalanceTransaction[] = [];
+          for await (const tx of stripe.balanceTransactions.list({ payout: payout.id, limit: 100 })) {
+            if (tx.type === "payout") continue;
+            if (tx.type === "charge" || tx.type === "payment") chargeTxs.push(tx);
+            // Remboursements, litiges, ajustements : retenus sur le versement (montant net négatif).
+            else deductionsCents -= tx.net;
+          }
+          await prisma.stripePayout.update({ where: { id: row.id }, data: { deductionsCents } });
+          for (const tx of chargeTxs) {
             const source = typeof tx.source === "string" ? tx.source : tx.source?.id;
             if (!source) continue;
             // Charge id → PaymentIntent via charge retrieve
@@ -271,7 +275,11 @@ async function handleEvent(event: Stripe.Event): Promise<string> {
           await prisma.payment.update({
             where: { id: payment.id },
             data: {
-              notes: [payment.notes, "Remboursé Stripe"].filter(Boolean).join(" | "),
+              // Montant cumulé côté Stripe : un 2e remboursement partiel ne s'additionne pas deux fois.
+              refundedCents: charge.amount_refunded,
+              notes: payment.notes?.includes("Remboursé Stripe")
+                ? payment.notes
+                : [payment.notes, "Remboursé Stripe"].filter(Boolean).join(" | "),
             },
           });
         }
@@ -284,14 +292,28 @@ async function handleEvent(event: Stripe.Event): Promise<string> {
     }
     case "charge.dispute.created": {
       const dispute = event.data.object as Stripe.Dispute;
+      await setDisputedCents(dispute, dispute.amount);
       await alertAdmin(
         "Litige Stripe",
         `Un litige a été ouvert (${dispute.id}) pour ${formatEUR(dispute.amount)}. Motif : ${dispute.reason}.`,
       );
       break;
     }
+    case "charge.dispute.closed": {
+      // Litige gagné : l'argent revient ; perdu : il reste retenu.
+      const dispute = event.data.object as Stripe.Dispute;
+      await setDisputedCents(dispute, dispute.status === "won" ? 0 : dispute.amount);
+      break;
+    }
     default:
       break;
   }
   return event.type;
+}
+
+/** Montant en litige sur le paiement du PaymentIntent du litige. */
+async function setDisputedCents(dispute: Stripe.Dispute, cents: number): Promise<void> {
+  const piId = typeof dispute.payment_intent === "string" ? dispute.payment_intent : dispute.payment_intent?.id;
+  if (!piId) return;
+  await prisma.payment.updateMany({ where: { stripePaymentIntentId: piId }, data: { disputedCents: cents } });
 }

@@ -23,6 +23,7 @@ import { useFeatures } from "@/lib/features";
 import { PayoutDialog } from "@/components/payouts/PayoutDialog";
 import { WithdrawalDialog } from "@/components/finance/WithdrawalDialog";
 import type { MonthlyFlow } from "@/components/dashboard/FlowsChart";
+import type { FluxMonth } from "@/pages/StripePayoutsPage";
 import { useMediaQuery } from "@/lib/use-media-query";
 
 type OwnerPay = { availableCents: number; paidThisMonthCents: number; flows: MonthlyFlow[] };
@@ -33,6 +34,7 @@ import { StatStrip } from "@/components/ui/StatStrip";
 
 const RevenueChart = lazy(() => import("@/components/dashboard/RevenueChart"));
 const FlowsChart = lazy(() => import("@/components/dashboard/FlowsChart"));
+const StripePathChart = lazy(() => import("@/components/dashboard/StripePathChart"));
 
 type Scope = "week" | "month" | "year";
 
@@ -178,6 +180,9 @@ export function DashboardPage() {
   const [threads, setThreads] = useState<ThreadRow[] | null>(null);
   const [payoutOpen, setPayoutOpen] = useState(false);
   const [withdrawalOpen, setWithdrawalOpen] = useState(false);
+  // Graphique des flux : salaire et provisions, ou chemin de l'argent encaissé par Stripe.
+  const [flowView, setFlowView] = useState<"salary" | "stripe">("salary");
+  const [stripeFlux, setStripeFlux] = useState<FluxMonth[] | null>(null);
   const [ownerPay, setOwnerPay] = useState<OwnerPay | null>(null);
   // Téléphone : 6 derniers mois, lisibles sans défilement horizontal.
   const wideChart = useMediaQuery("(min-width: 640px)");
@@ -237,6 +242,17 @@ export function DashboardPage() {
       cancelled = true;
     };
   }, [url]);
+
+  useEffect(() => {
+    if (flowView !== "stripe") return;
+    let cancelled = false;
+    api<{ series: FluxMonth[] }>("/api/stripe/flux")
+      .then((f) => !cancelled && setStripeFlux(f.series))
+      .catch(() => !cancelled && setStripeFlux([]));
+    return () => {
+      cancelled = true;
+    };
+  }, [flowView, liveTick]);
 
   // Salaire disponible (cumul) et flux mensuels : indépendants de la portée choisie.
   useEffect(() => {
@@ -439,12 +455,44 @@ export function DashboardPage() {
           {ownerPay && ownerPay.flows.length > 0 ? (
             <Card className="min-w-0 overflow-hidden">
               <SectionTitle>Flux par mois</SectionTitle>
+              {moduleStripeEnabled ? (
+                <div className="px-5 pb-2 sm:px-6">
+                  <Segmented
+                    label="Vue du graphique des flux"
+                    options={[
+                      { id: "salary", label: "Salaire et provisions" },
+                      { id: "stripe", label: "Chemin Stripe" },
+                    ]}
+                    value={flowView}
+                    onChange={setFlowView}
+                  />
+                </div>
+              ) : null}
               <p className="px-5 text-sm text-[var(--muted)] sm:px-6">
-                Encaissé au-dessus, provisions et retraits en dessous ; la courbe suit le salaire disponible cumulé.
+                {flowView === "stripe" ? (
+                  <>
+                    Encaissé par Stripe et en direct au-dessus ; frais, retenues et argent encore chez Stripe en
+                    dessous ; la courbe suit ce qui arrive sur le compte pro.{" "}
+                    {/* Souligné : dans une phrase, un lien ne se distingue pas par la seule couleur. */}
+                    <Link to="/flux-stripe" className="link underline! underline-offset-2">
+                      Rapprochement détaillé
+                    </Link>
+                  </>
+                ) : (
+                  "Encaissé au-dessus, provisions et retraits en dessous ; la courbe suit le salaire disponible cumulé."
+                )}
               </p>
               <div className="h-80 p-3 sm:p-5">
                 <Suspense fallback={<div className="h-full animate-pulse rounded-[var(--radius-sm)] bg-[var(--surface-hover)]" />}>
-                  <FlowsChart flows={ownerPay.flows.slice(wideChart ? -12 : -6)} />
+                  {flowView === "stripe" ? (
+                    stripeFlux ? (
+                      <StripePathChart months={stripeFlux.slice(wideChart ? -12 : -6)} />
+                    ) : (
+                      <div className="h-full animate-pulse rounded-[var(--radius-sm)] bg-[var(--surface-hover)]" />
+                    )
+                  ) : (
+                    <FlowsChart flows={ownerPay.flows.slice(wideChart ? -12 : -6)} />
+                  )}
                 </Suspense>
               </div>
             </Card>

@@ -72,9 +72,9 @@ const NAV_ITEMS: Array<{
     feature: "moduleSubscriptionsEnabled",
   },
   {
-    label: "Versements Stripe",
-    to: "/versements",
-    keywords: "stripe banque virements finances frais",
+    label: "Flux Stripe",
+    to: "/flux-stripe",
+    keywords: "stripe banque virements versements rapprochement frais finances",
     feature: "moduleStripeEnabled",
   },
   { label: "Démarches à faire", to: "/obligations", keywords: "urssaf cfe finances" },

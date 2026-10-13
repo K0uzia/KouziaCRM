@@ -4,6 +4,7 @@ import { z } from "zod";
 import { prisma } from "@/lib/prisma.js";
 import { createManualPayout, getPayoutPreview, PayoutError } from "@/lib/stripe/payouts.js";
 import { StripeConfigError } from "@/lib/stripe/client.js";
+import { getStripeFlux } from "@/lib/finance/stripe-flux.js";
 
 const payoutSchema = z.object({
   amountCents: z.number().int().positive(),
@@ -23,6 +24,17 @@ function payoutFailure(reply: { code: (n: number) => { send: (b: unknown) => unk
  * les encaissements Stripe et la banque (remplace le rapprochement Revolut Business).
  */
 export const stripePayoutsRoutes: FastifyPluginAsync = async (app) => {
+  // Flux Stripe : rapprochement du mois (encaissé, frais, versé, en attente, retenues) et des versements.
+  app.get("/api/stripe/flux", async (request, reply) => {
+    await requireAuth(request, reply);
+    if (reply.sent) return;
+    const parsed = z
+      .object({ month: z.string().regex(/^\d{4}-\d{2}$/,"Mois attendu (AAAA-MM)").optional() })
+      .safeParse(request.query);
+    if (!parsed.success) return reply.code(400).send({ error: parsed.error.flatten() });
+    return getStripeFlux(parsed.data.month);
+  });
+
   // Fenêtre « Verser » : solde disponible, compte de destination, délai.
   app.get("/api/stripe/payouts/preview", async (request, reply) => {
     await requireAuth(request, reply);
