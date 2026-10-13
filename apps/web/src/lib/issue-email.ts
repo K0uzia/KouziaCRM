@@ -21,6 +21,8 @@ export function buildIssueEmailDraft(
   const label = kind === "QUOTE" ? "devis" : "facture";
   const firstName = doc.client.displayName.trim().split(/\s+/)[0] || "";
   const subs = (doc.lines ?? []).filter((l) => l.isSubscription);
+  // Devis d'abonnement seul : rien n'est facturé par le devis lui-même.
+  const subscriptionOnly = kind === "QUOTE" && subs.length > 0 && subs.length === (doc.lines ?? []).length;
 
   const lines: string[] = [
     firstName ? `Bonjour ${firstName},` : "Bonjour,",
@@ -32,18 +34,26 @@ export function buildIssueEmailDraft(
   if (subs.length > 0) {
     const yearly = (s: (typeof subs)[number]) => s.billingInterval === "YEAR";
     const kindLabel = subs.every(yearly) ? "annuel" : subs.some(yearly) ? "" : "mensuel";
-    lines.push(`Ce document inclut un engagement d'abonnement${kindLabel ? ` ${kindLabel}` : ""} :`);
+    lines.push(
+      subscriptionOnly
+        ? `Ce devis porte sur un abonnement${kindLabel ? ` ${kindLabel}` : ""}, sans acompte :`
+        : `Ce document inclut un engagement d'abonnement${kindLabel ? ` ${kindLabel}` : ""} :`,
+    );
     lines.push("");
     for (const s of subs) {
       const day = s.billingDay ? ` le ${s.billingDay}` : "";
       const when = yearly(s) ? "chaque année à la date anniversaire" : `chaque mois${day}`;
       lines.push(
-        `- ${s.description} : ${formatEUR(s.unitPriceCents)} facturés ${when}. La 1re échéance est incluse dans ce document.`,
+        subscriptionOnly
+          ? `- ${s.description} : ${formatEUR(s.unitPriceCents)} facturés ${yearly(s) ? "chaque année" : "chaque mois"} à partir de la signature, sans acompte.`
+          : `- ${s.description} : ${formatEUR(s.unitPriceCents)} facturés ${when}. La 1re échéance est incluse dans ce document.`,
       );
     }
     lines.push("");
     lines.push(
-      "Les échéances suivantes feront l'objet de factures séparées, envoyées automatiquement.",
+      subscriptionOnly
+        ? "Après votre signature, chaque échéance fera l'objet d'une facture, envoyée automatiquement."
+        : "Les échéances suivantes feront l'objet de factures séparées, envoyées automatiquement.",
     );
     lines.push("");
   }

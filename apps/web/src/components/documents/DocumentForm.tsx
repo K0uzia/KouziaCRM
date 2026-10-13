@@ -63,6 +63,9 @@ type ServiceOpt = {
   billingInterval?: string | null;
 };
 
+const DEPOSIT_TERMS = "Acompte à la validation du devis, solde à la livraison (voir l'échéancier).";
+const SUBSCRIPTION_TERMS = "Abonnement sans acompte : chaque échéance est facturée, par prélèvement ou à réception de la facture.";
+
 const emptyLine = (): DocLine => ({
   description: "",
   quantity: "1",
@@ -97,7 +100,7 @@ export function DocumentFormEditor({
     paymentTerms:
       initial?.paymentTerms ??
       (documentType === "QUOTE"
-        ? "Acompte à la validation du devis, solde à la livraison (voir l'échéancier)."
+        ? DEPOSIT_TERMS
         : "Paiement à réception."),
     serviceDate: initial?.serviceDate ?? "",
     purchaseOrderRef: initial?.purchaseOrderRef ?? "",
@@ -273,6 +276,14 @@ export function DocumentFormEditor({
   // Devis d'abonnement seul : ni acompte ni échéancier, l'abonnement facture chaque période.
   const filledLines = form.lines.filter((l) => l.description.trim() || l.serviceId);
   const subscriptionOnly = documentType === "QUOTE" && filledLines.length > 0 && filledLines.every((l) => l.isSubscription);
+  // Conditions par défaut : suivent la nature du devis tant qu'elles n'ont pas été modifiées.
+  useEffect(() => {
+    setForm((f) => {
+      if (subscriptionOnly && f.paymentTerms === DEPOSIT_TERMS) return { ...f, paymentTerms: SUBSCRIPTION_TERMS };
+      if (!subscriptionOnly && f.paymentTerms === SUBSCRIPTION_TERMS) return { ...f, paymentTerms: DEPOSIT_TERMS };
+      return f;
+    });
+  }, [subscriptionOnly]);
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();

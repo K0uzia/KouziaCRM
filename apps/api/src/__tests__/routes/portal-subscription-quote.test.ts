@@ -93,7 +93,7 @@ describe("espace client : devis d'abonnement seul", () => {
       requiresDeposit: false,
       depositPaid: true,
       canAcceptQuote: true,
-      subscriptionBilling: { interval: "YEAR", amountCents: 12000 },
+      subscriptionBilling: { interval: "YEAR", amountCents: 12000, directDebit: true },
     });
     expect(doc.paymentPlans).toBeUndefined();
 

@@ -12,6 +12,7 @@ import {
   describePlans,
   parsePaymentPlan,
   parsePaymentPlanOffer,
+  isSubscriptionOnly,
   type PlanSettings,
 } from "@/lib/quotes/payment-plans.js";
 
@@ -115,6 +116,7 @@ export function buildInvoicePdfPayload({
           }))
         : null,
     paymentPlanRetained: isQuote && offer && retained ? PLAN_TITLE[retained] : null,
+    subscriptionOnly: isQuote && (offer === "NONE" || isSubscriptionOnly(invoice.lines)),
     balanceSummary: balanceSummary ?? null,
     milestones: invoice.milestones.map((m) => ({
       label: m.label,

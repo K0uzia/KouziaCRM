@@ -982,10 +982,9 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
                         </div>
                         {l.isSubscription ? (
                           <p className="mt-1 max-w-xl text-xs text-[var(--muted)]">
-                            {l.billingInterval === "YEAR"
-                              ? "Facturé chaque année à la date anniversaire."
-                              : `Facturé le ${l.billingDay ?? "…"} de chaque mois.`}{" "}
-                            Ce document inclut la 1re échéance.
+                            {subscriptionQuote
+                              ? `Facturé chaque ${l.billingInterval === "YEAR" ? "année" : "mois"} à partir de la signature, sans acompte.`
+                              : `${l.billingInterval === "YEAR" ? "Facturé chaque année à la date anniversaire." : `Facturé le ${l.billingDay ?? "…"} de chaque mois.`} Ce document inclut la 1re échéance.`}
                           </p>
                         ) : null}
                       </td>

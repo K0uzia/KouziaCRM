@@ -434,6 +434,8 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
                     ? {
                         subscriptionBilling: {
                           interval: d.lines.some((l) => l.billingInterval === "YEAR") ? "YEAR" : "MONTH",
+                          // Prélèvement Stripe : la 1re échéance est prélevée à sa mise en place. Sinon, facture.
+                          directDebit: settings.moduleStripeEnabled,
                           ...(showAmounts ? { amountCents: d.totalCents } : {}),
                         },
                       }
