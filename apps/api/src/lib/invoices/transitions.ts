@@ -99,7 +99,8 @@ export async function issueInvoiceWithin(
       dueDate: dueDate ?? issueDate,
       issuedAt: new Date(),
       clientSnapshot: snapshot as unknown as Prisma.InputJsonValue,
-      nextReminderAt: addDays(dueDate ?? issueDate, settings.reminderInvoiceDays),
+      // Facture miroir d'une échéance Stripe : Stripe retente et l'ERP écrit sur échec, pas de relance.
+      nextReminderAt: invoice.stripeInvoiceId ? null : addDays(dueDate ?? issueDate, settings.reminderInvoiceDays),
     },
     include: { lines: true, client: true, payments: true },
   });

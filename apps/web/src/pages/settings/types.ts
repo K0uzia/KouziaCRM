@@ -27,6 +27,7 @@ export type PublicSettings = {
   placementRateBps: number;
   reminderQuoteDays: number;
   reminderInvoiceDays: number;
+  nonRenewalNoticeDays: number;
   publicTrackingShowAmounts: boolean;
   reviewInviteEnabled: boolean;
   googleReviewUrl: string | null;

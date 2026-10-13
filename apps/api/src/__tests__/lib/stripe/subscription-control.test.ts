@@ -137,7 +137,7 @@ describe("Stripe vers ERP : résiliation, impayés, pause", () => {
   it("résiliation dans Stripe : Clôturé, changement noté et notifié", async () => {
     const sub = await stripeSub();
     const since = new Date(Date.now() - 1000);
-    const change = await syncSubscriptionFromStripe(stripeEvent(sub, { status: "canceled", ended_at: 1_800_000_000 }));
+    const { change } = (await syncSubscriptionFromStripe(stripeEvent(sub, { status: "canceled", ended_at: 1_800_000_000 })))!;
     expect(change).toMatchObject({ to: SubscriptionStatus.ENDED, reason: "résiliation faite dans Stripe", clientName: "Lou Martin" });
     const after = await prisma.subscription.findUniqueOrThrow({ where: { id: sub.id } });
     expect(after).toMatchObject({ status: SubscriptionStatus.ENDED, stripeStatusChange: "ENDED" });
@@ -145,23 +145,67 @@ describe("Stripe vers ERP : résiliation, impayés, pause", () => {
     expect(feed.find((n) => n.kind === "subscription_stripe")?.title).toBe("Abonnement clôturé depuis Stripe");
   });
 
-  it("impayés après relances : Clôturé avec le bon motif", async () => {
+  it("impayé après relances (unpaid) : Suspendu, pas clôturé, signalé une seule fois", async () => {
     const sub = await stripeSub();
-    const change = await syncSubscriptionFromStripe(stripeEvent(sub, { status: "unpaid" }));
-    expect(change?.reason).toBe("prélèvements impayés après les relances Stripe");
+    const first = await syncSubscriptionFromStripe(stripeEvent(sub, { status: "unpaid" }));
+    expect(first).toMatchObject({ becameUnpaid: true, change: { to: SubscriptionStatus.PAUSED } });
+    expect(first?.change?.reason).toContain("suspendu jusqu'au paiement");
+    expect(await prisma.subscription.findUniqueOrThrow({ where: { id: sub.id } })).toMatchObject({
+      status: SubscriptionStatus.PAUSED,
+      stripeStatus: "unpaid",
+    });
+    const again = await syncSubscriptionFromStripe(stripeEvent(sub, { status: "unpaid" }));
+    expect(again).toMatchObject({ becameUnpaid: false, change: null });
+    const paid = await syncSubscriptionFromStripe(stripeEvent(sub, { status: "active" }));
+    expect(paid?.change).toMatchObject({ from: SubscriptionStatus.PAUSED, to: SubscriptionStatus.ACTIVE });
+  });
+
+  it("annulé pour impayés : Clôturé avec le bon motif", async () => {
+    const sub = await stripeSub();
+    const result = await syncSubscriptionFromStripe(
+      stripeEvent(sub, { status: "canceled", cancellation_details: { reason: "payment_failed" } as Stripe.Subscription.CancellationDetails }),
+    );
+    expect(result?.change?.reason).toBe("prélèvements impayés après les relances Stripe");
+  });
+
+  it("en retard (past_due) : reste actif, état Stripe gardé pour le badge", async () => {
+    const sub = await stripeSub();
+    expect((await syncSubscriptionFromStripe(stripeEvent(sub, { status: "past_due" })))?.change).toBeNull();
+    expect(await prisma.subscription.findUniqueOrThrow({ where: { id: sub.id } })).toMatchObject({
+      status: SubscriptionStatus.ACTIVE,
+      stripeStatus: "past_due",
+    });
+  });
+
+  it("résiliation programmée dans le portail puis annulée : notée une fois chacune", async () => {
+    const sub = await stripeSub();
+    const end = 1_800_000_000;
+    const scheduled = await syncSubscriptionFromStripe(
+      stripeEvent(sub, {
+        cancel_at_period_end: true,
+        items: { data: [{ current_period_end: end, price: { unit_amount: 2_900, recurring: { interval: "month" } } }] },
+      } as unknown as Partial<Stripe.Subscription>),
+    );
+    expect(scheduled).toMatchObject({ cancelScheduledAt: new Date(end * 1000), cancelRevoked: false, change: null });
+    expect((await prisma.subscription.findUniqueOrThrow({ where: { id: sub.id } })).stripeCancelAt).toEqual(new Date(end * 1000));
+    const repeat = await syncSubscriptionFromStripe(stripeEvent(sub, { cancel_at: end }));
+    expect(repeat?.cancelScheduledAt).toBeNull();
+    const revoked = await syncSubscriptionFromStripe(stripeEvent(sub, {}));
+    expect(revoked).toMatchObject({ cancelScheduledAt: null, cancelRevoked: true });
+    expect((await prisma.subscription.findUniqueOrThrow({ where: { id: sub.id } })).stripeCancelAt).toBeNull();
   });
 
   it("pause dans Stripe (statut active + pause_collection) : Suspendu", async () => {
     const sub = await stripeSub();
-    const change = await syncSubscriptionFromStripe(
+    const result = await syncSubscriptionFromStripe(
       stripeEvent(sub, { pause_collection: { behavior: "void" } as Stripe.Subscription.PauseCollection }),
     );
-    expect(change?.to).toBe(SubscriptionStatus.PAUSED);
+    expect(result?.change?.to).toBe(SubscriptionStatus.PAUSED);
   });
 
   it("action lancée depuis l'ERP : le webhook qui suit ne notifie pas", async () => {
     const sub = await stripeSub(SubscriptionStatus.ENDED);
-    expect(await syncSubscriptionFromStripe(stripeEvent(sub, { status: "canceled" }))).toBeNull();
+    expect((await syncSubscriptionFromStripe(stripeEvent(sub, { status: "canceled" })))?.change).toBeNull();
   });
 
   it("un abonnement clôturé n'est pas rouvert par un événement Stripe tardif", async () => {

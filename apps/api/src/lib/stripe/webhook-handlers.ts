@@ -15,6 +15,13 @@ import {
   syncSubscriptionFromStripe,
 } from "@/lib/stripe/billing.js";
 import {
+  handleStripeActionRequired,
+  handleStripeInvoiceUncollectible,
+  handleStripePaymentFailed,
+  notifyStripePaymentRecovered,
+  notifySubscriptionSync,
+} from "@/lib/subscriptions/dunning.js";
+import {
   markMilestoneFailedFromStripe,
   markPaidFromOnlinePayment,
 } from "@/lib/stripe/mark-paid.js";
@@ -167,27 +174,36 @@ async function handleEvent(event: Stripe.Event): Promise<string> {
     case "invoice.paid": {
       const invoice = event.data.object as Stripe.Invoice;
       if (isZeroAmountInvoice(invoice)) return `${event.type}:ignoré (0 €)`;
-      if (isSubscriptionInvoice(invoice)) await handleStripeInvoicePaid(invoice);
+      if (!isSubscriptionInvoice(invoice)) break;
+      await handleStripeInvoicePaid(invoice);
+      const erp = invoice.id ? await prisma.invoice.findUnique({ where: { stripeInvoiceId: invoice.id } }) : null;
+      if (erp && (await notifyStripePaymentRecovered(erp.id))) return `${event.type}:régularisation signalée`;
       break;
     }
     case "invoice.payment_failed": {
       const invoice = event.data.object as Stripe.Invoice;
-      await alertAdmin(
-        "Échec de prélèvement Stripe",
-        `La facture Stripe ${invoice.id} a échoué (montant ${formatEUR(invoice.amount_due)}). Stripe retentera automatiquement.`,
-      );
-      break;
+      if (isZeroAmountInvoice(invoice) || !isSubscriptionInvoice(invoice)) {
+        await alertAdmin(
+          "Échec de prélèvement Stripe",
+          `La facture Stripe ${invoice.id} a échoué (montant ${formatEUR(invoice.amount_due)}).`,
+        );
+        break;
+      }
+      return `${event.type}:${await handleStripePaymentFailed(invoice)}`;
+    }
+    case "invoice.payment_action_required": {
+      const invoice = event.data.object as Stripe.Invoice;
+      if (isZeroAmountInvoice(invoice) || !isSubscriptionInvoice(invoice)) break;
+      return `${event.type}:${await handleStripeActionRequired(invoice)}`;
+    }
+    case "invoice.marked_uncollectible": {
+      const invoice = event.data.object as Stripe.Invoice;
+      return `${event.type}:${await handleStripeInvoiceUncollectible(invoice)}`;
     }
     case "customer.subscription.updated":
     case "customer.subscription.deleted": {
-      const change = await syncSubscriptionFromStripe(event.data.object as Stripe.Subscription);
-      if (change) {
-        const state = change.to === "ENDED" ? "clôturé" : change.to === "PAUSED" ? "suspendu" : "repris";
-        await alertAdmin(
-          `Abonnement ${state} depuis Stripe : ${change.clientName}`,
-          `L'abonnement « ${change.label} » de ${change.clientName} est passé à « ${state} » dans l'ERP (${change.reason}). Aucune action n'a été faite depuis l'ERP : vérifiez la situation avec le client.`,
-        );
-      }
+      const result = await syncSubscriptionFromStripe(event.data.object as Stripe.Subscription);
+      if (result) await notifySubscriptionSync(result);
       break;
     }
     case "product.created":

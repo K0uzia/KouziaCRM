@@ -323,6 +323,7 @@ export const settingsRoutes: FastifyPluginAsync = async (app) => {
     const schema = z.object({
       reminderQuoteDays: z.number().int().min(1).max(90).optional(),
       reminderInvoiceDays: z.number().int().min(1).max(90).optional(),
+      nonRenewalNoticeDays: z.number().int().min(1).max(60).optional(),
       reminderDepositMinus7Days: z.number().int().min(1).max(60).optional(),
       reminderDepositMinus1Days: z.number().int().min(1).max(14).optional(),
       reminderDepositPlus3Days: z.number().int().min(1).max(60).optional(),

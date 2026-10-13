@@ -25,6 +25,8 @@ export type EmailLayoutOptions = {
   /** Lien de paiement : la ligne du texte qui le contient devient un bouton. */
   paymentUrl?: string | null;
   paymentLabel?: string;
+  /** Paragraphe du texte (identique) rendu dans un encadré apparent : date limite légale, par exemple. */
+  callout?: string | null;
 };
 
 const FONT = "'Exo 2','Segoe UI',Arial,Helvetica,sans-serif";
@@ -55,11 +57,18 @@ function button(url: string, label: string, primary: string): string {
 }
 
 /** Texte brut → paragraphes HTML (ligne vide = nouveau paragraphe, retour simple = <br>). */
-function textToHtml(text: string, opts: { paymentUrl?: string | null; paymentLabel: string; primary: string; secondary: string }) {
+function textToHtml(
+  text: string,
+  opts: { paymentUrl?: string | null; paymentLabel: string; primary: string; secondary: string; callout?: string | null },
+) {
   const pay = opts.paymentUrl?.trim();
+  const callout = opts.callout?.trim();
   const blocks = text.replace(/\r\n/g, "\n").trim().split(/\n{2,}/);
   return blocks
     .map((block) => {
+      if (callout && block.trim() === callout) {
+        return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:4px 0 18px;"><tr><td style="padding:14px 18px;border:2px solid ${opts.primary};border-radius:8px;background:#fff8ec;font-family:${FONT};font-size:16px;font-weight:700;line-height:1.5;color:#1f2433;">${escapeHtml(callout)}</td></tr></table>`;
+      }
       const lines = block.split("\n");
       const parts: string[] = [];
       let buffer: string[] = [];
@@ -95,6 +104,7 @@ export function renderEmailHtml(opts: EmailLayoutOptions): string {
     paymentLabel: opts.paymentLabel ?? "Payer en ligne",
     primary,
     secondary,
+    callout: opts.callout,
   });
   const footer = [
     opts.brand.legalName,
@@ -104,8 +114,11 @@ export function renderEmailHtml(opts: EmailLayoutOptions): string {
     .filter((s) => s.trim())
     .map(escapeHtml)
     .join(" · ");
-  const site = opts.brand.website?.trim()
-    ? `<br><a href="${escapeHtml(opts.brand.website.trim())}" style="color:#5b6478;">${escapeHtml(opts.brand.website.trim().replace(/^https?:\/\//, ""))}</a>`
+  // Site saisi sans schéma (« kouzia.com ») : lien absolu, sinon relatif et cassé dans le client mail.
+  const website = opts.brand.website?.trim();
+  const siteHref = website ? (/^https?:\/\//i.test(website) ? website : `https://${website}`) : "";
+  const site = website
+    ? `<br><a href="${escapeHtml(siteHref)}" style="color:#5b6478;">${escapeHtml(website.replace(/^https?:\/\//i, ""))}</a>`
     : "";
 
   return `<!doctype html>

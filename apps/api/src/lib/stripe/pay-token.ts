@@ -8,7 +8,7 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 
 const DEFAULT_TTL_SECONDS = 60 * 60 * 24 * 365; // 1 an
 
-export type PayTokenKind = "invoice" | "milestone" | "subscribe";
+export type PayTokenKind = "invoice" | "milestone" | "subscribe" | "manage" | "card";
 
 type TokenPayload = { kind: PayTokenKind; id: string; exp: number };
 
@@ -30,7 +30,11 @@ function decodePayload(body: string): TokenPayload | null {
     const parsed = JSON.parse(Buffer.from(body, "base64url").toString("utf8")) as TokenPayload;
     if (
       parsed &&
-      (parsed.kind === "invoice" || parsed.kind === "milestone" || parsed.kind === "subscribe") &&
+      (parsed.kind === "invoice" ||
+        parsed.kind === "milestone" ||
+        parsed.kind === "subscribe" ||
+        parsed.kind === "manage" ||
+        parsed.kind === "card") &&
       typeof parsed.id === "string" &&
       typeof parsed.exp === "number"
     ) {

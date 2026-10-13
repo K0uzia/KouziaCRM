@@ -25,6 +25,13 @@ export function formatEUR(cents: number): string {
     .replace(/[  ]/g, " ");
 }
 
+/** Date longue en français, « 1er » pour le premier du mois : « 1er décembre 2026 ». */
+export function formatLongDate(d: Date): string {
+  return d
+    .toLocaleDateString("fr-FR", { day: "numeric", month: "long", year: "numeric" })
+    .replace(/^1 /, "1er ");
+}
+
 export function lineTotalCents(quantity: number | string, unitPriceCents: number): number {
   return new Decimal(quantity)
     .mul(unitPriceCents)

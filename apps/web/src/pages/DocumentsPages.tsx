@@ -70,6 +70,8 @@ type Doc = {
   quoteId?: string | null;
   sourceQuoteId?: string | null;
   checkoutUrl?: string | null;
+  /** Échéance Stripe marquée non recouvrable dans Stripe : reste émise et impayée, sans relance. */
+  stripeUncollectibleAt?: string | null;
   quote?: { id: string; number: string | null } | null;
   subtotalCents?: number;
   totalCents: number;
@@ -191,7 +193,10 @@ function DocumentsListPage({
         </div>
         <div className="mt-2 flex items-center justify-between gap-3">
           <span className="line-clamp-2 min-w-0 break-words text-sm">{d.client.displayName}</span>
-          <Badge tone={statusTone(st)}>{labels[st] ?? st}</Badge>
+          <span className="flex flex-wrap justify-end gap-1">
+            <Badge tone={statusTone(st)}>{labels[st] ?? st}</Badge>
+            {d.stripeUncollectibleAt ? <Badge tone="red">Non recouvrable</Badge> : null}
+          </span>
         </div>
         <p className="mt-1 text-xs text-[var(--muted)]">{formatDate(d.issueDate)}</p>
       </Link>
@@ -250,7 +255,12 @@ function DocumentsListPage({
       width: "9rem",
       cell: (d) => {
         const st = displayStatus(d, isQuote);
-        return <Badge tone={statusTone(st)}>{labels[st] ?? st}</Badge>;
+        return (
+          <span className="flex flex-col items-start gap-1 py-1">
+            <Badge tone={statusTone(st)}>{labels[st] ?? st}</Badge>
+            {d.stripeUncollectibleAt ? <Badge tone="red">Non recouvrable</Badge> : null}
+          </span>
+        );
       },
     },
     {
@@ -854,6 +864,7 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
               {doc.client.displayName}
             </Link>
             <Badge tone={statusTone(st)}>{labels[st] ?? st}</Badge>
+            {doc.stripeUncollectibleAt ? <Badge tone="red">Non recouvrable (Stripe)</Badge> : null}
             {doc.invoiceType && doc.invoiceType !== "SIMPLE" ? (
               <InvoiceTypeBadge type={doc.invoiceType} />
             ) : null}
