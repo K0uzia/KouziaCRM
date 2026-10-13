@@ -110,12 +110,16 @@ describe("PDF archivé des factures et avoirs émis", () => {
     const tampered = await issuedDocumentPdf(draft.id);
     expect(tampered!.toString("latin1").endsWith("x")).toBe(true);
     expect(alertAdmin.mock.calls.at(-1)![0]).toContain("PDF archivé à vérifier");
+    // Rechargements : pas d'alerte de plus dans les 24 h.
+    await issuedDocumentPdf(draft.id);
+    await issuedDocumentPdf(draft.id);
+    expect(alertAdmin).toHaveBeenCalledTimes(1);
 
     await fs.rm(abs);
     const rerendered = await issuedDocumentPdf(draft.id);
     expect(rerendered!.subarray(0, 4).toString()).toBe("%PDF");
     expect((await prisma.invoice.findUniqueOrThrow({ where: { id: draft.id } })).pdfPath).toBe(row.pdfPath);
-    expect(alertAdmin).toHaveBeenCalledTimes(2);
+    expect(alertAdmin).toHaveBeenCalledTimes(1);
   });
 
   it("rattrapage : les émis sans PDF sont archivés, une seule fois", async () => {

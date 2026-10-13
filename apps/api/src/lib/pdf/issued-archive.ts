@@ -66,7 +66,14 @@ async function readArchived(state: ArchiveState): Promise<Buffer | null> {
   }
 }
 
+/** Une alerte par document et par 24 h : un client qui recharge son PDF ne multiplie pas les e-mails. */
+const ALERT_EVERY_MS = 24 * 60 * 60 * 1000;
+const lastAlertAt = new Map<string, number>();
+
 async function alertArchiveProblem(state: ArchiveState, problem: string): Promise<void> {
+  const now = Date.now();
+  if (now - (lastAlertAt.get(state.id) ?? 0) < ALERT_EVERY_MS) return;
+  lastAlertAt.set(state.id, now);
   try {
     const { alertAdmin } = await import("@/lib/stripe/alert.js");
     await alertAdmin(
