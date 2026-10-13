@@ -164,3 +164,7 @@ function shutdown(signal: string) {
     .finally(() => process.exit(0));
 }
 for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"] as const) process.once(signal, () => shutdown(signal));
+// Une tâche planifiée qui rejette sans gestionnaire ne doit pas arrêter le worker : journal seulement.
+process.on("unhandledRejection", (reason) => {
+  console.error("[worker] promesse rejetée non gérée (le worker continue)", reason);
+});

@@ -188,8 +188,8 @@ run_cmd() {
       require_cmd npx
       require_root
       stop_app_stack
-      if run_as_app "cd '$KOUZIA_APP_DIR' && npx prisma migrate deploy"; then
-        ok "migrate deploy OK"
+      if run_as_app "cd '$KOUZIA_APP_DIR' && npx prisma migrate deploy && npx prisma generate"; then
+        ok "migrate deploy + prisma generate OK"
       else
         die "migrate deploy échoué"
       fi
