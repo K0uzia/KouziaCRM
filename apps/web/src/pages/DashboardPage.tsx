@@ -108,6 +108,7 @@ type CfeObligation = { label: string; dueDate: string; amountCents: number | nul
 
 type ObligationsSummary = {
   summary: { late: number; urgent: number; open: number; upcoming: number; pending: number };
+  alerts?: Array<{ kind: string; message: string }>;
   nextDue: { label: string; displayStatus: string; daysLate: number | null; daysRemaining: number | null } | null;
 };
 
@@ -387,9 +388,22 @@ export function DashboardPage() {
 
   const unreadThreads = (threads ?? []).filter((t) => (t.unreadCount ?? 0) > 0).length;
 
+  const companyEmailAlert = obligations?.alerts?.find((a) => a.kind === "company-email");
+
   return (
     <div>
       {header}
+      {companyEmailAlert ? (
+        <div
+          role="alert"
+          className="mb-6 flex flex-col gap-2 rounded-[var(--radius)] border border-[var(--warning)] bg-[var(--warning-soft)] px-4 py-3 text-sm text-[var(--text)] sm:flex-row sm:items-center sm:justify-between"
+        >
+          <p>{companyEmailAlert.message}</p>
+          <ButtonLink to="/settings?tab=general&section=contact" variant="secondary" className="shrink-0">
+            Renseigner l&apos;e-mail
+          </ButtonLink>
+        </div>
+      ) : null}
       {quickActions}
 
       <StatStrip
