@@ -20,6 +20,7 @@ import { publicRoutes } from "@/routes/public.js";
 import { obligationsRoutes } from "@/routes/obligations.js";
 import { legalClausesRoutes } from "@/routes/legal-clauses.js";
 import { miscRoutes } from "@/routes/misc.js";
+import { ownerPayRoutes } from "@/routes/owner-pay.js";
 import { settingsRoutes } from "@/routes/settings.js";
 import { numberingRoutes } from "@/routes/numbering.js";
 import { quotesMarketRoutes } from "@/routes/quotes-market.js";
@@ -148,6 +149,7 @@ export async function buildApp(opts: BuildAppOptions = {}): Promise<FastifyInsta
   await app.register(obligationsRoutes);
   await app.register(legalClausesRoutes);
   await app.register(miscRoutes);
+  await app.register(ownerPayRoutes);
   await app.register(settingsRoutes);
   await app.register(numberingRoutes);
   await app.register(quotesMarketRoutes);

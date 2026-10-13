@@ -65,6 +65,8 @@ export function StatStrip({ items, className = "" }: { items: StatItem[]; classN
                 // Lien étiré : son ::after couvre toute la case, la structure dt/dd reste valide.
                 <Link
                   to={s.to}
+                  // Nom complet : le montant seul ne dit pas où mène le lien.
+                  aria-label={typeof s.value === "string" ? `${s.label} : ${s.value}` : undefined}
                   className="after:absolute after:inset-0 after:content-[''] focus-visible:outline-none focus-visible:after:rounded-[inherit] focus-visible:after:outline focus-visible:after:outline-2 focus-visible:after:outline-[var(--primary)]"
                 >
                   {s.value}

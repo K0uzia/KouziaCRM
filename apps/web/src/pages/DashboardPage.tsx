@@ -21,12 +21,18 @@ import { formatAgoMinutes, formatDate, MAIL_SYNC_STALE_MIN, minutesSince } from 
 import { useAuth } from "@/lib/auth";
 import { useFeatures } from "@/lib/features";
 import { PayoutDialog } from "@/components/payouts/PayoutDialog";
+import { WithdrawalDialog } from "@/components/finance/WithdrawalDialog";
+import type { MonthlyFlow } from "@/components/dashboard/FlowsChart";
+import { useMediaQuery } from "@/lib/use-media-query";
+
+type OwnerPay = { availableCents: number; paidThisMonthCents: number; flows: MonthlyFlow[] };
 import { Button, ButtonLink } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { Segmented } from "@/components/ui/Segmented";
 import { StatStrip } from "@/components/ui/StatStrip";
 
 const RevenueChart = lazy(() => import("@/components/dashboard/RevenueChart"));
+const FlowsChart = lazy(() => import("@/components/dashboard/FlowsChart"));
 
 type Scope = "week" | "month" | "year";
 
@@ -140,8 +146,9 @@ function TodoRow({
         <FontAwesomeIcon icon={icon} className="h-3.5 w-3.5" aria-hidden />
       </span>
       <div className="min-w-0 flex-1">
-        <div className="truncate text-sm font-medium">{title}</div>
-        {detail ? <div className="truncate text-xs text-[var(--muted)]">{detail}</div> : null}
+        {/* Le texte passe à la ligne : un montant ne doit jamais être masqué par une coupure. */}
+        <div className="break-words text-sm font-medium">{title}</div>
+        {detail ? <div className="break-words text-xs text-[var(--muted)]">{detail}</div> : null}
       </div>
       {action ? <div className="shrink-0">{action}</div> : null}
     </li>
@@ -170,6 +177,10 @@ export function DashboardPage() {
   const [remindersRunBusy, setRemindersRunBusy] = useState(false);
   const [threads, setThreads] = useState<ThreadRow[] | null>(null);
   const [payoutOpen, setPayoutOpen] = useState(false);
+  const [withdrawalOpen, setWithdrawalOpen] = useState(false);
+  const [ownerPay, setOwnerPay] = useState<OwnerPay | null>(null);
+  // Téléphone : 6 derniers mois, lisibles sans défilement horizontal.
+  const wideChart = useMediaQuery("(min-width: 640px)");
   const { moduleStripeEnabled } = useFeatures();
   const [liveTick, setLiveTick] = useState(0);
   useLiveRefresh(() => setLiveTick((t) => t + 1));
@@ -226,6 +237,17 @@ export function DashboardPage() {
       cancelled = true;
     };
   }, [url]);
+
+  // Salaire disponible (cumul) et flux mensuels : indépendants de la portée choisie.
+  useEffect(() => {
+    let cancelled = false;
+    api<OwnerPay>("/api/owner-pay")
+      .then((p) => !cancelled && setOwnerPay(p))
+      .catch(() => !cancelled && setOwnerPay(null));
+    return () => {
+      cancelled = true;
+    };
+  }, [liveTick]);
 
   async function runAllReminders() {
     setRemindersRunBusy(true);
@@ -366,6 +388,7 @@ export function DashboardPage() {
           },
           {
             label: "URSSAF provisionnée",
+            shortLabel: "URSSAF",
             value: formatEUR(cf.urssafCents),
             hint: echeanceDue ? `${formatEUR(data.echeance.amountDueCents)} dus le ${formatDate(data.echeance.deadline)}` : "à jour",
             to: "/urssaf",
@@ -381,16 +404,29 @@ export function DashboardPage() {
             hint: "provision frais et placements",
           },
           { label: "Reste net", value: formatEUR(cf.resteNetCents), hint: "après URSSAF et provisions", tone: "success" },
-          { label: "Salaire disponible", value: formatEUR(cf.resteNetCents), hint: "versable ce mois-ci", tone: "success" },
+          {
+            label: "Salaire disponible",
+            value: formatEUR(ownerPay?.availableCents ?? 0),
+            hint: `déjà retiré ${formatEUR(ownerPay?.paidThisMonthCents ?? 0)} ce mois-ci`,
+            tone: "success",
+            to: "/retraits",
+          },
         ]}
       />
-      {moduleStripeEnabled ? (
-        <div className="mt-3 flex justify-end">
+      <div className="mt-3 flex flex-wrap justify-end gap-2">
+        {moduleStripeEnabled ? (
           <Button variant="secondary" onClick={() => setPayoutOpen(true)}>
             Verser sur mon compte
           </Button>
-        </div>
-      ) : null}
+        ) : null}
+        <Button onClick={() => setWithdrawalOpen(true)}>Enregistrer un retrait</Button>
+      </div>
+      <WithdrawalDialog
+        open={withdrawalOpen}
+        availableCents={ownerPay?.availableCents ?? 0}
+        onClose={() => setWithdrawalOpen(false)}
+        onDone={() => setLiveTick((t) => t + 1)}
+      />
       <PayoutDialog
         open={payoutOpen}
         onClose={() => setPayoutOpen(false)}
@@ -400,6 +436,19 @@ export function DashboardPage() {
 
       <div className="mt-6 grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1fr)_24rem]">
         <div className="min-w-0 space-y-6">
+          {ownerPay && ownerPay.flows.length > 0 ? (
+            <Card className="min-w-0 overflow-hidden">
+              <SectionTitle>Flux par mois</SectionTitle>
+              <p className="px-5 text-sm text-[var(--muted)] sm:px-6">
+                Encaissé au-dessus, provisions et retraits en dessous ; la courbe suit le salaire disponible cumulé.
+              </p>
+              <div className="h-80 p-3 sm:p-5">
+                <Suspense fallback={<div className="h-full animate-pulse rounded-[var(--radius-sm)] bg-[var(--surface-hover)]" />}>
+                  <FlowsChart flows={ownerPay.flows.slice(wideChart ? -12 : -6)} />
+                </Suspense>
+              </div>
+            </Card>
+          ) : null}
           <Card className="min-w-0 overflow-hidden">
             <SectionTitle>Répartition des encaissements</SectionTitle>
             <div className="h-72 p-3 sm:p-5">

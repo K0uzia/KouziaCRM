@@ -10,6 +10,7 @@ import {
   faGear,
   faLandmark,
   faMoneyBillTransfer,
+  faHandHoldingDollar,
   faRotate,
   faUsers,
   faWallet,
@@ -79,6 +80,7 @@ export const NAV_SECTIONS: NavSection[] = [
     items: [
       { id: "receipts", to: "/receipts", label: "Livre de recettes", shortLabel: "Recettes", icon: faBook, match: starts("/receipts") },
       { id: "urssaf", to: "/urssaf", label: "URSSAF", icon: faLandmark, match: starts("/urssaf") },
+      { id: "withdrawals", to: "/retraits", label: "Retraits", icon: faHandHoldingDollar, match: starts("/retraits") },
       {
         id: "payouts",
         to: "/versements",

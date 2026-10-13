@@ -50,10 +50,10 @@ export type EcheanceCardData = {
   /** Prochaine date de paiement */
   nextPaymentDate: string;
   nextPeriodLabel: string;
-  /** Période de déclaration précédente (M-2 / T-2) */
-  priorPeriod: PriorPeriodStatus;
-  /** Trimestre civil précédent  -  payé ou non */
-  previousQuarter: PriorPeriodStatus;
+  /** Période de déclaration précédente (M-2 / T-2) ; null si elle précède le début d'activité */
+  priorPeriod: PriorPeriodStatus | null;
+  /** Trimestre civil précédent, payé ou non ; null s'il précède le début d'activité */
+  previousQuarter: PriorPeriodStatus | null;
   /**
    * Période en cours (pas encore déclarable) : encaissements à ce jour et cotisations estimées.
    * L'échéance ci-dessus porte sur la période close précédente ; sans ce bloc, un mois à 0 €
@@ -186,8 +186,13 @@ export async function getDashboardSnapshot(
       ? sumEncaisseCents(clippedDecl.start, clippedDecl.end)
       : Promise.resolve(0),
     prisma.urssafDeclaration.findUnique({ where: { periodKey: declPeriod.periodKey } }),
-    loadPeriodPaidStatus(priorDecl.periodKey, priorDecl.label),
-    loadQuarterPaidStatus(prevQ.year, prevQ.quarter),
+    // Période entièrement antérieure au début d'activité : rien à déclarer, pas de statut.
+    clipPeriodToActivity(priorDecl.periodStart, priorDecl.periodEnd, company.businessStartDate)
+      ? loadPeriodPaidStatus(priorDecl.periodKey, priorDecl.label)
+      : Promise.resolve(null),
+    clipPeriodToActivity(prevQ.start, prevQ.end, company.businessStartDate)
+      ? loadQuarterPaidStatus(prevQ.year, prevQ.quarter)
+      : Promise.resolve(null),
     prisma.invoice.findMany({
       where: { status: InvoiceStatus.ISSUED, documentType: "INVOICE" },
       include: { payments: true, client: { select: { displayName: true } } },
