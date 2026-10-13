@@ -88,6 +88,16 @@ export const settingsRoutes: FastifyPluginAsync = async (app) => {
       decennalePolicyNumber: z.string().max(80).optional().nullable(),
       decennaleCoverageZone: z.string().max(200).optional().nullable(),
       publicTrackingShowAmounts: z.boolean().optional(),
+      reviewInviteEnabled: z.boolean().optional(),
+      googleReviewUrl: z
+        .string()
+        .trim()
+        .max(300)
+        .refine((v) => v === "" || (z.string().url().safeParse(v).success && v.startsWith("https://")), {
+          message: "Le lien d'avis doit être une adresse https://",
+        })
+        .optional()
+        .nullable(),
       clientPortalUrl: z.string().url().optional().nullable().or(z.literal("")),
       inpiUrl: z.string().optional().nullable(),
     });

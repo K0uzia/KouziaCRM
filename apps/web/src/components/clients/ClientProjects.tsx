@@ -4,6 +4,7 @@ import { faPlus, faTrash } from "@fortawesome/free-solid-svg-icons";
 import { toast } from "sonner";
 import { Link, useSearchParams } from "react-router-dom";
 import { api } from "@/lib/api";
+import { formatDate } from "@/lib/format";
 import { Button } from "@/components/ui/Button";
 import { Badge, Card } from "@/components/ui/Card";
 import { Modal, ModalActions } from "@/components/ui/Modal";
@@ -34,6 +35,8 @@ type Project = ProjectForm & {
   id: string;
   quoteId: string | null;
   startedAt: string | null;
+  /** Invitation à laisser un avis envoyée au passage à « Terminé » (une fois par projet). */
+  reviewInviteSentAt: string | null;
   /** Devis d'origine accepté en 3 fois : étape du 2e acompte (verrouillée une fois exigible). */
   deposit2: { locked: boolean; missingStep: boolean } | null;
 };
@@ -114,12 +117,17 @@ export function ClientProjects({ clientId }: { clientId: string }) {
     setBusy(true);
     try {
       const body = JSON.stringify(cleanForm(editing.form));
+      let message = "Projet enregistré";
       if (editing.id) {
-        await api(`/api/projects/${editing.id}`, { method: "PUT", body });
+        const before = projects.find((p) => p.id === editing.id);
+        const saved = await api<Project>(`/api/projects/${editing.id}`, { method: "PUT", body });
+        if (saved.reviewInviteSentAt && !before?.reviewInviteSentAt) {
+          message = "Projet enregistré. Invitation à laisser un avis envoyée au client.";
+        }
       } else {
         await api(`/api/clients/${clientId}/projects`, { method: "POST", body });
       }
-      toast.success("Projet enregistré");
+      toast.success(message);
       setEditing(null);
       await load();
     } catch (err) {
@@ -189,11 +197,12 @@ export function ClientProjects({ clientId }: { clientId: string }) {
                 <p className="mt-1 text-xs text-[var(--muted)]">
                   {p.progress} % · {p.steps.length} étape{p.steps.length > 1 ? "s" : ""} ·{" "}
                   {p.checklist.filter((c) => c.done).length}/{p.checklist.length} check-list
+                  {p.reviewInviteSentAt ? ` · avis demandé le ${formatDate(p.reviewInviteSentAt)}` : ""}
                 </p>
               </div>
               <Button
                 variant="secondary"
-                className="h-8 min-h-8 px-3 text-xs"
+                className="px-3 text-xs"
                 onClick={() => setEditing({ id: p.id, form: { ...EMPTY_FORM, ...p } })}
               >
                 Modifier

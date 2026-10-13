@@ -172,7 +172,7 @@ function brandedHtml(
 }
 
 /** E-mails automatiques : partent de l'expéditeur transactionnel (noreply@) s'il est réglé. */
-const TRANSACTIONAL_KINDS = new Set(["portal_code", "portal_alert", "onboarding", "access", "admin_alert"]);
+const TRANSACTIONAL_KINDS = new Set(["portal_code", "portal_alert", "onboarding", "access", "admin_alert", "review_invite"]);
 
 /** Refus de l'adresse d'expédition par le serveur SMTP (alias non autorisé à l'envoi, etc.). */
 function isSenderRejected(err: unknown): boolean {

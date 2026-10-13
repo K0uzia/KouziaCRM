@@ -1,6 +1,7 @@
 import { MilestoneStatus, type ClientProject } from "@prisma/client";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma.js";
+import { sendReviewInviteOnDone } from "@/lib/projects/review-invite.js";
 
 const httpsUrl = z
   .string()
@@ -94,6 +95,7 @@ export function serializeProject(p: ClientProject) {
     quoteId: p.quoteId,
     status: p.status,
     startedAt: p.startedAt,
+    reviewInviteSentAt: p.reviewInviteSentAt,
     createdAt: p.createdAt,
     updatedAt: p.updatedAt,
   };
@@ -209,6 +211,14 @@ export async function updateClientProject(id: string, input: ProjectInput) {
   if (!existing) throw new ProjectError("Projet introuvable", 404);
   await applyDepositTrigger(existing.quoteId, parseList(existing.steps, stepSchema), input.steps);
   const updated = await prisma.clientProject.update({ where: { id }, data: toData(input) });
+  if (existing.status !== "DONE" && updated.status === "DONE") {
+    // L'invitation ne bloque jamais l'enregistrement du projet.
+    const sent = await sendReviewInviteOnDone(id).catch((err) => {
+      console.error(`[projets] invitation à laisser un avis : ${id}`, err);
+      return false;
+    });
+    if (sent) return serializeAdminProject((await prisma.clientProject.findUnique({ where: { id } })) ?? updated);
+  }
   return serializeAdminProject(updated);
 }
 

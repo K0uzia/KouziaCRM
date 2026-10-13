@@ -28,6 +28,8 @@ export type PublicSettings = {
   reminderQuoteDays: number;
   reminderInvoiceDays: number;
   publicTrackingShowAmounts: boolean;
+  reviewInviteEnabled: boolean;
+  googleReviewUrl: string | null;
   clientPortalUrl: string | null;
   businessStartDate: string | null;
   rneRegistrationDate: string | null;

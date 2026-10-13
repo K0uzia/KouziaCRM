@@ -332,6 +332,8 @@ export function SettingsPage() {
       decennalePolicyNumber: form.decennalePolicyNumber,
       decennaleCoverageZone: form.decennaleCoverageZone,
       publicTrackingShowAmounts: form.publicTrackingShowAmounts,
+      reviewInviteEnabled: form.reviewInviteEnabled,
+      googleReviewUrl: form.googleReviewUrl,
       clientPortalUrl: form.clientPortalUrl,
       inpiUrl: form.inpiUrl,
     });
@@ -866,6 +868,30 @@ export function SettingsPage() {
                       }
                     />
                   </Field>
+                  <fieldset className="space-y-3 sm:col-span-2">
+                    <legend className="mb-1 text-sm font-semibold">Avis Google</legend>
+                    <label className="flex min-h-11 items-center gap-2 text-sm">
+                      <input
+                        type="checkbox"
+                        checked={form.reviewInviteEnabled}
+                        onChange={(e) => setForm({ ...form, reviewInviteEnabled: e.target.checked })}
+                      />
+                      Inviter le client à laisser un avis quand son projet est livré
+                    </label>
+                    <Field
+                      label="Lien vers le formulaire d'avis"
+                      hint="Envoyé par e-mail (depuis l'adresse noreply) au passage d'un projet à « Terminé », une seule fois par projet, et proposé dans l'espace client."
+                    >
+                      <Input
+                        type="url"
+                        inputMode="url"
+                        placeholder="https://g.page/r/.../review"
+                        value={form.googleReviewUrl ?? ""}
+                        disabled={!form.reviewInviteEnabled}
+                        onChange={(e) => setForm({ ...form, googleReviewUrl: e.target.value || null })}
+                      />
+                    </Field>
+                  </fieldset>
                 </div>
               ) : null}
 
