@@ -77,6 +77,7 @@ export async function importSiteFiles(raw: Record<SiteFileName, string>, now = n
           url: r.url,
           linkLabel: r.lien,
           imagePath: r.image,
+          imageMobilePath: r.imageMobile ?? null,
         },
       }),
     ),

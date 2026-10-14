@@ -51,6 +51,7 @@ const projectInput = z.strictObject({
   url: httpsUrl.refine((u) => !CODE_HOSTS.test(u), "Lien vers du code source interdit (charte)"),
   linkLabel: siteText.max(40),
   imagePath,
+  imageMobilePath: imagePath.nullish(),
   status,
 });
 
@@ -233,6 +234,7 @@ export const siteRoutes: FastifyPluginAsync = async (app) => {
     url: d.url,
     linkLabel: d.linkLabel,
     imagePath: d.imagePath,
+    imageMobilePath: d.imageMobilePath ?? null,
     ...(d.status ? { status: d.status } : {}),
   });
 
@@ -461,7 +463,7 @@ export const siteRoutes: FastifyPluginAsync = async (app) => {
     "/api/site/media",
     admin(async (request, reply) => {
       const kind = z.enum(SiteMediaKind).safeParse((request.query as { kind?: string }).kind);
-      if (!kind.success) return reply.code(400).send({ error: "Type d'image attendu : CAPTURE ou LOGO" });
+      if (!kind.success) return reply.code(400).send({ error: "Type d'image attendu : CAPTURE, MOBILE ou LOGO" });
       if (!(await loadSharp())) {
         return reply.code(503).send({ error: "Envoi d'images indisponible : sharp n'est pas installé sur ce serveur." });
       }

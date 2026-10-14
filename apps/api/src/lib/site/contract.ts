@@ -60,6 +60,7 @@ export const realisationValue = z.strictObject({
   url: projectUrl,
   lien: siteText,
   image: imagePath,
+  imageMobile: imagePath.optional(),
 });
 
 export const avisValue = z.strictObject({ auteur: siteText, publieLe: z.iso.date(), texte: siteText });

@@ -1491,31 +1491,34 @@ enum SiteFaqPage {
 
 enum SiteMediaKind {
   CAPTURE
+  MOBILE
   LOGO
 }
 
 /// Réalisation (realisations.json)
 model SiteProject {
-  id          String          @id @default(cuid())
+  id              String          @id @default(cuid())
   /// Identifiant publié, stable : le code du site y fait référence.
-  slug        String          @unique
-  position    Int             @default(0)
-  status      SiteItemStatus  @default(DRAFT)
-  name        String
-  subtitle    String?
-  kind        SiteProjectKind
-  text        String
-  role        String?
+  slug            String          @unique
+  position        Int             @default(0)
+  status          SiteItemStatus  @default(DRAFT)
+  name            String
+  subtitle        String?
+  kind            SiteProjectKind
+  text            String
+  role            String?
   /// Tableau JSON de technologies
-  techJson    String?
+  techJson        String?
   /// Lien vers le site ou la démo (https), jamais vers le code source
-  url         String
-  linkLabel   String
+  url             String
+  linkLabel       String
   /// Chemin publié : /projets/<nom>.webp (repris du site) ou /media/<sha12>.webp (SiteMedia)
-  imagePath   String
-  createdAt   DateTime        @default(now())
-  updatedAt   DateTime        @updatedAt
-  publishedAt DateTime?
+  imagePath       String
+  /// Capture de téléphone facultative (imageMobile), même forme de chemin que imagePath
+  imageMobilePath String?
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+  publishedAt     DateTime?
 
   @@index([status, position])
 }

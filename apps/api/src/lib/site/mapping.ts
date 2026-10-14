@@ -59,6 +59,8 @@ export function projectOut(p: SiteProject): z.input<typeof realisationValue> {
     url: p.url,
     lien: p.linkLabel,
     image: p.imagePath,
+    // Clé absente (et non undefined) sans capture : un contrat du site antérieur à imageMobile la refuserait.
+    ...(p.imageMobilePath ? { imageMobile: p.imageMobilePath } : {}),
   };
 }
 

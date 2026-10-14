@@ -104,6 +104,9 @@ describe("espace Site : réalisations", () => {
     expect(created.statusCode).toBe(201);
     expect(created.json()).toMatchObject({ slug: "atelier", status: "DRAFT", tech: ["Astro"] });
     expect((await call("POST", "/api/site/projects", project)).statusCode).toBe(409);
+    const mobile = await call("PUT", `/api/site/projects/${created.json().id}`, { ...project, imageMobilePath: "/media/0123456789ab.webp" });
+    expect(mobile.json()).toMatchObject({ imageMobilePath: "/media/0123456789ab.webp" });
+    expect((await call("PUT", `/api/site/projects/${created.json().id}`, project)).json()).toMatchObject({ imageMobilePath: null });
 
     for (const bad of [
       { url: "http://atelier.example.fr/" },
@@ -111,6 +114,7 @@ describe("espace Site : réalisations", () => {
       { text: "Site \u2014 vitrine" },
       { slug: "Atelier Bois" },
       { imagePath: "https://cdn.example.fr/a.webp" },
+      { imageMobilePath: "/media/capture.png" },
       { horaires: "9 h" },
     ]) {
       const res = await call("POST", "/api/site/projects", { ...project, slug: "autre", ...bad });
