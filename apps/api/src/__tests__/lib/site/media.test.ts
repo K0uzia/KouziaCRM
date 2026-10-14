@@ -66,6 +66,32 @@ describe("images de l'espace Site", () => {
     expect(media).toMatchObject({ width: 200, height: 75, width2x: 400, height2x: 150 });
   });
 
+  it("capture de téléphone : 390×844 et 780×1688, recadrée par le haut (le bas d'une page longue est coupé)", async () => {
+    // Page longue : 3000 px rouges en haut, puis du bleu. Un recadrage centré ferait apparaître le bleu en bas.
+    const red = { r: 200, g: 20, b: 20 };
+    const input = await sharp({ create: { width: 1170, height: 4000, channels: 3, background: { r: 20, g: 20, b: 200 } } })
+      .composite([{ input: { create: { width: 1170, height: 3000, channels: 3, background: red } }, top: 0, left: 0 }])
+      .png()
+      .toBuffer();
+    const media = await saveSiteImage(input, SiteMediaKind.MOBILE);
+    expect(media).toMatchObject({ kind: "MOBILE", width: 390, height: 844, width2x: 780, height2x: 1688 });
+    expect(media.bytes2x!).toBeLessThanOrEqual(150_000);
+    const out = await readSiteMedia(media.sha12, true);
+    const { data, info } = await sharp(out!).raw().toBuffer({ resolveWithObject: true });
+    const pixel = (y: number) => [...data.subarray((y * info.width + 10) * info.channels, (y * info.width + 10) * info.channels + 3)];
+    for (const y of [0, info.height - 1]) {
+      const [r, , b] = pixel(y);
+      expect(r, `ligne ${y}`).toBeGreaterThan(150);
+      expect(b, `ligne ${y}`).toBeLessThan(60);
+    }
+  });
+
+  it("capture de téléphone : 1x seule sous 780 px de large ; refusée sous 390×844", async () => {
+    const media = await saveSiteImage(await phonePhoto(500, 1100, 41), SiteMediaKind.MOBILE);
+    expect(media).toMatchObject({ width: 390, height: 844, width2x: null });
+    await expect(saveSiteImage(await phonePhoto(360, 800), SiteMediaKind.MOBILE)).rejects.toMatchObject({ code: "TOO_SMALL" });
+  });
+
   it("refuse un fichier qui n'est pas une image, ou un SVG", async () => {
     await expect(saveSiteImage(Buffer.from("pas une image"), SiteMediaKind.LOGO)).rejects.toBeInstanceOf(SiteMediaError);
     const svg = Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" width="400" height="200"><script>alert(1)</script></svg>');

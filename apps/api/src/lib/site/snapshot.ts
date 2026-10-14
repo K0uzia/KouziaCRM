@@ -77,7 +77,7 @@ export async function buildSiteSnapshot(contract?: unknown): Promise<SiteSnapsho
     }
   }
 
-  const cited = [...projects.map((p) => p.imagePath), ...references.map((r) => r.logoPath ?? "")]
+  const cited = [...projects.flatMap((p) => [p.imagePath, p.imageMobilePath ?? ""]), ...references.map((r) => r.logoPath ?? "")]
     .map((p) => MEDIA_RE.exec(p)?.[1])
     .filter((s): s is string => Boolean(s));
   const media = [...new Set(cited)].sort();

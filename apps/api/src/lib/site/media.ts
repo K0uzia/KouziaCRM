@@ -14,10 +14,15 @@ import { issuedPdfAbsolutePath } from "@/lib/pdf/issued-archive.js";
 export const SITE_MEDIA_DIR = "site";
 export const SITE_MEDIA_MAX_INPUT_BYTES = 15 * 1024 * 1024;
 
-type Variant = { width: number; height?: number; maxBytes: number };
+type Variant = { width: number; height?: number; maxBytes: number; position?: "attention" | "top" };
 const VARIANTS: Record<SiteMediaKind, { x1: Variant; x2: Variant }> = {
   // Capture 16:9, affichée en 960×540 sur le site.
   CAPTURE: { x1: { width: 960, height: 540, maxBytes: 150_000 }, x2: { width: 1920, height: 1080, maxBytes: 300_000 } },
+  // Capture de téléphone 9:19,5, recadrée par le haut : le haut de page reste, le bas d'une page plus longue est coupé.
+  MOBILE: {
+    x1: { width: 390, height: 844, maxBytes: 150_000, position: "top" },
+    x2: { width: 780, height: 1688, maxBytes: 150_000, position: "top" },
+  },
   LOGO: { x1: { width: 200, maxBytes: 30_000 }, x2: { width: 400, maxBytes: 60_000 } },
 };
 const QUALITIES = [80, 72, 64, 56, 48];
@@ -90,7 +95,7 @@ export async function normalizeSiteImage(
         .rotate()
         .resize(
           v.height
-            ? { width: v.width, height: v.height, fit: "cover", position: "attention" }
+            ? { width: v.width, height: v.height, fit: "cover", position: v.position ?? "attention" }
             : { width: v.width, fit: "inside", withoutEnlargement: true },
         )
         .webp({ quality, effort: 4 })

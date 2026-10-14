@@ -61,6 +61,20 @@ describe("import puis instantané", () => {
     expect((await buildSiteSnapshot()).digest).toBe(snap.digest);
   });
 
+  it("capture de téléphone facultative (imageMobile) : reprise à l'identique ; image inconnue bloquante", async () => {
+    const files = parsed();
+    files.realisations.realisations[0].imageMobile = "/media/0123456789ab.webp";
+    const withMobile = { ...raw, realisations: serializeSiteFile(files.realisations) };
+    await importSiteFiles(withMobile);
+    expect((await prisma.siteProject.findFirstOrThrow({ where: { slug: files.realisations.realisations[0].id } })).imageMobilePath).toBe(
+      "/media/0123456789ab.webp",
+    );
+    const snap = await buildSiteSnapshot(contract);
+    expect(snap.files.realisations).toBe(withMobile.realisations);
+    expect(snap.media).toEqual(["0123456789ab"]);
+    expect(snap.issues.map((i) => i.message)).toContain("Image introuvable dans l'ERP");
+  });
+
   it("une seule fois, sur un espace Site vide", async () => {
     await importSiteFiles(raw);
     await expect(importSiteFiles(raw)).rejects.toMatchObject({ code: "NOT_EMPTY" });
