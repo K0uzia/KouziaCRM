@@ -1,12 +1,13 @@
 import type { z } from "zod";
 import { prisma } from "@/lib/prisma.js";
-import { accrocheValue, infosValue, offresValue } from "@/lib/site/contract.js";
+import { accrocheValue, avisMethodeValue, infosValue, offresValue } from "@/lib/site/contract.js";
 
-/** Documents uniques de l'espace Site (table SiteText) : coordonnées, accroche, offres. */
+/** Documents uniques de l'espace Site (table SiteText) : coordonnées, accroche, offres, méthode des avis. */
 export const SITE_TEXT_SCHEMAS = {
   infos: infosValue,
   accroche: accrocheValue,
   offres: offresValue,
+  avisMethode: avisMethodeValue,
 } as const;
 
 export type SiteTextKey = keyof typeof SITE_TEXT_SCHEMAS;

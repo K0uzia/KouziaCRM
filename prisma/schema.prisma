@@ -642,6 +642,7 @@ model UrssafDeclaration {
 
 model Client {
   id                    String                 @id @default(cuid())
+  siteReviews           SiteReview[]
   /// Numéro public CLI-0001
   clientNumber          String?                @unique
   type                  ClientType
@@ -915,6 +916,7 @@ model Subscription {
 
 model Invoice {
   id                           String                 @id @default(cuid())
+  siteReviews                  SiteReview[]
   /// Numéro légal (documentNumber) : null en brouillon, unique et immuable une fois émis
   number                       String?                @unique
   documentType                 InvoiceDocumentType    @default(INVOICE)
@@ -1541,6 +1543,15 @@ model SiteReview {
   /// Preuve de l'accord (extrait du message), chiffrée
   consentProofEncrypted String?
   withdrawalRequestedAt DateTime?
+  /// Date de l'expérience de consommation (AAAA-MM-JJ), publiée près de l'avis (D111-17 du Code de la consommation)
+  experienceOn          String?
+  /// Preuve de la relation client (jamais publiée) : client, et facture si connue
+  clientId              String?
+  client                Client?        @relation(fields: [clientId], references: [id], onDelete: SetNull)
+  invoiceId             String?
+  invoice               Invoice?       @relation(fields: [invoiceId], references: [id], onDelete: SetNull)
+  /// Texte retouché (orthographe, coupe) avec l'accord écrit de l'auteur ; sinon texte exact
+  alteredWithConsent    Boolean        @default(false)
   createdAt             DateTime       @default(now())
   updatedAt             DateTime       @updatedAt
   publishedAt           DateTime?
@@ -1569,6 +1580,9 @@ model SiteReference {
   authorizationScope   SiteAuthorizationScope?
   /// Personne qui a donné l'accord (nom, e-mail), chiffrée
   contactEncrypted     String?
+  /// Emplacements du logo sur le site : bandeau de l'accueil, page Réalisations
+  onHome               Boolean                 @default(true)
+  onProjects           Boolean                 @default(false)
   createdAt            DateTime                @default(now())
   updatedAt            DateTime                @updatedAt
   publishedAt          DateTime?

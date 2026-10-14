@@ -42,6 +42,10 @@ export type SiteReview = SiteItem & {
   consentChannel: string | null;
   consentProof: string | null;
   withdrawalRequestedAt: string | null;
+  experienceOn: string | null;
+  clientId: string | null;
+  invoiceId: string | null;
+  alteredWithConsent: boolean;
 };
 
 export type SiteReferenceType = "CLIENT" | "PARTNER" | "USER";
@@ -61,6 +65,8 @@ export type SiteReference = SiteItem & {
   authorizationChannel: string | null;
   authorizationScope: SiteAuthorizationScope | null;
   contact: string | null;
+  onHome: boolean;
+  onProjects: boolean;
 };
 
 export type SiteFaqPage = "HOME" | "WEBSITES" | "SOFTWARE";
@@ -297,7 +303,7 @@ type UploadedMedia = { path: string; width: number; height: number; width2x: num
 const KIND_HINT: Record<MediaKind, string> = {
   CAPTURE: "Capture d'écran d'ordinateur : recadrée en 16:9, 960×540 px au moins (1920×1080 pour les écrans haute densité).",
   MOBILE: "Capture de téléphone : 390×844 px au moins (780×1688 conseillé), recadrée par le haut.",
-  LOGO: "Logo : 200 px de large au moins, PNG transparent de préférence.",
+  LOGO: "Logo : SVG ou PNG transparent, 200 px de large au moins. Converti en WebP, fond transparent conservé.",
 };
 const KIND_FRAME: Record<MediaKind, string> = {
   CAPTURE: "aspect-video w-full max-w-xs",
@@ -394,7 +400,7 @@ export function ImageField({
         <input
           ref={input}
           type="file"
-          accept="image/jpeg,image/png,image/webp,image/avif"
+          accept={kind === "LOGO" ? "image/svg+xml,image/png,image/webp,image/jpeg,image/avif" : "image/jpeg,image/png,image/webp,image/avif"}
           className="sr-only"
           tabIndex={-1}
           aria-hidden
@@ -454,6 +460,43 @@ export function ImageField({
         </p>
       ) : null}
     </fieldset>
+  );
+}
+
+/** Case à cocher au thème, cible de 44 px (libellé cliquable), aide reliée. */
+export function Checkbox({
+  label,
+  hint,
+  checked,
+  onChange,
+}: {
+  label: string;
+  hint?: string;
+  checked: boolean;
+  onChange: (checked: boolean) => void;
+}) {
+  const id = useId();
+  return (
+    <div className="flex items-start gap-3">
+      <input
+        id={id}
+        type="checkbox"
+        checked={checked}
+        onChange={(e) => onChange(e.target.checked)}
+        aria-describedby={hint ? `${id}-aide` : undefined}
+        className="mt-3 h-5 w-5 shrink-0 accent-[var(--primary)]"
+      />
+      <div className="min-w-0">
+        <label htmlFor={id} className="flex min-h-11 cursor-pointer items-center text-sm font-medium">
+          {label}
+        </label>
+        {hint ? (
+          <p id={`${id}-aide`} className="-mt-1.5 text-xs text-[var(--muted)]">
+            {hint}
+          </p>
+        ) : null}
+      </div>
+    </div>
   );
 }
 

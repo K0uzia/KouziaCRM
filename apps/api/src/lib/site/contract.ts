@@ -24,7 +24,7 @@ const projectUrl = httpsUrl.refine((u) => !CODE_HOSTS.test(u), "Lien vers du cod
 
 export const slug = z.string().regex(/^[a-z0-9]+(-[a-z0-9]+)*$/, "Identifiant : minuscules, chiffres et tirets");
 export const imagePath = z.string().regex(/^\/(projets|media)\/[a-z0-9-]+\.webp$/);
-const logoPath = z.string().regex(/^\/media\/[a-z0-9-]+\.(webp|svg)$/);
+const logoPath = z.string().regex(/^\/media\/[a-z0-9-]+\.webp$/);
 
 const file = <T extends z.ZodRawShape>(shape: T) =>
   z.strictObject({ schemaVersion: z.literal(SITE_SCHEMA_VERSION), ...shape });
@@ -63,7 +63,16 @@ export const realisationValue = z.strictObject({
   imageMobile: imagePath.optional(),
 });
 
-export const avisValue = z.strictObject({ auteur: siteText, publieLe: z.iso.date(), texte: siteText });
+export const avisValue = z.strictObject({
+  auteur: siteText,
+  publieLe: z.iso.date(),
+  /** Date de l'expérience de consommation, affichée près de l'avis (D111-17). */
+  experienceLe: z.iso.date().optional(),
+  texte: siteText,
+});
+
+/** « Comment les avis sont recueillis et vérifiés » (L111-7-2 et D111-17/18 du Code de la consommation). */
+export const avisMethodeValue = z.strictObject({ titre: siteText.max(120), texte: siteText.max(4000) });
 
 export const referenceValue = z
   .strictObject({
@@ -72,6 +81,13 @@ export const referenceValue = z
     nom: siteText,
     logo: logoPath.optional(),
     url: httpsUrl.optional(),
+    /** accueil : bandeau « Ils m'ont fait confiance » ; realisations : sous les exemples de réalisations. */
+    emplacements: z
+      .array(z.enum(["accueil", "realisations"]))
+      .min(1)
+      .refine((l) => new Set(l).size === l.length, "Emplacement en double")
+      .optional(),
+    realisation: slug.optional(),
     produit: z.string().optional(),
     temoignage: z.strictObject({ texte: siteText, auteur: siteText, fonction: siteText.optional() }).optional(),
   })
@@ -90,7 +106,10 @@ export const siteFileSchemas = {
   realisations: file({
     realisations: z.array(realisationValue).refine(uniqueIds, "Identifiants de réalisation en double"),
   }),
-  avis: file({ avis: z.array(avisValue) }),
+  avis: file({ methode: avisMethodeValue.optional(), avis: z.array(avisValue) }).refine((f) => f.avis.length === 0 || Boolean(f.methode), {
+    message: "Méthode de recueil et de vérification requise dès qu'un avis est publié",
+    path: ["methode"],
+  }),
   references: file({
     references: z.array(referenceValue).refine(uniqueIds, "Identifiants de référence en double"),
   }),

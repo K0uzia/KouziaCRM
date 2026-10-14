@@ -8,7 +8,7 @@ import { hashPassword, SESSION_COOKIE } from "@/lib/auth.js";
 import { SITE_FILES } from "@/lib/site/contract.js";
 import { parseTokenExpiration } from "@/lib/site/github.js";
 import { clearTable, resetDb } from "../helpers/db.js";
-import { seedCompanySettings } from "../helpers/factories.js";
+import { createClient, seedCompanySettings } from "../helpers/factories.js";
 
 const { buildApp } = await import("@/app.js");
 
@@ -142,10 +142,33 @@ describe("espace Site : réalisations", () => {
 describe("espace Site : avis et références", () => {
   const review = { author: "Lou Martin", reviewedOn: "2026-10-01", text: "Travail soigné." };
 
-  it("avis : publication impossible sans accord ; texte figé une fois publié ; preuve chiffrée", async () => {
+  it("avis : publication impossible sans accord, client lié et date de l'expérience ; texte figé une fois publié ; preuve chiffrée", async () => {
+    const client = await createClient({ displayName: "Lou Martin" });
+    const other = await createClient({ displayName: "Autre" });
+    const invoice = await prisma.invoice.create({ data: { clientId: client.id, number: "F-2026-0001" } });
+    const draft = await prisma.invoice.create({ data: { clientId: client.id } });
+    const consent = { consentAt: "2026-10-02T10:00:00+02:00", consentChannel: "e-mail" };
+    const proven = { clientId: client.id, experienceOn: "2026-09-20" };
+
     expect((await call("POST", "/api/site/reviews", { ...review, status: "PUBLISHED" })).statusCode).toBe(400);
+    const noClient = await call("POST", "/api/site/reviews", { ...review, ...consent, experienceOn: "2026-09-20", status: "PUBLISHED" });
+    expect(noClient.json().error).toMatch(/Client lié requis/);
+    const noExperience = await call("POST", "/api/site/reviews", { ...review, ...consent, clientId: client.id, status: "PUBLISHED" });
+    expect(noExperience.json().error).toMatch(/Date de l'expérience/);
+    // Facture d'un autre client, brouillon non émis, facture sans client : refusés.
+    for (const bad of [
+      { clientId: other.id, invoiceId: invoice.id },
+      { clientId: client.id, invoiceId: draft.id },
+      { invoiceId: invoice.id },
+      { clientId: "inconnu" },
+    ]) {
+      expect((await call("POST", "/api/site/reviews", { ...review, ...bad })).statusCode, JSON.stringify(bad)).toBe(400);
+    }
     const res = await call("POST", "/api/site/reviews", {
       ...review,
+      ...proven,
+      invoiceId: invoice.id,
+      alteredWithConsent: true,
       status: "PUBLISHED",
       consentAt: "2026-10-02T10:00:00+02:00",
       consentChannel: "e-mail",
@@ -154,11 +177,12 @@ describe("espace Site : avis et références", () => {
     expect(res.statusCode).toBe(201);
     const { id, consentProof } = res.json() as { id: string; consentProof: string };
     expect(consentProof).toContain("D'accord");
+    expect(res.json()).toMatchObject({ clientId: client.id, invoiceId: invoice.id, experienceOn: "2026-09-20", alteredWithConsent: true });
     const row = await prisma.siteReview.findUniqueOrThrow({ where: { id } });
     expect(row.consentProofEncrypted).not.toContain("accord");
 
     await prisma.siteReview.update({ where: { id }, data: { publishedAt: new Date() } });
-    const edit = await call("PUT", `/api/site/reviews/${id}`, { ...review, text: "Travail très soigné.", consentAt: "2026-10-02T10:00:00+02:00" });
+    const edit = await call("PUT", `/api/site/reviews/${id}`, { ...review, ...proven, text: "Travail très soigné.", consentAt: "2026-10-02T10:00:00+02:00" });
     expect(edit.statusCode).toBe(409);
   });
 
@@ -175,6 +199,27 @@ describe("espace Site : avis et références", () => {
     expect(ok.statusCode).toBe(201);
     expect((await prisma.siteReference.findFirstOrThrow()).contactEncrypted).not.toContain("anne@");
   });
+
+  it("référence du mur de logos (client, partenaire) : logo, lien https et au moins un emplacement avant publication", async () => {
+    const logo = {
+      slug: "mairie",
+      type: "CLIENT",
+      name: "Mairie de Huelgoat",
+      logoPath: "/media/0123456789ab.webp",
+      url: "https://huelgoat.example.fr/",
+      authorizationAt: "2026-10-02T10:00:00Z",
+      authorizationScope: "NAME_LOGO",
+      status: "PUBLISHED",
+    };
+    expect((await call("POST", "/api/site/references", { ...logo, url: null })).json().error).toMatch(/Lien vers le site/);
+    expect((await call("POST", "/api/site/references", { ...logo, logoPath: null })).json().error).toMatch(/Logo requis/);
+    expect((await call("POST", "/api/site/references", { ...logo, onHome: false, onProjects: false })).json().error).toMatch(/emplacement/);
+    const ok = await call("POST", "/api/site/references", { ...logo, onProjects: true });
+    expect(ok.statusCode).toBe(201);
+    expect(ok.json()).toMatchObject({ onHome: true, onProjects: true });
+    // Brouillon : rien n'est exigé.
+    expect((await call("POST", "/api/site/references", { slug: "brouillon", type: "PARTNER", name: "Partenaire" })).statusCode).toBe(201);
+  });
 });
 
 describe("espace Site : textes", () => {
@@ -185,6 +230,14 @@ describe("espace Site : textes", () => {
     expect((await call("PUT", "/api/site/texts/infos", { ...infos, horaires: "9 h" })).statusCode).toBe(400);
     expect((await call("PUT", "/api/site/texts/inconnu", {})).statusCode).toBe(404);
     expect(((await call("GET", "/api/site/texts")).json() as { infos: unknown }).infos).toEqual(infos);
+  });
+
+  it("méthode des avis : brouillon absent tant qu'elle n'est pas enregistrée, puis titre et texte de la charte", async () => {
+    expect(((await call("GET", "/api/site/texts")).json() as { avisMethode: unknown }).avisMethode).toBeNull();
+    const methode = { titre: "Comment les avis sont recueillis et vérifiés", texte: "Seuls des clients ayant eu une prestation." };
+    expect((await call("PUT", "/api/site/texts/avisMethode", methode)).statusCode).toBe(200);
+    expect((await call("PUT", "/api/site/texts/avisMethode", { ...methode, texte: "" })).statusCode).toBe(400);
+    expect(((await call("GET", "/api/site/texts")).json() as { avisMethode: unknown }).avisMethode).toEqual(methode);
   });
 });
 

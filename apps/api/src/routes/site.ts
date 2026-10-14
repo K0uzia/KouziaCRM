@@ -65,6 +65,10 @@ const reviewInput = z.strictObject({
   consentChannel: optionalText,
   consentProof: z.string().max(4000).nullish(),
   withdrawalRequestedAt: z.iso.datetime({ offset: true }).nullish(),
+  experienceOn: z.iso.date().nullish(),
+  clientId: z.string().min(1).max(64).nullish(),
+  invoiceId: z.string().min(1).max(64).nullish(),
+  alteredWithConsent: z.boolean().default(false),
   status,
 });
 
@@ -82,6 +86,8 @@ const referenceInput = z.strictObject({
   authorizationChannel: optionalText,
   authorizationScope: z.enum(SiteAuthorizationScope).nullish(),
   contact: z.string().max(500).nullish(),
+  onHome: z.boolean().default(true),
+  onProjects: z.boolean().default(false),
   status,
 });
 
@@ -121,11 +127,25 @@ function referenceOutAdmin(r: SiteReference) {
   return { ...rest, contact: decryptOptional(contactEncrypted) };
 }
 
-/** Accord ou autorisation exigés avant de passer un élément en « publié ». */
+/**
+ * Conditions pour passer un élément en « publié ».
+ * Avis (L111-7-2, D111-17 du Code de la consommation ; L121-4 : pas d'avis présenté comme client sans
+ * vérification) : accord écrit, client lié (preuve de la relation), date de l'expérience.
+ * Référence (mur de logos) : autorisation couvrant ce qui est montré, lien https, au moins un emplacement.
+ */
 function publishBlocker(kind: "review" | "reference", row: Record<string, unknown>): string | null {
   if (row.status !== SiteItemStatus.PUBLISHED) return null;
-  if (kind === "review" && !row.consentAt) return "Accord de l'auteur requis avant publication.";
+  if (kind === "review") {
+    if (!row.consentAt) return "Accord de l'auteur requis avant publication.";
+    if (!row.clientId) return "Client lié requis avant publication : il prouve que l'avis vient d'un vrai client.";
+    if (!row.experienceOn) return "Date de l'expérience requise avant publication (affichée près de l'avis).";
+  }
   if (kind === "reference") {
+    if (row.type !== SiteReferenceType.USER) {
+      if (!row.url) return "Lien vers le site de la structure requis : chaque logo y mène.";
+      if (!row.logoPath) return "Logo requis pour le mur de logos.";
+      if (!row.onHome && !row.onProjects) return "Choisir au moins un emplacement sur le site.";
+    }
     if (!row.authorizationAt || !row.authorizationScope) return "Autorisation requise avant publication.";
     if (row.logoPath && row.authorizationScope === SiteAuthorizationScope.NAME) return "L'autorisation ne couvre pas le logo.";
     if (row.testimonialText && row.authorizationScope !== SiteAuthorizationScope.TESTIMONIAL) {
@@ -290,14 +310,33 @@ export const siteRoutes: FastifyPluginAsync = async (app) => {
     consentChannel: d.consentChannel ?? null,
     consentProofEncrypted: encryptOptional(d.consentProof),
     withdrawalRequestedAt: toDate(d.withdrawalRequestedAt) ?? null,
+    experienceOn: d.experienceOn ?? null,
+    clientId: d.clientId ?? null,
+    invoiceId: d.invoiceId ?? null,
+    alteredWithConsent: d.alteredWithConsent,
     ...(d.status ? { status: d.status } : {}),
   });
+
+  /** Client existant, et facture ou devis émis du même client : sinon 400 (message pour l'écran). */
+  async function relationError(d: z.output<typeof reviewInput>): Promise<string | null> {
+    if (d.invoiceId && !d.clientId) return "Choisir le client avant la facture ou le devis.";
+    if (d.clientId && !(await prisma.client.findUnique({ where: { id: d.clientId }, select: { id: true } }))) {
+      return "Client introuvable.";
+    }
+    if (d.invoiceId) {
+      const doc = await prisma.invoice.findUnique({ where: { id: d.invoiceId }, select: { clientId: true, number: true } });
+      if (!doc || doc.clientId !== d.clientId || !doc.number) return "Facture ou devis introuvable pour ce client.";
+    }
+    return null;
+  }
 
   app.post(
     "/api/site/reviews",
     admin(async (request, reply) => {
       const body = reviewInput.safeParse(request.body);
       if (!body.success) return invalid(reply, body.error);
+      const relation = await relationError(body.data);
+      if (relation) return reply.code(400).send({ error: relation });
       const data = reviewData(body.data);
       const blocker = publishBlocker("review", data);
       if (blocker) return reply.code(400).send({ error: blocker });
@@ -315,6 +354,8 @@ export const siteRoutes: FastifyPluginAsync = async (app) => {
       if (!body.success) return invalid(reply, body.error);
       const current = await prisma.siteReview.findUnique({ where: { id: params.data.id } });
       if (!current) return reply.code(404).send({ error: "Introuvable" });
+      const relation = await relationError(body.data);
+      if (relation) return reply.code(400).send({ error: relation });
       const data = reviewData(body.data);
       // Texte exact de l'avis : figé une fois publié (une correction impose de retirer puis recréer).
       if (
@@ -352,6 +393,8 @@ export const siteRoutes: FastifyPluginAsync = async (app) => {
     authorizationChannel: d.authorizationChannel ?? null,
     authorizationScope: d.authorizationScope ?? null,
     contactEncrypted: encryptOptional(d.contact),
+    onHome: d.onHome,
+    onProjects: d.onProjects,
     ...(d.status ? { status: d.status } : {}),
   });
 
@@ -433,6 +476,7 @@ export const siteRoutes: FastifyPluginAsync = async (app) => {
       infos: await readSiteText("infos"),
       accroche: await readSiteText("accroche"),
       offres: await readSiteText("offres"),
+      avisMethode: await readSiteText("avisMethode"),
     })),
   );
 
@@ -464,6 +508,7 @@ export const siteRoutes: FastifyPluginAsync = async (app) => {
     admin(async (request, reply) => {
       const kind = z.enum(SiteMediaKind).safeParse((request.query as { kind?: string }).kind);
       if (!kind.success) return reply.code(400).send({ error: "Type d'image attendu : CAPTURE, MOBILE ou LOGO" });
+      // Un fichier refusé par sharp ou par le contrôle SVG garde son message (400), jamais une 500.
       if (!(await loadSharp())) {
         return reply.code(503).send({ error: "Envoi d'images indisponible : sharp n'est pas installé sur ce serveur." });
       }

@@ -64,18 +64,27 @@ export function projectOut(p: SiteProject): z.input<typeof realisationValue> {
   };
 }
 
+// Clés facultatives absentes (et non undefined) quand la valeur manque : sérialisation identique au dépôt.
 export function reviewOut(r: SiteReview): z.input<typeof avisValue> {
-  return { auteur: r.author, publieLe: r.reviewedOn, texte: r.text };
+  return { auteur: r.author, publieLe: r.reviewedOn, ...(r.experienceOn ? { experienceLe: r.experienceOn } : {}), texte: r.text };
 }
 
+/**
+ * Référence : pour un client ou un partenaire (mur de logos), productSlug est la réalisation liée et les
+ * emplacements viennent de onHome / onProjects ; pour un utilisateur (ancien « Ils l'utilisent »), c'est le produit.
+ */
 export function referenceOut(r: SiteReference): z.input<typeof referenceValue> {
+  const wall = r.type !== SiteReferenceType.USER;
+  const emplacements = [...(r.onHome ? ["accueil" as const] : []), ...(r.onProjects ? ["realisations" as const] : [])];
   return {
     id: r.slug,
     type: REFERENCE_TYPE_OUT[r.type],
     nom: r.name,
-    logo: r.logoPath ?? undefined,
-    url: r.url ?? undefined,
-    produit: r.productSlug ?? undefined,
+    ...(r.logoPath ? { logo: r.logoPath } : {}),
+    ...(r.url ? { url: r.url } : {}),
+    ...(wall && emplacements.length ? { emplacements } : {}),
+    ...(wall && r.productSlug ? { realisation: r.productSlug } : {}),
+    ...(!wall && r.productSlug ? { produit: r.productSlug } : {}),
     temoignage:
       r.testimonialText && r.testimonialAuthor
         ? { texte: r.testimonialText, auteur: r.testimonialAuthor, fonction: r.testimonialRole ?? undefined }
