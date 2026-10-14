@@ -223,8 +223,7 @@ state_set "web" "$(tree_sha256 "$KOUZIA_APP_DIR" apps/web/src apps/web/index.htm
 
 # --- OpenRC ---
 log "Installation services OpenRC…"
-install -m 755 "${SCRIPT_DIR}/openrc/kouziacrm" /etc/init.d/kouziacrm
-install -m 755 "${SCRIPT_DIR}/openrc/kouziacrm-worker" /etc/init.d/kouziacrm-worker
+install_app_openrc "${SCRIPT_DIR}/openrc"
 
 # Variables injectées dans les scripts OpenRC via conf.d
 cat > /etc/conf.d/kouziacrm <<EOF

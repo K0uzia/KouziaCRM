@@ -258,6 +258,29 @@ stop_app_stack() {
   fi
 }
 
+# Scripts OpenRC de l'app (API, worker) : (ré)installés quand ils diffèrent de ceux du dépôt.
+# Transition : la pile est arrêtée par les scripts EN PLACE (leur pidfile, leur superviseur)
+# avant la copie, sinon un processus lancé par l'ancien script resterait orphelin.
+install_app_openrc() {
+  local src_dir="$1" svc changed=()
+  for svc in kouziacrm kouziacrm-worker; do
+    cmp -s "${src_dir}/${svc}" "/etc/init.d/${svc}" || changed+=("$svc")
+  done
+  if [[ ${#changed[@]} -eq 0 ]]; then
+    ok "Scripts OpenRC inchangés"
+    return 0
+  fi
+  if service_exists kouziacrm || service_exists kouziacrm-worker; then
+    stop_app_stack
+  fi
+  for svc in "${changed[@]}"; do
+    install -m 755 "${src_dir}/${svc}" "/etc/init.d/${svc}"
+    # pidfile de start-stop-daemon (anciens scripts) : supervise-daemon tient le sien.
+    rm -f "/run/${svc}.pid"
+    ok "Script OpenRC installé : /etc/init.d/${svc}"
+  done
+}
+
 # prisma migrate avec retry si "database is locked"
 prisma_migrate_deploy() {
   local dir="${1:-$KOUZIA_APP_DIR}"

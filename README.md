@@ -267,6 +267,14 @@ Puis :
 
 Détails : `scripts/alpine/` (install, update, backup, restore, OpenRC, conf rsync).
 
+**Services OpenRC (`kouziacrm`, `kouziacrm-worker`).** Lancés par `supervise-daemon` : un
+processus qui s'arrête (crash, exception non gérée) est relancé après 5 s, 10 fois au plus par
+fenêtre de 60 s. Au-delà, le service reste arrêté et `kouziactl status` l'affiche (`crashed` ou
+`stopped`) : lire `kouziactl logs app` ou `logs worker` et `/var/log/kouzia/*.err`, corriger, puis
+`kouziactl restart`. Journaux inchangés : `/var/log/kouzia/app.log|.err` et `worker.log|.err`.
+`kouziactl update` réinstalle les scripts de `scripts/alpine/openrc/` quand ils ont changé, après
+avoir arrêté la pile avec les scripts en place (aucun processus orphelin d'une ancienne version).
+
 ### Double authentification (admin par Internet)
 
 Par le tunnel, l'administration (`erp.kouzia.com`) demande le mot de passe puis un code à

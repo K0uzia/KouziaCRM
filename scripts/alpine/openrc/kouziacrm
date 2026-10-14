@@ -13,8 +13,12 @@ command="${KOUZIA_APP_DIR}/node_modules/.bin/tsx"
 command_args="--env-file=${KOUZIA_APP_DIR}/.env --tsconfig apps/api/tsconfig.json apps/api/src/index.ts"
 command_user="${KOUZIA_USER}:${KOUZIA_GROUP}"
 directory="${KOUZIA_APP_DIR}"
-pidfile="/run/${RC_SVCNAME}.pid"
-command_background=true
+# supervise-daemon relance le processus s'il s'arrête (crash, exception non gérée) :
+# 10 relances au plus par fenêtre de 60 s, au-delà le service reste arrêté (visible dans status).
+supervisor=supervise-daemon
+respawn_delay=5
+respawn_max=10
+respawn_period=60
 
 output_log="/var/log/kouzia/app.log"
 error_log="/var/log/kouzia/app.err"
