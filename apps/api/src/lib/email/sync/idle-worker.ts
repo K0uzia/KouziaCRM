@@ -17,6 +17,8 @@ let idleAbort: AbortController | null = null;
 const EXISTS_DEBOUNCE_MS = 1500;
 /** IDLE relancé régulièrement : les serveurs coupent une session IDLE au bout de 29 min (RFC 2177). */
 const IDLE_REFRESH_MS = 25 * 60 * 1000;
+/** Délai de réponse au NOOP de rafraîchissement avant de fermer la connexion. */
+const IDLE_NOOP_TIMEOUT_MS = 30_000;
 /** Filet de sécurité : sans synchro depuis ce délai, le repli synchronise même si IDLE est actif. */
 export const FALLBACK_STALE_MS = 2 * 60 * 1000;
 
@@ -86,18 +88,32 @@ export async function startIdleWorker(): Promise<void> {
         await updateMailSyncStatus({ idleActive: true, connected: true, lastError: null });
         log(`IDLE actif sur ${inbox.imapPath}`);
 
+        let watchdog: ReturnType<typeof setTimeout> | undefined;
         const refresh = setTimeout(() => {
           // Toute commande met fin à IDLE : la boucle synchronise puis relance IDLE.
           void client.noop().catch(() => {});
+          // Pas de réponse au NOOP : socket à demi coupée, fermeture forcée puis reconnexion.
+          watchdog = setTimeout(() => client.close(), IDLE_NOOP_TIMEOUT_MS);
         }, IDLE_REFRESH_MS);
+        let onClose: (() => void) | undefined;
 
-        await Promise.race([
-          client.idle(),
-          new Promise<void>((resolve) => {
-            signal.addEventListener("abort", () => resolve(), { once: true });
-          }),
-        ]);
-        clearTimeout(refresh);
+        try {
+          await Promise.race([
+            client.idle(),
+            new Promise<void>((resolve) => {
+              signal.addEventListener("abort", () => resolve(), { once: true });
+            }),
+            // Connexion coupée pendant IDLE (serveur, réseau) : reconnexion avec backoff.
+            new Promise<never>((_, reject) => {
+              onClose = () => reject(new Error("Connexion IMAP fermée pendant IDLE"));
+              client.once("close", onClose);
+            }),
+          ]);
+        } finally {
+          clearTimeout(refresh);
+          clearTimeout(watchdog);
+          if (onClose) client.off("close", onClose);
+        }
         if (!signal.aborted) await syncFrom("fin d'IDLE");
         backoffMs = 1000;
       } catch (err) {
