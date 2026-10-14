@@ -63,6 +63,31 @@ const InboxPage = lazy(() =>
 const ComposePage = lazy(() =>
   import("@/pages/messaging/ComposePage").then((m) => ({ default: m.ComposePage })),
 );
+// Espace « Site » : un morceau par écran, chargé à la première visite.
+const SiteOverviewPage = lazy(() =>
+  import("@/pages/site/SiteOverviewPage").then((m) => ({ default: m.SiteOverviewPage })),
+);
+const SiteProjectsPage = lazy(() =>
+  import("@/pages/site/SiteProjectsPage").then((m) => ({ default: m.SiteProjectsPage })),
+);
+const SiteProjectPage = lazy(() =>
+  import("@/pages/site/SiteProjectsPage").then((m) => ({ default: m.SiteProjectPage })),
+);
+const SiteReviewsPage = lazy(() =>
+  import("@/pages/site/SiteReviewsPage").then((m) => ({ default: m.SiteReviewsPage })),
+);
+const SiteReferencesPage = lazy(() =>
+  import("@/pages/site/SiteReferencesPage").then((m) => ({ default: m.SiteReferencesPage })),
+);
+const SiteFaqPage = lazy(() =>
+  import("@/pages/site/SiteFaqPage").then((m) => ({ default: m.SiteFaqPage })),
+);
+const SiteTextsPage = lazy(() =>
+  import("@/pages/site/SiteTextsPage").then((m) => ({ default: m.SiteTextsPage })),
+);
+const SiteConnectionPage = lazy(() =>
+  import("@/pages/site/SiteConnectionPage").then((m) => ({ default: m.SiteConnectionPage })),
+);
 
 function PageFallback() {
   return (
@@ -129,6 +154,14 @@ export default function App() {
           <Route path="inbox/compose" element={<ComposePage />} />
           <Route path="inbox/:threadId" element={<InboxPage />} />
           <Route path="settings" element={<SettingsPage />} />
+          <Route path="site" element={<SiteOverviewPage />} />
+          <Route path="site/realisations" element={<SiteProjectsPage />} />
+          <Route path="site/realisations/:id" element={<SiteProjectPage />} />
+          <Route path="site/avis" element={<SiteReviewsPage />} />
+          <Route path="site/references" element={<SiteReferencesPage />} />
+          <Route path="site/faq" element={<SiteFaqPage />} />
+          <Route path="site/textes" element={<SiteTextsPage />} />
+          <Route path="site/connexion" element={<SiteConnectionPage />} />
         </Route>
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>

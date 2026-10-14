@@ -29,6 +29,15 @@ export async function api<T>(path: string, init?: RequestInit): Promise<T> {
           .map(([key, list]) => [key, list![0]!] as const);
         if (entries.length) fieldErrors = Object.fromEntries(entries);
       }
+      // Erreurs zod sous forme de liste (espace Site) : { path: "testimonial.text", message }.
+      if (Array.isArray(body.issues)) {
+        const issues = body.issues as Array<{ path?: unknown; message?: unknown }>;
+        fieldErrors = {};
+        for (const i of issues) {
+          const key = String(i.path ?? "");
+          if (key && !(key in fieldErrors)) fieldErrors[key] = String(i.message ?? "");
+        }
+      }
       if (typeof body.code === "string") code = body.code;
     } catch {
       /* ignore */

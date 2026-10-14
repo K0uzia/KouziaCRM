@@ -13,7 +13,7 @@ import {
 } from "@fortawesome/free-solid-svg-icons";
 import { api, formatEUR } from "@/lib/api";
 import { useFeatures } from "@/lib/features";
-import { NAV_SECTIONS, SETTINGS_ITEM } from "@/lib/navigation";
+import { NAV_SPACES, SETTINGS_ITEM } from "@/lib/navigation";
 import {
   invoiceStatusLabel,
   quoteStatusLabel,
@@ -130,13 +130,18 @@ export function CommandPalette({
   const navigate = useNavigate();
   const features = useFeatures();
   // Pages : arborescence unique de navigation.ts (réglages compris), mots-clés en complément.
-  const navItems = [...NAV_SECTIONS.flatMap((section) => section.items), SETTINGS_ITEM]
-    .filter((item) => !item.feature || features[item.feature as keyof typeof features])
-    .map((item) => ({
-      label: item.label,
-      to: item.to,
-      keywords: NAV_ITEMS.find((k) => k.to === item.to)?.keywords ?? "",
-    }));
+  // Un groupe par espace (Gestion, Site) ; les réglages restent dans la gestion.
+  const navGroups = NAV_SPACES.map((space) => ({
+    id: space.id,
+    heading: `Aller à : ${space.label}`,
+    items: [...space.sections.flatMap((section) => section.items), ...(space.id === "gestion" ? [SETTINGS_ITEM] : [])]
+      .filter((item) => !item.feature || features[item.feature as keyof typeof features])
+      .map((item) => ({
+        label: item.label,
+        to: item.to,
+        keywords: `${space.id === "site" ? "site kouzia.com " : ""}${NAV_ITEMS.find((k) => k.to === item.to)?.keywords ?? ""}`,
+      })),
+  }));
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<SearchResult>(EMPTY_RESULT);
   const [searching, setSearching] = useState(false);
@@ -296,19 +301,21 @@ export function CommandPalette({
           ) : null}
 
           {/* Pages : proposées aussi pendant la saisie (filtrées par cmdk sur le libellé et les mots-clés). */}
-          <Command.Group heading="Aller à" className={GROUP_CLASS}>
-                {navItems.map((item) => (
-                  <Command.Item
-                    key={item.to}
-                    value={`${item.label} ${item.keywords}`}
-                    onSelect={() => go(item.to)}
-                    className={ITEM_CLASS}
-                  >
-                    <FontAwesomeIcon icon={faArrowRight} className="h-3 w-3 opacity-40" />
-                    {item.label}
-                  </Command.Item>
-                ))}
-          </Command.Group>
+          {navGroups.map((group) => (
+            <Command.Group key={group.id} heading={group.heading} className={GROUP_CLASS}>
+              {group.items.map((item) => (
+                <Command.Item
+                  key={item.to}
+                  value={`${group.heading} ${item.label} ${item.keywords}`}
+                  onSelect={() => go(item.to)}
+                  className={ITEM_CLASS}
+                >
+                  <FontAwesomeIcon icon={faArrowRight} className="h-3 w-3 opacity-40" />
+                  {item.label}
+                </Command.Item>
+              ))}
+            </Command.Group>
+          ))}
 
           {!hasQuery ? (
             <>

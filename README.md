@@ -95,7 +95,10 @@ Variables à ajouter dans `.env` :
 
 ### Espace « Site » (contenu de kouzia.com)
 
-Le contenu modifiable du site (coordonnées, accroche, offres, réalisations, FAQ, avis, références) se saisit dans l'ERP, puis se publie dans le dépôt KouziaWebsite (`src/content/site/*.json`, contrat `contenu.schema.json`). Lot E1 : saisie et contrôles par l'API (`/api/site/*`), sans publication ni écran.
+Le contenu modifiable du site (coordonnées, accroche, offres, réalisations, FAQ, avis, références) se saisit dans l'ERP, puis se publie dans le dépôt KouziaWebsite (`src/content/site/*.json`, contrat `contenu.schema.json`). Pas encore de publication : le contenu saisi reste dans l'ERP.
+
+- **Écrans** : bascule « Gestion / Site » en tête de la barre latérale (et du menu sur mobile) ; l'adresse `/site/*` décide de l'espace, qui a son propre accent (provisoire). Vue d'ensemble (alertes et contrôle avant publication), Réalisations (fiche avec capture d'écran et capture de téléphone), Avis, Références, FAQ, Textes et coordonnées, Connexion au dépôt (jeton, test, reprise). Ordre par les boutons « Monter » et « Descendre ».
+- **Images déjà dans le dépôt** : une réalisation peut pointer vers une image de `public/projets/` du site (chemin `/projets/nom.webp`), sans envoi. Leur aperçu ne s'affiche que depuis `erp.kouzia.com` (le site les sert en `Cross-Origin-Resource-Policy: same-site`).
 
 - **Jeton GitHub** : fine-grained PAT limité au dépôt du site (Contents en lecture et écriture, Actions en lecture), saisi par `PUT /api/site/github`, chiffré en base et jamais renvoyé. `POST /api/site/github/test` le vérifie sans rien écrire et note sa date d'expiration.
 - **Reprise initiale** : `POST /api/site/import` lit les 6 fichiers du dépôt et remplit un espace Site vide. Les accords des avis et des références ne sont pas dans le dépôt : à ressaisir avant de les republier.

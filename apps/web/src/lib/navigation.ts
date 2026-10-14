@@ -3,6 +3,13 @@ import {
   faBook,
   faBoxOpen,
   faChartPie,
+  faCircleQuestion,
+  faGlobe,
+  faHandshake,
+  faImages,
+  faPenNib,
+  faPlug,
+  faStar,
   faClipboardCheck,
   faEnvelope,
   faFileInvoice,
@@ -28,6 +35,8 @@ export type NavItem = {
   label: string;
   /** Titre de l'en-tête mobile quand le libellé ne tient pas à 320 px. */
   shortLabel?: string;
+  /** Libellé de l'onglet du bas (5 onglets à 320 px), si différent du titre court. */
+  tabLabel?: string;
   icon: IconDefinition;
   match: (pathname: string) => boolean;
   feature?: keyof FeatureFlags;
@@ -96,7 +105,7 @@ export const NAV_SECTIONS: NavSection[] = [
     id: "relation",
     label: "Relation client",
     items: [
-      { id: "inbox", to: "/inbox", label: "Messagerie", icon: faEnvelope, match: starts("/inbox"), badge: "unread" },
+      { id: "inbox", to: "/inbox", label: "Messagerie", tabLabel: "Messages", icon: faEnvelope, match: starts("/inbox"), badge: "unread" },
     ],
   },
 ];
@@ -112,20 +121,94 @@ export const SETTINGS_ITEM: NavItem = {
 /** Onglets du bas sur mobile : les 4 écrans du quotidien, le reste est dans le menu. */
 export const MOBILE_TABS = ["dashboard", "clients", "invoices", "inbox"] as const;
 
+/** Espace « Site » : contenu de kouzia.com, saisi dans l'ERP puis publié dans le dépôt du site. */
+export const SITE_SECTIONS: NavSection[] = [
+  {
+    id: "site-pilotage",
+    label: null,
+    items: [
+      { id: "site-overview", to: "/site", label: "Vue d'ensemble", shortLabel: "Site", icon: faGlobe, match: (p) => p === "/site" },
+    ],
+  },
+  {
+    id: "site-contenu",
+    label: "Contenu",
+    items: [
+      { id: "site-projects", to: "/site/realisations", label: "Réalisations", tabLabel: "Projets", icon: faImages, match: starts("/site/realisations") },
+      { id: "site-reviews", to: "/site/avis", label: "Avis", icon: faStar, match: starts("/site/avis") },
+      { id: "site-references", to: "/site/references", label: "Références", icon: faHandshake, match: starts("/site/references") },
+      { id: "site-faq", to: "/site/faq", label: "FAQ", icon: faCircleQuestion, match: starts("/site/faq") },
+      {
+        id: "site-texts",
+        to: "/site/textes",
+        label: "Textes et coordonnées",
+        shortLabel: "Textes",
+        icon: faPenNib,
+        match: starts("/site/textes"),
+      },
+    ],
+  },
+  {
+    id: "site-publication",
+    label: "Publication",
+    items: [
+      {
+        id: "site-github",
+        to: "/site/connexion",
+        label: "Connexion au dépôt",
+        shortLabel: "Connexion",
+        icon: faPlug,
+        match: starts("/site/connexion"),
+      },
+    ],
+  },
+];
+
+export type NavSpaceId = "gestion" | "site";
+export type NavSpace = {
+  id: NavSpaceId;
+  label: string;
+  /** Écran d'arrivée quand on bascule vers cet espace. */
+  home: string;
+  sections: NavSection[];
+  /** Onglets du bas sur mobile (4 au plus, « Plus » ouvre le tiroir). */
+  tabs: readonly string[];
+};
+
+/** Deux espaces : la gestion de l'entreprise et le site kouzia.com. L'URL décide de l'espace affiché. */
+export const NAV_SPACES: readonly NavSpace[] = [
+  { id: "gestion", label: "Gestion", home: "/", sections: NAV_SECTIONS, tabs: MOBILE_TABS },
+  {
+    id: "site",
+    label: "Site",
+    home: "/site",
+    sections: SITE_SECTIONS,
+    tabs: ["site-overview", "site-projects", "site-reviews", "site-texts"],
+  },
+];
+
+const isSitePath = starts("/site");
+
+export function spaceOf(pathname: string): NavSpace {
+  return NAV_SPACES[isSitePath(pathname) ? 1 : 0]!;
+}
+
 export function filterSections(sections: NavSection[], flags: FeatureFlags): NavSection[] {
   return sections
     .map((s) => ({ ...s, items: s.items.filter((i) => !i.feature || flags[i.feature]) }))
     .filter((s) => s.items.length > 0);
 }
 
+const ALL_SECTIONS = NAV_SPACES.flatMap((space) => space.sections);
+
 export function findNavItem(id: string): NavItem | undefined {
-  return [...NAV_SECTIONS.flatMap((s) => s.items), SETTINGS_ITEM].find((i) => i.id === id);
+  return [...ALL_SECTIONS.flatMap((s) => s.items), SETTINGS_ITEM].find((i) => i.id === id);
 }
 
 /** Section et entrée correspondant à une URL (fil d'Ariane, titre de l'onglet). */
 export function locate(pathname: string): { section: NavSection | null; item: NavItem | null } {
   if (SETTINGS_ITEM.match(pathname)) return { section: null, item: SETTINGS_ITEM };
-  for (const section of NAV_SECTIONS) {
+  for (const section of spaceOf(pathname).sections) {
     const item = section.items.find((i) => i.match(pathname));
     if (item) return { section, item };
   }
