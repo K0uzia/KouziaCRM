@@ -5,7 +5,7 @@
 #  - npm ci seulement si package-lock.json a changé
 #  - rebuild SPA seulement si le front / forms a changé
 #  - prisma generate si schéma changé, migrate deploy toujours
-#  - redémarrage OpenRC + healthcheck
+#  - scripts OpenRC réinstallés s'ils ont changé, redémarrage + healthcheck
 #  - propose les nouvelles configs encore vides (voir conf/post-update-features)
 #
 # Usage :
@@ -178,6 +178,8 @@ fi
 
 # --- 6. Restart + health ---
 install_kouziactl_link "${KOUZIA_APP_DIR}/scripts/alpine/kouziactl" /usr/local/bin/kouziactl
+# Pile déjà arrêtée (étape 2) par les scripts en place : les nouveaux sont copiés avant le démarrage.
+install_app_openrc "${KOUZIA_APP_DIR}/scripts/alpine/openrc"
 
 log "Redémarrage services…"
 # Worker après health : évite le lock SQLite pendant le boot API (tsx + migrations soft).
