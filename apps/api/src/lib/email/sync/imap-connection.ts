@@ -39,6 +39,14 @@ export async function getImapClient(): Promise<ManagedImapClient> {
       logger: false,
       emitLogs: false,
     });
+    // Sans écouteur, un « error » émis après la connexion (ECONNRESET, délai de socket) est une
+    // exception non gérée qui arrête tout le processus (worker : plus de synchro ni d'envois).
+    client.on("error", (err: unknown) => {
+      console.error("[mail] connexion IMAP en erreur", formatImapError(err));
+      dropClient(client);
+    });
+    // Connexion fermée par le serveur ou le réseau : la prochaine demande se reconnecte.
+    client.on("close", () => dropClient(client));
     await client.connect();
     sharedClient = { client, config };
     return sharedClient;
@@ -51,14 +59,35 @@ export async function getImapClient(): Promise<ManagedImapClient> {
   }
 }
 
+function dropClient(client: ImapFlow) {
+  if (sharedClient?.client === client) sharedClient = null;
+}
+
+/** LOGOUT attend une réponse du serveur : sur une socket à demi coupée, elle ne vient jamais. */
+const LOGOUT_TIMEOUT_MS = 5_000;
+
 export async function disconnectImapClient(): Promise<void> {
   if (!sharedClient) return;
-  try {
-    await sharedClient.client.logout();
-  } catch {
-    /* ignore */
-  }
+  const { client } = sharedClient;
   sharedClient = null;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const loggedOut = await Promise.race([
+    client.logout().then(
+      () => true,
+      () => false,
+    ),
+    new Promise<boolean>((resolve) => {
+      timer = setTimeout(() => resolve(false), LOGOUT_TIMEOUT_MS);
+    }),
+  ]);
+  clearTimeout(timer);
+  if (!loggedOut) {
+    try {
+      client.close();
+    } catch {
+      /* déjà fermée */
+    }
+  }
 }
 
 export function formatConnectionError(error: unknown): string {

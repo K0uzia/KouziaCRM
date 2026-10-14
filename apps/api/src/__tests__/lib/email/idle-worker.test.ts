@@ -88,4 +88,20 @@ describe("synchro automatique de la messagerie", () => {
     expect(await runMailPollFallback(now)).toBe("skipped");
     expect(runMailSync).not.toHaveBeenCalled();
   });
+
+  it("IDLE : connexion coupée par le serveur, l'état passe hors ligne puis IDLE reprend", async () => {
+    const account = await prisma.mailAccount.create({ data: { email: "contact@kouzia.test", isDefault: true } });
+    await prisma.mailFolder.create({
+      data: { accountId: account.id, imapPath: "INBOX", displayName: "Réception", role: MailFolderRole.INBOX },
+    });
+    const status = () => prisma.mailSyncStatus.findUnique({ where: { id: "default" } });
+    await startIdleWorker();
+    await waitFor(async () => (await status())?.idleActive === true);
+
+    fake.emit("close");
+    await waitFor(async () => (await status())?.lastError === "Connexion IMAP fermée pendant IDLE");
+    expect((await status())?.idleActive).toBe(false);
+    // Reconnexion après le premier palier de backoff (1 s).
+    await waitFor(async () => (await status())?.idleActive === true);
+  });
 });

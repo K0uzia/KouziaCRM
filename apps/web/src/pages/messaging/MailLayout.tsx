@@ -177,7 +177,7 @@ export function MailLayout() {
   }, []);
 
   useInboxSync(scheduleRefresh);
-  useMailNotifications(scheduleRefresh, syncStatus);
+  useMailNotifications(scheduleRefresh, syncStatus, setSyncStatus);
 
   // « Dernière synchro il y a X min » se met à jour sans recharger la page.
   const [clock, setClock] = useState(() => Date.now());
