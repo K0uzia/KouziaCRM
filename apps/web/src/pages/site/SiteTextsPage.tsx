@@ -1,11 +1,13 @@
 import { useEffect, useState, type FormEvent, type ReactNode } from "react";
+import { Navigate, useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { Card, PageHeader } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { Field, Input, Textarea } from "@/components/ui/Field";
-import { Tabs, useTabParam } from "@/components/ui/Tabs";
 import { fieldErrorsOf, LoadState, type FieldErrors } from "./shared";
+
+/** Textes uniques du site (table SiteText), un écran chacun : coordonnées, accroche, offres. */
 
 type Infos = {
   email: string;
@@ -24,13 +26,6 @@ type Formule = { titre: string; items: string[] };
 type Offres = { formules: { site: Formule; logiciel: Formule }; tarif: string };
 type Texts = { infos: Infos | null; accroche: Accroche | null; offres: Offres | null };
 
-const TABS = [
-  { id: "coordonnees", label: "Coordonnées" },
-  { id: "accroche", label: "Accroche" },
-  { id: "offres", label: "Offres de suivi" },
-] as const;
-type TabId = (typeof TABS)[number]["id"];
-
 const lines = (s: string) =>
   s
     .split("\n")
@@ -41,11 +36,25 @@ const lines = (s: string) =>
 const errorFor = (errors: FieldErrors, prefix: string) =>
   Object.entries(errors).find(([k]) => k === prefix || k.startsWith(`${prefix}.`))?.[1];
 
-export function SiteTextsPage() {
-  const [tab, setTab] = useTabParam(
-    TABS.map((t) => t.id),
-    "coordonnees",
-  );
+/** Ancienne adresse /site/textes?tab=… : redirigée vers l'écran correspondant. */
+export function SiteTextsRedirect() {
+  const [params] = useSearchParams();
+  const tab = params.get("tab");
+  return <Navigate to={tab === "accroche" ? "/site/accroche" : tab === "offres" ? "/site/offres" : "/site/coordonnees"} replace />;
+}
+
+/** Chargement commun : les trois textes viennent d'un seul appel. */
+function TextScreen<K extends keyof Texts>({
+  textKey,
+  title,
+  subtitle,
+  render,
+}: {
+  textKey: K;
+  title: string;
+  subtitle: string;
+  render: (initial: Texts[K], onSaved: (v: NonNullable<Texts[K]>) => void) => ReactNode;
+}) {
   const [texts, setTexts] = useState<Texts | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -67,24 +76,44 @@ export function SiteTextsPage() {
 
   return (
     <div>
-      <PageHeader
-        title="Textes et coordonnées"
-        subtitle="Textes uniques du site : coordonnées et liens, accroche de l'accueil, offres de suivi. Chaque onglet s'enregistre séparément."
-      />
+      <PageHeader title={title} subtitle={subtitle} />
       <LoadState loading={loading} error={error} onRetry={() => void load()}>
-        <Tabs label="Textes du site" tabs={TABS} value={tab} onChange={(id: TabId) => setTab(id)}>
-          {texts ? (
-            tab === "coordonnees" ? (
-              <InfosForm initial={texts.infos} onSaved={(infos) => setTexts({ ...texts, infos })} />
-            ) : tab === "accroche" ? (
-              <AccrocheForm initial={texts.accroche} onSaved={(accroche) => setTexts({ ...texts, accroche })} />
-            ) : (
-              <OffresForm initial={texts.offres} onSaved={(offres) => setTexts({ ...texts, offres })} />
-            )
-          ) : null}
-        </Tabs>
+        {texts ? render(texts[textKey], (v) => setTexts({ ...texts, [textKey]: v })) : null}
       </LoadState>
     </div>
+  );
+}
+
+export function SiteContactPage() {
+  return (
+    <TextScreen
+      textKey="infos"
+      title="Coordonnées et réseaux"
+      subtitle="Comment vous joindre et où vous trouver : ces informations sont reprises sur kouzia.com."
+      render={(initial, onSaved) => <InfosForm initial={initial} onSaved={onSaved} />}
+    />
+  );
+}
+
+export function SiteHeroPage() {
+  return (
+    <TextScreen
+      textKey="accroche"
+      title="Accroche de l'accueil"
+      subtitle="Le grand titre et le texte d'introduction, en haut de la page d'accueil de kouzia.com."
+      render={(initial, onSaved) => <AccrocheForm initial={initial} onSaved={onSaved} />}
+    />
+  );
+}
+
+export function SiteOffersPage() {
+  return (
+    <TextScreen
+      textKey="offres"
+      title="Offres et tarifs"
+      subtitle="Les deux formules de suivi après la mise en ligne (site web, logiciel) et la phrase sur le tarif."
+      render={(initial, onSaved) => <OffresForm initial={initial} onSaved={onSaved} />}
+    />
   );
 }
 
@@ -124,6 +153,15 @@ function FormCard({ onSubmit, busy, children }: { onSubmit: (e: FormEvent) => vo
   );
 }
 
+function Section({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <fieldset className="space-y-4">
+      <legend className="text-sm font-semibold">{title}</legend>
+      {children}
+    </fieldset>
+  );
+}
+
 function InfosForm({ initial, onSaved }: { initial: Infos | null; onSaved: (v: Infos) => void }) {
   const [f, setF] = useState(() => ({
     email: initial?.email ?? "",
@@ -145,40 +183,46 @@ function InfosForm({ initial, onSaved }: { initial: Infos | null; onSaved: (v: I
   };
   return (
     <FormCard onSubmit={onSubmit} busy={busy}>
-      <div className="grid gap-4 sm:grid-cols-2">
-        <Field label="E-mail de contact" error={errorFor(errors, "email")}>
-          <Input type="email" autoComplete="off" value={f.email} onChange={set("email")} />
-        </Field>
-        <Field label="Téléphone" hint="Format 06 12 34 56 78" error={errorFor(errors, "telephone")}>
-          <Input type="tel" inputMode="tel" autoComplete="off" value={f.telephone} onChange={set("telephone")} />
-        </Field>
-        <Field label="Délai de réponse" hint="Ex. : sous 24 à 48 h" error={errorFor(errors, "delaiReponse")}>
+      <Section title="Pour vous joindre">
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Field label="Adresse e-mail affichée" error={errorFor(errors, "email")}>
+            <Input type="email" autoComplete="off" value={f.email} onChange={set("email")} />
+          </Field>
+          <Field label="Téléphone affiché" hint="Sous la forme 06 12 34 56 78" error={errorFor(errors, "telephone")}>
+            <Input type="tel" inputMode="tel" autoComplete="off" value={f.telephone} onChange={set("telephone")} />
+          </Field>
+        </div>
+        <Field label="Délai de réponse annoncé" hint="Exemple : sous 24 à 48 h" error={errorFor(errors, "delaiReponse")}>
           <Input value={f.delaiReponse} onChange={set("delaiReponse")} />
         </Field>
+      </Section>
+      <Section title="Votre activité">
         <Field label="Années d'expérience" error={errorFor(errors, "anneesExperience")}>
           <Input type="number" inputMode="numeric" min={0} max={80} value={f.anneesExperience} onChange={set("anneesExperience")} />
         </Field>
-      </div>
-      <Field label="Zone d'intervention" error={errorFor(errors, "zone")}>
-        <Textarea rows={3} value={f.zone} onChange={set("zone")} />
-      </Field>
-      <Field label="Villes citées" hint="Une ville par ligne." error={errorFor(errors, "villes")}>
-        <Textarea rows={3} value={f.villes} onChange={set("villes")} />
-      </Field>
-      <div className="grid gap-4 sm:grid-cols-2">
-        <Field label="GitHub" error={errorFor(errors, "github")}>
-          <Input type="url" inputMode="url" value={f.github} onChange={set("github")} />
+        <Field label="Zone d'intervention" hint="Une ou deux phrases : sur place et à distance." error={errorFor(errors, "zone")}>
+          <Textarea rows={3} value={f.zone} onChange={set("zone")} />
         </Field>
-        <Field label="Instagram" error={errorFor(errors, "instagram")}>
-          <Input type="url" inputMode="url" value={f.instagram} onChange={set("instagram")} />
+        <Field label="Villes mises en avant" hint="Une ville par ligne." error={errorFor(errors, "villes")}>
+          <Textarea rows={3} value={f.villes} onChange={set("villes")} />
         </Field>
-        <Field label="Fiche Google" error={errorFor(errors, "ficheGoogle")}>
-          <Input type="url" inputMode="url" value={f.ficheGoogle} onChange={set("ficheGoogle")} />
-        </Field>
-        <Field label="Lien « Laisser un avis Google »" error={errorFor(errors, "avisGoogle")}>
-          <Input type="url" inputMode="url" value={f.avisGoogle} onChange={set("avisGoogle")} />
-        </Field>
-      </div>
+      </Section>
+      <Section title="Réseaux et Google">
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Field label="Profil GitHub" error={errorFor(errors, "github")}>
+            <Input type="url" inputMode="url" value={f.github} onChange={set("github")} />
+          </Field>
+          <Field label="Compte Instagram" error={errorFor(errors, "instagram")}>
+            <Input type="url" inputMode="url" value={f.instagram} onChange={set("instagram")} />
+          </Field>
+          <Field label="Fiche Google de l'entreprise" error={errorFor(errors, "ficheGoogle")}>
+            <Input type="url" inputMode="url" value={f.ficheGoogle} onChange={set("ficheGoogle")} />
+          </Field>
+          <Field label="Lien « Laisser un avis Google »" error={errorFor(errors, "avisGoogle")}>
+            <Input type="url" inputMode="url" value={f.avisGoogle} onChange={set("avisGoogle")} />
+          </Field>
+        </div>
+      </Section>
     </FormCard>
   );
 }
@@ -194,10 +238,10 @@ function AccrocheForm({ initial, onSaved }: { initial: Accroche | null; onSaved:
         void save(f);
       }}
     >
-      <Field label="Titre de l'accueil" error={errorFor(errors, "titre")}>
+      <Field label="Grand titre" hint="La première phrase lue sur le site." error={errorFor(errors, "titre")}>
         <Input value={f.titre} onChange={(e) => setF({ ...f, titre: e.target.value })} />
       </Field>
-      <Field label="Texte d'introduction" error={errorFor(errors, "texte")}>
+      <Field label="Texte d'introduction" hint="Sous le titre : qui vous êtes, ce que vous faites, où." error={errorFor(errors, "texte")}>
         <Textarea rows={5} value={f.texte} onChange={(e) => setF({ ...f, texte: e.target.value })} />
       </Field>
     </FormCard>
@@ -228,25 +272,23 @@ function OffresForm({ initial, onSaved }: { initial: Offres | null; onSaved: (v:
         });
       }}
     >
-      <fieldset className="space-y-4">
-        <legend className="text-sm font-semibold">Formule « site web »</legend>
-        <Field label="Titre" error={errorFor(errors, "formules.site.titre")}>
+      <Section title="Suivi d'un site web">
+        <Field label="Titre de la formule" error={errorFor(errors, "formules.site.titre")}>
           <Input value={f.siteTitre} onChange={set("siteTitre")} />
         </Field>
-        <Field label="Points inclus" hint="Un point par ligne." error={errorFor(errors, "formules.site.items")}>
+        <Field label="Ce qui est compris" hint="Un point par ligne." error={errorFor(errors, "formules.site.items")}>
           <Textarea rows={5} value={f.siteItems} onChange={set("siteItems")} />
         </Field>
-      </fieldset>
-      <fieldset className="space-y-4">
-        <legend className="text-sm font-semibold">Formule « logiciel »</legend>
-        <Field label="Titre" error={errorFor(errors, "formules.logiciel.titre")}>
+      </Section>
+      <Section title="Suivi d'un logiciel ou d'une application">
+        <Field label="Titre de la formule" error={errorFor(errors, "formules.logiciel.titre")}>
           <Input value={f.logicielTitre} onChange={set("logicielTitre")} />
         </Field>
-        <Field label="Points inclus" hint="Un point par ligne." error={errorFor(errors, "formules.logiciel.items")}>
+        <Field label="Ce qui est compris" hint="Un point par ligne." error={errorFor(errors, "formules.logiciel.items")}>
           <Textarea rows={5} value={f.logicielItems} onChange={set("logicielItems")} />
         </Field>
-      </fieldset>
-      <Field label="Mention sur le tarif" error={errorFor(errors, "tarif")}>
+      </Section>
+      <Field label="Phrase sur le tarif" hint="Affichée sous les deux formules." error={errorFor(errors, "tarif")}>
         <Textarea rows={2} value={f.tarif} onChange={set("tarif")} />
       </Field>
     </FormCard>

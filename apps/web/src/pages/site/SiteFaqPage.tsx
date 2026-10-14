@@ -108,7 +108,7 @@ export function SiteFaqPage() {
     <div>
       <PageHeader
         title="FAQ"
-        subtitle="Questions affichées sur l'accueil et les pages Sites web et Logiciels, dans l'ordre de cette liste."
+        subtitle="Chaque question est rattachée à une page (Accueil, Sites web ou Logiciels) et figure aussi sur la page FAQ du site, dans l'ordre de cette liste."
         actions={
           <Button onClick={() => openForm(null)}>
             <FontAwesomeIcon icon={faPlus} className="h-3.5 w-3.5" aria-hidden />
@@ -150,7 +150,11 @@ export function SiteFaqPage() {
 
       <Modal open={open} onClose={() => setOpen(false)} title={editing ? "Modifier la question" : "Nouvelle question"} fullScreenMobile>
         <form onSubmit={onSubmit} noValidate className="space-y-4">
-          <Field label="Page du site" error={errors.page}>
+          <Field
+            label="Page de rattachement"
+            hint="Où la question s'affiche en plus de la page FAQ du site."
+            error={errors.page}
+          >
             <Select value={form.page} onChange={(e) => setForm((f) => ({ ...f, page: e.target.value as FaqPage }))}>
               {PAGES.map((p) => (
                 <option key={p} value={p}>
@@ -162,7 +166,11 @@ export function SiteFaqPage() {
           <Field label="Question" error={errors.question}>
             <Input required maxLength={300} value={form.question} onChange={(e) => setForm((f) => ({ ...f, question: e.target.value }))} />
           </Field>
-          <Field label="Réponse" error={errors.answer}>
+          <Field
+            label="Réponse"
+            hint="Reprise telle quelle sur le site et dans les données lues par Google : écrire la réponse complète."
+            error={errors.answer}
+          >
             <Textarea required rows={5} maxLength={2000} value={form.answer} onChange={(e) => setForm((f) => ({ ...f, answer: e.target.value }))} />
           </Field>
           <Field label="Statut" error={errors.status}>
