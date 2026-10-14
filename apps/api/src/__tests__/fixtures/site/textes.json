@@ -1,0 +1,32 @@
+{
+  "schemaVersion": 1,
+  "accroche": {
+    "titre": "Des sites web et des logiciels sur mesure, qui travaillent pour vous.",
+    "texte": "Développeur web à Huelgoat, entre Morlaix et Carhaix, je crée des sites internet qui se trouvent sur Google et donnent envie de vous contacter, des applications et des logiciels pensés pour votre façon de travailler. Puis je m’en occupe dans la durée."
+  },
+  "offres": {
+    "formules": {
+      "site": {
+        "titre": "Pour un site web",
+        "items": [
+          "Surveillance, sauvegardes et mises à jour",
+          "Hébergement, nom de domaine et HTTPS gérés",
+          "Retouches de contenu et petites évolutions",
+          "Suivi de la vitesse et du référencement",
+          "Mise à jour de votre fiche Google"
+        ]
+      },
+      "logiciel": {
+        "titre": "Pour un logiciel ou une application",
+        "items": [
+          "Surveillance, sauvegardes et mises à jour",
+          "Corrections et aide aux utilisateurs",
+          "Évolutions au fil de vos besoins",
+          "Adaptation aux changements de vos autres outils",
+          "Documentation tenue à jour"
+        ]
+      }
+    },
+    "tarif": "Contenu et prix fixés sur devis, selon votre outil et le niveau de suivi souhaité."
+  }
+}

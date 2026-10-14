@@ -1,0 +1,65 @@
+{
+  "schemaVersion": 1,
+  "questions": [
+    {
+      "page": "accueil",
+      "q": "Combien coûte un projet ?",
+      "r": "Chaque projet fait l’objet d’un devis gratuit et sans engagement. Le montant dépend du besoin réel, et je propose toujours une version raisonnable avant une version idéale."
+    },
+    {
+      "page": "accueil",
+      "q": "Quels sont les délais ?",
+      "r": "Cela dépend du périmètre. Pour un site vitrine, comptez en général quelques semaines une fois le contenu et la structure validés."
+    },
+    {
+      "page": "accueil",
+      "q": "Peut-on partir de nos outils actuels ?",
+      "r": "Oui, c’est même le cas le plus fréquent. Je relie, remplace ou complète uniquement ce qui doit l’être."
+    },
+    {
+      "page": "accueil",
+      "q": "Que comprend la maintenance ?",
+      "r": "C’est une option, pour un site comme pour un logiciel : surveillance automatique 24 h/24 avec alerte en cas de panne, sauvegardes, mises à jour de sécurité, corrections et retouches. Le contenu et le prix sont fixés sur devis."
+    },
+    {
+      "page": "accueil",
+      "q": "Pouvez-vous maintenir un outil que vous n’avez pas créé ?",
+      "r": "Oui, après un état des lieux. Je vous dis ce qui peut être maintenu tel quel et ce qui doit d’abord être corrigé."
+    },
+    {
+      "page": "accueil",
+      "q": "Où intervenez-vous ?",
+      "r": "Je suis basé à Huelgoat. Je me déplace autour de Huelgoat, Morlaix et Carhaix, à une quarantaine de minutes. Pour le reste du Finistère et partout en France, tout se fait très bien par téléphone, e‑mail et visio."
+    },
+    {
+      "page": "sitesWeb",
+      "q": "Mon site sera-t-il bien placé sur Google ?",
+      "r": "Personne ne peut garantir une position. Je mets en place tout ce qui dépend du site : vitesse, structure, textes, données structurées et fiche d’établissement. C’est la base sur laquelle le référencement se construit."
+    },
+    {
+      "page": "sitesWeb",
+      "q": "Pourrai-je modifier mon site moi-même ?",
+      "r": "Oui si vous en avez besoin : je mets alors en place un outil d’édition simple et je vous montre comment l’utiliser. Sinon, les retouches sont comprises dans la maintenance."
+    },
+    {
+      "page": "sitesWeb",
+      "q": "J’ai déjà un site, faut-il tout refaire ?",
+      "r": "Pas forcément. J’analyse d’abord ce qui fonctionne et ce qui freine, puis je propose une refonte ou des corrections ciblées, en conservant votre référencement."
+    },
+    {
+      "page": "logiciels",
+      "q": "Pourquoi un logiciel sur mesure plutôt qu’un logiciel du marché ?",
+      "r": "Quand un logiciel existant couvre votre besoin, je vous le dis. Le sur mesure se justifie quand vous adaptez votre travail à l’outil au lieu de l’inverse, ou quand vos outils ne se parlent pas."
+    },
+    {
+      "page": "logiciels",
+      "q": "À qui appartient le logiciel livré ?",
+      "r": "Le code et les livrables prévus au devis vous sont cédés selon les conditions du contrat. Vous restez propriétaire de vos données."
+    },
+    {
+      "page": "logiciels",
+      "q": "Peut-on commencer petit ?",
+      "r": "Oui, et c’est recommandé : une première version qui règle le problème principal, puis des évolutions au fil de l’usage."
+    }
+  ]
+}

@@ -477,6 +477,12 @@ model CompanySettings {
   stripeWebhookSecretEncrypted String?
   stripeWebhookSecretHint      String?
 
+  /// Espace Site : jeton GitHub (fine-grained PAT) qui publie le contenu de kouzia.com. Jamais renvoyé.
+  githubTokenEncrypted String?
+  githubTokenHint      String?
+  /// Lue dans l'en-tête github-authentication-token-expiration au test de connexion (rappel à J-30).
+  githubTokenExpiresAt DateTime?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
@@ -1442,4 +1448,165 @@ model ClientTestimonial {
 
   @@index([clientId])
   @@index([status, publishedAt])
+}
+
+// ---------------------------------------------------------------------------
+// Espace « Site » : contenu de kouzia.com, publié dans le dépôt KouziaWebsite
+// (src/content/site/*.json). Le JSON publié garde les clés françaises du contrat du site.
+// ---------------------------------------------------------------------------
+
+/// DRAFT : jamais publié ; PUBLISHED : fait partie du contenu publié ; WITHDRAWN : retiré (gardé pour l'historique).
+enum SiteItemStatus {
+  DRAFT
+  PUBLISHED
+  WITHDRAWN
+}
+
+/// Publié : « Site web » | « Logiciel »
+enum SiteProjectKind {
+  WEBSITE
+  SOFTWARE
+}
+
+/// Publié : CLIENT | PARTENAIRE | UTILISATEUR (« Ils l'utilisent »)
+enum SiteReferenceType {
+  CLIENT
+  PARTNER
+  USER
+}
+
+/// Périmètre de l'autorisation donnée par la référence
+enum SiteAuthorizationScope {
+  NAME
+  NAME_LOGO
+  TESTIMONIAL
+}
+
+/// Publié : accueil | sitesWeb | logiciels
+enum SiteFaqPage {
+  HOME
+  WEBSITES
+  SOFTWARE
+}
+
+enum SiteMediaKind {
+  CAPTURE
+  LOGO
+}
+
+/// Réalisation (realisations.json)
+model SiteProject {
+  id          String          @id @default(cuid())
+  /// Identifiant publié, stable : le code du site y fait référence.
+  slug        String          @unique
+  position    Int             @default(0)
+  status      SiteItemStatus  @default(DRAFT)
+  name        String
+  subtitle    String?
+  kind        SiteProjectKind
+  text        String
+  role        String?
+  /// Tableau JSON de technologies
+  techJson    String?
+  /// Lien vers le site ou la démo (https), jamais vers le code source
+  url         String
+  linkLabel   String
+  /// Chemin publié : /projets/<nom>.webp (repris du site) ou /media/<sha12>.webp (SiteMedia)
+  imagePath   String
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+  publishedAt DateTime?
+
+  @@index([status, position])
+}
+
+/// Avis Google repris avec accord (avis.json). Note, accord et preuve ne sont jamais publiés.
+model SiteReview {
+  id                    String         @id @default(cuid())
+  position              Int            @default(0)
+  status                SiteItemStatus @default(DRAFT)
+  /// Nom tel qu'affiché sur Google
+  author                String
+  /// Date de l'avis sur Google (AAAA-MM-JJ)
+  reviewedOn            String
+  /// Texte exact, figé une fois publié (une correction impose de retirer puis recréer)
+  text                  String
+  rating                Int?
+  googleUrl             String?
+  consentAt             DateTime?
+  consentChannel        String?
+  /// Preuve de l'accord (extrait du message), chiffrée
+  consentProofEncrypted String?
+  withdrawalRequestedAt DateTime?
+  createdAt             DateTime       @default(now())
+  updatedAt             DateTime       @updatedAt
+  publishedAt           DateTime?
+
+  @@index([status, position])
+}
+
+/// Référence (references.json) : client, partenaire ou utilisateur d'un produit, publiée avec autorisation écrite.
+model SiteReference {
+  id                   String                  @id @default(cuid())
+  slug                 String                  @unique
+  position             Int                     @default(0)
+  status               SiteItemStatus          @default(DRAFT)
+  type                 SiteReferenceType
+  name                 String
+  /// /media/<sha12>.webp (SiteMedia de type LOGO)
+  logoPath             String?
+  url                  String?
+  /// slug d'une réalisation, obligatoire pour USER
+  productSlug          String?
+  testimonialText      String?
+  testimonialAuthor    String?
+  testimonialRole      String?
+  authorizationAt      DateTime?
+  authorizationChannel String?
+  authorizationScope   SiteAuthorizationScope?
+  /// Personne qui a donné l'accord (nom, e-mail), chiffrée
+  contactEncrypted     String?
+  createdAt            DateTime                @default(now())
+  updatedAt            DateTime                @updatedAt
+  publishedAt          DateTime?
+
+  @@index([status, position])
+}
+
+/// Question de FAQ (faq.json)
+model SiteFaq {
+  id          String         @id @default(cuid())
+  page        SiteFaqPage
+  position    Int            @default(0)
+  status      SiteItemStatus @default(DRAFT)
+  question    String
+  answer      String
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+  publishedAt DateTime?
+
+  @@index([page, status, position])
+}
+
+/// Documents d'un seul tenant : infos (infos.json), accroche et offres (textes.json). valueJson validé par zod selon la clé.
+model SiteText {
+  key       String   @id
+  valueJson String
+  updatedAt DateTime @updatedAt
+}
+
+/// Image normalisée (WebP, sans métadonnées) sous data/uploads/site/ : <sha12>.webp, et <sha12>-2x.webp si la source est assez grande.
+/// L'original n'est jamais gardé.
+model SiteMedia {
+  id        String        @id @default(cuid())
+  /// 12 premiers caractères hexadécimaux du SHA-256 de la version 1x : nom publié /media/<sha12>.webp
+  sha12     String        @unique
+  kind      SiteMediaKind
+  width     Int
+  height    Int
+  bytes     Int
+  width2x   Int?
+  height2x  Int?
+  bytes2x   Int?
+  createdAt DateTime      @default(now())
 }

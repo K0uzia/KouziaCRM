@@ -1,0 +1,77 @@
+{
+  "schemaVersion": 1,
+  "realisations": [
+    {
+      "id": "tracebay",
+      "nom": "Tracebay",
+      "type": "Logiciel",
+      "texte": "Logiciel de bureau de traçabilité de matériel informatique : réception de lots, effacement de disques, commandes, dons, prêts, inventaire et archives PDF, avec un agenda partagé.",
+      "role": "Conception et développement.",
+      "techno": [
+        "Electron",
+        "Fastify",
+        "TypeScript",
+        "PostgreSQL"
+      ],
+      "url": "https://k0uzia.github.io/Tracebay/",
+      "lien": "Essayer la démo",
+      "image": "/projets/tracebay.webp"
+    },
+    {
+      "id": "morlaix-communaute",
+      "nom": "Morlaix Communauté",
+      "sousTitre": "Centre de ressources jeunesse",
+      "type": "Site web",
+      "texte": "Catalogue de ressources pédagogiques (livres, jeux, malles) avec espace animateur, réservation et ressources téléchargeables pour les professionnels du territoire.",
+      "role": "Conception et développement.",
+      "techno": [
+        "PHP",
+        "MySQL",
+        "JavaScript"
+      ],
+      "url": "https://moco.lacapsule.org/",
+      "lien": "Voir le site",
+      "image": "/projets/morlaix.webp"
+    },
+    {
+      "id": "capsuleos",
+      "nom": "CapsuleOS",
+      "type": "Site web",
+      "texte": "Simulateur pédagogique de bureaux Linux, Windows et macOS dans le navigateur, pour apprendre l’informatique sans machine virtuelle et lutter contre l’illectronisme.",
+      "url": "https://os.lacapsule.org/",
+      "lien": "Voir le site",
+      "image": "/projets/capsuleos.webp"
+    },
+    {
+      "id": "la-capsule",
+      "nom": "La Capsule",
+      "sousTitre": "Chantier d’insertion numérique",
+      "type": "Site web",
+      "texte": "Site du chantier d’insertion numérique de Morlaix pour les 18-29 ans : reconditionnement informatique, médiation numérique, développement et formation.",
+      "url": "https://lacapsule.org/",
+      "lien": "Voir le site",
+      "image": "/projets/lacapsule.webp"
+    },
+    {
+      "id": "ulamir-cpie",
+      "nom": "ULAMIR CPIE",
+      "sousTitre": "Pays de Morlaix-Trégor",
+      "type": "Site web",
+      "texte": "Site de l’association d’éducation à l’environnement : animations nature, accueil de loisirs, insertion, projets citoyens et agenda.",
+      "url": "https://ulamir.lacapsule.org/",
+      "lien": "Voir le site",
+      "image": "/projets/ulamir.webp"
+    },
+    {
+      "id": "ssa-pays-de-morlaix",
+      "nom": "SSA Pays de Morlaix",
+      "sousTitre": "Sécurité Sociale de l’Alimentation",
+      "type": "Site web",
+      "texte": "Site bilingue français et breton du collectif : présentation du projet, actualités, événements et contact.",
+      "role": "Réalisé dans le cadre de mon emploi à La Capsule.",
+      "url": "https://ssapaysdemorlaix.fr/",
+      "lien": "Voir le site",
+      "image": "/projets/ssa.webp"
+    }
+  ]
+}

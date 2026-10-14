@@ -27,6 +27,7 @@ import { quotesMarketRoutes } from "@/routes/quotes-market.js";
 import { subscriptionsRoutes } from "@/routes/subscriptions.js";
 import { stripePayoutsRoutes } from "@/routes/stripe-payouts.js";
 import { webhooksStripeRoutes } from "@/routes/webhooks-stripe.js";
+import { siteRoutes } from "@/routes/site.js";
 import { projectsRoutes } from "@/routes/projects.js";
 import { notificationsRoutes } from "@/routes/notifications.js";
 import { pushRoutes } from "@/routes/push.js";
@@ -163,6 +164,7 @@ export async function buildApp(opts: BuildAppOptions = {}): Promise<FastifyInsta
   await app.register(notificationsRoutes);
   await app.register(pushRoutes);
   await app.register(googleCalendarRoutes);
+  await app.register(siteRoutes);
 
   // pendingMigrations > 0 : base en retard sur le code (contrôle d'après déploiement).
   app.get("/api/health", async () => ({ ok: true, pendingMigrations: pendingMigrationCount() }));

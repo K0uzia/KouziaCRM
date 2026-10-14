@@ -93,6 +93,15 @@ Variables à ajouter dans `.env` :
 | `CLIENT_PORTAL_URL` | URL espace client `/suivi` (emails devis, paramètres ERP) |
 | `VITE_PUBLIC_SITE_URL` | Redirection legacy `/onboarding/:token` |
 
+### Espace « Site » (contenu de kouzia.com)
+
+Le contenu modifiable du site (coordonnées, accroche, offres, réalisations, FAQ, avis, références) se saisit dans l'ERP, puis se publie dans le dépôt KouziaWebsite (`src/content/site/*.json`, contrat `contenu.schema.json`). Lot E1 : saisie et contrôles par l'API (`/api/site/*`), sans publication ni écran.
+
+- **Jeton GitHub** : fine-grained PAT limité au dépôt du site (Contents en lecture et écriture, Actions en lecture), saisi par `PUT /api/site/github`, chiffré en base et jamais renvoyé. `POST /api/site/github/test` le vérifie sans rien écrire et note sa date d'expiration.
+- **Reprise initiale** : `POST /api/site/import` lit les 6 fichiers du dépôt et remplit un espace Site vide. Les accords des avis et des références ne sont pas dans le dépôt : à ressaisir avant de les republier.
+- **Contrôles** : règles de la charte du site (liens https, jamais vers du code source, ni tiret cadratin ni demi-cadratin, identifiants uniques, accord avant publication), puis structure de `contenu.schema.json`.
+- **Images** : `sharp` (binaires précompilés, musl sur le CT Alpine). Sans lui, l'ERP démarre et seul l'envoi d'images est refusé.
+
 ### Paiements Stripe
 
 Stripe encaisse (carte, virement, prélèvement SEPA) ; l'ERP reste seul émetteur des devis, factures et reçus. Les versements partent vers le Revolut Pro.
@@ -321,6 +330,9 @@ sauvegarde (archive chiffrée `kouziacrm-<date>.uploads.tar.gz.gpg`, restaurée 
 - `receipts/` : reçu de chaque règlement (montant, moyen, reste dû, « facture acquittée » quand elle est
   soldée), archivé à l'envoi de l'e-mail « Paiement reçu » ou au premier accès (`/suivi`). La facture émise ne
   change pas avec les paiements : c'est le reçu qui atteste le règlement.
+- `site/` : images de l'espace Site (captures et logos de kouzia.com), en WebP normalisé sans
+  métadonnées (`<empreinte>.webp`, et `<empreinte>-2x.webp` si la source est assez grande). L'original envoyé
+  n'est jamais gardé.
 
 Après la mise à jour qui introduit l'archivage, lancer une fois `kouziactl archive-pdfs` : les factures et
 avoirs déjà émis sont archivés avec les réglages du moment (sans effet sur ceux déjà archivés).

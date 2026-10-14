@@ -38,6 +38,12 @@ const TABLES = [
   "AdminLoginChallenge",
   "AdminDevice",
   "SettingsAuditLog",
+  "SiteProject",
+  "SiteReview",
+  "SiteReference",
+  "SiteFaq",
+  "SiteText",
+  "SiteMedia",
 ];
 
 /** Vide toutes les tables métier (garde User ; CompanySettings est recréé par seedCompanySettings). */
