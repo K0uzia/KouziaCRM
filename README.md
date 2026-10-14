@@ -274,6 +274,10 @@ fenêtre de 60 s. Au-delà, le service reste arrêté et `kouziactl status` l'af
 `kouziactl restart`. Journaux inchangés : `/var/log/kouzia/app.log|.err` et `worker.log|.err`.
 `kouziactl update` réinstalle les scripts de `scripts/alpine/openrc/` quand ils ont changé, après
 avoir arrêté la pile avec les scripts en place (aucun processus orphelin d'une ancienne version).
+Recette : `kouziactl selftest-respawn worker` (ou `app`) tue le processus node du service, jamais
+le superviseur, et vérifie la relance. Ne pas viser le processus avec `pgrep -f "tsx.*worker.ts"` :
+la ligne de commande de `supervise-daemon` contient les mêmes arguments. Service affiché
+`unsupervised` (superviseur tué, processus orphelin) : `kouziactl repair-service worker` (ou `app`).
 
 ### Double authentification (admin par Internet)
 

@@ -281,6 +281,99 @@ install_app_openrc() {
   done
 }
 
+# Service OpenRC et script lancé, pour app | worker.
+app_service_name() {
+  case "$1" in
+    app) echo kouziacrm ;;
+    worker) echo kouziacrm-worker ;;
+    *) die "Cible inconnue : $1 (app | worker)" ;;
+  esac
+}
+app_service_script() {
+  case "$1" in
+    app) echo 'apps/api/src/index\.ts' ;;
+    worker) echo 'scripts/worker\.ts' ;;
+  esac
+}
+
+# PID de supervise-daemon pour un service. Jamais par motif sur « tsx…worker.ts » : la ligne de
+# commande du superviseur contient aussi ces arguments (et son PID est le plus petit).
+supervisor_pid() {
+  local svc="$1" pid
+  pid="$(cat "/run/supervise-${svc}.pid" 2>/dev/null || true)"
+  if [[ ! "$pid" =~ ^[0-9]+$ ]] || ! kill -0 "$pid" 2>/dev/null; then
+    pid="$(pgrep -f "^supervise-daemon ${svc} " 2>/dev/null | head -1 || true)"
+  fi
+  [[ "$pid" =~ ^[0-9]+$ ]] && echo "$pid"
+  return 0
+}
+
+# Processus de l'app (tsx et node) hors superviseurs : orphelins une fois le superviseur parti.
+app_process_pids() {
+  local pattern="$1" pid
+  for pid in $(pgrep -f "$pattern" 2>/dev/null || true); do
+    [[ "$pid" == "$$" ]] && continue
+    [[ "$(cat "/proc/${pid}/comm" 2>/dev/null)" == "supervise-daemon" ]] && continue
+    echo "$pid"
+  done
+}
+
+# Remise en état d'un service dont le superviseur a disparu (état « unsupervised ») :
+# état OpenRC remis à zéro, processus orphelins arrêtés, démarrage supervisé.
+repair_app_service() {
+  local target="$1" svc pattern pids i
+  svc="$(app_service_name "$target")"
+  pattern="$(app_service_script "$target")"
+  log "Remise en état de ${svc}…"
+  rc-service "$svc" stop >/dev/null 2>&1 || true
+  rc-service "$svc" zap
+  pids="$(app_process_pids "$pattern")"
+  if [[ -n "$pids" ]]; then
+    warn "Processus orphelins : $(echo "$pids" | tr '\n' ' ')→ arrêt"
+    # shellcheck disable=SC2086
+    kill -TERM $pids 2>/dev/null || true
+    for ((i = 1; i <= 10; i++)); do
+      [[ -z "$(app_process_pids "$pattern")" ]] && break
+      sleep 1
+    done
+    pids="$(app_process_pids "$pattern")"
+    # shellcheck disable=SC2086
+    [[ -n "$pids" ]] && kill -KILL $pids 2>/dev/null || true
+  fi
+  rc-service "$svc" start
+  [[ "$target" == "app" ]] && { wait_health || warn "API unhealthy après remise en état"; }
+  rc-service "$svc" status || true
+}
+
+# Recette de relance : tue le processus node du service (le petit-enfant du superviseur, jamais
+# le superviseur), puis vérifie qu'un nouveau processus est lancé par le MÊME superviseur.
+selftest_respawn() {
+  local target="$1" svc sup child leaf new i
+  svc="$(app_service_name "$target")"
+  rc-service "$svc" status >/dev/null 2>&1 || die "${svc} n'est pas démarré (kouziactl status)."
+  sup="$(supervisor_pid "$svc")"
+  [[ -n "$sup" ]] || die "Superviseur de ${svc} introuvable : état non supervisé, lancer kouziactl repair-service ${target}."
+  child="$(pgrep -P "$sup" 2>/dev/null | head -1 || true)"
+  [[ -n "$child" ]] || die "Aucun processus sous le superviseur ${sup}."
+  leaf="$(pgrep -P "$child" 2>/dev/null | head -1 || true)"
+  leaf="${leaf:-$child}"
+  log "Superviseur ${sup}, tsx ${child}, processus visé ${leaf} ($(tr '\0' ' ' < "/proc/${leaf}/cmdline" 2>/dev/null | cut -c1-80))"
+  kill -KILL "$leaf"
+  ok "kill -9 ${leaf} envoyé, attente de la relance (respawn_delay 5 s)…"
+  for ((i = 1; i <= 30; i++)); do
+    sleep 1
+    kill -0 "$sup" 2>/dev/null || die "Le superviseur ${sup} a disparu : recette en échec."
+    new="$(pgrep -P "$sup" 2>/dev/null | head -1 || true)"
+    if [[ -n "$new" && "$new" != "$child" ]]; then
+      ok "Relancé en ${i} s par le même superviseur ${sup} : nouveau processus ${new}"
+      [[ "$target" == "app" ]] && { wait_health || die "Relancé mais API unhealthy."; }
+      rc-service "$svc" status || true
+      return 0
+    fi
+  done
+  die "Pas de relance en 30 s : voir kouziactl logs ${target} et /var/log/kouzia/*.err"
+}
+
 # prisma migrate avec retry si "database is locked"
 prisma_migrate_deploy() {
   local dir="${1:-$KOUZIA_APP_DIR}"
