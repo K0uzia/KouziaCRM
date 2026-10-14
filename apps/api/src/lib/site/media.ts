@@ -28,6 +28,30 @@ const VARIANTS: Record<SiteMediaKind, { x1: Variant; x2: Variant }> = {
 const QUALITIES = [80, 72, 64, 56, 48];
 const ACCEPTED_FORMATS = new Set(["jpeg", "png", "webp", "avif", "heif"]);
 
+/**
+ * Logo SVG : accepté puis RASTÉRISÉ en WebP (aucun SVG ne part vers le site). Avant le rendu, refus de tout
+ * ce qui ferait lire une ressource externe ou locale par le moteur SVG (image, lien, feuille de style,
+ * entité XML) : seules les références internes (#id) sont permises.
+ */
+export function assertSafeSvg(input: Buffer): void {
+  const text = input.toString("utf8");
+  const forbidden = [
+    /<!ENTITY/i,
+    /<!DOCTYPE[^>]*\[/i,
+    /<\s*(image|foreignObject|script|iframe|use)\b[^>]*\b(xlink:)?href\s*=\s*["'](?!#)/i,
+    /<\s*(script|foreignObject|iframe)\b/i,
+    /\b(xlink:)?href\s*=\s*["'](?!#)/i,
+    /url\(\s*["']?(?!#)/i,
+    /@import/i,
+  ];
+  if (forbidden.some((re) => re.test(text))) {
+    throw new SiteMediaError(
+      "SVG refusé : il fait appel à un fichier, un lien ou un script. Exporter le logo en SVG simple ou en PNG.",
+      "FORMAT",
+    );
+  }
+}
+
 export class SiteMediaError extends Error {
   constructor(
     message: string,
@@ -67,16 +91,28 @@ export async function normalizeSiteImage(
 ): Promise<{ x1: ProcessedImage; x2: ProcessedImage | null }> {
   const sharp = await loadSharp();
   if (!sharp) throw new SiteMediaError("Traitement d'image indisponible sur ce serveur (sharp manquant).", "UNAVAILABLE");
-  const base = () => sharp(input, { limitInputPixels: 50_000_000, failOn: "error" });
-  let meta: Awaited<ReturnType<ReturnType<typeof base>["metadata"]>>;
+  const isSvg = kind === SiteMediaKind.LOGO && /^\s*(<\?xml[^>]*>\s*)?(<!--[\s\S]*?-->\s*)*<svg[\s>]/i.test(input.subarray(0, 4096).toString("utf8"));
+  if (isSvg) assertSafeSvg(input);
+  // SVG : rendu assez dense pour obtenir la version 2x d'un logo dessiné petit (viewBox de 100 px).
+  let density: number | undefined;
+  const open = () => sharp(input, { limitInputPixels: 50_000_000, failOn: "error", ...(density ? { density } : {}) });
+  let meta: Awaited<ReturnType<ReturnType<typeof open>["metadata"]>>;
   try {
-    meta = await base().metadata();
+    meta = await open().metadata();
+    if (isSvg && meta.width && meta.width < VARIANTS.LOGO.x2.width) {
+      density = Math.min(2400, Math.ceil((72 * VARIANTS.LOGO.x2.width) / meta.width));
+      meta = await open().metadata();
+    }
   } catch {
-    throw new SiteMediaError("Fichier illisible : envoyer une image JPEG, PNG, WebP ou AVIF.", "FORMAT");
+    throw new SiteMediaError("Fichier illisible : envoyer une image JPEG, PNG, WebP, AVIF ou un logo SVG.", "FORMAT");
   }
-  if (!meta.format || !ACCEPTED_FORMATS.has(meta.format)) {
-    throw new SiteMediaError("Formats acceptés : JPEG, PNG, WebP, AVIF.", "FORMAT");
+  if (!meta.format || !(ACCEPTED_FORMATS.has(meta.format) || (isSvg && meta.format === "svg"))) {
+    throw new SiteMediaError(
+      kind === SiteMediaKind.LOGO ? "Formats acceptés : PNG, SVG, WebP, JPEG, AVIF." : "Formats acceptés : JPEG, PNG, WebP, AVIF.",
+      "FORMAT",
+    );
   }
+  const base = open;
   // Dimensions affichées, une fois l'orientation EXIF appliquée.
   const rotated = (meta.orientation ?? 1) >= 5;
   const srcWidth = (rotated ? meta.height : meta.width) ?? 0;

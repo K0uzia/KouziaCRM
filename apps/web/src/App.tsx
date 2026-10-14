@@ -82,8 +82,17 @@ const SiteReferencesPage = lazy(() =>
 const SiteFaqPage = lazy(() =>
   import("@/pages/site/SiteFaqPage").then((m) => ({ default: m.SiteFaqPage })),
 );
-const SiteTextsPage = lazy(() =>
-  import("@/pages/site/SiteTextsPage").then((m) => ({ default: m.SiteTextsPage })),
+const SiteContactPage = lazy(() =>
+  import("@/pages/site/SiteTextsPage").then((m) => ({ default: m.SiteContactPage })),
+);
+const SiteHeroPage = lazy(() =>
+  import("@/pages/site/SiteTextsPage").then((m) => ({ default: m.SiteHeroPage })),
+);
+const SiteOffersPage = lazy(() =>
+  import("@/pages/site/SiteTextsPage").then((m) => ({ default: m.SiteOffersPage })),
+);
+const SiteTextsRedirect = lazy(() =>
+  import("@/pages/site/SiteTextsPage").then((m) => ({ default: m.SiteTextsRedirect })),
 );
 const SiteConnectionPage = lazy(() =>
   import("@/pages/site/SiteConnectionPage").then((m) => ({ default: m.SiteConnectionPage })),
@@ -160,7 +169,11 @@ export default function App() {
           <Route path="site/avis" element={<SiteReviewsPage />} />
           <Route path="site/references" element={<SiteReferencesPage />} />
           <Route path="site/faq" element={<SiteFaqPage />} />
-          <Route path="site/textes" element={<SiteTextsPage />} />
+          <Route path="site/coordonnees" element={<SiteContactPage />} />
+          <Route path="site/accroche" element={<SiteHeroPage />} />
+          <Route path="site/offres" element={<SiteOffersPage />} />
+          {/* Ancien écran unique « Textes et coordonnées » (?tab=accroche|offres). */}
+          <Route path="site/textes" element={<SiteTextsRedirect />} />
           <Route path="site/connexion" element={<SiteConnectionPage />} />
         </Route>
         <Route path="*" element={<Navigate to="/" replace />} />

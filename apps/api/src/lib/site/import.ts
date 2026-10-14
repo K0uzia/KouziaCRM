@@ -59,6 +59,7 @@ export async function importSiteFiles(raw: Record<SiteFileName, string>, now = n
   const done = { status: SiteItemStatus.PUBLISHED, publishedAt: now };
 
   await prisma.$transaction([
+    ...(avis.methode ? [prisma.siteText.create({ data: { key: "avisMethode", valueJson: JSON.stringify(avis.methode) } })] : []),
     prisma.siteText.create({ data: { key: "infos", valueJson: JSON.stringify(infos.infos) } }),
     prisma.siteText.create({ data: { key: "accroche", valueJson: JSON.stringify(textes.accroche) } }),
     prisma.siteText.create({ data: { key: "offres", valueJson: JSON.stringify(textes.offres) } }),
@@ -88,7 +89,7 @@ export async function importSiteFiles(raw: Record<SiteFileName, string>, now = n
     ),
     ...avis.avis.map((a, position) =>
       prisma.siteReview.create({
-        data: { ...done, position, author: a.auteur, reviewedOn: a.publieLe, text: a.texte },
+        data: { ...done, position, author: a.auteur, reviewedOn: a.publieLe, experienceOn: a.experienceLe ?? null, text: a.texte },
       }),
     ),
     ...references.references.map((r, position) =>
@@ -101,7 +102,10 @@ export async function importSiteFiles(raw: Record<SiteFileName, string>, now = n
           name: r.nom,
           logoPath: r.logo ?? null,
           url: r.url ?? null,
-          productSlug: r.produit ?? null,
+          productSlug: (r.type === "UTILISATEUR" ? r.produit : r.realisation) ?? null,
+          // Sans emplacements (fichier antérieur au mur de logos) : bandeau de l'accueil, comme le défaut.
+          onHome: r.emplacements ? r.emplacements.includes("accueil") : true,
+          onProjects: r.emplacements?.includes("realisations") ?? false,
           testimonialText: r.temoignage?.texte ?? null,
           testimonialAuthor: r.temoignage?.auteur ?? null,
           testimonialRole: r.temoignage?.fonction ?? null,

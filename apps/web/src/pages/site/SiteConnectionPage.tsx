@@ -7,7 +7,7 @@ import { Field, Input } from "@/components/ui/Field";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { LoadState, type SiteIssue, type SiteState } from "./shared";
 
-type TestResult = { repo: string; branch: string; headSha: string; expiresAt: string | null };
+type TestResult = { repo: string; branch: string; headSha: string; expiresAt: string | null; expiration: "date" | "none" | "invalid" };
 
 export function SiteConnectionPage() {
   const [state, setState] = useState<SiteState | null>(null);
@@ -127,7 +127,18 @@ export function SiteConnectionPage() {
                   )}
                 </dd>
                 <dt className="text-[var(--muted)]">Expiration</dt>
-                <dd>{gh.expiresAt ? formatDate(gh.expiresAt) : gh.token.set ? "Inconnue : lancer un test" : "-"}</dd>
+                <dd>
+                  {!gh.token.set
+                    ? "-"
+                    : gh.expiresAt
+                      ? formatDate(gh.expiresAt)
+                      : gh.checkedAt
+                        ? "Sans date d'expiration"
+                        : "Pas encore vérifiée : lancer un test"}
+                  {gh.token.set && gh.checkedAt ? (
+                    <span className="block text-xs text-[var(--muted)]">Vérifiée le {formatDate(gh.checkedAt)}</span>
+                  ) : null}
+                </dd>
               </dl>
               <form onSubmit={saveToken} noValidate className="space-y-3 border-t border-[var(--border)] pt-4">
                 <Field
@@ -164,7 +175,11 @@ export function SiteConnectionPage() {
                 <p className="rounded-[var(--radius-sm)] bg-[var(--success-soft)] p-3 text-sm" role="status">
                   Dépôt joint en lecture seule : {test.repo}, branche {test.branch} au commit{" "}
                   <span className="font-mono">{test.headSha.slice(0, 7)}</span>.
-                  {test.expiresAt ? ` Jeton valable jusqu'au ${formatDate(test.expiresAt)}.` : " Jeton sans date d'expiration."}
+                  {test.expiration === "date" && test.expiresAt
+                    ? ` Jeton valable jusqu'au ${formatDate(test.expiresAt)}.`
+                    : test.expiration === "none"
+                      ? " Jeton sans date d'expiration."
+                      : " Date d'expiration illisible dans la réponse de GitHub : la vérifier sur github.com."}
                 </p>
               ) : null}
             </Card>

@@ -422,12 +422,14 @@ export function AppLayout() {
         </header>
 
         {/* Région qui défile : atteignable au clavier (axe scrollable-region-focusable),
-            contour visible seulement au focus clavier. */}
+            contour visible seulement au focus clavier. « relative » : un élément en position absolue
+            (sr-only d'un champ fichier) se place et se coupe dans cette région, sinon il allongeait
+            la page entière, qui défilait alors sous la coquille (fiche Réalisation en grand écran). */}
         <main
           id="contenu"
           tabIndex={isMailWorkspace ? -1 : 0}
           aria-label="Contenu"
-          className={`custom-scrollbar min-h-0 min-w-0 flex-1 focus:outline-none focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-[var(--primary)] ${
+          className={`custom-scrollbar relative min-h-0 min-w-0 flex-1 focus:outline-none focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-[var(--primary)] ${
             isMailWorkspace ? "overflow-hidden" : "overflow-y-auto overflow-x-hidden"
           }`}
         >

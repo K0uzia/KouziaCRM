@@ -92,6 +92,35 @@ describe("images de l'espace Site", () => {
     await expect(saveSiteImage(await phonePhoto(360, 800), SiteMediaKind.MOBILE)).rejects.toMatchObject({ code: "TOO_SMALL" });
   });
 
+  it("logo SVG : rastérisé en WebP transparent 200 et 400 px, même dessiné petit", async () => {
+    const svg = Buffer.from(
+      '<?xml version="1.0"?><svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 100 40" width="100" height="40"><defs><linearGradient id="g"><stop offset="0" stop-color="#fe9a00"/><stop offset="1" stop-color="#615fff"/></linearGradient></defs><rect width="100" height="40" rx="6" fill="url(#g)"/><use xlink:href="#g"/></svg>',
+    );
+    const media = await saveSiteImage(svg, SiteMediaKind.LOGO);
+    expect(media).toMatchObject({ width: 200, height: 80, width2x: 400, height2x: 160 });
+    const meta = await sharp((await readSiteMedia(media.sha12))!).metadata();
+    expect(meta.format).toBe("webp");
+    expect(meta.hasAlpha).toBe(true);
+  });
+
+  it("SVG qui appelle une ressource externe, un script ou une entité : refusé avant tout rendu ; SVG hors logo refusé", async () => {
+    for (const body of [
+      '<image href="file:///etc/passwd" width="10" height="10"/>',
+      '<image xlink:href="https://exemple.fr/a.png"/>',
+      '<script>alert(1)</script>',
+      '<style>@import "https://exemple.fr/a.css";</style>',
+      '<rect fill="url(https://exemple.fr/a.svg#x)"/>',
+      '<foreignObject><div/></foreignObject>',
+    ]) {
+      const svg = Buffer.from(`<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="400" height="200">${body}</svg>`);
+      await expect(saveSiteImage(svg, SiteMediaKind.LOGO), body).rejects.toMatchObject({ code: "FORMAT" });
+    }
+    const entity = Buffer.from('<?xml version="1.0"?><!DOCTYPE svg [<!ENTITY x SYSTEM "file:///etc/passwd">]><svg xmlns="http://www.w3.org/2000/svg" width="400" height="200"><text>&x;</text></svg>');
+    await expect(saveSiteImage(entity, SiteMediaKind.LOGO)).rejects.toMatchObject({ code: "FORMAT" });
+    const clean = Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" width="1920" height="1080"><rect width="1920" height="1080" fill="#123"/></svg>');
+    await expect(saveSiteImage(clean, SiteMediaKind.CAPTURE)).rejects.toMatchObject({ code: "FORMAT" });
+  });
+
   it("refuse un fichier qui n'est pas une image, ou un SVG", async () => {
     await expect(saveSiteImage(Buffer.from("pas une image"), SiteMediaKind.LOGO)).rejects.toBeInstanceOf(SiteMediaError);
     const svg = Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" width="400" height="200"><script>alert(1)</script></svg>');

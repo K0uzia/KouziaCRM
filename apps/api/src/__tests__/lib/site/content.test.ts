@@ -7,9 +7,9 @@ import { SITE_FILES, serializeSiteFile, validateSiteFiles, type SiteFileName } f
 import { importSiteFiles, SiteImportError } from "@/lib/site/import.js";
 import { buildSiteSnapshot } from "@/lib/site/snapshot.js";
 import { resetDb } from "../../helpers/db.js";
-import { seedCompanySettings } from "../../helpers/factories.js";
+import { createClient, seedCompanySettings } from "../../helpers/factories.js";
 
-// Fichiers réels du site (KouziaWebsite, src/content/site, main 08bfe72) : le contrat et son export.
+// Fichiers réels du site (KouziaWebsite, src/content/site, main 600dec6) : le contrat et son export.
 const fixture = (name: string) => readFileSync(fileURLToPath(new URL(`../../fixtures/site/${name}`, import.meta.url)), "utf8");
 const raw = Object.fromEntries(SITE_FILES.map((n) => [n, fixture(`${n}.json`)])) as Record<SiteFileName, string>;
 const contract = JSON.parse(fixture("contenu.schema.json")) as unknown;
@@ -89,6 +89,65 @@ describe("import puis instantané", () => {
     const snap = await buildSiteSnapshot(contract);
     expect(snap.issues).toEqual([]);
     expect(snap.files.realisations).toBe(raw.realisations.replace(/\r\n/g, "\n"));
+  });
+
+  it("avis et mur de logos (contrat 600dec6) : clés dans l'ordre du site, avis du plus récent au plus ancien, reprise à l'identique", async () => {
+    await importSiteFiles(raw);
+    const client = await createClient({ displayName: "Lou Martin" });
+    const consent = { consentAt: new Date("2026-10-02T10:00:00Z"), clientId: client.id, status: SiteItemStatus.PUBLISHED };
+    await prisma.siteReview.create({ data: { ...consent, author: "Lou M.", reviewedOn: "2026-09-01", experienceOn: "2026-08-20", text: "Ancien." } });
+    await prisma.siteReview.create({ data: { ...consent, author: "Ana B.", reviewedOn: "2026-10-01", experienceOn: "2026-09-25", text: "Récent." } });
+    await prisma.siteMedia.create({ data: { sha12: "0123456789ab", kind: "LOGO", width: 200, height: 80, bytes: 1000 } });
+    await prisma.siteReference.create({
+      data: {
+        status: SiteItemStatus.PUBLISHED,
+        slug: "mairie",
+        type: SiteReferenceType.CLIENT,
+        name: "Mairie de Huelgoat",
+        logoPath: "/media/0123456789ab.webp",
+        url: "https://huelgoat.example.fr/",
+        productSlug: "morlaix-communaute",
+        onHome: true,
+        onProjects: true,
+        authorizationAt: new Date(),
+        authorizationScope: SiteAuthorizationScope.NAME_LOGO,
+      },
+    });
+
+    // Sans méthode : la publication des avis est bloquée (règle du site reprise par l'ERP).
+    const blocked = await buildSiteSnapshot(contract);
+    expect(blocked.issues.map((i) => i.message)).toContain("Méthode de recueil et de vérification requise dès qu'un avis est publié");
+
+    await prisma.siteText.create({
+      data: { key: "avisMethode", valueJson: JSON.stringify({ titre: "Comment les avis sont recueillis et vérifiés", texte: "Clients vérifiés." }) },
+    });
+    const snap = await buildSiteSnapshot(contract);
+    expect(snap.issues).toEqual([]);
+    const avis = JSON.parse(snap.files.avis);
+    expect(Object.keys(avis)).toEqual(["schemaVersion", "methode", "avis"]);
+    expect(avis.avis.map((a: { auteur: string }) => a.auteur)).toEqual(["Ana B.", "Lou M."]);
+    expect(Object.keys(avis.avis[0])).toEqual(["auteur", "publieLe", "experienceLe", "texte"]);
+    const [ref] = JSON.parse(snap.files.references).references;
+    expect(ref).toEqual({
+      id: "mairie",
+      type: "CLIENT",
+      nom: "Mairie de Huelgoat",
+      logo: "/media/0123456789ab.webp",
+      url: "https://huelgoat.example.fr/",
+      emplacements: ["accueil", "realisations"],
+      realisation: "morlaix-communaute",
+    });
+    expect(Object.keys(ref)).toEqual(["id", "type", "nom", "logo", "url", "emplacements", "realisation"]);
+    expect(snap.media).toEqual(["0123456789ab"]);
+
+    // Les fichiers produits se reprennent à l'identique (méthode, dates d'expérience, emplacements, réalisation liée).
+    await resetDb();
+    await seedCompanySettings();
+    await importSiteFiles({ ...raw, avis: snap.files.avis, references: snap.files.references });
+    await prisma.siteMedia.create({ data: { sha12: "0123456789ab", kind: "LOGO", width: 200, height: 80, bytes: 1000 } });
+    const again = await buildSiteSnapshot(contract);
+    expect(again.files.avis).toBe(snap.files.avis);
+    expect(again.files.references).toBe(snap.files.references);
   });
 
   it("une seule fois, sur un espace Site vide", async () => {

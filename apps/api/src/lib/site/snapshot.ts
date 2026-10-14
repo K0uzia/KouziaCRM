@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { SiteAuthorizationScope, SiteItemStatus } from "@prisma/client";
+import { SiteAuthorizationScope, SiteItemStatus, SiteReferenceType } from "@prisma/client";
 import { prisma } from "@/lib/prisma.js";
 import {
   SITE_FILES,
@@ -31,19 +31,24 @@ const MEDIA_RE = /^\/media\/([a-f0-9]{12})\.webp$/;
  * fourni, par contenu.schema.json du dépôt. Les accords manquants bloquent la publication.
  */
 export async function buildSiteSnapshot(contract?: unknown): Promise<SiteSnapshot> {
-  const [projects, reviews, references, faq, infos, accroche, offres] = await Promise.all([
+  const [projects, reviews, references, faq, infos, accroche, offres, avisMethode] = await Promise.all([
     prisma.siteProject.findMany({ where: published, orderBy: ordered }),
-    prisma.siteReview.findMany({ where: published, orderBy: ordered }),
+    // Classement annoncé dans la méthode (D111-17) : du plus récent au plus ancien.
+    prisma.siteReview.findMany({ where: published, orderBy: [{ reviewedOn: "desc" }, ...ordered] }),
     prisma.siteReference.findMany({ where: published, orderBy: ordered }),
     prisma.siteFaq.findMany({ where: published, orderBy: ordered }),
     readSiteText("infos"),
     readSiteText("accroche"),
     readSiteText("offres"),
+    readSiteText("avisMethode"),
   ]);
 
   const issues: SiteIssue[] = [];
   for (const r of reviews) {
     if (!r.consentAt) issues.push({ file: "avis", path: r.author, message: "Accord de l'auteur non renseigné" });
+    if (!r.clientId) issues.push({ file: "avis", path: r.author, message: "Client non lié (preuve de la relation client)" });
+    if (!r.experienceOn) issues.push({ file: "avis", path: r.author, message: "Date de l'expérience non renseignée" });
+    if (r.alteredWithConsent) issues.push({ file: "avis", path: r.author, message: "Avis retouché : seul le texte exact de l'auteur est publiable" });
   }
   for (const r of references) {
     if (!r.authorizationAt || !r.authorizationScope) {
@@ -63,7 +68,7 @@ export async function buildSiteSnapshot(contract?: unknown): Promise<SiteSnapsho
     textes: { schemaVersion: SITE_SCHEMA_VERSION, accroche, offres },
     faq: { schemaVersion: SITE_SCHEMA_VERSION, questions: faq.map(faqOut) },
     realisations: { schemaVersion: SITE_SCHEMA_VERSION, realisations: projects.map(projectOut) },
-    avis: { schemaVersion: SITE_SCHEMA_VERSION, avis: reviews.map(reviewOut) },
+    avis: { schemaVersion: SITE_SCHEMA_VERSION, ...(avisMethode ? { methode: avisMethode } : {}), avis: reviews.map(reviewOut) },
     references: { schemaVersion: SITE_SCHEMA_VERSION, references: references.map(referenceOut) },
   };
   if (!infos) issues.push({ file: "infos", path: "infos", message: "Coordonnées non renseignées" });
@@ -73,7 +78,14 @@ export async function buildSiteSnapshot(contract?: unknown): Promise<SiteSnapsho
   const projectSlugs = new Set(projects.map((p) => p.slug));
   for (const r of references) {
     if (r.productSlug && !projectSlugs.has(r.productSlug)) {
-      issues.push({ file: "references", path: r.slug, message: `Produit « ${r.productSlug} » absent des réalisations publiées` });
+      const what = r.type === SiteReferenceType.USER ? "Produit" : "Réalisation liée";
+      issues.push({ file: "references", path: r.slug, message: `${what} « ${r.productSlug} » absent des réalisations publiées` });
+    }
+    // Mur de logos : chaque logo mène au site de la structure et paraît au moins à un emplacement.
+    if (r.type !== SiteReferenceType.USER) {
+      if (!r.url) issues.push({ file: "references", path: r.slug, message: "Lien vers le site de la structure manquant" });
+      if (!r.logoPath) issues.push({ file: "references", path: r.slug, message: "Logo manquant" });
+      if (!r.onHome && !r.onProjects) issues.push({ file: "references", path: r.slug, message: "Aucun emplacement choisi" });
     }
   }
 

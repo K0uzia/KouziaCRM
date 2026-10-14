@@ -34,8 +34,8 @@ export async function saveGithubToken(token: string | null): Promise<void> {
   await prisma.companySettings.update({
     where: { id: settings.id },
     data: t
-      ? { githubTokenEncrypted: encrypt(t), githubTokenHint: secretHint(t), githubTokenExpiresAt: null }
-      : { githubTokenEncrypted: null, githubTokenHint: null, githubTokenExpiresAt: null },
+      ? { githubTokenEncrypted: encrypt(t), githubTokenHint: secretHint(t), githubTokenExpiresAt: null, githubTokenCheckedAt: null }
+      : { githubTokenEncrypted: null, githubTokenHint: null, githubTokenExpiresAt: null, githubTokenCheckedAt: null },
   });
   invalidateCompanySettingsCache();
 }
@@ -69,16 +69,30 @@ async function call(token: string, pathname: string, accept = "application/vnd.g
   return res;
 }
 
-/** « 2027-10-14 12:00:00 UTC » ou « 2027-10-14 12:00:00 +0200 » ; null sans en-tête (jeton sans expiration). */
-export function parseTokenExpiration(header: string | null): Date | null {
-  const m = header?.trim().match(/^(\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}:\d{2}) (UTC|[+-]\d{4})$/);
-  if (!m) return null;
-  const zone = m[3] === "UTC" ? "Z" : `${m[3].slice(0, 3)}:${m[3].slice(3)}`;
-  const d = new Date(`${m[1]}T${m[2]}${zone}`);
-  return Number.isNaN(d.getTime()) ? null : d;
+export type TokenExpiration = { kind: "date"; at: Date } | { kind: "none" } | { kind: "invalid" };
+
+/**
+ * En-tête github-authentication-token-expiration : « 2027-10-14 12:00:00 UTC » ou « … +0200 » (format de
+ * GitHub), ISO accepté aussi. Absent : jeton sans date d'expiration. Illisible : signalé, jamais pris
+ * pour « sans expiration ».
+ */
+export function readTokenExpiration(header: string | null): TokenExpiration {
+  const value = header?.trim();
+  if (!value) return { kind: "none" };
+  const m = value.match(/^(\d{4}-\d{2}-\d{2})[ T](\d{2}:\d{2}:\d{2})(?:\.\d+)? ?(UTC|Z|[+-]\d{2}:?\d{2})$/);
+  if (!m) return { kind: "invalid" };
+  const zone = m[3] === "UTC" || m[3] === "Z" ? "Z" : m[3].includes(":") ? m[3] : `${m[3].slice(0, 3)}:${m[3].slice(3)}`;
+  const at = new Date(`${m[1]}T${m[2]}${zone}`);
+  return Number.isNaN(at.getTime()) ? { kind: "invalid" } : { kind: "date", at };
 }
 
-export type GithubConnection = { repo: string; branch: string; headSha: string; expiresAt: Date | null };
+export type GithubConnection = {
+  repo: string;
+  branch: string;
+  headSha: string;
+  expiresAt: Date | null;
+  expiration: TokenExpiration["kind"];
+};
 
 /** Test sans écriture : référence de la branche et contrat du contenu. Enregistre l'expiration du jeton. */
 export async function testGithubConnection(): Promise<GithubConnection> {
@@ -87,12 +101,18 @@ export async function testGithubConnection(): Promise<GithubConnection> {
   const branch = siteBranch();
   const res = await call(token, `/repos/${repo}/git/ref/heads/${branch}`);
   const ref = (await res.json()) as { object?: { sha?: string } };
-  const expiresAt = parseTokenExpiration(res.headers.get("github-authentication-token-expiration"));
-  await call(token, `/repos/${repo}/contents/${SITE_CONTENT_DIR}/contenu.schema.json?ref=${branch}`);
+  // Enregistrée dès la première réponse authentifiée : un échec de l'appel suivant ne la perd plus.
+  const expiration = readTokenExpiration(res.headers.get("github-authentication-token-expiration"));
+  const expiresAt = expiration.kind === "date" ? expiration.at : null;
+  if (expiration.kind === "invalid") console.warn("[site] En-tête d'expiration du jeton GitHub illisible.");
   const settings = await getCompanySettings();
-  await prisma.companySettings.update({ where: { id: settings.id }, data: { githubTokenExpiresAt: expiresAt } });
+  await prisma.companySettings.update({
+    where: { id: settings.id },
+    data: { githubTokenExpiresAt: expiresAt, githubTokenCheckedAt: new Date() },
+  });
   invalidateCompanySettingsCache();
-  return { repo, branch, headSha: ref.object?.sha ?? "", expiresAt };
+  await call(token, `/repos/${repo}/contents/${SITE_CONTENT_DIR}/contenu.schema.json?ref=${branch}`);
+  return { repo, branch, headSha: ref.object?.sha ?? "", expiresAt, expiration: expiration.kind };
 }
 
 /** Lecture seule des 6 fichiers publiés et du contrat (contenu.schema.json) sur la branche du site. */

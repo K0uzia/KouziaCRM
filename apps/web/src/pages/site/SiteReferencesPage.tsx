@@ -13,6 +13,7 @@ import { FilterChips } from "@/components/ui/FilterChips";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { slugify } from "./SiteProjectsPage";
 import {
+  Checkbox,
   dateToIso,
   fieldErrorsOf,
   ImageField,
@@ -48,10 +49,14 @@ const emptyForm = {
   testimonialRole: "",
   authorizationAt: "",
   authorizationChannel: "",
-  authorizationScope: "" as SiteAuthorizationScope | "",
+  authorizationScope: "NAME_LOGO" as SiteAuthorizationScope | "",
   contact: "",
+  onHome: true,
+  onProjects: false,
   status: "DRAFT" as SiteItemStatus,
 };
+
+const PLACEMENT_LABEL = { onHome: "Accueil", onProjects: "Sous les réalisations" } as const;
 
 type Filter = "all" | SiteReferenceType;
 
@@ -100,6 +105,8 @@ export function SiteReferencesPage() {
             authorizationChannel: r.authorizationChannel ?? "",
             authorizationScope: r.authorizationScope ?? "",
             contact: r.contact ?? "",
+            onHome: r.onHome,
+            onProjects: r.onProjects,
             status: r.status,
           }
         : emptyForm,
@@ -117,6 +124,11 @@ export function SiteReferencesPage() {
     const hasTestimonial = Boolean(form.testimonialText.trim() || form.testimonialAuthor.trim());
     if (hasTestimonial && !(form.testimonialText.trim() && form.testimonialAuthor.trim())) {
       local.testimonial = "Témoignage : texte et auteur sont tous deux nécessaires.";
+    }
+    if (form.status === "PUBLISHED" && form.type !== "USER") {
+      if (!form.url.trim()) local.url = "Lien requis : chaque logo mène au site de la structure.";
+      if (!form.logoPath) local.logoPath = "Logo requis pour le mur de logos.";
+      if (!form.onHome && !form.onProjects) local.placement = "Choisir au moins un emplacement.";
     }
     if (form.status === "PUBLISHED") {
       const gap = authorizationGap({
@@ -147,6 +159,8 @@ export function SiteReferencesPage() {
       authorizationChannel: form.authorizationChannel.trim() || null,
       authorizationScope: form.authorizationScope || null,
       contact: form.contact.trim() || null,
+      onHome: form.onHome,
+      onProjects: form.onProjects,
       status: form.status,
     };
     try {
@@ -202,6 +216,15 @@ export function SiteReferencesPage() {
     },
     { name: "Type", width: "8rem", cell: (r) => REFERENCE_TYPE_LABEL[r.type] },
     {
+      name: "Emplacements",
+      width: "11rem",
+      showFrom: 1280,
+      cell: (r) =>
+        r.type === "USER"
+          ? "-"
+          : (["onHome", "onProjects"] as const).filter((k) => r[k]).map((k) => PLACEMENT_LABEL[k]).join(", ") || "Aucun",
+    },
+    {
       name: "Autorisation",
       width: "12rem",
       cell: (r) => {
@@ -223,7 +246,7 @@ export function SiteReferencesPage() {
     <div>
       <PageHeader
         title="Références"
-        subtitle="Clients, partenaires et utilisateurs cités sur kouzia.com. Nom, logo et témoignage ne paraissent qu'avec une autorisation écrite qui les couvre."
+        subtitle="Le mur de logos « Ils m'ont fait confiance » : chaque logo mène au site de la structure. Un logo ne paraît qu'avec son autorisation écrite."
         actions={
           <Button onClick={() => openForm(null)}>
             <FontAwesomeIcon icon={faPlus} className="h-3.5 w-3.5" aria-hidden />
@@ -238,8 +261,16 @@ export function SiteReferencesPage() {
             data={visible}
             onRowClick={(r) => openForm(r)}
             countLabel={visible.length > 1 ? "références" : "référence"}
-            emptyTitle="Aucune référence"
-            emptyHint="Une référence n'est ajoutée qu'avec l'accord écrit de l'entreprise citée."
+            emptyTitle={
+              filter === "CLIENT"
+                ? "Aucun client pour l'instant"
+                : filter === "PARTNER"
+                  ? "Aucun partenaire pour l'instant"
+                  : filter === "USER"
+                    ? "Aucun utilisateur"
+                    : "Aucune référence pour l'instant"
+            }
+            emptyHint="Ajoutez une structure qui vous a fait confiance, avec son logo et son accord écrit."
             toolbar={
               <FilterChips
                 label="Filtrer les références"
@@ -250,7 +281,8 @@ export function SiteReferencesPage() {
                   { id: "all", label: "Toutes", count: rows.length },
                   { id: "CLIENT", label: "Clients", count: count("CLIENT") },
                   { id: "PARTNER", label: "Partenaires", count: count("PARTNER") },
-                  { id: "USER", label: "Utilisateurs", count: count("USER") },
+                  // Ancien type « Ils l'utilisent » : affiché seulement s'il en reste.
+                  ...(count("USER") ? [{ id: "USER" as const, label: "Utilisateurs", count: count("USER") }] : []),
                 ]}
               />
             }
@@ -288,7 +320,7 @@ export function SiteReferencesPage() {
             </Field>
             <Field label="Type" error={errors.type}>
               <Select value={form.type} onChange={(e) => set("type", e.target.value as SiteReferenceType)}>
-                {(Object.keys(REFERENCE_TYPE_LABEL) as SiteReferenceType[]).map((t) => (
+                {(Object.keys(REFERENCE_TYPE_LABEL) as SiteReferenceType[]).filter((t) => t !== "USER" || form.type === "USER").map((t) => (
                   <option key={t} value={t}>
                     {REFERENCE_TYPE_LABEL[t]}
                   </option>
@@ -308,24 +340,46 @@ export function SiteReferencesPage() {
               }}
             />
           </Field>
-          {form.type === "USER" ? (
-            <Field label="Produit utilisé" hint="Une des réalisations du site." error={errors.productSlug}>
-              <Select value={form.productSlug} onChange={(e) => set("productSlug", e.target.value)}>
-                <option value="">Choisir…</option>
-                {projects.rows.map((p) => (
-                  <option key={p.id} value={p.slug}>
-                    {p.name}
-                  </option>
-                ))}
-              </Select>
-            </Field>
-          ) : null}
-          <Field label="Site de la référence (facultatif)" hint="https obligatoire." error={errors.url}>
+          <Field
+            label={form.type === "USER" ? "Produit utilisé" : "Réalisation liée (facultatif)"}
+            hint={form.type === "USER" ? "Une des réalisations du site." : "Si vous avez fait leur site ou leur logiciel : un lien « voir le projet »."}
+            error={errors.productSlug}
+          >
+            <Select value={form.productSlug} onChange={(e) => set("productSlug", e.target.value)}>
+              <option value="">{form.type === "USER" ? "Choisir…" : "Aucune"}</option>
+              {projects.rows.map((p) => (
+                <option key={p.id} value={p.slug}>
+                  {p.name}
+                </option>
+              ))}
+            </Select>
+          </Field>
+          <Field label="Site de la structure" hint="Adresse https : le logo y mène." error={errors.url}>
             <Input type="url" inputMode="url" value={form.url} onChange={(e) => set("url", e.target.value)} />
           </Field>
-          <ImageField label="Logo" kind="LOGO" optional value={form.logoPath} onChange={(p) => set("logoPath", p)} error={errors.logoPath} />
+          <ImageField label="Logo" kind="LOGO" optional={form.type === "USER"} value={form.logoPath} onChange={(p) => set("logoPath", p)} error={errors.logoPath} />
 
-          <fieldset className="space-y-4 rounded-[var(--radius)] border border-[var(--border)] p-4">
+          <fieldset className="space-y-1 rounded-[var(--radius)] border border-[var(--border)] p-4" aria-describedby={errors.placement ? "placement-err" : undefined}>
+            <legend className="px-1 text-sm font-medium">Où afficher le logo</legend>
+            <Checkbox
+              label="Bandeau « Ils m'ont fait confiance » de l'accueil"
+              checked={form.onHome}
+              onChange={(v) => set("onHome", v)}
+            />
+            <Checkbox
+              label="Sous les exemples de réalisations"
+              hint="Sur l'accueil et sur les pages Sites web et Logiciels."
+              checked={form.onProjects}
+              onChange={(v) => set("onProjects", v)}
+            />
+            {errors.placement ? (
+              <p id="placement-err" className="text-sm text-[var(--danger)]">
+                {errors.placement}
+              </p>
+            ) : null}
+          </fieldset>
+
+          <fieldset hidden className="space-y-4 rounded-[var(--radius)] border border-[var(--border)] p-4">
             <legend className="px-1 text-sm font-medium">Témoignage (facultatif)</legend>
             <Field label="Texte du témoignage" error={errors.testimonial}>
               <Textarea rows={3} value={form.testimonialText} onChange={(e) => set("testimonialText", e.target.value)} />
