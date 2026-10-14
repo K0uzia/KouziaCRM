@@ -460,6 +460,8 @@ model CompanySettings {
   googleCalendarRefreshTokenHint      String?
   googleCalendarConnectedEmail        String?
   googleCalendarEnabled               Boolean @default(false)
+  /// Google a refusé le jeton (invalid_grant) : plus de tentative jusqu'à la reconnexion
+  googleCalendarReauthRequiredAt      DateTime?
   /// Destinataire emails de rappel obligations (hors ClientEmailEvent)
   obligationReminderEmail             String  @default("kouziaeffa.pro@gmail.com")
   obligationEmailRemindersEnabled     Boolean @default(true)

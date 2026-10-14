@@ -13,6 +13,7 @@ import {
   getGoogleAuthUrl,
   isGoogleCalendarConnected,
 } from "@/lib/google-calendar/oauth.js";
+import { formatGoogleApiError } from "@/lib/google-calendar/events.js";
 import { syncObligations } from "@/lib/obligations/obligation-service.js";
 
 export const googleCalendarRoutes: FastifyPluginAsync = async (app) => {
@@ -27,6 +28,8 @@ export const googleCalendarRoutes: FastifyPluginAsync = async (app) => {
       connected,
       enabled: settings.googleCalendarEnabled,
       email: settings.googleCalendarConnectedEmail,
+      // Google a refusé le jeton : bandeau « à reconnecter » dans Réglages > Fiscalité.
+      reauthRequiredAt: settings.googleCalendarReauthRequiredAt?.toISOString() ?? null,
     };
   });
 
@@ -76,7 +79,7 @@ export const googleCalendarRoutes: FastifyPluginAsync = async (app) => {
         `${base}&google=ok&upserted=${result.upserted}&deleted=${result.deleted}`,
       );
     } catch (err) {
-      console.error("[google-calendar] OAuth callback failed", err);
+      console.error("[google-calendar] OAuth callback failed :", formatGoogleApiError(err));
       return reply.redirect(`${base}&google=error`);
     }
   });

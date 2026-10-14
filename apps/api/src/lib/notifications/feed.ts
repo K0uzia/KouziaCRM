@@ -9,7 +9,8 @@ export type NotificationKind =
   | "payment"
   | "deposit_due"
   | "subscription_stripe"
-  | "client_onboarded";
+  | "client_onboarded"
+  | "google_reauth";
 
 export type NotificationItem = {
   /** Identifiant stable (type + id source) : sert à dédoublonner côté interface. */
@@ -37,7 +38,7 @@ function eur(cents: number): string {
 export async function listNotifications(since: Date): Promise<NotificationItem[]> {
   const recentMail = new Date(Date.now() - MAIL_RECENT_MS);
 
-  const [mails, accepted, rejected, payments, depositsDue, stripeSubs, onboarded] = await Promise.all([
+  const [mails, accepted, rejected, payments, depositsDue, stripeSubs, onboarded, googleReauth] = await Promise.all([
     prisma.emailMessage.findMany({
       where: {
         direction: EmailDirection.INBOUND,
@@ -127,6 +128,11 @@ export async function listNotifications(since: Date): Promise<NotificationItem[]
       take: MAX_ITEMS,
       select: { id: true, displayName: true, onboardingCompletedAt: true },
     }),
+    // Connexion Google Agenda refusée : une seule notification (date posée une fois par panne).
+    prisma.companySettings.findFirst({
+      where: { googleCalendarReauthRequiredAt: { gt: since } },
+      select: { googleCalendarReauthRequiredAt: true },
+    }),
   ]);
 
   const items: NotificationItem[] = [
@@ -195,6 +201,18 @@ export async function listNotifications(since: Date): Promise<NotificationItem[]
       href: `/clients/${c.id}`,
       at: (c.onboardingCompletedAt ?? new Date()).toISOString(),
     })),
+    ...(googleReauth?.googleCalendarReauthRequiredAt
+      ? [
+          {
+            id: `google_reauth:${googleReauth.googleCalendarReauthRequiredAt.getTime()}`,
+            kind: "google_reauth" as const,
+            title: "Google Agenda à reconnecter",
+            body: "Google a refusé l'accès (jeton expiré ou révoqué). Les événements des démarches ne sont plus mis à jour.",
+            href: "/settings?tab=declarations",
+            at: googleReauth.googleCalendarReauthRequiredAt.toISOString(),
+          },
+        ]
+      : []),
   ];
 
   return items.sort((a, b) => b.at.localeCompare(a.at)).slice(0, MAX_ITEMS);

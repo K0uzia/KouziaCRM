@@ -66,7 +66,7 @@ export async function buildApp(opts: BuildAppOptions = {}): Promise<FastifyInsta
         },
     trustProxy: trustProxyFn(trustedProxies),
     // Les tokens PDF publics (base64url(payload).base64url(sig)) dépassent le défaut 100.
-    maxParamLength: 256,
+    routerOptions: { maxParamLength: 256 },
   });
   // Avant toute route et toute limite de débit : request.ip doit être l'IP réelle.
   registerClientIpHook(app, trustedProxies);
