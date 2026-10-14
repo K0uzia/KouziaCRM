@@ -357,7 +357,7 @@ export function SiteReferencesPage() {
           <Field label="Site de la structure" hint="Adresse https : le logo y mène." error={errors.url}>
             <Input type="url" inputMode="url" value={form.url} onChange={(e) => set("url", e.target.value)} />
           </Field>
-          <ImageField label="Logo" kind="LOGO" optional value={form.logoPath} onChange={(p) => set("logoPath", p)} error={errors.logoPath} />
+          <ImageField label="Logo" kind="LOGO" optional={form.type === "USER"} value={form.logoPath} onChange={(p) => set("logoPath", p)} error={errors.logoPath} />
 
           <fieldset className="space-y-1 rounded-[var(--radius)] border border-[var(--border)] p-4" aria-describedby={errors.placement ? "placement-err" : undefined}>
             <legend className="px-1 text-sm font-medium">Où afficher le logo</legend>
