@@ -48,6 +48,7 @@ export async function buildSiteSnapshot(contract?: unknown): Promise<SiteSnapsho
     if (!r.consentAt) issues.push({ file: "avis", path: r.author, message: "Accord de l'auteur non renseigné" });
     if (!r.clientId) issues.push({ file: "avis", path: r.author, message: "Client non lié (preuve de la relation client)" });
     if (!r.experienceOn) issues.push({ file: "avis", path: r.author, message: "Date de l'expérience non renseignée" });
+    if (r.alteredWithConsent) issues.push({ file: "avis", path: r.author, message: "Avis retouché : seul le texte exact de l'auteur est publiable" });
   }
   for (const r of references) {
     if (!r.authorizationAt || !r.authorizationScope) {

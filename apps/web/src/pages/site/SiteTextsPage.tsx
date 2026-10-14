@@ -26,6 +26,9 @@ type Formule = { titre: string; items: string[] };
 type Offres = { formules: { site: Formule; logiciel: Formule }; tarif: string };
 type Texts = { infos: Infos | null; accroche: Accroche | null; offres: Offres | null };
 
+/** Lignes d'une zone de texte (repli quand field-sizing n'est pas pris en charge) : contenu plus une ligne libre. */
+const rowsFor = (s: string, min = 3) => Math.max(min, s.split("\n").length + 1);
+
 const lines = (s: string) =>
   s
     .split("\n")
@@ -204,7 +207,7 @@ function InfosForm({ initial, onSaved }: { initial: Infos | null; onSaved: (v: I
           <Textarea rows={3} value={f.zone} onChange={set("zone")} />
         </Field>
         <Field label="Villes mises en avant" hint="Une ville par ligne." error={errorFor(errors, "villes")}>
-          <Textarea rows={3} value={f.villes} onChange={set("villes")} />
+          <Textarea className="field-sizing-content" rows={rowsFor(f.villes)} value={f.villes} onChange={set("villes")} />
         </Field>
       </Section>
       <Section title="Réseaux et Google">
@@ -277,7 +280,7 @@ function OffresForm({ initial, onSaved }: { initial: Offres | null; onSaved: (v:
           <Input value={f.siteTitre} onChange={set("siteTitre")} />
         </Field>
         <Field label="Ce qui est compris" hint="Un point par ligne." error={errorFor(errors, "formules.site.items")}>
-          <Textarea rows={5} value={f.siteItems} onChange={set("siteItems")} />
+          <Textarea className="field-sizing-content" rows={rowsFor(f.siteItems)} value={f.siteItems} onChange={set("siteItems")} />
         </Field>
       </Section>
       <Section title="Suivi d'un logiciel ou d'une application">
@@ -285,7 +288,7 @@ function OffresForm({ initial, onSaved }: { initial: Offres | null; onSaved: (v:
           <Input value={f.logicielTitre} onChange={set("logicielTitre")} />
         </Field>
         <Field label="Ce qui est compris" hint="Un point par ligne." error={errorFor(errors, "formules.logiciel.items")}>
-          <Textarea rows={5} value={f.logicielItems} onChange={set("logicielItems")} />
+          <Textarea className="field-sizing-content" rows={rowsFor(f.logicielItems)} value={f.logicielItems} onChange={set("logicielItems")} />
         </Field>
       </Section>
       <Field label="Phrase sur le tarif" hint="Affichée sous les deux formules." error={errorFor(errors, "tarif")}>

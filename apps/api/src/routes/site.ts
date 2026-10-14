@@ -139,6 +139,8 @@ function publishBlocker(kind: "review" | "reference", row: Record<string, unknow
     if (!row.consentAt) return "Accord de l'auteur requis avant publication.";
     if (!row.clientId) return "Client lié requis avant publication : il prouve que l'avis vient d'un vrai client.";
     if (!row.experienceOn) return "Date de l'expérience requise avant publication (affichée près de l'avis).";
+    // Charte du site : avis recopiés à l'identique. alteredWithConsent reste en base, toujours false.
+    if (row.alteredWithConsent) return "Avis retouché : seul le texte exact de l'auteur est publiable.";
   }
   if (kind === "reference") {
     if (row.type !== SiteReferenceType.USER) {

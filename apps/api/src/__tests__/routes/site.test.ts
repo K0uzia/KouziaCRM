@@ -164,11 +164,13 @@ describe("espace Site : avis et références", () => {
     ]) {
       expect((await call("POST", "/api/site/reviews", { ...review, ...bad })).statusCode, JSON.stringify(bad)).toBe(400);
     }
+    // Retouché (même avec accord) : jamais publiable, la charte du site impose le texte exact.
+    const altered = await call("POST", "/api/site/reviews", { ...review, ...consent, ...proven, alteredWithConsent: true, status: "PUBLISHED" });
+    expect(altered.json().error).toMatch(/Avis retouché/);
     const res = await call("POST", "/api/site/reviews", {
       ...review,
       ...proven,
       invoiceId: invoice.id,
-      alteredWithConsent: true,
       status: "PUBLISHED",
       consentAt: "2026-10-02T10:00:00+02:00",
       consentChannel: "e-mail",
@@ -177,7 +179,7 @@ describe("espace Site : avis et références", () => {
     expect(res.statusCode).toBe(201);
     const { id, consentProof } = res.json() as { id: string; consentProof: string };
     expect(consentProof).toContain("D'accord");
-    expect(res.json()).toMatchObject({ clientId: client.id, invoiceId: invoice.id, experienceOn: "2026-09-20", alteredWithConsent: true });
+    expect(res.json()).toMatchObject({ clientId: client.id, invoiceId: invoice.id, experienceOn: "2026-09-20", alteredWithConsent: false });
     const row = await prisma.siteReview.findUniqueOrThrow({ where: { id } });
     expect(row.consentProofEncrypted).not.toContain("accord");
 

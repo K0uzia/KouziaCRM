@@ -12,7 +12,6 @@ import { Modal, ModalActions } from "@/components/ui/Modal";
 import { StatStrip } from "@/components/ui/StatStrip";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import {
-  Checkbox,
   dateToIso,
   fieldErrorsOf,
   isoToDate,
@@ -37,7 +36,7 @@ export function methodDraft(email: string | null) {
     titre: "Comment les avis sont recueillis et vérifiés",
     texte: [
       "Les avis affichés ici viennent de clients pour qui Kouzia a réalisé une prestation : chaque avis est relié, dans nos outils, au client et à son devis ou à sa facture.",
-      "Ils sont repris de la fiche Google de Kouzia avec l'accord écrit de leur auteur, qui choisit la forme de son nom. Le texte est publié tel quel ; une retouche n'est faite qu'avec l'accord de l'auteur.",
+      "Ils sont repris de la fiche Google de Kouzia avec l'accord écrit de leur auteur, qui choisit la forme de son nom. Le texte est publié exactement tel que l'auteur l'a écrit, sans aucune retouche.",
       "Aucune contrepartie n'est proposée en échange d'un avis.",
       "Les avis sont classés du plus récent au plus ancien et restent en ligne tant que leur auteur n'en demande pas le retrait.",
       "Ne sont pas publiés : les avis de personnes qui ne sont pas clientes et ceux dont l'auteur n'a pas donné son accord.",
@@ -52,7 +51,6 @@ const emptyForm = {
   experienceOn: "",
   clientId: "",
   invoiceId: "",
-  alteredWithConsent: false,
   text: "",
   rating: "",
   googleUrl: "",
@@ -97,7 +95,6 @@ export function SiteReviewsPage() {
             experienceOn: r.experienceOn ?? "",
             clientId: r.clientId ?? "",
             invoiceId: r.invoiceId ?? "",
-            alteredWithConsent: r.alteredWithConsent,
             status: r.status,
           }
         : { ...emptyForm, reviewedOn: todayIso() },
@@ -153,7 +150,7 @@ export function SiteReviewsPage() {
       experienceOn: form.experienceOn || null,
       clientId: form.clientId || null,
       invoiceId: form.invoiceId || null,
-      alteredWithConsent: form.alteredWithConsent,
+      alteredWithConsent: false,
       status: form.status,
     };
     try {
@@ -294,15 +291,13 @@ export function SiteReviewsPage() {
           <Field label="Date de l'expérience" hint="Date de la prestation dont parle l'avis, affichée près de l'avis." error={errors.experienceOn}>
             <Input type="date" value={form.experienceOn} onChange={(e) => set("experienceOn", e.target.value)} />
           </Field>
-          <Field label="Texte de l'avis" hint="Copié tel quel depuis Google." error={errors.text}>
+          <Field
+            label="Texte de l'avis"
+            hint="Recopiez l'avis exactement tel que le client l'a écrit, fautes comprises ; pour une correction, demandez-lui un nouveau texte."
+            error={errors.text}
+          >
             <Textarea required rows={5} disabled={locked} value={form.text} onChange={(e) => set("text", e.target.value)} />
           </Field>
-          <Checkbox
-            label="Texte retouché avec l'accord de l'auteur"
-            hint="À cocher seulement si l'auteur a accepté par écrit une correction ou une coupe."
-            checked={form.alteredWithConsent}
-            onChange={(v) => set("alteredWithConsent", v)}
-          />
 
           <fieldset className="space-y-4 rounded-[var(--radius)] border border-[var(--border)] p-4">
             <legend className="px-1 text-sm font-medium">Preuve que c'est un client (jamais publiée)</legend>
