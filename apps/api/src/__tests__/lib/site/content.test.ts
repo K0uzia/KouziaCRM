@@ -9,7 +9,7 @@ import { buildSiteSnapshot } from "@/lib/site/snapshot.js";
 import { resetDb } from "../../helpers/db.js";
 import { seedCompanySettings } from "../../helpers/factories.js";
 
-// Fichiers réels du site (KouziaWebsite, src/content/site, main fecf50e) : le contrat et son export.
+// Fichiers réels du site (KouziaWebsite, src/content/site, main 08bfe72) : le contrat et son export.
 const fixture = (name: string) => readFileSync(fileURLToPath(new URL(`../../fixtures/site/${name}`, import.meta.url)), "utf8");
 const raw = Object.fromEntries(SITE_FILES.map((n) => [n, fixture(`${n}.json`)])) as Record<SiteFileName, string>;
 const contract = JSON.parse(fixture("contenu.schema.json")) as unknown;
@@ -75,34 +75,20 @@ describe("import puis instantané", () => {
     expect(snap.issues.map((i) => i.message)).toContain("Image introuvable dans l'ERP");
   });
 
-  it("captures de téléphone réelles (chemins de public/projets) : conformes au contrat du site, aller-retour identique", async () => {
-    // Valeurs à publier données par la session du site ; tracebay n'en a pas (clé absente).
-    const mobile: Record<string, string> = {
+  it("captures de téléphone réelles (main 08bfe72) : importées telles quelles, tracebay sans clé, aucun écart à republier", async () => {
+    await importSiteFiles(raw);
+    const rows = await prisma.siteProject.findMany({ orderBy: { position: "asc" } });
+    expect(Object.fromEntries(rows.map((r) => [r.slug, r.imageMobilePath]))).toEqual({
+      tracebay: null,
       "morlaix-communaute": "/projets/morlaix-mobile.webp",
       capsuleos: "/projets/capsuleos-mobile.webp",
       "la-capsule": "/projets/lacapsule-mobile.webp",
       "ulamir-cpie": "/projets/ulamir-mobile.webp",
       "ssa-pays-de-morlaix": "/projets/ssa-mobile.webp",
-    };
-    const files = parsed();
-    for (const r of files.realisations.realisations) {
-      if (mobile[r.id]) {
-        // imageMobile juste après image, comme dans le contrat.
-        const entries = Object.entries(r);
-        const at = entries.findIndex(([k]) => k === "image") + 1;
-        entries.splice(at, 0, ["imageMobile", mobile[r.id]]);
-        Object.keys(r).forEach((k) => delete r[k]);
-        Object.assign(r, Object.fromEntries(entries));
-      }
-    }
-    expect(Object.keys(mobile).every((id) => files.realisations.realisations.some((r: { id: string }) => r.id === id))).toBe(true);
-    const withMobile = { ...raw, realisations: serializeSiteFile(files.realisations) };
-    expect(validateSiteFiles({ ...parsed(), realisations: files.realisations }, contract)).toEqual([]);
-    await importSiteFiles(withMobile);
+    });
     const snap = await buildSiteSnapshot(contract);
     expect(snap.issues).toEqual([]);
-    expect(snap.files.realisations).toBe(withMobile.realisations);
-    expect(JSON.parse(snap.files.realisations).realisations.find((r: { id: string }) => r.id === "tracebay")).not.toHaveProperty("imageMobile");
+    expect(snap.files.realisations).toBe(raw.realisations.replace(/\r\n/g, "\n"));
   });
 
   it("une seule fois, sur un espace Site vide", async () => {

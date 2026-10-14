@@ -31,7 +31,8 @@
       ],
       "url": "https://moco.lacapsule.org/",
       "lien": "Voir le site",
-      "image": "/projets/morlaix.webp"
+      "image": "/projets/morlaix.webp",
+      "imageMobile": "/projets/morlaix-mobile.webp"
     },
     {
       "id": "capsuleos",
@@ -40,7 +41,8 @@
       "texte": "Simulateur pédagogique de bureaux Linux, Windows et macOS dans le navigateur, pour apprendre l’informatique sans machine virtuelle et lutter contre l’illectronisme.",
       "url": "https://os.lacapsule.org/",
       "lien": "Voir le site",
-      "image": "/projets/capsuleos.webp"
+      "image": "/projets/capsuleos.webp",
+      "imageMobile": "/projets/capsuleos-mobile.webp"
     },
     {
       "id": "la-capsule",
@@ -50,7 +52,8 @@
       "texte": "Site du chantier d’insertion numérique de Morlaix pour les 18-29 ans : reconditionnement informatique, médiation numérique, développement et formation.",
       "url": "https://lacapsule.org/",
       "lien": "Voir le site",
-      "image": "/projets/lacapsule.webp"
+      "image": "/projets/lacapsule.webp",
+      "imageMobile": "/projets/lacapsule-mobile.webp"
     },
     {
       "id": "ulamir-cpie",
@@ -60,7 +63,8 @@
       "texte": "Site de l’association d’éducation à l’environnement : animations nature, accueil de loisirs, insertion, projets citoyens et agenda.",
       "url": "https://ulamir.lacapsule.org/",
       "lien": "Voir le site",
-      "image": "/projets/ulamir.webp"
+      "image": "/projets/ulamir.webp",
+      "imageMobile": "/projets/ulamir-mobile.webp"
     },
     {
       "id": "ssa-pays-de-morlaix",
@@ -71,7 +75,8 @@
       "role": "Réalisé dans le cadre de mon emploi à La Capsule.",
       "url": "https://ssapaysdemorlaix.fr/",
       "lien": "Voir le site",
-      "image": "/projets/ssa.webp"
+      "image": "/projets/ssa.webp",
+      "imageMobile": "/projets/ssa-mobile.webp"
     }
   ]
 }
