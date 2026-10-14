@@ -27,6 +27,8 @@ import {
 } from "@/lib/navigation";
 import { useFeatures } from "@/lib/features";
 
+const isSpaceHome = (to: string) => NAV_SPACES.some((s) => s.home === to);
+
 function BrandMark({ className = "h-8 w-8" }: { className?: string }) {
   return (
     <svg viewBox="0 0 32 32" className={`shrink-0 ${className}`} aria-hidden>
@@ -84,7 +86,7 @@ function SideLink({ item, active, unread }: { item: NavItem; active: boolean; un
   return (
     <NavLink
       to={item.to}
-      end={item.to === "/"}
+      end={isSpaceHome(item.to)}
       aria-current={active ? "page" : undefined}
       className={`group relative flex min-h-10 items-center gap-3 rounded-[var(--radius-sm)] px-3 text-sm transition-colors ${
         active
@@ -232,7 +234,8 @@ export function AppLayout() {
     };
   }, [space.id]);
 
-  // Tiroir mobile : focus dedans à l'ouverture, Échap ferme et rend le focus au bouton qui l'a ouvert.
+  // Tiroir mobile (dialogue modal) : focus dedans à l'ouverture, Tab et Maj+Tab bouclent dedans
+  // (sinon le focus partait dans la barre du navigateur), Échap ferme et rend le focus au déclencheur.
   useEffect(() => {
     if (!drawerOpen) return;
     drawerRef.current?.querySelector<HTMLElement>("a, button")?.focus();
@@ -240,6 +243,20 @@ export function AppLayout() {
       if (e.key === "Escape") {
         setDrawerOpen(false);
         returnFocus();
+        return;
+      }
+      if (e.key !== "Tab" || !drawerRef.current) return;
+      const items = Array.from(drawerRef.current.querySelectorAll<HTMLElement>("a[href], button:not([disabled])"));
+      const first = items[0];
+      const last = items[items.length - 1];
+      if (!first || !last) return;
+      const active = document.activeElement;
+      if (e.shiftKey && (active === first || !drawerRef.current.contains(active))) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && (active === last || !drawerRef.current.contains(active))) {
+        e.preventDefault();
+        first.focus();
       }
     };
     document.addEventListener("keydown", onKey);
@@ -303,6 +320,9 @@ export function AppLayout() {
           <div
             ref={drawerRef}
             id="menu-principal"
+            role="dialog"
+            aria-modal="true"
+            aria-label="Menu"
             className="absolute inset-y-0 left-0 flex w-[min(var(--sidebar-w),85vw)] flex-col border-r border-[var(--border)] bg-[var(--bg-subtle)] pb-[env(safe-area-inset-bottom)] pt-[env(safe-area-inset-top)] shadow-[var(--shadow)]"
           >
             <button
@@ -433,7 +453,7 @@ export function AppLayout() {
               <NavLink
                 key={item.id}
                 to={item.to}
-                end={item.to === "/"}
+                end={isSpaceHome(item.to)}
                 aria-current={active ? "page" : undefined}
                 className={`relative flex min-h-14 flex-col items-center justify-center gap-1 ${
                   active ? "text-[var(--primary)]" : "text-[var(--muted)]"

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { faArrowDown, faArrowUp, faImage, faUpload } from "@fortawesome/free-solid-svg-icons";
+import { faArrowDown, faArrowUp, faChevronRight, faImage, faUpload } from "@fortawesome/free-solid-svg-icons";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { Badge, Card } from "@/components/ui/Card";
@@ -183,6 +183,21 @@ export function movedOrder<T extends { id: string }>(all: T[], visible: T[], id:
   return ids;
 }
 
+/** Région status unique (hors de React : elle survit aux changements d'écran), vidée puis remplie pour être relue. */
+function announce(text: string) {
+  let region = document.getElementById("site-annonce");
+  if (!region) {
+    region = document.createElement("div");
+    region.id = "site-annonce";
+    region.setAttribute("role", "status");
+    region.className = "sr-only";
+    document.body.append(region);
+  }
+  region.textContent = "";
+  const target = region;
+  window.setTimeout(() => (target.textContent = text), 50);
+}
+
 export async function saveOrder<T extends { id: string }>(
   base: string,
   all: T[],
@@ -190,15 +205,20 @@ export async function saveOrder<T extends { id: string }>(
   id: string,
   dir: -1 | 1,
   setRows: (rows: T[]) => void,
+  name: (row: T) => string,
 ) {
   const ids = movedOrder(all, visible, id, dir);
   if (!ids) return;
+  const row = all.find((r) => r.id === id)!;
+  const visibleIds = new Set(visible.map((r) => r.id));
+  const position = ids.filter((x) => visibleIds.has(x)).indexOf(id) + 1;
   const previous = all;
   const byId = new Map(all.map((r) => [r.id, r]));
   // Vue mise à jour tout de suite, rétablie si l'enregistrement échoue.
   setRows(ids.map((x) => byId.get(x)!));
   try {
     await api(`${base}/reorder`, { method: "POST", body: JSON.stringify({ ids }) });
+    announce(`${name(row)}, position ${position} sur ${visible.length}`);
   } catch (e) {
     setRows(previous);
     toast.error(e instanceof Error ? e.message : "Ordre non enregistré");
@@ -356,12 +376,17 @@ export function ImageField({
           className={`rounded-[var(--radius-sm)] border border-[var(--border)] ${KIND_FRAME[kind]}`}
         />
         <div className="flex flex-wrap gap-2">
-          <Button variant="secondary" disabled={busy} onClick={() => input.current?.click()}>
+          <Button
+            variant="secondary"
+            disabled={busy}
+            onClick={() => input.current?.click()}
+            aria-label={`${value ? "Remplacer" : "Choisir une image"} : ${label}`}
+          >
             <FontAwesomeIcon icon={faUpload} className="h-3.5 w-3.5" aria-hidden />
             {busy ? "Envoi…" : value ? "Remplacer" : "Choisir une image"}
           </Button>
           {optional && value ? (
-            <Button variant="ghost" disabled={busy} onClick={() => onChange(null)}>
+            <Button variant="ghost" disabled={busy} onClick={() => onChange(null)} aria-label={`Retirer : ${label}`}>
               Retirer
             </Button>
           ) : null}
@@ -384,19 +409,21 @@ export function ImageField({
         {value ? <span className="block font-mono">{value}</span> : null}
       </p>
       {kind !== "LOGO" ? (
-        <details className="text-sm">
-          <summary className="inline-flex min-h-11 cursor-pointer items-center text-[var(--muted)] hover:text-[var(--text)]">
+        <details className="group text-sm">
+          <summary className="inline-flex min-h-11 cursor-pointer list-none items-center gap-2 text-[var(--muted)] hover:text-[var(--text)] [&::-webkit-details-marker]:hidden">
+            <FontAwesomeIcon icon={faChevronRight} className="h-3 w-3 transition-transform group-open:rotate-90 motion-reduce:transition-none" aria-hidden />
             Utiliser une image déjà sur le site
           </summary>
           <div className="mt-1 space-y-1.5">
             <label htmlFor={pathId} className="block text-xs text-[var(--muted)]">
               Chemin dans le dépôt du site (dossier public/projets)
+              <span className="sr-only"> : {label}</span>
             </label>
             <div className="flex flex-wrap gap-2">
               <Input
                 id={pathId}
                 className="min-w-0 flex-[1_1_14rem] font-mono"
-                placeholder="/projets/nom-mobile.webp"
+                placeholder={kind === "MOBILE" ? "/projets/nom-mobile.webp" : "/projets/nom.webp"}
                 spellCheck={false}
                 value={existing}
                 aria-invalid={existingError ? true : undefined}
@@ -409,7 +436,7 @@ export function ImageField({
                   }
                 }}
               />
-              <Button variant="secondary" onClick={applyExisting}>
+              <Button variant="secondary" onClick={applyExisting} aria-label={`Utiliser ce chemin : ${label}`}>
                 Utiliser
               </Button>
             </div>

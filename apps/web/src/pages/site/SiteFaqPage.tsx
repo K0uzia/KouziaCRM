@@ -81,7 +81,7 @@ export function SiteFaqPage() {
   }
 
   const visible = rows.filter((q) => q.page === page);
-  const move = (id: string, dir: -1 | 1) => void saveOrder(BASE, rows, visible, id, dir, setRows);
+  const move = (id: string, dir: -1 | 1) => void saveOrder(BASE, rows, visible, id, dir, setRows, (q) => q.question);
 
   const columns: DataColumn<SiteFaq>[] = [
     {

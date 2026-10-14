@@ -32,7 +32,7 @@ const BASE = "/api/site/projects";
 export function SiteProjectsPage() {
   const navigate = useNavigate();
   const { rows, setRows, loading, error, reload } = useSiteCollection<SiteProject>(BASE);
-  const move = (id: string, dir: -1 | 1) => void saveOrder(BASE, rows, rows, id, dir, setRows);
+  const move = (id: string, dir: -1 | 1) => void saveOrder(BASE, rows, rows, id, dir, setRows, (p) => p.name);
 
   const columns: DataColumn<SiteProject>[] = [
     {

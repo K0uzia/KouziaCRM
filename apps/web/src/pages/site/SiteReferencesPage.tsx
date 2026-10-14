@@ -179,7 +179,7 @@ export function SiteReferencesPage() {
   }
 
   const visible = filter === "all" ? rows : rows.filter((r) => r.type === filter);
-  const move = (id: string, dir: -1 | 1) => void saveOrder(BASE, rows, visible, id, dir, setRows);
+  const move = (id: string, dir: -1 | 1) => void saveOrder(BASE, rows, visible, id, dir, setRows, (r) => r.name);
   const productName = (slug: string | null) => projects.rows.find((p) => p.slug === slug)?.name ?? slug;
 
   const columns: DataColumn<SiteReference>[] = [

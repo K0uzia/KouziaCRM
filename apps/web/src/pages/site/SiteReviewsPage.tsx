@@ -131,7 +131,7 @@ export function SiteReviewsPage() {
     }
   }
 
-  const move = (id: string, dir: -1 | 1) => void saveOrder(BASE, rows, rows, id, dir, setRows);
+  const move = (id: string, dir: -1 | 1) => void saveOrder(BASE, rows, rows, id, dir, setRows, (r) => r.author);
 
   const consentBadge = (r: SiteReview) =>
     r.consentAt ? (
