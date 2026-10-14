@@ -172,7 +172,11 @@ export function SettingsPage() {
     audience: "ALL",
   });
   const [imapTest, setImapTest] = useState<string | null>(null);
-  const [identitySection, setIdentitySection] = useState<IdentitySection>("legal");
+  // ?section=contact (lien du tableau de bord quand l'e-mail de l'entreprise manque).
+  const [identitySection, setIdentitySection] = useState<IdentitySection>(() => {
+    const s = params.get("section");
+    return s === "contact" || s === "address" || s === "extra" ? s : "legal";
+  });
   // Erreur affichée tant que la valeur refusée n'a pas été modifiée.
   const [fieldErrors, setFieldErrors] = useState<Record<string, { message: string; value: string }>>({});
   const focusFirstError = useRef(false);

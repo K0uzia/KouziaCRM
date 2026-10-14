@@ -901,6 +901,14 @@ export async function listObligationsDashboard(now = new Date()): Promise<Obliga
     );
 
   const alerts: Array<{ kind: string; message: string }> = [];
+  // Sans e-mail de l'entreprise, alertAdmin n'envoie rien : échecs Stripe, résiliations, PDF altéré.
+  if (!settings.email?.trim()) {
+    alerts.push({
+      kind: "company-email",
+      message:
+        "Les alertes importantes ne vous parviennent pas : renseignez l'e-mail de l'entreprise (Réglages > Identité > Contacts).",
+    });
+  }
   // Médiateur : obligatoire dès qu'on facture des particuliers ; rappel tant que la clause est vide.
   const consumerClients = settings.b2cActivity ? 1 : await prisma.client.count({ where: { type: "B2C" } });
   if (consumerClients > 0 && !settings.mediationClause?.trim()) {
