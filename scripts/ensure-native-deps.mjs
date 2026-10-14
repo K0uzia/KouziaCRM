@@ -102,6 +102,24 @@ function ensureViteNatives() {
   }
 }
 
+// sharp (images de l'espace Site) : binaire et libvips de la plateforme, musl sur le CT Alpine,
+// glibc sous Docker. Sans eux, l'envoi d'image échoue (l'API démarre quand même : import à la demande).
+function ensureSharpNatives() {
+  const sharpPkg = join(root, "node_modules", "sharp", "package.json");
+  if (!existsSync(sharpPkg) || process.platform !== "linux" || process.arch !== "x64") {
+    return;
+  }
+  const optional = JSON.parse(readFileSync(sharpPkg, "utf8")).optionalDependencies ?? {};
+  const libc = isMusl() ? "linuxmusl" : "linux";
+  for (const pkg of [`@img/sharp-${libc}-x64`, `@img/sharp-libvips-${libc}-x64`]) {
+    ensureNativePkg(pkg, optional[pkg]);
+    if (!existsSync(join(root, "node_modules", pkg))) {
+      console.error(`Échec : ${pkg} introuvable après installation.`);
+      process.exit(1);
+    }
+  }
+}
+
 function patchReactPdfHyphenate() {
   const pkgPath = join(root, "node_modules", "@react-pdf", "hyphenate", "package.json");
   if (!existsSync(pkgPath)) {
@@ -126,4 +144,5 @@ function patchReactPdfHyphenate() {
 }
 
 ensureViteNatives();
+ensureSharpNatives();
 patchReactPdfHyphenate();

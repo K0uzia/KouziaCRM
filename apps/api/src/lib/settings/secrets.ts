@@ -8,6 +8,7 @@ const SECRET_FIELD_NAMES = [
   "stripeSecretKeyEncrypted",
   "stripeWebhookSecretEncrypted",
   "googleCalendarRefreshTokenEncrypted",
+  "githubTokenEncrypted",
 ] as const;
 
 export type SecretFieldName = (typeof SECRET_FIELD_NAMES)[number];

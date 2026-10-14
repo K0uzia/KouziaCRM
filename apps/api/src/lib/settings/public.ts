@@ -14,6 +14,7 @@ const OMIT = new Set([
   "stripeSecretKeyEncrypted",
   "stripeWebhookSecretEncrypted",
   "googleCalendarRefreshTokenEncrypted",
+  "githubTokenEncrypted",
 ]);
 
 export type SettingsTabId =
@@ -35,6 +36,7 @@ export type PublicCompanySettings = Omit<
   | "stripeSecretKeyEncrypted"
   | "stripeWebhookSecretEncrypted"
   | "googleCalendarRefreshTokenEncrypted"
+  | "githubTokenEncrypted"
 > & {
   secrets: {
     smtpPass: { set: boolean; hint: string | null };
@@ -42,6 +44,7 @@ export type PublicCompanySettings = Omit<
     stripeSecretKey: { set: boolean; hint: string | null };
     stripeWebhookSecret: { set: boolean; hint: string | null };
     googleCalendarRefreshToken: { set: boolean; hint: string | null };
+    githubToken: { set: boolean; hint: string | null };
   };
   smtpEncryptionResolved: string;
   emailDefaults: typeof HOSTINGER_MAIL_DEFAULTS;
@@ -93,6 +96,7 @@ export function toPublicSettings(settings: CompanySettings): PublicCompanySettin
       | "stripeSecretKeyEncrypted"
       | "stripeWebhookSecretEncrypted"
       | "googleCalendarRefreshTokenEncrypted"
+      | "githubTokenEncrypted"
     >),
     secrets: {
       smtpPass: secretMeta(settings.smtpPassHint, settings.smtpPassEncrypted),
@@ -109,6 +113,7 @@ export function toPublicSettings(settings: CompanySettings): PublicCompanySettin
         settings.googleCalendarRefreshTokenHint,
         settings.googleCalendarRefreshTokenEncrypted,
       ),
+      githubToken: secretMeta(settings.githubTokenHint, settings.githubTokenEncrypted),
     },
     smtpEncryptionResolved: resolveSmtpEncryption({
       smtpEncryption: settings.smtpEncryption,

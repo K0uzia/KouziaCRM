@@ -1,0 +1,237 @@
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import type { FastifyInstance } from "fastify";
+import { prisma } from "@/lib/prisma.js";
+import { invalidateCompanySettingsCache } from "@/lib/company.js";
+import { hashPassword, SESSION_COOKIE } from "@/lib/auth.js";
+import { SITE_FILES } from "@/lib/site/contract.js";
+import { parseTokenExpiration } from "@/lib/site/github.js";
+import { clearTable, resetDb } from "../helpers/db.js";
+import { seedCompanySettings } from "../helpers/factories.js";
+
+const { buildApp } = await import("@/app.js");
+
+const ADMIN = "admin-site@kouzia.test";
+const PASSWORD = "mot-de-passe-de-test";
+const TOKEN = "github_pat_11ABCDEFG0secretSecretSecret_xyz9";
+const fixture = (name: string) => readFileSync(fileURLToPath(new URL(`../fixtures/site/${name}`, import.meta.url)), "utf8");
+
+let app: FastifyInstance;
+let cookie: string;
+
+// Une seule connexion (limite de débit de la connexion admin) ; seules les tables du Site sont vidées entre les tests.
+beforeAll(async () => {
+  app = await buildApp({ silent: true, serveStatic: false });
+  await resetDb();
+  await seedCompanySettings();
+  await prisma.user.deleteMany({ where: { email: ADMIN } });
+  await prisma.user.create({ data: { email: ADMIN, passwordHash: await hashPassword(PASSWORD) } });
+  const res = await app.inject({ method: "POST", url: "/api/auth/login", payload: { email: ADMIN, password: PASSWORD } });
+  cookie = `${SESSION_COOKIE}=${res.cookies.find((c) => c.name === SESSION_COOKIE)?.value}`;
+});
+afterAll(async () => {
+  await app.close();
+  await resetDb();
+});
+
+beforeEach(async () => {
+  for (const t of ["SiteProject", "SiteReview", "SiteReference", "SiteFaq", "SiteText", "SiteMedia"]) await clearTable(t);
+  await prisma.companySettings.updateMany({
+    data: { githubTokenEncrypted: null, githubTokenHint: null, githubTokenExpiresAt: null },
+  });
+  invalidateCompanySettingsCache();
+});
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
+
+const call = (method: "GET" | "POST" | "PUT" | "DELETE", url: string, payload?: unknown) =>
+  app.inject({ method, url, payload: payload as never, headers: { cookie } });
+
+const project = {
+  slug: "atelier",
+  name: "Atelier",
+  kind: "WEBSITE",
+  text: "Site vitrine d'un atelier.",
+  tech: ["Astro"],
+  url: "https://atelier.example.fr/",
+  linkLabel: "Voir le site",
+  imagePath: "/projets/atelier.webp",
+};
+
+/** GitHub simulé : référence de main, contrat et fichiers publiés ; garde les en-têtes reçus. */
+function stubGithub(expiration = "2027-10-14 12:00:00 UTC") {
+  const seen: { url: string; auth: string | null }[] = [];
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (input: string, init?: RequestInit) => {
+      const url = String(input);
+      seen.push({ url, auth: new Headers(init?.headers).get("authorization") });
+      if (url.includes("/git/ref/heads/main")) {
+        return new Response(JSON.stringify({ object: { sha: "a".repeat(40) } }), {
+          headers: { "github-authentication-token-expiration": expiration },
+        });
+      }
+      const m = /\/contents\/src\/content\/site\/([a-z.]+)\?ref=main$/.exec(url);
+      if (m) return new Response(fixture(m[1]));
+      return new Response("{}", { status: 404 });
+    }),
+  );
+  return seen;
+}
+
+describe("espace Site : accès", () => {
+  it("toutes les routes exigent la session admin", async () => {
+    for (const [method, url] of [
+      ["GET", "/api/site/status"],
+      ["GET", "/api/site/projects"],
+      ["POST", "/api/site/projects"],
+      ["PUT", "/api/site/texts/infos"],
+      ["POST", "/api/site/media?kind=LOGO"],
+      ["PUT", "/api/site/github"],
+      ["POST", "/api/site/import"],
+    ] as const) {
+      const res = await app.inject({ method, url, payload: method === "GET" ? undefined : {} });
+      expect(res.statusCode, `${method} ${url}`).toBe(401);
+    }
+  });
+});
+
+describe("espace Site : réalisations", () => {
+  it("création, identifiant unique, règles de la charte", async () => {
+    const created = await call("POST", "/api/site/projects", project);
+    expect(created.statusCode).toBe(201);
+    expect(created.json()).toMatchObject({ slug: "atelier", status: "DRAFT", tech: ["Astro"] });
+    expect((await call("POST", "/api/site/projects", project)).statusCode).toBe(409);
+
+    for (const bad of [
+      { url: "http://atelier.example.fr/" },
+      { url: "https://github.com/K0uzia/atelier" },
+      { text: "Site \u2014 vitrine" },
+      { slug: "Atelier Bois" },
+      { imagePath: "https://cdn.example.fr/a.webp" },
+      { horaires: "9 h" },
+    ]) {
+      const res = await call("POST", "/api/site/projects", { ...project, slug: "autre", ...bad });
+      expect(res.statusCode, JSON.stringify(bad)).toBe(400);
+    }
+  });
+
+  it("publié : l'identifiant ne change plus et la suppression est refusée (retrait seulement)", async () => {
+    const { id } = (await call("POST", "/api/site/projects", { ...project, status: "PUBLISHED" })).json() as { id: string };
+    await prisma.siteProject.update({ where: { id }, data: { publishedAt: new Date() } });
+    expect((await call("PUT", `/api/site/projects/${id}`, { ...project, slug: "atelier-2" })).statusCode).toBe(409);
+    expect((await call("DELETE", `/api/site/projects/${id}`)).statusCode).toBe(409);
+    expect((await call("PUT", `/api/site/projects/${id}`, { ...project, status: "WITHDRAWN" })).statusCode).toBe(200);
+  });
+
+  it("ordre manuel", async () => {
+    const a = (await call("POST", "/api/site/projects", project)).json() as { id: string };
+    const b = (await call("POST", "/api/site/projects", { ...project, slug: "b" })).json() as { id: string };
+    expect((await call("POST", "/api/site/projects/reorder", { ids: [b.id, a.id] })).statusCode).toBe(204);
+    expect(((await call("GET", "/api/site/projects")).json() as { id: string }[]).map((p) => p.id)).toEqual([b.id, a.id]);
+    expect((await call("POST", "/api/site/projects/reorder", { ids: ["inconnu"] })).statusCode).toBe(400);
+  });
+});
+
+describe("espace Site : avis et références", () => {
+  const review = { author: "Lou Martin", reviewedOn: "2026-10-01", text: "Travail soigné." };
+
+  it("avis : publication impossible sans accord ; texte figé une fois publié ; preuve chiffrée", async () => {
+    expect((await call("POST", "/api/site/reviews", { ...review, status: "PUBLISHED" })).statusCode).toBe(400);
+    const res = await call("POST", "/api/site/reviews", {
+      ...review,
+      status: "PUBLISHED",
+      consentAt: "2026-10-02T10:00:00+02:00",
+      consentChannel: "e-mail",
+      consentProof: "D'accord pour publier mon avis. Lou",
+    });
+    expect(res.statusCode).toBe(201);
+    const { id, consentProof } = res.json() as { id: string; consentProof: string };
+    expect(consentProof).toContain("D'accord");
+    const row = await prisma.siteReview.findUniqueOrThrow({ where: { id } });
+    expect(row.consentProofEncrypted).not.toContain("accord");
+
+    await prisma.siteReview.update({ where: { id }, data: { publishedAt: new Date() } });
+    const edit = await call("PUT", `/api/site/reviews/${id}`, { ...review, text: "Travail très soigné.", consentAt: "2026-10-02T10:00:00+02:00" });
+    expect(edit.statusCode).toBe(409);
+  });
+
+  it("référence : autorisation requise, et elle doit couvrir logo et témoignage ; produit obligatoire pour USER", async () => {
+    const base = { slug: "asso", type: "USER", name: "Asso du bourg", productSlug: "tracebay", status: "PUBLISHED" };
+    expect((await call("POST", "/api/site/references", base)).statusCode).toBe(400);
+    const authorized = { ...base, authorizationAt: "2026-10-02T10:00:00Z", authorizationScope: "NAME" };
+    expect((await call("POST", "/api/site/references", { ...authorized, logoPath: "/media/0123456789ab.webp" })).statusCode).toBe(400);
+    expect(
+      (await call("POST", "/api/site/references", { ...authorized, testimonial: { text: "Merci.", author: "Anne" } })).statusCode,
+    ).toBe(400);
+    expect((await call("POST", "/api/site/references", { ...authorized, productSlug: null })).statusCode).toBe(400);
+    const ok = await call("POST", "/api/site/references", { ...authorized, contact: "Anne, anne@asso.example" });
+    expect(ok.statusCode).toBe(201);
+    expect((await prisma.siteReference.findFirstOrThrow()).contactEncrypted).not.toContain("anne@");
+  });
+});
+
+describe("espace Site : textes", () => {
+  it("valide chaque document ; refuse un champ hors contrat", async () => {
+    const infos = JSON.parse(fixture("infos.json")).infos;
+    expect((await call("PUT", "/api/site/texts/infos", infos)).statusCode).toBe(200);
+    expect((await call("PUT", "/api/site/texts/infos", { ...infos, telephone: "0778551825" })).statusCode).toBe(400);
+    expect((await call("PUT", "/api/site/texts/infos", { ...infos, horaires: "9 h" })).statusCode).toBe(400);
+    expect((await call("PUT", "/api/site/texts/inconnu", {})).statusCode).toBe(404);
+    expect(((await call("GET", "/api/site/texts")).json() as { infos: unknown }).infos).toEqual(infos);
+  });
+});
+
+describe("espace Site : jeton GitHub et import", () => {
+  it("le jeton n'est jamais renvoyé : indice seulement, y compris dans les réglages", async () => {
+    expect((await call("PUT", "/api/site/github", { token: "pas-un-jeton" })).statusCode).toBe(400);
+    const res = await call("PUT", "/api/site/github", { token: TOKEN });
+    expect(res.statusCode).toBe(200);
+    expect(res.body).not.toContain(TOKEN);
+    expect(res.json()).toEqual({ token: { set: true, hint: "••••••••xyz9" } });
+    for (const url of ["/api/settings", "/api/site/status"]) {
+      const body = (await call("GET", url)).body;
+      expect(body, url).not.toContain(TOKEN);
+      expect(body, url).not.toContain((await prisma.companySettings.findFirstOrThrow()).githubTokenEncrypted!);
+    }
+  });
+
+  it("test de connexion : lecture seule, expiration du jeton enregistrée", async () => {
+    await call("PUT", "/api/site/github", { token: TOKEN });
+    const seen = stubGithub();
+    const res = await call("POST", "/api/site/github/test");
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toMatchObject({ repo: "K0uzia/KouziaWebsite", branch: "main", headSha: "a".repeat(40) });
+    expect((await prisma.companySettings.findFirstOrThrow()).githubTokenExpiresAt?.toISOString()).toBe("2027-10-14T12:00:00.000Z");
+    expect(seen.every((s) => s.auth === `Bearer ${TOKEN}`)).toBe(true);
+    expect(seen.every((s) => s.url.startsWith("https://api.github.com/repos/K0uzia/KouziaWebsite/"))).toBe(true);
+  });
+
+  it("import depuis le dépôt : contenu repris, état sans anomalie ; refusé ensuite", async () => {
+    expect((await call("POST", "/api/site/import")).statusCode).toBe(412);
+    await call("PUT", "/api/site/github", { token: TOKEN });
+    stubGithub();
+    const res = await call("POST", "/api/site/import");
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toMatchObject({ issues: [] });
+    expect(await prisma.siteProject.count()).toBe(JSON.parse(fixture("realisations.json")).realisations.length);
+    expect(SITE_FILES.length).toBe(6);
+    expect((await call("POST", "/api/site/import")).statusCode).toBe(409);
+  });
+
+  it("jeton refusé par GitHub : message clair, sans le jeton", async () => {
+    await call("PUT", "/api/site/github", { token: TOKEN });
+    vi.stubGlobal("fetch", vi.fn(async () => new Response("{}", { status: 401 })));
+    const res = await call("POST", "/api/site/github/test");
+    expect(res.statusCode, res.body).toBe(502);
+    expect(res.json()).toEqual({ error: "Jeton GitHub refusé (expiré ou révoqué)." });
+  });
+
+  it("lecture de l'en-tête d'expiration", () => {
+    expect(parseTokenExpiration("2027-10-14 12:00:00 +0200")?.toISOString()).toBe("2027-10-14T10:00:00.000Z");
+    expect(parseTokenExpiration(null)).toBeNull();
+    expect(parseTokenExpiration("demain")).toBeNull();
+  });
+});
