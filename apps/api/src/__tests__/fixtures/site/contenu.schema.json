@@ -25,7 +25,8 @@
             },
             "delaiReponse": {
               "type": "string",
-              "minLength": 1
+              "minLength": 1,
+              "pattern": "^[^\\u2013\\u2014]*$"
             },
             "anneesExperience": {
               "type": "integer",
@@ -34,31 +35,33 @@
             },
             "zone": {
               "type": "string",
-              "minLength": 1
+              "minLength": 1,
+              "pattern": "^[^\\u2013\\u2014]*$"
             },
             "villes": {
               "minItems": 1,
               "type": "array",
               "items": {
                 "type": "string",
-                "minLength": 1
+                "minLength": 1,
+                "pattern": "^[^\\u2013\\u2014]*$"
               }
             },
             "github": {
               "type": "string",
-              "format": "uri"
+              "pattern": "^https:\\/\\/[^\\s/?#]+[^\\s]*$"
             },
             "instagram": {
               "type": "string",
-              "format": "uri"
+              "pattern": "^https:\\/\\/[^\\s/?#]+[^\\s]*$"
             },
             "ficheGoogle": {
               "type": "string",
-              "format": "uri"
+              "pattern": "^https:\\/\\/[^\\s/?#]+[^\\s]*$"
             },
             "avisGoogle": {
               "type": "string",
-              "format": "uri"
+              "pattern": "^https:\\/\\/[^\\s/?#]+[^\\s]*$"
             }
           },
           "required": [
@@ -95,11 +98,13 @@
           "properties": {
             "titre": {
               "type": "string",
-              "minLength": 1
+              "minLength": 1,
+              "pattern": "^[^\\u2013\\u2014]*$"
             },
             "texte": {
               "type": "string",
-              "minLength": 1
+              "minLength": 1,
+              "pattern": "^[^\\u2013\\u2014]*$"
             }
           },
           "required": [
@@ -119,14 +124,16 @@
                   "properties": {
                     "titre": {
                       "type": "string",
-                      "minLength": 1
+                      "minLength": 1,
+                      "pattern": "^[^\\u2013\\u2014]*$"
                     },
                     "items": {
                       "minItems": 1,
                       "type": "array",
                       "items": {
                         "type": "string",
-                        "minLength": 1
+                        "minLength": 1,
+                        "pattern": "^[^\\u2013\\u2014]*$"
                       }
                     }
                   },
@@ -141,14 +148,16 @@
                   "properties": {
                     "titre": {
                       "type": "string",
-                      "minLength": 1
+                      "minLength": 1,
+                      "pattern": "^[^\\u2013\\u2014]*$"
                     },
                     "items": {
                       "minItems": 1,
                       "type": "array",
                       "items": {
                         "type": "string",
-                        "minLength": 1
+                        "minLength": 1,
+                        "pattern": "^[^\\u2013\\u2014]*$"
                       }
                     }
                   },
@@ -167,7 +176,8 @@
             },
             "tarif": {
               "type": "string",
-              "minLength": 1
+              "minLength": 1,
+              "pattern": "^[^\\u2013\\u2014]*$"
             }
           },
           "required": [
@@ -207,11 +217,13 @@
               },
               "q": {
                 "type": "string",
-                "minLength": 1
+                "minLength": 1,
+                "pattern": "^[^\\u2013\\u2014]*$"
               },
               "r": {
                 "type": "string",
-                "minLength": 1
+                "minLength": 1,
+                "pattern": "^[^\\u2013\\u2014]*$"
               }
             },
             "required": [
@@ -248,11 +260,13 @@
               },
               "nom": {
                 "type": "string",
-                "minLength": 1
+                "minLength": 1,
+                "pattern": "^[^\\u2013\\u2014]*$"
               },
               "sousTitre": {
                 "type": "string",
-                "minLength": 1
+                "minLength": 1,
+                "pattern": "^[^\\u2013\\u2014]*$"
               },
               "type": {
                 "type": "string",
@@ -263,28 +277,36 @@
               },
               "texte": {
                 "type": "string",
-                "minLength": 1
+                "minLength": 1,
+                "pattern": "^[^\\u2013\\u2014]*$"
               },
               "role": {
                 "type": "string",
-                "minLength": 1
+                "minLength": 1,
+                "pattern": "^[^\\u2013\\u2014]*$"
               },
               "techno": {
                 "type": "array",
                 "items": {
                   "type": "string",
-                  "minLength": 1
+                  "minLength": 1,
+                  "pattern": "^[^\\u2013\\u2014]*$"
                 }
               },
               "url": {
                 "type": "string",
-                "format": "uri"
+                "pattern": "^https:\\/\\/(?!(www\\.)?(github\\.com|gitlab\\.com|bitbucket\\.org)(\\/|$))[^\\s/?#]+[^\\s]*$"
               },
               "lien": {
                 "type": "string",
-                "minLength": 1
+                "minLength": 1,
+                "pattern": "^[^\\u2013\\u2014]*$"
               },
               "image": {
+                "type": "string",
+                "pattern": "^\\/(projets|media)\\/[a-z0-9-]+\\.webp$"
+              },
+              "imageMobile": {
                 "type": "string",
                 "pattern": "^\\/(projets|media)\\/[a-z0-9-]+\\.webp$"
               }
@@ -323,7 +345,8 @@
             "properties": {
               "auteur": {
                 "type": "string",
-                "minLength": 1
+                "minLength": 1,
+                "pattern": "^[^\\u2013\\u2014]*$"
               },
               "publieLe": {
                 "type": "string",
@@ -332,7 +355,8 @@
               },
               "texte": {
                 "type": "string",
-                "minLength": 1
+                "minLength": 1,
+                "pattern": "^[^\\u2013\\u2014]*$"
               }
             },
             "required": [
@@ -377,7 +401,8 @@
               },
               "nom": {
                 "type": "string",
-                "minLength": 1
+                "minLength": 1,
+                "pattern": "^[^\\u2013\\u2014]*$"
               },
               "logo": {
                 "type": "string",
@@ -385,7 +410,7 @@
               },
               "url": {
                 "type": "string",
-                "format": "uri"
+                "pattern": "^https:\\/\\/[^\\s/?#]+[^\\s]*$"
               },
               "produit": {
                 "type": "string"
@@ -395,15 +420,18 @@
                 "properties": {
                   "texte": {
                     "type": "string",
-                    "minLength": 1
+                    "minLength": 1,
+                    "pattern": "^[^\\u2013\\u2014]*$"
                   },
                   "auteur": {
                     "type": "string",
-                    "minLength": 1
+                    "minLength": 1,
+                    "pattern": "^[^\\u2013\\u2014]*$"
                   },
                   "fonction": {
                     "type": "string",
-                    "minLength": 1
+                    "minLength": 1,
+                    "pattern": "^[^\\u2013\\u2014]*$"
                   }
                 },
                 "required": [
