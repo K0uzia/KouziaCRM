@@ -86,7 +86,7 @@
 
 /*
  * Espace « Site » : son propre accent, pour savoir d'un coup d'oeil quel espace on modifie.
- * Valeur PROVISOIRE (lavande, proposition A), en attente du choix d'Alexandre entre trois teintes.
+ * Lavande, choisie par Alexandre (2026-10-14) : rappelle l'indigo nocturne de kouzia.com.
  * Contrastes : --primary 6,6:1 sur --surface-hover et 8,9:1 sur --bg ; --primary-fg sur --primary 8,9:1.
  */
 :root[data-space="site"] {
