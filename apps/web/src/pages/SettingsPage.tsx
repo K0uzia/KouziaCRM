@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
+import { formatDate } from "@/lib/format";
 import { Button } from "@/components/ui/Button";
 import { Card, PageHeader } from "@/components/ui/Card";
 import { Field, Input, Select, Textarea } from "@/components/ui/Field";
@@ -184,6 +185,7 @@ export function SettingsPage() {
     configured: boolean;
     connected: boolean;
     email: string | null;
+    reauthRequiredAt?: string | null;
   } | null>(null);
   const [googleBusy, setGoogleBusy] = useState(false);
 
@@ -216,6 +218,7 @@ export function SettingsPage() {
         configured: boolean;
         connected: boolean;
         email: string | null;
+        reauthRequiredAt?: string | null;
       }>("/api/google/calendar/status");
       setGoogleStatus(st);
     } catch {
@@ -1956,6 +1959,19 @@ export function SettingsPage() {
                     Les emails de rappel (ci-dessous) sont indépendants de Google.
                   </p>
                 </div>
+                {googleStatus?.configured && !googleStatus.connected && googleStatus.reauthRequiredAt ? (
+                  <div
+                    role="alert"
+                    className="rounded-[var(--radius)] border border-[var(--warning)] bg-[var(--warning-soft)] px-4 py-3 text-sm text-[var(--text)]"
+                  >
+                    <p className="font-medium">Google Agenda à reconnecter</p>
+                    <p className="mt-1">
+                      Le {formatDate(googleStatus.reauthRequiredAt)}, Google a refusé l&apos;accès
+                      {googleStatus.email ? ` de ${googleStatus.email}` : ""} (autorisation expirée ou
+                      révoquée). Les événements des démarches ne sont plus mis à jour : reconnectez le compte.
+                    </p>
+                  </div>
+                ) : null}
                 <p className="text-sm">
                   {googleStatus == null
                     ? "Statut inconnu"

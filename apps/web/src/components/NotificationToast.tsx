@@ -2,6 +2,7 @@ import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import type { IconDefinition } from "@fortawesome/fontawesome-svg-core";
 import {
   faCircleCheck,
+  faCalendarXmark,
   faCircleXmark,
   faEnvelope,
   faFileInvoiceDollar,
@@ -21,6 +22,7 @@ export const NOTIFICATION_KIND_STYLE: Record<NotificationKind, { icon: IconDefin
   deposit_due: { icon: faFileInvoiceDollar, tone: "bg-[var(--warning-soft)] text-[var(--warning)]" },
   client_onboarded: { icon: faUserPlus, tone: "bg-[var(--success-soft)] text-[var(--success)]" },
   subscription_stripe: { icon: faRotate, tone: "bg-[var(--warning-soft)] text-[var(--warning)]" },
+  google_reauth: { icon: faCalendarXmark, tone: "bg-[var(--warning-soft)] text-[var(--warning)]" },
 };
 
 /**

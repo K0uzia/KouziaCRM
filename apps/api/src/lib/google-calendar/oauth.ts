@@ -18,6 +18,32 @@ type TokenCache = {
 
 let tokenCache: TokenCache | null = null;
 
+/** Google refuse le jeton pour de bon (expiré, révoqué ; app OAuth en mode Test : 7 jours). */
+export class GoogleReauthRequiredError extends Error {}
+
+function isInvalidGrant(err: unknown): boolean {
+  const e = err as { message?: string; response?: { data?: { error?: unknown } } } | null;
+  return e?.response?.data?.error === "invalid_grant" || /invalid_grant/.test(e?.message ?? "");
+}
+
+/**
+ * Jeton mort : il est oublié (plus aucune tentative tant que l'admin n'a pas reconnecté) et la
+ * date du constat est posée une seule fois (bandeau dans Réglages, une notification).
+ */
+async function markGoogleReauthRequired(): Promise<void> {
+  const settings = await getCompanySettings();
+  await prisma.companySettings.update({
+    where: { id: settings.id },
+    data: {
+      googleCalendarRefreshTokenEncrypted: null,
+      googleCalendarRefreshTokenHint: null,
+      googleCalendarReauthRequiredAt: settings.googleCalendarReauthRequiredAt ?? new Date(),
+    },
+  });
+  invalidateCompanySettingsCache();
+  tokenCache = null;
+}
+
 function oauthClient() {
   const clientId = getGoogleClientId();
   const clientSecret = getGoogleClientSecret();
@@ -74,6 +100,7 @@ export async function exchangeGoogleCode(code: string): Promise<{ email: string 
       googleCalendarRefreshTokenHint: secretHint(tokens.refresh_token),
       googleCalendarConnectedEmail: email,
       googleCalendarEnabled: true,
+      googleCalendarReauthRequiredAt: null,
     },
   });
   invalidateCompanySettingsCache();
@@ -98,6 +125,7 @@ export async function disconnectGoogleCalendar(): Promise<void> {
       googleCalendarRefreshTokenHint: null,
       googleCalendarConnectedEmail: null,
       googleCalendarEnabled: false,
+      googleCalendarReauthRequiredAt: null,
     },
   });
   invalidateCompanySettingsCache();
@@ -129,7 +157,16 @@ export async function getGoogleAccessToken(): Promise<string | null> {
 
   const client = oauthClient();
   client.setCredentials({ refresh_token: refreshToken });
-  const { credentials } = await client.refreshAccessToken();
+  let credentials;
+  try {
+    ({ credentials } = await client.refreshAccessToken());
+  } catch (err) {
+    if (!isInvalidGrant(err)) throw err;
+    await markGoogleReauthRequired();
+    // Une ligne, sans jeton ni objet d'erreur complet (il contient la requête envoyée à Google).
+    console.warn("[google-calendar] jeton refusé par Google (invalid_grant) : reconnexion requise dans Réglages > Fiscalité");
+    throw new GoogleReauthRequiredError("Google Agenda à reconnecter (jeton expiré ou révoqué)");
+  }
   if (!credentials.access_token) {
     throw new Error("Impossible de rafraîchir le token Google");
   }

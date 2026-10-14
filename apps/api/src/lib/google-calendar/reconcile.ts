@@ -6,7 +6,7 @@ import {
 } from "@/lib/obligations/links.js";
 import { resolveObligationWindow } from "@/lib/obligations/window.js";
 import { prisma } from "@/lib/prisma.js";
-import { getAuthedCalendarClient } from "@/lib/google-calendar/oauth.js";
+import { getAuthedCalendarClient, GoogleReauthRequiredError } from "@/lib/google-calendar/oauth.js";
 import {
   deleteObligationEvent,
   formatGoogleApiError,
@@ -94,7 +94,8 @@ export async function reconcileObligationCalendarEvents(): Promise<ReconcileResu
     return { upserted, deleted, skipped: false };
   } catch (err) {
     const message = formatGoogleApiError(err);
-    console.error("[google-calendar] reconcile failed", message, err);
+    // Reconnexion requise : déjà journalisée une fois au constat.
+    if (!(err instanceof GoogleReauthRequiredError)) console.error("[google-calendar] reconcile failed :", message);
     return { upserted: 0, deleted: 0, skipped: false, error: message };
   }
 }
@@ -126,7 +127,9 @@ export async function removeObligationCalendarEvent(
       if (openId) await deleteObligationEvent(calendar, openId);
     }
   } catch (err) {
-    console.error("[google-calendar] delete event failed", err);
+    if (!(err instanceof GoogleReauthRequiredError)) {
+      console.error("[google-calendar] delete event failed :", formatGoogleApiError(err));
+    }
   }
   await prisma.obligation.update({
     where: { id: obligationId },
