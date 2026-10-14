@@ -80,6 +80,7 @@ export type SiteState = {
     branch: string;
     token: { set: boolean; hint: string | null };
     expiresAt: string | null;
+    checkedAt: string | null;
   };
   empty: boolean;
   digest: string;

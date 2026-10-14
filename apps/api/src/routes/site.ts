@@ -229,6 +229,7 @@ export const siteRoutes: FastifyPluginAsync = async (app) => {
           branch: siteBranch(),
           token: secretMeta(settings.githubTokenHint, settings.githubTokenEncrypted),
           expiresAt: settings.githubTokenExpiresAt,
+          checkedAt: settings.githubTokenCheckedAt,
         },
         empty: !(await siteContentExists()),
         digest: snapshot.digest,

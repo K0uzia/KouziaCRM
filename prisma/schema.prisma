@@ -482,6 +482,8 @@ model CompanySettings {
   githubTokenHint      String?
   /// Lue dans l'en-tête github-authentication-token-expiration au test de connexion (rappel à J-30).
   githubTokenExpiresAt DateTime?
+  /// Dernier test réussi du jeton : distingue « jamais testé » de « testé, sans date d'expiration »
+  githubTokenCheckedAt DateTime?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

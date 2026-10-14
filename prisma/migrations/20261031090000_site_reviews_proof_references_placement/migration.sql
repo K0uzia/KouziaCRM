@@ -11,3 +11,7 @@ ALTER TABLE "SiteReview" ADD COLUMN "alteredWithConsent" BOOLEAN NOT NULL DEFAUL
 -- Références (mur de logos) : emplacements sur le site.
 ALTER TABLE "SiteReference" ADD COLUMN "onHome" BOOLEAN NOT NULL DEFAULT true;
 ALTER TABLE "SiteReference" ADD COLUMN "onProjects" BOOLEAN NOT NULL DEFAULT false;
+
+-- Jeton GitHub : date du dernier test réussi (sans elle, « sans date d'expiration » et « jamais testé »
+-- s'affichaient pareil).
+ALTER TABLE "CompanySettings" ADD COLUMN "githubTokenCheckedAt" DATETIME;

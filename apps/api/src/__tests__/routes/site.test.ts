@@ -6,7 +6,7 @@ import { prisma } from "@/lib/prisma.js";
 import { invalidateCompanySettingsCache } from "@/lib/company.js";
 import { hashPassword, SESSION_COOKIE } from "@/lib/auth.js";
 import { SITE_FILES } from "@/lib/site/contract.js";
-import { parseTokenExpiration } from "@/lib/site/github.js";
+import { readTokenExpiration } from "@/lib/site/github.js";
 import { clearTable, resetDb } from "../helpers/db.js";
 import { createClient, seedCompanySettings } from "../helpers/factories.js";
 
@@ -61,7 +61,7 @@ const project = {
 };
 
 /** GitHub simulé : référence de main, contrat et fichiers publiés ; garde les en-têtes reçus. */
-function stubGithub(expiration = "2027-10-14 12:00:00 UTC") {
+function stubGithub(expiration: string | null = "2027-10-14 12:00:00 UTC", contractStatus = 200) {
   const seen: { url: string; auth: string | null }[] = [];
   vi.stubGlobal(
     "fetch",
@@ -70,11 +70,11 @@ function stubGithub(expiration = "2027-10-14 12:00:00 UTC") {
       seen.push({ url, auth: new Headers(init?.headers).get("authorization") });
       if (url.includes("/git/ref/heads/main")) {
         return new Response(JSON.stringify({ object: { sha: "a".repeat(40) } }), {
-          headers: { "github-authentication-token-expiration": expiration },
+          headers: expiration === null ? {} : { "github-authentication-token-expiration": expiration },
         });
       }
       const m = /\/contents\/src\/content\/site\/([a-z.]+)\?ref=main$/.exec(url);
-      if (m) return new Response(fixture(m[1]));
+      if (m) return contractStatus === 200 ? new Response(fixture(m[1])) : new Response("{}", { status: contractStatus });
       return new Response("{}", { status: 404 });
     }),
   );
@@ -262,6 +262,10 @@ describe("espace Site : jeton GitHub et import", () => {
     expect(res.statusCode).toBe(200);
     expect(res.json()).toMatchObject({ repo: "K0uzia/KouziaWebsite", branch: "main", headSha: "a".repeat(40) });
     expect((await prisma.companySettings.findFirstOrThrow()).githubTokenExpiresAt?.toISOString()).toBe("2027-10-14T12:00:00.000Z");
+    expect(res.json()).toMatchObject({ expiration: "date" });
+    const status = (await call("GET", "/api/site/status")).json() as { github: { expiresAt: string; checkedAt: string } };
+    expect(status.github.expiresAt).toBe("2027-10-14T12:00:00.000Z");
+    expect(status.github.checkedAt).toBeTruthy();
     expect(seen.every((s) => s.auth === `Bearer ${TOKEN}`)).toBe(true);
     expect(seen.every((s) => s.url.startsWith("https://api.github.com/repos/K0uzia/KouziaWebsite/"))).toBe(true);
   });
@@ -286,9 +290,40 @@ describe("espace Site : jeton GitHub et import", () => {
     expect(res.json()).toEqual({ error: "Jeton GitHub refusé (expiré ou révoqué)." });
   });
 
-  it("lecture de l'en-tête d'expiration", () => {
-    expect(parseTokenExpiration("2027-10-14 12:00:00 +0200")?.toISOString()).toBe("2027-10-14T10:00:00.000Z");
-    expect(parseTokenExpiration(null)).toBeNull();
-    expect(parseTokenExpiration("demain")).toBeNull();
+  it("lecture de l'en-tête d'expiration : date (UTC, décalage, ISO), sans expiration, illisible", () => {
+    const at = (h: string) => {
+      const r = readTokenExpiration(h);
+      return r.kind === "date" ? r.at.toISOString() : r.kind;
+    };
+    expect(at("2027-10-14 12:00:00 UTC")).toBe("2027-10-14T12:00:00.000Z");
+    expect(at("2027-10-14 12:00:00 +0200")).toBe("2027-10-14T10:00:00.000Z");
+    expect(at("2027-10-14T12:00:00Z")).toBe("2027-10-14T12:00:00.000Z");
+    expect(readTokenExpiration(null)).toEqual({ kind: "none" });
+    expect(readTokenExpiration("")).toEqual({ kind: "none" });
+    expect(readTokenExpiration("demain")).toEqual({ kind: "invalid" });
+    expect(readTokenExpiration("2027-13-45 99:00:00 UTC")).toEqual({ kind: "invalid" });
+  });
+
+  it("jeton sans expiration : testé et marqué comme tel ; un nouveau jeton efface l'ancienne date", async () => {
+    await call("PUT", "/api/site/github", { token: TOKEN });
+    stubGithub();
+    await call("POST", "/api/site/github/test");
+    expect((await prisma.companySettings.findFirstOrThrow()).githubTokenExpiresAt).not.toBeNull();
+    await call("PUT", "/api/site/github", { token: TOKEN });
+    let row = await prisma.companySettings.findFirstOrThrow();
+    expect([row.githubTokenExpiresAt, row.githubTokenCheckedAt]).toEqual([null, null]);
+    stubGithub(null);
+    const res = await call("POST", "/api/site/github/test");
+    expect(res.json()).toMatchObject({ expiration: "none", expiresAt: null });
+    row = await prisma.companySettings.findFirstOrThrow();
+    expect(row.githubTokenExpiresAt).toBeNull();
+    expect(row.githubTokenCheckedAt).not.toBeNull();
+  });
+
+  it("expiration enregistrée même si la lecture du contrat échoue ensuite", async () => {
+    await call("PUT", "/api/site/github", { token: TOKEN });
+    stubGithub("2027-10-14 12:00:00 UTC", 404);
+    expect((await call("POST", "/api/site/github/test")).statusCode).toBe(502);
+    expect((await prisma.companySettings.findFirstOrThrow()).githubTokenExpiresAt?.toISOString()).toBe("2027-10-14T12:00:00.000Z");
   });
 });
