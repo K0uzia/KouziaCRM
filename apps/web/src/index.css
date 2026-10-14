@@ -84,6 +84,18 @@
   --ease: cubic-bezier(0.2, 0, 0, 1);
 }
 
+/*
+ * Espace « Site » : son propre accent, pour savoir d'un coup d'oeil quel espace on modifie.
+ * Lavande, choisie par Alexandre (2026-10-14) : rappelle l'indigo nocturne de kouzia.com.
+ * Contrastes : --primary 6,6:1 sur --surface-hover et 8,9:1 sur --bg ; --primary-fg sur --primary 8,9:1.
+ */
+:root[data-space="site"] {
+  --primary: #a5abff;
+  --primary-fg: #0b1020;
+  --primary-hover: #c3c7ff;
+  --primary-soft: rgb(165 171 255 / 0.12);
+}
+
 *,
 *::before,
 *::after {

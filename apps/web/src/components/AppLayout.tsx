@@ -19,12 +19,15 @@ import {
   filterSections,
   findNavItem,
   locate,
-  MOBILE_TABS,
-  NAV_SECTIONS,
+  NAV_SPACES,
   SETTINGS_ITEM,
+  spaceOf,
   type NavItem,
+  type NavSpaceId,
 } from "@/lib/navigation";
 import { useFeatures } from "@/lib/features";
+
+const isSpaceHome = (to: string) => NAV_SPACES.some((s) => s.home === to);
 
 function BrandMark({ className = "h-8 w-8" }: { className?: string }) {
   return (
@@ -50,12 +53,40 @@ function UnreadBadge({ count }: { count: number }) {
   );
 }
 
-/** Lien de la barre latérale : icône, libellé, compteur, état actif (barre ambre + fond). */
+/** Bascule entre les espaces Gestion et Site : des liens (l'URL porte l'espace), état actif non porté par la seule couleur. */
+function SpaceSwitch({ current }: { current: NavSpaceId }) {
+  return (
+    <nav aria-label="Espace" className="shrink-0 px-3 pb-2">
+      <ul className="grid grid-cols-2 gap-1 rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--surface)] p-1">
+        {NAV_SPACES.map((space) => {
+          const active = space.id === current;
+          return (
+            <li key={space.id}>
+              <Link
+                to={space.home}
+                aria-current={active ? "true" : undefined}
+                className={`flex min-h-11 items-center justify-center rounded-[calc(var(--radius-sm)-0.125rem)] px-3 text-sm transition-colors ${
+                  active
+                    ? "bg-[var(--surface-hover)] font-semibold text-[var(--text)] shadow-[inset_0_0_0_1px_var(--primary)]"
+                    : "text-[var(--muted)] hover:bg-[var(--surface-hover)] hover:text-[var(--text)]"
+                }`}
+              >
+                {space.label}
+              </Link>
+            </li>
+          );
+        })}
+      </ul>
+    </nav>
+  );
+}
+
+/** Lien de la barre latérale : icône, libellé, compteur, état actif (barre d'accent + fond). */
 function SideLink({ item, active, unread }: { item: NavItem; active: boolean; unread: number }) {
   return (
     <NavLink
       to={item.to}
-      end={item.to === "/"}
+      end={isSpaceHome(item.to)}
       aria-current={active ? "page" : undefined}
       className={`group relative flex min-h-10 items-center gap-3 rounded-[var(--radius-sm)] px-3 text-sm transition-colors ${
         active
@@ -89,7 +120,8 @@ function Sidebar({
   userLabel: string;
 }) {
   const features = useFeatures();
-  const sections = filterSections(NAV_SECTIONS, features);
+  const space = spaceOf(pathname);
+  const sections = filterSections(space.sections, features);
   return (
     <div className="flex h-full min-h-0 flex-col">
       <Link to="/" className="flex h-[var(--topbar-h)] shrink-0 items-center gap-2.5 px-5" aria-label="Kouzia ERP, tableau de bord">
@@ -98,7 +130,8 @@ function Sidebar({
           Kouzia <span className="text-[var(--primary)]">ERP</span>
         </span>
       </Link>
-      <nav aria-label="Navigation principale" className="custom-scrollbar min-h-0 flex-1 overflow-y-auto px-3 pb-4">
+      <SpaceSwitch current={space.id} />
+      <nav aria-label={`Navigation : ${space.label}`} className="custom-scrollbar min-h-0 flex-1 overflow-y-auto px-3 pb-4">
         {sections.map((section) => (
           <div key={section.id} className="mt-4 first:mt-1">
             {section.label ? (
@@ -154,6 +187,7 @@ export function AppLayout() {
   const drawerRef = useRef<HTMLDivElement>(null);
   const { pathname } = useLocation();
   const features = useFeatures();
+  const space = spaceOf(pathname);
   const { item: current, section: currentSection } = locate(pathname);
   const { unreadCount } = useNewMailAlert();
   const isMailWorkspace =
@@ -191,7 +225,17 @@ export function AppLayout() {
     document.title = current ? `${current.label} · Kouzia ERP` : "Kouzia ERP";
   }, [current]);
 
-  // Tiroir mobile : focus dedans à l'ouverture, Échap ferme et rend le focus au bouton qui l'a ouvert.
+  // Accent de l'espace (tokens redéfinis sous [data-space] dans index.css) : sur la racine, pour
+  // que les toasts et tout ce qui sort de cette arborescence le prennent aussi.
+  useEffect(() => {
+    document.documentElement.dataset.space = space.id;
+    return () => {
+      delete document.documentElement.dataset.space;
+    };
+  }, [space.id]);
+
+  // Tiroir mobile (dialogue modal) : focus dedans à l'ouverture, Tab et Maj+Tab bouclent dedans
+  // (sinon le focus partait dans la barre du navigateur), Échap ferme et rend le focus au déclencheur.
   useEffect(() => {
     if (!drawerOpen) return;
     drawerRef.current?.querySelector<HTMLElement>("a, button")?.focus();
@@ -199,6 +243,20 @@ export function AppLayout() {
       if (e.key === "Escape") {
         setDrawerOpen(false);
         returnFocus();
+        return;
+      }
+      if (e.key !== "Tab" || !drawerRef.current) return;
+      const items = Array.from(drawerRef.current.querySelectorAll<HTMLElement>("a[href], button:not([disabled])"));
+      const first = items[0];
+      const last = items[items.length - 1];
+      if (!first || !last) return;
+      const active = document.activeElement;
+      if (e.shiftKey && (active === first || !drawerRef.current.contains(active))) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && (active === last || !drawerRef.current.contains(active))) {
+        e.preventDefault();
+        first.focus();
       }
     };
     document.addEventListener("keydown", onKey);
@@ -210,9 +268,14 @@ export function AppLayout() {
   }, [drawerOpen]);
 
   const userLabel = user?.name || user?.email || "";
-  const tabs = MOBILE_TABS.map((id) => findNavItem(id)).filter((i): i is NavItem => Boolean(i));
+  const tabs = space.tabs.map((id) => findNavItem(id)).filter((i): i is NavItem => Boolean(i));
 
-  const createItems = [
+  const createItems = space.id === "site" ? [
+    { label: "Nouvelle réalisation", onSelect: () => navigate("/site/realisations/nouvelle") },
+    { label: "Nouvel avis", onSelect: () => navigate("/site/avis?new=1") },
+    { label: "Nouvelle référence", onSelect: () => navigate("/site/references?new=1") },
+    { label: "Nouvelle question", onSelect: () => navigate("/site/faq?new=1") },
+  ] : [
     { label: "Nouveau devis", onSelect: () => navigate("/quotes?new=1") },
     { label: "Nouvelle facture", onSelect: () => navigate("/invoices?new=1") },
     { label: "Nouveau client", onSelect: () => navigate("/clients?new=1") },
@@ -257,6 +320,9 @@ export function AppLayout() {
           <div
             ref={drawerRef}
             id="menu-principal"
+            role="dialog"
+            aria-modal="true"
+            aria-label="Menu"
             className="absolute inset-y-0 left-0 flex w-[min(var(--sidebar-w),85vw)] flex-col border-r border-[var(--border)] bg-[var(--bg-subtle)] pb-[env(safe-area-inset-bottom)] pt-[env(safe-area-inset-top)] shadow-[var(--shadow)]"
           >
             <button
@@ -292,6 +358,16 @@ export function AppLayout() {
 
           {/* Fil d'Ariane : section > écran */}
           <nav aria-label="Fil d'Ariane" className="hidden min-w-0 items-center gap-2 text-sm md:flex">
+            {space.id === "site" ? (
+              <>
+                <Link to={space.home} className="text-[var(--muted)] hover:text-[var(--text)]">
+                  {space.label}
+                </Link>
+                <span className="text-[var(--muted)]/60" aria-hidden>
+                  /
+                </span>
+              </>
+            ) : null}
             {currentSection?.label ? (
               <>
                 <span className="text-[var(--muted)]">{currentSection.label}</span>
@@ -377,14 +453,14 @@ export function AppLayout() {
               <NavLink
                 key={item.id}
                 to={item.to}
-                end={item.to === "/"}
+                end={isSpaceHome(item.to)}
                 aria-current={active ? "page" : undefined}
                 className={`relative flex min-h-14 flex-col items-center justify-center gap-1 ${
                   active ? "text-[var(--primary)]" : "text-[var(--muted)]"
                 }`}
               >
                 <FontAwesomeIcon icon={item.icon} className="h-4 w-4" aria-hidden />
-                <span className="max-w-full truncate text-[length:var(--text-tab)] tracking-tight">{item.id === "dashboard" ? "Accueil" : item.id === "inbox" ? "Messages" : item.label}</span>
+                <span className="max-w-full truncate text-[length:var(--text-tab)] tracking-tight">{item.tabLabel ?? item.shortLabel ?? item.label}</span>
                 {item.badge === "unread" && unreadCount > 0 ? (
                   <span className="absolute right-[calc(50%-1.25rem)] top-2 h-2 w-2 rounded-full bg-[var(--primary)]" aria-label={`${unreadCount} non lus`} />
                 ) : null}

@@ -66,8 +66,8 @@ export function StatStrip({ items, className = "" }: { items: StatItem[]; classN
                 <Link
                   to={s.to}
                   // Nom complet : le montant seul ne dit pas où mène le lien.
-                  aria-label={typeof s.value === "string" ? `${s.label} : ${s.value}` : undefined}
-                  className="after:absolute after:inset-0 after:content-[''] focus-visible:outline-none focus-visible:after:rounded-[inherit] focus-visible:after:outline focus-visible:after:outline-2 focus-visible:after:outline-[var(--primary)]"
+                  aria-label={typeof s.value === "string" || typeof s.value === "number" ? `${s.label} : ${s.value}` : undefined}
+                  className="-my-2 inline-flex min-h-11 min-w-11 items-center sm:-my-1.5 after:absolute after:inset-0 after:content-[''] focus-visible:outline-none focus-visible:after:rounded-[inherit] focus-visible:after:outline focus-visible:after:outline-2 focus-visible:after:outline-[var(--primary)]"
                 >
                   {s.value}
                 </Link>

@@ -12,7 +12,7 @@ import { createHmac } from "node:crypto";
 import { readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { chromium, type BrowserContext, type Page } from "playwright";
-import { NAV_SECTIONS, SETTINGS_ITEM } from "../apps/web/src/lib/navigation";
+import { NAV_SPACES, SETTINGS_ITEM } from "../apps/web/src/lib/navigation";
 import { SETTINGS_TABS } from "../apps/web/src/pages/settings/types";
 
 const BASE = (process.env.CHECK_MOBILE_URL ?? "http://localhost:5173").replace(/\/$/, "");
@@ -80,7 +80,9 @@ async function settle(page: Page) {
 
 async function main() {
   const screens: Array<{ name: string; path: string; open?: (page: Page) => Promise<void> }> = [];
-  for (const section of NAV_SECTIONS) for (const item of section.items) screens.push({ name: item.label, path: item.to });
+  for (const space of NAV_SPACES) {
+    for (const section of space.sections) for (const item of section.items) screens.push({ name: item.label, path: item.to });
+  }
   for (const tab of SETTINGS_TABS) screens.push({ name: `${SETTINGS_ITEM.label} > ${tab.label}`, path: `${SETTINGS_ITEM.to}?tab=${tab.id}` });
   for (const [name, path] of [
     ["Nouveau devis", "/quotes?new=1"],
