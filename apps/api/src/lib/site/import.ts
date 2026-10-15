@@ -71,6 +71,7 @@ export async function importSiteFiles(raw: Record<SiteFileName, string>, now = n
           slug: r.id,
           name: r.nom,
           subtitle: r.sousTitre ?? null,
+          mention: r.mention ?? null,
           kind: PROJECT_KIND_IN[r.type],
           text: r.texte,
           role: r.role ?? null,

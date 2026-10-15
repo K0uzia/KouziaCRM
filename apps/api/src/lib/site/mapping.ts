@@ -52,6 +52,8 @@ export function projectOut(p: SiteProject): z.input<typeof realisationValue> {
     id: p.slug,
     nom: p.name,
     sousTitre: p.subtitle ?? undefined,
+    // Juste après sousTitre (contrat du site) ; clé absente si vide, jamais "" ni null.
+    ...(p.mention ? { mention: p.mention } : {}),
     type: PROJECT_KIND_OUT[p.kind],
     texte: p.text,
     role: p.role ?? undefined,

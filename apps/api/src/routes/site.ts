@@ -47,6 +47,8 @@ const projectInput = z.strictObject({
   slug,
   name: siteText,
   subtitle: optionalText,
+  // Ligne sous le titre de la carte : vide ou blancs = pas de mention.
+  mention: z.preprocess((v) => (typeof v === "string" && !v.trim() ? null : v), siteText.max(60).nullish()),
   kind: z.enum(SiteProjectKind),
   text: siteText.max(400),
   role: optionalText,
@@ -296,6 +298,7 @@ export const siteRoutes: FastifyPluginAsync = async (app) => {
     slug: d.slug,
     name: d.name,
     subtitle: d.subtitle ?? null,
+    mention: d.mention ?? null,
     kind: d.kind,
     text: d.text,
     role: d.role ?? null,

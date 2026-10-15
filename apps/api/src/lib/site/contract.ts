@@ -53,6 +53,8 @@ export const realisationValue = z.strictObject({
   id: slug,
   nom: siteText,
   sousTitre: siteText.optional(),
+  /** Petite ligne sous le titre de la carte de réalisation. */
+  mention: siteText.max(60).optional(),
   type: z.enum(["Site web", "Logiciel"]),
   texte: siteText,
   role: siteText.optional(),
