@@ -45,6 +45,11 @@ export type EmailContentInput = {
   brandPrimaryColor?: string;
   /** Montant payé (centimes) pour payment_received. */
   paidAmountCents?: number;
+  /**
+   * Mise en demeure : clause « pénalités de retard » des réglages pour le type du client (B2B avec
+   * l'indemnité forfaitaire L441-10, particulier sans), variables remplies. Jamais de texte légal en dur.
+   */
+  penaltyText?: string | null;
 };
 
 function greeting(name?: string | null): string {
@@ -180,7 +185,9 @@ async function bodyTextFor(input: EmailContentInput): Promise<string> {
     case "reminder_formal":
       lines.push(
         `Malgré mes précédents rappels, le ${input.docLabel ?? "document"} ${num} demeure impayé.`,
-        "Sans règlement sous huit jours, les pénalités de retard prévues au contrat pourront être appliquées, ainsi que l'indemnité forfaitaire de 40 € pour frais de recouvrement.",
+        input.penaltyText?.trim()
+          ? `Sans règlement sous huit jours, les conditions de retard de paiement suivantes pourront être appliquées : ${input.penaltyText.trim()}`
+          : "Sans règlement sous huit jours, les conditions de retard de paiement prévues au contrat pourront être appliquées.",
       );
       if (input.paymentUrl?.trim()) {
         lines.push(...paymentLinesText(input.paymentUrl.trim()));

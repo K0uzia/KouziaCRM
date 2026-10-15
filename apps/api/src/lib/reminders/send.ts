@@ -1,4 +1,4 @@
-import { InvoiceDocumentType } from "@prisma/client";
+import { InvoiceDocumentType, LegalClauseKind } from "@prisma/client";
 import { decryptOptional } from "@/lib/crypto.js";
 import { isSmtpConfigured } from "@/lib/email/smtp.js";
 import { mailEnqueue } from "@/lib/email/mailer/index.js";
@@ -8,6 +8,8 @@ import {
   type EmailTemplateKind,
 } from "@/lib/email/templates.js";
 import { listPendingReminders, markReminderQueued } from "@/lib/reminders.js";
+import { clausesForClient, fillClauseVariables, listActiveLegalClauses } from "@/lib/company/legal-clauses.js";
+import { getCompanySettings } from "@/lib/company.js";
 
 type PendingInvoice = Awaited<ReturnType<typeof listPendingReminders>>[number];
 
@@ -16,6 +18,12 @@ function reminderKind(invoice: PendingInvoice): EmailTemplateKind {
   if (count >= 2) return "reminder_formal";
   if (count >= 1) return "reminder_firm";
   return "reminder_soft";
+}
+
+/** Clause « pénalités de retard » des réglages pour ce type de client, variables remplies ; null sans clause. */
+export async function penaltyClauseText(clientType: string | null | undefined): Promise<string | null> {
+  const clause = clausesForClient(await listActiveLegalClauses(), clientType).find((c) => c.kind === LegalClauseKind.PENALTY);
+  return clause ? fillClauseVariables(clause.body, await getCompanySettings()) : null;
 }
 
 /** Enfile les relances dues via EmailOutbox (si SMTP configuré). */
@@ -50,6 +58,7 @@ export async function sendDueReminders(now: Date = new Date()): Promise<number> 
         docNumber: invoice.number,
         docLabel: isQuote ? "devis" : "facture",
         brand,
+        ...(kind === "reminder_formal" ? { penaltyText: await penaltyClauseText(invoice.client.type) } : {}),
       });
       await mailEnqueue({
         to,

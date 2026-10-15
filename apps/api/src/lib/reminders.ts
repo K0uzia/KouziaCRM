@@ -137,6 +137,8 @@ export async function listPendingReminders(now = new Date()) {
           displayName: true,
           clientNumber: true,
           emailEncrypted: true,
+          // Mise en demeure : clause de pénalités propre au type de client.
+          type: true,
         },
       },
     },
