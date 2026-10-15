@@ -8,7 +8,7 @@ import type {
 } from "@prisma/client";
 import type { ClientSnapshot } from "@/lib/invoices/transitions.js";
 import type { InvoicePdfData } from "@/lib/pdf/invoice-document.js";
-import { clausesForClient } from "@/lib/company/legal-clauses.js";
+import { clausesForClient, DEDICATED_CLAUSE_KINDS } from "@/lib/company/legal-clauses.js";
 import {
   describePlans,
   parsePaymentPlan,
@@ -42,7 +42,16 @@ export type BuildPdfPayloadInput = {
   balanceSummary?: BalanceSummary | null;
   /** Réglages des formules : tableaux « au choix » d'un devis non encore signé. */
   planSettings?: PlanSettings | null;
+  /** CGV publiées (réglages) : lien et version imprimés sur le devis. */
+  cgv?: { published: boolean; url: string | null; version: string | null } | null;
 };
+
+/** Réglages lus par le PDF d'un document : formules de paiement et CGV publiées. */
+export async function pdfSettingsOf(): Promise<Pick<BuildPdfPayloadInput, "planSettings" | "cgv">> {
+  const { getCompanySettings } = await import("@/lib/company.js");
+  const s = await getCompanySettings();
+  return { planSettings: s, cgv: { published: s.cgvPublished, url: s.cgvUrl, version: s.cgvVersion } };
+}
 
 const PLAN_TITLE = { TWO: "Paiement en 2 fois", THREE: "Paiement en 3 fois" } as const;
 
@@ -76,8 +85,19 @@ export function buildInvoicePdfPayload({
   clientType,
   balanceSummary,
   planSettings,
+  cgv,
 }: BuildPdfPayloadInput): InvoicePdfData["invoice"] {
   const offer = parsePaymentPlanOffer(invoice.paymentPlanOffer);
+  const clauses = clausesForClient(legalClauses ?? [], clientType);
+  const clauseBody = (kind: string) => clauses.find((c) => c.kind === kind)?.body ?? null;
+  const proof = invoice.quoteAcceptanceAudits?.[0];
+  // Devis signé en ligne : la version acceptée ; sinon la version en vigueur, si publiée.
+  const cgvShown =
+    proof?.cgvAccepted && proof.cgvUrl && proof.cgvVersion
+      ? { url: proof.cgvUrl, version: proof.cgvVersion }
+      : cgv?.published && cgv.url && cgv.version
+        ? { url: cgv.url, version: cgv.version }
+        : null;
   const retained = parsePaymentPlan(invoice.paymentPlan);
   const isQuote = invoice.documentType === "QUOTE";
   return {
@@ -149,7 +169,11 @@ export function buildInvoicePdfPayload({
       billingDay: l.billingDay,
       billingInterval: l.billingInterval,
     })),
-    legalClauses: clausesForClient(legalClauses ?? [], clientType).map((c) => ({ title: c.title, body: c.body })),
+    legalClauses: clauses.filter((c) => !DEDICATED_CLAUSE_KINDS.has(c.kind)).map((c) => ({ title: c.title, body: c.body })),
+    subscriptionTerms: { MONTH: clauseBody("SUBSCRIPTION_MONTHLY"), YEAR: clauseBody("SUBSCRIPTION_ANNUAL") },
+    // Information précontractuelle des particuliers (audience B2C) : devis seulement.
+    withdrawalTerms: isQuote ? clauseBody("WITHDRAWAL") : null,
+    cgv: isQuote ? cgvShown : null,
     acceptance:
       invoice.quoteStatus === "ACCEPTED" && invoice.quoteSignerName && invoice.quoteDecidedAt
         ? acceptanceOf(
@@ -167,10 +191,19 @@ function acceptanceOf(
   acceptedAt: Date,
   audit: QuoteAcceptanceAudit | undefined,
 ): NonNullable<InvoicePdfData["invoice"]["acceptance"]> {
-  if (!audit?.signatureMode) return { signerName, acceptedAt };
+  const terms = audit
+    ? {
+        cgvAccepted: audit.cgvAccepted,
+        consumer: audit.consumer,
+        expressExecution: audit.expressExecution,
+        withdrawalEndsAt: audit.withdrawalEndsAt,
+      }
+    : {};
+  if (!audit?.signatureMode) return { signerName, acceptedAt, ...terms };
   return {
     signerName,
     acceptedAt,
+    ...terms,
     company: audit.signerCompany,
     mode: audit.signatureMode === "DRAWN" ? "DRAWN" : "TYPED",
     image: audit.signatureImage,

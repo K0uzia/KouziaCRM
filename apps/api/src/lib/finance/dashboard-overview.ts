@@ -8,6 +8,7 @@ import { listObligationsDashboard } from "@/lib/obligations/obligation-service.j
 import { prisma } from "@/lib/prisma.js";
 import { listPendingReminders } from "@/lib/reminders.js";
 import { computeMrrCents } from "@/lib/subscriptions/subscription-service.js";
+import { listPendingStarts } from "@/lib/quotes/withdrawal-pending.js";
 
 /** Bloc secondaire en échec : null, le reste du tableau de bord s'affiche (journal sur une ligne). */
 async function optional<T>(label: string, run: () => Promise<T>): Promise<T | null> {
@@ -41,7 +42,7 @@ async function latestThreads(take: number) {
  * serveur, obligations calculées une seule fois. Les routes unitaires restent pour les autres écrans.
  */
 export async function getDashboardOverview(scope: CashflowScope) {
-  const [snapshot, reminders, mrr, obligations, threads, mailSync, ownerPay] = await Promise.all([
+  const [snapshot, reminders, mrr, obligations, threads, mailSync, ownerPay, pendingStarts] = await Promise.all([
     getDashboardSnapshot(scope),
     optional("relances", listPendingReminders),
     optional("abonnements", () => computeMrrCents()),
@@ -53,6 +54,7 @@ export async function getDashboardOverview(scope: CashflowScope) {
       return { imapConfigured: true, lastSyncAt: status?.lastSyncAt ?? null };
     }),
     optional("salaire", () => getOwnerPaySummary()),
+    optional("délais de rétractation", () => listPendingStarts()),
   ]);
 
   const cfe = obligations?.items
@@ -70,5 +72,6 @@ export async function getDashboardOverview(scope: CashflowScope) {
     threads,
     mailSync,
     ownerPay,
+    pendingStarts: pendingStarts ?? [],
   };
 }

@@ -26,6 +26,11 @@ export type ActivateSubscriptionsOptions = {
   firstPeriodNow?: boolean;
   /** Prélèvement Stripe attendu : les factures viendront de Stripe, jamais du cron ERP. */
   awaitStripe?: boolean;
+  /**
+   * Départ de l'abonnement (par défaut : maintenant). Consommateur sans demande d'exécution
+   * anticipée : lendemain du délai de rétractation (CGV art. 9.5), 1re échéance à cette date.
+   */
+  startDate?: Date;
 };
 
 /** Nom court d'une ligne du catalogue (« Nom : description » → « Nom »). */
@@ -113,7 +118,7 @@ export async function activateSubscriptionsFromDocument(
         amountCents,
         billingDay: first.billingDay!,
         billingInterval,
-        startDate: new Date(),
+        startDate: opts.startDate ?? new Date(),
         skipCurrentPeriod: !opts.firstPeriodNow,
         firstPeriodNow: opts.firstPeriodNow,
         ...(opts.awaitStripe ? { collectionMethod: SubscriptionCollectionMethod.STRIPE } : {}),

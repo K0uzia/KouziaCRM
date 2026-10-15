@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
+import { formatDate } from "@/lib/format";
 
 type AcceptanceProof = {
   id: string;
@@ -11,6 +12,13 @@ type AcceptanceProof = {
   pdfSha256: string | null;
   pdfPath: string | null;
   createdAt: string;
+  /** null : signature antérieure au suivi des CGV et du délai de rétractation. */
+  cgvAccepted: boolean | null;
+  cgvUrl: string | null;
+  cgvVersion: string | null;
+  consumer: boolean | null;
+  expressExecution: boolean | null;
+  withdrawalEndsAt: string | null;
 };
 
 const SOURCE_LABEL: Record<string, string> = {
@@ -40,6 +48,22 @@ export function AcceptanceProofs({ quoteId }: { quoteId: string }) {
             {new Date(p.createdAt).toLocaleString("fr-FR")} · {SOURCE_LABEL[p.source] ?? p.source}
             {p.userEmail ? ` (${p.userEmail})` : ""}
           </p>
+          {p.cgvAccepted && p.cgvUrl ? (
+            <p>
+              CGV acceptées en ligne :{" "}
+              <a href={p.cgvUrl} target="_blank" rel="noopener noreferrer" className="link underline! underline-offset-2">
+                version du {p.cgvVersion}
+              </a>
+            </p>
+          ) : p.cgvAccepted === false ? (
+            <p>CGV non acceptées en ligne</p>
+          ) : null}
+          {p.consumer && p.withdrawalEndsAt ? (
+            <p>
+              Délai de rétractation jusqu&apos;au {formatDate(p.withdrawalEndsAt)} inclus ·{" "}
+              {p.expressExecution ? "exécution anticipée demandée" : "démarrage au plus tôt le lendemain"}
+            </p>
+          ) : null}
           {p.ipAddress || p.userAgent || p.pdfSha256 ? (
             <details>
               <summary className="flex min-h-11 cursor-pointer items-center hover:text-[var(--text)]">Détails techniques</summary>

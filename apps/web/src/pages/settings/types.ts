@@ -72,6 +72,12 @@ export type PublicSettings = {
   pdfFooterText: string | null;
   /** Mention du médiateur de la consommation (PDF des clients particuliers). */
   mediationClause: string | null;
+  /** CGV publiées sur le site : acceptation à la signature, lien et version sur les devis. */
+  cgvPublished: boolean;
+  cgvUrl: string | null;
+  cgvVersion: string | null;
+  /** Libellé de la case « exécution avant la fin du délai de rétractation » (particuliers). */
+  withdrawalExpressRequestText: string;
   latePenaltiesText: string;
   earlyPaymentDiscountText: string;
   paymentConditions: string;

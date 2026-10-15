@@ -93,6 +93,40 @@ Variables à ajouter dans `.env` :
 | `CLIENT_PORTAL_URL` | URL espace client `/suivi` (emails devis, paramètres ERP) |
 | `VITE_PUBLIC_SITE_URL` | Redirection legacy `/onboarding/:token` |
 
+#### Signature en ligne : CGV et droit de rétractation (contrat avec le site)
+
+Le droit de rétractation des particuliers (client `B2C`, décidé par l'ERP, jamais par le site)
+s'applique toujours : 14 jours à compter de la signature, prolongés au premier jour ouvrable si le
+dernier tombe un samedi, un dimanche ou un jour férié (CGV art. 9). Sans demande d'exécution
+anticipée, les travaux et la 1re période d'un abonnement attendent le lendemain du délai ; une
+mise à jour du montant d'un abonnement déjà actif ne crée pas de nouveau délai. L'acceptation des
+CGV, leur lien et leur version n'existent que si le réglage `cgvPublished` est vrai (Réglages >
+Mentions légales).
+
+`GET /api/public/tracking` ajoute :
+
+| Champ | Contenu |
+|-------|---------|
+| `consumer` | `true` pour un particulier : afficher la case d'exécution anticipée. |
+| `signatureTerms.cgv` | `{ url, version }` si les CGV sont publiées, sinon `null` (pas de case CGV). |
+| `signatureTerms.expressExecutionText` | Libellé légal de la case (Réglages), `null` pour un professionnel. À afficher tel quel, jamais réécrit. |
+| `documents[].withdrawal` | Devis signé par un particulier : `{ endsAt, expressExecution, startsNotBefore }` (`startsNotBefore` : null si l'exécution anticipée a été demandée). |
+
+`POST /api/public/quotes/:id/decision` (`decision: "ACCEPT"`) accepte en plus :
+
+| Champ | Règle |
+|-------|-------|
+| `acceptCgv` | `true`, obligatoire si `signatureTerms.cgv` n'est pas null (sinon 400 `CGV_REQUIRED`). |
+| `cgvVersion` | Version affichée au client, obligatoire avec `acceptCgv` ; différente de la version en vigueur : 409 `CGV_VERSION_CHANGED` (recharger `/tracking`). |
+| `expressExecution` | Facultatif, `false` par défaut. Particulier seulement : pour un professionnel, 400 `EXPRESS_EXECUTION_CONSUMER_ONLY`. |
+
+Ces contrôles passent avant le code de signature : un refus ne le consomme pas. L'adresse des CGV
+enregistrée vient des réglages, jamais du site. La preuve de signature (`QuoteAcceptanceAudit`)
+fige `cgvAccepted`, `cgvUrl`, `cgvVersion`, `consumer`, `expressExecution` et
+`withdrawalEndsAt` ; une signature hors espace client (e-mail, administration) est marquée « CGV
+non acceptées en ligne ». Le PDF de tout devis d'un particulier porte le bloc « Droit de
+rétractation » et le formulaire type (clause éditable dans Réglages > Clauses).
+
 ### Espace « Site » (contenu de kouzia.com)
 
 Le contenu modifiable du site (coordonnées, accroche, offres, réalisations, FAQ, avis, références) se saisit dans l'ERP, puis se publie dans le dépôt KouziaWebsite (`src/content/site/*.json`, contrat `contenu.schema.json`). Pas encore de publication : le contenu saisi reste dans l'ERP.

@@ -8,6 +8,7 @@ import {
   faFileInvoice,
   faFilePen,
   faFileSignature,
+  faHourglassHalf,
   faLandmark,
   faPenToSquare,
   faUserPlus,
@@ -142,6 +143,8 @@ type Overview = DashboardData & {
   threads: ThreadRow[] | null;
   mailSync: { imapConfigured: boolean; lastSyncAt: string | null } | null;
   ownerPay: OwnerPay | null;
+  /** Particuliers dans le délai de rétractation, sans demande d'exécution anticipée. */
+  pendingStarts: Array<{ quoteId: string; number: string | null; displayName: string; startsNotBefore: string }>;
 };
 
 /** Barre de chargement à la taille du texte qu'elle remplace (aucun saut à l'arrivée des données). */
@@ -284,6 +287,7 @@ export function DashboardPage() {
     ? (minutesSince(lastSyncAt === undefined ? data.mailSync.lastSyncAt : lastSyncAt) ?? Infinity)
     : null;
   const mailStale = mailSyncAge !== null && mailSyncAge > MAIL_SYNC_STALE_MIN;
+  const pendingStarts = data?.pendingStarts ?? [];
   const deposit2Rows = [
     ...(data?.deposit2?.toInvoice ?? []).map((q) => ({ ...q, kind: "toInvoice" as const })),
     ...(data?.deposit2?.missingStep ?? []).map((q) => ({ ...q, kind: "missingStep" as const })),
@@ -633,7 +637,7 @@ export function DashboardPage() {
             <SectionTitle
               action={
                 <span className="rounded-full bg-[var(--surface-hover)] px-2 text-xs font-medium tabular-nums leading-6 text-[var(--muted)]">
-                  {ready ? obligationAlerts + (echeanceDue ? 1 : 0) + ((data?.drafts ?? 0) > 0 ? 1 : 0) + (mailStale ? 1 : 0) + (companyEmailAlert ? 1 : 0) + deposit2Rows.length : <Skeleton className="w-3" />}
+                  {ready ? obligationAlerts + (echeanceDue ? 1 : 0) + ((data?.drafts ?? 0) > 0 ? 1 : 0) + (mailStale ? 1 : 0) + (companyEmailAlert ? 1 : 0) + deposit2Rows.length + pendingStarts.length : <Skeleton className="w-3" />}
                 </span>
               }
             >
@@ -641,7 +645,7 @@ export function DashboardPage() {
             </SectionTitle>
             {!ready ? (
               <SkeletonRows count={2} rowClass="flex min-h-15 items-center px-5 py-3" />
-            ) : obligationAlerts === 0 && !echeanceDue && (data?.drafts ?? 0) === 0 && !mailStale && !companyEmailAlert && deposit2Rows.length === 0 ? (
+            ) : obligationAlerts === 0 && !echeanceDue && (data?.drafts ?? 0) === 0 && !mailStale && !companyEmailAlert && deposit2Rows.length === 0 && pendingStarts.length === 0 ? (
               <p className="px-5 py-6 text-center text-sm text-[var(--muted)]">Rien en attente. Tout est à jour.</p>
             ) : (
               <ul className="divide-y divide-[var(--border)] px-5">
@@ -675,6 +679,20 @@ export function DashboardPage() {
                     }
                   />
                 ) : null}
+                {pendingStarts.map((p) => (
+                  <TodoRow
+                    key={`start-${p.quoteId}`}
+                    icon={faHourglassHalf}
+                    tone="muted"
+                    title={`Démarrage au plus tôt le ${formatDate(p.startsNotBefore)}`}
+                    detail={`${p.displayName}, devis ${p.number ?? ""} : délai de rétractation en cours`}
+                    action={
+                      <Link to={`/quotes/${p.quoteId}`} className="link inline-flex min-h-11 items-center gap-1 text-sm">
+                        Voir <FontAwesomeIcon icon={faArrowRight} className="h-3 w-3" aria-hidden />
+                      </Link>
+                    }
+                  />
+                ))}
                 {deposit2Rows.map((q) => (
                   <TodoRow
                     key={`${q.kind}-${q.quoteId}`}

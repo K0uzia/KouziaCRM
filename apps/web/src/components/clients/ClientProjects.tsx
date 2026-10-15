@@ -39,6 +39,8 @@ type Project = ProjectForm & {
   reviewInviteSentAt: string | null;
   /** Devis d'origine accepté en 3 fois : étape du 2e acompte (verrouillée une fois exigible). */
   deposit2: { locked: boolean; missingStep: boolean } | null;
+  /** Particulier sans demande d'exécution anticipée : démarrage au plus tôt (délai de rétractation). */
+  startsNotBefore?: string | null;
 };
 
 const STEP_LABEL: Record<StepStatus, string> = {
@@ -182,6 +184,9 @@ export function ClientProjects({ clientId }: { clientId: string }) {
                   <Badge tone={PROJECT_STATUS[p.status]?.tone ?? "neutral"}>{PROJECT_STATUS[p.status]?.label ?? p.status}</Badge>
                   {!p.visibleOnPortal ? <Badge tone="neutral">Masqué</Badge> : null}
                   {p.deposit2?.missingStep ? <Badge tone="amber">Étape du 2e acompte à choisir</Badge> : null}
+                  {p.startsNotBefore ? (
+                    <Badge tone="amber">Démarrage au plus tôt le {formatDate(p.startsNotBefore)}</Badge>
+                  ) : null}
                   {p.quoteId ? (
                     <Link to={`/quotes/${p.quoteId}`} className="link text-xs">
                       Devis d'origine

@@ -131,8 +131,11 @@ export async function listClientProjects(clientId: string) {
 async function serializeAdminProject(p: ClientProject) {
   const s = serializeProject(p);
   const trigger = await depositTriggerState(p.quoteId);
+  const { pendingStartOf } = await import("@/lib/quotes/withdrawal-pending.js");
   return {
     ...s,
+    // Particulier sans demande d'exécution anticipée : pas de démarrage avant cette date.
+    startsNotBefore: await pendingStartOf(p.quoteId),
     deposit2: trigger.eligible
       ? { locked: trigger.locked, missingStep: !s.steps.some((step) => step.triggersDeposit2) }
       : null,

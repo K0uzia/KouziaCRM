@@ -12,6 +12,7 @@ import { assertQuoteSigned } from "@/lib/invoices/workflow.js";
 import { getCompanySettings } from "@/lib/company.js";
 import { allocateInvoiceNumber, allocateQuoteNumber } from "@/lib/invoices/numberingService.js";
 import { ensureQuoteMilestones } from "@/lib/quotes/milestones.js";
+import { startAfterWithdrawal, withdrawalEndsAt } from "@/lib/quotes/withdrawal.js";
 import { computeDepositBaseCents, depositBaseOf } from "@/lib/invoices/totals.js";
 import {
   applyPlanMilestones,
@@ -277,6 +278,16 @@ export type QuoteAcceptanceContext = {
 };
 
 /** Signature depuis l'espace client, confirmée par un code envoyé par e-mail. */
+/** Conditions de la signature, figées dans la preuve (jamais modifiées ensuite). */
+export type QuoteSignatureTerms = {
+  cgvAccepted: boolean;
+  cgvUrl: string | null;
+  cgvVersion: string | null;
+  consumer: boolean;
+  expressExecution: boolean | null;
+  withdrawalEndsAt: Date | null;
+};
+
 export type QuoteSignature = {
   mode: "TYPED" | "DRAWN";
   /** Tracé PNG (data URL), mode DRAWN seulement */
@@ -298,6 +309,7 @@ async function logQuoteAcceptance(
     signature?: QuoteSignature;
     originalPdfSha256?: string | null;
     paymentPlan?: PaymentPlan | null;
+    terms?: QuoteSignatureTerms;
   } = {},
 ) {
   return prisma.quoteAcceptanceAudit.create({
@@ -317,8 +329,46 @@ async function logQuoteAcceptance(
       codeVerifiedAt: opts.signature?.codeVerifiedAt ?? null,
       originalPdfSha256: opts.originalPdfSha256 ?? null,
       paymentPlan: opts.paymentPlan ?? null,
+      cgvAccepted: opts.terms?.cgvAccepted ?? null,
+      cgvUrl: opts.terms?.cgvUrl ?? null,
+      cgvVersion: opts.terms?.cgvVersion ?? null,
+      consumer: opts.terms?.consumer ?? null,
+      expressExecution: opts.terms?.expressExecution ?? null,
+      withdrawalEndsAt: opts.terms?.withdrawalEndsAt ?? null,
     },
   });
+}
+
+/**
+ * Conditions d'une signature. CGV : acceptées seulement en ligne (espace client) et publiées.
+ * Consommateur (client B2C) : délai de rétractation de 14 jours ; sans demande d'exécution
+ * anticipée (possible seulement en ligne), rien ne démarre avant sa fin (CGV art. 9.4, 9.5).
+ */
+export function signatureTerms(input: {
+  source: QuoteAcceptanceSource;
+  clientType: string | null | undefined;
+  signedAt: Date;
+  settings: { cgvPublished: boolean; cgvUrl: string | null; cgvVersion: string | null };
+  cgvAccepted?: boolean;
+  expressExecution?: boolean;
+}): QuoteSignatureTerms {
+  const online = input.source === "PORTAL";
+  const cgvAccepted = online && input.settings.cgvPublished && input.cgvAccepted === true;
+  const consumer = input.clientType === "B2C";
+  return {
+    cgvAccepted,
+    cgvUrl: cgvAccepted ? input.settings.cgvUrl : null,
+    cgvVersion: cgvAccepted ? input.settings.cgvVersion : null,
+    consumer,
+    expressExecution: consumer ? online && input.expressExecution === true : null,
+    withdrawalEndsAt: consumer ? withdrawalEndsAt(input.signedAt) : null,
+  };
+}
+
+/** Début au plus tôt des travaux et de l'abonnement : null si rien n'est à différer. */
+export function deferredStartOf(terms: Pick<QuoteSignatureTerms, "consumer" | "expressExecution" | "withdrawalEndsAt">): Date | null {
+  if (!terms.consumer || terms.expressExecution || !terms.withdrawalEndsAt) return null;
+  return startAfterWithdrawal(terms.withdrawalEndsAt);
 }
 
 /**
@@ -387,6 +437,10 @@ export async function acceptQuoteByClient(
     signature?: QuoteSignature;
     /** Formule de paiement choisie (offre CHOICE : obligatoire depuis l'espace client). */
     paymentPlan?: PaymentPlan | null;
+    /** Espace client : CGV acceptées (case cochée, version contrôlée par la route). */
+    cgvAccepted?: boolean;
+    /** Espace client, consommateur : exécution demandée avant la fin du délai de rétractation. */
+    expressExecution?: boolean;
   } = {},
 ) {
   // Formule retenue, validée avant toute écriture.
@@ -397,6 +451,7 @@ export async function acceptQuoteByClient(
       totalCents: true,
       depositBaseCents: true,
       lines: { select: { isSubscription: true } },
+      client: { select: { type: true } },
     },
   });
   const offer = parsePaymentPlanOffer(pending.paymentPlanOffer);
@@ -411,6 +466,16 @@ export async function acceptQuoteByClient(
   }
   const settings = await getCompanySettings();
   const subscriptionOnly = offer === "NONE";
+  const terms = signatureTerms({
+    source: audit.source ?? "PORTAL",
+    clientType: pending.client.type,
+    signedAt: new Date(),
+    settings,
+    cgvAccepted: audit.cgvAccepted,
+    expressExecution: audit.expressExecution,
+  });
+  // Abonnement seul d'un consommateur sans demande expresse : 1re période au lendemain du délai.
+  const subscriptionStart = deferredStartOf(terms);
 
   // Signature portail : on fige le devis tel que le client l'a lu, avant qu'il porte l'accord.
   const { captureQuoteBeforeSignature, archiveOriginalQuote } = await import(
@@ -439,11 +504,13 @@ export async function acceptQuoteByClient(
       : await activateSubscriptionsFromDocument(
           quoteId,
           tx,
-          subscriptionOnly ? { firstPeriodNow: true, awaitStripe: settings.moduleStripeEnabled } : {},
+          subscriptionOnly
+            ? { firstPeriodNow: true, awaitStripe: settings.moduleStripeEnabled, startDate: subscriptionStart ?? undefined }
+            : {},
         );
     return { result, subscriptionIds: subs.subscriptionIds, createdIds: subs.createdIds };
   });
-  if (subscriptionOnly) await startSubscriptionBilling(updated.createdIds, settings.moduleStripeEnabled);
+  if (subscriptionOnly) await startSubscriptionBilling(updated.createdIds, settings.moduleStripeEnabled, subscriptionStart);
   else await notifyStripeSubscriptionSetup(updated.subscriptionIds);
   const accepted = updated.result;
 
@@ -454,6 +521,7 @@ export async function acceptQuoteByClient(
     signature: audit.signature,
     originalPdfSha256: original?.sha256 ?? null,
     paymentPlan: plan,
+    terms,
   });
   if (original) await archiveOriginalQuote(acceptance.id, original);
 
@@ -497,19 +565,40 @@ export async function startDeferredSubscriptions(quoteId: string): Promise<strin
   if (!isDeferredSubscriptionQuote(quote)) return [];
   if (quote.lines.filter((l) => l.isSubscription).every((l) => l.subscriptionId)) return [];
   const settings = await getCompanySettings();
+  // Livraison avant la fin du délai de rétractation (consommateur sans demande expresse) :
+  // la 1re période attend tout de même la fin du délai.
+  const proof = await prisma.quoteAcceptanceAudit.findFirst({
+    where: { quoteId },
+    orderBy: { createdAt: "desc" },
+    select: { consumer: true, expressExecution: true, withdrawalEndsAt: true },
+  });
+  const deferred = proof ? deferredStartOf({ ...proof, consumer: proof.consumer ?? false }) : null;
+  const startDate = deferred && deferred.getTime() > Date.now() ? deferred : null;
   const subs = await prisma.$transaction((tx) =>
-    activateSubscriptionsFromDocument(quoteId, tx, { firstPeriodNow: true, awaitStripe: settings.moduleStripeEnabled }),
+    activateSubscriptionsFromDocument(quoteId, tx, {
+      firstPeriodNow: true,
+      awaitStripe: settings.moduleStripeEnabled,
+      startDate: startDate ?? undefined,
+    }),
   );
-  await startSubscriptionBilling(subs.createdIds, settings.moduleStripeEnabled);
+  await startSubscriptionBilling(subs.createdIds, settings.moduleStripeEnabled, startDate);
   return subs.createdIds;
 }
 
-async function startSubscriptionBilling(createdIds: string[], stripeEnabled: boolean): Promise<void> {
+async function startSubscriptionBilling(
+  createdIds: string[],
+  stripeEnabled: boolean,
+  startDate: Date | null = null,
+): Promise<void> {
   if (createdIds.length === 0) return;
   if (stripeEnabled) {
+    // Départ différé : le mandat est signé tout de suite, Stripe ne prélève qu'à nextInvoiceAt
+    // (trial_end de la session de paiement).
     await notifyStripeSubscriptionSetup(createdIds);
     return;
   }
+  // Départ différé sans Stripe : la tâche planifiée facture à nextInvoiceAt.
+  if (startDate && startDate.getTime() > Date.now()) return;
   const { invoiceSubscriptionNow } = await import("@/lib/subscriptions/subscription-service.js");
   for (const id of createdIds) {
     try {

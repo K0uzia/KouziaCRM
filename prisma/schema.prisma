@@ -462,6 +462,13 @@ model CompanySettings {
   googleCalendarEnabled               Boolean   @default(false)
   /// Google a refusé le jeton (invalid_grant) : plus de tentative jusqu'à la reconnexion
   googleCalendarReauthRequiredAt      DateTime?
+  /// CGV publiées sur le site : acceptation exigée à la signature, lien et version sur les devis
+  cgvPublished                        Boolean @default(false)
+  cgvUrl                              String? @default("https://kouzia.com/cgv")
+  /// Version en vigueur (date de mise en ligne, ex. 2026-11-04)
+  cgvVersion                          String?
+  /// Libellé de la case « exécution avant la fin du délai de rétractation » (clients particuliers)
+  withdrawalExpressRequestText        String  @default("Je demande que la prestation commence avant la fin du délai de rétractation de 14 jours. Si je me rétracte ensuite, je paierai un montant proportionnel à ce qui aura été fourni jusqu'à ma rétractation. Si la prestation est entièrement exécutée avant la fin de ce délai, je perds mon droit de rétractation.")
   /// Destinataire emails de rappel obligations (hors ClientEmailEvent)
   obligationReminderEmail             String    @default("kouziaeffa.pro@gmail.com")
   obligationEmailRemindersEnabled     Boolean   @default(true)
@@ -510,6 +517,11 @@ enum LegalClauseKind {
   PENALTY
   SUSPENSION
   CUSTOM
+  /// Imprimées dans l'encadré d'abonnement du devis, selon la périodicité
+  SUBSCRIPTION_MONTHLY
+  SUBSCRIPTION_ANNUAL
+  /// Droit de rétractation et formulaire type : devis des clients particuliers
+  WITHDRAWAL
 }
 
 /// Clients auxquels une clause s'imprime (type du client du document)
@@ -1368,6 +1380,16 @@ model QuoteAcceptanceAudit {
   originalPdfSha256   String?
   /// Formule de paiement retenue à la signature (TWO | THREE)
   paymentPlan         String?
+  /// CGV acceptées en ligne (false : signature hors espace client ou CGV non publiées ; null : avant ce suivi)
+  cgvAccepted         Boolean?
+  cgvUrl              String?
+  cgvVersion          String?
+  /// Client consommateur (particulier) à la signature : droit de rétractation de 14 jours
+  consumer            Boolean?
+  /// Consommateur : exécution demandée avant la fin du délai de rétractation
+  expressExecution    Boolean?
+  /// Fin du délai de rétractation (dernier jour inclus, fin de journée à Paris)
+  withdrawalEndsAt    DateTime?
   createdAt           DateTime     @default(now())
 
   @@index([quoteId])
