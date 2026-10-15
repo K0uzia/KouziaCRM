@@ -10,13 +10,32 @@ import { listPendingReminders } from "@/lib/reminders.js";
 import { computeMrrCents } from "@/lib/subscriptions/subscription-service.js";
 import { listPendingStarts } from "@/lib/quotes/withdrawal-pending.js";
 
-/** Bloc secondaire en échec : null, le reste du tableau de bord s'affiche (journal sur une ligne). */
-async function optional<T>(label: string, run: () => Promise<T>): Promise<T | null> {
+/** Temps maximal d'un bloc secondaire : au-delà, le tableau de bord part sans lui (il ne l'attend jamais). */
+const BLOC_BUDGET_MS = 4000;
+
+/**
+ * Bloc secondaire en échec ou trop lent : null, le reste du tableau de bord s'affiche (journal sur une ligne)
+ * et le bloc est nommé dans `indisponibles` pour que l'écran le signale (avec Réessayer) au lieu de le croire vide.
+ */
+async function optional<T>(label: string, run: () => Promise<T>, indisponibles: string[]): Promise<T | null> {
+  let minuteur: ReturnType<typeof setTimeout> | undefined;
+  const delai = new Promise<"delai">((resolve) => {
+    minuteur = setTimeout(() => resolve("delai"), BLOC_BUDGET_MS);
+  });
   try {
-    return await run();
+    const r = await Promise.race([run(), delai]);
+    if (r === "delai") {
+      console.error(`[dashboard] bloc ${label} : plus de ${BLOC_BUDGET_MS} ms, affiché sans lui`);
+      indisponibles.push(label);
+      return null;
+    }
+    return r as T;
   } catch (err) {
     console.error(`[dashboard] bloc ${label} en échec :`, err instanceof Error ? err.message : String(err));
+    indisponibles.push(label);
     return null;
+  } finally {
+    clearTimeout(minuteur);
   }
 }
 
@@ -42,19 +61,24 @@ async function latestThreads(take: number) {
  * serveur, obligations calculées une seule fois. Les routes unitaires restent pour les autres écrans.
  */
 export async function getDashboardOverview(scope: CashflowScope) {
+  const indisponibles: string[] = [];
   const [snapshot, reminders, mrr, obligations, threads, mailSync, ownerPay, pendingStarts] = await Promise.all([
     getDashboardSnapshot(scope),
-    optional("relances", listPendingReminders),
-    optional("abonnements", () => computeMrrCents()),
-    optional("obligations", () => listObligationsDashboard()),
-    optional("messagerie", () => latestThreads(5)),
-    optional("synchro mail", async () => {
-      if (!(await isImapConfigured())) return { imapConfigured: false, lastSyncAt: null };
-      const status = await getMailSyncStatus();
-      return { imapConfigured: true, lastSyncAt: status?.lastSyncAt ?? null };
-    }),
-    optional("salaire", () => getOwnerPaySummary()),
-    optional("délais de rétractation", () => listPendingStarts()),
+    optional("relances", listPendingReminders, indisponibles),
+    optional("abonnements", () => computeMrrCents(), indisponibles),
+    optional("obligations", () => listObligationsDashboard(), indisponibles),
+    optional("messagerie", () => latestThreads(5), indisponibles),
+    optional(
+      "synchro mail",
+      async () => {
+        if (!(await isImapConfigured())) return { imapConfigured: false, lastSyncAt: null };
+        const status = await getMailSyncStatus();
+        return { imapConfigured: true, lastSyncAt: status?.lastSyncAt ?? null };
+      },
+      indisponibles,
+    ),
+    optional("salaire", () => getOwnerPaySummary(), indisponibles),
+    optional("délais de rétractation", () => listPendingStarts(), indisponibles),
   ]);
 
   const cfe = obligations?.items
@@ -73,5 +97,6 @@ export async function getDashboardOverview(scope: CashflowScope) {
     mailSync,
     ownerPay,
     pendingStarts: pendingStarts ?? [],
+    indisponibles,
   };
 }

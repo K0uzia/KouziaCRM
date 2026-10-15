@@ -236,7 +236,10 @@ export function SettingsPage() {
       const upserted = Number(params.get("upserted") ?? "0");
       const syncError = params.get("syncError") === "1";
       void loadGoogleStatus();
-      if (syncError) {
+      if (params.get("sync") === "pending") {
+        // Échéances ajoutées à l'agenda en arrière-plan (plusieurs appels Google par obligation).
+        toast.success("Google Agenda connecté : vos échéances s'y ajoutent en arrière-plan, en quelques instants.");
+      } else if (syncError) {
         toast.error(
           "Google Agenda connecté, mais la création des événements a échoué. Réessayez via Synchroniser maintenant.",
         );
@@ -257,6 +260,7 @@ export function SettingsPage() {
     next.delete("upserted");
     next.delete("deleted");
     next.delete("syncError");
+    next.delete("sync");
     setParams(next, { replace: true });
   }, [params, setParams]);
 

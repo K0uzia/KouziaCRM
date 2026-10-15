@@ -8,7 +8,7 @@ import { prisma } from "@/lib/prisma.js";
 import { getCompanySettings, invalidateCompanySettingsCache } from "@/lib/company.js";
 import { parseBusinessStartDateInput, formatBusinessStartDateForApi } from "@/lib/company/business-start.js";
 import { applyInpiImport } from "@/lib/company/inpi.js";
-import { syncObligations } from "@/lib/obligations/obligation-service.js";
+import { syncObligationsApresModification } from "@/lib/obligations/obligation-service.js";
 import {
   isSmtpConfigured,
   testSmtpDelivery,
@@ -461,7 +461,7 @@ export const settingsRoutes: FastifyPluginAsync = async (app) => {
       rneRegistrationDate !== undefined ||
       parsed.data.urssafPeriodicity !== undefined
     ) {
-      await syncObligations();
+      await syncObligationsApresModification();
     }
     return serialize(updated);
   });
@@ -536,7 +536,7 @@ export const settingsRoutes: FastifyPluginAsync = async (app) => {
     if (Object.keys(decl).length > 0) {
       await saveDeclarationsTab(decl as DeclarationsPatch, actorOf(request));
       if ("businessStartDate" in decl || "rneRegistrationDate" in decl) {
-        await syncObligations();
+        await syncObligationsApresModification();
       }
     }
     if (typeof body.bankIban === "string" || body.bankName) {
@@ -618,7 +618,7 @@ export const settingsRoutes: FastifyPluginAsync = async (app) => {
     }
     try {
       const result = await applyInpiImport(parsed.data.query);
-      await syncObligations();
+      await syncObligationsApresModification();
       return {
         ...result,
         settings: serialize(result.settings),
