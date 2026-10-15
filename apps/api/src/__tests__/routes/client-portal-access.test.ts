@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { outboxPayloadRaw } from "@/lib/privacy/at-rest.js";
 import type { FastifyInstance } from "fastify";
 import { prisma } from "@/lib/prisma.js";
 import { hashPassword, SESSION_COOKIE } from "@/lib/auth.js";
@@ -39,7 +40,7 @@ beforeEach(async () => {
 
 /** E-mails d'accès en file (le type est dans la charge utile JSON). */
 const accessEmails = async () =>
-  (await prisma.emailOutbox.findMany()).filter((m) => (JSON.parse(m.payload) as { kind?: string }).kind === "access");
+  (await prisma.emailOutbox.findMany()).filter((m) => (JSON.parse(outboxPayloadRaw(m)) as { kind?: string }).kind === "access");
 
 const create = (payload: Record<string, unknown>) =>
   app.inject({ method: "POST", url: "/api/clients", headers: { cookie }, payload });

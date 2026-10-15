@@ -1,5 +1,6 @@
 import { EmailOutboxStatus } from "@prisma/client";
 import { prisma } from "@/lib/prisma.js";
+import { encrypt } from "@/lib/crypto.js";
 import { generateMessageId } from "./headers.js";
 import type { EnqueueOptions, EnqueueResult, OutboxPayload } from "./types.js";
 
@@ -20,7 +21,9 @@ export async function enqueueEmail(
       status: EmailOutboxStatus.PENDING,
       maxAttempts: opts.maxAttempts ?? 3,
       scheduledAt: opts.scheduledAt ?? new Date(),
-      payload: serializePayload(payload),
+      // Contenu chiffré au repos ; l'ancienne colonne en clair reste vide.
+      payload: "",
+      payloadEncrypted: encrypt(serializePayload(payload)),
     },
   });
   return { outboxId: row.id, messageId: generateMessageId(row.id) };

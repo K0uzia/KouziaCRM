@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma.js";
+import { encrypt } from "@/lib/crypto.js";
 
 export type LogClientEmailInput = {
   clientId: string;
@@ -21,7 +22,9 @@ export async function logClientEmailEvent(input: LogClientEmailInput): Promise<v
         clientId: input.clientId,
         kind: input.kind,
         subject: input.subject,
-        toAddress: input.toAddress,
+        // Adresse chiffrée au repos ; l'ancienne colonne en clair reste vide.
+        toAddress: "",
+        toAddressEncrypted: encrypt(input.toAddress),
         documentId: input.documentId ?? null,
         documentNumber: input.documentNumber ?? null,
         success: input.success ?? true,

@@ -1,4 +1,5 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { outboxPayloadRaw } from "@/lib/privacy/at-rest.js";
 import type { FastifyInstance } from "fastify";
 import { InvoiceDocumentType, InvoiceStatus } from "@prisma/client";
 import { prisma } from "@/lib/prisma.js";
@@ -50,7 +51,7 @@ async function settings(data: Parameters<typeof prisma.companySettings.updateMan
 async function lastCode(): Promise<string> {
   for (let i = 0; i < 50; i++) {
     const rows = await prisma.emailOutbox.findMany({ orderBy: { createdAt: "desc" } });
-    const code = rows.map((r) => parsePayload(r.payload).subject.match(/^(\d{6}) /)?.[1]).find(Boolean);
+    const code = rows.map((r) => parsePayload(outboxPayloadRaw(r)).subject.match(/^(\d{6}) /)?.[1]).find(Boolean);
     if (code) return code;
     await new Promise((ok) => setTimeout(ok, 20));
   }

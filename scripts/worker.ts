@@ -19,6 +19,7 @@ import { prisma } from "../apps/api/src/lib/prisma";
 import { purgePortalData } from "../apps/api/src/lib/portal/auth";
 import { purgeTestimonialProofs } from "../apps/api/src/lib/site/testimonials";
 import { followSitePublications } from "../apps/api/src/lib/site/publish";
+import { backfillEncryptedEmails } from "../apps/api/src/lib/privacy/at-rest";
 
 async function runMaintenance() {
   try {
@@ -133,6 +134,15 @@ async function runHourly() {
     if (proofs > 0) console.log(`[worker] preuves de témoignage allégées=${proofs}`);
   } catch (err) {
     console.error("[worker] purge preuves de témoignage error", err);
+  }
+  try {
+    // Lignes antérieures au chiffrement des e-mails : recopie chiffrée par lots (idempotente).
+    const copied = await backfillEncryptedEmails();
+    if (copied.events + copied.invitations + copied.outbox > 0) {
+      console.log(`[worker] e-mails chiffrés au repos événements=${copied.events} invitations=${copied.invitations} file=${copied.outbox}`);
+    }
+  } catch (err) {
+    console.error("[worker] chiffrement des e-mails error", err);
   }
 }
 

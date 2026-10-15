@@ -3,6 +3,7 @@ import { EmailDirection, EmailOutboxStatus } from "@prisma/client";
 import { getCompanySettings } from "@/lib/company.js";
 import { prisma } from "@/lib/prisma.js";
 import { logClientEmailEvent } from "@/lib/email/log-event.js";
+import { outboxPayloadRaw } from "@/lib/privacy/at-rest.js";
 import {
   formatSmtpError,
   getSharedTransport,
@@ -284,7 +285,7 @@ export async function processEmailOutbox(): Promise<{ processed: number; failed:
 
   for (const row of rows) {
     try {
-      await sendOutboxRow(row.id, row.payload);
+      await sendOutboxRow(row.id, outboxPayloadRaw(row));
       processed += 1;
     } catch (e) {
       failed += 1;
@@ -296,7 +297,7 @@ export async function processEmailOutbox(): Promise<{ processed: number; failed:
       await markOutboxFailed(row.id, error, retryAt);
 
       if (!retryAt) {
-        const payload = parsePayload(row.payload);
+        const payload = parsePayload(outboxPayloadRaw(row));
         await recordClientEvent({
           outboxId: row.id,
           payload,
@@ -323,7 +324,7 @@ export async function sendOutboxImmediately(outboxId: string): Promise<boolean> 
   if (claimed.count !== 1) return false;
   const row = await prisma.emailOutbox.findUniqueOrThrow({ where: { id: outboxId } });
   try {
-    await sendOutboxRow(row.id, row.payload);
+    await sendOutboxRow(row.id, outboxPayloadRaw(row));
     return true;
   } catch (e) {
     await markOutboxFailed(row.id, formatSmtpError(e), new Date(Date.now() + RETRY_DELAYS_MS[0]));
@@ -335,5 +336,5 @@ export async function sendOutboxImmediately(outboxId: string): Promise<boolean> 
 export async function sendOutboxNow(outboxId: string): Promise<void> {
   const row = await prisma.emailOutbox.findUnique({ where: { id: outboxId } });
   if (!row) throw new Error("Outbox introuvable");
-  await sendOutboxRow(row.id, row.payload);
+  await sendOutboxRow(row.id, outboxPayloadRaw(row));
 }

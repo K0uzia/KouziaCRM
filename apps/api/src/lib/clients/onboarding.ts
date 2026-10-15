@@ -1,7 +1,8 @@
 import { isOrganization, type ClientTypeValue } from "@/lib/clients/client-type.js";
 import { prisma } from "@/lib/prisma.js";
 import { getCompanySettings } from "@/lib/company.js";
-import { encryptOptional } from "@/lib/crypto.js";
+import { encrypt, encryptOptional } from "@/lib/crypto.js";
+import { invitationEmail } from "@/lib/privacy/at-rest.js";
 import { isSmtpConfigured } from "@/lib/email/smtp.js";
 import { mailEnqueue } from "@/lib/email/mailer/index.js";
 import { allocateClientNumber } from "@/lib/clients/numbering.js";
@@ -57,7 +58,9 @@ export async function sendOnboardingInvite(opts: {
 
   await prisma.onboardingInvitation.create({
     data: {
-      email,
+      // Adresse chiffrée au repos ; l'ancienne colonne en clair reste vide.
+      email: "",
+      emailEncrypted: encrypt(email),
       token: jti,
       jti,
       expiresAt,
@@ -148,7 +151,7 @@ export async function getPublicClientPreview(
   if (invitation.expiresAt < new Date() && !invitation.usedAt) return null;
 
   return {
-    emailMasked: maskEmail(invitation.email),
+    emailMasked: maskEmail(invitationEmail(invitation)),
     existingClientId: invitation.existingClientId,
     existingType: invitation.existingClient?.type ?? null,
     displayName: invitation.existingClient?.displayName ?? null,
@@ -166,7 +169,7 @@ export async function getOnboardingView(token: string): Promise<OnboardingView |
   if (!invitation) return null;
   if (invitation.usedAt) {
     return {
-      emailMasked: maskEmail(invitation.email),
+      emailMasked: maskEmail(invitationEmail(invitation)),
       existingClientId: invitation.existingClientId,
       existingType: invitation.existingClient?.type ?? null,
       displayName: invitation.existingClient?.displayName ?? null,
@@ -176,7 +179,7 @@ export async function getOnboardingView(token: string): Promise<OnboardingView |
   }
   if (invitation.expiresAt < new Date()) return null;
   return {
-    emailMasked: maskEmail(invitation.email),
+    emailMasked: maskEmail(invitationEmail(invitation)),
     existingClientId: invitation.existingClientId,
     existingType: invitation.existingClient?.type ?? null,
     displayName: invitation.existingClient?.displayName ?? null,
@@ -274,6 +277,7 @@ async function applySubmission(
   invitation: {
     id: string;
     email: string;
+    emailEncrypted: string | null;
     existingClientId: string | null;
   },
   data: OnboardingSubmission,
@@ -288,7 +292,7 @@ async function applySubmission(
     return { ok: false, error: "Nom requis pour un particulier" };
   }
 
-  const locked: OnboardingSubmission = { ...data, email: invitation.email };
+  const locked: OnboardingSubmission = { ...data, email: invitationEmail(invitation) };
   const now = new Date();
 
   try {
