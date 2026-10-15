@@ -16,7 +16,7 @@ import {
 } from "@fortawesome/free-solid-svg-icons";
 import type { IconDefinition } from "@fortawesome/fontawesome-svg-core";
 import { toast } from "sonner";
-import { useLiveRefresh } from "@/lib/notifications";
+import { type NotificationKind, useLiveRefresh } from "@/lib/notifications";
 import { MAIL_SYNC_STATUS_EVENT } from "@/hooks/useNewMailAlert";
 import { api, formatEUR } from "@/lib/api";
 import { formatAgoMinutes, formatDate, MAIL_SYNC_STALE_MIN, minutesSince } from "@/lib/format";
@@ -33,6 +33,9 @@ import { Button, ButtonLink } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { Segmented } from "@/components/ui/Segmented";
 import { StatStrip } from "@/components/ui/StatStrip";
+
+/** Notifications qui changent les chiffres ou les listes du tableau de bord (les autres ne le rechargent pas). */
+const DASHBOARD_KINDS = new Set<NotificationKind>(["mail", "payment", "deposit_due", "quote_accepted", "quote_rejected", "subscription_stripe"]);
 
 const loadRevenueChart = () => import("@/components/dashboard/RevenueChart");
 const loadFlowsChart = () => import("@/components/dashboard/FlowsChart");
@@ -145,6 +148,8 @@ type Overview = DashboardData & {
   ownerPay: OwnerPay | null;
   /** Particuliers dans le délai de rétractation, sans demande d'exécution anticipée. */
   pendingStarts: Array<{ quoteId: string; number: string | null; displayName: string; startsNotBefore: string }>;
+  /** Blocs secondaires en échec ou trop lents côté serveur : affichés comme indisponibles, pas comme vides. */
+  indisponibles?: string[];
 };
 
 /** Barre de chargement à la taille du texte qu'elle remplace (aucun saut à l'arrivée des données). */
@@ -242,7 +247,16 @@ export function DashboardPage() {
   const showFlowSwitch = moduleStripeEnabled || featuresLoading;
   const [liveTick, setLiveTick] = useState(0);
   const reload = () => setLiveTick((t) => t + 1);
-  useLiveRefresh(reload);
+  // Plusieurs notifications d'un coup (rattrapage au retour sur l'onglet) : un seul rechargement.
+  const rafale = useRef<number | undefined>(undefined);
+  useEffect(() => () => window.clearTimeout(rafale.current), []);
+  useLiveRefresh(
+    () => {
+      window.clearTimeout(rafale.current);
+      rafale.current = window.setTimeout(reload, 1500);
+    },
+    (item) => DASHBOARD_KINDS.has(item.kind),
+  );
 
   // Un seul appel. Rafraîchissement (événement, portée, action) silencieux : les valeurs affichées
   // restent en place jusqu'à l'arrivée des nouvelles, sans grisé ni squelette.
@@ -438,6 +452,17 @@ export function DashboardPage() {
     <div>
       {header}
       {quickActions}
+
+      {data?.indisponibles && data.indisponibles.length > 0 ? (
+        <Card className="mb-4 flex flex-wrap items-center justify-between gap-3 p-4 text-sm" role="status">
+          <span>
+            Une partie du tableau de bord n'a pas pu être chargée ({data.indisponibles.join(", ")}). Le reste est à jour.
+          </span>
+          <Button variant="secondary" onClick={reload}>
+            Réessayer
+          </Button>
+        </Card>
+      ) : null}
 
       <StatStrip
         busy={!ready}

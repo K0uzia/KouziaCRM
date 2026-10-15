@@ -36,7 +36,8 @@ export type NotificationItem = {
 
 type Feed = { items: NotificationItem[]; serverTime: string; seenAt: string };
 
-const POLL_MS = 10_000;
+// Chaque relevé est un aller-retour (par le tunnel en production) : 30 s, rien quand l'onglet est masqué.
+const POLL_MS = 30_000;
 const DATA_CHANGED = "kouzia:data-changed";
 const SOUND_KEY = "kouzia.notifications.sound";
 
@@ -192,7 +193,7 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
     }
 
     async function poll() {
-      if (!cursor.current) return;
+      if (!cursor.current || document.visibilityState === "hidden") return;
       const feed = await api<Feed>(`/api/notifications/feed?since=${encodeURIComponent(cursor.current)}`);
       if (cancelled) return;
       cursor.current = feed.serverTime;

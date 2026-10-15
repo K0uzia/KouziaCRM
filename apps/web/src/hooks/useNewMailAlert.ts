@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
 
-const POLL_MS = 15_000;
+// Un aller-retour par relevé : 30 s suffisent pour un badge (retour sur l'onglet : relevé immédiat).
+const POLL_MS = 30_000;
 
 /** Événement diffusé à chaque relecture : la messagerie ouverte y lit l'état de synchro du worker. */
 export const MAIL_SYNC_STATUS_EVENT = "kouzia:mail-sync-status";
