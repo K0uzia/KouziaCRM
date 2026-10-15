@@ -4,6 +4,7 @@ import { EmailDirection, InvoiceDocumentType, QuoteStatus } from "@prisma/client
 import { requireAuth } from "@/lib/auth.js";
 import { prisma } from "@/lib/prisma.js";
 import { getDashboardSnapshot } from "@/lib/finance/dashboard-service.js";
+import { getDashboardOverview } from "@/lib/finance/dashboard-overview.js";
 import { isCashflowScope } from "@/lib/finance/cashflow-service.js";
 import { markUrssafPaid } from "@/lib/finance/dashboard-service.js";
 import { isSmtpConfigured, resolveFromAddress } from "@/lib/email/smtp.js";
@@ -47,6 +48,15 @@ export const miscRoutes: FastifyPluginAsync = async (app) => {
     const scope = isCashflowScope(rawScope) ? rawScope : "month";
     const invoiceId = q.invoiceId && q.invoiceId.length > 0 ? q.invoiceId : null;
     return getDashboardSnapshot(scope, invoiceId);
+  });
+
+  /** Tableau de bord complet en un appel (synthèse, relances, abonnements, démarches, mails, salaire). */
+  app.get("/api/dashboard/overview", async (request, reply) => {
+    await requireAuth(request, reply);
+    if (reply.sent) return;
+    const parsed = z.object({ scope: z.enum(["week", "month", "quarter", "year"]).default("month") }).safeParse(request.query);
+    if (!parsed.success) return reply.code(400).send({ error: parsed.error.flatten() });
+    return getDashboardOverview(parsed.data.scope);
   });
 
   /** Recherche globale : clients, devis, factures, avoirs, tarifs. */
