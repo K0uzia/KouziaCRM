@@ -66,7 +66,9 @@ fi
 echo ""
 
 echo "${C_BOLD}Disque${C_RESET}"
-df -h "$KOUZIA_APP_DIR" "$KOUZIA_BACKUP_DIR" 2>/dev/null | awk 'NR==1 || /^\/|^Filesystem/'
+# -P (POSIX) : une ligne par système de fichiers, même avec un long nom de device (mapper LVM) ; sans lui, les
+# chiffres passent à la ligne suivante et le filtre ne gardait que le nom. Même système listé une seule fois.
+df -hP "$KOUZIA_APP_DIR" "$KOUZIA_BACKUP_DIR" 2>/dev/null | awk 'NR==1 || (/^\// && !vu[$0]++)'
 echo ""
 
 echo "${C_BOLD}Base SQLite${C_RESET}"
