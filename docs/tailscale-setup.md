@@ -28,7 +28,7 @@ PC maison (Wi-Fi)
 
 | Variable | Rôle | Exemple |
 |----------|------|---------|
-| `WEB_ORIGIN` | URL admin que tu tapes le plus souvent (CORS + cookies + retour OAuth Google) | `http://192.168.1.50:3000` |
+| `WEB_ORIGIN` | URL admin que tu tapes le plus souvent (CORS + cookies + retour OAuth Google) | `http://203.0.113.50:3000` |
 | `TAILSCALE_ORIGIN` | Origine MagicDNS (CORS téléphone), **en plus** de `WEB_ORIGIN` | `http://kouzia.tailnet-xxxx.ts.net:3000` |
 | `PUBLIC_API_ORIGIN` | URL **HTTPS Cloudflare** uniquement (jamais Tailscale, jamais LAN) | `https://api.kouzia.com` |
 | `PUBLIC_WEB_ORIGIN` | Site public (CORS `/api/public/*`) | `https://kouzia.com` |
@@ -86,7 +86,7 @@ Assistant complet (`kouziactl configure`) : Tailscale est proposé **après** Cl
 3. Bookmark / « Ajouter à l'écran d'accueil »
 4. Login ERP (email + mot de passe admin)
 
-Ne teste pas l'IP Tailscale depuis un PC sans l'app Tailscale : ça ne route pas. Le LAN `http://192.168.1.45:3000` reste le Wi-Fi maison.
+Ne teste pas l'IP Tailscale depuis un PC sans l'app Tailscale : ça ne route pas. Le LAN `http://203.0.113.45:3000` reste le Wi-Fi maison.
 
 À la maison en Wi-Fi, l'URL LAN continue de marcher seulement si `WEB_ORIGIN` n'a pas été remplacé par MagicDNS.
 
@@ -122,7 +122,7 @@ Redémarrer le CT, puis `kouziactl tailscale` : le script détecte le TUN et n'a
 ## `.env` attendu (prod)
 
 ```bash
-WEB_ORIGIN="http://192.168.1.50:3000"
+WEB_ORIGIN="http://203.0.113.50:3000"
 TAILSCALE_ORIGIN="http://kouzia.tailnet-xxxx.ts.net:3000"
 PUBLIC_API_ORIGIN="https://api.kouzia.com"
 PUBLIC_WEB_ORIGIN="https://kouzia.com"

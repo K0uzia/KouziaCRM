@@ -23,7 +23,7 @@
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev",
     "db:deploy": "prisma migrate deploy",
-    "db:push": "prisma db push",
+    "db:push:dev": "prisma db push",
     "db:seed": "tsx --env-file=.env prisma/seed.ts",
     "catalog": "tsx --env-file=.env scripts/apply-catalog.ts",
     "archive-pdfs": "tsx --env-file=.env --tsconfig apps/api/tsconfig.json scripts/archive-issued-pdfs.ts",

@@ -47,6 +47,12 @@ const secondFactorSchema = z.union([
 const codeSchema = z.object({ code: z.string().trim().regex(/^\d{6}$/) });
 
 const BAD_CREDENTIALS = { error: "Email ou mot de passe incorrect" };
+/** Refus de connexion : jamais plus rapide que ce plancher (compte inconnu, verrouillé ou mot de passe faux). */
+export const LOGIN_FAILURE_FLOOR_MS = 250;
+const floor = async (startedAt: number) => {
+  const wait = LOGIN_FAILURE_FLOOR_MS - (Date.now() - startedAt);
+  if (wait > 0) await new Promise((r) => setTimeout(r, wait));
+};
 const BAD_CODE = { error: "Code incorrect." };
 const CHALLENGE_EXPIRED = { error: "Connexion expirée : saisissez à nouveau votre mot de passe." };
 const TUNNEL_NEEDS_2FA = {
@@ -85,25 +91,27 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
     "/api/auth/login",
     { config: { rateLimit: { max: 10, timeWindow: "15 minutes" } } },
     async (request, reply) => {
+      const startedAt = Date.now();
+      // Même message et même délai minimal pour tout refus : rien sur l'existence du compte ni son état.
+      const refuse = async (code: 400 | 401) => {
+        await floor(startedAt);
+        return reply.code(code).send(BAD_CREDENTIALS);
+      };
       const parsed = loginSchema.safeParse(request.body);
-      if (!parsed.success) {
-        return reply.code(400).send({ error: "Identifiants invalides" });
-      }
+      if (!parsed.success) return refuse(400);
 
       const email = parsed.data.email.toLowerCase().trim();
       const user = await prisma.user.findUnique({ where: { email } });
       if (!user) {
         await verifyPassword(parsed.data.password, await getDummyHash());
-        return reply.code(401).send(BAD_CREDENTIALS);
+        return refuse(401);
       }
-      if (isLocked(user, request)) {
-        return reply.code(401).send(BAD_CREDENTIALS);
-      }
+      if (isLocked(user, request)) return refuse(401);
 
       const ok = await verifyPassword(parsed.data.password, user.passwordHash);
       if (!ok) {
         await registerFailure(user.id, request);
-        return reply.code(401).send(BAD_CREDENTIALS);
+        return refuse(401);
       }
       await upgradePasswordHashIfNeeded(user.id, parsed.data.password, user.passwordHash);
 
@@ -148,7 +156,7 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
     },
   );
 
-  app.post("/api/auth/logout", async (request, reply) => {
+  app.post("/api/auth/logout", { config: { rateLimit: { max: 30, timeWindow: "15 minutes" } } }, async (request, reply) => {
     await requireAuth(request, reply);
     if (reply.sent) return;
     if (request.sessionId) {

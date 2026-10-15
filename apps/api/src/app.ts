@@ -194,7 +194,8 @@ export async function buildApp(opts: BuildAppOptions = {}): Promise<FastifyInsta
   await app.register(siteRoutes);
 
   // pendingMigrations > 0 : base en retard sur le code (contrôle d'après déploiement).
-  app.get("/api/health", async () => ({ ok: true, pendingMigrations: pendingMigrationCount() }));
+  // Par le tunnel : état seulement (l'avance des migrations ne regarde que le LAN, kouziactl compris).
+  app.get("/api/health", async (request) => (request.viaTunnel ? { ok: true } : { ok: true, pendingMigrations: pendingMigrationCount() }));
 
   let spaServed = false;
   if (opts.serveStatic !== false) {

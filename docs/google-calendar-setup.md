@@ -57,7 +57,7 @@ Ou, après update du script : `kouziactl google` (demande les 3 mêmes champs).
 
 ### Navigateur
 
-1. `http://192.168.1.52:3000/settings?tab=declarations`
+1. `http://203.0.113.52:3000/settings?tab=declarations`
 2. **Connecter Google Agenda** → compte test → autoriser
 3. Toast « connecté »
 4. Ctrl+C sur le tunnel A

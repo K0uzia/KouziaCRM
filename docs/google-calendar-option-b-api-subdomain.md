@@ -7,7 +7,7 @@ Objectif : login Google + sync Agenda, **sans** casser le site Hostinger `kouzia
 |------|-----|----------------|
 | Site / suivi | `https://kouzia.com` | Hostinger (inchangé) |
 | API ERP (OAuth, webhooks) | `https://api.kouzia.com` | CT via Cloudflare Tunnel |
-| Admin ERP | `http://192.168.1.52:3000` | LAN uniquement |
+| Admin ERP | `http://203.0.113.52:3000` | LAN uniquement |
 
 Après Google, Kouzia te renvoie tout seul sur le LAN (`WEB_ORIGIN`).
 
@@ -115,7 +115,7 @@ PUBLIC_API_ORIGIN="https://api.kouzia.com"
 GOOGLE_CLIENT_ID="….apps.googleusercontent.com"
 GOOGLE_CLIENT_SECRET="GOCSPX-…"
 GOOGLE_REDIRECT_URI="https://api.kouzia.com/api/google/calendar/callback"
-WEB_ORIGIN="http://192.168.1.52:3000"
+WEB_ORIGIN="http://203.0.113.52:3000"
 ```
 
 - `PUBLIC_WEB_ORIGIN` / site = reste `https://kouzia.com` (ne pas y mettre `api.`)
@@ -130,7 +130,7 @@ rc-service kouziacrm restart
 
 ## 6. Connexion Google (navigateur)
 
-1. Ouvre `http://192.168.1.52:3000/settings?tab=declarations`
+1. Ouvre `http://203.0.113.52:3000/settings?tab=declarations`
 2. **Connecter Google Agenda**
 3. Compte Gmail (utilisateur de test) → autoriser
 4. Retour sur le LAN avec toast « connecté »
@@ -200,5 +200,5 @@ Sans nuage orange / sans zone Cloudflare, l’option B **ne peut pas** marcher a
 | Service tunnel | `http://127.0.0.1:3000` |
 | CNAME Hostinger | `api` → `a41fd065-e8a2-422a-954b-f03efaf816a3.cfargotunnel.com` |
 | Callback Google | `https://api.kouzia.com/api/google/calendar/callback` |
-| ERP | `http://192.168.1.52:3000` |
+| ERP | `http://203.0.113.52:3000` |
 | Site public | `https://kouzia.com` (Hostinger, inchangé) |
