@@ -22,6 +22,7 @@ export type SiteProject = SiteItem & {
   slug: string;
   name: string;
   subtitle: string | null;
+  mention: string | null;
   kind: "WEBSITE" | "SOFTWARE";
   text: string;
   role: string | null;

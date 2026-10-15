@@ -122,6 +122,7 @@ const emptyForm = {
   slug: "",
   name: "",
   subtitle: "",
+  mention: "",
   kind: "WEBSITE" as SiteProject["kind"],
   text: "",
   role: "",
@@ -169,6 +170,7 @@ export function SiteProjectPage() {
         slug: p.slug,
         name: p.name,
         subtitle: p.subtitle ?? "",
+        mention: p.mention ?? "",
         kind: p.kind,
         text: p.text,
         role: p.role ?? "",
@@ -206,6 +208,7 @@ export function SiteProjectPage() {
       slug: form.slug.trim(),
       name: form.name,
       subtitle: form.subtitle.trim() || null,
+      mention: form.mention.trim() || null,
       kind: form.kind,
       text: form.text,
       role: form.role.trim() || null,
@@ -278,6 +281,19 @@ export function SiteProjectPage() {
             <Field label="Sous-titre (facultatif)" error={errors.subtitle}>
               <Input value={form.subtitle} onChange={(e) => set("subtitle", e.target.value)} />
             </Field>
+            <Field
+              label="Mention sous le projet (facultatif)"
+              hint={`Ex. : Développé par Kouzia au sein de La Capsule. ${form.mention.length} / 60 caractères`}
+              error={errors.mention}
+            >
+              <Input maxLength={60} autoComplete="off" value={form.mention} onChange={(e) => set("mention", e.target.value)} />
+            </Field>
+            {form.mention.trim() && form.role.trim() ? (
+              // Les deux s'affichent sur la carte : signaler un doublon possible (ex. « Réalisé dans le cadre de… »).
+              <p className="-mt-2 text-xs text-[var(--warning)]" aria-live="polite">
+                Le rôle est aussi rempli : les deux paraissent sur la carte. Videz l'un des deux s'ils disent la même chose.
+              </p>
+            ) : null}
             <Field
               label="Identifiant"
               hint={
@@ -400,6 +416,7 @@ function ProjectPreview({ form }: { form: typeof emptyForm }) {
         <p className="text-xs font-medium uppercase tracking-[0.08em] text-[var(--muted)]">Aperçu du contenu</p>
         <p className="font-display text-lg font-semibold leading-tight">{form.name || "Nom de la réalisation"}</p>
         {form.subtitle ? <p className="text-sm text-[var(--muted)]">{form.subtitle}</p> : null}
+        {form.mention.trim() ? <p className="text-xs text-[var(--muted)]">{form.mention.trim()}</p> : null}
         <Badge tone="violet">{PROJECT_KIND_LABEL[form.kind]}</Badge>
         <p className="whitespace-pre-line text-sm leading-relaxed">{form.text || "Texte de présentation."}</p>
         {form.linkLabel ? <p className="text-sm font-medium text-[var(--primary)]">{form.linkLabel}</p> : null}

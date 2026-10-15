@@ -99,6 +99,19 @@ describe("espace Site : accès", () => {
 });
 
 describe("espace Site : réalisations", () => {
+  it("mention sous le projet : facultative, nettoyée, 60 caractères au plus, sans tiret long", async () => {
+    const ok = await call("POST", "/api/site/projects", { ...project, slug: "atelier-mention", mention: "  Développé par Kouzia au sein de La Capsule  " });
+    expect(ok.statusCode).toBe(201);
+    expect(ok.json().mention).toBe("Développé par Kouzia au sein de La Capsule");
+    const url = `/api/site/projects/${ok.json().id}`;
+    const base = { ...project, slug: "atelier-mention" };
+    // Vide ou blancs : pas de mention (clé omise de realisations.json).
+    expect((await call("PUT", url, { ...base, mention: "   " })).json().mention).toBeNull();
+    expect((await call("PUT", url, { ...base, mention: "x".repeat(60) })).json().mention).toHaveLength(60);
+    expect((await call("PUT", url, { ...base, mention: "x".repeat(61) })).statusCode).toBe(400);
+    expect((await call("PUT", url, { ...base, mention: "Kouzia \u2013 La Capsule" })).statusCode).toBe(400);
+  });
+
   it("création, identifiant unique, règles de la charte", async () => {
     const created = await call("POST", "/api/site/projects", project);
     expect(created.statusCode).toBe(201);

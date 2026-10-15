@@ -61,6 +61,39 @@ describe("import puis instantané", () => {
     expect((await buildSiteSnapshot()).digest).toBe(snap.digest);
   });
 
+  it("mention sous le projet : juste après sousTitre (ou nom), omise si vide, reprise à l'identique ; 61 caractères, vide ou tiret long refusés", async () => {
+    const MENTION = "Développé par Kouzia au sein de La Capsule";
+    const files = parsed();
+    const byId = (id: string) => files.realisations.realisations.find((r: { id: string }) => r.id === id);
+    // Clés réinsérées dans l'ordre du contrat du site.
+    const withMention = (r: Record<string, unknown>, after: string) =>
+      Object.fromEntries(Object.entries(r).flatMap(([k, v]) => (k === after ? [[k, v], ["mention", MENTION]] : [[k, v]])));
+    const list = files.realisations.realisations as Array<Record<string, unknown>>;
+    list[list.indexOf(byId("la-capsule"))] = withMention(byId("la-capsule"), "sousTitre");
+    list[list.indexOf(byId("capsuleos"))] = withMention(byId("capsuleos"), "nom");
+    const withFile = { ...raw, realisations: serializeSiteFile(files.realisations) };
+    expect(validateSiteFiles({ ...parsed(), realisations: files.realisations }, contract)).toEqual([]);
+
+    await importSiteFiles(withFile);
+    expect((await prisma.siteProject.findUniqueOrThrow({ where: { slug: "la-capsule" } })).mention).toBe(MENTION);
+    expect((await prisma.siteProject.findUniqueOrThrow({ where: { slug: "tracebay" } })).mention).toBeNull();
+    const snap = await buildSiteSnapshot(contract);
+    expect(snap.issues).toEqual([]);
+    expect(snap.files.realisations).toBe(withFile.realisations);
+    const out = JSON.parse(snap.files.realisations).realisations as Array<Record<string, unknown>>;
+    const keys = (id: string) => Object.keys(out.find((r) => r.id === id)!);
+    expect(keys("la-capsule").slice(0, 5)).toEqual(["id", "nom", "sousTitre", "mention", "type"]);
+    expect(keys("capsuleos").slice(0, 4)).toEqual(["id", "nom", "mention", "type"]);
+    expect(keys("tracebay")).not.toContain("mention");
+
+    for (const mention of ["x".repeat(61), "Kouzia \u2014 La Capsule", ""]) {
+      const bad = parsed();
+      bad.realisations.realisations[0].mention = mention;
+      expect(validateSiteFiles(bad, contract).length, JSON.stringify(mention)).toBeGreaterThan(0);
+      expect(validateSiteFiles(bad).length, JSON.stringify(mention)).toBeGreaterThan(0);
+    }
+  });
+
   it("capture de téléphone facultative (imageMobile) : reprise à l'identique ; image inconnue bloquante", async () => {
     const files = parsed();
     files.realisations.realisations[0].imageMobile = "/media/0123456789ab.webp";

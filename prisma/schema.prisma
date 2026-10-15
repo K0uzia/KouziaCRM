@@ -1533,6 +1533,8 @@ model SiteProject {
   status          SiteItemStatus  @default(DRAFT)
   name            String
   subtitle        String?
+  /// Petite ligne sous le titre de la carte (1 à 60 caractères), ex. « Développé par Kouzia au sein de La Capsule »
+  mention         String?
   kind            SiteProjectKind
   text            String
   role            String?
