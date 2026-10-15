@@ -20,6 +20,7 @@ import { purgePortalData } from "../apps/api/src/lib/portal/auth";
 import { purgeTestimonialProofs } from "../apps/api/src/lib/site/testimonials";
 import { followSitePublications } from "../apps/api/src/lib/site/publish";
 import { backfillEncryptedEmails } from "../apps/api/src/lib/privacy/at-rest";
+import { purgeRetention } from "../apps/api/src/lib/privacy/retention";
 
 async function runMaintenance() {
   try {
@@ -143,6 +144,13 @@ async function runHourly() {
     }
   } catch (err) {
     console.error("[worker] chiffrement des e-mails error", err);
+  }
+  try {
+    // Conservation des données (README, « Conservation des données ») : prospects, invitations, file, journal, sessions.
+    const purged = await purgeRetention();
+    if (Object.values(purged).some((n) => n > 0)) console.log("[worker] conservation des données", purged);
+  } catch (err) {
+    console.error("[worker] conservation des données error", err);
   }
 }
 

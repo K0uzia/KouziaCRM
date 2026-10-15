@@ -23,6 +23,7 @@ const TABLES = [
   "Subscription",
   "Service",
   "OnboardingInvitation",
+  "ClientEmailEvent",
   "ClientTestimonial",
   "PortalCode",
   "PortalSession",
