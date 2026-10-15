@@ -81,6 +81,11 @@ async function main() {
 
   await app.listen({ port, host: "0.0.0.0" });
   app.log.info(`API Kouzia ERP sur :${port}`);
+  // Moteur publicodes (cotisations URSSAF) construit au démarrage : ~250 ms de calcul synchrone qui
+  // bloquaient sinon la première requête du tableau de bord, et toute l'API pendant ce temps.
+  setImmediate(() => {
+    void import("@/lib/publicodes.js").then(({ computeSocialChargesForEncaisse }) => computeSocialChargesForEncaisse(100_000));
+  });
   const { vapidStatus } = await import("@/lib/push/vapid.js");
   const push = vapidStatus();
   // Sans clés VAPID, l'ERP fonctionne : seules les notifications push sont désactivées.

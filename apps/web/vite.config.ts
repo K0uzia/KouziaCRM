@@ -23,6 +23,22 @@ export default defineConfig({
       ),
     },
   },
+  build: {
+    rollupOptions: {
+      output: {
+        // Dépendances stables dans leurs propres fichiers : chunk d'entrée sous 500 Ko, et cache
+        // navigateur conservé d'un déploiement à l'autre tant qu'elles ne changent pas.
+        manualChunks(id) {
+          const n = id.split(String.fromCharCode(92)).join("/");
+          if (!n.includes("/node_modules/")) return undefined;
+          if (/\/node_modules\/(react|react-dom|scheduler)\//.test(n)) return "react";
+          if (n.includes("/node_modules/react-router")) return "router";
+          if (n.includes("/node_modules/@fortawesome/")) return "icons";
+          return undefined;
+        },
+      },
+    },
+  },
   server: {
     port: 5173,
     proxy: {

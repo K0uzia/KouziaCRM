@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { Link, NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import {
@@ -10,7 +10,10 @@ import {
   faXmark,
 } from "@fortawesome/free-solid-svg-icons";
 import { useAuth } from "@/lib/auth";
-import { CommandPalette } from "@/components/CommandPalette";
+// Palette Ctrl K (cmdk, Radix Dialog) hors du chunk d'entrée : chargée au premier usage, ou en
+// tâche de fond une fois la page affichée.
+const loadCommandPalette = () => import("@/components/CommandPalette");
+const CommandPalette = lazy(() => loadCommandPalette().then((m) => ({ default: m.CommandPalette })));
 import { NotificationBell } from "@/components/NotificationBell";
 import { NotificationsProvider } from "@/lib/notifications";
 import { MoreMenu } from "@/components/ui/MoreMenu";
@@ -173,6 +176,14 @@ export function AppLayout() {
   const { logout, user } = useAuth();
   const navigate = useNavigate();
   const [paletteOpen, setPaletteOpen] = useState(false);
+  const [paletteUsed, setPaletteUsed] = useState(false);
+  useEffect(() => {
+    if (paletteOpen) setPaletteUsed(true);
+  }, [paletteOpen]);
+  useEffect(() => {
+    const id = setTimeout(() => void loadCommandPalette().catch(() => undefined), 3000);
+    return () => clearTimeout(id);
+  }, []);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const drawerTrigger = useRef<HTMLButtonElement>(null);
   // Bouton qui a ouvert le tiroir (menu de la barre supérieure ou « Plus » de la barre du bas).
@@ -482,7 +493,11 @@ export function AppLayout() {
         </nav>
       </div>
 
-      <CommandPalette open={paletteOpen} onOpenChange={setPaletteOpen} />
+      {paletteOpen || paletteUsed ? (
+        <Suspense fallback={null}>
+          <CommandPalette open={paletteOpen} onOpenChange={setPaletteOpen} />
+        </Suspense>
+      ) : null}
     </div>
     </NotificationsProvider>
   );
