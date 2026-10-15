@@ -52,6 +52,10 @@ describe("projets client", () => {
         // id et status : carte « Votre témoignage » d'un projet terminé (contrat convenu avec le site).
         id: expect.any(String),
         status: expect.any(String),
+        // Rattachement des pièces et type de projet (fiches projet de /suivi) : null sans devis ni type.
+        quoteId: null,
+        startedAt: null,
+        kind: null,
         name: "Site vitrine",
         progress: 60,
         steps: [

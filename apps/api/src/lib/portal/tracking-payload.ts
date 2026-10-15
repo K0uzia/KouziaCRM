@@ -11,7 +11,29 @@ import { signDocumentToken, signReceiptToken } from "@/lib/documents/public-toke
 type DocRow = Invoice & {
   payments: Payment[];
   milestones: PaymentMilestone[];
+  /** Avoir : devis de la facture créditée (rattachement au projet). */
+  creditedInvoice?: { quoteId: string | null } | null;
 };
+
+/** Devis d'origine → projet, limité aux projets visibles du client connecté. */
+export type ProjectByQuote = ReadonlyMap<string, string>;
+
+/**
+ * Projet d'une pièce de l'espace client : devis → son projet, facture → projet de son devis,
+ * avoir → projet de la facture créditée ; null sinon (devis en attente, pièce hors projet).
+ */
+export function projectOfDocument(
+  byQuote: ProjectByQuote,
+  d: Pick<Invoice, "id" | "documentType" | "quoteId"> & { creditedInvoice?: { quoteId: string | null } | null },
+): string | null {
+  const quoteId =
+    d.documentType === InvoiceDocumentType.QUOTE
+      ? d.id
+      : d.documentType === InvoiceDocumentType.CREDIT_NOTE
+        ? (d.creditedInvoice?.quoteId ?? d.quoteId)
+        : d.quoteId;
+  return quoteId ? (byQuote.get(quoteId) ?? null) : null;
+}
 
 export function buildDocumentLinks(docs: DocRow[]) {
   const byId = new Map(docs.map((d) => [d.id, d]));
@@ -92,7 +114,10 @@ export function buildPaymentHistory(opts: {
     }
   >;
   showAmounts: boolean;
+  /** Rattachement des entrées à un projet (projectId, null sans projet). */
+  projectByQuote?: ProjectByQuote;
 }) {
+  const byQuote = opts.projectByQuote ?? new Map<string, string>();
   const items: Array<{
     id: string;
     date: Date;
@@ -104,6 +129,7 @@ export function buildPaymentHistory(opts: {
     receiptToken: string | null;
     /** Reçu PDF de ce règlement (archivé) ; receiptToken reste le lien de la facture. */
     receiptPdfToken?: string | null;
+    projectId: string | null;
   }> = [];
 
   for (const m of opts.milestones) {
@@ -119,6 +145,7 @@ export function buildPaymentHistory(opts: {
       receiptToken: m.generatedInvoice?.number
         ? signDocumentToken(m.generatedInvoice.id)
         : null,
+      projectId: byQuote.get(m.quoteId) ?? null,
     });
   }
 
@@ -133,6 +160,7 @@ export function buildPaymentHistory(opts: {
         label: `Avoir ${d.number ?? ""}`.trim(),
         documentNumber: d.number,
         receiptToken: d.number ? signDocumentToken(d.id) : null,
+        projectId: projectOfDocument(byQuote, d),
       });
       continue;
     }
@@ -161,6 +189,7 @@ export function buildPaymentHistory(opts: {
         documentNumber: d.number,
         receiptToken: d.number ? signDocumentToken(d.id) : null,
         receiptPdfToken: d.number ? signReceiptToken(p.id) : null,
+        projectId: projectOfDocument(byQuote, d),
       });
     }
   }

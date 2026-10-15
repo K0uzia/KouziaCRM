@@ -1,4 +1,4 @@
-import { MilestoneStatus, type ClientProject } from "@prisma/client";
+import { ClientProjectKind, MilestoneStatus, type ClientProject } from "@prisma/client";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma.js";
 import { sendReviewInviteOnDone } from "@/lib/projects/review-invite.js";
@@ -54,6 +54,8 @@ export const projectInputSchema = z.object({
   checklist: z.array(checklistItemSchema).max(50).default([]),
   visibleOnPortal: z.boolean().default(true),
   status: z.enum(["PLANNED", "ACTIVE", "DONE"]).optional(),
+  // Absent : inchangé ; null : type effacé.
+  kind: z.enum(ClientProjectKind).nullish(),
 });
 
 export type ProjectInput = z.infer<typeof projectInputSchema>;
@@ -101,6 +103,7 @@ export function serializeProject(p: ClientProject) {
     quoteId: p.quoteId,
     status: p.status,
     startedAt: p.startedAt,
+    kind: p.kind,
     reviewInviteSentAt: p.reviewInviteSentAt,
     createdAt: p.createdAt,
     updatedAt: p.updatedAt,
@@ -116,6 +119,7 @@ function toData(input: ProjectInput) {
     checklist: JSON.stringify(input.checklist),
     visibleOnPortal: input.visibleOnPortal,
     ...(input.status ? { status: input.status } : {}),
+    ...(input.kind !== undefined ? { kind: input.kind } : {}),
   };
 }
 
@@ -257,6 +261,10 @@ export async function listPortalProjects(clientId: string) {
       // Identifiant et état : l'espace client propose le témoignage d'un projet terminé (DONE).
       id: p.id,
       status: p.status,
+      // Rattachement des pièces, paiements et abonnements (documents[].projectId, etc.).
+      quoteId: p.quoteId,
+      startedAt: p.startedAt,
+      kind: p.kind,
       name: s.name,
       progress: s.progress,
       steps: s.steps,

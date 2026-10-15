@@ -21,6 +21,17 @@ type ProjectForm = {
   checklist: Array<{ label: string; done: boolean; note: string | null }>;
   visibleOnPortal: boolean;
   status: ProjectStatus;
+  kind: ProjectKind | null;
+};
+
+type ProjectKind = "SITE" | "LOGICIEL" | "MAINTENANCE" | "AUTRE";
+
+/** Type affiché dans l'espace client (fiche du projet). */
+const PROJECT_KIND_LABEL: Record<ProjectKind, string> = {
+  SITE: "Site web",
+  LOGICIEL: "Logiciel",
+  MAINTENANCE: "Maintenance et suivi",
+  AUTRE: "Autre",
 };
 
 type ProjectStatus = "PLANNED" | "ACTIVE" | "DONE";
@@ -57,6 +68,7 @@ const EMPTY_FORM: ProjectForm = {
   checklist: [],
   visibleOnPortal: true,
   status: "ACTIVE",
+  kind: null,
 };
 
 /** Retire les lignes vides avant l'envoi : une ligne ajoutée puis laissée vide n'est pas une erreur. */
@@ -275,6 +287,16 @@ export function ClientProjects({ clientId }: { clientId: string }) {
                 </div>
               </Field>
             </div>
+            <Field label="Type de projet" hint="Affiché au client dans son espace. Facultatif.">
+              <Select value={form.kind ?? ""} onChange={(e) => update({ kind: (e.target.value || null) as ProjectKind | null })}>
+                <option value="">Non précisé</option>
+                {(Object.keys(PROJECT_KIND_LABEL) as ProjectKind[]).map((k) => (
+                  <option key={k} value={k}>
+                    {PROJECT_KIND_LABEL[k]}
+                  </option>
+                ))}
+              </Select>
+            </Field>
             <Field label="Statut" hint="Planifié : acompte facturé, en attente de paiement. Il passe en cours au paiement. Terminé : projet livré, avancement à 100 %.">
               <Select
                 value={form.status}
