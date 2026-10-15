@@ -141,11 +141,12 @@ function useTextForm<T>(key: string, onSaved: (v: T) => void) {
   return { errors, busy, save };
 }
 
-function FormCard({ onSubmit, busy, children }: { onSubmit: (e: FormEvent) => void; busy: boolean; children: ReactNode }) {
+/** Carte de formulaire pleine largeur, comme les Réglages ; `columns` : sections côte à côte sur grand écran. */
+function FormCard({ onSubmit, busy, columns = false, children }: { onSubmit: (e: FormEvent) => void; busy: boolean; columns?: boolean; children: ReactNode }) {
   return (
-    <Card className="max-w-3xl p-4 sm:p-6">
+    <Card className="p-4 sm:p-6">
       <form onSubmit={onSubmit} noValidate className="space-y-4">
-        {children}
+        <div className={columns ? "grid gap-x-8 gap-y-6 xl:grid-cols-2" : "space-y-4"}>{children}</div>
         <div className="flex justify-end border-t border-[var(--border)] pt-4">
           <Button type="submit" disabled={busy}>
             {busy ? "Enregistrement…" : "Enregistrer"}
@@ -156,9 +157,9 @@ function FormCard({ onSubmit, busy, children }: { onSubmit: (e: FormEvent) => vo
   );
 }
 
-function Section({ title, children }: { title: string; children: ReactNode }) {
+function Section({ title, wide = false, children }: { title: string; wide?: boolean; children: ReactNode }) {
   return (
-    <fieldset className="space-y-4">
+    <fieldset className={`min-w-0 space-y-4${wide ? " xl:col-span-2" : ""}`}>
       <legend className="text-sm font-semibold">{title}</legend>
       {children}
     </fieldset>
@@ -185,7 +186,7 @@ function InfosForm({ initial, onSaved }: { initial: Infos | null; onSaved: (v: I
     void save({ ...f, anneesExperience: Number(f.anneesExperience), villes: lines(f.villes) });
   };
   return (
-    <FormCard onSubmit={onSubmit} busy={busy}>
+    <FormCard onSubmit={onSubmit} busy={busy} columns>
       <Section title="Pour vous joindre">
         <div className="grid gap-4 sm:grid-cols-2">
           <Field label="Adresse e-mail affichée" error={errorFor(errors, "email")}>
@@ -210,7 +211,7 @@ function InfosForm({ initial, onSaved }: { initial: Infos | null; onSaved: (v: I
           <Textarea className="field-sizing-content" rows={rowsFor(f.villes)} value={f.villes} onChange={set("villes")} />
         </Field>
       </Section>
-      <Section title="Réseaux et Google">
+      <Section title="Réseaux et Google" wide>
         <div className="grid gap-4 sm:grid-cols-2">
           <Field label="Profil GitHub" error={errorFor(errors, "github")}>
             <Input type="url" inputMode="url" value={f.github} onChange={set("github")} />
@@ -264,6 +265,7 @@ function OffresForm({ initial, onSaved }: { initial: Offres | null; onSaved: (v:
   return (
     <FormCard
       busy={busy}
+      columns
       onSubmit={(e) => {
         e.preventDefault();
         void save({
@@ -291,9 +293,11 @@ function OffresForm({ initial, onSaved }: { initial: Offres | null; onSaved: (v:
           <Textarea className="field-sizing-content" rows={rowsFor(f.logicielItems)} value={f.logicielItems} onChange={set("logicielItems")} />
         </Field>
       </Section>
-      <Field label="Phrase sur le tarif" hint="Affichée sous les deux formules." error={errorFor(errors, "tarif")}>
-        <Textarea rows={2} value={f.tarif} onChange={set("tarif")} />
-      </Field>
+      <div className="xl:col-span-2">
+        <Field label="Phrase sur le tarif" hint="Affichée sous les deux formules." error={errorFor(errors, "tarif")}>
+          <Textarea rows={2} value={f.tarif} onChange={set("tarif")} />
+        </Field>
+      </div>
     </FormCard>
   );
 }

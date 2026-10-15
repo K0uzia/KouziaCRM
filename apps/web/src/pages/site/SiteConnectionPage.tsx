@@ -110,7 +110,7 @@ export function SiteConnectionPage() {
       />
       <LoadState loading={loading} error={error} onRetry={() => void load()}>
         {state && gh ? (
-          <div className="max-w-3xl space-y-4">
+          <div className="grid items-start gap-4 xl:grid-cols-2">
             <Card className="space-y-4 p-4 sm:p-6">
               <h2 className="text-base font-semibold">Jeton d'accès GitHub</h2>
               <dl className="grid gap-x-6 gap-y-2 text-sm sm:grid-cols-[auto_1fr]">
