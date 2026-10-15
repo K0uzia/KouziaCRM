@@ -3,6 +3,7 @@ import type { IconDefinition } from "@fortawesome/fontawesome-svg-core";
 import {
   faCircleCheck,
   faCalendarXmark,
+  faCommentDots,
   faCircleXmark,
   faEnvelope,
   faFileInvoiceDollar,
@@ -23,6 +24,7 @@ export const NOTIFICATION_KIND_STYLE: Record<NotificationKind, { icon: IconDefin
   client_onboarded: { icon: faUserPlus, tone: "bg-[var(--success-soft)] text-[var(--success)]" },
   subscription_stripe: { icon: faRotate, tone: "bg-[var(--warning-soft)] text-[var(--warning)]" },
   google_reauth: { icon: faCalendarXmark, tone: "bg-[var(--warning-soft)] text-[var(--warning)]" },
+  testimonial: { icon: faCommentDots, tone: "bg-[var(--info-soft)] text-[var(--info)]" },
 };
 
 /**

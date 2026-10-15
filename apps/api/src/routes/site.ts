@@ -20,6 +20,7 @@ import { httpsUrl, imagePath, siteText, slug } from "@/lib/site/contract.js";
 import { parseTech } from "@/lib/site/mapping.js";
 import { readSiteText, writeSiteText, isSiteTextKey } from "@/lib/site/texts.js";
 import { buildSiteSnapshot } from "@/lib/site/snapshot.js";
+import { TESTIMONIAL_SOURCE } from "@/lib/site/testimonials.js";
 import { importSiteFiles, siteContentExists, SiteImportError } from "@/lib/site/import.js";
 import { GithubError, readSiteRepoFiles, saveGithubToken, siteBranch, siteRepo, testGithubConnection } from "@/lib/site/github.js";
 import {
@@ -118,9 +119,23 @@ const toDate = (v: string | null | undefined) => (v === undefined ? undefined : 
 /** Prisma : doublon d'identifiant publié (slug). */
 const isUniqueViolation = (e: unknown) => e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002";
 
-function reviewOutAdmin(r: SiteReview) {
+type ReviewRow = SiteReview & { project?: { id: string; name: string } | null; client?: { id: string; displayName: string } | null };
+
+/**
+ * Témoignage pour l'écran : preuve déchiffrée pour une saisie manuelle (texte libre) ; pour un témoignage
+ * de l'espace client, seuls la version et la date de l'accord sont montrées (IP et navigateur restent chiffrés).
+ */
+function reviewOutAdmin(r: ReviewRow) {
   const { consentProofEncrypted, ...rest } = r;
-  return { ...rest, consentProof: decryptOptional(consentProofEncrypted) };
+  const proof = decryptOptional(consentProofEncrypted);
+  if (r.source !== TESTIMONIAL_SOURCE) return { ...rest, consentProof: proof };
+  let consentVersion: string | null = null;
+  try {
+    consentVersion = proof ? ((JSON.parse(proof) as { consentVersion?: string }).consentVersion ?? null) : null;
+  } catch {
+    consentVersion = null;
+  }
+  return { ...rest, consentProof: null, consentVersion };
 }
 function referenceOutAdmin(r: SiteReference) {
   const { contactEncrypted, ...rest } = r;
@@ -137,6 +152,10 @@ function publishBlocker(kind: "review" | "reference", row: Record<string, unknow
   if (row.status !== SiteItemStatus.PUBLISHED) return null;
   if (kind === "review") {
     if (!row.consentAt) return "Accord de l'auteur requis avant publication.";
+    if (row.source !== TESTIMONIAL_SOURCE && !row.consentProofEncrypted) {
+      return "Preuve de l'accord requise avant publication (copie du message ou du papier signé).";
+    }
+    if (row.rejectedAt) return "Témoignage écarté : le publier impose d'annuler l'écartement.";
     if (!row.clientId) return "Client lié requis avant publication : il prouve que l'avis vient d'un vrai client.";
     if (!row.experienceOn) return "Date de l'expérience requise avant publication (affichée près de l'avis).";
     // Charte du site : avis recopiés à l'identique. alteredWithConsent reste en base, toujours false.
@@ -171,11 +190,12 @@ function registerCollectionBasics(
   base: string,
   delegate: () => Delegate,
   out: (row: never) => unknown = (row) => row,
+  include?: object,
 ) {
   app.get(
     base,
     admin(async () => {
-      const rows = await delegate().findMany({ orderBy: [{ position: "asc" }, { createdAt: "asc" }] });
+      const rows = await delegate().findMany({ orderBy: [{ position: "asc" }, { createdAt: "asc" }], ...(include ? { include } : {}) });
       return rows.map((r) => out(r as never));
     }),
   );
@@ -301,7 +321,10 @@ export const siteRoutes: FastifyPluginAsync = async (app) => {
   );
 
   // --- Avis ------------------------------------------------------------------------------------
-  registerCollectionBasics(app, "/api/site/reviews", () => prisma.siteReview as unknown as Delegate, reviewOutAdmin as (r: never) => unknown);
+  registerCollectionBasics(app, "/api/site/reviews", () => prisma.siteReview as unknown as Delegate, reviewOutAdmin as (r: never) => unknown, {
+    project: { select: { id: true, name: true } },
+    client: { select: { id: true, displayName: true } },
+  });
 
   const reviewData = (d: z.output<typeof reviewInput>) => ({
     author: d.author,
@@ -360,6 +383,16 @@ export const siteRoutes: FastifyPluginAsync = async (app) => {
       const relation = await relationError(body.data);
       if (relation) return reply.code(400).send({ error: relation });
       const data = reviewData(body.data);
+      // Témoignage de l'espace client : les mots et le nom choisis par le client ne se modifient pas dans l'ERP.
+      if (current.source === TESTIMONIAL_SOURCE) {
+        if (data.author !== current.author || data.text !== current.text) {
+          return reply.code(409).send({ error: "Témoignage du client : texte et nom ne se modifient pas. Le publier tel quel ou l'écarter." });
+        }
+        // La preuve vient de l'espace client : jamais remplacée par une saisie.
+        data.consentProofEncrypted = current.consentProofEncrypted;
+        data.consentAt = current.consentAt;
+        data.consentChannel = current.consentChannel;
+      }
       // Texte exact de l'avis : figé une fois publié (une correction impose de retirer puis recréer).
       if (
         current.publishedAt &&
@@ -371,6 +404,74 @@ export const siteRoutes: FastifyPluginAsync = async (app) => {
       if (blocker) return reply.code(400).send({ error: blocker });
       const row = await prisma.siteReview.update({ where: { id: current.id }, data });
       return reviewOutAdmin(row);
+    }),
+  );
+
+  // Publier tel quel (statut « Sur le site » : inclus à la prochaine publication, texte figé).
+  app.post(
+    "/api/site/reviews/:id/publish",
+    admin(async (request, reply) => {
+      const params = idParams.safeParse(request.params);
+      if (!params.success) return invalid(reply, params.error);
+      const current = await prisma.siteReview.findUnique({ where: { id: params.data.id } });
+      if (!current) return reply.code(404).send({ error: "Introuvable" });
+      const next = { ...current, status: SiteItemStatus.PUBLISHED, rejectedAt: null };
+      const blocker = publishBlocker("review", next);
+      if (blocker) return reply.code(400).send({ error: blocker });
+      const row = await prisma.siteReview.update({
+        where: { id: current.id },
+        data: {
+          status: SiteItemStatus.PUBLISHED,
+          rejectedAt: null,
+          rejectionReason: null,
+          // Témoignage de l'espace client : publieLe = date de validation (heure de Paris).
+          ...(current.source === TESTIMONIAL_SOURCE
+            ? { reviewedOn: new Intl.DateTimeFormat("fr-CA", { timeZone: "Europe/Paris" }).format(new Date()) }
+            : {}),
+        },
+      });
+      return reviewOutAdmin(row);
+    }),
+  );
+
+  /**
+   * Écarter (hors sujet, injurieux, données personnelles), motif obligatoire. Renvoie un mailto: neutre pour
+   * prévenir l'auteur (D111-19), qui ne cite jamais le témoignage ; null si le client n'a pas d'e-mail.
+   */
+  app.post(
+    "/api/site/reviews/:id/reject",
+    admin(async (request, reply) => {
+      const params = idParams.safeParse(request.params);
+      const body = z.strictObject({ reason: siteText.min(3).max(500) }).safeParse(request.body);
+      if (!params.success) return invalid(reply, params.error);
+      if (!body.success) return invalid(reply, body.error);
+      const current = await prisma.siteReview.findUnique({ where: { id: params.data.id }, include: { client: true } });
+      if (!current) return reply.code(404).send({ error: "Introuvable" });
+      if (current.publishedAt) {
+        return reply.code(409).send({ error: "Déjà publié : le retirer du site plutôt que l'écarter." });
+      }
+      const row = await prisma.siteReview.update({
+        where: { id: current.id },
+        data: { rejectedAt: new Date(), rejectionReason: body.data.reason, status: SiteItemStatus.DRAFT },
+      });
+      const email = current.client ? decryptOptional(current.client.emailEncrypted) : null;
+      const settings = await getCompanySettings();
+      const brand = settings.tradeName ?? settings.legalName;
+      const mailto = email
+        ? `mailto:${encodeURIComponent(email)}?subject=${encodeURIComponent(`Votre témoignage pour ${brand}`)}&body=${encodeURIComponent(
+            [
+              "Bonjour,",
+              "",
+              `Merci d'avoir pris le temps de laisser un témoignage. Je ne peux pas le publier sur le site, pour la raison suivante : ${body.data.reason}`,
+              "",
+              "Vous pouvez en déposer un nouveau depuis votre espace client, ou me répondre si vous avez une question.",
+              "",
+              "Bien cordialement,",
+              brand,
+            ].join("\n"),
+          )}`
+        : null;
+      return { review: reviewOutAdmin(row), mailto };
     }),
   );
 

@@ -8,10 +8,19 @@ import { prisma } from "@/lib/prisma.js";
 
 export const REVIEW_INVITE_KIND = "review_invite";
 
-/** Lien d'avis utilisable : réglage actif et lien en https. */
+const httpsOrNull = (url: string | null | undefined) => (url?.trim().startsWith("https://") ? url.trim() : null);
+
+/** Lien d'avis Google utilisable : réglage actif et lien en https. */
 function reviewUrlOf(settings: { reviewInviteEnabled: boolean; googleReviewUrl: string | null }): string | null {
-  const url = settings.googleReviewUrl?.trim();
-  return settings.reviewInviteEnabled && url?.startsWith("https://") ? url : null;
+  return settings.reviewInviteEnabled ? httpsOrNull(settings.googleReviewUrl) : null;
+}
+
+/** Liens de l'invitation : témoignage dans l'espace client et avis Google ; au moins un, réglage actif. */
+function inviteLinksOf(settings: { reviewInviteEnabled: boolean; googleReviewUrl: string | null; clientPortalUrl: string | null }) {
+  if (!settings.reviewInviteEnabled) return null;
+  const testimonial = httpsOrNull(settings.clientPortalUrl);
+  const google = httpsOrNull(settings.googleReviewUrl);
+  return testimonial || google ? { testimonial, google } : null;
 }
 
 /** Espace client : bouton « Laisser un avis » dès qu'un projet du client est livré. */
@@ -22,14 +31,16 @@ export async function reviewInviteEligible(clientId: string): Promise<boolean> {
 }
 
 /**
- * Au passage d'un projet à DONE : e-mail d'invitation, une seule fois par projet.
+ * Au passage d'un projet à DONE : e-mail d'invitation, une seule fois par projet, pour TOUS les projets
+ * terminés, sans condition de satisfaction ni contrepartie (pas de sollicitation sélective des avis).
+ * Deux choix : un témoignage sur kouzia.com (espace client) et un avis Google.
  * Le repère est posé avant l'envoi (updateMany conditionnel) : deux enregistrements simultanés
  * n'envoient qu'un e-mail. Il est retiré si la mise en file échoue, pour pouvoir réessayer.
  */
 export async function sendReviewInviteOnDone(projectId: string): Promise<boolean> {
   const settings = await getCompanySettings();
-  const url = reviewUrlOf(settings);
-  if (!url || !(await isSmtpConfigured())) return false;
+  const links = inviteLinksOf(settings);
+  if (!links || !(await isSmtpConfigured())) return false;
 
   const project = await prisma.clientProject.findUnique({
     where: { id: projectId },
@@ -53,17 +64,19 @@ export async function sendReviewInviteOnDone(projectId: string): Promise<boolean
       "",
       `Votre projet « ${project.name} » est livré. Merci pour votre confiance.`,
       "",
-      "Si vous en êtes satisfait, un avis sur Google m'aide beaucoup : il permet à d'autres clients de me trouver. Cela prend une minute :",
+      "Votre retour sur notre travail ensemble m'intéresse, quel qu'il soit. Si vous le souhaitez, vous pouvez le partager :",
       "",
-      url,
-      "",
+      ...(links.testimonial
+        ? ["Laisser un témoignage sur kouzia.com (depuis votre espace client) :", links.testimonial, ""]
+        : []),
+      ...(links.google ? ["Laisser un avis Google :", links.google, ""] : []),
       "Une remarque ou une question ? Répondez simplement à cet e-mail.",
       "",
       formatPlainTextSignature(settings, await brandFromSettings()),
     ].join("\n");
     await mailEnqueue({
       to: email,
-      subject: `Votre avis sur votre projet avec ${brand}`,
+      subject: `Votre retour sur votre projet avec ${brand}`,
       text,
       clientId: project.clientId,
       kind: REVIEW_INVITE_KIND,

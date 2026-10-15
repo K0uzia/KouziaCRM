@@ -147,7 +147,7 @@ describe("espace Site : avis et références", () => {
     const other = await createClient({ displayName: "Autre" });
     const invoice = await prisma.invoice.create({ data: { clientId: client.id, number: "F-2026-0001" } });
     const draft = await prisma.invoice.create({ data: { clientId: client.id } });
-    const consent = { consentAt: "2026-10-02T10:00:00+02:00", consentChannel: "e-mail" };
+    const consent = { consentAt: "2026-10-02T10:00:00+02:00", consentChannel: "e-mail", consentProof: "E-mail du 2 octobre." };
     const proven = { clientId: client.id, experienceOn: "2026-09-20" };
 
     expect((await call("POST", "/api/site/reviews", { ...review, status: "PUBLISHED" })).statusCode).toBe(400);

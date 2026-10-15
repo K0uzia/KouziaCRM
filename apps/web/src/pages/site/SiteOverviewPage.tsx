@@ -23,7 +23,7 @@ const FILE_LABEL: Record<string, string> = {
   textes: "Textes",
   faq: "FAQ",
   realisations: "Réalisations",
-  avis: "Avis",
+  avis: "Témoignages",
   references: "Références",
 };
 
@@ -32,6 +32,18 @@ const DAY = 86_400_000;
 /** Alertes de l'espace Site, de la plus urgente à la moins urgente. */
 export function siteAlerts(o: Overview, now = Date.now()): Alert[] {
   const alerts: Alert[] = [];
+  // Témoignages déposés depuis l'espace client, en attente (délai indicatif annoncé : 7 jours).
+  const pending = o.reviews.filter(
+    (r) => (r as { source?: string; rejectedAt?: string | null }).source === "CLIENT_SPACE" && r.status === "DRAFT" && !(r as { rejectedAt?: string | null }).rejectedAt,
+  ).length;
+  if (pending) {
+    alerts.push({
+      tone: "warning",
+      text: `${pending} témoignage${pending > 1 ? "s" : ""} à valider (publier tel quel ou écarter avec un motif).`,
+      to: "/site/avis",
+      action: "Voir les témoignages",
+    });
+  }
   for (const r of o.reviews.filter(withdrawalPending)) {
     const due = new Date(r.withdrawalRequestedAt!).getTime() + 7 * DAY;
     alerts.push({
@@ -108,7 +120,7 @@ export function SiteOverviewPage() {
             <StatStrip
               items={[
                 { label: "Réalisations sur le site", shortLabel: "Réalisations", value: live(data.projects), to: "/site/realisations" },
-                { label: "Avis sur le site", shortLabel: "Avis", value: live(data.reviews), to: "/site/avis" },
+                { label: "Témoignages sur le site", shortLabel: "Témoignages", value: live(data.reviews), to: "/site/avis" },
                 { label: "Références sur le site", shortLabel: "Références", value: live(data.references), to: "/site/references" },
                 { label: "Questions de la FAQ", shortLabel: "FAQ", value: live(data.faq), to: "/site/faq" },
               ]}

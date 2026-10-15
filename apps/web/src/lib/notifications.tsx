@@ -21,7 +21,8 @@ export type NotificationKind =
   | "deposit_due"
   | "subscription_stripe"
   | "client_onboarded"
-  | "google_reauth";
+  | "google_reauth"
+  | "testimonial";
 
 export type NotificationItem = {
   id: string;

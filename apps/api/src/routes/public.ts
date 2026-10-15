@@ -62,6 +62,13 @@ import {
 import { isValidSiren, isValidSiret } from "@kouzia/forms";
 import { listPortalProjects } from "@/lib/projects/service.js";
 import { reviewInviteEligible } from "@/lib/projects/review-invite.js";
+import {
+  CONSENT_TEXT,
+  CONSENT_VERSION,
+  nameOptions,
+  portalTestimonials,
+  TESTIMONIAL_MAX_LENGTH,
+} from "@/lib/site/testimonials.js";
 
 const emailSchema = z.object({ email: z.string().trim().email().max(254) });
 const codeSchema = z.string().trim().regex(/^\d{6}$/);
@@ -334,7 +341,11 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
         showAmounts,
       });
 
-      const projects = await listPortalProjects(client.id);
+      const testimonials = await portalTestimonials(client.id);
+      // Projet terminé : état de son témoignage (« none » tant qu'aucun n'a été déposé).
+      const projects = (await listPortalProjects(client.id)).map((p) =>
+        p.status === "DONE" ? { ...p, testimonial: testimonials.get(p.id) ?? { status: "NONE" as const } } : p,
+      );
       const reviewEligible = await reviewInviteEligible(client.id);
 
       const email = decryptOptional(client.emailEncrypted);
@@ -531,6 +542,17 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
         reviewInvite: { eligible: reviewEligible },
         // Bloc « Avancement » de /suivi : affiché dès que la liste est présente.
         ...(projects.length > 0 ? { projects } : {}),
+        // Formulaire de témoignage (projet terminé) : formes du nom calculées depuis la fiche, texte d'accord versionné.
+        ...(projects.some((p) => p.status === "DONE")
+          ? {
+              testimonialForm: {
+                nameOptions: nameOptions(client),
+                maxLength: TESTIMONIAL_MAX_LENGTH,
+                // Texte d'accord EXACT, affiché tel quel par le site ; sa version accompagne l'envoi.
+                consent: { version: CONSENT_VERSION, text: CONSENT_TEXT },
+              },
+            }
+          : {}),
       };
     },
   );

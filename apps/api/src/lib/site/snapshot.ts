@@ -34,7 +34,8 @@ export async function buildSiteSnapshot(contract?: unknown): Promise<SiteSnapsho
   const [projects, reviews, references, faq, infos, accroche, offres, avisMethode] = await Promise.all([
     prisma.siteProject.findMany({ where: published, orderBy: ordered }),
     // Classement annoncé dans la méthode (D111-17) : du plus récent au plus ancien.
-    prisma.siteReview.findMany({ where: published, orderBy: [{ reviewedOn: "desc" }, ...ordered] }),
+    // Écartés : jamais publiés, même marqués « Sur le site ».
+    prisma.siteReview.findMany({ where: { ...published, rejectedAt: null }, orderBy: [{ reviewedOn: "desc" }, ...ordered] }),
     prisma.siteReference.findMany({ where: published, orderBy: ordered }),
     prisma.siteFaq.findMany({ where: published, orderBy: ordered }),
     readSiteText("infos"),

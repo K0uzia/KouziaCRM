@@ -137,7 +137,8 @@ export const SITE_SECTIONS: NavSection[] = [
     label: "Contenu",
     items: [
       { id: "site-projects", to: "/site/realisations", label: "Réalisations", tabLabel: "Projets", icon: faImages, match: starts("/site/realisations") },
-      { id: "site-reviews", to: "/site/avis", label: "Avis", icon: faStar, match: starts("/site/avis") },
+      // Adresse /site/avis gardée (liens et notifications existants) ; l'écran s'appelle « Témoignages ».
+      { id: "site-reviews", to: "/site/avis", label: "Témoignages", tabLabel: "Retours", icon: faStar, match: starts("/site/avis") },
       { id: "site-references", to: "/site/references", label: "Références", icon: faHandshake, match: starts("/site/references") },
       { id: "site-faq", to: "/site/faq", label: "FAQ", icon: faCircleQuestion, match: starts("/site/faq") },
       {

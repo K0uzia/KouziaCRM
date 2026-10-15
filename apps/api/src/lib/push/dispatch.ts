@@ -12,6 +12,7 @@ export const PUSHED_KINDS: ReadonlySet<NotificationKind> = new Set<NotificationK
   "client_onboarded",
   "subscription_stripe",
   "google_reauth",
+  "testimonial",
 ]);
 
 /**

@@ -17,6 +17,7 @@ import { activateDueMilestoneCheckouts } from "../apps/api/src/lib/payments/mile
 import { getCompanySettings } from "../apps/api/src/lib/company";
 import { prisma } from "../apps/api/src/lib/prisma";
 import { purgePortalData } from "../apps/api/src/lib/portal/auth";
+import { purgeTestimonialProofs } from "../apps/api/src/lib/site/testimonials";
 
 async function runMaintenance() {
   try {
@@ -124,6 +125,13 @@ async function runHourly() {
     }
   } catch (err) {
     console.error("[worker] purge espace client error", err);
+  }
+  try {
+    // Témoignages retirés ou écartés depuis 3 ans : IP et navigateur retirés de la preuve d'accord.
+    const proofs = await purgeTestimonialProofs();
+    if (proofs > 0) console.log(`[worker] preuves de témoignage allégées=${proofs}`);
+  } catch (err) {
+    console.error("[worker] purge preuves de témoignage error", err);
   }
 }
 

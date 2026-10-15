@@ -459,7 +459,7 @@ model CompanySettings {
   googleCalendarRefreshTokenEncrypted String?
   googleCalendarRefreshTokenHint      String?
   googleCalendarConnectedEmail        String?
-  googleCalendarEnabled               Boolean @default(false)
+  googleCalendarEnabled               Boolean   @default(false)
   /// Google a refusé le jeton (invalid_grant) : plus de tentative jusqu'à la reconnexion
   googleCalendarReauthRequiredAt      DateTime?
   /// CGV publiées sur le site : acceptation exigée à la signature, lien et version sur les devis
@@ -470,8 +470,8 @@ model CompanySettings {
   /// Libellé de la case « exécution avant la fin du délai de rétractation » (clients particuliers)
   withdrawalExpressRequestText        String  @default("Je demande que la prestation commence avant la fin du délai de rétractation de 14 jours. Si je me rétracte ensuite, je paierai un montant proportionnel à ce qui aura été fourni jusqu'à ma rétractation. Si la prestation est entièrement exécutée avant la fin de ce délai, je perds mon droit de rétractation.")
   /// Destinataire emails de rappel obligations (hors ClientEmailEvent)
-  obligationReminderEmail             String  @default("kouziaeffa.pro@gmail.com")
-  obligationEmailRemindersEnabled     Boolean @default(true)
+  obligationReminderEmail             String    @default("kouziaeffa.pro@gmail.com")
+  obligationEmailRemindersEnabled     Boolean   @default(true)
 
   /// Modules ERP (affichage nav + pages). Banque off par défaut (Revolut Pro sans API).
   moduleBankEnabled          Boolean @default(false)
@@ -756,30 +756,31 @@ model PortalSession {
 
 /// Avancement d'un projet client, affiché dans l'espace client (/suivi) quand visible.
 model ClientProject {
-  id                 String    @id @default(cuid())
+  id                 String      @id @default(cuid())
   clientId           String
-  client             Client    @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  client             Client      @relation(fields: [clientId], references: [id], onDelete: Cascade)
   name               String
   /// 0 à 100
-  progress           Int       @default(0)
+  progress           Int         @default(0)
   /// JSON [{ label, status: done|current|todo, date?: YYYY-MM-DD }]
-  steps              String    @default("[]")
+  steps              String      @default("[]")
   /// JSON [{ label, url (https) }]
-  links              String    @default("[]")
+  links              String      @default("[]")
   /// JSON [{ label, done, note? }]
-  checklist          String    @default("[]")
-  visibleOnPortal    Boolean   @default(true)
-  position           Int       @default(0)
+  checklist          String      @default("[]")
+  visibleOnPortal    Boolean     @default(true)
+  position           Int         @default(0)
   /// Devis d'origine : le projet naît de la facture d'acompte (ou totale) de ce devis.
-  quoteId            String?   @unique
-  quote              Invoice?  @relation("QuoteProject", fields: [quoteId], references: [id], onDelete: SetNull)
+  quoteId            String?     @unique
+  quote              Invoice?    @relation("QuoteProject", fields: [quoteId], references: [id], onDelete: SetNull)
   /// PLANNED (acompte facturé, en attente de paiement) | ACTIVE (démarré) | DONE
-  status             String    @default("ACTIVE")
+  status             String      @default("ACTIVE")
   startedAt          DateTime?
   /// Invitation à laisser un avis envoyée (une seule fois par projet, au passage à DONE).
   reviewInviteSentAt DateTime?
-  createdAt          DateTime  @default(now())
-  updatedAt          DateTime  @updatedAt
+  testimonial        SiteReview?
+  createdAt          DateTime    @default(now())
+  updatedAt          DateTime    @updatedAt
 
   @@index([clientId, position])
 }
@@ -1578,6 +1579,16 @@ model SiteReview {
   invoice               Invoice?       @relation(fields: [invoiceId], references: [id], onDelete: SetNull)
   /// Texte retouché (orthographe, coupe) avec l'accord écrit de l'auteur ; sinon texte exact
   alteredWithConsent    Boolean        @default(false)
+  /// MANUAL (saisi dans l'ERP) | CLIENT_SPACE (déposé par le client depuis /suivi, en fin de projet)
+  source                String         @default("MANUAL")
+  /// Projet concerné (témoignage de l'espace client) : un seul témoignage par projet
+  projectId             String?        @unique
+  project               ClientProject? @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  /// Forme du nom choisie par le client : FIRST_INITIAL (Marie D.), FULL_NAME, ORGANIZATION
+  authorFormat          String?
+  /// Écarté par Kouzia (hors sujet, injurieux, données personnelles), avec le motif ; l'auteur est prévenu (D111-19)
+  rejectedAt            DateTime?
+  rejectionReason       String?
   createdAt             DateTime       @default(now())
   updatedAt             DateTime       @updatedAt
   publishedAt           DateTime?
