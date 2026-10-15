@@ -1,3 +1,4 @@
+import { MediatorRequiredError } from "@/lib/company/mediator.js";
 import type { FastifyPluginAsync } from "fastify";
 import { z } from "zod";
 import { SubscriptionStatus } from "@prisma/client";
@@ -169,7 +170,8 @@ export const subscriptionsRoutes: FastifyPluginAsync = async (app) => {
       });
       return reply.code(201).send(result);
     } catch (err) {
-      if (err instanceof SubscriptionError) {
+      // Révision envoyée en signature : un particulier exige un médiateur déclaré (L612-1).
+      if (err instanceof SubscriptionError || err instanceof MediatorRequiredError) {
         return reply.code(400).send({ error: err.message });
       }
       throw err;
