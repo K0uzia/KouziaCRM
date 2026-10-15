@@ -28,7 +28,7 @@ import {
 } from "@/lib/clients/access-email.js";
 import { decryptOptional } from "@/lib/crypto.js";
 import { renderInvoicePdf } from "@/lib/pdf/render.js";
-import { buildInvoicePdfPayload } from "@/lib/pdf/build-payload.js";
+import { buildInvoicePdfPayload, pdfSettingsOf } from "@/lib/pdf/build-payload.js";
 import { enrichCompanyForPdf } from "@/lib/pdf/brand-assets.js";
 import { listActiveLegalClauses } from "@/lib/company/legal-clauses.js";
 import { CLIENT_TYPES, isOrganization } from "@/lib/clients/client-type.js";
@@ -41,6 +41,7 @@ import {
 import type { ClientSnapshot } from "@/lib/invoices/transitions.js";
 import {
   acceptQuoteByClient,
+  deferredStartOf,
   rejectQuote,
   QuoteDecisionError,
 } from "@/lib/invoices/transitions.js";
@@ -127,6 +128,11 @@ const quoteDecisionSchema = z.discriminatedUnion("decision", [
     code: codeSchema,
     /** Formule de paiement : obligatoire quand le devis propose le choix. */
     paymentPlan: z.enum(["TWO", "THREE"]).optional(),
+    /** CGV publiées : case cochée (true) et version lue, égale à la version en vigueur. */
+    acceptCgv: z.literal(true).optional(),
+    cgvVersion: z.string().trim().min(1).max(40).optional(),
+    /** Particulier : exécution demandée avant la fin du délai de rétractation (case facultative). */
+    expressExecution: z.boolean().optional(),
   }),
   z.object({
     decision: z.literal("REJECT"),
@@ -282,6 +288,11 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
           // 3 fois : étape du projet de CE devis qui déclenchera le 2e acompte.
           project: { select: { steps: true } },
           lines: { where: { isSubscription: true }, select: { billingInterval: true, unitPriceCents: true } },
+          quoteAcceptanceAudits: {
+            orderBy: { createdAt: "desc" },
+            take: 1,
+            select: { consumer: true, expressExecution: true, withdrawalEndsAt: true },
+          },
         },
         take: 60,
       });
@@ -332,6 +343,16 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
         clientNumber: client.clientNumber,
         displayName: client.displayName,
         emailMasked: email ? maskEmail(email) : null,
+        // Particulier : droit de rétractation de 14 jours, case de demande d'exécution anticipée.
+        consumer: client.type === "B2C",
+        // Formulaire de signature : CGV à accepter (null tant qu'elles ne sont pas publiées) et
+        // libellé légal de la case d'exécution anticipée (particuliers seulement).
+        signatureTerms: {
+          cgv: settings.cgvPublished && settings.cgvUrl && settings.cgvVersion
+            ? { url: settings.cgvUrl, version: settings.cgvVersion }
+            : null,
+          expressExecutionText: client.type === "B2C" ? settings.withdrawalExpressRequestText : null,
+        },
         // Pré-remplit le formulaire de signature ; le client peut corriger.
         signer: {
           firstName: client.firstName ?? "",
@@ -464,6 +485,20 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
                     : {}),
                 }
               : {}),
+            // Devis signé par un particulier : fin du délai de rétractation et, sans demande
+            // d'exécution anticipée, date de démarrage au plus tôt (lendemain).
+            ...(() => {
+              const proof = d.quoteAcceptanceAudits[0];
+              if (d.documentType !== InvoiceDocumentType.QUOTE || !proof?.consumer || !proof.withdrawalEndsAt) return {};
+              const start = deferredStartOf({ ...proof, consumer: true });
+              return {
+                withdrawal: {
+                  endsAt: proof.withdrawalEndsAt,
+                  expressExecution: proof.expressExecution === true,
+                  startsNotBefore: start,
+                },
+              };
+            })(),
             requiresDeposit,
             depositPaid,
             canAcceptQuote: quotePending,
@@ -617,8 +652,23 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
         if (data.signatureMode === "DRAWN" && !data.signatureImage) {
           return reply.code(400).send({ error: "Tracez votre signature." });
         }
-        // Formule vérifiée avant le code : un oubli ne consomme pas le code de signature.
+        // Formule, CGV et case vérifiées avant le code : un oubli ne consomme pas le code de signature.
         resolveAcceptedPlan(parsePaymentPlanOffer(quote.paymentPlanOffer), data.paymentPlan, { requireChoice: true });
+        const settings = await getCompanySettings();
+        if (settings.cgvPublished) {
+          if (data.acceptCgv !== true) {
+            return reply.code(400).send({ error: "Acceptez les conditions générales de vente.", code: "CGV_REQUIRED" });
+          }
+          if (data.cgvVersion !== settings.cgvVersion) {
+            return reply.code(409).send({
+              error: "Les conditions générales de vente ont changé : relisez la nouvelle version.",
+              code: "CGV_VERSION_CHANGED",
+            });
+          }
+        }
+        if (data.expressExecution && client.type !== "B2C") {
+          return reply.code(400).send({ error: "Demande réservée aux particuliers.", code: "EXPRESS_EXECUTION_CONSUMER_ONLY" });
+        }
         const check = await checkPortalCode(client.id, "SIGN", data.code, quote.id);
         if (check !== "ok") return reply.code(401).send({ error: CODE_ERRORS[check] });
 
@@ -640,6 +690,8 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
               codeVerifiedAt: new Date(),
             },
             paymentPlan: data.paymentPlan,
+            cgvAccepted: settings.cgvPublished && data.acceptCgv === true,
+            expressExecution: data.expressExecution === true,
           },
         );
         return { quoteStatus: updated.quoteStatus, ...(await subscriptionSetupUrlOf(quote.id)) };
@@ -741,7 +793,7 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
           invoice,
           legalClauses,
           clientType: snapshot.type,
-          planSettings: await getCompanySettings(),
+          ...(await pdfSettingsOf()),
         }),
       });
 

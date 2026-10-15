@@ -34,8 +34,10 @@ async function setStripe(enabled: boolean) {
 }
 
 /** Devis mixte : « Site une page » 690 € + maintenance 29 €/mois (remise facultative en centimes). */
-async function mixedQuote(opts: { offer?: "TWO" | "CHOICE"; oneOffCents?: number; discountCents?: number; legacy?: boolean } = {}) {
-  const client = await createClient({ displayName: "Lou Mixte", type: "B2C" });
+async function mixedQuote(
+  opts: { offer?: "TWO" | "CHOICE"; oneOffCents?: number; discountCents?: number; legacy?: boolean; type?: "B2B" | "B2C" } = {},
+) {
+  const client = await createClient({ displayName: "Lou Mixte", type: opts.type ?? "B2C" });
   await prisma.client.update({ where: { id: client.id }, data: { emailEncrypted: encrypt("lou@example.test") } });
   const service = await createService({ name: "Maintenance", unitPriceCents: 2900 });
   const oneOff = opts.oneOffCents ?? 69000;
@@ -120,7 +122,8 @@ describe("devis mixte", () => {
 
   it("livraison (projet terminé) sans Stripe : abonnement créé et 1re facture tout de suite, une seule fois", async () => {
     await setStripe(false);
-    const { client, quote } = await mixedQuote();
+    // Professionnel : pas de délai de rétractation (le cas du particulier est testé à part).
+    const { client, quote } = await mixedQuote({ type: "B2B" });
     await issueQuote(quote.id);
     await acceptQuoteByClient(quote.id, "Lou Mixte", { source: "ADMIN" });
     const input = projectInputSchema.parse({ name: "Site une page", progress: 80, status: "ACTIVE" });
@@ -140,9 +143,21 @@ describe("devis mixte", () => {
     expect(await prisma.invoice.count({ where: { subscriptionId: sub.id } })).toBe(1);
   });
 
+  it("particulier livré pendant le délai de rétractation : abonnement créé, 1re échéance après le délai", async () => {
+    await setStripe(false);
+    const { client, quote } = await mixedQuote();
+    await issueQuote(quote.id);
+    await acceptQuoteByClient(quote.id, "Lou Mixte", { source: "ADMIN" });
+    expect(await startDeferredSubscriptions(quote.id)).toHaveLength(1);
+    const sub = await prisma.subscription.findFirstOrThrow({ where: { clientId: client.id } });
+    const proof = await prisma.quoteAcceptanceAudit.findFirstOrThrow({ where: { quoteId: quote.id } });
+    expect(sub.nextInvoiceAt.getTime()).toBe(proof.withdrawalEndsAt!.getTime() + 1);
+    expect(await prisma.invoice.count({ where: { subscriptionId: sub.id } })).toBe(0);
+  });
+
   it("démarrage manuel avec Stripe : prélèvement attendu, un seul lien, aucune facture ERP", async () => {
     await setStripe(true);
-    const { client, quote } = await mixedQuote();
+    const { client, quote } = await mixedQuote({ type: "B2B" });
     await issueQuote(quote.id);
     await acceptQuoteByClient(quote.id, "Lou Mixte", { source: "ADMIN" });
     expect(await startDeferredSubscriptions(quote.id)).toHaveLength(1);

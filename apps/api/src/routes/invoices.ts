@@ -28,7 +28,7 @@ import {
 import { CreditNoteReason, RefundMethod } from "@prisma/client";
 import { getCompanySettings } from "@/lib/company.js";
 import { renderInvoicePdf } from "@/lib/pdf/render.js";
-import { buildInvoicePdfPayload } from "@/lib/pdf/build-payload.js";
+import { buildInvoicePdfPayload, pdfSettingsOf } from "@/lib/pdf/build-payload.js";
 import { enrichCompanyForPdf } from "@/lib/pdf/brand-assets.js";
 import { decryptOptional } from "@/lib/crypto.js";
 import type { ClientSnapshot } from "@/lib/invoices/transitions.js";
@@ -1071,7 +1071,7 @@ export const invoicesRoutes: FastifyPluginAsync = async (app) => {
         legalClauses,
         clientType: snapshot.type,
         balanceSummary,
-        planSettings: await getCompanySettings(),
+        ...(await pdfSettingsOf()),
       }),
       client: snapshot,
     });

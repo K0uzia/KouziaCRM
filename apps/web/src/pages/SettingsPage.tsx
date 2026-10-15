@@ -552,6 +552,16 @@ export function SettingsPage() {
     await save("/api/settings/identity", { mediationClause: form.mediationClause?.trim() || null });
   }
 
+  async function saveSalesTerms() {
+    if (!form) return;
+    await save("/api/settings/identity", {
+      cgvPublished: form.cgvPublished,
+      cgvUrl: form.cgvUrl?.trim() || null,
+      cgvVersion: form.cgvVersion?.trim() || null,
+      withdrawalExpressRequestText: form.withdrawalExpressRequestText.trim(),
+    });
+  }
+
   async function saveDeclarations() {
     if (!form) return;
     await save("/api/settings/declarations", {
@@ -2148,6 +2158,55 @@ export function SettingsPage() {
                 ) : null}
                 {saveBar(saveMediation)}
               </Card>
+              <Card className="space-y-3 border border-[var(--border)] p-5">
+                <h3 className="text-sm font-semibold">Conditions générales de vente et rétractation</h3>
+                <Field
+                  label="Adresse des CGV"
+                  hint="Page publique des conditions générales de vente."
+                >
+                  <Input
+                    type="url"
+                    inputMode="url"
+                    autoComplete="url"
+                    value={form.cgvUrl ?? ""}
+                    onChange={(e) => setForm({ ...form, cgvUrl: e.target.value || null })}
+                  />
+                </Field>
+                <Field label="Version en vigueur" hint="Date de mise en ligne, par exemple 2026-11-04.">
+                  <Input
+                    maxLength={40}
+                    autoComplete="off"
+                    value={form.cgvVersion ?? ""}
+                    onChange={(e) => setForm({ ...form, cgvVersion: e.target.value || null })}
+                  />
+                </Field>
+                <label className="flex min-h-11 items-start gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    className="mt-0.5"
+                    checked={form.cgvPublished}
+                    onChange={(e) => setForm({ ...form, cgvPublished: e.target.checked })}
+                  />
+                  <span>
+                    CGV publiées sur le site
+                    <span className="block text-xs text-[var(--muted)]">
+                      Le client les accepte à la signature en ligne ; le lien et la version figurent sur les devis.
+                    </span>
+                  </span>
+                </label>
+                <Field
+                  label="Case de démarrage anticipé (particuliers)"
+                  hint="Proposée à la signature en ligne. Sans cette demande, la prestation et l'abonnement commencent après le délai de rétractation de 14 jours."
+                >
+                  <Textarea
+                    rows={4}
+                    maxLength={1000}
+                    value={form.withdrawalExpressRequestText}
+                    onChange={(e) => setForm({ ...form, withdrawalExpressRequestText: e.target.value })}
+                  />
+                </Field>
+                {saveBar(saveSalesTerms)}
+              </Card>
             </section>
           ) : null}
         </div>
@@ -2166,7 +2225,10 @@ export function SettingsPage() {
               onChange={(e) => setClauseForm({ ...clauseForm, title: e.target.value })}
             />
           </Field>
-          <Field label="Texte">
+          <Field
+            label="Texte"
+            hint="Variables remplacées sur les PDF : {{nom_commercial}}, {{raison_sociale}}, {{adresse}}, {{email}}."
+          >
             <Textarea
               required
               rows={4}

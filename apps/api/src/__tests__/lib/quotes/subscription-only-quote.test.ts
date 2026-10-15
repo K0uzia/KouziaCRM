@@ -101,7 +101,8 @@ describe("devis d'abonnement seul", () => {
     const { client, quote } = await quoteWith([{ description: "Maintenance site : mensuel", unitPriceCents: 2900, sub: {} }]);
     await issueQuote(quote.id);
     const before = Date.now();
-    await acceptQuoteByClient(quote.id, "Lou Abonnée", { source: "PORTAL" });
+    // Particulier : démarrage immédiat seulement sur sa demande d'exécution anticipée.
+    await acceptQuoteByClient(quote.id, "Lou Abonnée", { source: "PORTAL", expressExecution: true });
 
     const sub = await prisma.subscription.findFirstOrThrow({ where: { clientId: client.id } });
     expect(sub.collectionMethod).toBe(SubscriptionCollectionMethod.MANUAL_TRANSFER);
@@ -121,7 +122,7 @@ describe("devis d'abonnement seul", () => {
     const { client, quote } = await quoteWith([{ description: "Maintenance site : mensuel", unitPriceCents: 2900, sub: {} }]);
     await issueQuote(quote.id);
     const before = Date.now();
-    await acceptQuoteByClient(quote.id, "Lou Abonnée", { source: "PORTAL" });
+    await acceptQuoteByClient(quote.id, "Lou Abonnée", { source: "PORTAL", expressExecution: true });
 
     const sub = await prisma.subscription.findFirstOrThrow({ where: { clientId: client.id } });
     expect(sub.collectionMethod).toBe(SubscriptionCollectionMethod.STRIPE);

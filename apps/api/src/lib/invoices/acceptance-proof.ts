@@ -54,6 +54,10 @@ export async function archiveOriginalQuote(
   }
 }
 
+function fmtDate(d: Date): string {
+  return d.toLocaleDateString("fr-FR", { timeZone: "Europe/Paris", day: "numeric", month: "long", year: "numeric" });
+}
+
 function fmtDateTime(d: Date): string {
   return d.toLocaleString("fr-FR", { timeZone: "Europe/Paris", dateStyle: "long", timeStyle: "short" });
 }
@@ -101,6 +105,19 @@ export async function recordQuoteAcceptanceProof(
             audit.paymentPlan === "THREE"
               ? "Formule de paiement retenue : en 3 fois. Le 2e acompte sera demandé à l'étape du projet indiquée dans votre espace client."
               : "Formule de paiement retenue : en 2 fois (acompte puis solde).",
+          ]
+        : []),
+      ...(audit.cgvAccepted && audit.cgvUrl && audit.cgvVersion
+        ? ["", `Conditions générales de vente acceptées : version du ${audit.cgvVersion}, ${audit.cgvUrl}`]
+        : []),
+      // Particulier : rappel du délai de rétractation (le devis joint en détaille les modalités).
+      ...(audit.consumer && audit.withdrawalEndsAt
+        ? [
+            "",
+            `Vous pouvez vous rétracter jusqu'au ${fmtDate(audit.withdrawalEndsAt)} inclus (modalités et formulaire dans le devis joint).`,
+            audit.expressExecution
+              ? "À votre demande, la prestation peut commencer avant la fin de ce délai."
+              : "Sans demande de démarrage anticipé de votre part, la prestation commencera au plus tôt le lendemain de cette date.",
           ]
         : []),
       "",

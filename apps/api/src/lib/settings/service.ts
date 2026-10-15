@@ -443,6 +443,10 @@ export type IdentityPatch = {
   paymentConditions?: string;
   brandLogoPath?: string | null;
   mediationClause?: string | null;
+  cgvPublished?: boolean;
+  cgvUrl?: string | null;
+  cgvVersion?: string | null;
+  withdrawalExpressRequestText?: string;
 };
 
 export async function saveIdentityTab(
@@ -450,6 +454,13 @@ export async function saveIdentityTab(
   actor?: AuditActor | null,
 ): Promise<CompanySettings> {
   const current = await getCompanySettings();
+  // CGV publiées : le site exige leur acceptation à la signature, il faut donc un lien et une version.
+  const cgvPublished = patch.cgvPublished ?? current.cgvPublished;
+  const cgvUrl = patch.cgvUrl !== undefined ? emptyToNull(patch.cgvUrl) : current.cgvUrl;
+  const cgvVersion = patch.cgvVersion !== undefined ? emptyToNull(patch.cgvVersion) : current.cgvVersion;
+  if (cgvPublished && (!cgvUrl || !cgvVersion)) {
+    throw Object.assign(new Error("CGV publiées : renseignez leur adresse et leur version."), { statusCode: 400 });
+  }
   if (patch.brandPrimaryColor !== undefined && !isHexColor(patch.brandPrimaryColor)) {
     throw Object.assign(new Error("Couleur primaire invalide (hex #rrggbb)"), { statusCode: 400 });
   }
@@ -474,6 +485,12 @@ export async function saveIdentityTab(
       ...(patch.paymentConditions !== undefined ? { paymentConditions: patch.paymentConditions } : {}),
       ...(patch.brandLogoPath !== undefined ? { brandLogoPath: patch.brandLogoPath } : {}),
       ...(patch.mediationClause !== undefined ? { mediationClause: emptyToNull(patch.mediationClause) } : {}),
+      ...(patch.cgvPublished !== undefined ? { cgvPublished: patch.cgvPublished } : {}),
+      ...(patch.cgvUrl !== undefined ? { cgvUrl: emptyToNull(patch.cgvUrl) } : {}),
+      ...(patch.cgvVersion !== undefined ? { cgvVersion: emptyToNull(patch.cgvVersion) } : {}),
+      ...(patch.withdrawalExpressRequestText !== undefined
+        ? { withdrawalExpressRequestText: patch.withdrawalExpressRequestText }
+        : {}),
     },
     "identity",
     actor,

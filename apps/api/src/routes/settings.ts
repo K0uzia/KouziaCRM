@@ -353,6 +353,10 @@ export const settingsRoutes: FastifyPluginAsync = async (app) => {
       earlyPaymentDiscountText: z.string().max(300).optional(),
       paymentConditions: z.string().max(300).optional(),
       mediationClause: z.string().trim().max(1000).optional().nullable(),
+      cgvPublished: z.boolean().optional(),
+      cgvUrl: z.string().trim().url("Adresse web complète attendue (https://…)").max(300).optional().nullable(),
+      cgvVersion: z.string().trim().max(40, "40 caractères au plus").optional().nullable(),
+      withdrawalExpressRequestText: z.string().trim().min(20, "Texte trop court").max(1000).optional(),
     });
     const parsed = schema.safeParse(request.body);
     if (!parsed.success) {
