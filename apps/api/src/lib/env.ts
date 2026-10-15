@@ -1,12 +1,15 @@
 import type { BlockList } from "node:net";
 import { parseTrustedProxies } from "@/lib/client-ip.js";
 
-function requireEnv(name: string): string {
+/** Valeur d'exemple (« change-me… », quelle que soit la casse) : jamais un vrai secret. */
+export const isExampleSecret = (v: string) => /^change-me/i.test(v.trim());
+
+export function requireEnv(name: string): string {
   const v = process.env[name];
   if (!v || v.trim() === "") {
     throw new Error(`Variable d'environnement requise: ${name}`);
   }
-  if (v.startsWith("change-me") && process.env.NODE_ENV === "production") {
+  if (isExampleSecret(v) && process.env.NODE_ENV === "production") {
     throw new Error(`Secret trop faible en production: ${name}`);
   }
   return v;
@@ -22,6 +25,8 @@ export function assertSecurityEnv(): void {
   }
   requireEnv("SESSION_SECRET");
   requireEnv("ENCRYPTION_KEY");
+  // Liens d'invitation : secret propre en production (en dev, repli sur SESSION_SECRET).
+  if (process.env.NODE_ENV === "production") requireEnv("ONBOARDING_HMAC_SECRET");
   const key = process.env.ENCRYPTION_KEY!;
   if (!/^[0-9a-fA-F]{64}$/.test(key)) {
     throw new Error("ENCRYPTION_KEY doit être 64 caractères hex (32 bytes)");

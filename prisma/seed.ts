@@ -24,7 +24,8 @@ async function main() {
   ]);
 
   function isWeakPassword(p: string): boolean {
-    return WEAK_PASSWORDS.has(p) || p.length < 12;
+    // Valeur d'exemple « change-me… » refusée quelle que soit la casse.
+    return WEAK_PASSWORDS.has(p.toLowerCase()) || /^change-me/i.test(p.trim()) || p.length < 12;
   }
 
   if (!process.env.ADMIN_PASSWORD) {
