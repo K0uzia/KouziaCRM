@@ -3,12 +3,19 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { FastifyInstance } from "fastify";
+import sharp from "sharp";
+import { prisma } from "@/lib/prisma.js";
+import { hashPassword, SESSION_COOKIE } from "@/lib/auth.js";
+import { saveSiteImage } from "@/lib/site/media.js";
 import { resetDb } from "../helpers/db.js";
 import { seedCompanySettings } from "../helpers/factories.js";
 
 const { buildApp } = await import("@/app.js");
 
+const ADMIN = "admin-spa@kouzia.test";
+const PASSWORD = "mot-de-passe-de-test";
 let app: FastifyInstance;
+let cookie: string;
 let dist: string;
 const previousDist = process.env.WEB_DIST;
 
@@ -23,6 +30,10 @@ beforeAll(async () => {
   writeFileSync(path.join(dist, "sw.js"), "self.addEventListener('push', () => {});");
   process.env.WEB_DIST = dist;
   app = await buildApp({ silent: true, serveStatic: true });
+  await prisma.user.deleteMany({ where: { email: ADMIN } });
+  await prisma.user.create({ data: { email: ADMIN, passwordHash: await hashPassword(PASSWORD) } });
+  const res = await app.inject({ method: "POST", url: "/api/auth/login", payload: { email: ADMIN, password: PASSWORD } });
+  cookie = `${SESSION_COOKIE}=${res.cookies.find((c) => c.name === SESSION_COOKIE)?.value}`;
 });
 afterAll(async () => {
   await app.close();
@@ -69,5 +80,24 @@ describe("SPA servie par l'API (production)", () => {
     const missing = await app.inject({ method: "GET", url: "/api/inconnue" });
     expect(missing.statusCode).toBe(404);
     expect(missing.headers["cache-control"]).toBe("no-store");
+  });
+
+  it("médias du site : en-tête de la route conservé (privé, immuable), absent en 404 JSON", async () => {
+    const png = await sharp({ create: { width: 400, height: 200, channels: 3, background: "#203040" } }).png().toBuffer();
+    const media = await saveSiteImage(png, "LOGO");
+    const res = await app.inject({ method: "GET", url: `/api/site/media/${media.sha12}.webp`, headers: { cookie } });
+    expect(res.statusCode).toBe(200);
+    expect(res.headers["content-type"]).toBe("image/webp");
+    expect(res.headers["cache-control"]).toBe("private, max-age=31536000, immutable");
+    const missing = await app.inject({ method: "GET", url: "/api/site/media/000000000000.webp", headers: { cookie } });
+    expect(missing.statusCode).toBe(404);
+    expect(missing.headers["content-type"]).toContain("application/json");
+  });
+
+  it("webhook site-deploy : atteint sa route (jamais le repli SPA), réponse JSON non mise en cache", async () => {
+    const res = await app.inject({ method: "POST", url: "/api/webhooks/site-deploy", headers: { "content-type": "application/json" }, payload: "{}" });
+    expect(res.statusCode).toBe(404);
+    expect(res.headers["content-type"]).toContain("application/json");
+    expect(res.headers["cache-control"]).toBe("no-store");
   });
 });
