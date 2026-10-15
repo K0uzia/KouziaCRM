@@ -1,3 +1,4 @@
+import { assertMediatorFor } from "@/lib/company/mediator.js";
 import {
   InvoiceDocumentType,
   InvoiceStatus,
@@ -149,6 +150,9 @@ export async function issueQuote(
     if (quote.lines.length === 0) {
       throw new Error("Impossible d'émettre un devis sans lignes");
     }
+    // Émis = signable en ligne : un particulier exige un médiateur de la consommation déclaré (L612-1).
+    const client = await tx.client.findUniqueOrThrow({ where: { id: quote.clientId }, select: { type: true } });
+    assertMediatorFor(client.type, settings);
 
     const allocated = await allocateQuoteNumber(issueDate, tx);
     const snapshot = await buildClientSnapshot(quote.clientId, tx);
