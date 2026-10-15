@@ -1664,3 +1664,51 @@ model SiteMedia {
   bytes2x   Int?
   createdAt DateTime      @default(now())
 }
+
+enum SitePublicationStatus {
+  PREPARING
+  COMMITTED
+  DISPATCHED
+  BUILDING
+  DEPLOYED
+  LIVE
+  FAILED
+  NOOP
+}
+
+/// Publication du contenu vers le dépôt du site (commit Git Data, puis déploiement par l'Action du site).
+model SitePublication {
+  id           String                @id @default(cuid())
+  status       SitePublicationStatus @default(PREPARING)
+  /// "RUNNING" tant que la publication n'est pas terminée, NULL ensuite : une seule à la fois (index unique).
+  lock         String?               @unique
+  /// Empreinte de l'instantané publié (comparée à l'instantané courant : « modifié, non publié »).
+  digest       String
+  /// Fichiers ajoutés, modifiés, supprimés : { path, change }[]
+  summaryJson  String
+  baseSha      String?
+  commitSha    String?
+  runUrl       String?
+  error        String?
+  startedAt    DateTime              @default(now())
+  dispatchedAt DateTime?
+  finishedAt   DateTime?
+  liveAt       DateTime?
+  events       SiteDeployEvent[]
+
+  @@index([startedAt])
+  @@index([commitSha])
+}
+
+/// Rappel signé de l'Action de déploiement du site (X-Kouzia-Livraison unique : anti-rejeu durable).
+model SiteDeployEvent {
+  id            String           @id @default(cuid())
+  deliveryId    String           @unique
+  sha           String
+  /// deploye | simulation | echec | ignore | refuse
+  result        String
+  runUrl        String?
+  publicationId String?
+  publication   SitePublication? @relation(fields: [publicationId], references: [id], onDelete: SetNull)
+  receivedAt    DateTime         @default(now())
+}

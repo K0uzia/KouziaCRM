@@ -6,6 +6,7 @@ import { api, formatDate } from "@/lib/api";
 import { PageHeader } from "@/components/ui/Card";
 import { StatStrip } from "@/components/ui/StatStrip";
 import { withdrawalPending } from "./SiteReviewsPage";
+import { SitePublicationCard } from "./SitePublicationCard";
 import { LoadState, type SiteFaq, type SiteProject, type SiteReference, type SiteReview, type SiteState } from "./shared";
 
 type Overview = {
@@ -188,15 +189,7 @@ export function SiteOverviewPage() {
               )}
             </section>
 
-            <section aria-labelledby="site-publication" className="ui-card p-4 sm:p-5">
-              <h2 id="site-publication" className="text-base font-semibold">
-                Publication
-              </h2>
-              <p className="mt-1 text-sm text-[var(--muted)]">
-                La publication vers kouzia.com n'est pas encore branchée : le contenu saisi ici reste dans l'ERP et le site
-                n'est pas modifié.
-              </p>
-            </section>
+            <SitePublicationCard state={data.state} onPublished={() => void load()} />
           </div>
         ) : null}
       </LoadState>

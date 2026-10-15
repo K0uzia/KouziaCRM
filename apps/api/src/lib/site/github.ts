@@ -126,3 +126,40 @@ export async function readSiteRepoFiles(): Promise<{ files: Record<SiteFileName,
   for (const name of SITE_FILES) files[name] = await raw(`${name}.json`);
   return { files, contract: JSON.parse(await raw("contenu.schema.json")) };
 }
+
+/**
+ * Appel d'écriture (Git Data, dispatches). 409 et 422 restent des GithubError avec leur statut : la
+ * publication les traite comme « la branche a bougé » et recommence sur le nouveau parent.
+ */
+export async function githubJson<T>(method: "GET" | "POST" | "PATCH", pathname: string, body?: unknown): Promise<T> {
+  const token = await githubToken();
+  let res: Response;
+  try {
+    res = await fetch(`${API}${pathname}`, {
+      method,
+      headers: {
+        Accept: "application/vnd.github+json",
+        Authorization: `Bearer ${token}`,
+        "X-GitHub-Api-Version": "2022-11-28",
+        "User-Agent": "kouzia-erp",
+        ...(body === undefined ? {} : { "Content-Type": "application/json" }),
+      },
+      body: body === undefined ? undefined : JSON.stringify(body),
+      signal: AbortSignal.timeout(20_000),
+    });
+  } catch {
+    throw new GithubError("GitHub injoignable.", 502);
+  }
+  if (res.status === 401) throw new GithubError("Jeton GitHub refusé (expiré ou révoqué).", 401);
+  if (res.status === 403 || res.status === 404) {
+    throw new GithubError("Dépôt introuvable, ou jeton sans droit d'écriture (Contents : write) sur ce dépôt.", res.status);
+  }
+  if (!res.ok) throw new GithubError(`GitHub a répondu ${res.status}.`, res.status);
+  return (res.status === 204 ? undefined : await res.json()) as T;
+}
+
+/** Fichier brut du dépôt à un commit donné (lecture du contrat au moment de publier). */
+export async function readRepoFileAt(path: string, ref: string): Promise<string> {
+  const res = await call(await githubToken(), `/repos/${siteRepo()}/contents/${path}?ref=${ref}`, "application/vnd.github.raw+json");
+  return res.text();
+}

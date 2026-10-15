@@ -18,6 +18,7 @@ import { getCompanySettings } from "../apps/api/src/lib/company";
 import { prisma } from "../apps/api/src/lib/prisma";
 import { purgePortalData } from "../apps/api/src/lib/portal/auth";
 import { purgeTestimonialProofs } from "../apps/api/src/lib/site/testimonials";
+import { followSitePublications } from "../apps/api/src/lib/site/publish";
 
 async function runMaintenance() {
   try {
@@ -150,6 +151,10 @@ const tasks = [
   cron.schedule("*/30 * * * * *", () => {
     void runOutbox();
     void runPushDispatch();
+  }),
+  // Publication du site : suivi du déploiement jusqu'à la mise en ligne (version.json). Aucun appel sans publication suivie.
+  cron.schedule("*/15 * * * * *", () => {
+    followSitePublications().catch((err) => console.error("[worker] suivi de publication du site en échec", err));
   }),
   cron.schedule("* * * * *", () => {
     runMailPollFallback()
