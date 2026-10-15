@@ -3,38 +3,11 @@ import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
-import { Field, Input } from "@/components/ui/Field";
+import { CodeInput } from "@/components/ui/CodeInput";
+import { Field } from "@/components/ui/Field";
 
 type Status = { enabled: boolean; enabledAt: string | null; recoveryCodesRemaining: number };
 type Setup = { secret: string; otpauthUri: string; qrSvg: string };
-
-/** Code à 6 chiffres saisi au clavier ou collé depuis l'application (espaces ignorés). */
-function CodeInput({
-  value,
-  onChange,
-  describedBy,
-  invalid,
-}: {
-  value: string;
-  onChange: (v: string) => void;
-  describedBy?: string;
-  invalid?: boolean;
-}) {
-  return (
-    <Input
-      inputMode="numeric"
-      autoComplete="one-time-code"
-      pattern="[0-9]{6}"
-      maxLength={7}
-      required
-      value={value}
-      aria-invalid={invalid || undefined}
-      aria-describedby={describedBy}
-      onChange={(e) => onChange(e.target.value.replace(/\D/g, "").slice(0, 6))}
-      className="max-w-40 font-mono tracking-[0.3em]"
-    />
-  );
-}
 
 function RecoveryCodes({ codes, onDone }: { codes: string[]; onDone: () => void }) {
   const introRef = useRef<HTMLParagraphElement>(null);
@@ -157,6 +130,8 @@ export function SecurityTab() {
 
   async function submit(e: FormEvent, path: "/api/auth/2fa/enable" | "/api/auth/2fa/recovery-codes") {
     e.preventDefault();
+    // Envoi automatique du code puis Entrée : une seule vérification à la fois.
+    if (busy) return;
     setBusy(true);
     setError(null);
     try {
@@ -225,7 +200,7 @@ export function SecurityTab() {
           {regenerating ? (
             <form onSubmit={(e) => void submit(e, "/api/auth/2fa/recovery-codes")} className="space-y-3">
               <Field label="Code de l'application" hint="Les anciens codes de secours cesseront de fonctionner.">
-                <CodeInput value={code} onChange={setCode} invalid={!!error} describedBy={error ? errorId : undefined} />
+                <CodeInput value={code} onChange={setCode} aria-invalid={!!error} aria-describedby={error ? errorId : undefined} />
               </Field>
               {errorBlock}
               <div className="flex flex-wrap gap-2">
@@ -271,7 +246,7 @@ export function SecurityTab() {
             </li>
             <li>
               <Field label="Code affiché par l'application">
-                <CodeInput value={code} onChange={setCode} invalid={!!error} describedBy={error ? errorId : undefined} />
+                <CodeInput value={code} onChange={setCode} aria-invalid={!!error} aria-describedby={error ? errorId : undefined} />
               </Field>
             </li>
           </ol>

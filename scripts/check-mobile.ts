@@ -61,8 +61,11 @@ async function login(page: Page) {
     const secret = process.env.CHECK_MOBILE_TOTP;
     if (!secret) throw new Error("Double authentification active : CHECK_MOBILE_TOTP (secret base32) requis.");
     await code.fill(totp(secret));
-    await page.getByRole("button", { name: "Valider" }).click();
-    await page.waitForURL(`${BASE}/`);
+    // Code complet : le formulaire part tout seul. « Valider » seulement s'il n'est pas parti.
+    await page.waitForURL(`${BASE}/`, { timeout: 5000 }).catch(async () => {
+      await page.getByRole("button", { name: "Valider" }).click();
+      await page.waitForURL(`${BASE}/`);
+    });
   }
 }
 
