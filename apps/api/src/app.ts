@@ -35,6 +35,7 @@ import { notificationsRoutes } from "@/routes/notifications.js";
 import { pushRoutes } from "@/routes/push.js";
 import { googleCalendarRoutes } from "@/routes/google-calendar.js";
 import { RATE_LIMITED, registerErrorHandler, setJsonSerializer } from "@/lib/http.js";
+import { logSerializers } from "@/lib/log-redact.js";
 import { ensureDefaultLegalClauses } from "@/lib/company/legal-clauses.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -47,6 +48,8 @@ export type BuildAppOptions = {
   silent?: boolean;
   /** Sert le build web statique (prod). Défaut true en production. */
   serveStatic?: boolean;
+  /** Flux du journal (tests : lecture des lignes écrites). Défaut : sortie standard. */
+  logStream?: { write(line: string): void };
 };
 
 export async function buildApp(opts: BuildAppOptions = {}): Promise<FastifyInstance> {
@@ -68,6 +71,9 @@ export async function buildApp(opts: BuildAppOptions = {}): Promise<FastifyInsta
             ],
             censor: "[redacted]",
           },
+          // URL journalisée sans jeton (liens publics, ?code= OAuth) : voir log-redact.ts.
+          serializers: logSerializers,
+          ...(opts.logStream ? { stream: opts.logStream } : {}),
         },
     trustProxy: trustProxyFn(trustedProxies),
     // Les tokens PDF publics (base64url(payload).base64url(sig)) dépassent le défaut 100.
