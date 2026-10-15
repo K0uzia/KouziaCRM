@@ -6,7 +6,11 @@ import { getCookieSecure } from "@/lib/env.js";
 import { prisma } from "@/lib/prisma.js";
 
 export const SESSION_COOKIE = "kouzia_session";
-const SESSION_TTL_MS = 1000 * 60 * 60 * 24 * 14; // 14 days
+/** Session admin : 7 jours au plus depuis la connexion, close après 24 h sans requête. */
+export const SESSION_TTL_MS = 7 * 86_400_000;
+export const SESSION_IDLE_MS = 86_400_000;
+/** lastSeenAt réécrit au plus toutes les 5 minutes (pas une écriture par requête). */
+const SESSION_TOUCH_MS = 5 * 60_000;
 
 export type AuthUser = {
   id: string;
@@ -53,7 +57,7 @@ const sessionIdOf = (token: string) => createHash("sha256").update(token).digest
 export async function createSession(userId: string): Promise<{ token: string; expiresAt: Date }> {
   const token = randomBytes(32).toString("base64url");
   const expiresAt = new Date(Date.now() + SESSION_TTL_MS);
-  await prisma.session.create({ data: { id: sessionIdOf(token), userId, expiresAt } });
+  await prisma.session.create({ data: { id: sessionIdOf(token), userId, expiresAt, lastSeenAt: new Date() } });
   return { token, expiresAt };
 }
 
@@ -70,9 +74,19 @@ export async function resolveSession(
     include: { user: true },
   });
   if (!session) return null;
-  if (session.expiresAt.getTime() < Date.now()) {
+  const now = Date.now();
+  // Session antérieure à lastSeenAt (null) : active jusqu'à sa prochaine requête. Une session ouverte
+  // avant le passage à 7 jours expire à 7 jours de sa création, quelle que soit sa date d'expiration.
+  const expired =
+    session.expiresAt.getTime() < now ||
+    session.createdAt.getTime() + SESSION_TTL_MS < now ||
+    (session.lastSeenAt !== null && session.lastSeenAt.getTime() + SESSION_IDLE_MS < now);
+  if (expired) {
     await prisma.session.delete({ where: { id: session.id } }).catch(() => undefined);
     return null;
+  }
+  if (!session.lastSeenAt || session.lastSeenAt.getTime() + SESSION_TOUCH_MS < now) {
+    await prisma.session.update({ where: { id: session.id }, data: { lastSeenAt: new Date(now) } }).catch(() => undefined);
   }
   return {
     sessionId: session.id,

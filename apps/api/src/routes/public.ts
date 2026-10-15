@@ -231,7 +231,7 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
     },
   );
 
-  // Connexion, étape 2 : code valide = adresse confirmée et appareil reconnu 15 jours.
+  // Connexion, étape 2 : code valide = adresse confirmée et appareil reconnu 7 jours.
   app.post(
     "/api/public/auth/verify",
     { config: { rateLimit: { max: 20, timeWindow: "15 minutes" } } },

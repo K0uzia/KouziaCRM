@@ -78,7 +78,7 @@ export async function sendLoginCodeEmail(client: Client, code: string): Promise<
     "",
     code,
     "",
-    `Il est valable ${minutes} minutes et ne sert qu'une fois. Une fois connecté, cet appareil est reconnu pendant 15 jours.`,
+    `Il est valable ${minutes} minutes et ne sert qu'une fois. Une fois connecté, cet appareil est reconnu pendant 7 jours.`,
     "",
     "Vous n'avez rien demandé ? Ignorez cet e-mail : sans ce code, personne ne peut entrer dans votre espace.",
     "",
