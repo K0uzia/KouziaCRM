@@ -96,7 +96,7 @@ export function PaymentForm({
       <Field label="Note">
         <Textarea rows={2} value={notes} onChange={(e) => setNotes(e.target.value)} />
       </Field>
-      <label className="flex items-start gap-2 text-sm">
+      <label className="flex min-h-11 items-start gap-2 text-sm">
         <input
           type="checkbox"
           className="mt-0.5"
