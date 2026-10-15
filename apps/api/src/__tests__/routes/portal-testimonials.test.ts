@@ -205,6 +205,27 @@ describe("témoignages dans l'ERP", () => {
     expect(await withdrawalsOnSite()).toEqual([]);
   });
 
+  it("retrait après publication : plus d'alerte dès qu'une publication est enregistrée dans le dépôt après le retrait", async () => {
+    const { project, cookie } = await portalClient();
+    await put(cookie, project.id);
+    await prisma.siteReview.updateMany({ data: { status: "PUBLISHED", publishedAt: new Date() } });
+    await prisma.sitePublication.create({
+      data: { status: "LIVE", digest: "d", summaryJson: "[]", commitSha: "a".repeat(40), startedAt: new Date(Date.now() - 60_000) },
+    });
+    await del(cookie, project.id);
+    // Publication antérieure au retrait : le témoignage y est encore (jeton absent : signalé, non vérifié).
+    expect(await withdrawalsOnSite()).toMatchObject([{ author: "Marie D.", verified: false }]);
+    // Publication échouée avant le commit : ne compte pas.
+    await prisma.sitePublication.create({ data: { status: "FAILED", digest: "d", summaryJson: "[]", startedAt: new Date(Date.now() + 1000) } });
+    expect(await withdrawalsOnSite()).toHaveLength(1);
+    // Commit fait après le retrait (ou dépôt déjà à jour) : le retrait est publié, sans lire GitHub.
+    const seen: string[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => (seen.push(String(url)), new Response("{}"))));
+    await prisma.sitePublication.create({ data: { status: "NOOP", digest: "d", summaryJson: "[]", startedAt: new Date(Date.now() + 2000) } });
+    expect(await withdrawalsOnSite()).toEqual([]);
+    expect(seen).toEqual([]);
+  });
+
   it("file À valider : notification, texte du client non modifiable, publier puis instantané ; écarter avec mailto neutre", async () => {
     const since = new Date(Date.now() - 1000);
     const { client, project, cookie } = await portalClient();

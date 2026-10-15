@@ -1,4 +1,4 @@
-import { SiteItemStatus, type Client, type SiteReview } from "@prisma/client";
+import { SiteItemStatus, SitePublicationStatus, type Client, type SiteReview } from "@prisma/client";
 import { prisma } from "@/lib/prisma.js";
 import { decrypt, encrypt } from "@/lib/crypto.js";
 import { isOrganization } from "@/lib/clients/client-type.js";
@@ -190,7 +190,8 @@ export type WithdrawalOnSite = { id: string; author: string; withdrawalRequested
 
 /**
  * Témoignages ou avis retirés après publication (statut Retiré) mais encore présents dans avis.json sur la
- * branche du site : à publier pour tenir le délai de 7 jours annoncé. Le texte publié est figé, donc
+ * branche du site : à publier pour tenir le délai de 7 jours annoncé. Une publication enregistrée dans le
+ * dépôt après le retrait (commit, ou dépôt déjà à jour) en est sortie : plus d'alerte, sans lire GitHub. Le texte publié est figé, donc
  * auteur et texte identifient l'entrée. Dépôt illisible (jeton absent, GitHub injoignable) : retraits
  * récents signalés avec verified: false, plutôt que de taire un retrait peut-être encore en ligne.
  */
@@ -201,6 +202,13 @@ export async function withdrawalsOnSite(now = new Date()): Promise<WithdrawalOnS
     orderBy: { updatedAt: "desc" },
   });
   if (!rows.length) return [];
+  const published = await prisma.sitePublication.findFirst({
+    where: { OR: [{ commitSha: { not: null } }, { status: SitePublicationStatus.NOOP }] },
+    orderBy: { startedAt: "desc" },
+    select: { startedAt: true },
+  });
+  const pending = rows.filter((r) => !published || published.startedAt <= (r.withdrawalRequestedAt ?? r.updatedAt));
+  if (!pending.length) return [];
   const out = (r: (typeof rows)[number], verified: boolean) => ({ id: r.id, author: r.author, withdrawalRequestedAt: r.withdrawalRequestedAt, verified });
   try {
     const raw = await Promise.race([
@@ -209,10 +217,10 @@ export async function withdrawalsOnSite(now = new Date()): Promise<WithdrawalOnS
     ]);
     const parsed = JSON.parse(raw) as { avis?: unknown };
     const live = (Array.isArray(parsed.avis) ? parsed.avis : []) as Array<{ auteur?: unknown; texte?: unknown }>;
-    return rows.filter((r) => live.some((a) => a.auteur === r.author && a.texte === r.text)).map((r) => out(r, true));
+    return pending.filter((r) => live.some((a) => a.auteur === r.author && a.texte === r.text)).map((r) => out(r, true));
   } catch {
     const limit = now.getTime() - UNVERIFIED_WINDOW_MS;
-    return rows.filter((r) => (r.withdrawalRequestedAt ?? r.updatedAt).getTime() >= limit).map((r) => out(r, false));
+    return pending.filter((r) => (r.withdrawalRequestedAt ?? r.updatedAt).getTime() >= limit).map((r) => out(r, false));
   }
 }
 
