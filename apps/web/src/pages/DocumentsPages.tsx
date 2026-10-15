@@ -135,6 +135,7 @@ function DocumentsListPage({
   const [rows, setRows] = useState<Doc[]>([]);
   const [clients, setClients] = useState<ClientOpt[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
   // Client présélectionné (lien « Nouveau devis » d'une fiche client), sinon le formulaire choisit.
   const [createClientId, setCreateClientId] = useState<string | undefined>(undefined);
@@ -155,10 +156,17 @@ function DocumentsListPage({
     setClients(cls);
   }
 
-  useEffect(() => {
+  // Chargement de la liste : état d'erreur avec « Réessayer » (dans le tableau), pas un simple toast.
+  function fetchList() {
+    setLoading(true);
+    setLoadError(null);
     load()
-      .catch((e: Error) => toast.error(e.message))
+      .catch((e: Error) => setLoadError(e.message))
       .finally(() => setLoading(false));
+  }
+
+  useEffect(() => {
+    fetchList();
   }, [documentType]);
 
   useLiveRefresh(() => void load().catch(() => undefined), (i) => i.kind === "quote_accepted" || i.kind === "quote_rejected" || i.kind === "payment");
@@ -341,6 +349,8 @@ function DocumentsListPage({
             columns={docColumns}
             renderMobileCard={renderDocCard}
             data={filtered}
+            error={loadError}
+            onRetry={fetchList}
             pagination
             perPage={25}
             onRowClick={(d) => navigate(detailPath(d))}

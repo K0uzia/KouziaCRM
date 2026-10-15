@@ -478,7 +478,11 @@ export function AppLayout() {
                 <FontAwesomeIcon icon={item.icon} className="h-4 w-4" aria-hidden />
                 <span className="max-w-full truncate text-[length:var(--text-tab)] tracking-tight">{item.tabLabel ?? item.shortLabel ?? item.label}</span>
                 {item.badge === "unread" && unreadCount > 0 ? (
-                  <span className="absolute right-[calc(50%-1.25rem)] top-2 h-2 w-2 rounded-full bg-[var(--primary)]" aria-label={`${unreadCount} non lus`} />
+                  <>
+                    {/* Point décoratif ; le nombre est dit en texte (aria-label sur un span n'est pas lu partout). */}
+                    <span className="absolute right-[calc(50%-1.25rem)] top-2 h-2 w-2 rounded-full bg-[var(--primary)]" aria-hidden />
+                    <span className="sr-only">{`${unreadCount} non lus`}</span>
+                  </>
                 ) : null}
               </NavLink>
             );

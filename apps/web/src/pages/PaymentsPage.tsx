@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { toast } from "sonner";
 import { useLiveRefresh } from "@/lib/notifications";
 import { api, formatEUR } from "@/lib/api";
 import { formatDate, paymentMethodLabel } from "@/lib/format";
@@ -48,6 +47,9 @@ type InvoiceOpt = {
 export function PaymentsPage() {
   const [payments, setPayments] = useState<Payment[]>([]);
   const [invoices, setInvoices] = useState<InvoiceOpt[]>([]);
+  // Premier chargement et échec : tableau en squelette, puis erreur avec « Réessayer » (jamais un faux « aucun »).
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [open, setOpen] = useState(false);
   const [invoiceId, setInvoiceId] = useState("");
 
@@ -60,8 +62,16 @@ export function PaymentsPage() {
     setInvoices(invs.filter((i) => i.status === "ISSUED" || i.status === "PAID"));
   }
 
+  function fetchList() {
+    setLoading(true);
+    setLoadError(null);
+    load()
+      .catch((e: Error) => setLoadError(e.message))
+      .finally(() => setLoading(false));
+  }
+
   useEffect(() => {
-    load().catch((e: Error) => toast.error(e.message));
+    fetchList();
   }, []);
 
   const openInvoices = useMemo(
@@ -195,6 +205,7 @@ export function PaymentsPage() {
       />
 
       <StatStrip
+        busy={loading}
         className="mb-6"
         items={[
           { label: "Encaissé ce mois", value: formatEUR(totalMonth), tone: "success" },
@@ -211,6 +222,9 @@ export function PaymentsPage() {
       <DataTable
         columns={columns}
         data={payments}
+        loading={loading}
+        error={loadError}
+        onRetry={fetchList}
         pagination
         perPage={25}
         searchable={["invoice.number", "invoice.client.displayName", "method", "reference"]}

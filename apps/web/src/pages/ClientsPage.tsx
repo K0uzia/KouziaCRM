@@ -32,6 +32,7 @@ export function ClientsPage() {
   const navigate = useNavigate();
   const [clients, setClients] = useState<Client[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [modal, setModal] = useState<"create" | "edit" | null>(null);
   const [editing, setEditing] = useState<Client | null>(null);
   const [inviteOpen, setInviteOpen] = useState(false);
@@ -54,11 +55,17 @@ export function ClientsPage() {
     setClients(rows);
   }
 
-  useEffect(() => {
+  // Chargement de la liste : état d'erreur avec « Réessayer » (dans le tableau), pas un simple toast.
+  function fetchList() {
     setLoading(true);
+    setLoadError(null);
     load()
-      .catch((e: Error) => toast.error(e.message))
+      .catch((e: Error) => setLoadError(e.message))
       .finally(() => setLoading(false));
+  }
+
+  useEffect(() => {
+    fetchList();
   }, [correspondenceFilter]);
 
   const columns: DataColumn<Client>[] = [
@@ -185,12 +192,12 @@ export function ClientsPage() {
         }
       />
 
-      {loading && clients.length === 0 ? (
-        <div className="ui-card h-64 animate-pulse" aria-busy="true" />
-      ) : (
-        <DataTable
+      <DataTable
           columns={columns}
           data={clients}
+          loading={loading}
+          error={loadError}
+          onRetry={fetchList}
           pagination
           perPage={25}
           onRowClick={(c) => navigate(`/clients/${c.id}`)}
@@ -227,7 +234,6 @@ export function ClientsPage() {
           emptyTitle="Aucun client"
           emptyHint="Créez votre premier client avec le bouton Nouveau client."
         />
-      )}
 
       <Modal
         open={modal === "create" || modal === "edit"}
