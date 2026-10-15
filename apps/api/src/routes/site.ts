@@ -420,7 +420,15 @@ export const siteRoutes: FastifyPluginAsync = async (app) => {
       if (blocker) return reply.code(400).send({ error: blocker });
       const row = await prisma.siteReview.update({
         where: { id: current.id },
-        data: { status: SiteItemStatus.PUBLISHED, rejectedAt: null, rejectionReason: null },
+        data: {
+          status: SiteItemStatus.PUBLISHED,
+          rejectedAt: null,
+          rejectionReason: null,
+          // Témoignage de l'espace client : publieLe = date de validation (heure de Paris).
+          ...(current.source === TESTIMONIAL_SOURCE
+            ? { reviewedOn: new Intl.DateTimeFormat("fr-CA", { timeZone: "Europe/Paris" }).format(new Date()) }
+            : {}),
+        },
       });
       return reviewOutAdmin(row);
     }),

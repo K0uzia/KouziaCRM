@@ -19,14 +19,19 @@ export const CONSENT_TEXT =
   "J'accepte que ce témoignage soit publié sur kouzia.com, sans modification, avec le nom affiché choisi ci-dessus. Je peux le modifier avant sa publication et demander son retrait à tout moment depuis mon espace client.";
 export const PROOF_RETENTION_MS = 3 * 365.25 * 24 * 60 * 60 * 1000;
 
-export const AUTHOR_FORMATS = ["FIRST_INITIAL", "FULL_NAME", "ORGANIZATION"] as const;
+/** Forme du nom (format convenu avec KouziaWebsite, /suivi) : « Marie D. », « Marie Dupont », nom de la structure. */
+export const AUTHOR_FORMATS = ["INITIAL", "FULL", "ORGANIZATION"] as const;
 export type AuthorFormat = (typeof AUTHOR_FORMATS)[number];
-export type TestimonialState = "none" | "pending" | "published" | "rejected" | "withdrawn";
+export type TestimonialState = "NONE" | "PENDING" | "PUBLISHED" | "REJECTED" | "WITHDRAWN";
+
+/** Codes d'erreur stables, traduits par le site (aucun message brut affiché dans /suivi). */
+export type TestimonialErrorCode = "NOT_FOUND" | "NOT_ELIGIBLE" | "ALREADY_PUBLISHED" | "NAME_MODE_INVALID" | "NONE";
 
 export class TestimonialError extends Error {
   constructor(
     message: string,
-    readonly status: 400 | 404 | 409,
+    readonly status: 400 | 403 | 404 | 409,
+    readonly code: TestimonialErrorCode,
   ) {
     super(message);
   }
@@ -39,21 +44,21 @@ export function nameOptions(client: Pick<Client, "type" | "displayName" | "first
   const first = client.firstName?.trim() || (isOrganization(client.type) ? "" : (words[0] ?? ""));
   const last = client.lastName?.trim() || (isOrganization(client.type) ? "" : words.slice(1).join(" "));
   if (first && last) {
-    out.FIRST_INITIAL = `${first} ${last.charAt(0).toLocaleUpperCase("fr")}.`;
-    out.FULL_NAME = `${first} ${last}`;
+    out.INITIAL = `${first} ${last.charAt(0).toLocaleUpperCase("fr")}.`;
+    out.FULL = `${first} ${last}`;
   } else if (first) {
-    out.FULL_NAME = first;
+    out.FULL = first;
   }
   if (isOrganization(client.type)) out.ORGANIZATION = client.companyName?.trim() || client.displayName.trim();
   return out;
 }
 
 export function testimonialState(row: Pick<SiteReview, "status" | "rejectedAt"> | null): TestimonialState {
-  if (!row) return "none";
-  if (row.rejectedAt) return "rejected";
-  if (row.status === SiteItemStatus.WITHDRAWN) return "withdrawn";
-  if (row.status === SiteItemStatus.PUBLISHED) return "published";
-  return "pending";
+  if (!row) return "NONE";
+  if (row.rejectedAt) return "REJECTED";
+  if (row.status === SiteItemStatus.WITHDRAWN) return "WITHDRAWN";
+  if (row.status === SiteItemStatus.PUBLISHED) return "PUBLISHED";
+  return "PENDING";
 }
 
 /** Date du jour (AAAA-MM-JJ) en heure de Paris. */
@@ -63,12 +68,29 @@ const parisDate = (d: Date) => new Intl.DateTimeFormat("fr-CA", { timeZone: "Eur
 export async function portalTestimonials(clientId: string) {
   const rows = await prisma.siteReview.findMany({
     where: { clientId, source: TESTIMONIAL_SOURCE, projectId: { not: null } },
-    select: { projectId: true, status: true, rejectedAt: true, text: true, authorFormat: true },
+    select: {
+      projectId: true,
+      status: true,
+      rejectedAt: true,
+      rejectionReason: true,
+      text: true,
+      authorFormat: true,
+      consentAt: true,
+      publishedAt: true,
+    },
   });
   return new Map(
     rows.map((r) => [
       r.projectId!,
-      { status: testimonialState(r), text: r.text, authorFormat: r.authorFormat as AuthorFormat | null },
+      {
+        status: testimonialState(r),
+        text: r.text,
+        nameMode: r.authorFormat as AuthorFormat | null,
+        submittedAt: r.consentAt?.toISOString() ?? null,
+        publishedAt: r.publishedAt?.toISOString() ?? null,
+        // Écarté : le motif est donné à l'auteur (D111-19), ici comme par e-mail.
+        ...(r.rejectedAt ? { rejectionReason: r.rejectionReason } : {}),
+      },
     ]),
   );
 }
@@ -86,20 +108,20 @@ type Submission = {
 async function ownDoneProject(clientId: string, projectId: string) {
   const project = await prisma.clientProject.findFirst({ where: { id: projectId, clientId, visibleOnPortal: true } });
   // Projet d'un autre client ou inconnu : même réponse (rien ne révèle l'existence d'un projet d'autrui).
-  if (!project) throw new TestimonialError("Projet introuvable.", 404);
+  if (!project) throw new TestimonialError("Projet introuvable.", 404, "NOT_FOUND");
   return project;
 }
 
 /** Dépôt ou modification (tant que non publié). L'accord est recoché et la preuve renouvelée à chaque envoi. */
 export async function submitTestimonial(s: Submission, now = new Date()): Promise<SiteReview> {
   const project = await ownDoneProject(s.client.id, s.projectId);
-  if (project.status !== "DONE") throw new TestimonialError("Le témoignage s'ouvre quand le projet est terminé.", 409);
+  if (project.status !== "DONE") throw new TestimonialError("Le témoignage s'ouvre quand le projet est terminé.", 403, "NOT_ELIGIBLE");
   const author = nameOptions(s.client)[s.authorFormat];
-  if (!author) throw new TestimonialError("Forme du nom indisponible pour ce compte.", 400);
+  if (!author) throw new TestimonialError("Forme du nom indisponible pour ce compte.", 400, "NAME_MODE_INVALID");
 
   const existing = await prisma.siteReview.findUnique({ where: { projectId: project.id } });
   if (existing && (existing.publishedAt || existing.status === SiteItemStatus.PUBLISHED)) {
-    throw new TestimonialError("Témoignage déjà publié : il ne se modifie plus. Vous pouvez demander son retrait.", 409);
+    throw new TestimonialError("Témoignage déjà publié : il ne se modifie plus. Vous pouvez demander son retrait.", 409, "ALREADY_PUBLISHED");
   }
   const proof = encrypt(
     JSON.stringify({
@@ -146,7 +168,7 @@ export async function submitTestimonial(s: Submission, now = new Date()): Promis
 export async function withdrawTestimonial(clientId: string, projectId: string, now = new Date()): Promise<"deleted" | "withdrawn"> {
   await ownDoneProject(clientId, projectId);
   const row = await prisma.siteReview.findUnique({ where: { projectId } });
-  if (!row || row.clientId !== clientId) throw new TestimonialError("Aucun témoignage pour ce projet.", 404);
+  if (!row || row.clientId !== clientId) throw new TestimonialError("Aucun témoignage pour ce projet.", 404, "NONE");
   if (!row.publishedAt) {
     await prisma.siteReview.delete({ where: { id: row.id } });
     return "deleted";

@@ -272,7 +272,7 @@ export function AppLayout() {
 
   const createItems = space.id === "site" ? [
     { label: "Nouvelle réalisation", onSelect: () => navigate("/site/realisations/nouvelle") },
-    { label: "Nouvel avis", onSelect: () => navigate("/site/avis?new=1") },
+    { label: "Nouveau témoignage", onSelect: () => navigate("/site/avis?new=1") },
     { label: "Nouvelle référence", onSelect: () => navigate("/site/references?new=1") },
     { label: "Nouvelle question", onSelect: () => navigate("/site/faq?new=1") },
   ] : [

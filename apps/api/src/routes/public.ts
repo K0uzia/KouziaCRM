@@ -333,7 +333,7 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
       const testimonials = await portalTestimonials(client.id);
       // Projet terminé : état de son témoignage (« none » tant qu'aucun n'a été déposé).
       const projects = (await listPortalProjects(client.id)).map((p) =>
-        p.status === "DONE" ? { ...p, testimonial: testimonials.get(p.id) ?? { status: "none" as const } } : p,
+        p.status === "DONE" ? { ...p, testimonial: testimonials.get(p.id) ?? { status: "NONE" as const } } : p,
       );
       const reviewEligible = await reviewInviteEligible(client.id);
 
@@ -512,9 +512,9 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
           ? {
               testimonialForm: {
                 nameOptions: nameOptions(client),
-                consentText: CONSENT_TEXT,
-                consentVersion: CONSENT_VERSION,
                 maxLength: TESTIMONIAL_MAX_LENGTH,
+                // Texte d'accord EXACT, affiché tel quel par le site ; sa version accompagne l'envoi.
+                consent: { version: CONSENT_VERSION, text: CONSENT_TEXT },
               },
             }
           : {}),

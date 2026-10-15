@@ -42,7 +42,7 @@ async function portalClient(opts: { status?: string; firstName?: string; lastNam
   return { client, project, cookie: `${PORTAL_COOKIE}=${token}` };
 }
 
-const testimonial = { text: "Travail soigné, à l'écoute du début à la fin.", authorFormat: "FIRST_INITIAL", consent: true, consentVersion: CONSENT_VERSION };
+const testimonial = { text: "Travail soigné, à l'écoute du début à la fin.", nameMode: "INITIAL", consent: true, consentVersion: CONSENT_VERSION };
 let ip = 0;
 const put = (cookie: string, projectId: string, payload: unknown = testimonial) =>
   app.inject({ method: "PUT", url: `/api/public/portal/projects/${projectId}/testimonial`, payload: payload as never, headers: { cookie, "user-agent": "Mozilla/5.0 Test" }, remoteAddress: `10.1.0.${++ip % 250}` });
@@ -56,16 +56,16 @@ describe("témoignage depuis l'espace client", () => {
     const { client, project, cookie } = await portalClient();
     const tracking = (await app.inject({ method: "GET", url: "/api/public/tracking", headers: { cookie } })).json();
     expect(tracking.testimonialForm).toMatchObject({
-      nameOptions: { FIRST_INITIAL: "Marie D.", FULL_NAME: "Marie Dupont" },
-      consentVersion: CONSENT_VERSION,
+      nameOptions: { INITIAL: "Marie D.", FULL: "Marie Dupont" },
+      consent: { version: CONSENT_VERSION },
       maxLength: 600,
     });
-    expect(tracking.testimonialForm.consentText).toMatch(/^J'accepte que ce témoignage soit publié sur kouzia\.com/);
-    expect(tracking.projects[0]).toMatchObject({ id: project.id, status: "DONE", testimonial: { status: "none" } });
+    expect(tracking.testimonialForm.consent.text).toMatch(/^J'accepte que ce témoignage soit publié sur kouzia\.com/);
+    expect(tracking.projects[0]).toMatchObject({ id: project.id, status: "DONE", testimonial: { status: "NONE" } });
 
     const res = await put(cookie, project.id);
     expect(res.statusCode, res.body).toBe(200);
-    expect(res.json()).toMatchObject({ status: "pending", authorFormat: "FIRST_INITIAL" });
+    expect(res.json()).toMatchObject({ status: "PENDING", nameMode: "INITIAL" });
     const row = await prisma.siteReview.findUniqueOrThrow({ where: { projectId: project.id } });
     expect(row).toMatchObject({ source: "CLIENT_SPACE", clientId: client.id, author: "Marie D.", status: "DRAFT", consentChannel: "Espace client" });
     const proof = JSON.parse(decrypt(row.consentProofEncrypted!));
@@ -75,7 +75,7 @@ describe("témoignage depuis l'espace client", () => {
     expect(row.consentProofEncrypted).not.toContain("Mozilla");
 
     const after = (await app.inject({ method: "GET", url: "/api/public/tracking", headers: { cookie } })).json();
-    expect(after.projects[0].testimonial).toMatchObject({ status: "pending", text: testimonial.text });
+    expect(after.projects[0].testimonial).toMatchObject({ status: "PENDING", text: testimonial.text, nameMode: "INITIAL" });
   });
 
   it("refus : sans session, projet d'un autre client (404), projet non terminé, accord absent, version périmée, 601 caractères, tiret long, nom indisponible", async () => {
@@ -85,17 +85,20 @@ describe("témoignage depuis l'espace client", () => {
     expect((await app.inject({ method: "PUT", url: `/api/public/portal/projects/${mine.project.id}/testimonial`, payload: testimonial })).statusCode).toBe(401);
     expect((await put(mine.cookie, other.project.id)).statusCode).toBe(404);
     expect((await put(mine.cookie, "inconnu")).statusCode).toBe(404);
-    expect((await put(active.cookie, active.project.id)).statusCode).toBe(409);
-    for (const bad of [
-      { consent: false },
-      { consentVersion: "2020-01-01" },
-      { text: "a".repeat(601) },
-      { text: `Bien ${String.fromCharCode(0x2014)} merci` },
-      { authorFormat: "ORGANIZATION" },
-      { autre: 1 },
-    ]) {
+    expect((await put(active.cookie, active.project.id)).json()).toEqual({ error: "NOT_ELIGIBLE", message: expect.any(String) });
+    for (const [bad, code] of [
+      [{ consent: false }, "CONSENT_REQUIRED"],
+      [{ consentVersion: "2020-01-01" }, "CONSENT_OUTDATED"],
+      [{ text: "a".repeat(601) }, "TEXT_TOO_LONG"],
+      [{ text: "   " }, "TEXT_EMPTY"],
+      [{ text: `Bien ${String.fromCharCode(0x2014)} merci` }, "TEXT_INVALID"],
+      [{ nameMode: "ORGANIZATION" }, "NAME_MODE_INVALID"],
+      [{ nameMode: "AUTRE" }, "NAME_MODE_INVALID"],
+      [{ autre: 1 }, "INVALID"],
+    ] as const) {
       const res = await put(mine.cookie, mine.project.id, { ...testimonial, ...bad });
       expect(res.statusCode, JSON.stringify(bad)).toBe(400);
+      expect(res.json(), JSON.stringify(bad)).toMatchObject({ error: code });
     }
     expect(await prisma.siteReview.count()).toBe(0);
   });
@@ -103,13 +106,15 @@ describe("témoignage depuis l'espace client", () => {
   it("un seul par projet, modifiable avant publication, figé ensuite ; structure : nom de la structure proposé", async () => {
     const { project, cookie } = await portalClient();
     await put(cookie, project.id);
-    await put(cookie, project.id, { ...testimonial, text: "Texte revu.", authorFormat: "FULL_NAME" });
+    await put(cookie, project.id, { ...testimonial, text: "Texte revu.", nameMode: "FULL" });
     expect(await prisma.siteReview.count()).toBe(1);
     expect(await prisma.siteReview.findFirstOrThrow()).toMatchObject({ text: "Texte revu.", author: "Marie Dupont" });
 
     const row = await prisma.siteReview.findFirstOrThrow();
     expect((await adminCall("POST", `/api/site/reviews/${row.id}/publish`)).statusCode).toBe(200);
-    expect((await put(cookie, project.id, { ...testimonial, text: "Encore changé." })).statusCode).toBe(409);
+    const frozen = await put(cookie, project.id, { ...testimonial, text: "Encore changé." });
+    expect(frozen.statusCode).toBe(409);
+    expect(frozen.json().error).toBe("ALREADY_PUBLISHED");
 
     const org = await portalClient({ type: "B2B" });
     await prisma.client.update({ where: { id: org.client.id }, data: { companyName: "Asso du Bourg" } });
@@ -120,13 +125,13 @@ describe("témoignage depuis l'espace client", () => {
   it("retrait : non publié, effacé avec sa preuve ; publié, statut Retiré et preuve gardée", async () => {
     const a = await portalClient();
     await put(a.cookie, a.project.id);
-    expect((await del(a.cookie, a.project.id)).json()).toEqual({ status: "none" });
+    expect((await del(a.cookie, a.project.id)).json()).toEqual({ status: "NONE" });
     expect(await prisma.siteReview.count()).toBe(0);
 
     const b = await portalClient();
     await put(b.cookie, b.project.id);
     await prisma.siteReview.updateMany({ data: { status: "PUBLISHED", publishedAt: new Date() } });
-    expect((await del(b.cookie, b.project.id)).json()).toEqual({ status: "withdrawn" });
+    expect((await del(b.cookie, b.project.id)).json()).toEqual({ status: "WITHDRAWN" });
     const row = await prisma.siteReview.findFirstOrThrow();
     expect(row.status).toBe("WITHDRAWN");
     expect(row.withdrawalRequestedAt).not.toBeNull();
