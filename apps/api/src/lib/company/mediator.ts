@@ -3,7 +3,7 @@
 // consommation »). Sans lui, aucun devis n'est envoyé en signature en ligne à un particulier.
 
 export const MEDIATOR_REQUIRED_MESSAGE =
-  "Un médiateur de la consommation est obligatoire pour signer avec un particulier (L612-1). Renseignez-le dans Réglages > Mentions légales";
+  "Un médiateur de la consommation est obligatoire pour signer avec un particulier (L612-1). Renseignez-le dans Réglages > Mentions légales.";
 
 export class MediatorRequiredError extends Error {
   readonly code = "MEDIATOR_REQUIRED";

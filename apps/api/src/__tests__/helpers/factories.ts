@@ -45,7 +45,7 @@ export async function seedCompanySettings(): Promise<void> {
 
 export async function createClient(opts: {
   displayName?: string;
-  type?: "B2B" | "B2C";
+  type?: "B2B" | "B2C" | "ASSOCIATION";
 } = {}): Promise<{ id: string; displayName: string }> {
   const created = await prisma.client.create({
     data: {
