@@ -20,6 +20,8 @@ const REVIEW_URL = "https://g.page/r/Cb8yzZKdc-SEEBM/review/";
 beforeEach(async () => {
   await resetDb();
   await seedCompanySettings();
+  await prisma.companySettings.updateMany({ data: { clientPortalUrl: "https://kouzia.com/suivi/" } });
+  invalidateCompanySettingsCache();
   await prisma.emailOutbox.deleteMany();
 });
 
@@ -53,6 +55,10 @@ describe("invitation à laisser un avis", () => {
     expect(sent[0]!.to).toBe("lou@example.test");
     expect(sent[0]!.text).toContain(REVIEW_URL);
     expect(sent[0]!.text).toContain("« Site vitrine »");
+    // Deux choix (témoignage et avis Google), sans condition de satisfaction ni contrepartie.
+    expect(sent[0]!.text).toContain("Laisser un témoignage sur kouzia.com");
+    expect(sent[0]!.text).toContain("Laisser un avis Google");
+    expect(sent[0]!.text).not.toMatch(/satisfait|contrepartie|cadeau|réduction/i);
     expect(await reviewInviteEligible(client.id)).toBe(true);
 
     // Réouverture puis nouvelle livraison : pas de second e-mail.
@@ -72,11 +78,20 @@ describe("invitation à laisser un avis", () => {
     expect(await reviewInviteEligible(client.id)).toBe(false);
   });
 
-  it("n'envoie rien sans lien d'avis en https", async () => {
-    await prisma.companySettings.updateMany({ data: { googleReviewUrl: null } });
+  it("sans lien Google : seul le lien du témoignage ; sans aucun lien en https : rien", async () => {
+    await prisma.companySettings.updateMany({ data: { googleReviewUrl: null, clientPortalUrl: "https://kouzia.com/suivi/" } });
     invalidateCompanySettingsCache();
-    const { project } = await projectFor();
-    await updateClientProject(project.id, { ...input, status: "DONE" });
+    const first = await projectFor();
+    await updateClientProject(first.project.id, { ...input, status: "DONE" });
+    const [sent] = await invites();
+    expect(sent!.text).toContain("https://kouzia.com/suivi/");
+    expect(sent!.text).not.toContain("avis Google");
+
+    await prisma.emailOutbox.deleteMany();
+    await prisma.companySettings.updateMany({ data: { clientPortalUrl: null } });
+    invalidateCompanySettingsCache();
+    const second = await projectFor("paul@example.test");
+    await updateClientProject(second.project.id, { ...input, status: "DONE" });
     expect(await invites()).toHaveLength(0);
   });
 

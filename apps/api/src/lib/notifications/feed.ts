@@ -10,7 +10,8 @@ export type NotificationKind =
   | "deposit_due"
   | "subscription_stripe"
   | "client_onboarded"
-  | "google_reauth";
+  | "google_reauth"
+  | "testimonial";
 
 export type NotificationItem = {
   /** Identifiant stable (type + id source) : sert à dédoublonner côté interface. */
@@ -38,7 +39,7 @@ function eur(cents: number): string {
 export async function listNotifications(since: Date): Promise<NotificationItem[]> {
   const recentMail = new Date(Date.now() - MAIL_RECENT_MS);
 
-  const [mails, accepted, rejected, payments, depositsDue, stripeSubs, onboarded, googleReauth] = await Promise.all([
+  const [mails, accepted, rejected, payments, depositsDue, stripeSubs, onboarded, googleReauth, testimonials] = await Promise.all([
     prisma.emailMessage.findMany({
       where: {
         direction: EmailDirection.INBOUND,
@@ -133,6 +134,13 @@ export async function listNotifications(since: Date): Promise<NotificationItem[]
       where: { googleCalendarReauthRequiredAt: { gt: since } },
       select: { googleCalendarReauthRequiredAt: true },
     }),
+    // Témoignage déposé ou modifié par un client depuis /suivi : à valider (date d'accord renouvelée à chaque envoi).
+    prisma.siteReview.findMany({
+      where: { source: "CLIENT_SPACE", status: "DRAFT", rejectedAt: null, consentAt: { gt: since } },
+      orderBy: { consentAt: "desc" },
+      take: MAX_ITEMS,
+      select: { id: true, author: true, consentAt: true, project: { select: { name: true } } },
+    }),
   ]);
 
   const items: NotificationItem[] = [
@@ -213,6 +221,14 @@ export async function listNotifications(since: Date): Promise<NotificationItem[]
           },
         ]
       : []),
+    ...testimonials.map((t) => ({
+      id: `testimonial:${t.id}:${(t.consentAt ?? new Date()).getTime()}`,
+      kind: "testimonial" as const,
+      title: "Témoignage à valider",
+      body: t.project ? `${t.author}, projet « ${t.project.name} »` : t.author,
+      href: "/site/avis",
+      at: (t.consentAt ?? new Date()).toISOString(),
+    })),
   ];
 
   return items.sort((a, b) => b.at.localeCompare(a.at)).slice(0, MAX_ITEMS);

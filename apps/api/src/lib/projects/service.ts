@@ -251,6 +251,9 @@ export async function listPortalProjects(clientId: string) {
   return projects.map((p) => {
     const s = serializeProject(p);
     return {
+      // Identifiant et état : l'espace client propose le témoignage d'un projet terminé (DONE).
+      id: p.id,
+      status: p.status,
       name: s.name,
       progress: s.progress,
       steps: s.steps,

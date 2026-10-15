@@ -17,6 +17,7 @@ import { clientsRoutes } from "@/routes/clients.js";
 import { invoicesRoutes } from "@/routes/invoices.js";
 import { servicesRoutes } from "@/routes/services.js";
 import { publicRoutes } from "@/routes/public.js";
+import { portalTestimonialsRoutes } from "@/routes/portal-testimonials.js";
 import { obligationsRoutes } from "@/routes/obligations.js";
 import { legalClausesRoutes } from "@/routes/legal-clauses.js";
 import { miscRoutes } from "@/routes/misc.js";
@@ -150,6 +151,7 @@ export async function buildApp(opts: BuildAppOptions = {}): Promise<FastifyInsta
   await app.register(invoicesRoutes);
   await app.register(servicesRoutes);
   await app.register(publicRoutes);
+  await app.register(portalTestimonialsRoutes);
   await app.register(obligationsRoutes);
   await app.register(legalClausesRoutes);
   await app.register(miscRoutes);
