@@ -203,7 +203,7 @@ export function CommandPalette({
       className="fixed inset-0 z-50 flex items-stretch justify-center sm:items-start sm:px-4 sm:pt-[10vh]"
     >
       <div
-        className="fixed inset-0 bg-[var(--text)]/30 backdrop-blur-[2px]"
+        className="fixed inset-0 bg-[var(--text)]/30"
         onClick={() => onOpenChange(false)}
         aria-hidden
       />
@@ -213,7 +213,7 @@ export function CommandPalette({
           onValueChange={setQuery}
           autoFocus
           placeholder="Client, facture, devis, tarif, page…"
-          className="sticky top-0 z-10 w-full border-b border-[var(--border)] bg-[var(--surface)] px-4 py-3.5 pt-[max(0.875rem,env(safe-area-inset-top))] text-[15px] text-[var(--text)] outline-none placeholder:text-[var(--muted)]"
+          className="sticky top-0 z-10 w-full border-b border-[var(--border)] bg-[var(--surface)] px-4 py-3.5 pt-[max(0.875rem,env(safe-area-inset-top))] text-[0.9375rem] text-[var(--text)] outline-none focus-visible:shadow-[inset_0_-2px_0_var(--primary)] placeholder:text-[var(--muted)]"
         />
         {/* Hors de la liste : un listbox ne doit contenir que des options (axe aria-required-children). */}
         <Command.Empty className="px-3 py-8 text-center text-sm text-[var(--muted)]">

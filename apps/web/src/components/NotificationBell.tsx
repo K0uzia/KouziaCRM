@@ -97,7 +97,10 @@ export function NotificationBell() {
                         <span className="flex items-center gap-2">
                           <span className="truncate text-sm font-medium">{item.title}</span>
                           {item.at > n.seenAt ? (
-                            <span className="h-2 w-2 shrink-0 rounded-full bg-[var(--primary)]" aria-label="non lue" />
+                            <>
+                              <span className="h-2 w-2 shrink-0 rounded-full bg-[var(--primary)]" aria-hidden />
+                              <span className="sr-only">non lue</span>
+                            </>
                           ) : null}
                         </span>
                         <span className="mt-0.5 line-clamp-2 block text-xs text-[var(--muted)]">{item.body}</span>

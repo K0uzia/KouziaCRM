@@ -1,26 +1,26 @@
 import cron from "node-cron";
-import { isImapConfigured } from "../apps/api/src/lib/email/imap-config";
-import { runMailPollFallback, startIdleWorker, stopIdleWorker } from "../apps/api/src/lib/email/sync/idle-worker";
-import { syncImapInbox } from "../apps/api/src/lib/email/imap-sync";
-import { processEmailOutbox } from "../apps/api/src/lib/email/mailer";
-import { expireQuotes, scheduleReminders } from "../apps/api/src/lib/reminders";
-import { generateDueSubscriptionInvoices } from "../apps/api/src/lib/subscriptions/subscription-service";
-import { sendDueRenewalReminders } from "../apps/api/src/lib/subscriptions/renewal-reminder";
-import { sendDueActionReminders } from "../apps/api/src/lib/subscriptions/dunning";
-import { checkExpiringCards } from "../apps/api/src/lib/subscriptions/card-expiry";
-import { archivePendingIssuedPdfs } from "../apps/api/src/lib/pdf/issued-archive";
-import { archivePendingReceipts } from "../apps/api/src/lib/pdf/receipt-archive";
-import { sendDueReminders, sendDueDepositReminders } from "../apps/api/src/lib/reminders/send";
-import { syncObligations } from "../apps/api/src/lib/obligations/obligation-service";
-import { sendDueObligationEmails } from "../apps/api/src/lib/obligations/email-reminders";
-import { activateDueMilestoneCheckouts } from "../apps/api/src/lib/payments/milestonePaymentService";
-import { getCompanySettings } from "../apps/api/src/lib/company";
-import { prisma } from "../apps/api/src/lib/prisma";
-import { purgePortalData } from "../apps/api/src/lib/portal/auth";
-import { purgeTestimonialProofs } from "../apps/api/src/lib/site/testimonials";
-import { followSitePublications } from "../apps/api/src/lib/site/publish";
-import { backfillEncryptedEmails } from "../apps/api/src/lib/privacy/at-rest";
-import { purgeRetention } from "../apps/api/src/lib/privacy/retention";
+import { isImapConfigured } from "../apps/api/src/lib/email/imap-config.js";
+import { runMailPollFallback, startIdleWorker, stopIdleWorker } from "../apps/api/src/lib/email/sync/idle-worker.js";
+import { syncImapInbox } from "../apps/api/src/lib/email/imap-sync.js";
+import { processEmailOutbox } from "../apps/api/src/lib/email/mailer/index.js";
+import { expireQuotes, scheduleReminders } from "../apps/api/src/lib/reminders.js";
+import { generateDueSubscriptionInvoices } from "../apps/api/src/lib/subscriptions/subscription-service.js";
+import { sendDueRenewalReminders } from "../apps/api/src/lib/subscriptions/renewal-reminder.js";
+import { sendDueActionReminders } from "../apps/api/src/lib/subscriptions/dunning.js";
+import { checkExpiringCards } from "../apps/api/src/lib/subscriptions/card-expiry.js";
+import { archivePendingIssuedPdfs } from "../apps/api/src/lib/pdf/issued-archive.js";
+import { archivePendingReceipts } from "../apps/api/src/lib/pdf/receipt-archive.js";
+import { sendDueReminders, sendDueDepositReminders } from "../apps/api/src/lib/reminders/send.js";
+import { syncObligations } from "../apps/api/src/lib/obligations/obligation-service.js";
+import { sendDueObligationEmails } from "../apps/api/src/lib/obligations/email-reminders.js";
+import { activateDueMilestoneCheckouts } from "../apps/api/src/lib/payments/milestonePaymentService.js";
+import { getCompanySettings } from "../apps/api/src/lib/company.js";
+import { prisma } from "../apps/api/src/lib/prisma.js";
+import { purgePortalData } from "../apps/api/src/lib/portal/auth.js";
+import { purgeTestimonialProofs } from "../apps/api/src/lib/site/testimonials.js";
+import { followSitePublications } from "../apps/api/src/lib/site/publish.js";
+import { backfillEncryptedEmails } from "../apps/api/src/lib/privacy/at-rest.js";
+import { purgeRetention } from "../apps/api/src/lib/privacy/retention.js";
 
 async function runMaintenance() {
   try {
@@ -47,7 +47,7 @@ async function runMaintenance() {
 
 async function runPushDispatch() {
   try {
-    const { dispatchPushNotifications } = await import("../apps/api/src/lib/push/dispatch");
+    const { dispatchPushNotifications } = await import("../apps/api/src/lib/push/dispatch.js");
     const sent = await dispatchPushNotifications();
     if (sent > 0) console.log(`[worker] push envoyées=${sent}`);
   } catch (err) {

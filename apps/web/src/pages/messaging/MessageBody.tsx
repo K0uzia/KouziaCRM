@@ -151,7 +151,7 @@ function ConversationBody({ text }: { text: string }) {
   const [shownQuotes, setShownQuotes] = useState<Set<number>>(() => new Set());
 
   return (
-    <div className="mt-3 space-y-3 text-[15px] leading-relaxed text-[var(--text)]">
+    <div className="mt-3 space-y-3 text-[0.9375rem] leading-relaxed text-[var(--text)]">
       {blocks.map((block, bi) => {
         const content = block.lines.map((line, i) => {
           const display = line.replace(/^>\s?/, "");
@@ -185,7 +185,7 @@ function ConversationBody({ text }: { text: string }) {
                 {shown ? "Masquer le texte cité" : "··· Afficher le texte cité"}
               </button>
               {shown ? (
-                <div className="mt-1 border-l-2 border-[var(--border-strong)] pl-3 text-[13px] text-[var(--muted)]">
+                <div className="mt-1 border-l-2 border-[var(--border-strong)] pl-3 text-[0.8125rem] text-[var(--muted)]">
                   {content}
                 </div>
               ) : null}

@@ -5,6 +5,7 @@ import DataTableBase, {
   type TableProps,
 } from "react-data-table-component";
 import { EmptyState } from "./Card";
+import { Button } from "./Button";
 
 // Thème de la bibliothèque branché sur nos tokens : elle injecte ces couleurs en variables
 // CSS en ligne (son thème par défaut met #EEEEEE au survol, illisible sur fond sombre).
@@ -152,7 +153,38 @@ export type DataTableProps<T> = {
   onRowClick?: (row: T) => void;
   /** Libellé du compteur (« clients », « factures »). */
   countLabel?: string;
+  /** Premier chargement en cours : lignes squelettes (annoncé aux lecteurs d'écran). */
+  loading?: boolean;
+  /** Chargement en échec : message et bouton « Réessayer » à la place de l'état vide. */
+  error?: string | null;
+  onRetry?: () => void;
 };
+
+/** Lignes squelettes du premier chargement : même hauteur que de vraies lignes. */
+function LoadingRows() {
+  return (
+    <div className="space-y-2 p-3 sm:p-4" aria-busy="true" aria-live="polite">
+      <span className="sr-only">Chargement…</span>
+      {Array.from({ length: 5 }, (_, i) => (
+        <div key={i} className="h-11 animate-pulse rounded-[var(--radius-sm)] bg-[var(--surface-raised)] motion-reduce:animate-none" aria-hidden />
+      ))}
+    </div>
+  );
+}
+
+function ErrorState({ message, onRetry }: { message: string; onRetry?: () => void }) {
+  return (
+    <div role="alert" className="flex flex-col items-center gap-3 px-4 py-10 text-center">
+      <p className="text-sm font-medium text-[var(--danger)]">Impossible de charger la liste</p>
+      <p className="max-w-prose text-sm text-[var(--muted)]">{message}</p>
+      {onRetry ? (
+        <Button variant="secondary" onClick={onRetry}>
+          Réessayer
+        </Button>
+      ) : null}
+    </div>
+  );
+}
 
 function columnLabel<T>(col: TableColumn<T>): string {
   if (typeof col.name === "string") return col.name;
@@ -282,6 +314,9 @@ export function DataTable<T>({
   toolbar,
   onRowClick,
   countLabel,
+  loading = false,
+  error = null,
+  onRetry,
 }: DataTableProps<T>) {
   const [query, setQuery] = useState("");
   const [mobilePage, setMobilePage] = useState(1);
@@ -379,7 +414,11 @@ export function DataTable<T>({
         </div>
       ) : null}
 
-      {filtered.length === 0 ? (
+      {error ? (
+        <ErrorState message={error} onRetry={onRetry} />
+      ) : loading && data.length === 0 ? (
+        <LoadingRows />
+      ) : filtered.length === 0 ? (
         <EmptyState title={emptyTitle} hint={emptyHint} />
       ) : (
         <>

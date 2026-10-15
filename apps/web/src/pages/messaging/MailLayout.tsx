@@ -218,6 +218,15 @@ export function MailLayout() {
     else navigate("/inbox", { replace: true });
   }
 
+  // Corbeille : la suppression est définitive, elle passe par une confirmation (ConfirmDialog).
+  const [permanentIds, setPermanentIds] = useState<string[] | null>(null);
+  const [permanentBusy, setPermanentBusy] = useState(false);
+  function requestDelete(ids = [...selectedIds]) {
+    if (ids.length === 0) return;
+    if (isTrashFolder) setPermanentIds(ids);
+    else void bulkDelete(ids, false);
+  }
+
   async function bulkDelete(ids = [...selectedIds], permanent = false) {
     if (ids.length === 0) return;
     try {
@@ -455,7 +464,7 @@ export function MailLayout() {
                   })
                   .catch((e: Error) => toast.error(e.message));
               }}
-              onBulkDelete={() => void bulkDelete(undefined, isTrashFolder)}
+              onBulkDelete={() => requestDelete()}
               onBulkStar={(starred) => void bulkStar(starred)}
               onOpenFolders={() => setMobileFoldersOpen(true)}
               audience={audience}
@@ -464,7 +473,7 @@ export function MailLayout() {
               viewFilter={viewFilter}
               onViewFilterChange={setViewFilter}
               onReply={replyToMessage}
-              onDelete={(msg) => void bulkDelete([msg.id], isTrashFolder)}
+              onDelete={(msg) => requestDelete([msg.id])}
               onToggleRead={(msg) => void toggleRead(msg)}
               onToggleStar={(msg) => void toggleStar(msg)}
               isTrashFolder={isTrashFolder}
@@ -531,6 +540,26 @@ export function MailLayout() {
           if (!emptyTrashBusy) setEmptyTrashOpen(false);
         }}
         onConfirm={() => void confirmEmptyTrash()}
+      />
+
+      <ConfirmDialog
+        open={permanentIds !== null}
+        title={permanentIds?.length === 1 ? "Supprimer définitivement ce message ?" : `Supprimer définitivement ${permanentIds?.length ?? 0} messages ?`}
+        message="Ils sont dans la corbeille : la suppression est définitive, sur l'ERP comme sur la boîte mail. Cette action est irréversible."
+        confirmLabel="Supprimer définitivement"
+        danger
+        busy={permanentBusy}
+        onClose={() => {
+          if (!permanentBusy) setPermanentIds(null);
+        }}
+        onConfirm={() => {
+          if (!permanentIds) return;
+          setPermanentBusy(true);
+          void bulkDelete(permanentIds, true).finally(() => {
+            setPermanentBusy(false);
+            setPermanentIds(null);
+          });
+        }}
       />
     </div>
   );

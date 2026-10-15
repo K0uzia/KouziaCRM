@@ -88,7 +88,7 @@ export function QuoteValidationBlock({
                 </span>
                 <Button
                   type="button"
-                  className="h-8 text-xs"
+                  className="text-xs"
                   onClick={() => {
                     setConfirmQuote(q);
                     setSignerName("");

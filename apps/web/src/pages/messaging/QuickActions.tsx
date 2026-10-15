@@ -82,7 +82,7 @@ export function QuickActions({ threadId, clientId, clientName, subject, onRefres
     <div className="flex flex-col gap-3 border-t border-[var(--border)] pt-3 sm:flex-row sm:flex-wrap sm:items-end">
       {!clientId ? (
         <>
-          <Field label="Lier au client" className="min-w-0 w-full sm:min-w-[200px] sm:w-auto">
+          <Field label="Lier au client" className="min-w-0 w-full sm:min-w-[12.5rem] sm:w-auto">
             <Select value={linkClientId} onChange={(e) => setLinkClientId(e.target.value)}>
               <option value="">Choisir…</option>
               {clients.map((c) => (
@@ -112,7 +112,7 @@ export function QuickActions({ threadId, clientId, clientName, subject, onRefres
             Relancer
           </Button>
           {docs.length > 0 ? (
-            <Field label="Envoyer un document" className="min-w-[220px]">
+            <Field label="Envoyer un document" className="min-w-[13.75rem]">
               <Select
                 defaultValue=""
                 onChange={(e) => {
@@ -132,7 +132,7 @@ export function QuickActions({ threadId, clientId, clientName, subject, onRefres
           ) : null}
           {clientName ? (
             <Link to={`/clients/${clientId}`}>
-              <Button type="button" variant="secondary" className="h-8 text-xs">
+              <Button type="button" variant="secondary" className="text-xs">
                 Fiche client
               </Button>
             </Link>

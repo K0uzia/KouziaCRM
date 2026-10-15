@@ -41,12 +41,25 @@ function loadDraft(clientId: string): { attachmentIds: string[]; chips: Attachme
   }
 }
 
+// Stockage navigateur indisponible (navigation privée, quota) : le brouillon n'est simplement pas gardé.
 function saveDraft(clientId: string, attachmentIds: string[], chips: AttachmentChipItem[]) {
   if (!clientId) return;
-  localStorage.setItem(
-    `${DRAFT_KEY}:${clientId}`,
-    JSON.stringify({ attachmentIds, chips: chips.filter((c) => c.kind === "file") }),
-  );
+  try {
+    localStorage.setItem(
+      `${DRAFT_KEY}:${clientId}`,
+      JSON.stringify({ attachmentIds, chips: chips.filter((c) => c.kind === "file") }),
+    );
+  } catch {
+    // brouillon non gardé
+  }
+}
+
+function clearDraft(clientId: string) {
+  try {
+    localStorage.removeItem(`${DRAFT_KEY}:${clientId}`);
+  } catch {
+    // rien à effacer
+  }
 }
 
 export function ComposePage() {
@@ -208,7 +221,7 @@ export function ComposePage() {
         method: "POST",
         body: JSON.stringify(payload),
       });
-      if (clientId) localStorage.removeItem(`${DRAFT_KEY}:${clientId}`);
+      if (clientId) clearDraft(clientId);
       toast.success(documentId ? "Document en file d'envoi" : "Message en file d'envoi");
       navigate(`/inbox/${res.threadId}`);
     } catch (err) {

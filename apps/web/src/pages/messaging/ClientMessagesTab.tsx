@@ -60,7 +60,7 @@ export function ClientMessagesTab({ clientId }: { clientId: string }) {
       <div className="flex items-center justify-between">
         <h2 className="font-semibold">Messages</h2>
         <Link to={`/inbox/compose?clientId=${clientId}`}>
-          <Button type="button" variant="secondary" className="h-8 text-xs">
+          <Button type="button" variant="secondary" className="text-xs">
             Écrire
           </Button>
         </Link>
