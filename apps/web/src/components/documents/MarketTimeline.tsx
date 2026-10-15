@@ -129,7 +129,7 @@ export function MarketTimeline({
           {canSolde ? (
             <Button
               type="button"
-              className="h-8 px-3 text-xs"
+              className="px-3 text-xs"
               disabled={busyId === "solde"}
               onClick={() => onGenerateSolde(true)}
             >
@@ -237,7 +237,7 @@ export function MarketTimeline({
 
                 {canManualPay && onManualPay ? (
                   <Button
-                    className="h-8 shrink-0 px-3 text-xs"
+                    className="shrink-0 px-3 text-xs"
                     disabled={busyId === `pay-${m.id}`}
                     onClick={() => onManualPay(m.id)}
                   >
@@ -246,7 +246,7 @@ export function MarketTimeline({
                 ) : null}
                 {canInvoice ? (
                   <Button
-                    className="h-8 shrink-0 px-3 text-xs"
+                    className="shrink-0 px-3 text-xs"
                     disabled={busyId === m.id}
                     onClick={() => onGenerateAcompte(m.id)}
                   >
@@ -255,7 +255,7 @@ export function MarketTimeline({
                 ) : null}
                 {isSolde && canSolde ? (
                   <Button
-                    className="h-8 shrink-0 px-3 text-xs"
+                    className="shrink-0 px-3 text-xs"
                     disabled={busyId === "solde"}
                     onClick={() => onGenerateSolde(true)}
                   >

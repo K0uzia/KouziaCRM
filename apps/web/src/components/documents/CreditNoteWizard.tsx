@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { fetchSettings } from "@/lib/settings-request";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { api, formatEUR, formatDate } from "@/lib/api";
@@ -90,6 +91,14 @@ export function CreditNoteWizard({
     urssafImpactNoted: false,
     negativeCarryoverReminder: false,
   });
+
+  // Mention de TVA des réglages (jamais en dur) ; absente tant qu'elle n'est pas lue.
+  const [vatMention, setVatMention] = useState<string | null>(null);
+  useEffect(() => {
+    fetchSettings<{ vatMention?: string }>()
+      .then((s) => setVatMention(s.vatMention?.trim() || null))
+      .catch(() => setVatMention(null));
+  }, []);
 
   useEffect(() => {
     if (!open) return;
@@ -430,9 +439,7 @@ export function CreditNoteWizard({
                   Remboursement :{" "}
                   {REFUNDS.find((r) => r.value === refundMethod)?.label}
                 </p>
-                <p className="text-[var(--muted)]">
-                  TVA non applicable, art. 293 B du CGI
-                </p>
+                {vatMention ? <p className="text-[var(--muted)]">{vatMention}</p> : null}
                 {refundMethod === "BANK_TRANSFER" ? (
                   <p className="font-medium">Vous n&apos;avez rien à payer.</p>
                 ) : null}

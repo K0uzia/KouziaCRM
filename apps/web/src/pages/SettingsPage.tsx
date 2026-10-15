@@ -1074,7 +1074,7 @@ export function SettingsPage() {
                   <Button
                     type="button"
                     variant="secondary"
-                    className="h-8 text-xs"
+                    className="text-xs"
                     onClick={() => applyMailPreset("hostinger")}
                   >
                     Config Hostinger
@@ -1082,7 +1082,7 @@ export function SettingsPage() {
                   <Button
                     type="button"
                     variant="secondary"
-                    className="h-8 text-xs"
+                    className="text-xs"
                     onClick={() => applyMailPreset("mailpit")}
                   >
                     Config Mailpit (dev)
@@ -2085,7 +2085,7 @@ export function SettingsPage() {
                 <Button
                   type="button"
                   variant="secondary"
-                  className="h-8 px-3 text-xs"
+                  className="px-3 text-xs"
                   onClick={() => {
                     setClauseForm({ title: "", body: "", kind: "CUSTOM", audience: "ALL" });
                     setClauseModal("new");
@@ -2116,7 +2116,7 @@ export function SettingsPage() {
                       <Button
                         type="button"
                         variant="ghost"
-                        className="h-8 px-2 text-xs"
+                        className="px-2 text-xs"
                         onClick={() => {
                           setClauseForm({ title: c.title, body: c.body, kind: c.kind, audience: c.audience });
                           setClauseModal(c);
@@ -2128,7 +2128,7 @@ export function SettingsPage() {
                         <Button
                           type="button"
                           variant="ghost"
-                          className="h-8 px-2 text-xs text-[var(--danger)]"
+                          className="px-2 text-xs text-[var(--danger)]"
                           onClick={() => setClauseToDelete(c)}
                         >
                           Supprimer

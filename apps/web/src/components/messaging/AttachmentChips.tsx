@@ -80,7 +80,7 @@ export function AttachmentChips({ items, onRemove, onAddFiles, disabled }: Props
       <Button
         type="button"
         variant="secondary"
-        className="h-8 text-xs"
+        className="text-xs"
         disabled={disabled}
         onClick={() => inputRef.current?.click()}
       >

@@ -556,7 +556,7 @@ export function ClientDetailPage() {
               <Button
                 type="button"
                 variant="ghost"
-                className="h-8 px-2 text-xs"
+                className="px-2 text-xs"
                 onClick={() => {
                   void navigator.clipboard.writeText(client.clientNumber!);
                   toast.success("Code de suivi copié");

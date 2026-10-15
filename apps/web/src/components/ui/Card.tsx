@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import type { IconDefinition } from "@fortawesome/fontawesome-svg-core";
-import { faArrowLeft } from "@fortawesome/free-solid-svg-icons";
+import { faArrowDown, faArrowLeft, faArrowUp } from "@fortawesome/free-solid-svg-icons";
 import { Link } from "react-router-dom";
 
 const tones = {
@@ -131,7 +131,9 @@ export function KpiCard({
               trendUp ? "text-[var(--success)]" : "text-[var(--danger)]"
             }`}
           >
-            {trendUp ? "↑" : "↓"} {trend}
+            <FontAwesomeIcon icon={trendUp ? faArrowUp : faArrowDown} className="mr-1 h-3 w-3" aria-hidden />
+            <span className="sr-only">{trendUp ? "en hausse : " : "en baisse : "}</span>
+            {trend}
           </span>
         ) : null}
       </div>

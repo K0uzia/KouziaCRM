@@ -132,7 +132,7 @@ export function QuickActions({ threadId, clientId, clientName, subject, onRefres
           ) : null}
           {clientName ? (
             <Link to={`/clients/${clientId}`}>
-              <Button type="button" variant="secondary" className="h-8 text-xs">
+              <Button type="button" variant="secondary" className="text-xs">
                 Fiche client
               </Button>
             </Link>

@@ -174,7 +174,7 @@ export function ClientProjects({ clientId }: { clientId: string }) {
         <h2 className="font-semibold">Projets</h2>
         <Button
           variant="secondary"
-          className="h-8 min-h-8 px-3 text-xs"
+          className="px-3 text-xs"
           onClick={() => setEditing({ id: null, form: EMPTY_FORM })}
         >
           <FontAwesomeIcon icon={faPlus} className="h-3 w-3" aria-hidden />
@@ -226,7 +226,7 @@ export function ClientProjects({ clientId }: { clientId: string }) {
               </Button>
               <Button
                 variant="ghost"
-                className="h-8 min-h-8 px-2 text-xs"
+                className="px-2 text-xs"
                 aria-label={`Supprimer ${p.name}`}
                 onClick={() => setDeleting(p)}
               >
