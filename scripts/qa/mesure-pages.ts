@@ -7,15 +7,19 @@
 // sinon le StrictMode du dev double les appels), compte admin de test SANS double authentification :
 //   CHECK_MOBILE_EMAIL, CHECK_MOBILE_PASSWORD (mêmes variables que check:mobile)
 //   MESURE_URL (défaut http://localhost:5173)
-// Options : --width=360 (défaut 360), --profil=4g-lent|bureau (défaut 4g-lent), --passes=3
+// Options : --width=360 (défaut 360), --profil=4g-lent|bureau (défaut 4g-lent), --passes=3,
+//   --pages=Tableau de bord,Réglages (sous-ensemble, noms de la liste PAGES), --detail (durée médiane de chaque GET /api,
+//   de l'envoi à la fin de la réponse, et poids transféré, par page).
 // Profil « 4g-lent » : RTT 150 ms, 1,6 Mbit/s descendant, 750 kbit/s montant, processeur ralenti x4.
-import { chromium, type Page } from "playwright";
+import { chromium, type Page, type Request } from "playwright";
 
 const arg = (name: string, fallback: string) => process.argv.find((a) => a.startsWith(`--${name}=`))?.slice(name.length + 3) ?? fallback;
 const BASE = (process.env.MESURE_URL ?? "http://localhost:5173").replace(/\/$/, "");
 const WIDTH = Number(arg("width", "360"));
 const PROFIL = arg("profil", "4g-lent");
 const PASSES = Number(arg("passes", "3"));
+const FILTRE = arg("pages", "").split(",").map((s) => s.trim()).filter(Boolean);
+const DETAIL = process.argv.includes("--detail");
 
 // Page prête : contenu rendu dans <main>, ni « Chargement… », ni squelette aria-busy, ni reste du tableau de bord.
 const settled = (p: Page) =>
@@ -33,12 +37,24 @@ const settled = (p: Page) =>
     null,
     { timeout: 30_000, polling: 50 },
   );
-const PAGES: Array<[string, string, (p: Page) => Promise<unknown>]> = [
+// Tableau de bord prêt : chiffres affichés, plus aucune barre de chargement ni zone aria-busy dans <main>.
+const dashboardReady = (p: Page) =>
+  p.waitForFunction(
+    () => {
+      const m = document.querySelector("main");
+      return !!m && /Encaissé/.test(m.innerText) && !m.querySelector(".animate-pulse, [aria-busy=true]");
+    },
+    null,
+    { timeout: 30_000, polling: 50 },
+  );
+const TOUTES: Array<[string, string, (p: Page) => Promise<unknown>]> = [
+  ["Tableau de bord", "/", dashboardReady],
   ["Réglages", "/settings", (p) => p.getByRole("button", { name: "Enregistrer cet onglet" }).first().waitFor({ timeout: 30_000 })],
   ["Clients", "/clients", settled],
   ["Factures", "/invoices", settled],
   ["Messagerie", "/inbox", settled],
 ];
+const PAGES = FILTRE.length ? TOUTES.filter(([n]) => FILTRE.includes(n)) : TOUTES;
 
 async function main() {
   const email = process.env.CHECK_MOBILE_EMAIL;
@@ -46,6 +62,7 @@ async function main() {
   if (!email || !password) throw new Error("CHECK_MOBILE_EMAIL et CHECK_MOBILE_PASSWORD requis (compte de recette).");
   const browser = await chromium.launch();
   const results = new Map<string, { ms: number[]; calls: number; dup: Set<string> }>();
+  const details = new Map<string, Map<string, { ms: number[]; ko: number[] }>>();
   for (let pass = 0; pass < PASSES; pass++) {
     const ctx = await browser.newContext({ viewport: { width: WIDTH, height: WIDTH < 600 ? 800 : 900 }, isMobile: WIDTH < 600, hasTouch: WIDTH < 600 });
     const page = await ctx.newPage();
@@ -69,11 +86,26 @@ async function main() {
         const onReq = (r: { url(): string; method(): string }) => {
           if (r.url().includes("/api/") && r.method() === "GET") calls.push(new URL(r.url()).pathname);
         };
+        const key = `${name} (${mode})`;
+        // Durée de chaque GET /api (envoi de la requête à la fin de la réponse) et poids transféré.
+        const onFin = async (r: Request) => {
+          if (!DETAIL || !r.url().includes("/api/") || r.method() !== "GET") return;
+          const t = r.timing();
+          const taille = await r.sizes().catch(() => null);
+          const parPage = details.get(key) ?? new Map<string, { ms: number[]; ko: number[] }>();
+          const d = parPage.get(new URL(r.url()).pathname) ?? { ms: [], ko: [] };
+          d.ms.push(Math.round(t.responseEnd - t.requestStart));
+          d.ko.push(taille ? Math.round((taille.responseBodySize + taille.responseHeadersSize) / 102.4) / 10 : 0);
+          parPage.set(new URL(r.url()).pathname, d);
+          details.set(key, parPage);
+        };
         let ms: number;
         if (mode === "navigation") {
-          await page.goto(`${BASE}/`);
+          // Navigation dans la SPA depuis le tableau de bord (ou depuis Clients pour le tableau de bord lui-même).
+          await page.goto(`${BASE}${path === "/" ? "/clients" : "/"}`);
           await page.waitForTimeout(1500);
           page.on("request", onReq);
+          page.on("requestfinished", onFin);
           const t = Date.now();
           await page.evaluate((to) => {
             history.pushState({}, "", to);
@@ -83,6 +115,7 @@ async function main() {
           ms = Date.now() - t;
         } else {
           page.on("request", onReq);
+          page.on("requestfinished", onFin);
           const t = Date.now();
           await page.goto(`${BASE}${path}`);
           await ready(page).catch(() => undefined);
@@ -90,7 +123,7 @@ async function main() {
         }
         await page.waitForTimeout(1500);
         page.off("request", onReq);
-        const key = `${name} (${mode})`;
+        page.off("requestfinished", onFin);
         const r = results.get(key) ?? { ms: [], calls: 0, dup: new Set<string>() };
         r.ms.push(ms);
         r.calls = calls.length;
@@ -106,6 +139,9 @@ async function main() {
   console.log(`${BASE} : ${WIDTH} px, profil ${PROFIL}, médiane de ${PASSES} passe(s)`);
   for (const [k, v] of results) {
     console.log(`${k.padEnd(32)} ${String(median(v.ms)).padStart(6)} ms  GET ${v.calls}${v.dup.size ? `  DOUBLONS ${[...v.dup].join(", ")}` : ""}`);
+    for (const [route, d] of [...(details.get(k) ?? new Map())].sort((a, b) => median(b[1].ms) - median(a[1].ms))) {
+      console.log(`    ${route.padEnd(40)} ${String(median(d.ms)).padStart(6)} ms  ${median(d.ko)} Ko`);
+    }
   }
 }
 

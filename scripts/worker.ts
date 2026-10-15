@@ -35,13 +35,22 @@ async function runMaintenance() {
     const receiptsArchived = await archivePendingReceipts();
     const remindersSent = await sendDueReminders();
     const depositRemindersSent = await sendDueDepositReminders();
-    await syncObligations();
     const obligationEmails = await sendDueObligationEmails();
     console.log(
       `[worker] maintenance: expired=${expired} remindersScheduled=${scheduled} subscriptionsInvoices=${subscriptions} renewalReminders=${renewalReminders} actionReminders=${actionReminders} cardNotices=${cardNotices} pdfArchived=${pdfArchived} receiptsArchived=${receiptsArchived} remindersSent=${remindersSent} depositReminders=${depositRemindersSent} obligationEmails=${obligationEmails}`,
     );
   } catch (err) {
     console.error(`[worker] maintenance error`, err);
+  }
+}
+
+/** Obligations et Google Calendar : hors requête de l'interface (un GET n'attend jamais Google). */
+async function runObligationsSync() {
+  try {
+    const result = await syncObligations();
+    if (!result.skipped && !result.error) console.log(`[worker] obligations : agenda aligné (${result.upserted} ouvertes, ${result.deleted} retirées)`);
+  } catch (err) {
+    console.error("[worker] synchro des obligations en échec", err);
   }
 }
 
@@ -158,6 +167,7 @@ console.log(
   "[worker] Kouzia ERP worker démarré - outbox 30s + IMAP IDLE/poll 60s + Stripe et maintenance horaires",
 );
 void runOutbox();
+void runObligationsSync();
 void runImapIfDue();
 void runHourly();
 
@@ -186,6 +196,9 @@ const tasks = [
   }),
   cron.schedule("0 * * * *", () => {
     void runHourly();
+  }),
+  cron.schedule("*/15 * * * *", () => {
+    void runObligationsSync();
   }),
 ];
 

@@ -14,7 +14,7 @@ import {
   isGoogleCalendarConnected,
 } from "@/lib/google-calendar/oauth.js";
 import { formatGoogleApiError } from "@/lib/google-calendar/events.js";
-import { syncObligations } from "@/lib/obligations/obligation-service.js";
+import { syncObligations, syncObligationsApresModification } from "@/lib/obligations/obligation-service.js";
 
 export const googleCalendarRoutes: FastifyPluginAsync = async (app) => {
   app.get("/api/google/calendar/status", async (request, reply) => {
@@ -68,16 +68,9 @@ export const googleCalendarRoutes: FastifyPluginAsync = async (app) => {
     }
     try {
       await exchangeGoogleCode(q.code.trim());
-      const result = await syncObligations();
-      if (result.error) {
-        console.error("[google-calendar] sync after OAuth failed", result.error);
-        return reply.redirect(
-          `${base}&google=ok&upserted=0&syncError=1`,
-        );
-      }
-      return reply.redirect(
-        `${base}&google=ok&upserted=${result.upserted}&deleted=${result.deleted}`,
-      );
+      // Échéances ajoutées à l'agenda en arrière-plan : plusieurs appels Google par obligation, en série.
+      await syncObligationsApresModification();
+      return reply.redirect(`${base}&google=ok&sync=pending`);
     } catch (err) {
       console.error("[google-calendar] OAuth callback failed :", formatGoogleApiError(err));
       return reply.redirect(`${base}&google=error`);

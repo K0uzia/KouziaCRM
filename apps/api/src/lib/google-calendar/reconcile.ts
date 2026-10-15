@@ -24,6 +24,9 @@ export type ReconcileResult = {
  * Aligne les événements Google avec les obligations ouvertes
  * (ouverture de fenêtre + échéance / clôture).
  */
+/** Dernier échec journalisé : un échec qui se répète (worker toutes les 15 min) ne remplit pas le journal. */
+let dernierEchec: string | null = null;
+
 export async function reconcileObligationCalendarEvents(): Promise<ReconcileResult> {
   try {
     const calendar = await getAuthedCalendarClient();
@@ -91,11 +94,13 @@ export async function reconcileObligationCalendarEvents(): Promise<ReconcileResu
       deleted += 1;
     }
 
+    dernierEchec = null;
     return { upserted, deleted, skipped: false };
   } catch (err) {
     const message = formatGoogleApiError(err);
     // Reconnexion requise : déjà journalisée une fois au constat.
-    if (!(err instanceof GoogleReauthRequiredError)) console.error("[google-calendar] reconcile failed :", message);
+    if (!(err instanceof GoogleReauthRequiredError) && message !== dernierEchec) console.error("[google-calendar] reconcile failed :", message);
+    dernierEchec = message;
     return { upserted: 0, deleted: 0, skipped: false, error: message };
   }
 }

@@ -40,6 +40,7 @@ import {
   reconcileObligationCalendarEvents,
   removeObligationCalendarEvent,
 } from "@/lib/google-calendar/reconcile.js";
+import { planifierReconciliationGoogle } from "@/lib/obligations/google-sync-scheduler.js";
 
 const CFE_EXEMPTION_CA_CENTS = 500_000; // 5 000 €
 const BANK_DEDICATED_THRESHOLD_CENTS = 1_000_000; // 10 000 €
@@ -787,7 +788,11 @@ async function normalizeOpenUrssafDueDates(settings: CompanySettings) {
   }
 }
 
-export async function syncObligations(now = new Date()) {
+/**
+ * Obligations de la base alignées sur les réglages et la date (création des périodes, statut LATE ou PENDING,
+ * échéances). Base seulement : rapide, faite par le worker et après chaque modification.
+ */
+export async function syncObligationsLocal(now = new Date()) {
   const settings = await getCompanySettings();
   await purgeObligationsBeforeActivity(settings);
   await ensureUrssafObligation(settings, now);
@@ -818,8 +823,21 @@ export async function syncObligations(now = new Date()) {
     }
   }
 
-  // Régénère / aligne les événements Google sur toutes les échéances ouvertes.
+}
+
+/**
+ * Synchro complète, en attendant Google : worker et bouton « Synchroniser maintenant » seulement. Ailleurs,
+ * syncObligationsLocal puis planifierReconciliationGoogle (aucune requête n'attend Google).
+ */
+export async function syncObligations(now = new Date()) {
+  await syncObligationsLocal(now);
   return reconcileObligationCalendarEvents();
+}
+
+/** Après une modification : base alignée tout de suite, Google en arrière-plan. */
+export async function syncObligationsApresModification(now = new Date()) {
+  await syncObligationsLocal(now);
+  planifierReconciliationGoogle();
 }
 
 function toView(
@@ -870,8 +888,8 @@ async function detectBankThresholdAlert(): Promise<{
   };
 }
 
+/** Lecture seule : aucune écriture, aucun appel à Google (synchro par le worker et après chaque modification). */
 export async function listObligationsDashboard(now = new Date()): Promise<ObligationsDashboard> {
-  await syncObligations(now);
   const settings = await getCompanySettings();
   const links = resolveOfficialLinks(settings.officialLinks);
   const checklist = await getOrCreateChecklist();
@@ -1032,7 +1050,7 @@ export async function confirmObligation(id: string, now = new Date()) {
     });
   }
 
-  await reconcileObligationCalendarEvents();
+  planifierReconciliationGoogle();
 
   return { obligation: updated, next };
 }
@@ -1066,7 +1084,7 @@ export async function updateChecklist(
       data: { lastIncomeTaxDeclaredYear },
     });
     invalidateCompanySettingsCache();
-    await syncObligations();
+    await syncObligationsApresModification();
   }
 
   if (Object.keys(checklistPatch).length === 0) {
@@ -1079,7 +1097,7 @@ export async function updateChecklist(
   });
 
   if (checklistPatch.cfeInitialDeclaration === true) {
-    await syncObligations();
+    await syncObligationsApresModification();
   }
 
   return updated;

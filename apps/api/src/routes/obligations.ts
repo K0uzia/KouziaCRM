@@ -7,6 +7,7 @@ import { z } from "zod";
 import { requireAuth } from "@/lib/auth.js";
 import {
   confirmObligation,
+  getOrCreateChecklist,
   listObligationsDashboard,
   patchObligationAmount,
   updateChecklist,
@@ -151,8 +152,8 @@ export const obligationsRoutes: FastifyPluginAsync = async (app) => {
   app.get("/api/checklist", async (request, reply) => {
     await requireAuth(request, reply);
     if (reply.sent) return;
-    const dash = await listObligationsDashboard();
-    return dash.checklist;
+    // La checklist seule (avant : tout le tableau des obligations, synchro Google comprise).
+    return getOrCreateChecklist();
   });
 
   app.patch("/api/checklist", async (request, reply) => {
