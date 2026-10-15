@@ -3,6 +3,7 @@ import { lazy, Suspense, type ReactNode } from "react";
 import { useAuth } from "@/lib/auth";
 import { AppLayout } from "@/components/AppLayout";
 import { LoginPage } from "@/pages/LoginPage";
+import { fetchSettings } from "@/lib/settings-request";
 // Page d'accueil importée directement : chargée en lazy, elle passait par un Suspense dont React 19
 // retarde la révélation d'environ 300 ms (FALLBACK_THROTTLE_MS), données déjà arrivées.
 import { DashboardPage } from "@/pages/DashboardPage";
@@ -25,9 +26,12 @@ const DocumentDetailPage = lazy(() =>
 const PaymentsPage = lazy(() =>
   import("@/pages/PaymentsPage").then((m) => ({ default: m.PaymentsPage })),
 );
-const SettingsPage = lazy(() =>
-  import("@/pages/SettingsPage").then((m) => ({ default: m.SettingsPage })),
-);
+// Réglages : la lecture des réglages part en même temps que le fichier de la page (au lieu
+// d'attendre son chargement), puis la page reprend la même requête (settings-request).
+const SettingsPage = lazy(() => {
+  void fetchSettings().catch(() => undefined);
+  return import("@/pages/SettingsPage").then((m) => ({ default: m.SettingsPage }));
+});
 const ServicesPage = lazy(() =>
   import("@/pages/ServicesPage").then((m) => ({ default: m.ServicesPage })),
 );

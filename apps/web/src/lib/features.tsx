@@ -7,7 +7,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { api } from "@/lib/api";
+import { fetchSettings } from "@/lib/settings-request";
 import { useAuth } from "@/lib/auth";
 
 export type FeatureFlags = {
@@ -34,14 +34,14 @@ export function FeaturesProvider({ children }: { children: ReactNode }) {
   const [flags, setFlags] = useState<FeatureFlags>(DEFAULTS);
   const [loading, setLoading] = useState(true);
 
-  const refresh = useCallback(async () => {
+  const load = useCallback(async (force: boolean) => {
     if (!user) {
       setFlags(DEFAULTS);
       setLoading(false);
       return;
     }
     try {
-      const data = await api<Partial<FeatureFlags>>("/api/settings");
+      const data = await fetchSettings<Partial<FeatureFlags>>({ force });
       setFlags({
         moduleBankEnabled: data.moduleBankEnabled ?? DEFAULTS.moduleBankEnabled,
         moduleSubscriptionsEnabled:
@@ -54,10 +54,12 @@ export function FeaturesProvider({ children }: { children: ReactNode }) {
       setLoading(false);
     }
   }, [user]);
+  // Après un enregistrement : relecture forcée, jamais la réponse partagée d'avant.
+  const refresh = useCallback(() => load(true), [load]);
 
   useEffect(() => {
-    void refresh();
-  }, [refresh]);
+    void load(false);
+  }, [load]);
 
   const value = useMemo(
     () => ({ ...flags, loading, refresh }),
