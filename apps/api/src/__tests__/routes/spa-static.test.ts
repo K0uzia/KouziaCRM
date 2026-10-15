@@ -101,3 +101,15 @@ describe("SPA servie par l'API (production)", () => {
     expect(res.headers["cache-control"]).toBe("no-store");
   });
 });
+
+describe("en-têtes de sécurité sur toutes les réponses", () => {
+  it("Permissions-Policy coupe caméra, micro, géolocalisation et paiement ; rien d'indexable ; polices locales seulement", async () => {
+    for (const url of ["/", "/settings", "/api/health", "/api/inconnue"]) {
+      const res = await app.inject({ method: "GET", url });
+      expect(res.headers["permissions-policy"], url).toBe("camera=(), microphone=(), geolocation=(), payment=()");
+      expect(res.headers["x-robots-tag"], url).toBe("noindex, nofollow");
+    }
+    const csp = String((await app.inject({ method: "GET", url: "/" })).headers["content-security-policy"]);
+    expect(csp).toMatch(/font-src 'self' data:(;|$)/);
+  });
+});

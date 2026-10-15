@@ -107,7 +107,8 @@ export async function buildApp(opts: BuildAppOptions = {}): Promise<FastifyInsta
         scriptSrc: ["'self'"],
         styleSrc: ["'self'", "'unsafe-inline'"],
         imgSrc: ["'self'", "data:", "blob:", "https:"],
-        fontSrc: ["'self'", "data:", "https:"],
+        // Polices locales seulement (aucune police de CDN, charte).
+        fontSrc: ["'self'", "data:"],
         frameSrc: ["'self'", "blob:", "data:"],
         connectSrc: [
           "'self'",
@@ -157,8 +158,11 @@ export async function buildApp(opts: BuildAppOptions = {}): Promise<FastifyInsta
   await app.register(originGuardPlugin);
 
   // Réponses de l'API jamais mises en cache, sauf en-tête posé par la route (médias du site).
+  // Toutes les réponses : fonctions sensibles du navigateur coupées, rien d'indexable (admin et API).
   app.addHook("onSend", async (request, reply, payload) => {
     if (request.url.startsWith("/api/") && !reply.hasHeader("cache-control")) reply.header("Cache-Control", "no-store");
+    reply.header("Permissions-Policy", "camera=(), microphone=(), geolocation=(), payment=()");
+    reply.header("X-Robots-Tag", "noindex, nofollow");
     return payload;
   });
 
