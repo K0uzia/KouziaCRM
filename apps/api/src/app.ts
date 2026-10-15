@@ -36,6 +36,7 @@ import { pushRoutes } from "@/routes/push.js";
 import { googleCalendarRoutes } from "@/routes/google-calendar.js";
 import { RATE_LIMITED, registerErrorHandler, setJsonSerializer } from "@/lib/http.js";
 import { logSerializers } from "@/lib/log-redact.js";
+import { registerInputGuards } from "@/lib/http-input.js";
 import { ensureDefaultLegalClauses } from "@/lib/company/legal-clauses.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -156,6 +157,7 @@ export async function buildApp(opts: BuildAppOptions = {}): Promise<FastifyInsta
   });
 
   await app.register(originGuardPlugin);
+  registerInputGuards(app);
 
   // Réponses de l'API jamais mises en cache, sauf en-tête posé par la route (médias du site).
   // Toutes les réponses : fonctions sensibles du navigateur coupées, rien d'indexable (admin et API).

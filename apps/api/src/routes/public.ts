@@ -187,6 +187,18 @@ async function subscriptionSetupUrlOf(quoteId: string): Promise<{ subscriptionSe
   return { subscriptionSetupUrl: buildPayUrl("subscribe", sub.id) };
 }
 
+/**
+ * Délai minimal de saisie du formulaire /nouveau-client (anti-robot, côté serveur) : premier affichage
+ * du lien noté en mémoire ; un envoi moins de 3 s après est traité comme le honeypot (fausse réussite).
+ * Sans affichage noté (redémarrage), l'envoi passe.
+ */
+export const FORM_MIN_FILL_MS = 3_000;
+const formShownAt = new Map<string, number>();
+function noteFormShown(token: string, now = Date.now()) {
+  if (formShownAt.size > 5_000) formShownAt.clear();
+  if (!formShownAt.has(token)) formShownAt.set(token, now);
+}
+
 export const publicRoutes: FastifyPluginAsync = async (app) => {
   // fetch(…, { headers: { "Content-Type": "application/json" } }) sans corps (déconnexion) :
   // Fastify refuse un JSON vide (400) avant la route, la session resterait ouverte. Corps vide = pas de corps.
@@ -851,11 +863,12 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
       },
     },
     async (request, reply) => {
-      const q = request.query as { token?: string };
-      const token = (q.token ?? "").trim();
+      const q = z.object({ token: z.string().trim().max(512).default("") }).safeParse(request.query);
+      const token = q.success ? q.data.token : "";
       if (!token) return reply.code(400).send({ error: "Token requis" });
       const view = await getPublicClientPreview(token);
       if (!view) return reply.code(404).send({ error: "Lien invalide ou expiré" });
+      noteFormShown(token);
       // Log technique uniquement (pas de PII)
       request.log.info({
         event: "public_client_preview",
@@ -897,13 +910,14 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
         });
         return reply.code(201).send({ ok: true });
       }
-      const token =
-        parsed.data.token?.trim() ||
-        (typeof (request.body as { token?: string })?.token === "string"
-          ? (request.body as { token: string }).token
-          : "");
+      const token = parsed.data.token?.trim() ?? "";
       if (!token) {
         return reply.code(400).send({ error: "Token requis" });
+      }
+      const shownAt = formShownAt.get(token);
+      if (shownAt !== undefined && Date.now() - shownAt < FORM_MIN_FILL_MS) {
+        request.log.info({ event: "public_client_submit", status: 201, ipTrunc: truncateIp(request.ip), reason: "trop_rapide" });
+        return reply.code(201).send({ ok: true });
       }
 
       const { website: _h, token: _t, ...data } = parsed.data;
