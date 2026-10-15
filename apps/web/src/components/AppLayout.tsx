@@ -15,6 +15,7 @@ import { useAuth } from "@/lib/auth";
 const loadCommandPalette = () => import("@/components/CommandPalette");
 const CommandPalette = lazy(() => loadCommandPalette().then((m) => ({ default: m.CommandPalette })));
 import { NotificationBell } from "@/components/NotificationBell";
+import { PageErrorBoundary } from "@/components/PageErrorBoundary";
 import { NotificationsProvider } from "@/lib/notifications";
 import { MoreMenu } from "@/components/ui/MoreMenu";
 import { useNewMailAlert } from "@/hooks/useNewMailAlert";
@@ -451,7 +452,9 @@ export function AppLayout() {
                 : "mx-auto w-full max-w-[90rem] min-w-0 px-[var(--gutter)] py-5 lg:py-7"
             }
           >
-            <Outlet />
+            <PageErrorBoundary resetKey={pathname}>
+              <Outlet />
+            </PageErrorBoundary>
           </div>
         </main>
 

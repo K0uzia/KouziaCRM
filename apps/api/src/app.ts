@@ -38,6 +38,9 @@ import { ensureDefaultLegalClauses } from "@/lib/company/legal-clauses.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
+/** Fichier produit par Vite dans /assets, au nom hashé : son contenu ne change jamais. */
+const isHashedAsset = (filePath: string) => /[\\/]assets[\\/][^\\/]+$/.test(filePath);
+
 export type BuildAppOptions = {
   /** Désactive les logs (tests). Défaut false. */
   silent?: boolean;
@@ -146,6 +149,12 @@ export async function buildApp(opts: BuildAppOptions = {}): Promise<FastifyInsta
 
   await app.register(originGuardPlugin);
 
+  // Réponses de l'API jamais mises en cache, sauf en-tête posé par la route (médias du site).
+  app.addHook("onSend", async (request, reply, payload) => {
+    if (request.url.startsWith("/api/") && !reply.hasHeader("cache-control")) reply.header("Cache-Control", "no-store");
+    return payload;
+  });
+
   await ensureDefaultLegalClauses();
 
   await app.register(authRoutes);
@@ -185,9 +194,18 @@ export async function buildApp(opts: BuildAppOptions = {}): Promise<FastifyInsta
       await app.register(fastifyStatic, {
         root: webDist,
         wildcard: false,
+        cacheControl: false,
+        // Fichiers hashés de /assets : un an, immuables. Le reste (index.html, sw.js, manifeste) est
+        // revalidé à chaque chargement, pour qu'une mise à jour soit prise tout de suite.
+        setHeaders: (reply, filePath) => {
+          reply.header("Cache-Control", isHashedAsset(filePath) ? "public, max-age=31536000, immutable" : "no-cache");
+        },
       });
       app.setNotFoundHandler((request, reply) => {
-        if (request.url.startsWith("/api/")) {
+        const pathname = request.url.split("?")[0]!;
+        // Un fichier absent (ancien chunk après une mise à jour) répond 404 : servi à sa place,
+        // index.html ferait échouer l'import du module sans erreur exploitable par la SPA.
+        if (pathname.startsWith("/api/") || pathname.startsWith("/assets/") || /\.[a-z0-9]+$/i.test(pathname)) {
           return reply.code(404).send({ error: "Not found" });
         }
         return reply.sendFile("index.html");
