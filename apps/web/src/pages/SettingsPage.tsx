@@ -19,6 +19,7 @@ import {
   type SettingsTabId,
 } from "@/pages/settings/types";
 import { useFeatures } from "@/lib/features";
+import { fetchSettings } from "@/lib/settings-request";
 
 type Checklist = {
   id: string;
@@ -158,7 +159,7 @@ export function SettingsPage() {
   }, [form?.moduleStripeEnabled]);
   const [testEmailTo, setTestEmailTo] = useState("");
   const [checklist, setChecklist] = useState<Checklist | null>(null);
-  const [clauses, setClauses] = useState<LegalClause[]>([]);
+  const [clauses, setClauses] = useState<LegalClause[] | null>(null);
   const [previews, setPreviews] = useState<NumberingPreview[]>([]);
   const [audit, setAudit] = useState<NumberingAudit | null>(null);
   const [busy, setBusy] = useState(false);
@@ -192,24 +193,22 @@ export function SettingsPage() {
   const d = form?.emailDefaults;
 
   async function load() {
-    const [s, c, cl, prev] = await Promise.all([
-      api<PublicSettings>("/api/settings"),
-      api<Checklist>("/api/checklist"),
-      api<LegalClause[]>("/api/legal-clauses"),
-      api<{ previews: NumberingPreview[] }>("/api/numbering/preview"),
-    ]);
+    // Le formulaire s'affiche dès l'arrivée des réglages : liste de contrôle, clauses, aperçus de
+    // numérotation et Google Agenda (autres onglets) arrivent en parallèle sans retenir la page.
+    const fail = (e: Error) => toast.error(e.message, { id: "settings-load" });
+    api<Checklist>("/api/checklist").then(setChecklist).catch(fail);
+    api<LegalClause[]>("/api/legal-clauses").then(setClauses).catch(fail);
+    api<{ previews: NumberingPreview[] }>("/api/numbering/preview").then((p) => setPreviews(p.previews)).catch(fail);
+    void loadGoogleStatus();
+    const s = await fetchSettings<PublicSettings>();
     setSettings(s);
     setForm(withTwoDepositMilestones(s));
-    setChecklist(c);
-    setClauses(cl);
-    setPreviews(prev.previews);
     setInpiQuery(s.inpiUrl || s.siren || "");
     setTestEmailTo(s.email || "");
     setSmtpPass("");
     setImapPass("");
     setStripeKey("");
     setStripeWebhook("");
-    void loadGoogleStatus();
   }
 
   async function loadGoogleStatus() {
@@ -2095,8 +2094,9 @@ export function SettingsPage() {
                   Ajouter
                 </Button>
               </div>
-              <Card className="divide-y divide-[var(--border)] border border-[var(--border)]">
-                {clauses.map((c) => (
+              <Card className="divide-y divide-[var(--border)] border border-[var(--border)]" aria-busy={clauses === null || undefined}>
+                {clauses === null ? <p className="p-4 text-sm text-[var(--muted)]">Chargement des clauses…</p> : null}
+                {(clauses ?? []).map((c) => (
                   <div key={c.id} className="flex flex-col gap-3 p-4 sm:flex-row sm:items-start sm:justify-between">
                     <div className="min-w-0 flex-1">
                       <p className="text-sm font-medium">
