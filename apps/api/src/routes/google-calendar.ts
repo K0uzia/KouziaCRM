@@ -52,7 +52,7 @@ export const googleCalendarRoutes: FastifyPluginAsync = async (app) => {
    * Après échange du code : régénère les obligations (toutes les dates de
    * déclaration) puis crée / met à jour les événements Google avant redirect.
    */
-  app.get("/api/google/calendar/callback", async (request, reply) => {
+  app.get("/api/google/calendar/callback", { config: { rateLimit: { max: 20, timeWindow: "15 minutes" } } }, async (request, reply) => {
     const q = request.query as { code?: string; error?: string; state?: string };
     const origin = verifyOAuthState(q.state);
     if (!origin) {

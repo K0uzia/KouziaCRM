@@ -72,6 +72,9 @@ export function registerClientIpHook(app: FastifyInstance, list: BlockList | nul
       // Le Host d'origine arrive tel quel par cloudflared ; un X-Forwarded-Host viendrait du client.
       delete headers["x-forwarded-host"];
       request.viaTunnel = true;
+    } else {
+      // Proxy de confiance sans CF-Connecting-IP : un X-Forwarded-For présent viendrait du client.
+      delete headers["x-forwarded-for"];
     }
   });
 }

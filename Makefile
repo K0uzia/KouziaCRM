@@ -19,6 +19,7 @@ mailpit-stop:
 
 dev:
 	@node scripts/dev.mjs --check-ports
+	@node scripts/check-deps.mjs
 	@$(MAKE) --no-print-directory db-deploy
 	@$(MAKE) --no-print-directory mailpit
 	@echo API : http://127.0.0.1:3001
@@ -30,6 +31,7 @@ dev:
 # Comme dev, admin ouverte au téléphone du réseau local (adresse affichée au démarrage).
 dev-lan:
 	@node scripts/dev.mjs --check-ports
+	@node scripts/check-deps.mjs
 	@$(MAKE) --no-print-directory db-deploy
 	@$(MAKE) --no-print-directory mailpit
 	npm run dev -- --lan

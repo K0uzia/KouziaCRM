@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { outboxPayloadRaw } from "@/lib/privacy/at-rest.js";
 import { prisma } from "@/lib/prisma.js";
 import { encrypt } from "@/lib/crypto.js";
 import { resetDb } from "../../helpers/db.js";
@@ -57,7 +58,7 @@ describe("reçu de paiement", () => {
     const res = await sendPaymentReceipt(inv.id, 119000);
     expect(res.sent).toBe(true);
     const row = await prisma.emailOutbox.findFirstOrThrow();
-    const payload = parsePayload(row.payload);
+    const payload = parsePayload(outboxPayloadRaw(row));
     expect(payload.to).toBe("lou@example.test");
     expect(payload.subject).toBe(`Paiement reçu : facture ${inv.number} réglée`);
     expect(payload.text).toContain("1 190,00 €");
@@ -74,7 +75,7 @@ describe("reçu de paiement", () => {
       data: { invoiceId: inv.id, amountCents: 50000, paidAt: new Date(), method: "BANK_TRANSFER" },
     });
     await sendPaymentReceipt(inv.id, 50000);
-    const payload = parsePayload((await prisma.emailOutbox.findFirstOrThrow()).payload);
+    const payload = parsePayload(outboxPayloadRaw(await prisma.emailOutbox.findFirstOrThrow()));
     expect(payload.text).toContain("Il reste 690,00 € à régler");
   });
 });

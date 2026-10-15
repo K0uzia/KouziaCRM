@@ -1,4 +1,5 @@
 import { createHmac, randomUUID, timingSafeEqual } from "node:crypto";
+import { requireEnv } from "@/lib/env.js";
 
 export type OnboardingTokenPayload = {
   jti: string;
@@ -8,6 +9,7 @@ export type OnboardingTokenPayload = {
 };
 
 function hmacSecret(): string {
+  if (process.env.NODE_ENV === "production") return requireEnv("ONBOARDING_HMAC_SECRET").trim();
   const s =
     process.env.ONBOARDING_HMAC_SECRET?.trim() ||
     process.env.SESSION_SECRET?.trim() ||

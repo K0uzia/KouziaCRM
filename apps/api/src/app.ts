@@ -35,6 +35,8 @@ import { notificationsRoutes } from "@/routes/notifications.js";
 import { pushRoutes } from "@/routes/push.js";
 import { googleCalendarRoutes } from "@/routes/google-calendar.js";
 import { RATE_LIMITED, registerErrorHandler, setJsonSerializer } from "@/lib/http.js";
+import { logSerializers } from "@/lib/log-redact.js";
+import { registerInputGuards } from "@/lib/http-input.js";
 import { ensureDefaultLegalClauses } from "@/lib/company/legal-clauses.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -47,6 +49,8 @@ export type BuildAppOptions = {
   silent?: boolean;
   /** Sert le build web statique (prod). Défaut true en production. */
   serveStatic?: boolean;
+  /** Flux du journal (tests : lecture des lignes écrites). Défaut : sortie standard. */
+  logStream?: { write(line: string): void };
 };
 
 export async function buildApp(opts: BuildAppOptions = {}): Promise<FastifyInstance> {
@@ -68,6 +72,9 @@ export async function buildApp(opts: BuildAppOptions = {}): Promise<FastifyInsta
             ],
             censor: "[redacted]",
           },
+          // URL journalisée sans jeton (liens publics, ?code= OAuth) : voir log-redact.ts.
+          serializers: logSerializers,
+          ...(opts.logStream ? { stream: opts.logStream } : {}),
         },
     trustProxy: trustProxyFn(trustedProxies),
     // Les tokens PDF publics (base64url(payload).base64url(sig)) dépassent le défaut 100.
@@ -101,7 +108,8 @@ export async function buildApp(opts: BuildAppOptions = {}): Promise<FastifyInsta
         scriptSrc: ["'self'"],
         styleSrc: ["'self'", "'unsafe-inline'"],
         imgSrc: ["'self'", "data:", "blob:", "https:"],
-        fontSrc: ["'self'", "data:", "https:"],
+        // Polices locales seulement (aucune police de CDN, charte).
+        fontSrc: ["'self'", "data:"],
         frameSrc: ["'self'", "blob:", "data:"],
         connectSrc: [
           "'self'",
@@ -149,10 +157,14 @@ export async function buildApp(opts: BuildAppOptions = {}): Promise<FastifyInsta
   });
 
   await app.register(originGuardPlugin);
+  registerInputGuards(app);
 
   // Réponses de l'API jamais mises en cache, sauf en-tête posé par la route (médias du site).
+  // Toutes les réponses : fonctions sensibles du navigateur coupées, rien d'indexable (admin et API).
   app.addHook("onSend", async (request, reply, payload) => {
     if (request.url.startsWith("/api/") && !reply.hasHeader("cache-control")) reply.header("Cache-Control", "no-store");
+    reply.header("Permissions-Policy", "camera=(), microphone=(), geolocation=(), payment=()");
+    reply.header("X-Robots-Tag", "noindex, nofollow");
     return payload;
   });
 
@@ -182,7 +194,8 @@ export async function buildApp(opts: BuildAppOptions = {}): Promise<FastifyInsta
   await app.register(siteRoutes);
 
   // pendingMigrations > 0 : base en retard sur le code (contrôle d'après déploiement).
-  app.get("/api/health", async () => ({ ok: true, pendingMigrations: pendingMigrationCount() }));
+  // Par le tunnel : état seulement (l'avance des migrations ne regarde que le LAN, kouziactl compris).
+  app.get("/api/health", async (request) => (request.viaTunnel ? { ok: true } : { ok: true, pendingMigrations: pendingMigrationCount() }));
 
   let spaServed = false;
   if (opts.serveStatic !== false) {

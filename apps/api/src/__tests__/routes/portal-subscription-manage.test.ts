@@ -1,4 +1,5 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { outboxPayloadRaw } from "@/lib/privacy/at-rest.js";
 import type { FastifyInstance } from "fastify";
 import { SubscriptionCollectionMethod, SubscriptionStatus } from "@prisma/client";
 import { prisma } from "@/lib/prisma.js";
@@ -50,7 +51,7 @@ afterEach(async () => {
 
 async function outboxSubjects(to?: string): Promise<string[]> {
   const rows = await prisma.emailOutbox.findMany({ orderBy: { createdAt: "asc" } });
-  return rows.map((r) => parsePayload(r.payload)).filter((p) => !to || p.to === to).map((p) => p.subject);
+  return rows.map((r) => parsePayload(outboxPayloadRaw(r))).filter((p) => !to || p.to === to).map((p) => p.subject);
 }
 
 async function login(email = EMAIL) {

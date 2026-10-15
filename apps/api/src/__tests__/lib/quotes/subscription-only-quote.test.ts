@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { outboxPayloadRaw } from "@/lib/privacy/at-rest.js";
 import {
   InvoiceDocumentType,
   InvoiceStatus,
@@ -76,7 +77,7 @@ async function quoteWith(lines: Line[]) {
 }
 
 const outbox = async (kind: string) =>
-  (await prisma.emailOutbox.findMany()).map((r) => parsePayload(r.payload)).filter((p) => p.kind === kind);
+  (await prisma.emailOutbox.findMany()).map((r) => parsePayload(outboxPayloadRaw(r))).filter((p) => p.kind === kind);
 
 describe("devis d'abonnement seul", () => {
   it("émis sans échéancier ni acompte (offre NONE), même en lecture ultérieure des jalons", async () => {

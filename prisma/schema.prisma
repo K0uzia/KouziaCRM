@@ -260,6 +260,8 @@ model Session {
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   expiresAt DateTime
   createdAt DateTime @default(now())
+  /// Dernière requête authentifiée : session close après 24 h d'inactivité (null : session antérieure)
+  lastSeenAt DateTime?
 
   @@index([userId])
   @@index([expiresAt])
@@ -802,7 +804,10 @@ model ClientEmailEvent {
   client         Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
   kind           String
   subject        String
+  /// Ancienne colonne en clair : "" pour toute ligne écrite ou recopiée depuis le chiffrement
   toAddress      String
+  /// Adresse du destinataire, chiffrée (lecture : toAddressEncrypted, à défaut toAddress)
+  toAddressEncrypted String?
   documentId     String?
   documentNumber String?
   success        Boolean  @default(true)
@@ -822,8 +827,10 @@ model ClientEmailEvent {
 /// existingClientId renseigné = mise à jour du client existant.
 model OnboardingInvitation {
   id               String    @id @default(cuid())
-  /// Email de destination de l'invitation
+  /// Email de destination de l'invitation (ancienne colonne en clair : "" depuis le chiffrement)
   email            String
+  /// Email de destination, chiffré (lecture : emailEncrypted, à défaut email)
+  emailEncrypted   String?
   /// Token secret du lien /onboarding/:token (legacy hex) ou jti HMAC
   token            String    @unique
   /// Identifiant unique pour idempotence HMAC (UUID)
@@ -1329,8 +1336,11 @@ model EmailOutbox {
   scheduledAt DateTime          @default(now())
   sentAt      DateTime?
   lastError   String?
-  /// JSON : to, subject, text, html, headers, attachments, clientId, documentId, threadId, kind
+  /// JSON : to, subject, text, html, headers, attachments, clientId, documentId, threadId, kind.
+  /// Ancienne colonne en clair : "" depuis le chiffrement (lecture : payloadEncrypted, à défaut payload)
   payload     String
+  /// Même JSON, chiffré ; vidé (avec payload) 30 jours après l'envoi, la ligne reste
+  payloadEncrypted String?
   createdAt   DateTime          @default(now())
   updatedAt   DateTime          @updatedAt
 

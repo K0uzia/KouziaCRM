@@ -176,6 +176,20 @@ else
   ok "front inchangé : skip build SPA"
 fi
 
+# Secret des liens d'invitation : obligatoire en production (l'API refuse de démarrer sans). Absent ou
+# encore à une valeur d'exemple « change-me… » : généré comme à l'installation, jamais une vraie valeur remplacée.
+ENV_PATH="${KOUZIA_APP_DIR}/.env"
+if [[ -f "$ENV_PATH" ]]; then
+  hmac_current="$(grep -E '^ONBOARDING_HMAC_SECRET=' "$ENV_PATH" | tail -1 | cut -d= -f2- | tr -d '"' | tr -d '[:space:]' || true)"
+  if [[ -z "$hmac_current" ]] || [[ "${hmac_current,,}" == change-me* ]]; then
+    sed -i '/^ONBOARDING_HMAC_SECRET=/d' "$ENV_PATH"
+    printf 'ONBOARDING_HMAC_SECRET="%s"\n' "$(openssl rand -hex 32)" >> "$ENV_PATH"
+    chown "${KOUZIA_USER}:${KOUZIA_GROUP}" "$ENV_PATH" 2>/dev/null || true
+    chmod 640 "$ENV_PATH"
+    ok "ONBOARDING_HMAC_SECRET absent du .env : généré (les liens d'invitation déjà envoyés sont à renvoyer)."
+  fi
+fi
+
 # --- 6. Restart + health ---
 install_kouziactl_link "${KOUZIA_APP_DIR}/scripts/alpine/kouziactl" /usr/local/bin/kouziactl
 # Pile déjà arrêtée (étape 2) par les scripts en place : les nouveaux sont copiés avant le démarrage.

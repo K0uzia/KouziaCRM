@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { outboxPayloadRaw } from "@/lib/privacy/at-rest.js";
 import { prisma } from "@/lib/prisma.js";
 import { invalidateCompanySettingsCache } from "@/lib/company.js";
 import { encrypt } from "@/lib/crypto.js";
@@ -41,7 +42,7 @@ async function projectFor(email: string | null = "lou@example.test") {
 }
 
 const invites = async () =>
-  (await prisma.emailOutbox.findMany()).map((r) => parsePayload(r.payload)).filter((p) => p.kind === "review_invite");
+  (await prisma.emailOutbox.findMany()).map((r) => parsePayload(outboxPayloadRaw(r))).filter((p) => p.kind === "review_invite");
 
 describe("invitation à laisser un avis", () => {
   it("envoie un e-mail au passage à DONE, une seule fois par projet", async () => {

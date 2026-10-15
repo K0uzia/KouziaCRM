@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { FastifyInstance } from "fastify";
 import { prisma } from "@/lib/prisma.js";
 import { createOnboardingToken } from "@/lib/clients/onboarding-token.js";
@@ -40,6 +40,22 @@ const body = (token: string, extra: Record<string, unknown> = {}) => ({
 });
 
 describe("POST /api/public/clients", () => {
+  it("envoyé moins de 3 s après l'affichage du formulaire : traité comme un robot ; au-delà, accepté", async () => {
+    const { token, jti } = await invite();
+    const t0 = Date.now();
+    const now = vi.spyOn(Date, "now").mockReturnValue(t0);
+    expect((await app.inject({ method: "GET", url: `/api/public/clients/preview?token=${encodeURIComponent(token)}` })).statusCode).toBe(200);
+    now.mockReturnValue(t0 + 1_000);
+    const fast = await app.inject({ method: "POST", url: "/api/public/clients", payload: body(token) });
+    expect(fast.statusCode).toBe(201);
+    expect(await prisma.client.count()).toBe(0);
+    expect((await prisma.onboardingInvitation.findUniqueOrThrow({ where: { jti } })).usedAt).toBeNull();
+    now.mockReturnValue(t0 + 4_000);
+    expect((await app.inject({ method: "POST", url: "/api/public/clients", payload: body(token) })).statusCode).toBe(201);
+    expect(await prisma.client.count()).toBe(1);
+    now.mockRestore();
+  });
+
   it("honeypot rempli : 201 factice, aucun client créé, invitation intacte", async () => {
     const { token, jti } = await invite();
     const res = await app.inject({

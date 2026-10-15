@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { outboxPayloadRaw } from "@/lib/privacy/at-rest.js";
 import type { FastifyInstance } from "fastify";
 import { prisma } from "@/lib/prisma.js";
 import { encrypt } from "@/lib/crypto.js";
@@ -48,7 +49,7 @@ async function login(): Promise<string> {
   await app.inject({ method: "POST", url: "/api/public/auth/code", headers: { origin: SITE }, payload: { email: EMAIL } });
   for (let i = 0; i < 50 && (await prisma.emailOutbox.count()) < 1; i++) await new Promise((ok) => setTimeout(ok, 20));
   const row = await prisma.emailOutbox.findFirstOrThrow({ orderBy: { createdAt: "desc" } });
-  const code = parsePayload(row.payload).subject.match(/^(\d{6}) /)![1];
+  const code = parsePayload(outboxPayloadRaw(row)).subject.match(/^(\d{6}) /)![1];
   const res = await app.inject({
     method: "POST",
     url: "/api/public/auth/verify",

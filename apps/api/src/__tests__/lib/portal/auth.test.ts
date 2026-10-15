@@ -1,4 +1,5 @@
 import fs from "node:fs/promises";
+import { outboxPayloadRaw } from "@/lib/privacy/at-rest.js";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { FastifyInstance } from "fastify";
 import { InvoiceDocumentType, InvoiceStatus } from "@prisma/client";
@@ -63,7 +64,7 @@ async function clientWithEmail() {
 /** Dernier code envoyé : 6 chiffres en tête du sujet de l'e-mail. */
 async function lastSentCode(): Promise<string> {
   const row = await prisma.emailOutbox.findFirstOrThrow({ orderBy: { createdAt: "desc" } });
-  const code = parsePayload(row.payload).subject.match(/^(\d{6}) /)?.[1];
+  const code = parsePayload(outboxPayloadRaw(row)).subject.match(/^(\d{6}) /)?.[1];
   if (!code) throw new Error("Aucun code dans le dernier e-mail");
   return code;
 }
@@ -229,7 +230,7 @@ describe("connexion à l'espace client", () => {
     await clientWithEmail();
     const alertes = async () =>
       (await prisma.emailOutbox.findMany()).filter((r) =>
-        parsePayload(r.payload).subject.startsWith("Nouvelle connexion"),
+        parsePayload(outboxPayloadRaw(r)).subject.startsWith("Nouvelle connexion"),
       ).length;
 
     const premiere = await login();

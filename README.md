@@ -480,14 +480,35 @@ docker compose start app worker
 - Sessions **serveur** (table `Session`) + cookie `httpOnly` / `SameSite=Lax`
 - Mots de passe **argon2id** (migration auto depuis bcrypt au login)
 - Rate-limit login, Helmet, contrôle Origin sur mutations
-- PII clients (email / téléphone / SIRET) : AES-256-GCM (`ENCRYPTION_KEY`)
+- PII clients (email / téléphone / SIRET) : AES-256-GCM (`ENCRYPTION_KEY`), ainsi que l'adresse du journal des e-mails envoyés, celle des invitations et le contenu de la file d'envoi (migration 20261109090000 ; recopie chiffrée des lignes antérieures par le worker, suspendue sans rien vider si la clé est absente ou différente de celle des données)
+
+- Choix assumés (audit d'octobre 2026) :
+  - CSP `img-src` garde `https:` : la messagerie affiche les images distantes des e-mails reçus (option pour les bloquer par message). Risque accepté : un pixel de suivi d'un expéditeur peut savoir qu'un message a été ouvert. `font-src` est limité aux polices locales.
+  - Par le tunnel, sans double authentification activée, un mot de passe juste reçoit le refus explicite « activez la double authentification » (403) : il confirme que le mot de passe est bon, mais la connexion reste impossible sans 2FA. Risque jugé faible, gardé pour la clarté.
+- `ONBOARDING_HMAC_SECRET` : obligatoire en production ; `kouziactl update` le génère s'il est absent ou vaut encore une valeur d'exemple (ligne dans le journal de la mise à jour).
+
+### Conservation des données (RGPD)
+
+Purge par le worker, chaque heure (`apps/api/src/lib/privacy/retention.ts`). Les pièces comptables
+(devis, factures, avoirs, paiements) et les clients qui en ont ne sont jamais supprimés.
+
+| Donnée | Durée | Ce qui part |
+|--------|-------|-------------|
+| Prospect sans suite | 3 ans après le dernier contact (référentiel CNIL) | La fiche, seulement sans aucun document (même brouillon), abonnement, projet, avis ni témoignage, et sans e-mail ni fil de messagerie depuis 3 ans |
+| Invitation (`/nouveau-client`) | 30 jours après son expiration ou son utilisation | La ligne |
+| File d'envoi des e-mails | 30 jours après l'envoi | Le contenu (destinataire, texte, pièces jointes) ; la ligne reste (date, état) |
+| Journal des e-mails envoyés à un client | 1 an | La ligne |
+| Session admin | 7 jours au plus, 24 h sans activité | La ligne |
+| Espace client | Codes : 1 jour après expiration ; sessions : 1 an après leur fin (journal des connexions) | Les lignes |
+| Preuve d'accord d'un témoignage | 3 ans après retrait ou écartement | L'IP et le navigateur |
+| Messagerie (`EmailMessage`) | Aucune purge propre | Miroir de la boîte IMAP : un message supprimé de la boîte disparaît de l'ERP à la synchronisation |
 
 ## Makefile
 
 | Commande | Description |
 |----------|-------------|
 | `make setup` | `.env`, install, migrations, seed |
-| `make dev` | Mailpit + API + Vite en parallèle |
+| `make dev` | Ports libres, dépendances conformes au lockfile (sinon `npm ci` automatique, jamais `npm install`), migrations, puis Mailpit + API + Vite en parallèle |
 | `make mailpit` / `make mailpit-stop` | SMTP catcher local (UI :8025) |
 | `make app` | Build web + API qui sert la SPA |
 | `make worker` | Worker : IMAP en IDLE avec repli chaque minute, file des e-mails, tâches planifiées |

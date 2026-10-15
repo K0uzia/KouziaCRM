@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { outboxPayloadRaw } from "@/lib/privacy/at-rest.js";
 import { InvoiceDocumentType, InvoiceStatus, SubscriptionCollectionMethod } from "@prisma/client";
 import { prisma } from "@/lib/prisma.js";
 import { encrypt } from "@/lib/crypto.js";
@@ -64,7 +65,7 @@ async function mixedQuote(
 }
 
 const outbox = async (kind: string) =>
-  (await prisma.emailOutbox.findMany()).map((r) => parsePayload(r.payload)).filter((p) => p.kind === kind);
+  (await prisma.emailOutbox.findMany()).map((r) => parsePayload(outboxPayloadRaw(r))).filter((p) => p.kind === kind);
 
 describe("base de l'acompte (partie ponctuelle)", () => {
   it("lignes hors abonnement, remise répartie au prorata", () => {

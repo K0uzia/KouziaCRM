@@ -67,6 +67,20 @@ describe("request.ip derrière le tunnel", () => {
     expect(res.json()).toEqual({ ip: "192.168.1.50" });
   });
 
+  it("proxy de confiance sans CF-Connecting-IP : X-Forwarded-For supprimé, l'IP est celle du socket", async () => {
+    const a = await appWith("true");
+    const res = await a.inject({ method: "GET", url: "/__ip", remoteAddress: "127.0.0.1", headers: { host: "erp.kouzia.test", "x-forwarded-for": "203.0.113.7" } });
+    expect(res.json()).toEqual({ ip: "127.0.0.1" });
+  });
+
+  it("/api/health : avance des migrations en LAN seulement, jamais par le tunnel", async () => {
+    const a = await appWith("true");
+    const lan = await a.inject({ method: "GET", url: "/api/health", remoteAddress: "127.0.0.1", headers: { host: "127.0.0.1:3000" } });
+    expect(lan.json()).toHaveProperty("pendingMigrations");
+    const tunnel = await a.inject({ method: "GET", url: "/api/health", remoteAddress: "127.0.0.1", headers: { host: "erp.kouzia.test", "cf-connecting-ip": "198.51.100.23" } });
+    expect(tunnel.json()).toEqual({ ok: true });
+  });
+
   it("un X-Forwarded-For inventé ne crée pas de nouveau compteur de limite de débit", async () => {
     const a = await appWith("true");
     const remaining: string[] = [];

@@ -7,14 +7,14 @@ import { computeEmailHash } from "@/lib/clients/email-hash.js";
 
 /**
  * Espace client : connexion par code à 6 chiffres envoyé par e-mail, puis appareil
- * reconnu 15 jours. Le même mécanisme de code confirme chaque signature de devis.
+ * reconnu 7 jours. Le même mécanisme de code confirme chaque signature de devis.
  */
 
 export const CODE_TTL_MS = 15 * 60_000;
 export const CODE_MAX_ATTEMPTS = 5;
 /** Codes envoyés au plus par client, par usage et par heure (anti-harcèlement). */
 export const CODE_MAX_PER_HOUR = 5;
-export const SESSION_TTL_MS = 15 * 86_400_000;
+export const SESSION_TTL_MS = 7 * 86_400_000;
 
 export const PORTAL_COOKIE = "kz_portal";
 export const DEVICE_COOKIE = "kz_device";
@@ -197,11 +197,12 @@ export function deviceIdOf(request: FastifyRequest): string {
 }
 
 // SameSite=Lax : kouzia.com et api.kouzia.com sont le même site, le cookie suit les appels fetch.
-const cookieBase = () => ({
+// Par le tunnel (api.kouzia.com), la page est en HTTPS même si COOKIE_SECURE=false pour le LAN.
+const cookieBase = (reply: FastifyReply) => ({
   path: COOKIE_PATH,
   httpOnly: true,
   sameSite: "lax" as const,
-  secure: getCookieSecure(),
+  secure: getCookieSecure() || reply.request.viaTunnel === true,
 });
 
 export function setPortalCookies(
@@ -209,15 +210,15 @@ export function setPortalCookies(
   session: { token: string; expiresAt: Date },
   deviceId: string,
 ): void {
-  reply.setCookie(PORTAL_COOKIE, session.token, { ...cookieBase(), expires: session.expiresAt });
+  reply.setCookie(PORTAL_COOKIE, session.token, { ...cookieBase(reply), expires: session.expiresAt });
   reply.setCookie(DEVICE_COOKIE, deviceId, {
-    ...cookieBase(),
+    ...cookieBase(reply),
     expires: new Date(Date.now() + DEVICE_TTL_MS),
   });
 }
 
 export function clearPortalCookie(reply: FastifyReply): void {
-  reply.clearCookie(PORTAL_COOKIE, cookieBase());
+  reply.clearCookie(PORTAL_COOKIE, cookieBase(reply));
 }
 
 /** « Chrome sous Windows » : assez pour qu'un client reconnaisse (ou non) son appareil. */
