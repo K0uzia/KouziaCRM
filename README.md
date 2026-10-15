@@ -502,6 +502,10 @@ docker compose start app worker
 - Mentions PDF franchise TVA art. 293 B
 - Enveloppes sur CA encaissé
 
+## Dette connue
+
+- P2, branche dédiée `chore/montants-centimes` (avec tests de bout en bout) : plusieurs écrans envoient encore des montants en euros (`amountEuros`, `unitPriceEuros`, `discountEuros`, `cfeAmountEuros`), convertis en centimes par l'API (`eurosToCents`, arrondi décimal exact à 2 chiffres). La charte veut des `*Cents` entiers de bout en bout : contrat front et API à basculer d'un bloc.
+
 ## Identité seedée
 
 - SIREN `108580028` / SIRET `10858002800018`

@@ -57,5 +57,5 @@ export function Select({ className = "", ...props }: SelectHTMLAttributes<HTMLSe
 }
 
 export function Textarea({ className = "", ...props }: TextareaHTMLAttributes<HTMLTextAreaElement>) {
-  return <textarea className={`${control} min-h-[96px] resize-y ${className}`} {...props} />;
+  return <textarea className={`${control} min-h-24 resize-y ${className}`} {...props} />;
 }

@@ -456,7 +456,7 @@ export function MessageList({
         <div
           ref={ctxRef}
           role="menu"
-          className="fixed z-50 min-w-[180px] rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--surface-raised)] py-1 shadow-[var(--shadow-sm)]"
+          className="fixed z-50 min-w-[11.25rem] rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--surface-raised)] py-1 shadow-[var(--shadow-sm)]"
           style={{
             left: Math.min(ctx.x, window.innerWidth - 200),
             top: Math.min(ctx.y, window.innerHeight - 180),

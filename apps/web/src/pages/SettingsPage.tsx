@@ -880,7 +880,7 @@ export function SettingsPage() {
                 <div className="space-y-4">
                   <div className="flex flex-wrap gap-2">
                     <Input
-                      className="min-w-[240px] flex-1"
+                      className="min-w-[15rem] flex-1"
                       placeholder="SIREN ou URL data.inpi.fr/entreprises/…"
                       value={inpiQuery}
                       onChange={(e) => setInpiQuery(e.target.value)}
@@ -1197,7 +1197,7 @@ export function SettingsPage() {
                   </Field>
                 </div>
                 <div className="mt-3 flex flex-wrap items-end gap-2">
-                  <Field label="Adresse de test" className="min-w-[220px] flex-1">
+                  <Field label="Adresse de test" className="min-w-[13.75rem] flex-1">
                     <Input
                       type="email"
                       value={testEmailTo}
@@ -1752,7 +1752,7 @@ export function SettingsPage() {
                     <img
                       src="/api/settings/identity/logo"
                       alt="Logo"
-                      className="h-16 max-w-[160px] object-contain"
+                      className="h-16 max-w-[10rem] object-contain"
                     />
                   ) : (
                     <span className="text-xs text-[var(--muted)]">Aucun logo</span>
