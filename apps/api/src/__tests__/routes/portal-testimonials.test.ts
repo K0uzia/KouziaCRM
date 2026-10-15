@@ -5,6 +5,7 @@ import { decrypt } from "@/lib/crypto.js";
 import { hashPassword, SESSION_COOKIE } from "@/lib/auth.js";
 import { openPortalSession, PORTAL_COOKIE } from "@/lib/portal/auth.js";
 import { listNotifications } from "@/lib/notifications/feed.js";
+import { getAllowedOrigins } from "@/lib/env.js";
 import { buildSiteSnapshot } from "@/lib/site/snapshot.js";
 import { CONSENT_VERSION, PROOF_RETENTION_MS, purgeTestimonialProofs } from "@/lib/site/testimonials.js";
 import { clearTable, resetDb } from "../helpers/db.js";
@@ -137,6 +138,21 @@ describe("témoignage depuis l'espace client", () => {
     expect(row.withdrawalRequestedAt).not.toBeNull();
     expect(row.consentProofEncrypted).not.toBeNull();
     expect((await del(a.cookie, b.project.id)).statusCode).toBe(404);
+  });
+
+  it("preflight CORS du navigateur : PUT et DELETE autorisés pour le site, avec credentials", async () => {
+    const origin = getAllowedOrigins()[0]!;
+    for (const method of ["PUT", "DELETE"]) {
+      const res = await app.inject({
+        method: "OPTIONS",
+        url: "/api/public/portal/projects/x/testimonial",
+        headers: { origin, "access-control-request-method": method, "access-control-request-headers": "content-type" },
+      });
+      expect(res.statusCode, method).toBe(204);
+      expect(res.headers["access-control-allow-origin"]).toBe(origin);
+      expect(res.headers["access-control-allow-credentials"]).toBe("true");
+      expect(String(res.headers["access-control-allow-methods"])).toContain(method);
+    }
   });
 
   it("limite de débit : 10 envois par 15 minutes et par IP", async () => {

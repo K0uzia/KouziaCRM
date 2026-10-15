@@ -124,6 +124,8 @@ export async function buildApp(opts: BuildAppOptions = {}): Promise<FastifyInsta
       cb(null, false);
     },
     credentials: true,
+    // Défaut de @fastify/cors : GET, HEAD, POST. PUT et DELETE servent au témoignage depuis /suivi (kouzia.com).
+    methods: ["GET", "HEAD", "POST", "PUT", "DELETE"],
   });
 
   await app.register(cookie, {
