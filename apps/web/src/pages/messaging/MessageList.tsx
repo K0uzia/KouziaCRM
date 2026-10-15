@@ -415,14 +415,17 @@ export function MessageList({
                       {msg.subject || "(sans objet)"}
                     </span>
                     {msg.hasAttachments ? (
-                      <FontAwesomeIcon
-                        icon={faPaperclip}
-                        className="h-3 w-3 shrink-0 text-[var(--muted)]"
-                        aria-label="Pièce jointe"
-                      />
+                      <>
+                        {/* Icône masquée aux lecteurs d'écran (Font Awesome) : l'information est dite en texte. */}
+                        <FontAwesomeIcon icon={faPaperclip} className="h-3 w-3 shrink-0 text-[var(--muted)]" aria-hidden />
+                        <span className="sr-only">Pièce jointe</span>
+                      </>
                     ) : null}
                     {msg.isStarred ? (
-                      <FontAwesomeIcon icon={faStar} className="h-3 w-3 shrink-0 text-[var(--warning)]" aria-label="Favori" />
+                      <>
+                        <FontAwesomeIcon icon={faStar} className="h-3 w-3 shrink-0 text-[var(--warning)]" aria-hidden />
+                        <span className="sr-only">Favori</span>
+                      </>
                     ) : null}
                   </span>
                   <span className="mt-0.5 flex items-center gap-1.5 pl-4">
