@@ -503,7 +503,7 @@ Purge par le worker, chaque heure (`apps/api/src/lib/privacy/retention.ts`). Les
 | Commande | Description |
 |----------|-------------|
 | `make setup` | `.env`, install, migrations, seed |
-| `make dev` | Mailpit + API + Vite en parallèle |
+| `make dev` | Ports libres, dépendances conformes au lockfile (sinon `npm ci` automatique, jamais `npm install`), migrations, puis Mailpit + API + Vite en parallèle |
 | `make mailpit` / `make mailpit-stop` | SMTP catcher local (UI :8025) |
 | `make app` | Build web + API qui sert la SPA |
 | `make worker` | Worker : IMAP en IDLE avec repli chaque minute, file des e-mails, tâches planifiées |
