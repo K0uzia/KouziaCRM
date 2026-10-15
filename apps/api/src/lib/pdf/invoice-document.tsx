@@ -9,6 +9,7 @@ import {
   Font,
 } from "@react-pdf/renderer";
 import type { PdfCompanySettings } from "@/lib/pdf/brand-assets.js";
+import { fillClauseVariables } from "@/lib/company/legal-clauses.js";
 import type { ClientSnapshot } from "@/lib/invoices/transitions.js";
 import { formatEUR } from "@/lib/money.js";
 import { readableOn, resolveBrandColors } from "@/lib/brand.js";
@@ -213,6 +214,29 @@ function subscriptionHeading(lines: Array<{ isSubscription?: boolean; billingInt
   return "Engagement d'abonnement";
 }
 
+/** Engagement d'un devis signé : CGV et délai de rétractation, tels que figés dans la preuve. */
+function SignatureTermsLines({
+  acceptance,
+  muted,
+}: {
+  acceptance: NonNullable<InvoicePdfData["invoice"]["acceptance"]>;
+  muted: ReturnType<typeof createStyles>["muted"];
+}) {
+  return (
+    <>
+      {acceptance.cgvAccepted === false ? <Text style={muted}>CGV non acceptées en ligne.</Text> : null}
+      {acceptance.consumer && acceptance.withdrawalEndsAt ? (
+        <Text style={muted}>
+          Délai de rétractation jusqu'au {fmtDate(acceptance.withdrawalEndsAt)} inclus.{" "}
+          {acceptance.expressExecution
+            ? "Exécution demandée par le client avant la fin de ce délai."
+            : "Sans demande d'exécution anticipée : démarrage au plus tôt le lendemain."}
+        </Text>
+      ) : null}
+    </>
+  );
+}
+
 function fmtQty(q: number) {
   return Number.isInteger(q) ? String(q) : String(q).replace(".", ",");
 }
@@ -297,7 +321,18 @@ export type InvoicePdfData = {
       emailMasked?: string | null;
       proofId?: string | null;
       documentSha256?: string | null;
+      /** null : signature antérieure au suivi des CGV et du délai de rétractation. */
+      cgvAccepted?: boolean | null;
+      consumer?: boolean | null;
+      expressExecution?: boolean | null;
+      withdrawalEndsAt?: Date | null;
     } | null;
+    /** Clauses de l'encadré d'abonnement par périodicité (Réglages > Clauses). */
+    subscriptionTerms?: { MONTH: string | null; YEAR: string | null };
+    /** Droit de rétractation et formulaire type : devis d'un client particulier. */
+    withdrawalTerms?: string | null;
+    /** CGV applicables : version acceptée à la signature, sinon version publiée en vigueur. */
+    cgv?: { url: string; version: string } | null;
     lines: Array<{
       description: string;
       quantity: number;
@@ -556,15 +591,30 @@ export function InvoiceDocument({ company, client, invoice }: InvoicePdfData) {
             {invoice.lines
               .filter((l) => l.isSubscription)
               .map((l, i) => (
+                // Une seule chaîne : entre deux morceaux de texte, react-pdf perdait l'espace après « € ».
                 <Text key={i} style={{ marginTop: 2 }}>
-                  {l.description} : {fmtMoney(l.unitPriceCents)} facturés automatiquement{" "}
-                  {l.billingInterval === "YEAR"
-                    ? "chaque année à la date anniversaire"
-                    : `chaque mois${l.billingDay ? ` le ${l.billingDay}` : ""}`}
-                  . Le total de ce document inclut la 1re
-                  échéance ; les échéances suivantes feront l&apos;objet de factures séparées.
+                  {`${l.description} : ${fmtMoney(l.unitPriceCents)} facturés automatiquement ${
+                    l.billingInterval === "YEAR"
+                      ? "chaque année à la date anniversaire"
+                      : `chaque mois${l.billingDay ? ` le ${l.billingDay}` : ""}`
+                  }. ${
+                    invoice.subscriptionOnly
+                      ? "1re échéance facturée à partir de la signature, sans acompte."
+                      : invoice.subscriptionFromDelivery
+                        ? "1re échéance facturée à partir de la livraison, hors acompte et échéancier."
+                        : "Le total de ce document inclut la 1re échéance ; les échéances suivantes feront l'objet de factures séparées."
+                  }`}
                 </Text>
               ))}
+            {(["MONTH", "YEAR"] as const)
+              .filter((iv) => invoice.lines.some((l) => l.isSubscription && (l.billingInterval === "YEAR" ? "YEAR" : "MONTH") === iv))
+              .map((iv) =>
+                invoice.subscriptionTerms?.[iv] ? (
+                  <Text key={iv} style={[styles.muted, { marginTop: 4 }]}>
+                    {fillClauseVariables(invoice.subscriptionTerms[iv]!, company)}
+                  </Text>
+                ) : null,
+              )}
           </View>
         ) : null}
 
@@ -646,6 +696,10 @@ export function InvoiceDocument({ company, client, invoice }: InvoicePdfData) {
                     Empreinte du devis accepté (SHA-256) : {shortHash(invoice.acceptance.documentSha256)}
                   </Text>
                 ) : null}
+                {invoice.acceptance.cgvAccepted && invoice.cgv ? (
+                  <Text style={styles.muted}>CGV acceptées en ligne : version du {invoice.cgv.version}.</Text>
+                ) : null}
+                <SignatureTermsLines acceptance={invoice.acceptance} muted={styles.muted} />
               </View>
             </View>
           </View>
@@ -656,6 +710,7 @@ export function InvoiceDocument({ company, client, invoice }: InvoicePdfData) {
               Devis accepté par <Text style={styles.strong}>{invoice.acceptance.signerName}</Text> le{" "}
               {fmtDate(invoice.acceptance.acceptedAt)}.
             </Text>
+            <SignatureTermsLines acceptance={invoice.acceptance} muted={styles.muted} />
           </View>
         ) : null}
 
@@ -708,7 +763,25 @@ export function InvoiceDocument({ company, client, invoice }: InvoicePdfData) {
           </View>
         ) : null}
 
+        {isQuote && invoice.withdrawalTerms ? (
+          <View style={styles.section} wrap={false}>
+            <Text style={styles.h2}>Droit de rétractation</Text>
+            {fillClauseVariables(invoice.withdrawalTerms, company)
+              .split("\n")
+              .map((p, i) => (
+                <Text key={i} style={[styles.muted, { marginTop: i === 0 ? 0 : 4 }]}>
+                  {p}
+                </Text>
+              ))}
+          </View>
+        ) : null}
+
         <View style={styles.legal}>
+          {isQuote && invoice.cgv ? (
+            <Text>
+              Conditions générales de vente applicables : version du {invoice.cgv.version}, {invoice.cgv.url}
+            </Text>
+          ) : null}
           <Text>
             {company.legalName}, {company.legalForm ?? "Entrepreneur individuel"}, SIREN{" "}
             {company.siren}, SIRET {company.siret}, code APE {company.apeCode}.
@@ -745,7 +818,7 @@ export function InvoiceDocument({ company, client, invoice }: InvoicePdfData) {
           {(invoice.legalClauses ?? []).map((c, i) => (
             <Text key={i} style={{ marginTop: 4 }}>
               <Text style={{ fontFamily: "Helvetica-Bold" }}>{c.title} : </Text>
-              {c.body}
+              {fillClauseVariables(c.body, company)}
             </Text>
           ))}
           {!(invoice.legalClauses?.length) && company.suspensionClause ? (

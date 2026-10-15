@@ -147,6 +147,12 @@ export const quotesMarketRoutes: FastifyPluginAsync = async (app) => {
         pdfSha256: true,
         pdfPath: true,
         createdAt: true,
+        cgvAccepted: true,
+        cgvUrl: true,
+        cgvVersion: true,
+        consumer: true,
+        expressExecution: true,
+        withdrawalEndsAt: true,
       },
     });
   });

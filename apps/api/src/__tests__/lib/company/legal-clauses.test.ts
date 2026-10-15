@@ -35,9 +35,17 @@ describe("clauses légales par type de client", () => {
 
   it("clause des particuliers supprimée par l'admin : pas recréée au démarrage suivant", async () => {
     await ensureDefaultLegalClauses();
-    await prisma.legalClause.deleteMany({ where: { audience: LegalClauseAudience.B2C } });
+    const penalty = { audience: LegalClauseAudience.B2C, kind: LegalClauseKind.PENALTY };
+    await prisma.legalClause.deleteMany({ where: penalty });
     await ensureDefaultLegalClauses();
-    expect(await prisma.legalClause.count({ where: { audience: LegalClauseAudience.B2C } })).toBe(0);
+    expect(await prisma.legalClause.count({ where: penalty })).toBe(0);
+  });
+
+  it("droit de rétractation (information obligatoire) : recréé s'il manque", async () => {
+    await ensureDefaultLegalClauses();
+    await prisma.legalClause.deleteMany({ where: { kind: LegalClauseKind.WITHDRAWAL } });
+    await ensureDefaultLegalClauses();
+    expect(await prisma.legalClause.count({ where: { kind: LegalClauseKind.WITHDRAWAL, audience: LegalClauseAudience.B2C } })).toBe(1);
   });
 
   it("PDF : un particulier n'a pas les pénalités ni les 40 €, un professionnel les a", async () => {

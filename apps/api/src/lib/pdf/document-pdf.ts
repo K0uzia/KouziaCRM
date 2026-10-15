@@ -79,6 +79,7 @@ export async function renderLoadedDocumentPdf(doc: LoadedDocumentForPdf): Promis
       clientType: doc.snapshot.type,
       balanceSummary: doc.balanceSummary,
       planSettings: doc.companyRaw,
+      cgv: { published: doc.companyRaw.cgvPublished, url: doc.companyRaw.cgvUrl, version: doc.companyRaw.cgvVersion },
     }),
   });
 }
