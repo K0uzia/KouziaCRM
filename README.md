@@ -482,6 +482,11 @@ docker compose start app worker
 - Rate-limit login, Helmet, contrôle Origin sur mutations
 - PII clients (email / téléphone / SIRET) : AES-256-GCM (`ENCRYPTION_KEY`), ainsi que l'adresse du journal des e-mails envoyés, celle des invitations et le contenu de la file d'envoi (migration 20261109090000 ; recopie chiffrée des lignes antérieures par le worker, suspendue sans rien vider si la clé est absente ou différente de celle des données)
 
+- Choix assumés (audit d'octobre 2026) :
+  - CSP `img-src` garde `https:` : la messagerie affiche les images distantes des e-mails reçus (option pour les bloquer par message). Risque accepté : un pixel de suivi d'un expéditeur peut savoir qu'un message a été ouvert. `font-src` est limité aux polices locales.
+  - Par le tunnel, sans double authentification activée, un mot de passe juste reçoit le refus explicite « activez la double authentification » (403) : il confirme que le mot de passe est bon, mais la connexion reste impossible sans 2FA. Risque jugé faible, gardé pour la clarté.
+- `ONBOARDING_HMAC_SECRET` : obligatoire en production ; `kouziactl update` le génère s'il est absent ou vaut encore une valeur d'exemple (ligne dans le journal de la mise à jour).
+
 ### Conservation des données (RGPD)
 
 Purge par le worker, chaque heure (`apps/api/src/lib/privacy/retention.ts`). Les pièces comptables
