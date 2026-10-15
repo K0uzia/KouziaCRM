@@ -34,6 +34,8 @@ export async function seedCompanySettings(): Promise<void> {
     depositPercent1Bps: 3000,
     depositPercent2Bps: 7000,
     depositPercent3Bps: 0,
+    // Médiateur déclaré : un devis à un particulier peut partir en signature (L612-1).
+    mediationClause: "Médiateur de test, https://mediateur.exemple.test",
   } satisfies Prisma.CompanySettingsCreateInput;
   // Ligne recréée : les champs non listés reprennent leur valeur par défaut du schéma,
   // un test ne peut plus hériter d'un réglage modifié par un autre.
@@ -43,7 +45,7 @@ export async function seedCompanySettings(): Promise<void> {
 
 export async function createClient(opts: {
   displayName?: string;
-  type?: "B2B" | "B2C";
+  type?: "B2B" | "B2C" | "ASSOCIATION";
 } = {}): Promise<{ id: string; displayName: string }> {
   const created = await prisma.client.create({
     data: {
