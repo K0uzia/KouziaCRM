@@ -5,14 +5,23 @@ import { Toaster } from "sonner";
 import { AuthProvider } from "@/lib/auth";
 import { FeaturesProvider } from "@/lib/features";
 import App from "./App";
+import { PageErrorBoundary, reloadOnceForStaleChunk } from "@/components/PageErrorBoundary";
 import "./index.css";
+
+// Fichier d'une page supprimé par une mise à jour (onglet resté ouvert) : rechargement unique ; au-delà,
+// l'erreur remonte à PageErrorBoundary, qui propose « Recharger ».
+window.addEventListener("vite:preloadError", (event) => {
+  if (reloadOnceForStaleChunk()) event.preventDefault();
+});
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
     <BrowserRouter>
       <AuthProvider>
         <FeaturesProvider>
-          <App />
+          <PageErrorBoundary>
+            <App />
+          </PageErrorBoundary>
           <Toaster
             richColors
             // Centré en haut : loin des onglets du bas et de la feuille des notifications sur mobile.
