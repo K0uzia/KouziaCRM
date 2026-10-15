@@ -58,6 +58,8 @@ import { replyEntrepriseLookup } from "@/lib/company/entreprise-route.js";
 import {
   buildDocumentLinks,
   buildPaymentHistory,
+  projectOfDocument,
+  type ProjectByQuote,
 } from "@/lib/portal/tracking-payload.js";
 import { isValidSiren, isValidSiret } from "@kouzia/forms";
 import { listPortalProjects } from "@/lib/projects/service.js";
@@ -294,6 +296,8 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
           payments: { orderBy: { paidAt: "asc" } },
           // 3 fois : étape du projet de CE devis qui déclenchera le 2e acompte.
           project: { select: { steps: true } },
+          // Avoir : devis de la facture créditée (documents[].projectId).
+          creditedInvoice: { select: { quoteId: true } },
           lines: { where: { isSubscription: true }, select: { billingInterval: true, unitPriceCents: true } },
           quoteAcceptanceAudits: {
             orderBy: { createdAt: "desc" },
@@ -308,6 +312,8 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
       const subscriptions = await prisma.subscription.findMany({
         where: { clientId: client.id, status: { in: ["ACTIVE", "PAUSED"] } },
         orderBy: { nextInvoiceAt: "asc" },
+        // Lignes de devis (ou de facture) d'origine : subscriptions[].projectId, en une passe.
+        include: { sourceLines: { select: { invoice: { select: { id: true, documentType: true, quoteId: true } } } } },
       });
 
       const emailEvents = await prisma.clientEmailEvent.findMany({
@@ -334,16 +340,20 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
       });
 
       const linkSets = buildDocumentLinks(documents);
+      // Rattachement aux projets : seuls les projets visibles de CE client (jamais un identifiant masqué).
+      const portalProjects = await listPortalProjects(client.id);
+      const projectByQuote: ProjectByQuote = new Map(portalProjects.flatMap((p) => (p.quoteId ? [[p.quoteId, p.id] as const] : [])));
 
       const paymentHistory = buildPaymentHistory({
         docs: documents,
         milestones: allMilestones,
         showAmounts,
+        projectByQuote,
       });
 
       const testimonials = await portalTestimonials(client.id);
       // Projet terminé : état de son témoignage (« none » tant qu'aucun n'a été déposé).
-      const projects = (await listPortalProjects(client.id)).map((p) =>
+      const projects = portalProjects.map((p) =>
         p.status === "DONE" ? { ...p, testimonial: testimonials.get(p.id) ?? { status: "NONE" as const } } : p,
       );
       const reviewEligible = await reviewInviteEligible(client.id);
@@ -414,6 +424,7 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
             status: d.status,
             quoteId: d.quoteId,
             creditedInvoiceId: d.creditedInvoiceId,
+            projectId: projectOfDocument(projectByQuote, d),
             linkedDocuments: linkSets[index],
             quoteStatus: d.quoteStatus,
             quoteDecidedAt: d.quoteDecidedAt,
@@ -529,6 +540,8 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
             ? { setupUrl: buildPayUrl("subscribe", s.id) }
             : {}),
           id: s.id,
+          projectId:
+            s.sourceLines.map((l) => projectOfDocument(projectByQuote, l.invoice)).find((p) => p !== null) ?? null,
           ...portalSubscriptionFields(s, settings.nonRenewalNoticeDays),
         })),
         emails: emailEvents.map((e) => ({

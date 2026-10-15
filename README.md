@@ -127,6 +127,21 @@ fige `cgvAccepted`, `cgvUrl`, `cgvVersion`, `consumer`, `expressExecution` et
 non acceptées en ligne ». Le PDF de tout devis d'un particulier porte le bloc « Droit de
 rétractation » et le formulaire type (clause éditable dans Réglages > Clauses).
 
+#### Rattachement aux projets (fiches projet de `/suivi`)
+
+Ajouts facultatifs de `GET /api/public/tracking`, `null` quand rien n'est rattaché. Seuls les
+projets visibles dans l'espace client (`visibleOnPortal`) du client connecté sont référencés : une
+pièce d'un projet masqué porte `null`, jamais l'identifiant de ce projet.
+
+| Champ | Contenu |
+|-------|---------|
+| `documents[].projectId` | Devis : son projet. Facture : projet de son devis (`quoteId`). Avoir : projet de la facture créditée. `null` sinon (devis en attente, pièce hors projet). |
+| `paymentHistory.items[].projectId` | Jalon payé : projet de son devis. Règlement : projet de la pièce réglée. Avoir : comme `documents[]`. |
+| `subscriptions[].projectId` | Projet de la ligne de devis (ou de facture) dont l'abonnement est issu ; `null` pour un abonnement saisi à la main. |
+| `projects[].quoteId` | Devis d'origine du projet, `null` pour un projet créé à la main. |
+| `projects[].startedAt` | Date de démarrage (ISO), `null` tant que le projet n'a pas démarré. |
+| `projects[].kind` | `SITE`, `LOGICIEL`, `MAINTENANCE` ou `AUTRE` ; `null` si non renseigné (fiche projet de l'ERP, « Type de projet »). |
+
 ### Espace « Site » (contenu de kouzia.com)
 
 Le contenu modifiable du site (coordonnées, accroche, offres, réalisations, FAQ, avis, références) se saisit dans l'ERP, puis se publie dans le dépôt KouziaWebsite (`src/content/site/*.json`, contrat `contenu.schema.json`).

@@ -755,6 +755,14 @@ model PortalSession {
 }
 
 /// Avancement d'un projet client, affiché dans l'espace client (/suivi) quand visible.
+/// Type d'un projet client, affiché dans l'espace client (facultatif).
+enum ClientProjectKind {
+  SITE
+  LOGICIEL
+  MAINTENANCE
+  AUTRE
+}
+
 model ClientProject {
   id                 String      @id @default(cuid())
   clientId           String
@@ -776,6 +784,8 @@ model ClientProject {
   /// PLANNED (acompte facturé, en attente de paiement) | ACTIVE (démarré) | DONE
   status             String      @default("ACTIVE")
   startedAt          DateTime?
+  /// Type de projet (site, logiciel, maintenance, autre) ; null tant qu'il n'est pas renseigné.
+  kind               ClientProjectKind?
   /// Invitation à laisser un avis envoyée (une seule fois par projet, au passage à DONE).
   reviewInviteSentAt DateTime?
   testimonial        SiteReview?
