@@ -3,10 +3,10 @@ import { lazy, Suspense, type ReactNode } from "react";
 import { useAuth } from "@/lib/auth";
 import { AppLayout } from "@/components/AppLayout";
 import { LoginPage } from "@/pages/LoginPage";
+// Page d'accueil importée directement : chargée en lazy, elle passait par un Suspense dont React 19
+// retarde la révélation d'environ 300 ms (FALLBACK_THROTTLE_MS), données déjà arrivées.
+import { DashboardPage } from "@/pages/DashboardPage";
 
-const DashboardPage = lazy(() =>
-  import("@/pages/DashboardPage").then((m) => ({ default: m.DashboardPage })),
-);
 const ClientsPage = lazy(() =>
   import("@/pages/ClientsPage").then((m) => ({ default: m.ClientsPage })),
 );

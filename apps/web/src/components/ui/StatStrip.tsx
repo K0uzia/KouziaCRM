@@ -36,9 +36,11 @@ const lastSpan: Record<number, string> = {
 };
 
 /** Bandeau d'indicateurs dans une seule carte ; les filets sont l'espace d'1 px entre cases. */
-export function StatStrip({ items, className = "" }: { items: StatItem[]; className?: string }) {
+/** busy : valeurs en cours de chargement (squelettes), annoncé aux lecteurs d'écran. */
+export function StatStrip({ items, className = "", busy = false }: { items: StatItem[]; className?: string; busy?: boolean }) {
   return (
     <dl
+      aria-busy={busy || undefined}
       className={`ui-card grid gap-px overflow-hidden bg-[var(--border)] ${cols[items.length] ?? cols[4]} ${className}`}
     >
       {items.map((s, i) => {

@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useMemo, useState, type ReactNode } from "react";
+import { lazy, Suspense, useEffect, useRef, useState, type ComponentType, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import {
@@ -16,6 +16,7 @@ import {
 import type { IconDefinition } from "@fortawesome/fontawesome-svg-core";
 import { toast } from "sonner";
 import { useLiveRefresh } from "@/lib/notifications";
+import { MAIL_SYNC_STATUS_EVENT } from "@/hooks/useNewMailAlert";
 import { api, formatEUR } from "@/lib/api";
 import { formatAgoMinutes, formatDate, MAIL_SYNC_STALE_MIN, minutesSince } from "@/lib/format";
 import { useAuth } from "@/lib/auth";
@@ -32,8 +33,30 @@ import { Card } from "@/components/ui/Card";
 import { Segmented } from "@/components/ui/Segmented";
 import { StatStrip } from "@/components/ui/StatStrip";
 
-const RevenueChart = lazy(() => import("@/components/dashboard/RevenueChart"));
-const FlowsChart = lazy(() => import("@/components/dashboard/FlowsChart"));
+const loadRevenueChart = () => import("@/components/dashboard/RevenueChart");
+const loadFlowsChart = () => import("@/components/dashboard/FlowsChart");
+
+/**
+ * Graphique chargé après l'affichage des chiffres (évalué plus tôt, recharts occupait le fil
+ * principal pendant que les données attendaient), sans Suspense : React 19 retarde d'environ
+ * 300 ms la révélation d'un contenu suspendu. Le cadre garde sa hauteur pendant le chargement.
+ */
+function useDeferredComponent<P>(load: () => Promise<{ default: ComponentType<P> }>, start: boolean): ComponentType<P> | null {
+  const [component, setComponent] = useState<ComponentType<P> | null>(null);
+  useEffect(() => {
+    if (!start || component) return;
+    let cancelled = false;
+    load()
+      .then((m) => {
+        if (!cancelled) setComponent(() => m.default);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [start, component, load]);
+  return component;
+}
 const StripePathChart = lazy(() => import("@/components/dashboard/StripePathChart"));
 
 type Scope = "week" | "month" | "year";
@@ -100,8 +123,6 @@ type ThreadRow = {
   unreadCount?: number;
   client: { id: string; displayName: string } | null;
   lastFrom: string;
-  preview: string;
-  direction: string | null;
 };
 
 type CfeObligation = { label: string; dueDate: string; amountCents: number | null };
@@ -111,6 +132,38 @@ type ObligationsSummary = {
   alerts?: Array<{ kind: string; message: string }>;
   nextDue: { label: string; displayStatus: string; daysLate: number | null; daysRemaining: number | null } | null;
 };
+
+/** GET /api/dashboard/overview : tout le tableau de bord en un appel ; null = bloc indisponible. */
+type Overview = DashboardData & {
+  reminders: ReminderRow[] | null;
+  mrr: MrrData | null;
+  obligations: ObligationsSummary | null;
+  cfeObligation: CfeObligation | null;
+  threads: ThreadRow[] | null;
+  mailSync: { imapConfigured: boolean; lastSyncAt: string | null } | null;
+  ownerPay: OwnerPay | null;
+};
+
+/** Barre de chargement à la taille du texte qu'elle remplace (aucun saut à l'arrivée des données). */
+function Skeleton({ className = "w-20" }: { className?: string }) {
+  return <span aria-hidden className={`inline-block h-[0.9em] animate-pulse rounded bg-[var(--surface-hover)] align-middle ${className}`} />;
+}
+
+/** Lignes fantômes d'une liste, à la hauteur des vraies lignes. */
+function SkeletonRows({ count, rowClass }: { count: number; rowClass: string }) {
+  return (
+    <ul aria-hidden className="divide-y divide-[var(--border)]">
+      {Array.from({ length: count }, (_, i) => (
+        <li key={i} className={rowClass}>
+          <span className="min-w-0 flex-1 space-y-1.5">
+            <Skeleton className="block w-2/5" />
+            <Skeleton className="block w-1/4 text-xs" />
+          </span>
+        </li>
+      ))}
+    </ul>
+  );
+}
 
 const SCOPE_LABEL: Record<Scope, string> = {
   week: "cette semaine",
@@ -170,79 +223,79 @@ function SectionTitle({ children, action }: { children: ReactNode; action?: Reac
 export function DashboardPage() {
   const { user } = useAuth();
   const [scope, setScope] = useState<Scope>("month");
-  const [data, setData] = useState<DashboardData | null>(null);
-  const [reminders, setReminders] = useState<ReminderRow[]>([]);
-  const [mrr, setMrr] = useState<MrrData | null>(null);
-  const [obligations, setObligations] = useState<ObligationsSummary | null>(null);
+  const [data, setData] = useState<Overview | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [cfeObligation, setCfeObligation] = useState<CfeObligation | null>(null);
   const [remindersRunBusy, setRemindersRunBusy] = useState(false);
-  const [threads, setThreads] = useState<ThreadRow[] | null>(null);
   const [payoutOpen, setPayoutOpen] = useState(false);
   const [withdrawalOpen, setWithdrawalOpen] = useState(false);
   // Graphique des flux : salaire et provisions, ou chemin de l'argent encaissé par Stripe.
   const [flowView, setFlowView] = useState<"salary" | "stripe">("salary");
   const [stripeFlux, setStripeFlux] = useState<FluxMonth[] | null>(null);
-  const [ownerPay, setOwnerPay] = useState<OwnerPay | null>(null);
   // Téléphone : 6 derniers mois, lisibles sans défilement horizontal.
   const wideChart = useMediaQuery("(min-width: 640px)");
-  const { moduleStripeEnabled } = useFeatures();
+  const { moduleStripeEnabled, loading: featuresLoading } = useFeatures();
+  // Sélecteur des flux affiché tant que les réglages se chargent : il ne disparaît que si Stripe est
+  // désactivé, au lieu d'apparaître et de décaler la page quand Stripe est actif.
+  const showFlowSwitch = moduleStripeEnabled || featuresLoading;
   const [liveTick, setLiveTick] = useState(0);
-  useLiveRefresh(() => setLiveTick((t) => t + 1));
+  const reload = () => setLiveTick((t) => t + 1);
+  useLiveRefresh(reload);
 
-  // Rechargée à chaque changement signalé (nouveau message, messages marqués lus) : non-lus à jour.
-  const [mailSyncAge, setMailSyncAge] = useState<number | null>(null);
+  // Un seul appel. Rafraîchissement (événement, portée, action) silencieux : les valeurs affichées
+  // restent en place jusqu'à l'arrivée des nouvelles, sans grisé ni squelette.
+  const hasData = useRef(false);
+  // Premier appel lancé au premier rendu, sans attendre la fin du montage de la page (au
+  // téléphone, le rendu initial retardait le départ de la requête d'environ 200 ms).
+  const firstRequest = useRef<Promise<Overview> | null | undefined>(undefined);
+  if (firstRequest.current === undefined) {
+    firstRequest.current = api<Overview>("/api/dashboard/overview?scope=month");
+    firstRequest.current.catch(() => undefined);
+  }
   useEffect(() => {
-    api<ThreadRow[]>("/api/emails")
-      .then((rows) => setThreads(rows.slice(0, 5)))
-      .catch(() => setThreads(null));
-    // Synchro automatique en panne : alerte dans « À traiter » (boîte configurée seulement).
-    api<{ imapConfigured?: boolean; lastSyncAt?: string | null }>("/api/emails/sync-status")
-      .then((s) => setMailSyncAge(s.imapConfigured ? (minutesSince(s.lastSyncAt) ?? Infinity) : null))
-      .catch(() => setMailSyncAge(null));
-  }, [liveTick]);
+    let cancelled = false;
+    const first = scope === "month" && liveTick === 0 ? firstRequest.current : null;
+    firstRequest.current = null;
+    (first ?? api<Overview>(`/api/dashboard/overview?scope=${scope}&t=${liveTick}`))
+      .then((d) => {
+        if (cancelled) return;
+        hasData.current = true;
+        setData(d);
+        setError(null);
+      })
+      .catch((e: Error) => {
+        if (cancelled) return;
+        if (hasData.current) toast.error(`Tableau de bord non actualisé : ${e.message}`, { id: "dashboard-refresh" });
+        else setError(e.message);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [scope, liveTick]);
+
+  // Synchro automatique en panne : alerte dans « À traiter » (boîte configurée seulement). La date
+  // suit la relecture globale de l'état de synchro, sans attendre un rechargement de la page.
+  const [lastSyncAt, setLastSyncAt] = useState<string | null | undefined>(undefined);
+  useEffect(() => {
+    const onStatus = (e: Event) => setLastSyncAt((e as CustomEvent<{ lastSyncAt?: string | null }>).detail.lastSyncAt ?? null);
+    window.addEventListener(MAIL_SYNC_STATUS_EVENT, onStatus);
+    return () => window.removeEventListener(MAIL_SYNC_STATUS_EVENT, onStatus);
+  }, []);
+  const mailSyncAge = data?.mailSync?.imapConfigured
+    ? (minutesSince(lastSyncAt === undefined ? data.mailSync.lastSyncAt : lastSyncAt) ?? Infinity)
+    : null;
   const mailStale = mailSyncAge !== null && mailSyncAge > MAIL_SYNC_STALE_MIN;
   const deposit2Rows = [
     ...(data?.deposit2?.toInvoice ?? []).map((q) => ({ ...q, kind: "toInvoice" as const })),
     ...(data?.deposit2?.missingStep ?? []).map((q) => ({ ...q, kind: "missingStep" as const })),
   ];
-  const url = useMemo(() => `/api/dashboard?scope=${scope}&t=${liveTick}`, [scope, liveTick]);
-
-  useEffect(() => {
-    let cancelled = false;
-    setLoading(true);
-    Promise.all([
-      api<DashboardData>(url),
-      api<ReminderRow[]>("/api/reminders/pending").catch(() => [] as ReminderRow[]),
-      api<MrrData>("/api/subscriptions/mrr").catch(() => null as MrrData | null),
-      api<{ items: Array<{ type: string; label: string; dueDate: string; amountCents: number | null; displayStatus: string }> }>(
-        "/api/obligations",
-      ).catch(() => ({ items: [] })),
-      api<ObligationsSummary>("/api/obligations/summary").catch(() => null),
-    ])
-      .then(([d, r, m, ob, os]) => {
-        if (cancelled) return;
-        setData(d);
-        setReminders(r);
-        setMrr(m);
-        setObligations(os);
-        const cfe = ob.items
-          .filter((i) => i.type === "CFE_PAYMENT" && i.displayStatus !== "DONE")
-          .sort((a, b) => a.dueDate.localeCompare(b.dueDate))[0];
-        setCfeObligation(cfe ? { label: cfe.label, dueDate: cfe.dueDate, amountCents: cfe.amountCents } : null);
-        setError(null);
-      })
-      .catch((e: Error) => {
-        if (!cancelled) setError(e.message);
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [url]);
+  const reminders = data?.reminders ?? [];
+  const mrr = data?.mrr ?? null;
+  const obligations = data?.obligations ?? null;
+  const cfeObligation = data?.cfeObligation ?? null;
+  const threads = data?.threads ?? null;
+  const ownerPay = data?.ownerPay ?? null;
+  const RevenueChart = useDeferredComponent(loadRevenueChart, data !== null);
+  const FlowsChart = useDeferredComponent(loadFlowsChart, data !== null);
 
   useEffect(() => {
     if (flowView !== "stripe") return;
@@ -255,17 +308,6 @@ export function DashboardPage() {
     };
   }, [flowView, liveTick]);
 
-  // Salaire disponible (cumul) et flux mensuels : indépendants de la portée choisie.
-  useEffect(() => {
-    let cancelled = false;
-    api<OwnerPay>("/api/owner-pay")
-      .then((p) => !cancelled && setOwnerPay(p))
-      .catch(() => !cancelled && setOwnerPay(null));
-    return () => {
-      cancelled = true;
-    };
-  }, [liveTick]);
-
   async function runAllReminders() {
     setRemindersRunBusy(true);
     try {
@@ -275,7 +317,7 @@ export function DashboardPage() {
       );
       toast.success(`Relances : ${res.enqueued} enfilée(s), ${res.sent} envoyée(s)`);
       if (res.errors.length) toast.error(res.errors.join(" · "));
-      setReminders(await api<ReminderRow[]>("/api/reminders/pending"));
+      reload();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Erreur");
     } finally {
@@ -294,7 +336,7 @@ export function DashboardPage() {
         window.location.href = res.mailto;
         toast.message("Client mail ouvert");
       } else toast.success("Relance enregistrée");
-      setReminders(await api<ReminderRow[]>("/api/reminders/pending"));
+      reload();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Erreur");
     }
@@ -357,16 +399,7 @@ export function DashboardPage() {
     </div>
   );
 
-  if (loading && !data) {
-    return (
-      <div>
-        {header}
-        {quickActions}
-        <div className="ui-card h-28 animate-pulse" aria-busy="true" aria-label="Chargement des indicateurs" />
-      </div>
-    );
-  }
-  if (error || !data) {
+  if (error && !data) {
     return (
       <div>
         {header}
@@ -377,11 +410,18 @@ export function DashboardPage() {
     );
   }
 
-  const cf = data.cashflow;
+  // Premier chargement : la page entière est rendue tout de suite, chaque valeur à sa place finale
+  // sous forme de barre de chargement (aucun saut de mise en page à l'arrivée des données).
+  const ready = data !== null;
+  const money = (cents: number | undefined) => (ready ? formatEUR(cents ?? 0) : <Skeleton className="w-24" />);
+  const hintOr = (text: ReactNode) => (ready ? text : <Skeleton className="w-28" />);
+  const cf = data?.cashflow;
   // Statuts en minuscules (paid, due, late, clear) : seule une échéance à payer ou en retard est « due ».
-  const echeanceDue =
-    data.echeance && (data.echeance.status === "due" || data.echeance.status === "late") && data.echeance.amountDueCents > 0;
-  const pendingTotal = data.pendingWithBalance.reduce((s, i) => s + i.remaining, 0);
+  const echeanceDue = Boolean(
+    data?.echeance && (data.echeance.status === "due" || data.echeance.status === "late") && data.echeance.amountDueCents > 0,
+  );
+  const pending = data?.pendingWithBalance ?? [];
+  const pendingTotal = pending.reduce((s, i) => s + i.remaining, 0);
   const os = obligations?.summary;
   const obligationAlerts = os ? os.late + os.urgent + os.open : 0;
 
@@ -393,53 +433,46 @@ export function DashboardPage() {
   return (
     <div>
       {header}
-      {companyEmailAlert ? (
-        <div
-          role="alert"
-          className="mb-6 flex flex-col gap-2 rounded-[var(--radius)] border border-[var(--warning)] bg-[var(--warning-soft)] px-4 py-3 text-sm text-[var(--text)] sm:flex-row sm:items-center sm:justify-between"
-        >
-          <p>{companyEmailAlert.message}</p>
-          <ButtonLink to="/settings?tab=general&section=contact" variant="secondary" className="shrink-0">
-            Renseigner l&apos;e-mail
-          </ButtonLink>
-        </div>
-      ) : null}
       {quickActions}
 
       <StatStrip
-        className={loading ? "opacity-60" : ""}
+        busy={!ready}
         items={[
-          { label: `Encaissé ${SCOPE_LABEL[scope]}`, value: formatEUR(cf.totalEncaisseCents), tone: "primary", to: "/receipts" },
+          { label: `Encaissé ${SCOPE_LABEL[scope]}`, value: money(cf?.totalEncaisseCents), tone: "primary", to: ready ? "/receipts" : undefined },
           {
             label: "À encaisser",
-            value: formatEUR(pendingTotal),
-            hint: `${data.pendingWithBalance.length} facture${data.pendingWithBalance.length > 1 ? "s" : ""} ouverte${data.pendingWithBalance.length > 1 ? "s" : ""}`,
-            to: "/invoices",
+            value: money(pendingTotal),
+            hint: hintOr(`${pending.length} facture${pending.length > 1 ? "s" : ""} ouverte${pending.length > 1 ? "s" : ""}`),
+            to: ready ? "/invoices" : undefined,
           },
           {
             label: "URSSAF provisionnée",
             shortLabel: "URSSAF",
-            value: formatEUR(cf.urssafCents),
-            hint: echeanceDue ? `${formatEUR(data.echeance.amountDueCents)} dus le ${formatDate(data.echeance.deadline)}` : "à jour",
-            to: "/urssaf",
+            value: money(cf?.urssafCents),
+            hint: hintOr(
+              echeanceDue && data ? `${formatEUR(data.echeance.amountDueCents)} dus le ${formatDate(data.echeance.deadline)}` : "à jour",
+            ),
+            to: ready ? "/urssaf" : undefined,
           },
           {
             label: "CFE provisionnée",
-            value: formatEUR(cf.cfeCents),
-            hint: cfeObligation ? `due le ${formatDate(cfeObligation.dueDate)}` : cf.cfeCents > 0 ? "provision mensuelle" : "CFE non renseignée",
+            value: money(cf?.cfeCents),
+            hint: hintOr(
+              cfeObligation ? `due le ${formatDate(cfeObligation.dueDate)}` : (cf?.cfeCents ?? 0) > 0 ? "provision mensuelle" : "CFE non renseignée",
+            ),
           },
           {
             label: "Trésorerie",
-            value: formatEUR(cf.tresorerieCents),
+            value: money(cf?.tresorerieCents),
             hint: "provision frais et placements",
           },
-          { label: "Reste net", value: formatEUR(cf.resteNetCents), hint: "après URSSAF et provisions", tone: "success" },
+          { label: "Reste net", value: money(cf?.resteNetCents), hint: "après URSSAF et provisions", tone: "success" },
           {
             label: "Salaire disponible",
-            value: formatEUR(ownerPay?.availableCents ?? 0),
-            hint: `déjà retiré ${formatEUR(ownerPay?.paidThisMonthCents ?? 0)} ce mois-ci`,
+            value: money(ownerPay?.availableCents),
+            hint: hintOr(`déjà retiré ${formatEUR(ownerPay?.paidThisMonthCents ?? 0)} ce mois-ci`),
             tone: "success",
-            to: "/retraits",
+            to: ready ? "/retraits" : undefined,
           },
         ]}
       />
@@ -455,21 +488,21 @@ export function DashboardPage() {
         open={withdrawalOpen}
         availableCents={ownerPay?.availableCents ?? 0}
         onClose={() => setWithdrawalOpen(false)}
-        onDone={() => setLiveTick((t) => t + 1)}
+        onDone={reload}
       />
       <PayoutDialog
         open={payoutOpen}
         onClose={() => setPayoutOpen(false)}
-        suggestedCents={Math.max(0, cf.resteNetCents)}
-        onDone={() => setLiveTick((t) => t + 1)}
+        suggestedCents={Math.max(0, cf?.resteNetCents ?? 0)}
+        onDone={reload}
       />
 
       <div className="mt-6 grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1fr)_24rem]">
         <div className="min-w-0 space-y-6">
-          {ownerPay && ownerPay.flows.length > 0 ? (
+          {!ready || (ownerPay && ownerPay.flows.length > 0) ? (
             <Card className="min-w-0 overflow-hidden">
               <SectionTitle>Flux par mois</SectionTitle>
-              {moduleStripeEnabled ? (
+              {showFlowSwitch ? (
                 <div className="px-5 pb-2 sm:px-6">
                   <Segmented
                     label="Vue du graphique des flux"
@@ -504,8 +537,10 @@ export function DashboardPage() {
                     ) : (
                       <div className="h-full animate-pulse rounded-[var(--radius-sm)] bg-[var(--surface-hover)]" />
                     )
-                  ) : (
+                  ) : ownerPay && FlowsChart ? (
                     <FlowsChart flows={ownerPay.flows.slice(wideChart ? -12 : -6)} />
+                  ) : (
+                    <div className="h-full animate-pulse rounded-[var(--radius-sm)] bg-[var(--surface-hover)]" />
                   )}
                 </Suspense>
               </div>
@@ -514,9 +549,11 @@ export function DashboardPage() {
           <Card className="min-w-0 overflow-hidden">
             <SectionTitle>Répartition des encaissements</SectionTitle>
             <div className="h-72 p-3 sm:p-5">
-              <Suspense fallback={<div className="h-full animate-pulse rounded-[var(--radius-sm)] bg-[var(--surface-hover)]" />}>
+              {data && RevenueChart ? (
                 <RevenueChart data={data.chart} />
-              </Suspense>
+              ) : (
+                <div className="h-full animate-pulse rounded-[var(--radius-sm)] bg-[var(--surface-hover)]" />
+              )}
             </div>
           </Card>
 
@@ -531,11 +568,13 @@ export function DashboardPage() {
               >
                 Factures à encaisser
               </SectionTitle>
-              {data.pendingWithBalance.length === 0 ? (
+              {!ready ? (
+                <SkeletonRows count={3} rowClass="flex min-h-14 items-center px-5 py-2.5" />
+              ) : pending.length === 0 ? (
                 <p className="px-5 py-8 text-center text-sm text-[var(--muted)]">Aucune facture en attente de paiement.</p>
               ) : (
                 <ul className="divide-y divide-[var(--border)]">
-                  {data.pendingWithBalance.map((inv) => (
+                  {pending.map((inv) => (
                     <li key={inv.id}>
                       <Link
                         to={`/invoices/${inv.id}`}
@@ -555,7 +594,9 @@ export function DashboardPage() {
 
             <Card className="overflow-hidden">
               <SectionTitle>Relances automatiques</SectionTitle>
-              {reminders.length === 0 ? (
+              {!ready ? (
+                <SkeletonRows count={1} rowClass="flex min-h-16 items-center px-5 py-2.5" />
+              ) : reminders.length === 0 ? (
                 <p className="px-5 py-6 text-center text-sm text-[var(--muted)]">Aucune relance en attente.</p>
               ) : (
                 <ul className="divide-y divide-[var(--border)]">
@@ -592,16 +633,31 @@ export function DashboardPage() {
             <SectionTitle
               action={
                 <span className="rounded-full bg-[var(--surface-hover)] px-2 text-xs font-medium tabular-nums leading-6 text-[var(--muted)]">
-                  {obligationAlerts + (echeanceDue ? 1 : 0) + (data.drafts > 0 ? 1 : 0) + (mailStale ? 1 : 0) + deposit2Rows.length}
+                  {ready ? obligationAlerts + (echeanceDue ? 1 : 0) + ((data?.drafts ?? 0) > 0 ? 1 : 0) + (mailStale ? 1 : 0) + (companyEmailAlert ? 1 : 0) + deposit2Rows.length : <Skeleton className="w-3" />}
                 </span>
               }
             >
               À traiter
             </SectionTitle>
-            {obligationAlerts === 0 && !echeanceDue && data.drafts === 0 && !mailStale && deposit2Rows.length === 0 ? (
+            {!ready ? (
+              <SkeletonRows count={2} rowClass="flex min-h-15 items-center px-5 py-3" />
+            ) : obligationAlerts === 0 && !echeanceDue && (data?.drafts ?? 0) === 0 && !mailStale && !companyEmailAlert && deposit2Rows.length === 0 ? (
               <p className="px-5 py-6 text-center text-sm text-[var(--muted)]">Rien en attente. Tout est à jour.</p>
             ) : (
               <ul className="divide-y divide-[var(--border)] px-5">
+                {companyEmailAlert ? (
+                  // Ligne et non bandeau en haut de page : elle arrivait avec les données et décalait tout l'écran.
+                  <TodoRow
+                    icon={faEnvelope}
+                    tone="warning"
+                    title={companyEmailAlert.message}
+                    action={
+                      <Link to="/settings?tab=general&section=contact" className="link inline-flex min-h-11 items-center gap-1 text-sm">
+                        Renseigner <FontAwesomeIcon icon={faArrowRight} className="h-3 w-3" aria-hidden />
+                      </Link>
+                    }
+                  />
+                ) : null}
                 {mailStale ? (
                   <TodoRow
                     icon={faEnvelope}
@@ -654,7 +710,7 @@ export function DashboardPage() {
                     }
                   />
                 ) : null}
-                {echeanceDue ? (
+                {echeanceDue && data ? (
                   <TodoRow
                     icon={faLandmark}
                     tone="warning"
@@ -667,7 +723,7 @@ export function DashboardPage() {
                     }
                   />
                 ) : null}
-                {data.drafts > 0 ? (
+                {data && data.drafts > 0 ? (
                   <TodoRow
                     icon={faFilePen}
                     tone="muted"
@@ -700,7 +756,11 @@ export function DashboardPage() {
                 ) : null}
               </span>
             </SectionTitle>
-            {threads === null ? (
+            {!ready ? (
+              <SkeletonRows count={5} rowClass="flex min-h-15 items-center px-5 py-3" />
+            ) : threads === null ? (
+              <p className="px-5 py-6 text-center text-sm text-[var(--muted)]">Messages indisponibles pour le moment.</p>
+            ) : threads.length === 0 && data?.mailSync?.imapConfigured === false ? (
               <div className="px-5 py-6 text-center text-sm text-[var(--muted)]">
                 <p>Boîte mail non connectée.</p>
                 <Link to="/settings?tab=email" className="link mt-1 inline-flex min-h-11 items-center">
@@ -747,13 +807,15 @@ export function DashboardPage() {
                   to: "/abonnements",
                 },
                 { label: "Abonnements actifs", value: String(mrr?.activeCount ?? 0), to: "/abonnements" },
-                { label: "Brouillons", value: String(data.drafts), to: "/quotes" },
+                { label: "Brouillons", value: String((data?.drafts ?? 0)), to: "/quotes" },
                 { label: "Relances en attente", value: String(reminders.length), to: null },
               ].map((row) => (
                 <div key={row.label} className="flex min-h-11 items-center justify-between gap-3">
                   <dt className="text-[var(--muted)]">{row.label}</dt>
                   <dd className="font-semibold tabular-nums">
-                    {row.to ? (
+                    {!ready ? (
+                      <Skeleton className="w-10" />
+                    ) : row.to ? (
                       <Link to={row.to} className="inline-flex min-h-11 min-w-11 items-center justify-end hover:text-[var(--primary)]">
                         {row.value}
                       </Link>
