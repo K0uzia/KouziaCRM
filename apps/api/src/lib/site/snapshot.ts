@@ -17,6 +17,8 @@ export type SiteSnapshot = {
   files: Record<SiteFileName, string>;
   /** Images de l'ERP citées (sha12) : à publier sous public/media/. */
   media: string[];
+  /** Ce que montre chaque image citée (sha12), pour le récapitulatif : « capture de « Nom » », « logo de « Nom » ». */
+  mediaNames: Record<string, string>;
   /** Empreinte de l'ensemble : deux instantanés égaux ne donnent aucun commit. */
   digest: string;
   issues: SiteIssue[];
@@ -90,10 +92,19 @@ export async function buildSiteSnapshot(contract?: unknown): Promise<SiteSnapsho
     }
   }
 
-  const cited = [...projects.flatMap((p) => [p.imagePath, p.imageMobilePath ?? ""]), ...references.map((r) => r.logoPath ?? "")]
-    .map((p) => MEDIA_RE.exec(p)?.[1])
-    .filter((s): s is string => Boolean(s));
-  const media = [...new Set(cited)].sort();
+  const cited: [string | null, string][] = [
+    ...projects.flatMap((p): [string | null, string][] => [
+      [p.imagePath, `capture de « ${p.name} »`],
+      [p.imageMobilePath, `capture de téléphone de « ${p.name} »`],
+    ]),
+    ...references.map((r): [string | null, string] => [r.logoPath, `logo de « ${r.name} »`]),
+  ];
+  const mediaNames: Record<string, string> = {};
+  for (const [path, name] of cited) {
+    const sha = MEDIA_RE.exec(path ?? "")?.[1];
+    if (sha && !mediaNames[sha]) mediaNames[sha] = name;
+  }
+  const media = Object.keys(mediaNames).sort();
   const known = new Set(
     (await prisma.siteMedia.findMany({ where: { sha12: { in: media } }, select: { sha12: true } })).map((m) => m.sha12),
   );
@@ -105,5 +116,5 @@ export async function buildSiteSnapshot(contract?: unknown): Promise<SiteSnapsho
   const digest = createHash("sha256")
     .update(SITE_FILES.map((n) => `${n}\n${files[n]}`).join("\n") + media.join(","))
     .digest("hex");
-  return { files, media, digest, issues };
+  return { files, media, mediaNames, digest, issues };
 }

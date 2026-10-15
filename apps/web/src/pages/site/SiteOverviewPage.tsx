@@ -6,6 +6,7 @@ import { api, formatDate } from "@/lib/api";
 import { PageHeader } from "@/components/ui/Card";
 import { StatStrip } from "@/components/ui/StatStrip";
 import { withdrawalPending } from "./SiteReviewsPage";
+import { SitePublicationCard } from "./SitePublicationCard";
 import { LoadState, type SiteFaq, type SiteProject, type SiteReference, type SiteReview, type SiteState } from "./shared";
 
 type Overview = {
@@ -51,6 +52,19 @@ export function siteAlerts(o: Overview, now = Date.now()): Alert[] {
       text: `${r.author} a retiré son accord le ${formatDate(r.withdrawalRequestedAt)} : avis à retirer du site avant le ${formatDate(new Date(due))}.`,
       to: "/site/avis",
       action: "Ouvrir les avis",
+    });
+  }
+  for (const w of o.state.withdrawalsOnSite ?? []) {
+    const since = w.withdrawalRequestedAt ? ` le ${formatDate(w.withdrawalRequestedAt)}` : "";
+    const due = w.withdrawalRequestedAt ? ` avant le ${formatDate(new Date(new Date(w.withdrawalRequestedAt).getTime() + 7 * DAY))}` : "";
+    // verified : présent dans avis.json du dépôt ; sinon dépôt illisible, retrait récent signalé par prudence.
+    alerts.push({
+      tone: "danger",
+      text: w.verified
+        ? `Retrait demandé : à publier. ${w.author} a retiré son témoignage${since} ; il est encore sur le site (à retirer${due}).`
+        : `Retrait demandé : à publier. ${w.author} a retiré son témoignage${since} (à retirer du site${due}) ; le dépôt du site n'a pas pu être lu pour vérifier qu'il en est sorti.`,
+      to: "/site/avis",
+      action: "Voir les témoignages",
     });
   }
   const { token, expiresAt } = o.state.github;
@@ -188,15 +202,7 @@ export function SiteOverviewPage() {
               )}
             </section>
 
-            <section aria-labelledby="site-publication" className="ui-card p-4 sm:p-5">
-              <h2 id="site-publication" className="text-base font-semibold">
-                Publication
-              </h2>
-              <p className="mt-1 text-sm text-[var(--muted)]">
-                La publication vers kouzia.com n'est pas encore branchée : le contenu saisi ici reste dans l'ERP et le site
-                n'est pas modifié.
-              </p>
-            </section>
+            <SitePublicationCard state={data.state} onPublished={() => void load()} />
           </div>
         ) : null}
       </LoadState>

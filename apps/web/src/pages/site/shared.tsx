@@ -85,6 +85,13 @@ export type SiteState = {
   empty: boolean;
   digest: string;
   issues: SiteIssue[];
+  /**
+   * unpublished : null tant qu'aucune publication n'a abouti depuis l'ERP. live : ce contenu a été vu
+   * sur kouzia.com (sinon, il est seulement dans le dépôt du site).
+   */
+  publication: { unpublished: boolean | null; live: boolean | null };
+  /** Retirés après publication mais encore dans avis.json (verified: false si le dépôt n'a pas pu être lu). */
+  withdrawalsOnSite?: { id: string; author: string; withdrawalRequestedAt: string | null; verified: boolean }[];
 };
 
 export const PROJECT_KIND_LABEL: Record<SiteProject["kind"], string> = { WEBSITE: "Site web", SOFTWARE: "Logiciel" };

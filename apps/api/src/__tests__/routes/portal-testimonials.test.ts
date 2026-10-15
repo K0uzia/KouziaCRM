@@ -1,13 +1,14 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { FastifyInstance } from "fastify";
 import { prisma } from "@/lib/prisma.js";
-import { decrypt } from "@/lib/crypto.js";
+import { decrypt, encrypt } from "@/lib/crypto.js";
+import { invalidateCompanySettingsCache } from "@/lib/company.js";
 import { hashPassword, SESSION_COOKIE } from "@/lib/auth.js";
 import { openPortalSession, PORTAL_COOKIE } from "@/lib/portal/auth.js";
 import { listNotifications } from "@/lib/notifications/feed.js";
 import { getAllowedOrigins } from "@/lib/env.js";
 import { buildSiteSnapshot } from "@/lib/site/snapshot.js";
-import { CONSENT_VERSION, PROOF_RETENTION_MS, purgeTestimonialProofs } from "@/lib/site/testimonials.js";
+import { CONSENT_VERSION, PROOF_RETENTION_MS, purgeTestimonialProofs, withdrawalsOnSite } from "@/lib/site/testimonials.js";
 import { clearTable, resetDb } from "../helpers/db.js";
 import { createClient, seedCompanySettings } from "../helpers/factories.js";
 
@@ -132,7 +133,11 @@ describe("témoignage depuis l'espace client", () => {
     const b = await portalClient();
     await put(b.cookie, b.project.id);
     await prisma.siteReview.updateMany({ data: { status: "PUBLISHED", publishedAt: new Date() } });
+    const since = new Date(Date.now() - 1000);
     expect((await del(b.cookie, b.project.id)).json()).toEqual({ status: "WITHDRAWN" });
+    expect(await listNotifications(since)).toContainEqual(
+      expect.objectContaining({ kind: "testimonial", title: "Témoignage retiré par son auteur", body: "Marie D., projet « Site vitrine » : à retirer du site sous 7 jours.", href: "/site" }),
+    );
     const row = await prisma.siteReview.findFirstOrThrow();
     expect(row.status).toBe("WITHDRAWN");
     expect(row.withdrawalRequestedAt).not.toBeNull();
@@ -167,6 +172,60 @@ describe("témoignage depuis l'espace client", () => {
 });
 
 describe("témoignages dans l'ERP", () => {
+  afterEach(async () => {
+    vi.unstubAllGlobals();
+    await prisma.companySettings.updateMany({ data: { githubTokenEncrypted: null } });
+    invalidateCompanySettingsCache();
+  });
+
+  it("retrait après publication : alerte tant que avis.json du dépôt contient le texte ; non vérifié si le dépôt est illisible", async () => {
+    const { project, cookie } = await portalClient();
+    await put(cookie, project.id);
+    await prisma.siteReview.updateMany({ data: { status: "PUBLISHED", publishedAt: new Date() } });
+    const row = await prisma.siteReview.findFirstOrThrow();
+    expect(await withdrawalsOnSite()).toEqual([]);
+    await del(cookie, project.id);
+
+    // Jeton absent : retrait récent signalé sans vérification, ancien (plus de 30 jours) tu.
+    expect(await withdrawalsOnSite()).toMatchObject([{ id: row.id, author: "Marie D.", verified: false }]);
+    expect(await withdrawalsOnSite(new Date(Date.now() + 31 * 86_400_000))).toEqual([]);
+
+    await prisma.companySettings.updateMany({ data: { githubTokenEncrypted: encrypt("github_pat_test") } });
+    invalidateCompanySettingsCache();
+    let live = [{ auteur: "Marie D.", publieLe: row.reviewedOn, texte: row.text }];
+    const seen: string[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => (seen.push(String(url)), new Response(JSON.stringify({ schemaVersion: 1, avis: live })))));
+    expect(await withdrawalsOnSite()).toMatchObject([{ id: row.id, verified: true }]);
+    expect(seen.at(-1)).toContain("/contents/src/content/site/avis.json?ref=main");
+    const status = (await adminCall("GET", "/api/site/status")).json();
+    expect(status.withdrawalsOnSite).toMatchObject([{ id: row.id, author: "Marie D.", verified: true }]);
+
+    // Publié depuis sans ce témoignage : plus d'alerte.
+    live = [];
+    expect(await withdrawalsOnSite()).toEqual([]);
+  });
+
+  it("retrait après publication : plus d'alerte dès qu'une publication est enregistrée dans le dépôt après le retrait", async () => {
+    const { project, cookie } = await portalClient();
+    await put(cookie, project.id);
+    await prisma.siteReview.updateMany({ data: { status: "PUBLISHED", publishedAt: new Date() } });
+    await prisma.sitePublication.create({
+      data: { status: "LIVE", digest: "d", summaryJson: "[]", commitSha: "a".repeat(40), startedAt: new Date(Date.now() - 60_000) },
+    });
+    await del(cookie, project.id);
+    // Publication antérieure au retrait : le témoignage y est encore (jeton absent : signalé, non vérifié).
+    expect(await withdrawalsOnSite()).toMatchObject([{ author: "Marie D.", verified: false }]);
+    // Publication échouée avant le commit : ne compte pas.
+    await prisma.sitePublication.create({ data: { status: "FAILED", digest: "d", summaryJson: "[]", startedAt: new Date(Date.now() + 1000) } });
+    expect(await withdrawalsOnSite()).toHaveLength(1);
+    // Commit fait après le retrait (ou dépôt déjà à jour) : le retrait est publié, sans lire GitHub.
+    const seen: string[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => (seen.push(String(url)), new Response("{}"))));
+    await prisma.sitePublication.create({ data: { status: "NOOP", digest: "d", summaryJson: "[]", startedAt: new Date(Date.now() + 2000) } });
+    expect(await withdrawalsOnSite()).toEqual([]);
+    expect(seen).toEqual([]);
+  });
+
   it("file À valider : notification, texte du client non modifiable, publier puis instantané ; écarter avec mailto neutre", async () => {
     const since = new Date(Date.now() - 1000);
     const { client, project, cookie } = await portalClient();
