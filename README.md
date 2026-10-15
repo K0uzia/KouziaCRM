@@ -224,6 +224,7 @@ Avant un merge dans `main` :
 | Types et build du front | `npm run build` (lance aussi `check:lockfile`) |
 | Lockfile | `npm run check:lockfile` : échoue si npm sous Windows a retiré les binaires des autres plateformes (dont `lightningcss-linux-x64-musl` pour le CT Alpine) |
 | Mobile | `npm run check:mobile` (voir ci-dessous) |
+| Chargement des pages | `npm run qa:mesure -- --width=360 --profil=4g-lent` : temps de Réglages, Clients, Factures et Messagerie (navigation et chargement complet), GET /api et appels en double ; profil 4G lent (RTT 150 ms, 1,6 Mbit/s, processeur x4) ou `bureau`. Mêmes identifiants que `check:mobile`, compte de recette sans double authentification, build de prod de préférence (`MESURE_URL`). |
 | Typographie | aucun tiret cadratin ni demi-cadratin ajouté |
 
 ### Contrôle mobile (`npm run check:mobile`)

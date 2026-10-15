@@ -3,6 +3,7 @@ import { Navigate, useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { useAuth } from "@/lib/auth";
 import { Button } from "@/components/ui/Button";
+import { CodeInput } from "@/components/ui/CodeInput";
 import { Field, Input } from "@/components/ui/Field";
 
 export function LoginPage() {
@@ -57,6 +58,8 @@ export function LoginPage() {
 
   async function onSubmitCode(e: FormEvent) {
     e.preventDefault();
+    // Envoi automatique du code puis Entrée : une seule vérification à la fois.
+    if (busy) return;
     setBusy(true);
     setError(null);
     try {
@@ -114,21 +117,32 @@ export function LoginPage() {
                 {error}
               </p>
             ) : null}
-            <Field label={useRecovery ? "Code de secours" : "Code"}>
-              <Input
-                ref={codeRef}
-                required
-                autoComplete="one-time-code"
-                inputMode={useRecovery ? "text" : "numeric"}
-                pattern={useRecovery ? undefined : "[0-9]{6}"}
-                maxLength={useRecovery ? 20 : 6}
-                value={code}
-                className="font-mono tracking-[0.2em]"
-                aria-invalid={error ? true : undefined}
-                aria-describedby={error ? "login-error" : undefined}
-                onChange={(e) => setCode(useRecovery ? e.target.value : e.target.value.replace(/D/g, "").slice(0, 6))}
-              />
-            </Field>
+            {useRecovery ? (
+              // Code de secours : champ texte classique (lettres et tirets).
+              <Field label="Code de secours">
+                <Input
+                  ref={codeRef}
+                  required
+                  autoComplete="one-time-code"
+                  maxLength={20}
+                  value={code}
+                  className="font-mono tracking-[0.2em]"
+                  aria-invalid={error ? true : undefined}
+                  aria-describedby={error ? "login-error" : undefined}
+                  onChange={(e) => setCode(e.target.value)}
+                />
+              </Field>
+            ) : (
+              <Field label="Code">
+                <CodeInput
+                  ref={codeRef}
+                  value={code}
+                  onChange={setCode}
+                  aria-invalid={error ? true : undefined}
+                  aria-describedby={error ? "login-error" : undefined}
+                />
+              </Field>
+            )}
             <Button type="submit" className="w-full" disabled={busy}>
               {busy ? "Vérification…" : "Valider"}
             </Button>
