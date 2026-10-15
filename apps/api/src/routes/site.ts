@@ -20,7 +20,7 @@ import { httpsUrl, imagePath, siteText, slug } from "@/lib/site/contract.js";
 import { parseTech } from "@/lib/site/mapping.js";
 import { readSiteText, writeSiteText, isSiteTextKey } from "@/lib/site/texts.js";
 import { buildSiteSnapshot } from "@/lib/site/snapshot.js";
-import { TESTIMONIAL_SOURCE } from "@/lib/site/testimonials.js";
+import { TESTIMONIAL_SOURCE, withdrawalsOnSite } from "@/lib/site/testimonials.js";
 import { importSiteFiles, siteContentExists, SiteImportError } from "@/lib/site/import.js";
 import { GithubError, readSiteRepoFiles, saveGithubToken, siteBranch, siteRepo, testGithubConnection } from "@/lib/site/github.js";
 import {
@@ -243,7 +243,7 @@ export const siteRoutes: FastifyPluginAsync = async (app) => {
     "/api/site/status",
     admin(async () => {
       const settings = await getCompanySettings();
-      const snapshot = await buildSiteSnapshot();
+      const [snapshot, withdrawals] = await Promise.all([buildSiteSnapshot(), withdrawalsOnSite()]);
       return {
         imagesAvailable: Boolean(await loadSharp()),
         github: {
@@ -256,6 +256,8 @@ export const siteRoutes: FastifyPluginAsync = async (app) => {
         empty: !(await siteContentExists()),
         digest: snapshot.digest,
         issues: snapshot.issues,
+        // Retirés après publication, encore dans avis.json : alerte « Retrait demandé : à publier ».
+        withdrawalsOnSite: withdrawals,
       };
     }),
   );

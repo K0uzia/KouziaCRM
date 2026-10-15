@@ -115,14 +115,20 @@ export async function testGithubConnection(): Promise<GithubConnection> {
   return { repo, branch, headSha: ref.object?.sha ?? "", expiresAt, expiration: expiration.kind };
 }
 
+async function readRaw(token: string, name: string): Promise<string> {
+  const path = `/repos/${siteRepo()}/contents/${SITE_CONTENT_DIR}/${name}?ref=${siteBranch()}`;
+  return (await call(token, path, "application/vnd.github.raw+json")).text();
+}
+
 /** Lecture seule des 6 fichiers publiés et du contrat (contenu.schema.json) sur la branche du site. */
 export async function readSiteRepoFiles(): Promise<{ files: Record<SiteFileName, string>; contract: unknown }> {
   const token = await githubToken();
-  const repo = siteRepo();
-  const branch = siteBranch();
-  const raw = async (name: string) =>
-    (await call(token, `/repos/${repo}/contents/${SITE_CONTENT_DIR}/${name}?ref=${branch}`, "application/vnd.github.raw+json")).text();
   const files = {} as Record<SiteFileName, string>;
-  for (const name of SITE_FILES) files[name] = await raw(`${name}.json`);
-  return { files, contract: JSON.parse(await raw("contenu.schema.json")) };
+  for (const name of SITE_FILES) files[name] = await readRaw(token, `${name}.json`);
+  return { files, contract: JSON.parse(await readRaw(token, "contenu.schema.json")) };
+}
+
+/** Lecture seule d'un fichier publié (ex. avis.json) sur la branche du site. */
+export async function readSiteRepoFile(name: SiteFileName): Promise<string> {
+  return readRaw(await githubToken(), `${name}.json`);
 }

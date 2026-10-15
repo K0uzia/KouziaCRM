@@ -85,6 +85,8 @@ export type SiteState = {
   empty: boolean;
   digest: string;
   issues: SiteIssue[];
+  /** Retirés après publication mais encore dans avis.json (verified: false si le dépôt n'a pas pu être lu). */
+  withdrawalsOnSite?: { id: string; author: string; withdrawalRequestedAt: string | null; verified: boolean }[];
 };
 
 export const PROJECT_KIND_LABEL: Record<SiteProject["kind"], string> = { WEBSITE: "Site web", SOFTWARE: "Logiciel" };

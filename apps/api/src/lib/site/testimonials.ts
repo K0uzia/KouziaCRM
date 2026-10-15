@@ -2,6 +2,7 @@ import { SiteItemStatus, type Client, type SiteReview } from "@prisma/client";
 import { prisma } from "@/lib/prisma.js";
 import { decrypt, encrypt } from "@/lib/crypto.js";
 import { isOrganization } from "@/lib/clients/client-type.js";
+import { readSiteRepoFile } from "@/lib/site/github.js";
 
 /**
  * Témoignages déposés par les clients depuis leur espace (/suivi), en fin de projet (statut DONE).
@@ -178,6 +179,41 @@ export async function withdrawTestimonial(clientId: string, projectId: string, n
     data: { status: SiteItemStatus.WITHDRAWN, withdrawalRequestedAt: row.withdrawalRequestedAt ?? now },
   });
   return "withdrawn";
+}
+
+/** Sans lecture possible du dépôt, seuls les retraits de moins de 30 jours sont signalés (non vérifiés). */
+const UNVERIFIED_WINDOW_MS = 30 * 86_400_000;
+/** La vue d'ensemble n'attend pas GitHub au-delà : le retrait est alors signalé sans vérification. */
+const LIVE_CHECK_TIMEOUT_MS = 4_000;
+
+export type WithdrawalOnSite = { id: string; author: string; withdrawalRequestedAt: Date | null; verified: boolean };
+
+/**
+ * Témoignages ou avis retirés après publication (statut Retiré) mais encore présents dans avis.json sur la
+ * branche du site : à publier pour tenir le délai de 7 jours annoncé. Le texte publié est figé, donc
+ * auteur et texte identifient l'entrée. Dépôt illisible (jeton absent, GitHub injoignable) : retraits
+ * récents signalés avec verified: false, plutôt que de taire un retrait peut-être encore en ligne.
+ */
+export async function withdrawalsOnSite(now = new Date()): Promise<WithdrawalOnSite[]> {
+  const rows = await prisma.siteReview.findMany({
+    where: { status: SiteItemStatus.WITHDRAWN, publishedAt: { not: null } },
+    select: { id: true, author: true, text: true, withdrawalRequestedAt: true, updatedAt: true },
+    orderBy: { updatedAt: "desc" },
+  });
+  if (!rows.length) return [];
+  const out = (r: (typeof rows)[number], verified: boolean) => ({ id: r.id, author: r.author, withdrawalRequestedAt: r.withdrawalRequestedAt, verified });
+  try {
+    const raw = await Promise.race([
+      readSiteRepoFile("avis"),
+      new Promise<never>((_, reject) => setTimeout(() => reject(new Error("délai")), LIVE_CHECK_TIMEOUT_MS).unref()),
+    ]);
+    const parsed = JSON.parse(raw) as { avis?: unknown };
+    const live = (Array.isArray(parsed.avis) ? parsed.avis : []) as Array<{ auteur?: unknown; texte?: unknown }>;
+    return rows.filter((r) => live.some((a) => a.auteur === r.author && a.texte === r.text)).map((r) => out(r, true));
+  } catch {
+    const limit = now.getTime() - UNVERIFIED_WINDOW_MS;
+    return rows.filter((r) => (r.withdrawalRequestedAt ?? r.updatedAt).getTime() >= limit).map((r) => out(r, false));
+  }
 }
 
 /**

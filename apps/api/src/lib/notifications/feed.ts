@@ -39,7 +39,7 @@ function eur(cents: number): string {
 export async function listNotifications(since: Date): Promise<NotificationItem[]> {
   const recentMail = new Date(Date.now() - MAIL_RECENT_MS);
 
-  const [mails, accepted, rejected, payments, depositsDue, stripeSubs, onboarded, googleReauth, testimonials] = await Promise.all([
+  const [mails, accepted, rejected, payments, depositsDue, stripeSubs, onboarded, googleReauth, testimonials, withdrawn] = await Promise.all([
     prisma.emailMessage.findMany({
       where: {
         direction: EmailDirection.INBOUND,
@@ -141,6 +141,13 @@ export async function listNotifications(since: Date): Promise<NotificationItem[]
       take: MAX_ITEMS,
       select: { id: true, author: true, consentAt: true, project: { select: { name: true } } },
     }),
+    // Témoignage publié puis retiré par son auteur depuis /suivi : à sortir du site sous 7 jours.
+    prisma.siteReview.findMany({
+      where: { source: "CLIENT_SPACE", status: "WITHDRAWN", publishedAt: { not: null }, withdrawalRequestedAt: { gt: since } },
+      orderBy: { withdrawalRequestedAt: "desc" },
+      take: MAX_ITEMS,
+      select: { id: true, author: true, withdrawalRequestedAt: true, project: { select: { name: true } } },
+    }),
   ]);
 
   const items: NotificationItem[] = [
@@ -228,6 +235,14 @@ export async function listNotifications(since: Date): Promise<NotificationItem[]
       body: t.project ? `${t.author}, projet « ${t.project.name} »` : t.author,
       href: "/site/avis",
       at: (t.consentAt ?? new Date()).toISOString(),
+    })),
+    ...withdrawn.map((t) => ({
+      id: `testimonial_withdrawn:${t.id}:${t.withdrawalRequestedAt!.getTime()}`,
+      kind: "testimonial" as const,
+      title: "Témoignage retiré par son auteur",
+      body: `${t.author}${t.project ? `, projet « ${t.project.name} »` : ""} : à retirer du site sous 7 jours.`,
+      href: "/site",
+      at: t.withdrawalRequestedAt!.toISOString(),
     })),
   ];
 
