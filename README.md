@@ -526,6 +526,12 @@ Purge par le worker, chaque heure (`apps/api/src/lib/privacy/retention.ts`). Les
 ## Dette connue
 
 - P2, branche dédiée `chore/montants-centimes` (avec tests de bout en bout) : plusieurs écrans envoient encore des montants en euros (`amountEuros`, `unitPriceEuros`, `discountEuros`, `cfeAmountEuros`), convertis en centimes par l'API (`eurosToCents`, arrondi décimal exact à 2 chiffres). La charte veut des `*Cents` entiers de bout en bout : contrat front et API à basculer d'un bloc.
+- P2, performance, à surveiller si les volumes montent (sans effet mesurable sur la base de production actuelle, 1,1 Mo) :
+  - flux des notifications (`lib/notifications/feed.ts`, relevé toutes les 30 s) : filtres sur des colonnes sans index (`EmailMessage.createdAt`, `Payment.createdAt`, `QuoteAcceptanceAudit.createdAt`, `PaymentMilestone.triggeredAt`, `Subscription.stripeStatusChangedAt`, `Client.onboardingCompletedAt`), donc parcours complets ;
+  - `getOwnerPaySummary` (`lib/finance/owner-pay.ts`) et `/api/stripe/flux` (`lib/finance/stripe-flux.ts`) lisent tous les paiements (et versements) puis les reparcourent pour chaque mois : coût en mois × paiements ;
+  - `listDeposit2Todos` (`lib/quotes/payment-plans.ts`) filtre `Invoice.paymentPlan`, sans index, après les autres blocs du tableau de bord ;
+  - `ensureDefaultLegalClauses` (`lib/company/legal-clauses.ts`) fait une requête par clause par défaut à chaque lecture des clauses (`LegalClause.title` sans index).
+  Mesure : `npm run qa:mesure -- --pages="Tableau de bord,Réglages" --detail` (temps et poids de chaque route).
 
 ## Identité seedée
 
