@@ -23,7 +23,8 @@ const MEDIA_DIR = "public/media";
 const ERP_MEDIA_FILE = /^public\/media\/[a-f0-9]{12}(-2x)?\.webp$/;
 const FOLLOWED = [SitePublicationStatus.DISPATCHED, SitePublicationStatus.BUILDING, SitePublicationStatus.DEPLOYED];
 
-export type FileChange = { path: string; change: "added" | "modified" | "deleted" };
+/** label : ce que montre une image de l'ERP (« capture de « Nom » »), connu à l'ajout et au remplacement. */
+export type FileChange = { path: string; change: "added" | "modified" | "deleted"; label?: string };
 
 export class PublishError extends Error {
   constructor(
@@ -40,19 +41,19 @@ export function gitBlobSha(content: Buffer): string {
   return createHash("sha1").update(`blob ${content.length}\0`).update(content).digest("hex");
 }
 
-type Desired = Map<string, { content: Buffer; sha: string }>;
+type Desired = Map<string, { content: Buffer; sha: string; label?: string }>;
 type TreeEntry = { path: string; type: string; sha: string };
 
 async function desiredFiles(snapshot: SiteSnapshot): Promise<Desired> {
   const desired: Desired = new Map();
-  const put = (path: string, content: Buffer) => desired.set(path, { content, sha: gitBlobSha(content) });
+  const put = (path: string, content: Buffer, label?: string) => desired.set(path, { content, sha: gitBlobSha(content), label });
   for (const name of SITE_FILES) put(`${SITE_CONTENT_DIR}/${name}.json`, Buffer.from(snapshot.files[name], "utf8"));
   for (const sha12 of snapshot.media) {
     const x1 = await readSiteMedia(sha12);
     if (!x1) throw new PublishError(`Image ${sha12} absente du disque de l'ERP.`, 422);
-    put(`${MEDIA_DIR}/${sha12}.webp`, x1);
+    put(`${MEDIA_DIR}/${sha12}.webp`, x1, snapshot.mediaNames[sha12]);
     const x2 = await readSiteMedia(sha12, true);
-    if (x2) put(`${MEDIA_DIR}/${sha12}-2x.webp`, x2);
+    if (x2) put(`${MEDIA_DIR}/${sha12}-2x.webp`, x2, snapshot.mediaNames[sha12]);
   }
   return desired;
 }
@@ -63,8 +64,9 @@ export function diffTree(tree: TreeEntry[], desired: Desired): FileChange[] {
   const changes: FileChange[] = [];
   for (const [path, file] of desired) {
     const sha = existing.get(path);
-    if (!sha) changes.push({ path, change: "added" });
-    else if (sha !== file.sha) changes.push({ path, change: "modified" });
+    const label = file.label ? { label: file.label } : {};
+    if (!sha) changes.push({ path, change: "added", ...label });
+    else if (sha !== file.sha) changes.push({ path, change: "modified", ...label });
   }
   for (const path of existing.keys()) {
     if (ERP_MEDIA_FILE.test(path) && !desired.has(path)) changes.push({ path, change: "deleted" });
@@ -106,28 +108,53 @@ async function plan(): Promise<Plan> {
   return { state, snapshot, desired, changes: diffTree(state.tree, desired) };
 }
 
-export type PublicationPreview = { headSha: string; digest: string; changes: FileChange[] };
+export type PublicationPreview = { headSha: string; digest: string; changes: FileChange[]; lines: string[] };
 
 /** Ce que publierait un clic sur « Publier », sans rien écrire. */
 export async function previewPublication(): Promise<PublicationPreview> {
   const p = await plan();
-  return { headSha: p.state.headSha, digest: p.snapshot.digest, changes: p.changes };
+  return { headSha: p.state.headSha, digest: p.snapshot.digest, changes: p.changes, lines: changeLines(p.changes) };
 }
 
-/** Résumé lisible pour le message de commit et l'historique. */
-export function describeChanges(changes: FileChange[]): string {
-  const content = changes.filter((c) => c.path.startsWith(`${SITE_CONTENT_DIR}/`)).map((c) => c.path.slice(SITE_CONTENT_DIR.length + 1));
-  const media = changes.filter((c) => c.path.startsWith(`${MEDIA_DIR}/`) && !c.path.endsWith("-2x.webp"));
-  const parts: string[] = [];
-  if (content.length) parts.push(content.join(", "));
-  const added = media.filter((c) => c.change === "added").length;
-  const removed = media.filter((c) => c.change === "deleted").length;
-  const modified = media.length - added - removed;
-  if (added) parts.push(`${added} image${added > 1 ? "s" : ""} ajoutée${added > 1 ? "s" : ""}`);
-  if (modified) parts.push(`${modified} image${modified > 1 ? "s" : ""} remplacée${modified > 1 ? "s" : ""}`);
-  if (removed) parts.push(`${removed} image${removed > 1 ? "s" : ""} retirée${removed > 1 ? "s" : ""}`);
-  return parts.join(" ; ");
+/** Rubrique de chaque fichier de contenu, dans le récapitulatif, l'historique et le message de commit. */
+export const FILE_LABEL: Record<string, string> = {
+  "infos.json": "Coordonnées",
+  "textes.json": "Accroche et offres",
+  "faq.json": "FAQ",
+  "realisations.json": "Réalisations",
+  "avis.json": "Témoignages",
+  "references.json": "Références",
+};
+const CHANGE_LABEL: Record<FileChange["change"], string> = { added: "ajouté", modified: "modifié", deleted: "retiré" };
+const IMAGE_VERB: Record<FileChange["change"], string> = { added: "ajoutée", modified: "remplacée", deleted: "retirée" };
+
+/**
+ * Lignes lisibles d'une publication : « FAQ : modifié », « Image ajoutée : capture de « Nom » ». La version
+ * 2x suit la 1x ; une image sans nom connu (retirée, plus citée) est comptée : « 2 images retirées ».
+ * Les rubriques de contenu viennent d'abord, les images ensuite.
+ */
+export function changeLines(changes: FileChange[]): string[] {
+  const lines: string[] = [];
+  const images: string[] = [];
+  const unnamed: Record<FileChange["change"], number> = { added: 0, modified: 0, deleted: 0 };
+  for (const c of changes) {
+    if (c.path.startsWith(`${SITE_CONTENT_DIR}/`)) {
+      const name = c.path.slice(SITE_CONTENT_DIR.length + 1);
+      lines.push(`${FILE_LABEL[name] ?? name} : ${CHANGE_LABEL[c.change]}`);
+    } else if (!c.path.endsWith("-2x.webp")) {
+      if (c.label) images.push(`Image ${IMAGE_VERB[c.change]} : ${c.label}`);
+      else unnamed[c.change]++;
+    }
+  }
+  for (const change of ["added", "modified", "deleted"] as const) {
+    const n = unnamed[change];
+    if (n) images.push(`${n} image${n > 1 ? "s" : ""} ${IMAGE_VERB[change]}${n > 1 ? "s" : ""}`);
+  }
+  return [...lines, ...images];
 }
+
+/** Résumé sur une ligne, pour le message de commit et l'historique. */
+export const describeChanges = (changes: FileChange[]): string => changeLines(changes).join(" ; ");
 
 /** Libère le verrou d'une publication restée en cours (API arrêtée pendant la publication). */
 export async function expireStalePublications(now = new Date()): Promise<void> {
@@ -320,6 +347,9 @@ async function findRun(p: SitePublication): Promise<Run | null> {
  * Tâche du worker (toutes les 15 s) : verrous périmés, état du run si le rappel tarde, mise en ligne
  * constatée sur version.json, et abandon du suivi au-delà de 10 minutes.
  */
+/** Run terminé sans rappel de l'Action (secret du rappel absent côté site, ou rappel perdu). */
+export const CALLBACK_MISSING = "Rappel non reçu : voir le run.";
+
 export async function followSitePublications(now = new Date()): Promise<void> {
   await expireStalePublications(now);
   const rows = await prisma.sitePublication.findMany({
@@ -338,6 +368,7 @@ export async function followSitePublications(now = new Date()): Promise<void> {
     const started = (p.dispatchedAt ?? p.startedAt).getTime();
     if (now.getTime() - started > PUBLICATION_LIVE_TIMEOUT_MS) {
       const deployed = p.status === SitePublicationStatus.DEPLOYED;
+      const runDone = p.status === SitePublicationStatus.BUILDING && p.lock === null;
       await prisma.sitePublication.update({
         where: { id: p.id },
         data: {
@@ -345,20 +376,29 @@ export async function followSitePublications(now = new Date()): Promise<void> {
           status: deployed ? p.status : SitePublicationStatus.FAILED,
           error: deployed
             ? "Déployé selon l'Action, mais kouzia.com/version.json ne montre pas ce commit après 10 minutes."
-            : "Pas en ligne 10 minutes après le lancement du déploiement (voir l'Action du site).",
+            : runDone
+              ? `${CALLBACK_MISSING} Le contenu est dans le dépôt, mais kouzia.com ne montre pas ce commit après 10 minutes.`
+              : "Pas en ligne 10 minutes après le lancement du déploiement (voir l'Action du site).",
           lock: null,
           finishedAt: now,
         },
       });
       continue;
     }
-    if (p.status === SitePublicationStatus.DEPLOYED) continue;
+    // Run déjà terminé sans rappel : plus rien à demander à GitHub, seul version.json peut encore conclure.
+    if (p.status === SitePublicationStatus.DEPLOYED || (p.status === SitePublicationStatus.BUILDING && p.lock === null)) continue;
     const run = await findRun(p);
     if (!run) continue;
     if (run.status === "completed" && run.conclusion !== "success") {
       await prisma.sitePublication.update({
         where: { id: p.id },
         data: { status: SitePublicationStatus.FAILED, runUrl: run.html_url, error: RESULT_ERROR.echec!, lock: null, finishedAt: now },
+      });
+    } else if (run.status === "completed") {
+      // Job vert sans rappel (le rappel part avant la fin du job) : verrou libéré, une autre publication est possible.
+      await prisma.sitePublication.update({
+        where: { id: p.id },
+        data: { status: SitePublicationStatus.BUILDING, runUrl: run.html_url, lock: null },
       });
     } else if (p.status === SitePublicationStatus.DISPATCHED || p.runUrl !== run.html_url) {
       await prisma.sitePublication.update({
@@ -369,21 +409,30 @@ export async function followSitePublications(now = new Date()): Promise<void> {
   }
 }
 
-export const publicationOut = (p: SitePublication) => ({
-  id: p.id,
-  status: p.status,
-  /** Publication ou déploiement encore suivi (l'écran se rafraîchit tant que c'est vrai). */
-  running: p.lock === LOCK || (FOLLOWED.includes(p.status as (typeof FOLLOWED)[number]) && !p.error && !p.liveAt),
-  changes: JSON.parse(p.summaryJson) as FileChange[],
-  summary: describeChanges(JSON.parse(p.summaryJson) as FileChange[]),
-  digest: p.digest,
-  baseSha: p.baseSha,
-  commitSha: p.commitSha,
-  commitUrl: p.commitSha ? `https://github.com/${siteRepo()}/commit/${p.commitSha}` : null,
-  runUrl: p.runUrl,
-  error: p.error,
-  startedAt: p.startedAt,
-  dispatchedAt: p.dispatchedAt,
-  finishedAt: p.finishedAt,
-  liveAt: p.liveAt,
-});
+export const publicationOut = (p: SitePublication) => {
+  const changes = JSON.parse(p.summaryJson) as FileChange[];
+  const watching = FOLLOWED.includes(p.status as (typeof FOLLOWED)[number]) && !p.error && !p.liveAt;
+  return {
+    id: p.id,
+    status: p.status,
+    /** Verrou pris : une autre publication est refusée. */
+    running: p.lock === LOCK,
+    /** Déploiement encore suivi (l'écran se rafraîchit tant que c'est vrai). */
+    watching,
+    /** Run terminé sans rappel : le lien du run est la seule source, version.json peut encore conclure. */
+    notice: watching && p.lock === null && p.status === SitePublicationStatus.BUILDING ? CALLBACK_MISSING : null,
+    changes,
+    lines: changeLines(changes),
+    summary: describeChanges(changes),
+    digest: p.digest,
+    baseSha: p.baseSha,
+    commitSha: p.commitSha,
+    commitUrl: p.commitSha ? `https://github.com/${siteRepo()}/commit/${p.commitSha}` : null,
+    runUrl: p.runUrl,
+    error: p.error,
+    startedAt: p.startedAt,
+    dispatchedAt: p.dispatchedAt,
+    finishedAt: p.finishedAt,
+    liveAt: p.liveAt,
+  };
+};

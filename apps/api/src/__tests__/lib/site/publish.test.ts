@@ -14,8 +14,11 @@ import { importSiteFiles } from "@/lib/site/import.js";
 import { issuedPdfAbsolutePath } from "@/lib/pdf/issued-archive.js";
 import { siteMediaRelativePath } from "@/lib/site/media.js";
 import {
+  CALLBACK_MISSING,
+  changeLines,
   diffTree,
   followSitePublications,
+  publicationOut,
   gitBlobSha,
   publishSite,
   PUBLICATION_LIVE_TIMEOUT_MS,
@@ -156,7 +159,7 @@ describe("publication du site (Git Data)", () => {
     expect(p.status).toBe(SitePublicationStatus.DISPATCHED);
     expect(fake.commits).toHaveLength(1);
     expect(fake.commits[0]!.parents).toEqual([sha("a")]);
-    expect(fake.commits[0]!.message).toBe("Contenu publié depuis l'ERP : faq.json");
+    expect(fake.commits[0]!.message).toBe("Contenu publié depuis l'ERP : FAQ : modifié");
     expect(fake.trees[0]!.base_tree).toBe(`tree-${sha("a")}`);
     expect(fake.trees[0]!.tree.map((t) => t.path)).toEqual(["src/content/site/faq.json"]);
     expect(fake.dispatches).toEqual([{ event_type: "publication-site", client_payload: { sha: p.commitSha } }]);
@@ -183,7 +186,11 @@ describe("publication du site (Git Data)", () => {
     expect(changed["public/media/000000000000.webp"]).toBeNull();
     expect(changed).not.toHaveProperty("public/projets/morlaix.webp");
     expect(fake.blobs).toHaveLength(3);
-    expect(fake.commits[0]!.message).toBe("Contenu publié depuis l'ERP : realisations.json ; 1 image ajoutée ; 1 image retirée");
+    expect(fake.commits[0]!.message).toBe(
+      `Contenu publié depuis l'ERP : Réalisations : modifié ; Image ajoutée : capture de « ${project.name} » ; 1 image retirée`,
+    );
+    // Historique : mêmes libellés que le message de commit.
+    expect(publicationOut(p).lines).toEqual(["Réalisations : modifié", `Image ajoutée : capture de « ${project.name} »`, "1 image retirée"]);
     expect(p.status).toBe(SitePublicationStatus.DISPATCHED);
   });
 
@@ -237,6 +244,21 @@ describe("publication du site (Git Data)", () => {
   });
 });
 
+describe("changeLines", () => {
+  it("rubriques du contenu d'abord, images nommées ensuite, 2x regroupée, images sans nom comptées", () => {
+    expect(
+      changeLines([
+        { path: "public/media/aaaaaaaaaaaa-2x.webp", change: "modified", label: "logo de « Ulamir »" },
+        { path: "public/media/aaaaaaaaaaaa.webp", change: "modified", label: "logo de « Ulamir »" },
+        { path: "public/media/bbbbbbbbbbbb.webp", change: "deleted" },
+        { path: "public/media/cccccccccccc.webp", change: "deleted" },
+        { path: "src/content/site/avis.json", change: "modified" },
+        { path: "src/content/site/infos.json", change: "modified" },
+      ]),
+    ).toEqual(["Témoignages : modifié", "Coordonnées : modifié", "Image remplacée : logo de « Ulamir »", "2 images retirées"]);
+  });
+});
+
 describe("diffTree", () => {
   it("ne supprime que les images publiées par l'ERP", () => {
     const changes = diffTree(
@@ -276,6 +298,37 @@ describe("suivi du déploiement", () => {
     await followSitePublications();
     const row = await prisma.sitePublication.findUniqueOrThrow({ where: { id: p.id } });
     expect([row.status, row.lock]).toEqual([SitePublicationStatus.FAILED, null]);
+  });
+
+  it("run vert sans rappel : verrou libéré aussitôt, « Rappel non reçu », puis LIVE si version.json le montre", async () => {
+    const p = await dispatched();
+    fake.runs = [{ html_url: "https://github.com/K0uzia/KouziaWebsite/actions/runs/44", head_sha: p.commitSha!, status: "completed", conclusion: "success", created_at: new Date().toISOString() }];
+    await followSitePublications();
+    let row = await prisma.sitePublication.findUniqueOrThrow({ where: { id: p.id } });
+    expect([row.status, row.lock, row.runUrl, row.error]).toEqual([SitePublicationStatus.BUILDING, null, "https://github.com/K0uzia/KouziaWebsite/actions/runs/44", null]);
+    expect(publicationOut(row)).toMatchObject({ running: false, watching: true, notice: CALLBACK_MISSING });
+    // Le verrou libre permet une nouvelle publication sans attendre les 10 minutes.
+    const q = await prisma.siteFaq.findFirstOrThrow();
+    await prisma.siteFaq.update({ where: { id: q.id }, data: { answer: `Autre réponse ${Math.random()}` } });
+    const next = await publishSite();
+    expect(next.status).toBe(SitePublicationStatus.DISPATCHED);
+    fake.online = p.commitSha;
+    fake.runs = [];
+    await followSitePublications();
+    row = await prisma.sitePublication.findUniqueOrThrow({ where: { id: p.id } });
+    expect(row.status).toBe(SitePublicationStatus.LIVE);
+    expect(publicationOut(row)).toMatchObject({ watching: false, notice: null });
+  });
+
+  it("run vert sans rappel et pas en ligne après 10 minutes : FAILED, « Rappel non reçu » dans le motif", async () => {
+    const p = await dispatched();
+    fake.runs = [{ html_url: "https://github.com/K0uzia/KouziaWebsite/actions/runs/45", head_sha: p.commitSha!, status: "completed", conclusion: "success", created_at: new Date().toISOString() }];
+    await followSitePublications();
+    await followSitePublications(new Date(Date.now() + PUBLICATION_LIVE_TIMEOUT_MS + 1000));
+    const row = await prisma.sitePublication.findUniqueOrThrow({ where: { id: p.id } });
+    expect(row.status).toBe(SitePublicationStatus.FAILED);
+    expect(row.error).toMatch(/^Rappel non reçu : voir le run\. Le contenu est dans le dépôt/);
+    expect(row.runUrl).toBe("https://github.com/K0uzia/KouziaWebsite/actions/runs/45");
   });
 
   it("pas en ligne après 10 minutes : FAILED avec l'alerte, verrou libéré", async () => {

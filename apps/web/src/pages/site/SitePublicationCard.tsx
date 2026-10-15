@@ -9,12 +9,19 @@ import { Button } from "@/components/ui/Button";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import type { SiteState } from "./shared";
 
-export type FileChange = { path: string; change: "added" | "modified" | "deleted" };
+export type FileChange = { path: string; change: "added" | "modified" | "deleted"; label?: string };
 export type SitePublication = {
   id: string;
   status: "PREPARING" | "COMMITTED" | "DISPATCHED" | "BUILDING" | "DEPLOYED" | "LIVE" | "FAILED" | "NOOP";
+  /** Verrou pris : une autre publication est refusée. */
   running: boolean;
+  /** Déploiement encore suivi : l'écran se rafraîchit. */
+  watching: boolean;
+  /** « Rappel non reçu : voir le run. » quand le run est fini sans rappel de l'Action. */
+  notice: string | null;
   changes: FileChange[];
+  /** Mêmes libellés que le récapitulatif et le message de commit (calculés par l'API). */
+  lines: string[];
   summary: string;
   commitSha: string | null;
   commitUrl: string | null;
@@ -23,7 +30,7 @@ export type SitePublication = {
   startedAt: string;
   liveAt: string | null;
 };
-type Preview = { headSha: string; digest: string; changes: FileChange[] };
+type Preview = { headSha: string; digest: string; changes: FileChange[]; lines: string[] };
 
 const STATUS: Record<SitePublication["status"], { label: string; tone: "neutral" | "green" | "blue" | "amber" | "red" }> = {
   PREPARING: { label: "Préparation", tone: "blue" },
@@ -35,28 +42,6 @@ const STATUS: Record<SitePublication["status"], { label: string; tone: "neutral"
   FAILED: { label: "Échec", tone: "red" },
   NOOP: { label: "Déjà à jour", tone: "neutral" },
 };
-const CHANGE_LABEL: Record<FileChange["change"], string> = { added: "ajouté", modified: "modifié", deleted: "retiré" };
-const IMAGE_CHANGE_LABEL: Record<FileChange["change"], string> = { added: "ajoutée", modified: "remplacée", deleted: "retirée" };
-const FILE_LABEL: Record<string, string> = {
-  "infos.json": "Coordonnées",
-  "textes.json": "Accroche et offres",
-  "faq.json": "FAQ",
-  "realisations.json": "Réalisations",
-  "avis.json": "Témoignages",
-  "references.json": "Références",
-};
-
-/** Libellé d'un fichier publié : rubrique pour le contenu, « Image » pour les médias (2x regroupée). */
-function changeLines(changes: FileChange[]): string[] {
-  return changes
-    .filter((c) => !c.path.endsWith("-2x.webp"))
-    .map((c) => {
-      const name = c.path.split("/").pop()!;
-      const what = FILE_LABEL[name];
-      return what ? `${what} : ${CHANGE_LABEL[c.change]}` : `Image ${name.replace(".webp", "")} : ${IMAGE_CHANGE_LABEL[c.change]}`;
-    });
-}
-
 const when = (iso: string) => `${formatDate(iso)} à ${formatTime(iso)}`;
 
 /**
@@ -83,13 +68,14 @@ export function SitePublicationCard({ state, onPublished }: { state: SiteState; 
 
   const current = history?.[0] ?? null;
   const running = Boolean(current?.running);
+  const watching = running || Boolean(current?.watching);
   useEffect(() => {
-    if (!running) return;
+    if (!watching) return;
     timer.current = window.setInterval(() => void loadHistory(), 3000);
     return () => {
       if (timer.current) window.clearInterval(timer.current);
     };
-  }, [running]);
+  }, [watching]);
 
   async function openPreview() {
     setChecking(true);
@@ -129,7 +115,7 @@ export function SitePublicationCard({ state, onPublished }: { state: SiteState; 
       : running
         ? "Une publication est en cours."
         : null;
-  const unpublished = state.publication?.unpublished;
+  const { unpublished = null, live = null } = state.publication ?? {};
 
   return (
     <section aria-labelledby="site-publication" className="ui-card p-4 sm:p-5">
@@ -142,7 +128,9 @@ export function SitePublicationCard({ state, onPublished }: { state: SiteState; 
             {unpublished === true
               ? "Des modifications ne sont pas encore sur kouzia.com."
               : unpublished === false
-                ? "kouzia.com a le contenu saisi ici."
+                ? live
+                  ? "kouzia.com a le contenu saisi ici."
+                  : "Le dépôt du site a le contenu saisi ici ; sa mise en ligne sur kouzia.com n'est pas confirmée."
                 : "Publier enregistre le contenu dans le dépôt du site, qui se reconstruit puis se déploie."}
           </p>
         </div>
@@ -170,7 +158,8 @@ export function SitePublicationCard({ state, onPublished }: { state: SiteState; 
           </div>
           {current.summary ? <p className="mt-2 break-words">{current.summary}</p> : null}
           {current.error ? <p className="mt-2 text-[var(--danger)]">{current.error}</p> : null}
-          {current.running ? (
+          {current.notice ? <p className="mt-2 text-[var(--warning)]">{current.notice}</p> : null}
+          {current.watching ? (
             <p className="mt-2 text-[var(--muted)]">Suivi en direct : le site est en ligne quand kouzia.com montre ce commit (quelques minutes).</p>
           ) : null}
           <PublicationLinks p={current} />
@@ -205,7 +194,7 @@ export function SitePublicationCard({ state, onPublished }: { state: SiteState; 
         onClose={() => setPreview(null)}
       >
         <ul className="mt-3 list-disc space-y-1 pl-5 text-sm">
-          {changeLines(preview?.changes ?? []).map((line) => (
+          {(preview?.lines ?? []).map((line) => (
             <li key={line}>{line}</li>
           ))}
         </ul>

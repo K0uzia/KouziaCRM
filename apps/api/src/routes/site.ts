@@ -240,19 +240,25 @@ function registerCollectionBasics(
 /**
  * « Modifié, non publié » : l'instantané courant diffère du dernier contenu arrivé dans le dépôt
  * (commit fait, ou NOOP qui prouve que le dépôt était déjà à jour). Sans publication : inconnu (null).
+ * live : ce contenu a été vu sur kouzia.com (version.json), et pas seulement enregistré dans le dépôt.
  */
 async function publicationState(digest: string) {
-  const [last, done] = await Promise.all([
+  const [last, done, live] = await Promise.all([
     prisma.sitePublication.findFirst({ orderBy: { startedAt: "desc" } }),
     prisma.sitePublication.findFirst({
       where: { OR: [{ commitSha: { not: null } }, { status: SitePublicationStatus.NOOP }] },
       orderBy: { startedAt: "desc" },
     }),
+    prisma.sitePublication.findFirst({ where: { status: SitePublicationStatus.LIVE, digest }, select: { id: true } }),
   ]);
-  return { last: last ? publicationOut(last) : null, unpublished: done ? done.digest !== digest : null };
+  return {
+    last: last ? publicationOut(last) : null,
+    unpublished: done ? done.digest !== digest : null,
+    live: done ? done.digest === digest && Boolean(live) : null,
+  };
 }
 
-const nextPosition =(max: { _max: { position: number | null } }) => (max._max.position ?? -1) + 1;
+const nextPosition = (max: { _max: { position: number | null } }) => (max._max.position ?? -1) + 1;
 
 export const siteRoutes: FastifyPluginAsync = async (app) => {
   // --- État de l'espace Site -------------------------------------------------------------------
