@@ -7,6 +7,7 @@ import {
   SiteItemStatus,
   SiteMediaKind,
   SiteProjectKind,
+  SitePublicationStatus,
   SiteReferenceType,
   type SiteReference,
   type SiteReview,
@@ -20,6 +21,7 @@ import { httpsUrl, imagePath, siteText, slug } from "@/lib/site/contract.js";
 import { parseTech } from "@/lib/site/mapping.js";
 import { readSiteText, writeSiteText, isSiteTextKey } from "@/lib/site/texts.js";
 import { buildSiteSnapshot } from "@/lib/site/snapshot.js";
+import { previewPublication, publicationOut, publishSite, PublishError } from "@/lib/site/publish.js";
 import { TESTIMONIAL_SOURCE } from "@/lib/site/testimonials.js";
 import { importSiteFiles, siteContentExists, SiteImportError } from "@/lib/site/import.js";
 import { GithubError, readSiteRepoFiles, saveGithubToken, siteBranch, siteRepo, testGithubConnection } from "@/lib/site/github.js";
@@ -235,7 +237,22 @@ function registerCollectionBasics(
   );
 }
 
-const nextPosition = (max: { _max: { position: number | null } }) => (max._max.position ?? -1) + 1;
+/**
+ * « Modifié, non publié » : l'instantané courant diffère du dernier contenu arrivé dans le dépôt
+ * (commit fait, ou NOOP qui prouve que le dépôt était déjà à jour). Sans publication : inconnu (null).
+ */
+async function publicationState(digest: string) {
+  const [last, done] = await Promise.all([
+    prisma.sitePublication.findFirst({ orderBy: { startedAt: "desc" } }),
+    prisma.sitePublication.findFirst({
+      where: { OR: [{ commitSha: { not: null } }, { status: SitePublicationStatus.NOOP }] },
+      orderBy: { startedAt: "desc" },
+    }),
+  ]);
+  return { last: last ? publicationOut(last) : null, unpublished: done ? done.digest !== digest : null };
+}
+
+const nextPosition =(max: { _max: { position: number | null } }) => (max._max.position ?? -1) + 1;
 
 export const siteRoutes: FastifyPluginAsync = async (app) => {
   // --- État de l'espace Site -------------------------------------------------------------------
@@ -255,6 +272,7 @@ export const siteRoutes: FastifyPluginAsync = async (app) => {
         },
         empty: !(await siteContentExists()),
         digest: snapshot.digest,
+        publication: await publicationState(snapshot.digest),
         issues: snapshot.issues,
       };
     }),
@@ -693,6 +711,43 @@ export const siteRoutes: FastifyPluginAsync = async (app) => {
       }
       const snapshot = await buildSiteSnapshot();
       return { digest: snapshot.digest, issues: snapshot.issues };
+    }),
+  );
+
+  // --- Publication vers le dépôt du site (lot E3) -----------------------------------------------
+  const publishFailure = (reply: FastifyReply, e: unknown) => {
+    if (e instanceof PublishError) return reply.code(e.status).send({ error: e.message, issues: e.issues });
+    if (e instanceof GithubError) return reply.code(e.status === 412 ? 412 : 502).send({ error: e.message });
+    throw e;
+  };
+
+  app.get(
+    "/api/site/publications",
+    admin(async () => {
+      const rows = await prisma.sitePublication.findMany({ orderBy: { startedAt: "desc" }, take: 20 });
+      return rows.map(publicationOut);
+    }),
+  );
+
+  app.get(
+    "/api/site/publish/preview",
+    admin(async (_request, reply) => {
+      try {
+        return await previewPublication();
+      } catch (e) {
+        return publishFailure(reply, e);
+      }
+    }),
+  );
+
+  app.post(
+    "/api/site/publish",
+    admin(async (_request, reply) => {
+      try {
+        return publicationOut(await publishSite());
+      } catch (e) {
+        return publishFailure(reply, e);
+      }
     }),
   );
 };

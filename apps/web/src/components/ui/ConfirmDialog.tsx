@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { Button } from "@/components/ui/Button";
 import { Modal, ModalActions } from "@/components/ui/Modal";
 
@@ -9,6 +10,8 @@ type ConfirmDialogProps = {
   cancelLabel?: string;
   danger?: boolean;
   busy?: boolean;
+  /** Détail sous le message (récapitulatif avant une action sensible). */
+  children?: ReactNode;
   onConfirm: () => void;
   onClose: () => void;
 };
@@ -22,12 +25,14 @@ export function ConfirmDialog({
   cancelLabel = "Annuler",
   danger = false,
   busy = false,
+  children,
   onConfirm,
   onClose,
 }: ConfirmDialogProps) {
   return (
     <Modal open={open} onClose={busy ? () => undefined : onClose} title={title}>
       <p className="text-sm text-[var(--text)]">{message}</p>
+      {children}
       <ModalActions>
         <Button type="button" variant="secondary" disabled={busy} onClick={onClose}>
           {cancelLabel}

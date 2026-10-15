@@ -38,6 +38,8 @@ const TABLES = [
   "AdminLoginChallenge",
   "AdminDevice",
   "SettingsAuditLog",
+  "SiteDeployEvent",
+  "SitePublication",
   "SiteProject",
   "SiteReview",
   "SiteReference",

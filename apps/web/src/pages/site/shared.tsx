@@ -85,6 +85,8 @@ export type SiteState = {
   empty: boolean;
   digest: string;
   issues: SiteIssue[];
+  /** unpublished : null tant qu'aucune publication n'a abouti depuis l'ERP. */
+  publication: { unpublished: boolean | null };
 };
 
 export const PROJECT_KIND_LABEL: Record<SiteProject["kind"], string> = { WEBSITE: "Site web", SOFTWARE: "Logiciel" };
