@@ -22,6 +22,8 @@ export type SiteSnapshot = {
   /** Empreinte de l'ensemble : deux instantanés égaux ne donnent aucun commit. */
   digest: string;
   issues: SiteIssue[];
+  /** Alertes : à vérifier, sans jamais empêcher la publication. */
+  warnings: SiteIssue[];
 };
 
 const published = { status: SiteItemStatus.PUBLISHED };
@@ -47,6 +49,7 @@ export async function buildSiteSnapshot(contract?: unknown): Promise<SiteSnapsho
   ]);
 
   const issues: SiteIssue[] = [];
+  const warnings: SiteIssue[] = [];
   for (const r of reviews) {
     if (!r.consentAt) issues.push({ file: "avis", path: r.author, message: "Accord de l'auteur non renseigné" });
     if (!r.clientId) issues.push({ file: "avis", path: r.author, message: "Client non lié (preuve de la relation client)" });
@@ -89,6 +92,10 @@ export async function buildSiteSnapshot(contract?: unknown): Promise<SiteSnapsho
       if (!r.url) issues.push({ file: "references", path: r.slug, message: "Lien vers le site de la structure manquant" });
       if (!r.logoPath) issues.push({ file: "references", path: r.slug, message: "Logo manquant" });
       if (!r.onHome && !r.onProjects) issues.push({ file: "references", path: r.slug, message: "Aucun emplacement choisi" });
+      // Sur les pages Sites web et Logiciels, une référence paraît d'elle-même par la réalisation liée (KouziaWebsite c42e74b).
+      if (!r.productSlug) {
+        warnings.push({ file: "references", path: r.name, message: "n'apparaît que dans “Autres” sur l'accueil : la lier à une réalisation" });
+      }
     }
   }
 
@@ -124,5 +131,5 @@ export async function buildSiteSnapshot(contract?: unknown): Promise<SiteSnapsho
   const digest = createHash("sha256")
     .update(SITE_FILES.map((n) => `${n}\n${files[n]}`).join("\n") + media.join(","))
     .digest("hex");
-  return { files, media, mediaNames, digest, issues };
+  return { files, media, mediaNames, digest, issues, warnings };
 }

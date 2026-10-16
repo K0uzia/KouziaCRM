@@ -57,7 +57,7 @@ const emptyForm = {
   status: "DRAFT" as SiteItemStatus,
 };
 
-const PLACEMENT_LABEL = { onHome: "Accueil", onProjects: "Sous les réalisations" } as const;
+const PLACEMENT_LABEL = { onHome: "Bandeau de l'accueil", onProjects: "Sous les réalisations" } as const;
 
 type Filter = "all" | SiteReferenceType;
 
@@ -382,13 +382,11 @@ export function SiteReferencePage() {
       </Field>
       <fieldset className="space-y-1 rounded-[var(--radius)] border border-[var(--border)] p-4" aria-describedby={errors.placement ? "placement-err" : undefined}>
         <legend className="px-1 text-sm font-medium">Où afficher le logo</legend>
-        <Checkbox label="Bandeau « Ils m'ont fait confiance » de l'accueil" checked={form.onHome} onChange={(v) => set("onHome", v)} />
-        <Checkbox
-          label="Sous les exemples de réalisations"
-          hint="Sur l'accueil et sur les pages Sites web et Logiciels."
-          checked={form.onProjects}
-          onChange={(v) => set("onProjects", v)}
-        />
+        <p className="text-xs text-[var(--muted)]">
+          Sur les pages Sites web et Logiciels, la référence apparaît d'elle-même si elle est liée à une réalisation de ce type (onglet Structure).
+        </p>
+        <Checkbox label="Bandeau de l'accueil" hint="« Ils m'ont fait confiance »." checked={form.onHome} onChange={(v) => set("onHome", v)} />
+        <Checkbox label="Sous les réalisations, sur l'accueil" checked={form.onProjects} onChange={(v) => set("onProjects", v)} />
         {errors.placement ? (
           <p id="placement-err" className="text-sm text-[var(--danger)]">
             {errors.placement}
