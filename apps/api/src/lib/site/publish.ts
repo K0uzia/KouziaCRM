@@ -9,9 +9,11 @@ import { purgePreviousVersions } from "@/lib/site/library.js";
 import { GithubError, githubJson, readRepoFileAt, SITE_CONTENT_DIR, siteBranch, siteRepo } from "@/lib/site/github.js";
 
 /**
- * Publication du contenu du site (lot E3) : un seul commit Git Data sur la branche du site, avec les
- * fichiers modifiés seulement (JSON et images de l'ERP), puis repository_dispatch « publication-site »
- * vers l'Action de déploiement. Suivi : rappel signé (webhook), sinon sondage des runs, puis version.json.
+ * Publication du contenu du site : un seul commit Git Data sur la branche du site, avec les fichiers modifiés
+ * seulement (JSON et images de l'ERP). Ce push lance le workflow du site (deploy.yml), qui construit le site et
+ * pousse la branche deploy ; le webhook Git de hPanel l'installe chez Hostinger. Suivi : état du run de ce
+ * commit (jeton avec Actions en lecture), puis kouzia.com/version.json (« En ligne » quand il montre le commit).
+ * Le repository_dispatch de l'ancienne voie (rsync) ne part que si SITE_DEPLOY_DISPATCH=true.
  */
 
 const LOCK = "RUNNING";
@@ -24,6 +26,20 @@ const MEDIA_DIR = "public/media";
 /** Seules les images publiées par l'ERP sont supprimables : le reste de public/ appartient au site. */
 const ERP_MEDIA_FILE = /^public\/media\/[a-f0-9]{12}(-2x)?\.webp$/;
 const FOLLOWED = [SitePublicationStatus.DISPATCHED, SitePublicationStatus.BUILDING, SitePublicationStatus.DEPLOYED];
+
+/** Workflow du site lancé par le push sur sa branche (construction, puis branche deploy installée par hPanel). */
+export const siteDeployWorkflow = () => process.env.SITE_DEPLOY_WORKFLOW?.trim() || "deploy.yml";
+/** Ancienne voie : Action lancée par repository_dispatch « publication-site ». Désactivée par défaut. */
+const dispatchEnabled = () => process.env.SITE_DEPLOY_DISPATCH?.trim() === "true";
+
+/** Messages du suivi, affichés tels quels par l'écran. */
+export const DEPLOY_MESSAGES = {
+  building: "Construction en cours",
+  hosting: "Mise en ligne par Hostinger…",
+  live: "En ligne",
+  buildFailed: "Échec de la construction : voir le run.",
+  notLive: "Pas en ligne après 10 min : vérifier le déploiement Git de hPanel.",
+} as const;
 
 /** label : ce que montre une image de l'ERP (« capture de « Nom » »), connu à l'ajout et au remplacement. */
 export type FileChange = { path: string; change: "added" | "modified" | "deleted"; label?: string };
@@ -261,14 +277,18 @@ export async function publishSite(): Promise<SitePublication> {
     throw new PublishError(message, 500);
   }
 
-  try {
-    await githubJson("POST", `/repos/${repo}/dispatches`, { event_type: "publication-site", client_payload: { sha: commitSha } });
-  } catch (e) {
-    const detail = e instanceof Error ? e.message : "erreur inconnue";
-    return fail(
-      row.id,
-      `Contenu enregistré dans le dépôt (commit ${commitSha.slice(0, 7)}), mais déploiement non déclenché : ${detail} Le lancer depuis l'Action du site.`,
-    );
+  // Le push sur la branche du site lance déjà sa construction (deploy.yml) : rien d'autre à déclencher,
+  // sauf l'ancienne voie par repository_dispatch si elle est demandée.
+  if (dispatchEnabled()) {
+    try {
+      await githubJson("POST", `/repos/${repo}/dispatches`, { event_type: "publication-site", client_payload: { sha: commitSha } });
+    } catch (e) {
+      const detail = e instanceof Error ? e.message : "erreur inconnue";
+      return fail(
+        row.id,
+        `Contenu enregistré dans le dépôt (commit ${commitSha.slice(0, 7)}), mais déploiement non déclenché : ${detail} Le lancer depuis l'Action du site.`,
+      );
+    }
   }
   return prisma.sitePublication.update({
     where: { id: row.id },
@@ -284,7 +304,7 @@ export const DEPLOY_RESULTS = ["deploye", "simulation", "echec", "non-configure"
 export type DeployResult = (typeof DEPLOY_RESULTS)[number];
 
 const RESULT_ERROR: Partial<Record<DeployResult, string>> = {
-  echec: "Le déploiement a échoué (voir le run de l'Action).",
+  echec: DEPLOY_MESSAGES.buildFailed,
   refuse: "L'Action du site a refusé ce commit.",
   "non-configure":
     "Déploiement non configuré : le contenu est dans le dépôt, mais GitHub n'a pas les accès Hostinger. Voir le guide docs/deploiement-hostinger.md du site.",
@@ -348,13 +368,34 @@ async function onlineSha(): Promise<string | null> {
 
 type Run = { html_url: string; head_sha: string; status: string; conclusion: string | null; created_at: string };
 
-/** Run de l'Action lancé par ce dispatch (secours quand aucun rappel n'arrive). */
+/**
+ * Le commit en ligne contient-il celui de la publication ? Une publication plus récente (ou un commit du site)
+ * peut être en ligne à sa place : son contenu y est. Comparaison GitHub, mémorisée pour un passage du suivi.
+ */
+async function contains(online: string, published: string, memo: Map<string, boolean>): Promise<boolean> {
+  if (online === published) return true;
+  const key = `${published}...${online}`;
+  if (!memo.has(key)) {
+    try {
+      const { status } = await githubJson<{ status: string }>("GET", `/repos/${siteRepo()}/compare/${published}...${online}`);
+      memo.set(key, status === "ahead" || status === "identical");
+    } catch {
+      memo.set(key, false);
+    }
+  }
+  return memo.get(key)!;
+}
+
+/**
+ * Run du workflow de déploiement pour ce commit (le plus récent). Jeton sans Actions en lecture, ou GitHub
+ * indisponible : null, le suivi passe alors par version.json seul.
+ */
 async function findRun(p: SitePublication): Promise<Run | null> {
+  const path = dispatchEnabled()
+    ? `/repos/${siteRepo()}/actions/runs?event=repository_dispatch&per_page=10`
+    : `/repos/${siteRepo()}/actions/workflows/${encodeURIComponent(siteDeployWorkflow())}/runs?head_sha=${p.commitSha}&per_page=5`;
   try {
-    const { workflow_runs: runs } = await githubJson<{ workflow_runs: Run[] }>(
-      "GET",
-      `/repos/${siteRepo()}/actions/runs?event=repository_dispatch&per_page=10`,
-    );
+    const { workflow_runs: runs } = await githubJson<{ workflow_runs: Run[] }>("GET", path);
     const since = (p.dispatchedAt ?? p.startedAt).getTime() - 60_000;
     return runs.find((r) => r.head_sha === p.commitSha && new Date(r.created_at).getTime() >= since) ?? null;
   } catch {
@@ -363,12 +404,10 @@ async function findRun(p: SitePublication): Promise<Run | null> {
 }
 
 /**
- * Tâche du worker (toutes les 15 s) : verrous périmés, état du run si le rappel tarde, mise en ligne
- * constatée sur version.json, et abandon du suivi au-delà de 10 minutes.
+ * Tâche du worker (toutes les 15 s) : verrous périmés, état du run de construction, mise en ligne constatée
+ * sur version.json, et abandon du suivi au-delà de 10 minutes. Le rappel signé de l'Action reste accepté
+ * (recordDeployEvent) mais n'est plus attendu.
  */
-/** Run terminé sans rappel de l'Action (secret du rappel absent côté site, ou rappel perdu). */
-export const CALLBACK_MISSING = "Rappel non reçu : voir le run.";
-
 export async function followSitePublications(now = new Date()): Promise<void> {
   await expireStalePublications(now);
   const rows = await prisma.sitePublication.findMany({
@@ -376,8 +415,9 @@ export async function followSitePublications(now = new Date()): Promise<void> {
   });
   if (!rows.length) return;
   const live = await onlineSha();
+  const memo = new Map<string, boolean>();
   for (const p of rows) {
-    if (live && live === p.commitSha) {
+    if (live && (await contains(live, p.commitSha!, memo))) {
       await prisma.sitePublication.update({
         where: { id: p.id },
         data: { status: SitePublicationStatus.LIVE, liveAt: now, finishedAt: now, lock: null },
@@ -386,38 +426,34 @@ export async function followSitePublications(now = new Date()): Promise<void> {
     }
     const started = (p.dispatchedAt ?? p.startedAt).getTime();
     if (now.getTime() - started > PUBLICATION_LIVE_TIMEOUT_MS) {
-      const deployed = p.status === SitePublicationStatus.DEPLOYED;
-      const runDone = p.status === SitePublicationStatus.BUILDING && p.lock === null;
+      // Le contenu est dans le dépôt, mais kouzia.com ne montre pas ce commit : hPanel n'a pas installé la branche deploy.
       await prisma.sitePublication.update({
         where: { id: p.id },
-        data: {
-          // Déployé selon l'Action mais absent de version.json : on garde l'état, avec l'alerte.
-          status: deployed ? p.status : SitePublicationStatus.FAILED,
-          error: deployed
-            ? "Déployé selon l'Action, mais kouzia.com/version.json ne montre pas ce commit après 10 minutes."
-            : runDone
-              ? `${CALLBACK_MISSING} Le contenu est dans le dépôt, mais kouzia.com ne montre pas ce commit après 10 minutes.`
-              : "Pas en ligne 10 minutes après le lancement du déploiement (voir l'Action du site).",
-          lock: null,
-          finishedAt: now,
-        },
+        data: { status: SitePublicationStatus.FAILED, error: DEPLOY_MESSAGES.notLive, lock: null, finishedAt: now },
       });
       continue;
     }
-    // Run déjà terminé sans rappel : plus rien à demander à GitHub, seul version.json peut encore conclure.
-    if (p.status === SitePublicationStatus.DEPLOYED || (p.status === SitePublicationStatus.BUILDING && p.lock === null)) continue;
+    // Construction terminée : plus rien à demander à GitHub, seul version.json peut encore conclure.
+    if (p.status === SitePublicationStatus.DEPLOYED) continue;
     const run = await findRun(p);
     if (!run) continue;
-    if (run.status === "completed" && run.conclusion !== "success") {
-      await prisma.sitePublication.update({
-        where: { id: p.id },
-        data: { status: SitePublicationStatus.FAILED, runUrl: run.html_url, error: RESULT_ERROR.echec!, lock: null, finishedAt: now },
-      });
-    } else if (run.status === "completed") {
-      // Job vert sans rappel (le rappel part avant la fin du job) : verrou libéré, une autre publication est possible.
+    if (run.status === "completed" && run.conclusion === "cancelled") {
+      // Run en attente remplacé par celui d'une publication plus récente, qui contient celle-ci (concurrency du
+      // workflow) : pas un échec. version.json conclura quand il montrera un commit qui la contient.
       await prisma.sitePublication.update({
         where: { id: p.id },
         data: { status: SitePublicationStatus.BUILDING, runUrl: run.html_url, lock: null },
+      });
+    } else if (run.status === "completed" && run.conclusion !== "success") {
+      await prisma.sitePublication.update({
+        where: { id: p.id },
+        data: { status: SitePublicationStatus.FAILED, runUrl: run.html_url, error: DEPLOY_MESSAGES.buildFailed, lock: null, finishedAt: now },
+      });
+    } else if (run.status === "completed") {
+      // Branche deploy poussée : hPanel l'installe. Verrou libéré, une autre publication est possible.
+      await prisma.sitePublication.update({
+        where: { id: p.id },
+        data: { status: SitePublicationStatus.DEPLOYED, runUrl: run.html_url, lock: null },
       });
     } else if (p.status === SitePublicationStatus.DISPATCHED || p.runUrl !== run.html_url) {
       await prisma.sitePublication.update({
@@ -438,8 +474,14 @@ export const publicationOut = (p: SitePublication) => {
     running: p.lock === LOCK,
     /** Déploiement encore suivi (l'écran se rafraîchit tant que c'est vrai). */
     watching,
-    /** Run terminé sans rappel : le lien du run est la seule source, version.json peut encore conclure. */
-    notice: watching && p.lock === null && p.status === SitePublicationStatus.BUILDING ? CALLBACK_MISSING : null,
+    /** Étape en cours, en clair : construction, mise en ligne par Hostinger, en ligne. */
+    phase: p.liveAt
+      ? DEPLOY_MESSAGES.live
+      : watching
+        ? p.status === SitePublicationStatus.DEPLOYED
+          ? DEPLOY_MESSAGES.hosting
+          : DEPLOY_MESSAGES.building
+        : null,
     changes,
     lines: changeLines(changes),
     summary: describeChanges(changes),

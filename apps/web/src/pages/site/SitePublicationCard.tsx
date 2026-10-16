@@ -17,7 +17,8 @@ export type SitePublication = {
   /** Déploiement encore suivi : l'écran se rafraîchit. */
   watching: boolean;
   /** « Rappel non reçu : voir le run. » quand le run est fini sans rappel de l'Action. */
-  notice: string | null;
+  /** Étape en cours, en clair (construction, mise en ligne par Hostinger, en ligne). */
+  phase: string | null;
   changes: FileChange[];
   /** Mêmes libellés que le récapitulatif et le message de commit (calculés par l'API). */
   lines: string[];
@@ -33,9 +34,9 @@ export type SitePublication = {
 export const PUBLICATION_STATUS: Record<SitePublication["status"], { label: string; tone: "neutral" | "green" | "blue" | "amber" | "red" }> = {
   PREPARING: { label: "Préparation", tone: "blue" },
   COMMITTED: { label: "Enregistré dans le dépôt", tone: "blue" },
-  DISPATCHED: { label: "Déploiement lancé", tone: "blue" },
-  BUILDING: { label: "Construction du site", tone: "blue" },
-  DEPLOYED: { label: "Déployé, vérification", tone: "blue" },
+  DISPATCHED: { label: "Construction en cours", tone: "blue" },
+  BUILDING: { label: "Construction en cours", tone: "blue" },
+  DEPLOYED: { label: "Mise en ligne par Hostinger…", tone: "blue" },
   LIVE: { label: "En ligne", tone: "green" },
   FAILED: { label: "Échec", tone: "red" },
   NOOP: { label: "Déjà à jour", tone: "neutral" },
@@ -124,7 +125,6 @@ export function SitePublicationCard({ state, onPublished }: { state: SiteState; 
           </div>
           {current.summary ? <p className="mt-2 break-words">{current.summary}</p> : null}
           {current.error ? <p className="mt-2 text-[var(--danger)]">{current.error}</p> : null}
-          {current.notice ? <p className="mt-2 text-[var(--warning)]">{current.notice}</p> : null}
           {current.watching ? (
             <p className="mt-2 text-[var(--muted)]">Suivi en direct : le site est en ligne quand kouzia.com montre ce commit (quelques minutes).</p>
           ) : null}

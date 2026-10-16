@@ -14,7 +14,7 @@ import { importSiteFiles } from "@/lib/site/import.js";
 import { issuedPdfAbsolutePath } from "@/lib/pdf/issued-archive.js";
 import { siteMediaRelativePath } from "@/lib/site/media.js";
 import {
-  CALLBACK_MISSING,
+  DEPLOY_MESSAGES,
   changeLines,
   diffTree,
   followSitePublications,
@@ -45,6 +45,10 @@ type Fake = {
   commits: { message: string; parents: string[] }[];
   dispatches: unknown[];
   runs: { html_url: string; head_sha: string; status: string; conclusion: string | null; created_at: string }[];
+  /** Statut des routes Actions (403 : jeton sans Actions en lecture). */
+  actionsStatus: number;
+  /** « ancien>récent » : le commit récent contient l'ancien (route compare). */
+  descendants: Set<string>;
   online: string | null;
   dispatchStatus: number;
 };
@@ -103,7 +107,14 @@ function installFake() {
         fake.dispatches.push(body);
         return new Response(null, { status: fake.dispatchStatus });
       }
-      if (method === "GET" && p.startsWith("/actions/runs")) return json({ workflow_runs: fake.runs });
+      if (method === "GET" && p.startsWith("/actions/")) {
+        if (fake.actionsStatus !== 200) return json({ message: "Resource not accessible by personal access token" }, fake.actionsStatus);
+        if (p.startsWith("/actions/runs")) return json({ workflow_runs: fake.runs });
+        const m = p.match(/^\/actions\/workflows\/deploy\.yml\/runs\?head_sha=([0-9a-f]{40})/);
+        if (m) return json({ workflow_runs: fake.runs.filter((x) => x.head_sha === m[1]) });
+      }
+      const cmp = method === "GET" ? p.match(/^\/compare\/([0-9a-f]{40})\.\.\.([0-9a-f]{40})$/) : null;
+      if (cmp) return json({ status: fake.descendants.has(`${cmp[1]}>${cmp[2]}`) ? "ahead" : "diverged" });
       throw new Error(`route GitHub non simulée : ${method} ${p}`);
     }),
   );
@@ -135,10 +146,13 @@ beforeEach(async () => {
     runs: [],
     online: sha("a"),
     dispatchStatus: 204,
+    actionsStatus: 200,
+    descendants: new Set(),
   };
   installFake();
 });
 afterEach(() => {
+  delete process.env.SITE_DEPLOY_DISPATCH;
   vi.unstubAllGlobals();
   vi.useRealTimers();
 });
@@ -165,7 +179,8 @@ describe("publication du site (Git Data)", () => {
     expect((await prisma.siteFaq.findUniqueOrThrow({ where: { id: brouillon.id } })).publishedAt).toBeNull();
   });
 
-  it("déploiement non déclenché : le commit est poussé, l'élément est quand même marqué publié", async () => {
+  it("ancienne voie (SITE_DEPLOY_DISPATCH=true), dispatch en échec : le commit est poussé, l'élément est quand même marqué publié", async () => {
+    process.env.SITE_DEPLOY_DISPATCH = "true";
     fake.dispatchStatus = 500;
     const q = await prisma.siteFaq.create({
       data: { page: "HOME", position: 99, status: "PUBLISHED", question: "Question ajoutée ?", answer: "Réponse ajoutée." },
@@ -184,7 +199,7 @@ describe("publication du site (Git Data)", () => {
     expect((await prisma.siteFaq.findUniqueOrThrow({ where: { id: q.id } })).publishedAt).toBeInstanceOf(Date);
   });
 
-  it("un seul commit avec les seuls fichiers modifiés, puis dispatch avec le sha du commit", async () => {
+  it("un seul commit avec les seuls fichiers modifiés ; le push lance la construction, aucun repository_dispatch", async () => {
     const q = await prisma.siteFaq.findFirstOrThrow({ orderBy: { position: "asc" } });
     await prisma.siteFaq.update({ where: { id: q.id }, data: { answer: "Réponse revue pour le test." } });
     const p = await publishSite();
@@ -194,8 +209,9 @@ describe("publication du site (Git Data)", () => {
     expect(fake.commits[0]!.message).toBe("Contenu publié depuis l'ERP : FAQ : modifié");
     expect(fake.trees[0]!.base_tree).toBe(`tree-${sha("a")}`);
     expect(fake.trees[0]!.tree.map((t) => t.path)).toEqual(["src/content/site/faq.json"]);
-    expect(fake.dispatches).toEqual([{ event_type: "publication-site", client_payload: { sha: p.commitSha } }]);
+    expect(fake.dispatches).toEqual([]);
     expect(p.lock).toBe("RUNNING");
+    expect(publicationOut(p)).toMatchObject({ watching: true, phase: DEPLOY_MESSAGES.building });
   });
 
   it("images de l'ERP ajoutées (1x et 2x), image orpheline supprimée, fichiers du site intacts", async () => {
@@ -264,7 +280,13 @@ describe("publication du site (Git Data)", () => {
     expect((await prisma.sitePublication.findUniqueOrThrow({ where: { id: stuck.id } })).status).toBe(SitePublicationStatus.FAILED);
   });
 
-  it("dispatch refusé : commit gardé, publication en échec avec la consigne", async () => {
+  it("ancienne voie (SITE_DEPLOY_DISPATCH=true) : dispatch avec le sha ; refusé : commit gardé, échec avec la consigne", async () => {
+    process.env.SITE_DEPLOY_DISPATCH = "true";
+    const ok = await prisma.siteFaq.findFirstOrThrow({ orderBy: { position: "asc" } });
+    await prisma.siteFaq.update({ where: { id: ok.id }, data: { answer: "Réponse publiée par l'ancienne voie." } });
+    const premiere = await publishSite();
+    expect(fake.dispatches).toEqual([{ event_type: "publication-site", client_payload: { sha: premiere.commitSha } }]);
+    await prisma.sitePublication.update({ where: { id: premiere.id }, data: { lock: null } });
     const q = await prisma.siteFaq.findFirstOrThrow();
     await prisma.siteFaq.update({ where: { id: q.id }, data: { answer: "Réponse." } });
     fake.dispatchStatus = 403;
@@ -324,21 +346,64 @@ describe("suivi du déploiement", () => {
     expect([row.status, row.lock, Boolean(row.liveAt)]).toEqual([SitePublicationStatus.LIVE, null, true]);
   });
 
-  it("run terminé en échec : FAILED", async () => {
+  it("construction en échec : FAILED, « Échec de la construction : voir le run. » avec le lien", async () => {
     const p = await dispatched();
     fake.runs = [{ html_url: "https://github.com/K0uzia/KouziaWebsite/actions/runs/43", head_sha: p.commitSha!, status: "completed", conclusion: "failure", created_at: new Date().toISOString() }];
     await followSitePublications();
     const row = await prisma.sitePublication.findUniqueOrThrow({ where: { id: p.id } });
-    expect([row.status, row.lock]).toEqual([SitePublicationStatus.FAILED, null]);
+    expect([row.status, row.lock, row.error, row.runUrl]).toEqual([
+      SitePublicationStatus.FAILED,
+      null,
+      DEPLOY_MESSAGES.buildFailed,
+      "https://github.com/K0uzia/KouziaWebsite/actions/runs/43",
+    ]);
   });
 
-  it("run vert sans rappel : verrou libéré aussitôt, « Rappel non reçu », puis LIVE si version.json le montre", async () => {
+  it("jeton sans Actions en lecture : « Construction en cours », puis LIVE par version.json seul", async () => {
+    const p = await dispatched();
+    fake.actionsStatus = 403;
+    await followSitePublications();
+    let row = await prisma.sitePublication.findUniqueOrThrow({ where: { id: p.id } });
+    expect([row.status, row.error]).toEqual([SitePublicationStatus.DISPATCHED, null]);
+    expect(publicationOut(row)).toMatchObject({ watching: true, phase: DEPLOY_MESSAGES.building });
+    fake.online = p.commitSha;
+    await followSitePublications();
+    row = await prisma.sitePublication.findUniqueOrThrow({ where: { id: p.id } });
+    expect(row.status).toBe(SitePublicationStatus.LIVE);
+  });
+
+  it("run remplacé (cancelled) par une publication plus récente : pas un échec ; LIVE quand le commit en ligne la contient", async () => {
+    const p = await dispatched();
+    fake.runs = [{ html_url: "https://github.com/K0uzia/KouziaWebsite/actions/runs/46", head_sha: p.commitSha!, status: "completed", conclusion: "cancelled", created_at: new Date().toISOString() }];
+    await followSitePublications();
+    let row = await prisma.sitePublication.findUniqueOrThrow({ where: { id: p.id } });
+    expect([row.status, row.error, row.lock]).toEqual([SitePublicationStatus.BUILDING, null, null]);
+    expect(publicationOut(row)).toMatchObject({ watching: true, phase: DEPLOY_MESSAGES.building });
+    const recent = sha("7");
+    fake.online = recent;
+    await followSitePublications();
+    expect((await prisma.sitePublication.findUniqueOrThrow({ where: { id: p.id } })).status).toBe(SitePublicationStatus.BUILDING);
+    fake.descendants.add(`${p.commitSha}>${recent}`);
+    await followSitePublications();
+    row = await prisma.sitePublication.findUniqueOrThrow({ where: { id: p.id } });
+    expect(row.status).toBe(SitePublicationStatus.LIVE);
+  });
+
+  it("run d'un autre commit : ignoré (le suivi ne regarde que le commit publié)", async () => {
+    const p = await dispatched();
+    fake.runs = [{ html_url: "https://github.com/K0uzia/KouziaWebsite/actions/runs/50", head_sha: sha("9"), status: "completed", conclusion: "failure", created_at: new Date().toISOString() }];
+    await followSitePublications();
+    const row = await prisma.sitePublication.findUniqueOrThrow({ where: { id: p.id } });
+    expect([row.status, row.error]).toEqual([SitePublicationStatus.DISPATCHED, null]);
+  });
+
+  it("construction verte : « Mise en ligne par Hostinger… », verrou libéré aussitôt, puis LIVE si version.json le montre", async () => {
     const p = await dispatched();
     fake.runs = [{ html_url: "https://github.com/K0uzia/KouziaWebsite/actions/runs/44", head_sha: p.commitSha!, status: "completed", conclusion: "success", created_at: new Date().toISOString() }];
     await followSitePublications();
     let row = await prisma.sitePublication.findUniqueOrThrow({ where: { id: p.id } });
-    expect([row.status, row.lock, row.runUrl, row.error]).toEqual([SitePublicationStatus.BUILDING, null, "https://github.com/K0uzia/KouziaWebsite/actions/runs/44", null]);
-    expect(publicationOut(row)).toMatchObject({ running: false, watching: true, notice: CALLBACK_MISSING });
+    expect([row.status, row.lock, row.runUrl, row.error]).toEqual([SitePublicationStatus.DEPLOYED, null, "https://github.com/K0uzia/KouziaWebsite/actions/runs/44", null]);
+    expect(publicationOut(row)).toMatchObject({ running: false, watching: true, phase: DEPLOY_MESSAGES.hosting });
     // Le verrou libre permet une nouvelle publication sans attendre les 10 minutes.
     const q = await prisma.siteFaq.findFirstOrThrow();
     await prisma.siteFaq.update({ where: { id: q.id }, data: { answer: `Autre réponse ${Math.random()}` } });
@@ -349,26 +414,26 @@ describe("suivi du déploiement", () => {
     await followSitePublications();
     row = await prisma.sitePublication.findUniqueOrThrow({ where: { id: p.id } });
     expect(row.status).toBe(SitePublicationStatus.LIVE);
-    expect(publicationOut(row)).toMatchObject({ watching: false, notice: null });
+    expect(publicationOut(row)).toMatchObject({ watching: false, phase: DEPLOY_MESSAGES.live });
   });
 
-  it("run vert sans rappel et pas en ligne après 10 minutes : FAILED, « Rappel non reçu » dans le motif", async () => {
+  it("construction verte mais pas en ligne après 10 minutes : FAILED, vérifier le déploiement Git de hPanel", async () => {
     const p = await dispatched();
     fake.runs = [{ html_url: "https://github.com/K0uzia/KouziaWebsite/actions/runs/45", head_sha: p.commitSha!, status: "completed", conclusion: "success", created_at: new Date().toISOString() }];
     await followSitePublications();
     await followSitePublications(new Date(Date.now() + PUBLICATION_LIVE_TIMEOUT_MS + 1000));
     const row = await prisma.sitePublication.findUniqueOrThrow({ where: { id: p.id } });
     expect(row.status).toBe(SitePublicationStatus.FAILED);
-    expect(row.error).toMatch(/^Rappel non reçu : voir le run\. Le contenu est dans le dépôt/);
+    expect(row.error).toBe(DEPLOY_MESSAGES.notLive);
     expect(row.runUrl).toBe("https://github.com/K0uzia/KouziaWebsite/actions/runs/45");
   });
 
-  it("pas en ligne après 10 minutes : FAILED avec l'alerte, verrou libéré", async () => {
+  it("pas en ligne après 10 minutes : FAILED avec l'alerte hPanel, verrou libéré", async () => {
     const p = await dispatched();
     await followSitePublications(new Date(Date.now() + PUBLICATION_LIVE_TIMEOUT_MS + 1000));
     const row = await prisma.sitePublication.findUniqueOrThrow({ where: { id: p.id } });
     expect(row.status).toBe(SitePublicationStatus.FAILED);
-    expect(row.error).toMatch(/10 minutes/);
+    expect(row.error).toBe(DEPLOY_MESSAGES.notLive);
     expect(row.lock).toBeNull();
   });
 });
@@ -440,7 +505,7 @@ describe("rappel signé de l'Action (POST /api/webhooks/site-deploy)", () => {
     expect(row.error).toBe(
       "Déploiement non configuré : le contenu est dans le dépôt, mais GitHub n'a pas les accès Hostinger. Voir le guide docs/deploiement-hostinger.md du site.",
     );
-    expect(publicationOut(row).notice).not.toBe(CALLBACK_MISSING);
+    expect(publicationOut(row)).toMatchObject({ watching: false, phase: null });
   });
 
   it("signature fausse, corps modifié d'un octet, secret absent : 404 comme une route inconnue", async () => {

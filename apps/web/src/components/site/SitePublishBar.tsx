@@ -286,7 +286,6 @@ export default function SitePublishBar() {
                 </div>
                 {data.last.summary ? <p className="mt-2 break-words">{data.last.summary}</p> : null}
                 {data.last.error ? <p className="mt-2 text-[var(--danger)]">{data.last.error}</p> : null}
-                {data.last.notice ? <p className="mt-2 text-[var(--warning)]">{data.last.notice}</p> : null}
                 {data.last.watching ? <p className="mt-2 text-[var(--muted)]">Suivi en direct : en ligne quand kouzia.com montre ce contenu (quelques minutes).</p> : null}
                 <PublicationLinks p={data.last} />
                 <ButtonLink to="/site" variant="ghost" className="mt-1 min-h-11 px-0" onClick={() => setOpen(false)}>
