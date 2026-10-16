@@ -16,10 +16,11 @@ type Infos = {
   anneesExperience: number;
   zone: string;
   villes: string[];
-  github: string;
-  instagram: string;
-  ficheGoogle: string;
-  avisGoogle: string;
+  /** Réseaux facultatifs : clé absente = lien non affiché sur le site. */
+  github?: string;
+  instagram?: string;
+  ficheGoogle?: string;
+  avisGoogle?: string;
 };
 type Accroche = { titre: string; texte: string };
 type Formule = { titre: string; items: string[] };
@@ -122,7 +123,18 @@ type InfosDraft = {
   avisGoogle: string;
 };
 
-const infosValue = (f: InfosDraft): Infos => ({ ...f, anneesExperience: Number(f.anneesExperience), villes: lines(f.villes) });
+const NETWORKS = ["github", "instagram", "ficheGoogle", "avisGoogle"] as const;
+const VIDE = "Laissez vide pour ne pas l'afficher sur le site.";
+/** Réseau vide : clé omise (jamais "" dans infos.json), le site n'affiche pas le lien. */
+function infosValue(f: InfosDraft): Infos {
+  const { github, instagram, ficheGoogle, avisGoogle, ...rest } = f;
+  const networks = Object.fromEntries(
+    Object.entries({ github, instagram, ficheGoogle, avisGoogle })
+      .map(([k, v]) => [k, v.trim()])
+      .filter(([, v]) => v),
+  );
+  return { ...rest, anneesExperience: Number(f.anneesExperience), villes: lines(f.villes), ...networks };
+}
 const HTTPS = /^https:\/\/[^\s/]+\.[^\s]+$/;
 
 /** Règles de l'API (infos.json) reprises avant l'envoi. */
@@ -135,8 +147,8 @@ function infosErrors(f: InfosDraft): FieldErrors {
   if (f.anneesExperience.trim() === "" || !Number.isInteger(annees) || annees < 0 || annees > 80) e.anneesExperience = "Nombre entier de 0 à 80.";
   if (!f.zone.trim()) e.zone = "Zone obligatoire.";
   if (!lines(f.villes).length) e.villes = "Au moins une ville.";
-  for (const k of ["github", "instagram", "ficheGoogle", "avisGoogle"] as const) {
-    if (!HTTPS.test(f[k].trim())) e[k] = "Adresse https complète attendue.";
+  for (const k of NETWORKS) {
+    if (f[k].trim() && !HTTPS.test(f[k].trim())) e[k] = "Adresse https complète attendue, ou laisser vide.";
   }
   return e;
 }
@@ -194,16 +206,16 @@ function InfosForm({ initial, onSaved }: { initial: Infos | null; onSaved: (v: I
   );
   const reseaux = (
     <div className="grid gap-4 sm:grid-cols-2">
-      <Field label="Profil GitHub" error={errorFor("github")}>
+      <Field label="Profil GitHub (facultatif)" hint={VIDE} error={errorFor("github")}>
         <Input type="url" inputMode="url" autoComplete="url" value={f.github} onChange={set("github")} />
       </Field>
-      <Field label="Compte Instagram" error={errorFor("instagram")}>
+      <Field label="Compte Instagram (facultatif)" hint={VIDE} error={errorFor("instagram")}>
         <Input type="url" inputMode="url" autoComplete="url" value={f.instagram} onChange={set("instagram")} />
       </Field>
-      <Field label="Fiche Google de l'entreprise" error={errorFor("ficheGoogle")}>
+      <Field label="Fiche Google de l'entreprise (facultatif)" hint={VIDE} error={errorFor("ficheGoogle")}>
         <Input type="url" inputMode="url" autoComplete="url" value={f.ficheGoogle} onChange={set("ficheGoogle")} />
       </Field>
-      <Field label="Lien « Laisser un avis Google »" error={errorFor("avisGoogle")}>
+      <Field label="Lien « Laisser un avis Google » (facultatif)" hint={VIDE} error={errorFor("avisGoogle")}>
         <Input type="url" inputMode="url" autoComplete="url" value={f.avisGoogle} onChange={set("avisGoogle")} />
       </Field>
     </div>

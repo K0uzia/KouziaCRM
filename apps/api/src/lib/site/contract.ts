@@ -36,10 +36,11 @@ export const infosValue = z.strictObject({
   anneesExperience: z.int().min(0).max(80),
   zone: siteText,
   villes: z.array(siteText).min(1),
-  github: httpsUrl,
-  instagram: httpsUrl,
-  ficheGoogle: httpsUrl,
-  avisGoogle: httpsUrl,
+  // Réseaux facultatifs (retour d'Alexandre, 2026-10-16) : clé absente = lien non affiché sur le site ; jamais "".
+  github: httpsUrl.optional(),
+  instagram: httpsUrl.optional(),
+  ficheGoogle: httpsUrl.optional(),
+  avisGoogle: httpsUrl.optional(),
 });
 
 export const accrocheValue = z.strictObject({ titre: siteText, texte: siteText });
