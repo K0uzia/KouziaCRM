@@ -105,7 +105,8 @@ export async function buildSiteSnapshot(contract?: unknown): Promise<SiteSnapsho
   // Contrôles du build du site sur les valeurs finales (variables remplacées, valeurs actuelles comprises), dès que le
   // site les applique : même sans seo.json, un délai de réponse plus long peut faire dépasser une description actuelle.
   if (contract !== undefined && allowed.has("seo")) {
-    const [defaults, vars] = [defaultsFromContract(contract), await textVariables()];
+    const defaults = defaultsFromContract(contract);
+    const vars = await textVariables(defaults?.variables?.ville);
     if (!defaults) issues.push({ file: "seo", path: "(racine)", message: "Contrat du site sans valeurs actuelles (defauts) : impossible de vérifier les descriptions" });
     else if (vars) issues.push(...finalSeoIssues(optional.seo ? seo : null, defaults, vars));
   }

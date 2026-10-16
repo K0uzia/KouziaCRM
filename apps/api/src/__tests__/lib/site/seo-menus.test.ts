@@ -1,14 +1,17 @@
 // Référencement par page (seo.json) et menus (menus.json) : contrat, valeurs finales, publication conditionnelle.
+import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
+import sharp from "sharp";
 import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { prisma } from "@/lib/prisma.js";
-import { menusValue, pagesValue, seoValue, SITE_FILES, validateOptionalSiteFiles, type SiteFileName } from "@/lib/site/contract.js";
+import { menusValue, pagesValue, seoValue, serializeSiteFile, SITE_FILES, validateOptionalSiteFiles, type SiteFileName } from "@/lib/site/contract.js";
+import { adoptMissingMedia } from "@/lib/site/library.js";
 import { importSiteFiles } from "@/lib/site/import.js";
 import { buildSiteSnapshot } from "@/lib/site/snapshot.js";
 import { recordPublished } from "@/lib/site/changes.js";
 import { writeSiteText } from "@/lib/site/texts.js";
-import { defaultsFromContract, fillVariables, finalMenus, finalSeo, finalSeoIssues, type SiteDefaults } from "@/lib/site/seo-menus.js";
+import { defaultsFromContract, fillVariables, finalMenus, finalSeo, finalSeoIssues, textVariables, type SiteDefaults } from "@/lib/site/seo-menus.js";
 import { resetDb } from "../../helpers/db.js";
 import { seedCompanySettings } from "../../helpers/factories.js";
 
@@ -110,6 +113,18 @@ describe("valeurs finales (comme valider.ts au build du site)", () => {
     expect(long).toContainEqual(expect.objectContaining({ path: "accueil.description" }));
   });
 
+  it("{ville} : valeur exportée par le site (defauts.variables), sinon ville des réglages ; {delaiReponse} : coordonnées de l'ERP", async () => {
+    await importSiteFiles(raw);
+    const withCity = JSON.parse(JSON.stringify(contract)) as { defauts: Record<string, unknown> };
+    withCity.defauts.variables = { ville: "Huelgoat" };
+    expect(defaultsFromContract(withCity)!.variables).toEqual({ ville: "Huelgoat" });
+    expect(defaults.variables).toBeUndefined();
+    const delai = JSON.parse(raw.infos).infos.delaiReponse as string;
+    expect(await textVariables("Huelgoat")).toEqual({ ville: "Huelgoat", delaiReponse: delai });
+    // Contrat antérieur (sans variables) : ville des réglages de l'entreprise (Quimper dans la fabrique de test).
+    expect(await textVariables(undefined)).toEqual({ ville: "Quimper", delaiReponse: delai });
+  });
+
   it("menus : ceux de l'ERP avec libellé et chemin, sinon ceux du site", () => {
     const m = finalMenus({ entete: [{ cible: "contact", libelle: "Me joindre" }, { cible: "faq" }] }, defaults);
     expect(m.entete).toEqual([
@@ -163,6 +178,31 @@ describe("publication des fichiers facultatifs", () => {
     expect(snap.files.seo).toBeUndefined();
     expect(snap.issues).toEqual([expect.objectContaining({ file: "seo", path: "accueil.description" })]);
     expect((await buildSiteSnapshot(oldContract)).issues).toEqual([]);
+  });
+
+  it("reprise du site : seo.json et menus.json du dépôt deviennent des documents ; image de partage .jpg reprise du dépôt", async () => {
+    const photo = await sharp({ create: { width: 1200, height: 630, channels: 3, background: { r: 30, g: 60, b: 90 } } }).jpeg({ quality: 80 }).toBuffer();
+    const sha = createHash("sha256").update(photo).digest("hex").slice(0, 12);
+    const seo = { schemaVersion: 1, pages: { faq: { titre: "FAQ | Kouzia", image: `/media/${sha}.jpg` } } };
+    const menus = { schemaVersion: 1, pied: [{ cible: "faq" }, { cible: "espaceClient", libelle: "Mon espace" }] };
+    await importSiteFiles(raw, new Date(), { seo: JSON.stringify(seo), menus: JSON.stringify(menus) });
+    const doc = async (key: string) => JSON.parse((await prisma.siteText.findUniqueOrThrow({ where: { key } })).valueJson);
+    expect(await doc("seo")).toEqual({ pages: seo.pages });
+    expect(await doc("menus")).toEqual({ pied: menus.pied });
+
+    const read = async (path: string) => (path === `public/media/${sha}.jpg` ? photo : null);
+    expect(await adoptMissingMedia(read)).toBe(1);
+    expect(await prisma.siteMedia.findUniqueOrThrow({ where: { sha12: sha } })).toMatchObject({ kind: "PARTAGE", width: 1200, height: 630 });
+    const snap = await buildSiteSnapshot(contract);
+    expect(snap.issues).toEqual([]);
+    expect(snap.files.seo).toBe(serializeSiteFile(seo));
+    expect(snap.mediaExt[sha]).toBe("jpg");
+  });
+
+  it("reprise : fichier facultatif non conforme refusé, rien d'importé", async () => {
+    const bad = { schemaVersion: 1, entete: [{ cible: "espaceClient" }] };
+    await expect(importSiteFiles(raw, new Date(), { menus: JSON.stringify(bad) })).rejects.toThrow(/non conforme/);
+    expect(await prisma.siteText.count()).toBe(0);
   });
 
   it("sans document : aucun fichier facultatif, empreinte inchangée", async () => {

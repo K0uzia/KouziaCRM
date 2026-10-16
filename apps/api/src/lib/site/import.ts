@@ -1,7 +1,18 @@
 import { SiteItemStatus } from "@prisma/client";
 import { prisma } from "@/lib/prisma.js";
 import type { z } from "zod";
-import { SITE_FILES, siteFileSchemas, validateSiteFiles, type realisationValue, type referenceValue, type SiteFileName } from "@/lib/site/contract.js";
+import {
+  SITE_FILES,
+  SITE_OPTIONAL_FILES,
+  siteFileSchemas,
+  siteOptionalSchemas,
+  validateOptionalSiteFiles,
+  validateSiteFiles,
+  type realisationValue,
+  type referenceValue,
+  type SiteFileName,
+  type SiteOptionalFileName,
+} from "@/lib/site/contract.js";
 import { FAQ_PAGE_IN, PROJECT_KIND_IN, REFERENCE_TYPE_IN } from "@/lib/site/mapping.js";
 
 /** Champs de l'ERP d'une réalisation telle que publiée (import, restauration d'une version). */
@@ -65,11 +76,15 @@ export async function siteContentExists(): Promise<boolean> {
 }
 
 /**
- * Reprise du contenu publié du site (les 6 JSON du dépôt) : tout est importé « publié », dans l'ordre des
- * fichiers. Les accords des avis et des références ne sont pas dans le dépôt : à ressaisir (la publication
- * les exige). Une seule fois, sur un espace Site vide.
+ * Reprise du contenu publié du site (les 6 JSON du dépôt, et les fichiers facultatifs pages, seo et menus s'ils y
+ * sont) : tout est importé « publié », dans l'ordre des fichiers. Les accords des avis et des références ne sont pas
+ * dans le dépôt : à ressaisir (la publication les exige). Une seule fois, sur un espace Site vide.
  */
-export async function importSiteFiles(raw: Record<SiteFileName, string>, now = new Date()): Promise<void> {
+export async function importSiteFiles(
+  raw: Record<SiteFileName, string>,
+  now = new Date(),
+  optionalRaw: Partial<Record<SiteOptionalFileName, string>> = {},
+): Promise<void> {
   if (await siteContentExists()) {
     throw new SiteImportError("L'espace Site contient déjà du contenu : import refusé.", "NOT_EMPTY");
   }
@@ -81,7 +96,17 @@ export async function importSiteFiles(raw: Record<SiteFileName, string>, now = n
       throw new SiteImportError(`${name}.json illisible`, "INVALID");
     }
   }
-  const issues = validateSiteFiles(json);
+  const optional: Partial<Record<SiteOptionalFileName, unknown>> = {};
+  for (const name of SITE_OPTIONAL_FILES) {
+    const text = optionalRaw[name];
+    if (text === undefined) continue;
+    try {
+      optional[name] = JSON.parse(text);
+    } catch {
+      throw new SiteImportError(`${name}.json illisible`, "INVALID");
+    }
+  }
+  const issues = [...validateSiteFiles(json), ...validateOptionalSiteFiles(optional)];
   if (issues.length) {
     throw new SiteImportError(
       "Contenu du site non conforme",
@@ -96,12 +121,19 @@ export async function importSiteFiles(raw: Record<SiteFileName, string>, now = n
   const avis = siteFileSchemas.avis.parse(json.avis);
   const references = siteFileSchemas.references.parse(json.references);
   const done = { status: SiteItemStatus.PUBLISHED, publishedAt: now };
+  // Documents facultatifs : la valeur sans schemaVersion, comme les écrans Textes des pages, Référencement et Menus.
+  const optionalTexts = SITE_OPTIONAL_FILES.flatMap((name) => {
+    if (optional[name] === undefined) return [];
+    const { schemaVersion: _v, ...value } = siteOptionalSchemas[name].parse(optional[name]) as { schemaVersion: number } & Record<string, unknown>;
+    return [prisma.siteText.create({ data: { key: name, valueJson: JSON.stringify(value) } })];
+  });
 
   await prisma.$transaction([
     ...(avis.methode ? [prisma.siteText.create({ data: { key: "avisMethode", valueJson: JSON.stringify(avis.methode) } })] : []),
     prisma.siteText.create({ data: { key: "infos", valueJson: JSON.stringify(infos.infos) } }),
     prisma.siteText.create({ data: { key: "accroche", valueJson: JSON.stringify(textes.accroche) } }),
     prisma.siteText.create({ data: { key: "offres", valueJson: JSON.stringify(textes.offres) } }),
+    ...optionalTexts,
     ...realisations.realisations.map((r, position) =>
       prisma.siteProject.create({
         data: { ...done, position, ...projectFieldsFromSite(r) },

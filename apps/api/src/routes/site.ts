@@ -20,7 +20,7 @@ import { secretMeta } from "@/lib/settings/secrets.js";
 import { httpsUrl, imagePath, SITE_FILES, SITE_OPTIONAL_FILES, siteText, slug } from "@/lib/site/contract.js";
 import { parseTech } from "@/lib/site/mapping.js";
 import { readSiteText, writeSiteText, isSiteTextKey } from "@/lib/site/texts.js";
-import { readSiteDefaults, textVariables } from "@/lib/site/seo-menus.js";
+import { readSiteDefaults, siteCityOrNull, textVariables } from "@/lib/site/seo-menus.js";
 import { buildSiteSnapshot } from "@/lib/site/snapshot.js";
 import { itemHash, pendingChanges, publicationState as itemPublicationState, textHash, type SiteCollection } from "@/lib/site/changes.js";
 import { previewPublication, publicationOut, publishSite, PublishError } from "@/lib/site/publish.js";
@@ -668,12 +668,12 @@ export const siteRoutes: FastifyPluginAsync = async (app) => {
     "/api/site/defauts",
     admin(async (request) => {
       const force = (request.query as { rafraichir?: string }).rafraichir === "1";
-      const variables = await textVariables();
       try {
-        return { defaults: await readSiteDefaults(force), variables, error: null };
+        const defaults = await readSiteDefaults(force);
+        return { defaults, variables: await textVariables(defaults?.variables?.ville), error: null };
       } catch (e) {
         const message = e instanceof GithubError ? e.message : "Contrat du site illisible.";
-        return { defaults: null, variables, error: message };
+        return { defaults: null, variables: await textVariables(), error: message };
       }
     }),
   );
@@ -683,7 +683,8 @@ export const siteRoutes: FastifyPluginAsync = async (app) => {
     "/api/site/textes-pages/defauts",
     admin(async (request) => {
       const force = (request.query as { rafraichir?: string }).rafraichir === "1";
-      const variables = await textVariables();
+      // {ville} : celle que le site exporte, comme pour le référencement.
+      const variables = await textVariables(await siteCityOrNull(force));
       try {
         return { defaults: await readPagesDefaults(force), variables, error: null };
       } catch (e) {
@@ -853,8 +854,8 @@ export const siteRoutes: FastifyPluginAsync = async (app) => {
         return reply.code(409).send({ error: "L'espace Site contient déjà du contenu : import refusé." });
       }
       try {
-        const { files } = await readSiteRepoFiles();
-        await importSiteFiles(files);
+        const { files, optional } = await readSiteRepoFiles();
+        await importSiteFiles(files, new Date(), optional);
         // Images déjà publiées : copiées depuis le dépôt, sinon « Image absente de l'ERP » bloquerait la publication.
         await adoptMissingMedia(readSiteRepoBinary).catch((e) => {
           console.error("[site] Reprise des images publiées incomplète :", e instanceof Error ? e.message : e);

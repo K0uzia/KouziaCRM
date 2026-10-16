@@ -338,14 +338,16 @@ export async function adoptPublishedImage(sha12: string, kind: SiteMediaKind, x1
   if (mediaSha(x1) !== sha12) return null;
   const sharp = await loadSharp();
   if (!sharp) return null;
+  const ext = siteMediaExt(kind);
+  const format = ext === "jpg" ? "jpeg" : "webp";
   const size = async (b: Buffer) => {
     const m = await sharp(b).metadata();
-    return m.format === "webp" && m.width && m.height ? { buffer: b, width: m.width, height: m.height } : null;
+    return m.format === format && m.width && m.height ? { buffer: b, width: m.width, height: m.height } : null;
   };
   const v1 = await size(x1).catch(() => null);
   if (!v1) return null;
-  const v2 = x2 ? await size(x2).catch(() => null) : null;
-  await writeVariants(sha12, v1, v2);
+  const v2 = x2 && ext === "webp" ? await size(x2).catch(() => null) : null;
+  await writeVariants(sha12, v1, v2, ext);
   return prisma.siteMedia.upsert({ where: { sha12 }, update: {}, create: { sha12, kind, ...variantColumns(v1, v2), label: label.slice(0, 120) } });
 }
 
