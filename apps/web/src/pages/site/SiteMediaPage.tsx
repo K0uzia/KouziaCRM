@@ -21,14 +21,16 @@ const KIND_OPTIONS: ReadonlyArray<{ id: MediaKind; label: string }> = [
   { id: "CAPTURE", label: "Capture" },
   { id: "MOBILE", label: "Téléphone" },
   { id: "LOGO", label: "Logo" },
+  { id: "PARTAGE", label: "Partage" },
 ];
 const ACCEPT: Record<MediaKind, string> = {
   CAPTURE: "image/jpeg,image/png,image/webp,image/avif",
   MOBILE: "image/jpeg,image/png,image/webp,image/avif",
   LOGO: "image/svg+xml,image/png,image/webp,image/jpeg,image/avif",
+  PARTAGE: "image/jpeg,image/png,image/webp,image/avif",
 };
 /** Proportions des cadres recadrés (largeur / hauteur), comme l'API. */
-const FRAME_RATIO: Partial<Record<MediaKind, number>> = { CAPTURE: 16 / 9, MOBILE: 390 / 844 };
+const FRAME_RATIO: Partial<Record<MediaKind, number>> = { CAPTURE: 16 / 9, MOBILE: 390 / 844, PARTAGE: 1200 / 630 };
 const kb = new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 0 });
 const size = (bytes: number) => `${kb.format(bytes / 1000)} Ko`;
 

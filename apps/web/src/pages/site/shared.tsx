@@ -292,8 +292,8 @@ export function OrderButtons({
  */
 export function siteImageSrc(path: string | null | undefined): string | null {
   if (!path) return null;
-  const media = /^\/media\/([a-f0-9]{12})\.webp$/.exec(path);
-  if (media) return `/api/site/media/${media[1]}.webp`;
+  const media = /^\/media\/([a-f0-9]{12})\.(webp|jpg)$/.exec(path);
+  if (media) return `/api/site/media/${media[1]}.${media[2]}`;
   if (/^\/(projets|media)\/[a-z0-9-]+\.(webp|svg)$/.test(path)) return `https://kouzia.com${path}`;
   return null;
 }
@@ -326,7 +326,7 @@ export function SiteImage({ path, alt, className = "" }: { path: string | null |
   );
 }
 
-export type MediaKind = "CAPTURE" | "MOBILE" | "LOGO";
+export type MediaKind = "CAPTURE" | "MOBILE" | "LOGO" | "PARTAGE";
 type UploadedMedia = { path: string; width: number; height: number; width2x: number | null };
 /** Image de la médiathèque (GET /api/site/media). */
 export type LibraryMedia = {
@@ -352,18 +352,20 @@ export type LibraryMedia = {
   online: boolean | null;
   previousVersion: boolean;
 };
-export const MEDIA_KIND_LABEL: Record<MediaKind, string> = { CAPTURE: "Capture", MOBILE: "Téléphone", LOGO: "Logo" };
+export const MEDIA_KIND_LABEL: Record<MediaKind, string> = { CAPTURE: "Capture", MOBILE: "Téléphone", LOGO: "Logo", PARTAGE: "Partage" };
 export const mediaName = (m: Pick<LibraryMedia, "label" | "sha12">) => m.label || `Image ${m.sha12}`;
 
 export const KIND_HINT: Record<MediaKind, string> = {
   CAPTURE: "Capture d'écran d'ordinateur : recadrée en 16:9, 960×540 px au moins (1920×1080 pour les écrans haute densité).",
   MOBILE: "Capture de téléphone : 390×844 px au moins (780×1688 conseillé), recadrée par le haut.",
   LOGO: "Logo : SVG ou PNG transparent, 200 px de large au moins. Converti en WebP, fond transparent conservé.",
+  PARTAGE: "Image de partage (réseaux sociaux, messageries) : recadrée en 1200×630 px, 1200×630 au moins. Convertie en JPEG.",
 };
 const KIND_FRAME: Record<MediaKind, string> = {
   CAPTURE: "aspect-video w-full max-w-xs",
   MOBILE: "aspect-[9/19.5] w-28",
   LOGO: "h-16 w-40 object-contain",
+  PARTAGE: "aspect-[1200/630] w-full max-w-xs",
 };
 
 /**
