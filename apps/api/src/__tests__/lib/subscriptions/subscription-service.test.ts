@@ -5,6 +5,7 @@ import {
   computeMrrCents,
   computeNextInvoiceAt,
   generateDueSubscriptionInvoices,
+  listSubscriptions,
   SubscriptionError,
   updateSubscription,
 } from "@/lib/subscriptions/subscription-service.js";
@@ -180,6 +181,33 @@ describe("computeMrrCents", () => {
     expect(snap.arrCents).toBe(960000);
     expect(snap.activeCount).toBe(2);
     expect(snap.bySubscription).toHaveLength(2);
+  });
+
+  it("1re facture à venir (ex. une année offerte) : hors MRR et ARR, comptée à part ; incluse une fois facturée", async () => {
+    const c = await createClient();
+    const s = await createService();
+    await createSubscription({ clientId: c.id, serviceId: s.id, label: "Maintenance", amountCents: 3000, billingDay: 1, startDate: new Date(2026, 0, 1) });
+    const inAYear = new Date();
+    inAYear.setFullYear(inAYear.getFullYear() + 1);
+    const offert = await createSubscription({
+      clientId: c.id,
+      serviceId: s.id,
+      label: "Hébergement offert un an",
+      amountCents: 12000,
+      billingDay: 1,
+      billingInterval: "YEAR",
+      startDate: new Date(),
+      firstInvoiceAt: inAYear,
+    });
+    const snap = await computeMrrCents();
+    expect([snap.mrrCents, snap.arrCents, snap.activeCount, snap.upcomingCount, snap.upcomingMrrCents]).toEqual([3000, 36000, 2, 1, 1000]);
+    expect(snap.bySubscription.find((x) => x.id === offert.id)!.upcoming).toBe(true);
+    const rows = await listSubscriptions();
+    expect(rows.find((r) => r.id === offert.id)!.firstInvoicePending).toBe(true);
+
+    await prisma.subscription.update({ where: { id: offert.id }, data: { lastInvoiceId: "facture-emise" } });
+    const billed = await computeMrrCents();
+    expect([billed.mrrCents, billed.upcomingCount]).toEqual([4000, 0]);
   });
 
   it("exclut les abonnements clôturés (endDate passée)", async () => {

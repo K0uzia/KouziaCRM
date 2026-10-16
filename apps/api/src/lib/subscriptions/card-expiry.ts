@@ -79,7 +79,8 @@ function defaultCard(stripeSub: Stripe.Subscription): Stripe.PaymentMethod | nul
 
 /**
  * Vérification mensuelle de la carte par défaut des abonnements Stripe actifs. Un e-mail par carte
- * et par date d'expiration (cardExpiryNoticeFor), avec le lien de changement de carte. Le
+ * et par date d'expiration (cardExpiryNoticeFor), même si plusieurs abonnements du client la
+ * partagent, avec le lien de changement de carte. Le
  * prélèvement SEPA n'expire pas : non concerné.
  * @returns nombre d'e-mails enfilés.
  */
@@ -117,6 +118,12 @@ export async function checkExpiringCards(now: Date = new Date()): Promise<number
       if (!cardNeedsNotice(cardExpiresAt(expMonth, expYear), sub.nextInvoiceAt, now)) continue;
       const key = `${pm.id}:${expYear}-${String(expMonth).padStart(2, "0")}`;
       if (sub.cardExpiryNoticeFor === key) continue;
+      // Carte partagée par plusieurs abonnements : déjà signalée pour l'un d'eux, on note sans renvoyer.
+      const alreadyNotified = await prisma.subscription.count({ where: { clientId: sub.clientId, cardExpiryNoticeFor: key } });
+      if (alreadyNotified > 0) {
+        await prisma.subscription.update({ where: { id: sub.id }, data: { cardExpiryNoticeFor: key } });
+        continue;
+      }
 
       const to = decryptOptional(sub.client.emailEncrypted);
       if (!to) {

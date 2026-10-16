@@ -13,6 +13,7 @@ import { issueInvoiceWithin, issueQuote } from "@/lib/invoices/transitions.js";
 import { sendDocumentPdf } from "@/lib/email/send-document-pdf.js";
 import { getCompanySettings } from "@/lib/company.js";
 import { applyStripeSubscriptionAction } from "@/lib/stripe/subscription-control.js";
+import { billedSubscriptionIds } from "@/lib/subscriptions/renewal-reminder.js";
 
 /** Périodicité d'un abonnement ; null en base vaut MONTH. */
 export type BillingInterval = "MONTH" | "YEAR";
@@ -166,8 +167,17 @@ export async function createSubscription(
   });
 }
 
+/**
+ * 1re facture encore à venir : rien de facturé (ni par l'échéancier, ni par Stripe, ni par la facture du devis)
+ * et 1re échéance dans le futur. Exclu du revenu récurrent, compté à part.
+ */
+async function pendingFirstInvoiceIds(subs: Array<{ id: string; lastInvoiceId: string | null; nextInvoiceAt: Date }>, now: Date) {
+  const billed = await billedSubscriptionIds(subs);
+  return new Set(subs.filter((s) => !billed.has(s.id) && s.nextInvoiceAt > now).map((s) => s.id));
+}
+
 export async function listSubscriptions(status?: SubscriptionStatus) {
-  return prisma.subscription.findMany({
+  const rows = await prisma.subscription.findMany({
     where: status ? { status } : undefined,
     include: {
       client: { select: { id: true, displayName: true, clientNumber: true } },
@@ -175,6 +185,8 @@ export async function listSubscriptions(status?: SubscriptionStatus) {
     },
     orderBy: { createdAt: "desc" },
   });
+  const pending = await pendingFirstInvoiceIds(rows, new Date());
+  return rows.map((r) => ({ ...r, firstInvoicePending: pending.has(r.id) }));
 }
 
 export async function getSubscription(id: string) {
@@ -427,6 +439,9 @@ export type MrrSnapshot = {
   mrrCents: number;
   arrCents: number;
   activeCount: number;
+  /** Abonnements actifs dont la 1re facture est à venir (ex. une année offerte) : hors MRR et ARR. */
+  upcomingCount: number;
+  upcomingMrrCents: number;
   bySubscription: Array<{
     id: string;
     label: string;
@@ -436,6 +451,7 @@ export type MrrSnapshot = {
     monthlyCents: number;
     clientDisplayName: string;
     nextInvoiceAt: Date;
+    upcoming: boolean;
   }>;
 };
 
@@ -451,6 +467,7 @@ export async function computeMrrCents(now: Date = new Date()): Promise<MrrSnapsh
     orderBy: { nextInvoiceAt: "asc" },
   });
 
+  const pending = await pendingFirstInvoiceIds(active, now);
   const bySubscription = active.map((sub) => ({
     id: sub.id,
     label: sub.label,
@@ -459,14 +476,19 @@ export async function computeMrrCents(now: Date = new Date()): Promise<MrrSnapsh
     monthlyCents: monthlyEquivalentCents(sub.amountCents, sub.billingInterval),
     clientDisplayName: sub.client.displayName,
     nextInvoiceAt: sub.nextInvoiceAt,
+    upcoming: pending.has(sub.id),
   }));
-  const mrrCents = bySubscription.reduce((s, sub) => s + sub.monthlyCents, 0);
+  const counted = bySubscription.filter((s) => !s.upcoming);
+  const upcoming = bySubscription.filter((s) => s.upcoming);
+  const mrrCents = counted.reduce((s, sub) => s + sub.monthlyCents, 0);
   // ARR : montants réellement facturés sur 12 mois (sans l'arrondi du /12 des annuels).
-  const arrCents = bySubscription.reduce((s, sub) => s + sub.amountCents * (12 / periodMonths(sub.billingInterval)), 0);
+  const arrCents = counted.reduce((s, sub) => s + sub.amountCents * (12 / periodMonths(sub.billingInterval)), 0);
   return {
     mrrCents,
     arrCents,
     activeCount: active.length,
+    upcomingCount: upcoming.length,
+    upcomingMrrCents: upcoming.reduce((s, sub) => s + sub.monthlyCents, 0),
     bySubscription,
   };
 }

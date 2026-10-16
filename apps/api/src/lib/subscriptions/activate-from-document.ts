@@ -31,6 +31,8 @@ export type ActivateSubscriptionsOptions = {
    * anticipée : lendemain du délai de rétractation (CGV art. 9.5), 1re échéance à cette date.
    */
   startDate?: Date;
+  /** Seulement ces lignes (rattachement d'un avenant : les autres lignes du devis restent à rattacher). */
+  onlyLineIds?: string[];
 };
 
 /** Migration qui a introduit les avenants ciblés (InvoiceLine.revisesSubscriptionId). */
@@ -155,7 +157,7 @@ export async function activateSubscriptionsFromDocument(
 
   const subscriptionLines = doc.lines.filter((l) => l.isSubscription);
   const linked = [...new Set(subscriptionLines.map((l) => l.subscriptionId).filter((id): id is string => Boolean(id)))];
-  const pending = subscriptionLines.filter((l) => !l.subscriptionId);
+  const pending = subscriptionLines.filter((l) => !l.subscriptionId && (!opts.onlyLineIds || opts.onlyLineIds.includes(l.id)));
   if (pending.length === 0) return { created: 0, updated: 0, subscriptionIds: linked, createdIds: [] };
 
   for (const line of pending) {
@@ -293,7 +295,14 @@ export async function attachRevisionLine(subscriptionId: string, lineId: string)
       throw new SubscriptionError("Abonnement introuvable, clôturé ou d'un autre client");
     }
     await tx.invoiceLine.update({ where: { id: line.id }, data: { revisesSubscriptionId: subscriptionId } });
-    const result = await activateSubscriptionsFromDocument(line.invoice.id, tx);
+    // Pas de décalage de l'échéance si l'avenant ne facture aucune période : devis d'abonnement seul, jamais
+    // converti en facture (la période révisée sera facturée par l'abonnement, à sa date).
+    const [quoteLines, invoiced] = await Promise.all([
+      tx.invoiceLine.findMany({ where: { invoiceId: line.invoice.id }, select: { isSubscription: true } }),
+      tx.invoice.count({ where: { quoteId: line.invoice.id, documentType: "INVOICE" } }),
+    ]);
+    const billsPeriod = invoiced > 0 || quoteLines.some((l) => !l.isSubscription);
+    const result = await activateSubscriptionsFromDocument(line.invoice.id, tx, { firstPeriodNow: !billsPeriod, onlyLineIds: [line.id] });
     await tx.invoiceLine.updateMany({
       where: { invoice: { quoteId: line.invoice.id, documentType: "INVOICE" }, isSubscription: true, position: line.position, subscriptionId: null },
       data: { subscriptionId },

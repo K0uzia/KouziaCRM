@@ -49,6 +49,8 @@ type Subscription = {
   nextInvoiceAt: string;
   /** Dernière facture émise par l'abonnement : null tant que la 1re échéance n'est pas passée. */
   lastInvoiceId?: string | null;
+  /** Rien de facturé et 1re échéance à venir (ex. une année offerte) : hors revenu récurrent. */
+  firstInvoicePending?: boolean;
   collectionMethod?: string | null;
   stripeSubscriptionId?: string | null;
   /** État brut Stripe (past_due, unpaid…) et résiliation programmée dans Stripe. */
@@ -578,6 +580,8 @@ export function SubscriptionsPage() {
           className="mb-6"
           items={(() => {
             const active = rows.filter((r) => r.status === "ACTIVE");
+            const billing = active.filter((r) => !r.firstInvoicePending);
+            const upcoming = active.filter((r) => r.firstInvoicePending);
             const next = active
               .map((r) => r.nextInvoiceAt)
               .filter(Boolean)
@@ -587,11 +591,18 @@ export function SubscriptionsPage() {
                 label: "Revenu mensuel récurrent",
                 shortLabel: "Revenu mensuel",
                 value: formatEUR(
-                  active.reduce((acc, r) => acc + monthlyEquivalentCents(r.amountCents, r.billingInterval), 0),
+                  billing.reduce((acc, r) => acc + monthlyEquivalentCents(r.amountCents, r.billingInterval), 0),
                 ),
-                hint: active.some((r) => normalizeInterval(r.billingInterval) === "YEAR")
-                  ? "Contrats actifs, annuels ramenés au mois"
-                  : "Contrats actifs",
+                hint: [
+                  billing.some((r) => normalizeInterval(r.billingInterval) === "YEAR")
+                    ? "Contrats facturés, annuels ramenés au mois"
+                    : "Contrats facturés",
+                  upcoming.length > 0
+                    ? `à venir : ${formatEUR(upcoming.reduce((acc, r) => acc + monthlyEquivalentCents(r.amountCents, r.billingInterval), 0))} (${upcoming.length} contrat${upcoming.length > 1 ? "s" : ""})`
+                    : null,
+                ]
+                  .filter(Boolean)
+                  .join(", "),
                 tone: "success" as const,
               },
               { label: "Contrats actifs", value: String(active.length) },

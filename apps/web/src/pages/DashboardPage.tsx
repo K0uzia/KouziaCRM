@@ -120,7 +120,7 @@ type ReminderRow = {
   client: { id: string; displayName: string; clientNumber?: string | null };
 };
 
-type MrrData = { mrrCents: number; arrCents: number; activeCount: number };
+type MrrData = { mrrCents: number; arrCents: number; activeCount: number; upcomingCount?: number; upcomingMrrCents?: number };
 
 type ThreadRow = {
   id: string;
@@ -885,6 +885,9 @@ export function DashboardPage() {
                   value: mrr && mrr.mrrCents > 0 ? `${formatEUR(mrr.mrrCents)} / mois` : "Aucun",
                   to: "/abonnements",
                 },
+                ...(mrr?.upcomingCount
+                  ? [{ label: "Récurrents à venir", value: `${formatEUR(mrr.upcomingMrrCents ?? 0)} / mois`, to: "/abonnements" }]
+                  : []),
                 { label: "Abonnements actifs", value: String(mrr?.activeCount ?? 0), to: "/abonnements" },
                 { label: "Brouillons", value: String((data?.drafts ?? 0)), to: "/quotes" },
                 { label: "Relances en attente", value: String(reminders.length), to: null },

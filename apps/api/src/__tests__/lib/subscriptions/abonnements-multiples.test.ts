@@ -108,9 +108,44 @@ describe("devis antérieurs aux avenants ciblés", () => {
     await attachRevisionLine(mails.id, todo[0]!.lineId);
     const after = await prisma.subscription.findMany({ where: { clientId: c.id } });
     expect(after.find((s) => s.id === mails.id)!.amountCents).toBe(7200);
+    // Devis d'abonnement seul : il ne facture aucune période, l'échéance ne bouge pas.
+    expect(after.find((s) => s.id === mails.id)!.nextInvoiceAt).toEqual(mails.nextInvoiceAt);
     expect(after.find((s) => s.id === maintenance.id)!.amountCents).toBe(2900);
     expect(await listRevisionsToAttach()).toEqual([]);
     await expect(attachRevisionLine(maintenance.id, todo[0]!.lineId)).rejects.toThrow(/déjà rattachée/);
+  });
+
+  it("rattachement d'une ligne : les autres lignes du devis restent à rattacher, rien n'est créé", async () => {
+    await migrationAppliedAt(new Date(2026, 9, 16, 12));
+    const c = await client();
+    const maintenance = await activeSubscription(c.id, "Maintenance", 2900);
+    const mails = await activeSubscription(c.id, "Adresses e-mail", 6000);
+    const s1 = await createService({ name: "Maintenance revue" });
+    const s2 = await createService({ name: "Adresses e-mail revues" });
+    const quote = await prisma.invoice.create({
+      data: {
+        documentType: InvoiceDocumentType.QUOTE,
+        status: InvoiceStatus.DRAFT,
+        clientId: c.id,
+        subtotalCents: 11100,
+        totalCents: 11100,
+        createdAt: new Date(2026, 9, 10),
+        lines: {
+          create: [
+            { position: 1, description: "Maintenance revue", quantity: 1, unitPriceCents: 3900, lineTotalCents: 3900, isSubscription: true, billingDay: 1, serviceId: s1.id },
+            { position: 2, description: "Adresses e-mail revues", quantity: 1, unitPriceCents: 7200, lineTotalCents: 7200, isSubscription: true, billingDay: 1, serviceId: s2.id },
+          ],
+        },
+      },
+    });
+    await issueQuote(quote.id);
+    await acceptQuoteByClient(quote.id, "Lou Abonnée", { source: "PORTAL" });
+    const todo = await listRevisionsToAttach();
+    expect(todo).toHaveLength(2);
+    await attachRevisionLine(mails.id, todo.find((t) => t.description === "Adresses e-mail revues")!.lineId);
+    expect(await prisma.subscription.count({ where: { clientId: c.id } })).toBe(2);
+    expect((await prisma.subscription.findUniqueOrThrow({ where: { id: maintenance.id } })).amountCents).toBe(2900);
+    expect((await listRevisionsToAttach()).map((t) => t.description)).toEqual(["Maintenance revue"]);
   });
 
   it("nouveau devis (après la migration) pour un client déjà abonné : 2e abonnement, le 1er intact", async () => {
