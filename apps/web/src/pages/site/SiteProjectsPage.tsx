@@ -21,6 +21,7 @@ import {
   SiteImage,
   STATUS_OPTIONS,
   StatusBadge,
+  TagInput,
   useSiteCollection,
   type FieldErrors,
   type SiteItemStatus,
@@ -153,7 +154,7 @@ const emptyForm = {
   kind: "WEBSITE" as SiteProject["kind"],
   text: "",
   role: "",
-  tech: "",
+  tech: [] as string[],
   url: "https://",
   linkLabel: "Voir le site",
   imagePath: null as string | null,
@@ -173,12 +174,6 @@ export function slugify(value: string): string {
     .slice(0, 60);
 }
 
-const techList = (tech: string) =>
-  tech
-    .split(",")
-    .map((t) => t.trim())
-    .filter(Boolean);
-
 function projectBody(form: ProjectForm) {
   return {
     slug: form.slug.trim(),
@@ -188,7 +183,7 @@ function projectBody(form: ProjectForm) {
     kind: form.kind,
     text: form.text,
     role: form.role.trim() || null,
-    tech: techList(form.tech),
+    tech: form.tech,
     url: form.url.trim(),
     linkLabel: form.linkLabel,
     imagePath: form.imagePath,
@@ -234,7 +229,7 @@ export function SiteProjectPage() {
       kind: p.kind,
       text: p.text,
       role: p.role ?? "",
-      tech: p.tech.join(", "),
+      tech: p.tech,
       url: p.url,
       linkLabel: p.linkLabel,
       imagePath: p.imagePath,
@@ -303,9 +298,13 @@ export function SiteProjectPage() {
       <Field label="Rôle (facultatif)" hint="Ce que Kouzia a fait sur ce projet." error={errors.role}>
         <Input autoComplete="off" value={form.role} onChange={(e) => set("role", e.target.value)} />
       </Field>
-      <Field label="Technologies (facultatif)" hint="Séparées par des virgules : Astro, TypeScript. Affichées en puces." error={errors.tech}>
-        <Input autoComplete="off" value={form.tech} onChange={(e) => set("tech", e.target.value)} />
-      </Field>
+      <TagInput
+        label="Technologies (facultatif)"
+        hint="Entrée ou virgule pour ajouter, 12 au plus ; Retour arrière sur le champ vide retire la dernière."
+        error={errors.tech}
+        values={form.tech}
+        onChange={(v) => set("tech", v)}
+      />
     </div>
   );
 
@@ -397,7 +396,7 @@ export function SiteProjectPage() {
             preview={(device) => (
               <ProjectCardPreview
                 device={device}
-                p={{ ...form, kindLabel: PROJECT_KIND_LABEL[form.kind], tech: techList(form.tech) }}
+                p={{ ...form, kindLabel: PROJECT_KIND_LABEL[form.kind] }}
               />
             )}
             footer={<EditorFooter auto={auto} creating={creating} busy={busy} createLabel="Créer la réalisation" />}

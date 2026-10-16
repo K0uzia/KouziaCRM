@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { faArrowDown, faArrowUp, faChevronRight, faImage, faPhotoFilm, faUpload } from "@fortawesome/free-solid-svg-icons";
+import { faArrowDown, faArrowUp, faChevronRight, faImage, faPhotoFilm, faUpload, faXmark } from "@fortawesome/free-solid-svg-icons";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { Badge, Card } from "@/components/ui/Card";
@@ -675,4 +675,118 @@ export function isoToDate(iso: string | null | undefined): string {
 export type FieldErrors = Record<string, string>;
 export function fieldErrorsOf(e: unknown): FieldErrors {
   return (e as { fieldErrors?: FieldErrors }).fieldErrors ?? {};
+}
+
+/**
+ * Liste de mots en puces (technologies) : Entrée ou virgule pour ajouter, collage « a, b » découpé, bouton par puce
+ * pour retirer, Retour arrière sur le champ vide pour retirer la dernière ; ajouts et retraits annoncés.
+ * Écrit ici : quelques lignes au-dessus d'un champ texte, une bibliothèque de « tags » apporterait plus qu'elle n'enlève.
+ */
+export function TagInput({
+  label,
+  hint,
+  error,
+  values,
+  onChange,
+  max = 12,
+  maxLength = 40,
+}: {
+  label: string;
+  hint: string;
+  error?: string;
+  values: string[];
+  onChange: (values: string[]) => void;
+  max?: number;
+  maxLength?: number;
+}) {
+  const [draft, setDraft] = useState("");
+  const [message, setMessage] = useState("");
+  const input = useRef<HTMLInputElement>(null);
+  const id = useId();
+  const full = values.length >= max;
+
+  function add(raw: string) {
+    const words = raw
+      .split(",")
+      .map((w) => w.trim().slice(0, maxLength))
+      .filter(Boolean);
+    const next = [...values];
+    const added: string[] = [];
+    for (const w of words) {
+      if (next.length >= max) break;
+      if (next.some((v) => v.toLowerCase() === w.toLowerCase())) continue;
+      next.push(w);
+      added.push(w);
+    }
+    setDraft("");
+    if (added.length) {
+      onChange(next);
+      setMessage(`${added.join(", ")} ajouté${added.length > 1 ? "s" : ""}`);
+    }
+  }
+  function remove(i: number) {
+    const word = values[i]!;
+    onChange(values.filter((_, k) => k !== i));
+    setMessage(`${word} retiré`);
+    input.current?.focus();
+  }
+
+  return (
+    <div className="min-w-0 space-y-1.5">
+      <label htmlFor={id} className="block text-sm font-medium text-[var(--text)]">
+        {label}
+      </label>
+      {values.length ? (
+        <ul className="flex flex-wrap gap-2" aria-label={`${label} : ${values.length} sur ${max}`}>
+          {values.map((v, i) => (
+            <li key={v} className="inline-flex min-h-11 items-center gap-1 rounded-full border border-[var(--border-strong)] py-1 pl-3 pr-1 font-mono text-sm">
+              {v}
+              <button
+                type="button"
+                onClick={() => remove(i)}
+                aria-label={`Retirer ${v}`}
+                className="inline-flex h-9 w-9 items-center justify-center rounded-full text-[var(--muted)] hover:bg-[var(--surface-hover)] hover:text-[var(--text)]"
+              >
+                <FontAwesomeIcon icon={faXmark} className="h-3.5 w-3.5" aria-hidden />
+              </button>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+      <Input
+        ref={input}
+        id={id}
+        value={draft}
+        disabled={full}
+        autoComplete="off"
+        maxLength={maxLength * 4}
+        placeholder={full ? `${max} au plus : en retirer une pour ajouter` : "Ex. Astro, puis Entrée"}
+        aria-invalid={error ? true : undefined}
+        aria-describedby={`${id}-aide`}
+        onChange={(e) => {
+          const v = e.target.value;
+          if (v.includes(",")) add(v);
+          else setDraft(v);
+        }}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") {
+            e.preventDefault();
+            add(draft);
+          } else if (e.key === "Backspace" && !draft && values.length) {
+            e.preventDefault();
+            remove(values.length - 1);
+          }
+        }}
+        onBlur={() => {
+          if (draft.trim()) add(draft);
+        }}
+      />
+      <p id={`${id}-aide`} className={`text-xs ${error ? "text-[var(--danger)]" : "text-[var(--muted)]"}`}>
+        {error ?? hint}
+      </p>
+      <span className="sr-only" role="status">
+        {message}
+      </span>
+    </div>
+  );
 }

@@ -98,7 +98,7 @@ export function SiteReferencesPage() {
               {r.name}
             </Link>
             <p className="truncate text-xs text-[var(--muted)]">
-              {r.type === "USER" && r.productSlug ? `Utilise ${productName(r.productSlug)}` : r.testimonialText ? "Avec témoignage" : r.slug}
+              {r.type === "USER" && r.productSlug ? `Utilise ${productName(r.productSlug)}` : r.slug}
             </p>
           </div>
         </div>
@@ -232,10 +232,6 @@ function referenceErrors(form: ReferenceForm): FieldErrors {
   if (!form.slug.trim()) local.slug = "Identifiant obligatoire.";
   if (form.url.trim() && !/^https:\/\/[^\s/]+\.[^\s]+$/.test(form.url.trim())) local.url = "Adresse https complète attendue (https://exemple.fr).";
   if (form.type === "USER" && !form.productSlug) local.productSlug = "Produit obligatoire pour « Ils l'utilisent ».";
-  const hasTestimonial = Boolean(form.testimonialText.trim() || form.testimonialAuthor.trim());
-  if (hasTestimonial && !(form.testimonialText.trim() && form.testimonialAuthor.trim())) {
-    local.testimonial = "Témoignage : texte et auteur sont tous deux nécessaires.";
-  }
   if (form.status === "PUBLISHED" && form.type !== "USER") {
     if (!form.url.trim()) local.url = "Lien requis : chaque logo mène au site de la structure.";
     if (!form.logoPath) local.logoPath = "Logo requis pour le mur de logos.";
@@ -253,6 +249,7 @@ function referenceErrors(form: ReferenceForm): FieldErrors {
   return local;
 }
 
+/** Témoignage de la structure : plus saisi (le site ne l'affiche pas), une valeur déjà enregistrée repart telle quelle. */
 function referenceBody(form: ReferenceForm) {
   const hasTestimonial = Boolean(form.testimonialText.trim() || form.testimonialAuthor.trim());
   return {
@@ -417,24 +414,11 @@ export function SiteReferencePage() {
           <Textarea rows={2} autoComplete="off" value={form.contact} onChange={(e) => set("contact", e.target.value)} />
         </Field>
       </fieldset>
-      <fieldset className="space-y-4 rounded-[var(--radius)] border border-[var(--border)] p-4">
-        <legend className="px-1 text-sm font-medium">Témoignage de la structure (facultatif)</legend>
-        <p className="text-sm text-[var(--muted)]">
-          Enregistré avec la référence et envoyé au site, mais pas encore affiché sur kouzia.com. Il demande l'autorisation « Nom, logo et
-          témoignage ».
+      {errors.testimonial ? (
+        <p className="text-sm text-[var(--danger)]" role="alert">
+          Témoignage enregistré auparavant : {errors.testimonial}
         </p>
-        <Field label="Texte du témoignage" error={errors.testimonial}>
-          <Textarea rows={3} value={form.testimonialText} onChange={(e) => set("testimonialText", e.target.value)} />
-        </Field>
-        <div className="grid gap-4 sm:grid-cols-2">
-          <Field label="Auteur du témoignage">
-            <Input autoComplete="off" value={form.testimonialAuthor} onChange={(e) => set("testimonialAuthor", e.target.value)} />
-          </Field>
-          <Field label="Fonction (facultatif)">
-            <Input autoComplete="organization-title" value={form.testimonialRole} onChange={(e) => set("testimonialRole", e.target.value)} />
-          </Field>
-        </div>
-      </fieldset>
+      ) : null}
     </div>
   );
 
