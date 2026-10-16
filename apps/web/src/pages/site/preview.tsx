@@ -247,7 +247,7 @@ export function ContactPreview({
         {liens.map((l) => (
           <li key={l.label} className={l.url ? "text-[var(--apercu-accent)]" : "text-[var(--muted)]"}>
             {l.label}
-            {l.url ? "" : " (vide)"}
+            {l.url ? "" : " (non affiché)"}
           </li>
         ))}
       </ul>

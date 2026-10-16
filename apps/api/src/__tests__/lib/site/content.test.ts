@@ -25,6 +25,20 @@ afterEach(async () => {
 });
 
 describe("contrat du contenu publié", () => {
+  it("réseaux facultatifs (KouziaWebsite c6351fa) : infos.json sans réseau accepté ; refusé par un site pas encore à jour", () => {
+    // Contrat de KouziaWebsite c6351fa (integration du site, réseaux facultatifs), pas encore en ligne.
+    const courant = JSON.parse(fixture("contenu.schema.c6351fa.json")) as unknown;
+    const enLigne = JSON.parse(fixture("contenu.schema.json")) as unknown;
+    const files = parsed();
+    const { instagram: _i, ficheGoogle: _f, avisGoogle: _a, github: _g, ...sansReseaux } = files.infos.infos;
+    const sans = { ...files, infos: { ...files.infos, infos: sansReseaux } };
+    expect(validateSiteFiles(sans, courant)).toEqual([]);
+    expect(validateSiteFiles(sans)).toEqual([]);
+    // Site pas encore à jour (réseaux obligatoires) : la publication est bloquée avec la raison, rien n'est envoyé.
+    expect(validateSiteFiles(sans, enLigne).length).toBeGreaterThan(0);
+    expect(validateSiteFiles(sans, contract).length).toBeGreaterThan(0);
+  });
+
   it("les fichiers du site sont conformes (règles de l'ERP et contenu.schema.json) et se resérialisent à l'identique", () => {
     expect(validateSiteFiles(parsed(), contract)).toEqual([]);
     for (const n of SITE_FILES) expect(serializeSiteFile(JSON.parse(raw[n]))).toBe(raw[n].replace(/\r\n/g, "\n"));

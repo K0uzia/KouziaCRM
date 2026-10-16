@@ -263,6 +263,27 @@ describe("espace Site : textes", () => {
     expect(((await call("GET", "/api/site/texts")).json() as { infos: unknown }).infos).toEqual(infos);
   });
 
+  it("réseaux facultatifs : absents acceptés, vidage d'un réseau rempli, jamais de chaîne vide ; omis de infos.json", async () => {
+    const infos = JSON.parse(fixture("infos.json")).infos;
+    expect((await call("PUT", "/api/site/texts/infos", infos)).statusCode).toBe(200);
+    // Vider Instagram et la fiche Google : le document est réécrit sans ces clés.
+    const { instagram: _i, ficheGoogle: _f, ...sansReseaux } = infos;
+    expect((await call("PUT", "/api/site/texts/infos", sansReseaux)).statusCode).toBe(200);
+    const lu = ((await call("GET", "/api/site/texts")).json() as { infos: Record<string, unknown> }).infos;
+    expect(lu).not.toHaveProperty("instagram");
+    expect(lu).not.toHaveProperty("ficheGoogle");
+    expect(lu.github).toBe(infos.github);
+    // Chaîne vide ou lien non https : refusés (l'ERP omet la clé, il n'envoie jamais "").
+    expect((await call("PUT", "/api/site/texts/infos", { ...sansReseaux, instagram: "" })).statusCode).toBe(400);
+    expect((await call("PUT", "/api/site/texts/infos", { ...sansReseaux, avisGoogle: "http://g.page/x" })).statusCode).toBe(400);
+    // Publié : clés absentes dans infos.json, jamais "".
+    const { buildSiteSnapshot } = await import("@/lib/site/snapshot.js");
+    const publie = JSON.parse((await buildSiteSnapshot()).files.infos).infos as Record<string, unknown>;
+    expect(publie).not.toHaveProperty("instagram");
+    expect(publie).not.toHaveProperty("ficheGoogle");
+    expect(Object.values(publie)).not.toContain("");
+  });
+
   it("méthode des avis : brouillon absent tant qu'elle n'est pas enregistrée, puis titre et texte de la charte", async () => {
     expect(((await call("GET", "/api/site/texts")).json() as { avisMethode: unknown }).avisMethode).toBeNull();
     const methode = { titre: "Comment les avis sont recueillis et vérifiés", texte: "Seuls des clients ayant eu une prestation." };
