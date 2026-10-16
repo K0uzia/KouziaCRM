@@ -94,7 +94,8 @@ describe("état de publication calculé sans GitHub", () => {
   });
 });
 
-describe("routes : changements à publier et statut dans les listes", () => {
+// Hachage argon2 du compte et démarrage de l'application : environ 8 s quand la machine est chargée.
+describe("routes : changements à publier et statut dans les listes", { timeout: 30_000 }, () => {
   const ADMIN = "admin-site-changes@kouzia.test";
   const PASSWORD = "mot-de-passe-de-test";
 
