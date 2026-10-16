@@ -53,6 +53,7 @@ import { mailEnqueue } from "@/lib/email/mailer/index.js";
 import { sendDocumentPdf } from "@/lib/email/send-document-pdf.js";
 import { signDocumentToken } from "@/lib/documents/public-token.js";
 import { listActiveLegalClauses } from "@/lib/company/legal-clauses.js";
+import { FREE_MONTHS_MAX, SUBSCRIPTION_STARTS } from "@/lib/subscriptions/start.js";
 
 const lineSchema = z.object({
   description: z.string().min(1),
@@ -62,6 +63,24 @@ const lineSchema = z.object({
   billingDay: z.coerce.number().int().min(1).max(28).optional().nullable(),
   billingInterval: z.enum(["MONTH", "YEAR"]).optional().nullable(),
   serviceId: z.string().optional().nullable(),
+  // Départ de la facturation d'une ligne d'abonnement de devis (lib/subscriptions/start.ts).
+  subscriptionStart: z.enum(SUBSCRIPTION_STARTS).optional().nullable(),
+  subscriptionStartDate: z.iso.date().optional().nullable(),
+  subscriptionFreeMonths: z.coerce.number().int().min(1).max(FREE_MONTHS_MAX).optional().nullable(),
+}).superRefine((l, ctx) => {
+  if (l.subscriptionStart === "DATE" && !l.subscriptionStartDate) {
+    ctx.addIssue({ code: "custom", path: ["subscriptionStartDate"], message: "Date de la 1re facture requise" });
+  }
+  if (l.subscriptionStart === "FREE_MONTHS" && !l.subscriptionFreeMonths) {
+    ctx.addIssue({ code: "custom", path: ["subscriptionFreeMonths"], message: "Nombre de mois offerts requis" });
+  }
+});
+
+/** Champs de départ d'une ligne saisie : date du champ à minuit, heure locale. */
+const lineStartFields = (l: z.output<typeof lineSchema>) => ({
+  subscriptionStart: l.subscriptionStart ?? null,
+  subscriptionStartDate: l.subscriptionStartDate ? new Date(`${l.subscriptionStartDate}T00:00:00`) : null,
+  subscriptionFreeMonths: l.subscriptionFreeMonths ?? null,
 });
 
 const createSchema = z.object({
@@ -198,6 +217,7 @@ export const invoicesRoutes: FastifyPluginAsync = async (app) => {
         billingDay: l.billingDay,
         billingInterval: l.billingInterval,
         serviceId: l.serviceId,
+        ...lineStartFields(l),
       }));
       try {
         assertSubscriptionLinesValid(lineInputs);
@@ -491,6 +511,7 @@ export const invoicesRoutes: FastifyPluginAsync = async (app) => {
                 existingLines.find((e) => e.position === idx + 1)?.subscriptionId ?? null,
               revisesSubscriptionId:
                 existingLines.find((e) => e.position === idx + 1)?.revisesSubscriptionId ?? null,
+              ...lineStartFields(l),
             }));
           })()
         : (
@@ -509,6 +530,9 @@ export const invoicesRoutes: FastifyPluginAsync = async (app) => {
             serviceId: l.serviceId,
             subscriptionId: l.subscriptionId,
             revisesSubscriptionId: l.revisesSubscriptionId,
+            subscriptionStart: l.subscriptionStart,
+            subscriptionStartDate: l.subscriptionStartDate,
+            subscriptionFreeMonths: l.subscriptionFreeMonths,
           }));
 
       if (parsed.data.lines) {

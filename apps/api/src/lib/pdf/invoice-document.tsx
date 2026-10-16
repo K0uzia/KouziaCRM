@@ -341,6 +341,8 @@ export type InvoicePdfData = {
       isSubscription?: boolean;
       billingDay?: number | null;
       billingInterval?: string | null;
+      /** Départ choisi sur la ligne du devis, en clair : « 12 mois offerts à partir de la livraison du projet, puis 72,00 € par an ». */
+      startText?: string | null;
     }>;
     legalClauses?: Array<{ title: string; body: string }>;
   };
@@ -525,11 +527,13 @@ export function InvoiceDocument({ company, client, invoice }: InvoicePdfData) {
                       ? "Abonnement annuel, facturé chaque année à la date anniversaire"
                       : `Abonnement mensuel, facturé chaque mois${line.billingDay ? ` le ${line.billingDay}` : ""}`}{" "}
                     : {fmtMoney(line.unitPriceCents)}.{" "}
-                    {invoice.subscriptionOnly
-                      ? "Facturé à partir de la signature, sans acompte."
-                      : invoice.subscriptionFromDelivery
-                        ? "Facturé à partir de la livraison, hors acompte et échéancier."
-                        : "Ce document inclut la 1re échéance."}
+                    {line.startText
+                      ? `Facturation : ${line.startText}.`
+                      : invoice.subscriptionOnly
+                        ? "Facturé à partir de la signature, sans acompte."
+                        : invoice.subscriptionFromDelivery
+                          ? "Facturé à partir de la livraison, hors acompte et échéancier."
+                          : "Ce document inclut la 1re échéance."}
                   </Text>
                 ) : null}
               </View>
@@ -598,7 +602,9 @@ export function InvoiceDocument({ company, client, invoice }: InvoicePdfData) {
                       ? "chaque année à la date anniversaire"
                       : `chaque mois${l.billingDay ? ` le ${l.billingDay}` : ""}`
                   }. ${
-                    invoice.subscriptionOnly
+                    l.startText
+                      ? `Départ de la facturation : ${l.startText}.`
+                      : invoice.subscriptionOnly
                       ? "1re échéance facturée à partir de la signature, sans acompte."
                       : invoice.subscriptionFromDelivery
                         ? "1re échéance facturée à partir de la livraison, hors acompte et échéancier."

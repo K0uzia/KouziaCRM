@@ -129,6 +129,9 @@ describe("signature en ligne : CGV et droit de rétractation", () => {
     const doc = after.documents.find((d: { id: string }) => d.id === quoteId);
     expect(doc.withdrawal).toMatchObject({ expressExecution: false });
     expect(new Date(doc.withdrawal.startsNotBefore).toISOString()).toBe(sub.nextInvoiceAt.toISOString());
+    // Contrat KouziaWebsite (README, Espace client) : une entrée par ligne d'abonnement, départ par défaut du devis.
+    expect(doc.subscriptionLines).toEqual([expect.objectContaining({ interval: "MONTH", startsAt: "SIGNATURE" })]);
+    expect(doc.subscriptionLines[0]).not.toHaveProperty("freeMonths");
   });
 
   it("avec Stripe : lien de prélèvement tout de suite, 1re échéance (trial_end) après le délai", async () => {

@@ -46,6 +46,8 @@ export const clientInputSchema = z
     addressManualConfirmed: z.boolean().optional(),
     companyVerifiedAt: z.string().datetime().optional().nullable(),
     notes: z.string().optional().nullable(),
+    /** Jour de prélèvement par défaut de ses abonnements (1 à 28) ; null = le 1er. Absent : inchangé. */
+    billingDay: z.coerce.number().int().min(1).max(28).optional().nullable(),
     needs: needsInputSchema.optional(),
   })
   .superRefine((data, ctx) => {
@@ -97,6 +99,7 @@ export function serializeClient(client: {
   addressLat: number | null;
   addressLon: number | null;
   notes: string | null;
+  billingDay: number | null;
   needs?: string;
   onboardingCompletedAt: Date | null;
   accessEmailSentAt: Date | null;
@@ -127,6 +130,7 @@ export function serializeClient(client: {
     addressLat: client.addressLat,
     addressLon: client.addressLon,
     notes: client.notes,
+    billingDay: client.billingDay ?? null,
     needs: parseNeeds(client.needs),
     emailVerifiedAt: client.emailVerifiedAt ?? null,
     onboardingCompletedAt: client.onboardingCompletedAt,
@@ -198,6 +202,7 @@ export async function toPrismaClientData(data: ClientInput) {
     addressLat: addr.address.addressLat,
     addressLon: addr.address.addressLon,
     notes: data.notes?.trim() || null,
+    ...(data.billingDay !== undefined ? { billingDay: data.billingDay } : {}),
     // Absent (édition de la fiche sans la liste) : besoins inchangés.
     ...(data.needs ? { needs: JSON.stringify(normalizeNeeds(data.needs)) } : {}),
   };

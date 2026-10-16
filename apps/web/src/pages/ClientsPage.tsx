@@ -542,6 +542,10 @@ export function ClientDetailPage() {
                   .join(", ") || " - "}
               </dd>
             </div>
+            <div>
+              <dt className="text-[var(--muted)]">Prélèvement des abonnements</dt>
+              <dd>{client.billingDay ? `Le ${client.billingDay} du mois` : "Le 1er du mois (par défaut)"}</dd>
+            </div>
           </dl>
           </Card>
           <Card className="space-y-4 p-5 text-sm">

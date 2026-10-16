@@ -8,6 +8,7 @@ import { Field, Input, Select, Textarea } from "@/components/ui/Field";
 import type { Client } from "@/components/clients/ClientForm";
 import type { ClientNeed } from "@/components/clients/NeedsEditor";
 import { Segmented } from "@/components/ui/Segmented";
+import { FREE_MONTHS_MAX, startFromLine, startOptions, startPayload, startPhrase, type StartFields, type SubscriptionStart } from "@/lib/subscription-start";
 import {
   INTERVAL_OPTIONS,
   normalizeInterval,
@@ -24,6 +25,13 @@ export type DocLine = {
   billingDay: string;
   billingInterval: BillingInterval;
   serviceId: string;
+} & Partial<StartFields>;
+
+const NO_START: StartFields = { subscriptionStart: "", subscriptionStartDate: "", subscriptionFreeMonths: "" };
+const startOf = (l: DocLine): StartFields => ({ ...NO_START, ...Object.fromEntries(Object.entries(l).filter(([k]) => k in NO_START)) });
+const todayIso = () => {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 };
 
 export type DocumentFormValues = {
@@ -89,7 +97,7 @@ export function DocumentFormEditor({
   documentType: "INVOICE" | "QUOTE";
   documentId?: string;
   initial?: Partial<DocumentFormValues>;
-  clients: Array<{ id: string; displayName: string; clientNumber?: string | null; needs?: ClientNeed[] }>;
+  clients: Array<{ id: string; displayName: string; clientNumber?: string | null; needs?: ClientNeed[]; billingDay?: number | null }>;
   onSuccess: (doc: { id: string }) => void;
   onCancel: () => void;
 }) {
@@ -168,7 +176,18 @@ export function DocumentFormEditor({
   async function copyQuoteLines(quoteId: string) {
     try {
       const q = await api<{
-        lines?: Array<{ description: string; quantity: number; unitPriceCents: number; isSubscription?: boolean; billingDay?: number | null; billingInterval?: string | null; serviceId?: string | null }>;
+        lines?: Array<{
+          description: string;
+          quantity: number;
+          unitPriceCents: number;
+          isSubscription?: boolean;
+          billingDay?: number | null;
+          billingInterval?: string | null;
+          serviceId?: string | null;
+          subscriptionStart?: string | null;
+          subscriptionStartDate?: string | null;
+          subscriptionFreeMonths?: number | null;
+        }>;
       }>(`/api/invoices/${quoteId}`);
       const lines = (q.lines ?? []).map((l) => ({
         description: l.description,
@@ -178,6 +197,7 @@ export function DocumentFormEditor({
         billingDay: String(l.billingDay ?? 1),
         billingInterval: normalizeInterval(l.billingInterval),
         serviceId: l.serviceId ?? "",
+        ...startFromLine(l),
       }));
       if (lines.length) setForm((f) => ({ ...f, lines }));
       toast.success("Prestations du devis reprises");
@@ -209,12 +229,14 @@ export function DocumentFormEditor({
     const svc = services.find((x) => x.id === serviceId);
     if (!svc) return;
     const isSub = Boolean(svc.isSubscription);
+    // Jour de prélèvement : celui de la fiche client, sinon celui de l'offre.
+    const clientDay = clients.find((c) => c.id === form.clientId)?.billingDay;
     const line: DocLine = {
       serviceId,
       description: svc.description ? `${svc.name} : ${svc.description}` : svc.name,
       unitPriceEuros: (svc.unitPriceCents / 100).toFixed(2),
       isSubscription: isSub,
-      billingDay: String(svc.defaultBillingDay ?? 1),
+      billingDay: String(clientDay ?? svc.defaultBillingDay ?? 1),
       billingInterval: normalizeInterval(svc.billingInterval),
       quantity: "1",
     };
@@ -326,6 +348,7 @@ export function DocumentFormEditor({
           billingDay: l.isSubscription ? Number(l.billingDay) || 1 : null,
           billingInterval: l.isSubscription ? l.billingInterval : null,
           serviceId: l.isSubscription ? l.serviceId : null,
+          ...(documentType === "QUOTE" && l.isSubscription ? startPayload(startOf(l)) : {}),
         })),
       };
       const doc = await api<{ id: string }>(
@@ -503,11 +526,12 @@ export function DocumentFormEditor({
                       onChange={(next) => changeLineInterval(i, next)}
                     />
                     {subscriptionOnly || mixedQuote ? (
-                      <p className="text-[var(--muted)]">
-                        {`Facturé chaque ${line.billingInterval === "YEAR" ? "année" : "mois"} à partir ${
-                          subscriptionOnly ? "de la signature" : "de la livraison (projet terminé)"
-                        }, sans acompte`}
-                      </p>
+                      <SubscriptionStartFields
+                        index={i}
+                        line={line}
+                        hasProject={mixedQuote}
+                        onChange={(patch) => updateLine(i, patch)}
+                      />
                     ) : (
                     <label className="flex flex-wrap items-center gap-1.5 text-[var(--muted)]">
                       Facturée le
@@ -725,3 +749,100 @@ export function DocumentFormEditor({
 }
 
 export type { Client };
+
+/**
+ * Ligne d'abonnement d'un devis : départ de la facturation (signature, livraison, date précise, mois offerts) et jour de
+ * prélèvement, avec la phrase qui figurera sur le devis, le PDF et l'espace client.
+ */
+function SubscriptionStartFields({
+  index,
+  line,
+  hasProject,
+  onChange,
+}: {
+  index: number;
+  line: DocLine;
+  hasProject: boolean;
+  onChange: (patch: Partial<DocLine>) => void;
+}) {
+  const start = startOf(line);
+  const n = index + 1;
+  const phrase = startPhrase(start, hasProject, Math.round((Number(line.unitPriceEuros) || 0) * 100), line.billingInterval);
+  const control =
+    "min-h-11 rounded-[var(--radius-sm)] border border-[var(--border-input)] bg-[var(--surface-raised)] px-2 text-sm text-[var(--text)]";
+  return (
+    <div className="w-full space-y-2">
+      <div className="flex flex-wrap items-center gap-2">
+        <label className="flex flex-wrap items-center gap-1.5 text-[var(--muted)]">
+          Facturation à partir de
+          <select
+            className={control}
+            aria-label={`Ligne ${n} : facturation à partir de`}
+            value={start.subscriptionStart}
+            onChange={(e) => onChange({ subscriptionStart: e.target.value as SubscriptionStart })}
+          >
+            {startOptions(hasProject).map((o) => (
+              <option key={o.id} value={o.id}>
+                {o.label}
+              </option>
+            ))}
+          </select>
+        </label>
+        {start.subscriptionStart === "DATE" ? (
+          <label className="flex flex-wrap items-center gap-1.5 text-[var(--muted)]">
+            le
+            <input
+              type="date"
+              required
+              min={todayIso()}
+              className={control}
+              aria-label={`Ligne ${n} : date de la 1re facture`}
+              value={start.subscriptionStartDate}
+              onChange={(e) => onChange({ subscriptionStartDate: e.target.value })}
+            />
+          </label>
+        ) : null}
+        {start.subscriptionStart === "FREE_MONTHS" ? (
+          <label className="flex flex-wrap items-center gap-1.5 text-[var(--muted)]">
+            <input
+              type="number"
+              required
+              min={1}
+              max={FREE_MONTHS_MAX}
+              inputMode="numeric"
+              className={`${control} w-20`}
+              aria-label={`Ligne ${n} : nombre de mois offerts`}
+              value={start.subscriptionFreeMonths}
+              onChange={(e) => onChange({ subscriptionFreeMonths: e.target.value })}
+            />
+            mois offerts à partir {hasProject ? "de la livraison du projet" : "de la signature"}
+          </label>
+        ) : null}
+        <label className="flex flex-wrap items-center gap-1.5 text-[var(--muted)]">
+          prélevé le
+          <select
+            className={control}
+            aria-label={`Ligne ${n} : jour de prélèvement`}
+            value={line.billingDay}
+            onChange={(e) => onChange({ billingDay: e.target.value })}
+          >
+            {Array.from({ length: 28 }, (_, d) => d + 1).map((d) => (
+              <option key={d} value={String(d)}>
+                {d}
+              </option>
+            ))}
+          </select>
+          {line.billingInterval === "YEAR" ? "du mois anniversaire" : "de chaque mois"}
+        </label>
+      </div>
+      <p className="text-[var(--muted)]" aria-live="polite">
+        {phrase ? `Sur le devis : « ${phrase} », sans acompte.` : "Complétez la date ou le nombre de mois offerts."}
+        {start.subscriptionStart === "DATE"
+          ? " 1re facture au premier jour de prélèvement à partir de cette date."
+          : start.subscriptionStart === "FREE_MONTHS"
+            ? " 1re facture au premier jour de prélèvement après les mois offerts."
+            : ""}
+      </p>
+    </div>
+  );
+}

@@ -16,6 +16,7 @@ import {
   isSubscriptionOnly,
   type PlanSettings,
 } from "@/lib/quotes/payment-plans.js";
+import { startPhrase } from "@/lib/subscriptions/start.js";
 
 type InvoiceWithRelations = Invoice & {
   lines: InvoiceLine[];
@@ -100,6 +101,9 @@ export function buildInvoicePdfPayload({
         : null;
   const retained = parsePaymentPlan(invoice.paymentPlan);
   const isQuote = invoice.documentType === "QUOTE";
+  const fromDelivery = Boolean(
+    isQuote && offer !== "NONE" && invoice.depositBaseCents !== null && invoice.lines.some((l) => l.isSubscription),
+  );
   return {
     number: invoice.number ?? "",
     documentType: invoice.documentType as "INVOICE" | "CREDIT_NOTE" | "QUOTE",
@@ -142,8 +146,7 @@ export function buildInvoicePdfPayload({
     paymentPlanRetained: isQuote && offer && retained ? PLAN_TITLE[retained] : null,
     subscriptionOnly: isQuote && (offer === "NONE" || isSubscriptionOnly(invoice.lines)),
     // Devis mixte : l'abonnement démarre à la livraison, hors échéancier.
-    subscriptionFromDelivery:
-      isQuote && offer !== "NONE" && invoice.depositBaseCents !== null && invoice.lines.some((l) => l.isSubscription),
+    subscriptionFromDelivery: fromDelivery,
     balanceSummary: balanceSummary ?? null,
     milestones: invoice.milestones.map((m) => ({
       label: m.label,
@@ -168,6 +171,11 @@ export function buildInvoicePdfPayload({
       isSubscription: l.isSubscription,
       billingDay: l.billingDay,
       billingInterval: l.billingInterval,
+      // Départ choisi sur la ligne du devis (date précise, mois offerts…) : phrase à la place du départ par défaut.
+      startText:
+        isQuote && l.isSubscription && l.subscriptionStart
+          ? startPhrase(l, fromDelivery, l.unitPriceCents, l.billingInterval === "YEAR" ? "YEAR" : "MONTH")
+          : null,
     })),
     legalClauses: clauses.filter((c) => !DEDICATED_CLAUSE_KINDS.has(c.kind)).map((c) => ({ title: c.title, body: c.body })),
     subscriptionTerms: { MONTH: clauseBody("SUBSCRIPTION_MONTHLY"), YEAR: clauseBody("SUBSCRIPTION_ANNUAL") },

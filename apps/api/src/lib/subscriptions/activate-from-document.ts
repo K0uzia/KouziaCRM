@@ -1,4 +1,5 @@
 import { SubscriptionCollectionMethod, SubscriptionStatus } from "@prisma/client";
+import { lineFirstInvoiceAt } from "@/lib/subscriptions/start.js";
 import { prisma } from "@/lib/prisma.js";
 import {
   createSubscription,
@@ -161,12 +162,13 @@ export async function activateSubscriptionsFromDocument(
   if (pending.length === 0) return { created: 0, updated: 0, subscriptionIds: linked, createdIds: [] };
 
   for (const line of pending) {
-    if (!line.serviceId || !line.billingDay) {
-      throw new SubscriptionError(
-        `Ligne « ${line.description} » : prestation et jour de facturation requis`,
-      );
+    if (!line.serviceId) {
+      throw new SubscriptionError(`Ligne « ${line.description} » : prestation requise`);
     }
   }
+  // Jour de prélèvement : celui de la ligne (exception), sinon celui du client, sinon le 1er.
+  const client = await db.client.findUnique({ where: { id: doc.clientId }, select: { billingDay: true } });
+  for (const line of pending) line.billingDay ??= client?.billingDay ?? 1;
 
   // Document créé avant les avenants ciblés, sans ligne d'avenant marquée : comportement d'avant.
   const cutoff = await targetedRevisionsCutoff(db);
@@ -206,6 +208,9 @@ export async function activateSubscriptionsFromDocument(
       subId = target.id;
       updated += 1;
     } else {
+      const startDate = opts.startDate ?? new Date();
+      // Devis : départ choisi sur la ligne (date précise, mois offerts) ; sinon le départ habituel.
+      const firstInvoiceAt = doc.documentType === "QUOTE" ? lineFirstInvoiceAt(line, line.billingDay!, startDate) : null;
       const sub = await createSubscription(
         {
           clientId: doc.clientId,
@@ -214,9 +219,10 @@ export async function activateSubscriptionsFromDocument(
           amountCents: line.unitPriceCents,
           billingDay: line.billingDay!,
           billingInterval,
-          startDate: opts.startDate ?? new Date(),
-          skipCurrentPeriod: !opts.firstPeriodNow,
-          firstPeriodNow: opts.firstPeriodNow,
+          startDate,
+          ...(firstInvoiceAt
+            ? { firstInvoiceAt }
+            : { skipCurrentPeriod: !opts.firstPeriodNow, firstPeriodNow: opts.firstPeriodNow }),
           ...(opts.awaitStripe ? { collectionMethod: SubscriptionCollectionMethod.STRIPE } : {}),
         },
         db,

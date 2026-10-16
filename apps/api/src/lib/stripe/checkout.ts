@@ -209,6 +209,27 @@ export function subscriptionPriceData(
 }
 
 /** Session Checkout abonnement (prélèvement SEPA + carte). */
+/** Délai minimal de trial_end dans une session Checkout (doc Stripe : « at least 48 hours in the future »), plus une marge. */
+const TRIAL_MIN_MS = 48 * 3_600_000 + 10 * 60_000;
+
+/**
+ * Première échéance Stripe alignée sur nextInvoiceAt (jour de prélèvement compris) :
+ * - plus de 48 h : trial_end, qui ancre aussi le cycle de facturation sur cette date (doc Stripe, Billing cycle) ;
+ * - moins de 48 h : billing_cycle_anchor futur et proration_behavior none, période initiale gratuite (trial_end y serait
+ *   refusé ; Checkout ne combine pas les deux) ;
+ * - passée ou immédiate : 1re période prélevée tout de suite.
+ */
+export function firstChargeTiming(nextInvoiceAt: Date, now = Date.now()):
+  | { trial_end: number }
+  | { billing_cycle_anchor: number; proration_behavior: "none" }
+  | Record<string, never> {
+  const at = nextInvoiceAt.getTime();
+  const seconds = Math.floor(at / 1000);
+  if (at > now + TRIAL_MIN_MS) return { trial_end: seconds };
+  if (at > now + 60_000) return { billing_cycle_anchor: seconds, proration_behavior: "none" };
+  return {};
+}
+
 export async function createSubscriptionCheckoutSession(
   subscriptionId: string,
 ): Promise<string> {
@@ -232,11 +253,7 @@ export async function createSubscriptionCheckoutSession(
   const customerId = await ensureStripeCustomer(sub.clientId);
   const redirects = await portalRedirect();
 
-  // Première échéance alignée sur nextInvoiceAt si dans le futur.
-  const trialEnd =
-    sub.nextInvoiceAt.getTime() > Date.now() + 60_000
-      ? Math.floor(sub.nextInvoiceAt.getTime() / 1000)
-      : undefined;
+  const timing = firstChargeTiming(sub.nextInvoiceAt);
 
   const session = await stripe.checkout.sessions.create({
     mode: "subscription",
@@ -245,7 +262,7 @@ export async function createSubscriptionCheckoutSession(
     line_items: [{ price_data: subscriptionPriceData(sub, await keyLivemode()), quantity: 1 }],
     subscription_data: {
       metadata: { erpSubscriptionId: sub.id, erpClientId: sub.clientId },
-      ...(trialEnd ? { trial_end: trialEnd } : {}),
+      ...timing,
     },
     metadata: {
       erpKind: "subscribe",

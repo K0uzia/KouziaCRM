@@ -38,6 +38,7 @@ import {
   activateSubscriptionsFromDocument,
   notifyStripeSubscriptionSetup,
 } from "@/lib/subscriptions/activate-from-document.js";
+import { activationPoint } from "@/lib/subscriptions/start.js";
 
 export type { ClientSnapshot };
 export {
@@ -454,7 +455,7 @@ export async function acceptQuoteByClient(
       paymentPlanOffer: true,
       totalCents: true,
       depositBaseCents: true,
-      lines: { select: { isSubscription: true } },
+      lines: { select: { id: true, isSubscription: true, subscriptionStart: true, subscriptionStartDate: true, subscriptionFreeMonths: true } },
       client: { select: { type: true } },
     },
   });
@@ -503,8 +504,18 @@ export async function acceptQuoteByClient(
     if (plan) await applyPlanMilestones(tx, quoteId, depositBaseOf(pending), plan, settings);
     // Abonnement seul : la 1re échéance est due tout de suite et facturée par l'abonnement
     // (Stripe après le mandat, sinon facture ERP immédiate), jamais par le devis.
+    // Devis mixte : seules les lignes au départ « à la signature » ou « à une date » démarrent maintenant ; les
+    // autres attendent la livraison (startDeferredSubscriptions).
+    const atSignature = pending.lines.filter((l) => l.isSubscription && activationPoint(l, true) === "SIGNATURE").map((l) => l.id);
     const subs = deferSubscription
-      ? { subscriptionIds: [] as string[], createdIds: [] as string[] }
+      ? atSignature.length
+        ? await activateSubscriptionsFromDocument(quoteId, tx, {
+            firstPeriodNow: true,
+            awaitStripe: settings.moduleStripeEnabled,
+            startDate: subscriptionStart ?? undefined,
+            onlyLineIds: atSignature,
+          })
+        : { subscriptionIds: [] as string[], createdIds: [] as string[] }
       : await activateSubscriptionsFromDocument(
           quoteId,
           tx,
@@ -514,7 +525,7 @@ export async function acceptQuoteByClient(
         );
     return { result, subscriptionIds: subs.subscriptionIds, createdIds: subs.createdIds };
   });
-  if (subscriptionOnly) await startSubscriptionBilling(updated.createdIds, settings.moduleStripeEnabled, subscriptionStart);
+  if (subscriptionOnly || deferSubscription) await startSubscriptionBilling(updated.createdIds, settings.moduleStripeEnabled, subscriptionStart);
   else await notifyStripeSubscriptionSetup(updated.subscriptionIds);
   const accepted = updated.result;
 
@@ -740,6 +751,9 @@ export async function convertQuoteToInvoice(quoteId: string) {
             serviceId: line.serviceId,
             subscriptionId: line.subscriptionId,
             revisesSubscriptionId: line.revisesSubscriptionId,
+            subscriptionStart: line.subscriptionStart,
+            subscriptionStartDate: line.subscriptionStartDate,
+            subscriptionFreeMonths: line.subscriptionFreeMonths,
           })),
         },
       },
