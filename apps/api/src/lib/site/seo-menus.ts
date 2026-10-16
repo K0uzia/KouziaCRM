@@ -30,6 +30,8 @@ const defaultsSchema = z.object({
   cibles: z.record(z.string(), z.object({ libelle: z.string(), chemin: z.string() })),
   image: z.string(),
   imageAlt: z.string(),
+  /** Valeurs des variables exportées par le site (site.city pour {ville}) ; absent d'un contrat antérieur. */
+  variables: z.object({ ville: z.string().min(1) }).partial().optional(),
 });
 export type SiteDefaults = z.output<typeof defaultsSchema>;
 
@@ -61,14 +63,22 @@ export const resetSiteDefaultsCache = () => {
 export type TextVariables = { ville: string; delaiReponse: string };
 
 /**
- * Valeurs des variables, comme au build du site : {ville} est la ville de l'entreprise (réglages, la même que
- * site.city), {delaiReponse} vient des coordonnées publiées (infos.json). null : coordonnées non renseignées.
+ * Valeurs des variables, comme au build du site : {ville} est celle que le site exporte (defauts.variables.ville,
+ * tirée de site.city), à défaut la ville de l'entreprise (réglages) pour un contrat antérieur ; {delaiReponse} vient
+ * des coordonnées que l'ERP publie (infos.json). null : coordonnées non renseignées.
  */
-export async function textVariables(): Promise<TextVariables | null> {
+export async function textVariables(siteCity?: string | null): Promise<TextVariables | null> {
   const [settings, infos] = await Promise.all([getCompanySettings(), readSiteText("infos")]);
-  if (!infos || !settings.city.trim()) return null;
-  return { ville: settings.city.trim(), delaiReponse: infos.delaiReponse };
+  const ville = siteCity?.trim() || settings.city.trim();
+  if (!infos || !ville) return null;
+  return { ville, delaiReponse: infos.delaiReponse };
 }
+
+/** Ville exportée par le site, lue dans le contrat en cache ; null si indisponible (le repli des réglages s'applique). */
+export const siteCityOrNull = (force = false) =>
+  readSiteDefaults(force)
+    .then((d) => d?.variables?.ville ?? null)
+    .catch(() => null);
 
 export const fillVariables = (text: string, vars: TextVariables) =>
   text.replace(/\{(ville|delaiReponse)\}/g, (_, k: keyof TextVariables) => vars[k]);

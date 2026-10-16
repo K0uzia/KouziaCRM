@@ -182,10 +182,13 @@ export async function adoptMissingMedia(read: (path: string) => Promise<Buffer |
   let adopted = 0;
   for (const [sha12, used] of usages) {
     if (known.has(sha12)) continue;
-    const x1 = await read(`public/media/${sha12}.webp`);
+    const kind = KIND_BY_FIELD[used[0]!.field];
+    // Image de partage : un JPEG unique ; les autres : WebP 1x et 2x.
+    const ext = siteMediaExt(kind);
+    const x1 = await read(`public/media/${sha12}.${ext}`);
     if (!x1) continue;
-    const x2 = await read(`public/media/${sha12}-2x.webp`);
-    if (await adoptPublishedImage(sha12, KIND_BY_FIELD[used[0]!.field], x1, x2, used[0]!.label)) adopted++;
+    const x2 = ext === "webp" ? await read(`public/media/${sha12}-2x.webp`) : null;
+    if (await adoptPublishedImage(sha12, kind, x1, x2, used[0]!.label)) adopted++;
   }
   return adopted;
 }

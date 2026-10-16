@@ -2,7 +2,7 @@ import { prisma } from "@/lib/prisma.js";
 import { decryptOptional, encrypt } from "@/lib/crypto.js";
 import { getCompanySettings, invalidateCompanySettingsCache } from "@/lib/company.js";
 import { secretHint } from "@/lib/settings/secrets.js";
-import { SITE_FILES, type SiteFileName } from "@/lib/site/contract.js";
+import { SITE_FILES, SITE_OPTIONAL_FILES, type SiteFileName, type SiteOptionalFileName } from "@/lib/site/contract.js";
 
 /**
  * Accès au dépôt du site (KouziaWebsite) par l'API GitHub, avec un fine-grained PAT limité à ce dépôt.
@@ -120,12 +120,27 @@ async function readRaw(token: string, name: string): Promise<string> {
   return (await call(token, path, "application/vnd.github.raw+json")).text();
 }
 
-/** Lecture seule des 6 fichiers publiés et du contrat (contenu.schema.json) sur la branche du site. */
-export async function readSiteRepoFiles(): Promise<{ files: Record<SiteFileName, string>; contract: unknown }> {
+/**
+ * Lecture seule des 6 fichiers publiés, des fichiers facultatifs présents (pages, seo, menus : absents tant que
+ * l'ERP ne les a pas publiés) et du contrat (contenu.schema.json) sur la branche du site.
+ */
+export async function readSiteRepoFiles(): Promise<{
+  files: Record<SiteFileName, string>;
+  optional: Partial<Record<SiteOptionalFileName, string>>;
+  contract: unknown;
+}> {
   const token = await githubToken();
   const files = {} as Record<SiteFileName, string>;
   for (const name of SITE_FILES) files[name] = await readRaw(token, `${name}.json`);
-  return { files, contract: JSON.parse(await readRaw(token, "contenu.schema.json")) };
+  const optional: Partial<Record<SiteOptionalFileName, string>> = {};
+  for (const name of SITE_OPTIONAL_FILES) {
+    try {
+      optional[name] = await readRaw(token, `${name}.json`);
+    } catch (e) {
+      if (!(e instanceof GithubError && e.status === 404)) throw e;
+    }
+  }
+  return { files, optional, contract: JSON.parse(await readRaw(token, "contenu.schema.json")) };
 }
 
 /** Lecture seule d'un fichier publié (ex. avis.json) sur la branche du site. */

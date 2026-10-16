@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { FastifyInstance } from "fastify";
@@ -15,7 +15,8 @@ const { buildApp } = await import("@/app.js");
 const ADMIN = "admin-site@kouzia.test";
 const PASSWORD = "mot-de-passe-de-test";
 const TOKEN = "github_pat_11ABCDEFG0secretSecretSecret_xyz9";
-const fixture = (name: string) => readFileSync(fileURLToPath(new URL(`../fixtures/site/${name}`, import.meta.url)), "utf8");
+const fixturePath = (name: string) => fileURLToPath(new URL(`../fixtures/site/${name}`, import.meta.url));
+const fixture = (name: string) => readFileSync(fixturePath(name), "utf8");
 
 let app: FastifyInstance;
 let cookie: string;
@@ -74,6 +75,8 @@ function stubGithub(expiration: string | null = "2027-10-14 12:00:00 UTC", contr
         });
       }
       const m = /\/contents\/src\/content\/site\/([a-z.]+)\?ref=main$/.exec(url);
+      // Fichier absent du dépôt (seo.json, menus.json tant que l'ERP ne les a pas publiés) : 404, comme GitHub.
+      if (m && !existsSync(fixturePath(m[1]))) return new Response("{}", { status: 404 });
       if (m) return contractStatus === 200 ? new Response(fixture(m[1])) : new Response("{}", { status: contractStatus });
       return new Response("{}", { status: 404 });
     }),
