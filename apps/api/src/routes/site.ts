@@ -17,7 +17,7 @@ import { prisma } from "@/lib/prisma.js";
 import { decryptOptional, encryptOptional } from "@/lib/crypto.js";
 import { getCompanySettings } from "@/lib/company.js";
 import { secretMeta } from "@/lib/settings/secrets.js";
-import { httpsUrl, imagePath, SITE_FILES, siteText, slug } from "@/lib/site/contract.js";
+import { httpsUrl, imagePath, SITE_FILES, SITE_OPTIONAL_FILES, siteText, slug } from "@/lib/site/contract.js";
 import { parseTech } from "@/lib/site/mapping.js";
 import { readSiteText, writeSiteText, isSiteTextKey } from "@/lib/site/texts.js";
 import { readSiteDefaults, textVariables } from "@/lib/site/seo-menus.js";
@@ -34,6 +34,7 @@ import {
   SiteMediaError,
   SITE_MEDIA_MAX_INPUT_BYTES,
 } from "@/lib/site/media.js";
+import { readPagesDefaults } from "@/lib/site/pages.js";
 import { HistoryError, publicationDetail, restoreVersion } from "@/lib/site/history.js";
 import { adoptMissingMedia, deleteLibraryMedia, LibraryError, libraryPath, listLibrary, recropLibraryMedia } from "@/lib/site/library.js";
 import { issuedPdfAbsolutePath } from "@/lib/pdf/issued-archive.js";
@@ -655,6 +656,7 @@ export const siteRoutes: FastifyPluginAsync = async (app) => {
         avisMethode: await readSiteText("avisMethode"),
         seo: await readSiteText("seo"),
         menus: await readSiteText("menus"),
+        pages: await readSiteText("pages"),
         publication,
       };
     }),
@@ -672,6 +674,20 @@ export const siteRoutes: FastifyPluginAsync = async (app) => {
       } catch (e) {
         const message = e instanceof GithubError ? e.message : "Contrat du site illisible.";
         return { defaults: null, variables, error: message };
+      }
+    }),
+  );
+
+  // Textes actuels des pages (exemples sous les champs vides, point de départ) et valeurs des variables.
+  app.get(
+    "/api/site/textes-pages/defauts",
+    admin(async (request) => {
+      const force = (request.query as { rafraichir?: string }).rafraichir === "1";
+      const variables = await textVariables();
+      try {
+        return { defaults: await readPagesDefaults(force), variables, error: null };
+      } catch (e) {
+        return { defaults: null, variables, error: e instanceof GithubError ? e.message : "Contrat du site illisible." };
       }
     }),
   );
@@ -892,7 +908,7 @@ export const siteRoutes: FastifyPluginAsync = async (app) => {
     "/api/site/publications/:id/restore",
     admin(async (request, reply) => {
       const body = z
-        .strictObject({ file: z.enum(SITE_FILES), key: z.string().min(1).max(600), side: z.enum(["after", "before"]) })
+        .strictObject({ file: z.enum([...SITE_FILES, ...SITE_OPTIONAL_FILES]), key: z.string().min(1).max(600), side: z.enum(["after", "before"]) })
         .safeParse(request.body);
       if (!body.success) return invalid(reply, body.error);
       try {

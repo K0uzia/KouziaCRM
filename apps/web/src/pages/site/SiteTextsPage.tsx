@@ -1,15 +1,13 @@
-import { useEffect, useState, type FormEvent, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { Navigate, useSearchParams } from "react-router-dom";
-import { toast } from "sonner";
 import { api } from "@/lib/api";
-import { Card, PageHeader } from "@/components/ui/Card";
-import { Button } from "@/components/ui/Button";
+import { PageHeader } from "@/components/ui/Card";
 import { Field, Input, Textarea } from "@/components/ui/Field";
-import { fieldErrorsOf, LoadState, type FieldErrors } from "./shared";
+import { LoadState, type FieldErrors } from "./shared";
 import { EditorFooter, EditorLayout, useDocumentEditor } from "./editor";
 import { ContactPreview, OfferCardPreview } from "./preview";
 
-/** Textes uniques du site (table SiteText), un écran chacun : coordonnées, accroche, offres. */
+/** Textes uniques du site (table SiteText), un écran chacun : coordonnées, offres. Accroche et textes des pages : textesPages.tsx. */
 
 type Infos = {
   email: string;
@@ -100,17 +98,6 @@ export function SiteContactPage() {
   );
 }
 
-export function SiteHeroPage() {
-  return (
-    <TextScreen
-      textKey="accroche"
-      title="Accroche de l'accueil"
-      subtitle="Le grand titre et le texte d'introduction, en haut de la page d'accueil de kouzia.com."
-      render={(initial, onSaved) => <AccrocheForm initial={initial} onSaved={onSaved} />}
-    />
-  );
-}
-
 export function SiteOffersPage() {
   return (
     <TextScreen
@@ -119,43 +106,6 @@ export function SiteOffersPage() {
       subtitle="Les deux formules de suivi après la mise en ligne (site web, logiciel) et la phrase sur le tarif."
       render={(initial, onSaved) => <OffresForm initial={initial} onSaved={onSaved} />}
     />
-  );
-}
-
-/** Formulaire d'un document : enregistrement par PUT /api/site/texts/:key, erreurs par champ. */
-function useTextForm<T>(key: string, onSaved: (v: T) => void) {
-  const [errors, setErrors] = useState<FieldErrors>({});
-  const [busy, setBusy] = useState(false);
-  async function save(value: T) {
-    setBusy(true);
-    setErrors({});
-    try {
-      const saved = await api<T>(`/api/site/texts/${key}`, { method: "PUT", body: JSON.stringify(value) });
-      onSaved(saved);
-      toast.success("Enregistré");
-    } catch (e) {
-      setErrors(fieldErrorsOf(e));
-      toast.error(e instanceof Error ? e.message : "Enregistrement impossible");
-    } finally {
-      setBusy(false);
-    }
-  }
-  return { errors, busy, save };
-}
-
-/** Carte de formulaire pleine largeur, comme les Réglages ; `columns` : sections côte à côte sur grand écran. */
-function FormCard({ onSubmit, busy, columns = false, children }: { onSubmit: (e: FormEvent) => void; busy: boolean; columns?: boolean; children: ReactNode }) {
-  return (
-    <Card className="p-4 sm:p-6">
-      <form onSubmit={onSubmit} noValidate className="space-y-4">
-        <div className={columns ? "grid gap-x-8 gap-y-6 xl:grid-cols-2" : "space-y-4"}>{children}</div>
-        <div className="flex justify-end border-t border-[var(--border)] pt-4">
-          <Button type="submit" disabled={busy}>
-            {busy ? "Enregistrement…" : "Enregistrer"}
-          </Button>
-        </div>
-      </form>
-    </Card>
   );
 }
 
@@ -284,27 +234,6 @@ function InfosForm({ initial, onSaved }: { initial: Infos | null; onSaved: (v: I
         footer={<EditorFooter auto={doc.auto} creating={false} busy={false} createLabel="" />}
       />
     </form>
-  );
-}
-
-function AccrocheForm({ initial, onSaved }: { initial: Accroche | null; onSaved: (v: Accroche) => void }) {
-  const [f, setF] = useState<Accroche>(() => initial ?? { titre: "", texte: "" });
-  const { errors, busy, save } = useTextForm<Accroche>("accroche", onSaved);
-  return (
-    <FormCard
-      busy={busy}
-      onSubmit={(e) => {
-        e.preventDefault();
-        void save(f);
-      }}
-    >
-      <Field label="Grand titre" hint="La première phrase lue sur le site." error={errorFor(errors, "titre")}>
-        <Input value={f.titre} onChange={(e) => setF({ ...f, titre: e.target.value })} />
-      </Field>
-      <Field label="Texte d'introduction" hint="Sous le titre : qui vous êtes, ce que vous faites, où." error={errorFor(errors, "texte")}>
-        <Textarea rows={5} value={f.texte} onChange={(e) => setF({ ...f, texte: e.target.value })} />
-      </Field>
-    </FormCard>
   );
 }
 

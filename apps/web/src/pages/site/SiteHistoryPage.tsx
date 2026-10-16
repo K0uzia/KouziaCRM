@@ -36,6 +36,9 @@ const FILE_LABEL: Record<string, string> = {
   faq: "FAQ",
   textes: "Accroche et offres",
   infos: "Coordonnées",
+  pages: "Textes des pages",
+  seo: "Référencement",
+  menus: "Menus",
 };
 /** Ce à quoi la fiche actuelle correspond, d'après les versions restaurables de l'entrée. */
 function currentText(e: Entry): string | null {

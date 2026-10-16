@@ -1,6 +1,6 @@
 import { SiteItemStatus, SitePublicationStatus, type SitePublication } from "@prisma/client";
 import { prisma } from "@/lib/prisma.js";
-import { siteFileSchemas, type SiteFileName } from "@/lib/site/contract.js";
+import { siteFileSchemas, type SiteAnyFileName, type SiteFileName } from "@/lib/site/contract.js";
 import { faqOut, FAQ_PAGE_IN, projectOut, referenceOut } from "@/lib/site/mapping.js";
 import { projectFieldsFromSite, referenceFieldsFromSite } from "@/lib/site/import.js";
 import { writeSiteText, type SiteTextKey } from "@/lib/site/texts.js";
@@ -16,7 +16,7 @@ import { writeSiteText, type SiteTextKey } from "@/lib/site/texts.js";
 export type HistoryKind = "added" | "removed" | "modified" | "order";
 export type HistoryField = { name: string; before: string | null; after: string | null };
 export type HistoryEntry = {
-  file: SiteFileName;
+  file: SiteAnyFileName;
   key: string;
   label: string;
   kind: HistoryKind;
@@ -58,6 +58,27 @@ const FIELD_LABEL: Record<string, string> = {
   publieLe: "Publié le",
   experienceLe: "Expérience le",
   titre: "Titre",
+  // Documents facultatifs (pages, seo, menus).
+  pages: "Pages",
+  accueil: "Accueil",
+  sitesWeb: "Sites web",
+  logiciels: "Logiciels",
+  aPropos: "À propos",
+  faq: "FAQ",
+  hero: "Haut de page",
+  services: "Services",
+  realisations: "Réalisations",
+  maintenanceOption: "Maintenance en option",
+  zone: "Zone",
+  contact: "Contact",
+  surTitre: "Surtitre",
+  intro: "Introduction",
+  histoire: "Histoire",
+  description: "Description",
+  entete: "En-tête",
+  pied: "Pied de page",
+  cible: "Cible",
+  libelle: "Libellé",
 };
 
 /** Valeurs à plat (chemin → texte) pour comparer deux versions champ par champ. */
@@ -86,11 +107,24 @@ function diffFields(before: unknown, after: unknown, skip: string[] = []): Histo
   return keys.filter((k) => a[k] !== b[k]).map((k) => ({ name: fieldName(k), before: a[k] ?? null, after: b[k] ?? null }));
 }
 
+/** Documents facultatifs (lot 6) : un seul élément chacun, restauré en entier. */
+const OPTIONAL_LABEL: Record<Exclude<SiteAnyFileName, SiteFileName>, string> = {
+  pages: "Textes des pages",
+  seo: "Référencement des pages",
+  menus: "Menus",
+};
+
 /** Éléments d'un fichier publié, avec une clé stable pour comparer deux publications. */
-function itemsOf(file: SiteFileName, text: string | undefined): Item[] {
+function itemsOf(file: SiteAnyFileName, text: string | undefined): Item[] {
   if (!text) return [];
   const json = JSON.parse(text) as Doc;
   switch (file) {
+    case "pages":
+    case "seo":
+    case "menus": {
+      const { schemaVersion: _, ...value } = json;
+      return [{ key: file, label: OPTIONAL_LABEL[file], value }];
+    }
     case "realisations":
       return (json.realisations as Doc[]).map((r) => ({ key: String(r.id), label: String(r.nom), value: r }));
     case "references":
@@ -112,17 +146,17 @@ function itemsOf(file: SiteFileName, text: string | undefined): Item[] {
   }
 }
 
-const ORDERED: SiteFileName[] = ["realisations", "references", "faq", "avis"];
-const ORDER_LABEL: Partial<Record<SiteFileName, string>> = {
+const ORDERED: SiteAnyFileName[] = ["realisations", "references", "faq", "avis"];
+const ORDER_LABEL: Partial<Record<SiteAnyFileName, string>> = {
   realisations: "Ordre des réalisations",
   references: "Ordre des références",
   faq: "Ordre des questions",
   avis: "Ordre des témoignages",
 };
-const FILE_ORDER: SiteFileName[] = ["realisations", "avis", "references", "faq", "textes", "infos"];
+const FILE_ORDER: SiteAnyFileName[] = ["realisations", "avis", "references", "faq", "textes", "infos", "pages", "seo", "menus"];
 
 /** Restaurable : réalisations, références, questions et textes ; jamais un témoignage. */
-const restorable = (file: SiteFileName, key: string) => file !== "avis" || key === "avisMethode";
+const restorable = (file: SiteAnyFileName, key: string) => file !== "avis" || key === "avisMethode";
 
 /** Forme publiée de la fiche actuelle de l'ERP (tous statuts), pour dire si elle diffère d'une version. */
 async function currentValues(): Promise<Map<string, unknown>> {
@@ -140,7 +174,7 @@ async function currentValues(): Promise<Map<string, unknown>> {
     map.set(`faq|${out.page}::${out.q}`, out);
   }
   for (const t of texts) {
-    const file = t.key === "infos" ? "infos" : t.key === "avisMethode" ? "avis" : "textes";
+    const file = t.key === "infos" ? "infos" : t.key === "avisMethode" ? "avis" : ["pages", "seo", "menus"].includes(t.key) ? t.key : "textes";
     map.set(`${file}|${t.key}`, JSON.parse(t.valueJson));
   }
   return map;
@@ -215,7 +249,7 @@ export async function publicationDetail(id: string): Promise<{ available: boolea
 }
 
 /** Version d'un élément dans une publication (« after ») ou dans la précédente (« before »). */
-async function versionOf(id: string, file: SiteFileName, key: string, side: "after" | "before"): Promise<Item> {
+async function versionOf(id: string, file: SiteAnyFileName, key: string, side: "after" | "before"): Promise<Item> {
   const { pub, prev } = await withPrevious(id);
   const source = side === "after" ? pub : prev;
   if (!source?.filesJson) throw new HistoryError("Cette version n'est plus conservée.", 404);
@@ -224,13 +258,13 @@ async function versionOf(id: string, file: SiteFileName, key: string, side: "aft
   return item;
 }
 
-export type RestoreResult = { file: SiteFileName; key: string; label: string; to: string; created: boolean; missingMedia: string[] };
+export type RestoreResult = { file: SiteAnyFileName; key: string; label: string; to: string; created: boolean; missingMedia: string[] };
 
 /**
  * Remet une version publiée dans l'ERP : la fiche existante (même identifiant) reprend les champs publiés, sans
  * changer son statut ni sa place ; une fiche supprimée depuis est recréée en brouillon. Rien n'est mis en ligne.
  */
-export async function restoreVersion(id: string, file: SiteFileName, key: string, side: "after" | "before"): Promise<RestoreResult> {
+export async function restoreVersion(id: string, file: SiteAnyFileName, key: string, side: "after" | "before"): Promise<RestoreResult> {
   if (!restorable(file, key)) throw new HistoryError("Un témoignage ne se restaure pas : ses mots restent ceux publiés par l'auteur.", 422);
   const item = await versionOf(id, file, key, side);
   const media = new Set<string>();
@@ -271,7 +305,10 @@ export async function restoreVersion(id: string, file: SiteFileName, key: string
   } else {
     const textKey = key as SiteTextKey;
     await writeSiteText(textKey, item.value);
-    to = { infos: "/site/coordonnees", accroche: "/site/accroche", offres: "/site/offres", avisMethode: "/site/avis" }[textKey as "infos"] ?? "/site";
+    to =
+      { infos: "/site/coordonnees", accroche: "/site/accroche", offres: "/site/offres", avisMethode: "/site/avis", pages: "/site/textes-pages", seo: "/site/referencement", menus: "/site/menus" }[
+        textKey as "infos"
+      ] ?? "/site";
   }
   const known = new Set((await prisma.siteMedia.findMany({ where: { sha12: { in: [...media] } }, select: { sha12: true } })).map((m) => m.sha12));
   return { file, key, label: item.label, to, created, missingMedia: [...media].filter((m) => !known.has(m)) };

@@ -125,6 +125,21 @@ describe("historique des publications", () => {
   });
 });
 
+describe("historique des documents facultatifs (lot 6)", () => {
+  it("textes des pages : changement champ par champ, restauration du document d'avant", async () => {
+    await writeSiteText("pages", { pages: { accueil: { services: { titre: "Ce que je fais" } } } });
+    const p1 = await publier();
+    await writeSiteText("pages", { pages: { accueil: { services: { titre: "Ce que je fais à {ville}" } } } });
+    const p2 = await publier();
+    const entree = (await publicationDetail(p2)).entries.find((e) => e.file === "pages")!;
+    expect(entree).toMatchObject({ kind: "modified", label: "Textes des pages" });
+    expect(entree.fields).toEqual([{ name: "Pages › Accueil › Services › Titre", before: "Ce que je fais", after: "Ce que je fais à {ville}" }]);
+    expect(await restoreVersion(p2, "pages", "pages", "before")).toMatchObject({ to: "/site/textes-pages" });
+    expect(await readSiteText("pages")).toEqual({ pages: { accueil: { services: { titre: "Ce que je fais" } } } });
+    void p1;
+  });
+});
+
 describe("routes de l'historique", () => {
   const ADMIN = "admin-site-historique@kouzia.test";
   const PASSWORD = "mot-de-passe-de-test";
