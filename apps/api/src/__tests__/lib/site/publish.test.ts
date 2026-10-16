@@ -152,6 +152,38 @@ describe("publication du site (Git Data)", () => {
     expect(fake.dispatches).toHaveLength(0);
   });
 
+  it("élément créé dans l'ERP puis publié : publishedAt renseigné (identifiant figé), brouillon intact", async () => {
+    const publiee = await prisma.siteFaq.create({
+      data: { page: "HOME", position: 99, status: "PUBLISHED", question: "Question créée dans l'ERP ?", answer: "Réponse créée dans l'ERP." },
+    });
+    const brouillon = await prisma.siteFaq.create({
+      data: { page: "HOME", position: 100, status: "DRAFT", question: "Question en brouillon ?", answer: "Pas encore sur le site." },
+    });
+    const p = await publishSite();
+    expect(p.status).toBe(SitePublicationStatus.DISPATCHED);
+    expect((await prisma.siteFaq.findUniqueOrThrow({ where: { id: publiee.id } })).publishedAt).toBeInstanceOf(Date);
+    expect((await prisma.siteFaq.findUniqueOrThrow({ where: { id: brouillon.id } })).publishedAt).toBeNull();
+  });
+
+  it("déploiement non déclenché : le commit est poussé, l'élément est quand même marqué publié", async () => {
+    fake.dispatchStatus = 500;
+    const q = await prisma.siteFaq.create({
+      data: { page: "HOME", position: 99, status: "PUBLISHED", question: "Question ajoutée ?", answer: "Réponse ajoutée." },
+    });
+    const p = await publishSite();
+    expect(p.status).toBe(SitePublicationStatus.FAILED);
+    expect(p.commitSha).toBeTruthy();
+    expect((await prisma.siteFaq.findUniqueOrThrow({ where: { id: q.id } })).publishedAt).toBeInstanceOf(Date);
+  });
+
+  it("dépôt déjà à jour (NOOP) : un élément « sur le site » sans date de publication est marqué publié", async () => {
+    const q = await prisma.siteFaq.findFirstOrThrow({ orderBy: { position: "asc" } });
+    await prisma.siteFaq.update({ where: { id: q.id }, data: { publishedAt: null } });
+    const p = await publishSite();
+    expect(p.status).toBe(SitePublicationStatus.NOOP);
+    expect((await prisma.siteFaq.findUniqueOrThrow({ where: { id: q.id } })).publishedAt).toBeInstanceOf(Date);
+  });
+
   it("un seul commit avec les seuls fichiers modifiés, puis dispatch avec le sha du commit", async () => {
     const q = await prisma.siteFaq.findFirstOrThrow({ orderBy: { position: "asc" } });
     await prisma.siteFaq.update({ where: { id: q.id }, data: { answer: "Réponse revue pour le test." } });
