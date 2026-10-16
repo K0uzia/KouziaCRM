@@ -20,6 +20,7 @@ import { secretMeta } from "@/lib/settings/secrets.js";
 import { httpsUrl, imagePath, SITE_FILES, siteText, slug } from "@/lib/site/contract.js";
 import { parseTech } from "@/lib/site/mapping.js";
 import { readSiteText, writeSiteText, isSiteTextKey } from "@/lib/site/texts.js";
+import { readSiteDefaults, textVariables } from "@/lib/site/seo-menus.js";
 import { buildSiteSnapshot } from "@/lib/site/snapshot.js";
 import { itemHash, pendingChanges, publicationState as itemPublicationState, textHash, type SiteCollection } from "@/lib/site/changes.js";
 import { previewPublication, publicationOut, publishSite, PublishError } from "@/lib/site/publish.js";
@@ -652,8 +653,26 @@ export const siteRoutes: FastifyPluginAsync = async (app) => {
         accroche: await readSiteText("accroche"),
         offres: await readSiteText("offres"),
         avisMethode: await readSiteText("avisMethode"),
+        seo: await readSiteText("seo"),
+        menus: await readSiteText("menus"),
         publication,
       };
+    }),
+  );
+
+  // Valeurs actuelles du site (contenu.schema.json, « defauts ») et valeurs des variables, pour les fiches
+  // Référencement et Menus. defaults null : le site en ligne ne les exporte pas encore.
+  app.get(
+    "/api/site/defauts",
+    admin(async (request) => {
+      const force = (request.query as { rafraichir?: string }).rafraichir === "1";
+      const variables = await textVariables();
+      try {
+        return { defaults: await readSiteDefaults(force), variables, error: null };
+      } catch (e) {
+        const message = e instanceof GithubError ? e.message : "Contrat du site illisible.";
+        return { defaults: null, variables, error: message };
+      }
     }),
   );
 

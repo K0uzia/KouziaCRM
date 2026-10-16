@@ -1,6 +1,8 @@
 import { SitePublicationStatus, SiteMediaKind, type SiteMedia } from "@prisma/client";
 import { prisma } from "@/lib/prisma.js";
 import { lastPublishedFiles } from "@/lib/site/changes.js";
+import { SITE_PAGE_IDS, SITE_PAGE_LABEL } from "@/lib/site/contract.js";
+import { readSiteText, writeSiteText } from "@/lib/site/texts.js";
 import {
   removeSiteMediaFiles,
   renderFromOriginal,
@@ -17,18 +19,19 @@ import {
  * suivante, même remplacée ou recadrée ; ainsi un retour en arrière avant de publier ne casse aucun lien.
  */
 
-export type MediaUsage = { label: string; to: string; field: "imagePath" | "imageMobilePath" | "logoPath" };
+export type MediaUsage = { label: string; to: string; field: "imagePath" | "imageMobilePath" | "logoPath" | "seoImage" };
 
 const MEDIA_IN_TEXT = /\/media\/([a-f0-9]{12})\.(?:webp|jpg)/g;
 const shaOf = (path: string | null) => SITE_MEDIA_PATH_RE.exec(path ?? "")?.[1] ?? null;
 /** Chemin publié d'une image, avec l'extension de son type. */
 export const libraryPath = (m: Pick<SiteMedia, "sha12" | "kind">) => siteMediaPublicPath(m.sha12, siteMediaExt(m.kind));
 
-/** Où chaque image est utilisée (réalisations et références, brouillons compris). */
+/** Où chaque image est utilisée (réalisations, références et référencement des pages, brouillons compris). */
 export async function mediaUsages(): Promise<Map<string, MediaUsage[]>> {
-  const [projects, references] = await Promise.all([
+  const [projects, references, seo] = await Promise.all([
     prisma.siteProject.findMany({ select: { id: true, name: true, imagePath: true, imageMobilePath: true } }),
     prisma.siteReference.findMany({ select: { id: true, name: true, logoPath: true } }),
+    readSiteText("seo"),
   ]);
   const usages = new Map<string, MediaUsage[]>();
   const add = (path: string | null, usage: MediaUsage) => {
@@ -40,6 +43,9 @@ export async function mediaUsages(): Promise<Map<string, MediaUsage[]>> {
     add(p.imageMobilePath, { label: `Capture de téléphone de « ${p.name} »`, to: `/site/realisations/${p.id}`, field: "imageMobilePath" });
   }
   for (const r of references) add(r.logoPath, { label: `Logo de « ${r.name} »`, to: `/site/references/${r.id}`, field: "logoPath" });
+  for (const id of SITE_PAGE_IDS) {
+    add(seo?.pages[id]?.image ?? null, { label: `Image de partage de la page « ${SITE_PAGE_LABEL[id]} »`, to: `/site/referencement/${id}`, field: "seoImage" });
+  }
   return usages;
 }
 
@@ -133,6 +139,12 @@ export async function recropLibraryMedia(id: string, focal: Focal): Promise<Site
     prisma.siteProject.updateMany({ where: { imageMobilePath: from }, data: { imageMobilePath: to } }),
     prisma.siteReference.updateMany({ where: { logoPath: from }, data: { logoPath: to } }),
   ]);
+  // Référencement : chaque page qui citait l'ancienne version passe à la nouvelle.
+  const seo = await readSiteText("seo");
+  if (seo && SITE_PAGE_IDS.some((id) => seo.pages[id]?.image === from)) {
+    const pages = Object.fromEntries(Object.entries(seo.pages).map(([id, p]) => [id, p?.image === from ? { ...p, image: to } : p]));
+    await writeSiteText("seo", { pages });
+  }
   if (!(await deletionBlocker(media))) {
     await prisma.siteMedia.delete({ where: { id: media.id } });
     await removeSiteMediaFiles(media);
@@ -156,6 +168,7 @@ const KIND_BY_FIELD: Record<MediaUsage["field"], SiteMediaKind> = {
   imagePath: SiteMediaKind.CAPTURE,
   imageMobilePath: SiteMediaKind.MOBILE,
   logoPath: SiteMediaKind.LOGO,
+  seoImage: SiteMediaKind.PARTAGE,
 };
 
 /**

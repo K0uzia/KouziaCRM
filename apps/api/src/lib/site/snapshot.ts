@@ -2,20 +2,28 @@ import { createHash } from "node:crypto";
 import { SiteAuthorizationScope, SiteItemStatus, SiteReferenceType } from "@prisma/client";
 import { prisma } from "@/lib/prisma.js";
 import {
+  contractOptionalFiles,
   SITE_FILES,
+  SITE_OPTIONAL_FILES,
+  SITE_PAGE_IDS,
+  SITE_PAGE_LABEL,
   SITE_SCHEMA_VERSION,
   serializeSiteFile,
+  validateOptionalSiteFiles,
   validateSiteFiles,
+  type SiteAnyFileName,
   type SiteFileName,
   type SiteIssue,
+  type SiteOptionalFileName,
 } from "@/lib/site/contract.js";
+import { defaultsFromContract, finalSeoIssues, textVariables } from "@/lib/site/seo-menus.js";
 import { faqOut, projectOut, referenceOut, reviewOut } from "@/lib/site/mapping.js";
 import { readSiteText } from "@/lib/site/texts.js";
 import { SITE_MEDIA_PATH_RE, type SiteMediaExt } from "@/lib/site/media.js";
 
 export type SiteSnapshot = {
-  /** Contenu des fichiers src/content/site/<nom>.json, prêt à écrire. */
-  files: Record<SiteFileName, string>;
+  /** Contenu des fichiers src/content/site/<nom>.json, prêt à écrire. Facultatifs : présents seulement s'ils partent. */
+  files: Record<SiteFileName, string> & Partial<Record<SiteOptionalFileName, string>>;
   /** Images de l'ERP citées (sha12) : à publier sous public/media/. */
   media: string[];
   /** Ce que montre chaque image citée (sha12), pour le récapitulatif : « capture de « Nom » », « logo de « Nom » ». */
@@ -35,9 +43,11 @@ const ordered = [{ position: "asc" as const }, { createdAt: "asc" as const }];
 /**
  * Instantané du contenu publié (éléments PUBLISHED seulement), validé par les règles de l'ERP et, si
  * fourni, par contenu.schema.json du dépôt. Les accords manquants bloquent la publication.
+ * Fichiers facultatifs (pages, seo, menus) : écrits si leur document existe et, contrat fourni, s'il les déclare ; sans
+ * contrat (état de l'espace Site), ils figurent dès que leur document existe.
  */
 export async function buildSiteSnapshot(contract?: unknown): Promise<SiteSnapshot> {
-  const [projects, reviews, references, faq, infos, accroche, offres, avisMethode] = await Promise.all([
+  const [projects, reviews, references, faq, infos, accroche, offres, avisMethode, pages, seo, menus] = await Promise.all([
     prisma.siteProject.findMany({ where: published, orderBy: ordered }),
     // Classement annoncé dans la méthode (D111-17) : du plus récent au plus ancien.
     // Écartés : jamais publiés, même marqués « Sur le site ».
@@ -48,6 +58,9 @@ export async function buildSiteSnapshot(contract?: unknown): Promise<SiteSnapsho
     readSiteText("accroche"),
     readSiteText("offres"),
     readSiteText("avisMethode"),
+    readSiteText("pages"),
+    readSiteText("seo"),
+    readSiteText("menus"),
   ]);
 
   const issues: SiteIssue[] = [];
@@ -83,6 +96,19 @@ export async function buildSiteSnapshot(contract?: unknown): Promise<SiteSnapsho
   if (!accroche || !offres) issues.push({ file: "textes", path: "(racine)", message: "Accroche ou offres non renseignées" });
   issues.push(...validateSiteFiles(values, contract));
 
+  const allowed: Set<SiteOptionalFileName> = contract === undefined ? new Set(SITE_OPTIONAL_FILES) : contractOptionalFiles(contract);
+  const optional: Partial<Record<SiteOptionalFileName, unknown>> = {};
+  if (pages && allowed.has("pages")) optional.pages = { schemaVersion: SITE_SCHEMA_VERSION, pages: pages.pages };
+  if (seo && allowed.has("seo")) optional.seo = { schemaVersion: SITE_SCHEMA_VERSION, pages: seo.pages };
+  if (menus && allowed.has("menus")) optional.menus = { schemaVersion: SITE_SCHEMA_VERSION, ...menus };
+  issues.push(...validateOptionalSiteFiles(optional, contract));
+  if (optional.seo && contract !== undefined) {
+    // Contrôles du build du site sur les valeurs finales (variables remplacées, valeurs actuelles comprises).
+    const [defaults, vars] = [defaultsFromContract(contract), await textVariables()];
+    if (!defaults) issues.push({ file: "seo", path: "(racine)", message: "Contrat du site sans valeurs actuelles (defauts) : impossible de vérifier les descriptions" });
+    else if (vars) issues.push(...finalSeoIssues(seo, defaults, vars));
+  }
+
   const projectSlugs = new Set(projects.map((p) => p.slug));
   for (const r of references) {
     if (r.productSlug && !projectSlugs.has(r.productSlug)) {
@@ -101,15 +127,22 @@ export async function buildSiteSnapshot(contract?: unknown): Promise<SiteSnapsho
     }
   }
 
-  const cited: [string | null, string, SiteFileName][] = [
-    ...projects.flatMap((p): [string | null, string, SiteFileName][] => [
+  const cited: [string | null, string, SiteAnyFileName][] = [
+    ...projects.flatMap((p): [string | null, string, SiteAnyFileName][] => [
       [p.imagePath, `capture de « ${p.name} »`, "realisations"],
       [p.imageMobilePath, `capture de téléphone de « ${p.name} »`, "realisations"],
     ]),
-    ...references.map((r): [string | null, string, SiteFileName] => [r.logoPath, `logo de « ${r.name} »`, "references"]),
+    ...references.map((r): [string | null, string, SiteAnyFileName] => [r.logoPath, `logo de « ${r.name} »`, "references"]),
+    ...(optional.seo && seo
+      ? SITE_PAGE_IDS.map((id): [string | null, string, SiteAnyFileName] => [
+          seo.pages[id]?.image ?? null,
+          `image de partage de la page « ${SITE_PAGE_LABEL[id]} »`,
+          "seo",
+        ])
+      : []),
   ];
   const mediaNames: Record<string, string> = {};
-  const mediaFile: Record<string, SiteFileName> = {};
+  const mediaFile: Record<string, SiteAnyFileName> = {};
   const mediaExt: Record<string, SiteMediaExt> = {};
   for (const [path, name, file] of cited) {
     const m = SITE_MEDIA_PATH_RE.exec(path ?? "");
@@ -132,9 +165,11 @@ export async function buildSiteSnapshot(contract?: unknown): Promise<SiteSnapsho
     }
   }
 
-  const files = Object.fromEntries(SITE_FILES.map((n) => [n, serializeSiteFile(values[n])])) as Record<SiteFileName, string>;
+  const files: SiteSnapshot["files"] = Object.fromEntries(SITE_FILES.map((n) => [n, serializeSiteFile(values[n])])) as Record<SiteFileName, string>;
+  for (const n of SITE_OPTIONAL_FILES) if (optional[n] !== undefined) files[n] = serializeSiteFile(optional[n]);
+  const names = [...SITE_FILES, ...SITE_OPTIONAL_FILES.filter((n) => files[n] !== undefined)];
   const digest = createHash("sha256")
-    .update(SITE_FILES.map((n) => `${n}\n${files[n]}`).join("\n") + media.join(","))
+    .update(names.map((n) => `${n}\n${files[n]}`).join("\n") + media.join(","))
     .digest("hex");
   return { files, media, mediaNames, mediaExt, digest, issues, warnings };
 }

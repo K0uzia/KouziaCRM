@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { SiteItemStatus, SitePublicationStatus, type SiteFaq, type SiteProject, type SiteReference, type SiteReview } from "@prisma/client";
 import { prisma } from "@/lib/prisma.js";
-import { SITE_FILES, type SiteFileName } from "@/lib/site/contract.js";
+import { SITE_FILES, SITE_OPTIONAL_FILES, type SiteFileName, type SiteOptionalFileName } from "@/lib/site/contract.js";
 import { faqOut, projectOut, referenceOut, reviewOut } from "@/lib/site/mapping.js";
 import type { SiteSnapshot } from "@/lib/site/snapshot.js";
 import { SITE_TEXT_SCHEMAS, type SiteTextKey } from "@/lib/site/texts.js";
@@ -68,6 +68,9 @@ const TEXT_LABEL: Record<SiteTextKey, { label: string; to: string }> = {
   accroche: { label: "Accroche de l'accueil", to: "/site/accroche" },
   offres: { label: "Offres et tarifs", to: "/site/offres" },
   avisMethode: { label: "Méthode des témoignages", to: "/site/avis" },
+  pages: { label: "Textes des pages", to: "/site/textes-pages" },
+  seo: { label: "Référencement des pages", to: "/site/referencement" },
+  menus: { label: "Menus", to: "/site/menus" },
 };
 
 const COLLECTION_FILE: Record<SiteCollection, SiteFileName> = {
@@ -177,6 +180,8 @@ export async function recordPublished(readAt: Date, snapshot: SiteSnapshot, publ
     if (data) writes.push(prisma.siteFaq.update({ where: { id: r.id }, data }));
   }
   for (const t of texts) {
+    // Document d'un fichier facultatif que le contrat du site ne permettait pas encore : rien n'est parti.
+    if ((SITE_OPTIONAL_FILES as readonly string[]).includes(t.key) && snapshot.files[t.key as SiteOptionalFileName] === undefined) continue;
     const h = textHash(t.valueJson);
     if (t.publishedHash !== h) writes.push(prisma.siteText.update({ where: { key: t.key }, data: { publishedHash: h } }));
   }

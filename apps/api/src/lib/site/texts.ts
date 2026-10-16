@@ -1,13 +1,16 @@
 import type { z } from "zod";
 import { prisma } from "@/lib/prisma.js";
-import { accrocheValue, avisMethodeValue, infosValue, offresValue } from "@/lib/site/contract.js";
+import { accrocheValue, avisMethodeValue, infosValue, menusValue, offresValue, pagesValue, seoValue } from "@/lib/site/contract.js";
 
-/** Documents uniques de l'espace Site (table SiteText) : coordonnées, accroche, offres, méthode des avis. */
+/** Documents uniques de l'espace Site (table SiteText) : coordonnées, accroche, offres, méthode des avis, textes des pages, référencement et menus. */
 export const SITE_TEXT_SCHEMAS = {
   infos: infosValue,
   accroche: accrocheValue,
   offres: offresValue,
   avisMethode: avisMethodeValue,
+  pages: pagesValue,
+  seo: seoValue,
+  menus: menusValue,
 } as const;
 
 export type SiteTextKey = keyof typeof SITE_TEXT_SCHEMAS;

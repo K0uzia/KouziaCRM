@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { Prisma, SitePublicationStatus, type SitePublication } from "@prisma/client";
 import { prisma } from "@/lib/prisma.js";
-import { SITE_FILES, type SiteIssue } from "@/lib/site/contract.js";
+import { SITE_FILES, SITE_OPTIONAL_FILES, type SiteIssue } from "@/lib/site/contract.js";
 import { buildSiteSnapshot, type SiteSnapshot } from "@/lib/site/snapshot.js";
 import { readSiteMedia } from "@/lib/site/media.js";
 import { recordPublished } from "@/lib/site/changes.js";
@@ -66,6 +66,10 @@ async function desiredFiles(snapshot: SiteSnapshot): Promise<Desired> {
   const desired: Desired = new Map();
   const put = (path: string, content: Buffer, label?: string) => desired.set(path, { content, sha: gitBlobSha(content), label });
   for (const name of SITE_FILES) put(`${SITE_CONTENT_DIR}/${name}.json`, Buffer.from(snapshot.files[name], "utf8"));
+  for (const name of SITE_OPTIONAL_FILES) {
+    const text = snapshot.files[name];
+    if (text !== undefined) put(`${SITE_CONTENT_DIR}/${name}.json`, Buffer.from(text, "utf8"));
+  }
   for (const sha12 of snapshot.media) {
     const ext = snapshot.mediaExt[sha12] ?? "webp";
     const x1 = await readSiteMedia(sha12, false, ext);
