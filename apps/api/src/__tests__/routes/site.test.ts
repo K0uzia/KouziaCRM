@@ -127,7 +127,7 @@ describe("espace Site : réalisations", () => {
       imageAlt: "Atelier : page d'accueil, meubles en chêne",
     });
     expect((await call("PUT", url, project)).json()).toMatchObject({ imageAlt: null });
-    for (const imageAlt of ["   ", "x".repeat(201), "Atelier — accueil"]) {
+    for (const imageAlt of ["   ", "x".repeat(201), "Atelier \u2014 accueil"]) {
       expect((await call("PUT", url, { ...project, imageAlt })).statusCode, JSON.stringify(imageAlt)).toBe(400);
     }
 
