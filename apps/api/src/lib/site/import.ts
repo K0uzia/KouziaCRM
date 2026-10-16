@@ -1,7 +1,46 @@
 import { SiteItemStatus } from "@prisma/client";
 import { prisma } from "@/lib/prisma.js";
-import { SITE_FILES, siteFileSchemas, validateSiteFiles, type SiteFileName } from "@/lib/site/contract.js";
+import type { z } from "zod";
+import { SITE_FILES, siteFileSchemas, validateSiteFiles, type realisationValue, type referenceValue, type SiteFileName } from "@/lib/site/contract.js";
 import { FAQ_PAGE_IN, PROJECT_KIND_IN, REFERENCE_TYPE_IN } from "@/lib/site/mapping.js";
+
+/** Champs de l'ERP d'une réalisation telle que publiée (import, restauration d'une version). */
+export function projectFieldsFromSite(r: z.output<typeof realisationValue>) {
+  return {
+    slug: r.id,
+    name: r.nom,
+    subtitle: r.sousTitre ?? null,
+    mention: r.mention ?? null,
+    kind: PROJECT_KIND_IN[r.type],
+    text: r.texte,
+    role: r.role ?? null,
+    techJson: r.techno?.length ? JSON.stringify(r.techno) : null,
+    url: r.url,
+    linkLabel: r.lien,
+    imagePath: r.image,
+    imageMobilePath: r.imageMobile ?? null,
+    imageAlt: r.imageAlt ?? null,
+  };
+}
+
+/** Champs publics de l'ERP d'une référence telle que publiée (sans autorisation ni contact : jamais dans le dépôt). */
+export function referenceFieldsFromSite(r: z.output<typeof referenceValue>) {
+  return {
+    slug: r.id,
+    type: REFERENCE_TYPE_IN[r.type],
+    name: r.nom,
+    logoPath: r.logo ?? null,
+    logoAlt: r.logoAlt ?? null,
+    url: r.url ?? null,
+    productSlug: (r.type === "UTILISATEUR" ? r.produit : r.realisation) ?? null,
+    // Sans emplacements (fichier antérieur au mur de logos) : bandeau de l'accueil, comme le défaut.
+    onHome: r.emplacements ? r.emplacements.includes("accueil") : true,
+    onProjects: r.emplacements?.includes("realisations") ?? false,
+    testimonialText: r.temoignage?.texte ?? null,
+    testimonialAuthor: r.temoignage?.auteur ?? null,
+    testimonialRole: r.temoignage?.fonction ?? null,
+  };
+}
 
 export class SiteImportError extends Error {
   constructor(
@@ -65,23 +104,7 @@ export async function importSiteFiles(raw: Record<SiteFileName, string>, now = n
     prisma.siteText.create({ data: { key: "offres", valueJson: JSON.stringify(textes.offres) } }),
     ...realisations.realisations.map((r, position) =>
       prisma.siteProject.create({
-        data: {
-          ...done,
-          position,
-          slug: r.id,
-          name: r.nom,
-          subtitle: r.sousTitre ?? null,
-          mention: r.mention ?? null,
-          kind: PROJECT_KIND_IN[r.type],
-          text: r.texte,
-          role: r.role ?? null,
-          techJson: r.techno?.length ? JSON.stringify(r.techno) : null,
-          url: r.url,
-          linkLabel: r.lien,
-          imagePath: r.image,
-          imageMobilePath: r.imageMobile ?? null,
-          imageAlt: r.imageAlt ?? null,
-        },
+        data: { ...done, position, ...projectFieldsFromSite(r) },
       }),
     ),
     ...faq.questions.map((q, position) =>
@@ -96,23 +119,7 @@ export async function importSiteFiles(raw: Record<SiteFileName, string>, now = n
     ),
     ...references.references.map((r, position) =>
       prisma.siteReference.create({
-        data: {
-          ...done,
-          position,
-          slug: r.id,
-          type: REFERENCE_TYPE_IN[r.type],
-          name: r.nom,
-          logoPath: r.logo ?? null,
-          logoAlt: r.logoAlt ?? null,
-          url: r.url ?? null,
-          productSlug: (r.type === "UTILISATEUR" ? r.produit : r.realisation) ?? null,
-          // Sans emplacements (fichier antérieur au mur de logos) : bandeau de l'accueil, comme le défaut.
-          onHome: r.emplacements ? r.emplacements.includes("accueil") : true,
-          onProjects: r.emplacements?.includes("realisations") ?? false,
-          testimonialText: r.temoignage?.texte ?? null,
-          testimonialAuthor: r.temoignage?.auteur ?? null,
-          testimonialRole: r.temoignage?.fonction ?? null,
-        },
+        data: { ...done, position, ...referenceFieldsFromSite(r) },
       }),
     ),
   ]);
