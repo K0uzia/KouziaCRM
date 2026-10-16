@@ -5,7 +5,8 @@ Source : logique formelle, conventions clean code et validation de CapsuleOS, g�
 ## Décider
 
 - Une seule action possible et sans risque : la faire sans demander.
-- Action irréversible ou visible de l'extérieur (commit, push, déploiement, envoi, suppression, achat de domaine, DNS) : validation humaine explicite à chaque fois.
+- Action irréversible ou visible de l'extérieur (push, déploiement, envoi, suppression, achat de domaine, DNS) : validation humaine explicite à chaque fois.
+- Commit et fusion en local (branche de travail, branche `integration`) : autorisés sans redemander une fois tout vérifié (tests, build, contrôles du skill `web-audit`). Push vers GitHub : seulement par la session superviseur, après vérification locale et accord d'Alexandre (décision du 16/10/2026).
 - Avant d'agir sur l'existant : observer (fichiers, rendu, mesures), lister les écarts réels, ne corriger que ceux-là. Ne jamais deviner une mesure qu'on peut relever.
 - Une hypothèse est fausse si le contrôle qui la teste échoue. On corrige le code, jamais le contrôle pour qu'il passe.
 
