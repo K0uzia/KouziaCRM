@@ -134,7 +134,7 @@ describe("import puis instantané", () => {
     expect(validateSiteFiles(files({ ...avecLogo, logoAlt: "" }), nouveau).length).toBeGreaterThan(0);
     expect(validateSiteFiles(files({ ...avecLogo, logoAlt: "x".repeat(121) }), nouveau).length).toBeGreaterThan(0);
     expect(validateSiteFiles(files({ ...avecLogo, logoAlt: "" })).length).toBeGreaterThan(0);
-    for (const bad of ["x".repeat(201), "  ", "Accueil — La Capsule"]) {
+    for (const bad of ["x".repeat(201), "  ", "Accueil \u2014 La Capsule"]) {
       const f = parsed();
       f.realisations.realisations[0].imageAlt = bad;
       expect(validateSiteFiles(f, nouveau).length, JSON.stringify(bad)).toBeGreaterThan(0);
