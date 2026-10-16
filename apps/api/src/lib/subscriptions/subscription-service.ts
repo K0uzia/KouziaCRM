@@ -47,6 +47,11 @@ export type CreateSubscriptionInput = {
   firstPeriodNow?: boolean;
   /** STRIPE : prélèvement attendu, le cron ERP ne facture pas (les factures viendront de Stripe). */
   collectionMethod?: SubscriptionCollectionMethod;
+  /**
+   * 1re échéance différée (ex. une année offerte) : date de la 1re facture ou du 1er prélèvement, après le
+   * début du contrat. Stripe la reprend en fin d'essai (trial_end = nextInvoiceAt).
+   */
+  firstInvoiceAt?: Date | null;
 };
 
 export class SubscriptionError extends Error {}
@@ -64,6 +69,20 @@ function validateAmount(amountCents: number): void {
   if (!Number.isInteger(amountCents) || amountCents <= 0) {
     throw new SubscriptionError("amountCents doit être un entier positif");
   }
+}
+
+/** Date à minuit (heure locale du serveur), comme les échéances calculées. */
+function startOfDay(d: Date): Date {
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate(), 0, 0, 0, 0);
+}
+
+/** 1re échéance différée : au plus tôt le jour du début, jamais dans le passé. */
+function validateFirstInvoiceAt(firstInvoiceAt: Date, startDate: Date): Date {
+  if (Number.isNaN(firstInvoiceAt.getTime())) throw new SubscriptionError("Date de 1re facture invalide");
+  const day = startOfDay(firstInvoiceAt);
+  if (day < startOfDay(startDate)) throw new SubscriptionError("La 1re facture ne peut pas précéder le début de l'abonnement");
+  if (day < startOfDay(new Date())) throw new SubscriptionError("La 1re facture ne peut pas être dans le passé");
+  return day;
 }
 
 /** Prochaine date d'échéance >= today, au billingDay du mois. */
@@ -107,21 +126,14 @@ export async function createSubscription(
   const service = await db.service.findUnique({ where: { id: data.serviceId } });
   if (!service) throw new SubscriptionError("Service introuvable");
 
-  // Un seul abonnement actif par client : on bloque la création doublon.
-  const existingActive = await db.subscription.findFirst({
-    where: { clientId: data.clientId, status: SubscriptionStatus.ACTIVE },
-    select: { id: true, label: true },
-  });
-  if (existingActive) {
-    throw new SubscriptionError(
-      "Ce client a déjà un abonnement actif. Modifiez-le ou clôturez-le d'abord.",
-    );
-  }
-
+  // Plusieurs abonnements actifs par client (ex. maintenance mensuelle et e-mails annuels) : chacun a son
+  // début, sa périodicité et son encaissement, et est facturé séparément.
   const startDate = data.startDate ?? new Date();
   const billingInterval = normalizeInterval(data.billingInterval);
   let nextInvoiceAt = computeNextInvoiceAt(data.billingDay, startDate);
-  if (data.firstPeriodNow) {
+  if (data.firstInvoiceAt) {
+    nextInvoiceAt = validateFirstInvoiceAt(data.firstInvoiceAt, startDate);
+  } else if (data.firstPeriodNow) {
     nextInvoiceAt = startDate;
   } else if (data.skipCurrentPeriod) {
     // Période suivante au billingDay (1ʳᵉ échéance déjà dans le devis/facture)
@@ -183,7 +195,7 @@ export async function getSubscription(id: string) {
 export async function updateSubscription(
   id: string,
   patch: Partial<
-    Pick<CreateSubscriptionInput, "label" | "amountCents" | "billingDay" | "endDate" | "billingInterval">
+    Pick<CreateSubscriptionInput, "label" | "amountCents" | "billingDay" | "endDate" | "billingInterval" | "firstInvoiceAt">
   >,
   db: Db = prisma,
 ) {
@@ -206,11 +218,21 @@ export async function updateSubscription(
     );
   }
 
-  // Si billingDay change et qu'aucune facture n'a encore été émise pour le cycle courant,
-  // on recalcul nextInvoiceAt.
+  // Nouveau jour de facturation : même mois que l'échéance prévue (une 1re échéance différée reste
+  // différée), au plus tôt aujourd'hui.
   let nextInvoiceAt: Date | undefined;
   if (patch.billingDay !== undefined && patch.billingDay !== current.billingDay) {
-    nextInvoiceAt = computeNextInvoiceAt(patch.billingDay, new Date());
+    const planned = current.nextInvoiceAt;
+    const sameMonth = new Date(planned.getFullYear(), planned.getMonth(), patch.billingDay, 0, 0, 0, 0);
+    nextInvoiceAt = sameMonth < startOfDay(new Date()) ? computeNextInvoiceAt(patch.billingDay, new Date()) : sameMonth;
+  }
+  // Date de la 1re facture : modifiable tant que l'abonnement n'a rien facturé ni de prélèvement Stripe relié.
+  if (patch.firstInvoiceAt) {
+    const invoiced = current.lastInvoiceId !== null || (await db.invoice.count({ where: { subscriptionId: id } })) > 0;
+    if (invoiced || current.stripeSubscriptionId) {
+      throw new SubscriptionError("La date de 1re facture ne se change plus : l'abonnement a déjà été facturé ou prélevé.");
+    }
+    nextInvoiceAt = validateFirstInvoiceAt(patch.firstInvoiceAt, current.startDate);
   }
 
   return db.subscription.update({
@@ -512,6 +534,8 @@ export async function createSubscriptionRevision(opts: {
           billingDay,
           billingInterval,
           serviceId: sub.serviceId,
+          // Acceptation : met à jour cet abonnement-ci (un client peut en avoir plusieurs).
+          revisesSubscriptionId: sub.id,
         },
       },
     },

@@ -88,6 +88,8 @@ async function subscription(clientId: string, data: Record<string, unknown> = {}
       billingInterval: "YEAR",
       startDate: new Date(2026, 0, 1),
       nextInvoiceAt: new Date(2027, 0, 1),
+      // Déjà facturé une fois : la reconduction (et sa date limite) concerne les échéances suivantes.
+      lastInvoiceId: "facture-de-la-1re-annee",
       ...data,
     },
   });

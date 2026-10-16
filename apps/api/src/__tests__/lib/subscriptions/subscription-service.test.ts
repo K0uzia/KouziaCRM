@@ -6,7 +6,9 @@ import {
   computeNextInvoiceAt,
   generateDueSubscriptionInvoices,
   SubscriptionError,
+  updateSubscription,
 } from "@/lib/subscriptions/subscription-service.js";
+import { prisma } from "@/lib/prisma.js";
 import { resetDb } from "../../helpers/db.js";
 import {
   seedCompanySettings,
@@ -197,28 +199,53 @@ describe("computeMrrCents", () => {
     expect(snap.mrrCents).toBe(0);
   });
 
-  it("rejette un second abonnement actif pour le même client", async () => {
+  it("plusieurs abonnements actifs pour le même client, chacun avec son début, sa périodicité et son encaissement", async () => {
     const c = await createClient();
     const s1 = await createService();
     const s2 = await createService();
-    await createSubscription({
+    const maintenance = await createSubscription({
       clientId: c.id,
       serviceId: s1.id,
-      label: "A",
+      label: "Maintenance mensuelle",
       amountCents: 30000,
       billingDay: 1,
       startDate: new Date(2026, 0, 1),
     });
-    await expect(
-      createSubscription({
-        clientId: c.id,
-        serviceId: s2.id,
-        label: "B",
-        amountCents: 50000,
-        billingDay: 15,
-        startDate: new Date(2026, 0, 1),
-      }),
-    ).rejects.toThrow(SubscriptionError);
+    const inAYear = new Date();
+    inAYear.setFullYear(inAYear.getFullYear() + 1);
+    const mails = await createSubscription({
+      clientId: c.id,
+      serviceId: s2.id,
+      label: "Adresses e-mail",
+      amountCents: 6000,
+      billingDay: 15,
+      billingInterval: "YEAR",
+      startDate: new Date(),
+      firstInvoiceAt: inAYear,
+      collectionMethod: "STRIPE",
+    });
+    expect(await prisma.subscription.count({ where: { clientId: c.id, status: "ACTIVE" } })).toBe(2);
+    expect(maintenance.billingInterval).toBe("MONTH");
+    expect([mails.billingInterval, mails.collectionMethod]).toEqual(["YEAR", "STRIPE"]);
+    // 1re facture différée d'un an (ex. une année offerte), à minuit.
+    expect(mails.nextInvoiceAt.getFullYear()).toBe(inAYear.getFullYear());
+    expect([mails.nextInvoiceAt.getMonth(), mails.nextInvoiceAt.getDate(), mails.nextInvoiceAt.getHours()]).toEqual([inAYear.getMonth(), inAYear.getDate(), 0]);
+  });
+
+  it("1re facture différée : jamais avant le début ni dans le passé ; modifiable tant que rien n'est facturé ; garde son mois au changement de jour", async () => {
+    const c = await createClient();
+    const s = await createService();
+    const base = { clientId: c.id, serviceId: s.id, label: "Hébergement", amountCents: 9000, billingDay: 10, billingInterval: "YEAR" as const };
+    await expect(createSubscription({ ...base, startDate: new Date(2030, 5, 1), firstInvoiceAt: new Date(2030, 4, 1) })).rejects.toThrow(/précéder le début/);
+    await expect(createSubscription({ ...base, startDate: new Date(2020, 0, 1), firstInvoiceAt: new Date(2020, 5, 1) })).rejects.toThrow(/passé/);
+    const sub = await createSubscription({ ...base, startDate: new Date(2030, 0, 1), firstInvoiceAt: new Date(2031, 0, 10) });
+    const moved = await updateSubscription(sub.id, { firstInvoiceAt: new Date(2031, 2, 10) });
+    expect([moved.nextInvoiceAt.getFullYear(), moved.nextInvoiceAt.getMonth()]).toEqual([2031, 2]);
+    // Nouveau jour de facturation : la 1re échéance différée reste en mars 2031.
+    const day = await updateSubscription(sub.id, { billingDay: 20 });
+    expect([day.nextInvoiceAt.getFullYear(), day.nextInvoiceAt.getMonth(), day.nextInvoiceAt.getDate()]).toEqual([2031, 2, 20]);
+    await prisma.subscription.update({ where: { id: sub.id }, data: { lastInvoiceId: "facture-emise" } });
+    await expect(updateSubscription(sub.id, { firstInvoiceAt: new Date(2031, 5, 10) })).rejects.toThrow(SubscriptionError);
   });
 });
 

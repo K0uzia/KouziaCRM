@@ -20,6 +20,13 @@ const createOptionsSchema = z.object({
   sendPortalAccess: z.boolean().optional().default(false),
 });
 import { replyEntrepriseLookup } from "@/lib/company/entreprise-route.js";
+import {
+  ClientRenewalError,
+  createClientRenewal,
+  deleteClientRenewal,
+  listClientRenewals,
+  updateClientRenewal,
+} from "@/lib/clients/renewals.js";
 
 export const clientsRoutes: FastifyPluginAsync = async (app) => {
   app.get("/api/clients", async (request, reply) => {
@@ -55,6 +62,61 @@ export const clientsRoutes: FastifyPluginAsync = async (app) => {
         return reply.code(400).send({ error: e.message });
       }
       throw e;
+    }
+  });
+
+  // Renouvellements chez un tiers (hébergement et domaine en gestion autonome) : rappel à J-30, rien de facturé.
+  const renewalSchema = z.object({
+    label: z.string().trim().min(1).max(200),
+    provider: z.string().trim().max(120).optional().nullable(),
+    renewsAt: z.string().min(1),
+    interval: z.enum(["MONTH", "YEAR"]).default("YEAR"),
+    notifyClient: z.boolean().default(false),
+  });
+  const renewalError = (reply: { code: (n: number) => { send: (b: unknown) => unknown } }, err: unknown) => {
+    if (err instanceof ClientRenewalError) return reply.code(err.message.includes("introuvable") ? 404 : 400).send({ error: err.message });
+    throw err;
+  };
+
+  app.get<{ Params: { id: string } }>("/api/clients/:id/renewals", async (request, reply) => {
+    await requireAuth(request, reply);
+    if (reply.sent) return;
+    return listClientRenewals(request.params.id);
+  });
+
+  app.post<{ Params: { id: string } }>("/api/clients/:id/renewals", async (request, reply) => {
+    await requireAuth(request, reply);
+    if (reply.sent) return;
+    const parsed = renewalSchema.safeParse(request.body);
+    if (!parsed.success) return reply.code(400).send({ error: parsed.error.flatten() });
+    try {
+      const row = await createClientRenewal(request.params.id, { ...parsed.data, renewsAt: new Date(parsed.data.renewsAt) });
+      return reply.code(201).send(row);
+    } catch (err) {
+      return renewalError(reply, err);
+    }
+  });
+
+  app.put<{ Params: { id: string; renewalId: string } }>("/api/clients/:id/renewals/:renewalId", async (request, reply) => {
+    await requireAuth(request, reply);
+    if (reply.sent) return;
+    const parsed = renewalSchema.safeParse(request.body);
+    if (!parsed.success) return reply.code(400).send({ error: parsed.error.flatten() });
+    try {
+      return await updateClientRenewal(request.params.id, request.params.renewalId, { ...parsed.data, renewsAt: new Date(parsed.data.renewsAt) });
+    } catch (err) {
+      return renewalError(reply, err);
+    }
+  });
+
+  app.delete<{ Params: { id: string; renewalId: string } }>("/api/clients/:id/renewals/:renewalId", async (request, reply) => {
+    await requireAuth(request, reply);
+    if (reply.sent) return;
+    try {
+      await deleteClientRenewal(request.params.id, request.params.renewalId);
+      return reply.code(204).send();
+    } catch (err) {
+      return renewalError(reply, err);
     }
   });
 
@@ -268,6 +330,7 @@ export const clientsRoutes: FastifyPluginAsync = async (app) => {
             include: { service: { select: { name: true } } },
             orderBy: { createdAt: "asc" },
           },
+          renewals: { orderBy: { renewsAt: "asc" } },
         },
       });
       if (!client) return reply.code(404).send({ error: "Introuvable" });
@@ -312,6 +375,13 @@ export const clientsRoutes: FastifyPluginAsync = async (app) => {
           startDate: s.startDate.toISOString(),
           endDate: s.endDate?.toISOString() ?? null,
           serviceName: s.service.name,
+        })),
+        renewals: client.renewals.map((r) => ({
+          label: r.label,
+          provider: r.provider,
+          renewsAt: r.renewsAt.toISOString(),
+          interval: r.interval,
+          notifyClient: r.notifyClient,
         })),
         emailThreads: client.emailThreads.map((t) => ({
           subject: t.subject,

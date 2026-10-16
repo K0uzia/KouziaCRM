@@ -89,6 +89,7 @@ describe("buildInvoicePdfPayload charte dynamique", () => {
             billingInterval: null,
             serviceId: null,
             subscriptionId: null,
+            revisesSubscriptionId: null,
           },
         ],
         milestones: [

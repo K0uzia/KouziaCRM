@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent } from "react";
-import { Navigate } from "react-router-dom";
+import { Navigate, useSearchParams } from "react-router-dom";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import {
   faPlus,
@@ -47,6 +47,8 @@ type Subscription = {
   endDate: string | null;
   status: SubscriptionStatus;
   nextInvoiceAt: string;
+  /** Dernière facture émise par l'abonnement : null tant que la 1re échéance n'est pas passée. */
+  lastInvoiceId?: string | null;
   collectionMethod?: string | null;
   stripeSubscriptionId?: string | null;
   /** État brut Stripe (past_due, unpaid…) et résiliation programmée dans Stripe. */
@@ -93,6 +95,21 @@ const emptyForm = {
   billingDay: "1",
   billingInterval: "MONTH" as BillingInterval,
   startDate: new Date().toISOString().slice(0, 10),
+  /** Vide : 1re facture au prochain jour de prélèvement. Rempli : 1re échéance différée (ex. une année offerte). */
+  firstInvoiceAt: "",
+  collectionMethod: "MANUAL_TRANSFER" as "MANUAL_TRANSFER" | "STRIPE",
+};
+
+/** Avenant envoyé avant les abonnements multiples, accepté, à rattacher à l'un des abonnements du client. */
+type RevisionToAttach = {
+  lineId: string;
+  quoteId: string;
+  quoteNumber: string | null;
+  displayName: string;
+  description: string;
+  amountCents: number;
+  billingInterval: BillingInterval;
+  subscriptions: Array<{ id: string; label: string; amountCents: number; billingInterval: BillingInterval }>;
 };
 
 /** Montant proposé (en euros, saisie) pour une offre et une périodicité. */
@@ -268,6 +285,49 @@ export function SubscriptionsPage() {
   }
 
   // Arrivée par « Créer > Nouvel abonnement » : on attend les offres pour préremplir le formulaire.
+  const [params, setParams] = useSearchParams();
+  const attachLine = params.get("rattacher");
+  const [toAttach, setToAttach] = useState<RevisionToAttach | null>(null);
+  const [attachTarget, setAttachTarget] = useState("");
+  const [attachBusy, setAttachBusy] = useState(false);
+  useEffect(() => {
+    if (!attachLine) return;
+    let cancelled = false;
+    api<RevisionToAttach[]>("/api/subscriptions/revisions-to-attach")
+      .then((list) => {
+        if (cancelled) return;
+        const found = list.find((x) => x.lineId === attachLine) ?? null;
+        if (!found) toast.info("Cet avenant est déjà rattaché.");
+        setToAttach(found);
+        setAttachTarget(found?.subscriptions[0]?.id ?? "");
+      })
+      .catch((e) => toast.error(e instanceof Error ? e.message : "Avenants indisponibles"));
+    return () => {
+      cancelled = true;
+    };
+  }, [attachLine]);
+  function closeAttach() {
+    setToAttach(null);
+    const next = new URLSearchParams(params);
+    next.delete("rattacher");
+    setParams(next, { replace: true });
+  }
+  async function confirmAttach(e: FormEvent) {
+    e.preventDefault();
+    if (!toAttach || !attachTarget) return;
+    setAttachBusy(true);
+    try {
+      await api(`/api/subscriptions/${attachTarget}/attach-line`, { method: "POST", body: JSON.stringify({ lineId: toAttach.lineId }) });
+      toast.success("Avenant rattaché : l'abonnement est mis à jour");
+      closeAttach();
+      await load();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Rattachement impossible");
+    } finally {
+      setAttachBusy(false);
+    }
+  }
+
   const [createRequested, setCreateRequested] = useState(false);
   useCreateParam(() => setCreateRequested(true));
   useEffect(() => {
@@ -299,9 +359,15 @@ export function SubscriptionsPage() {
       billingDay: String(s.billingDay),
       billingInterval: normalizeInterval(s.billingInterval),
       startDate: s.startDate.slice(0, 10),
+      firstInvoiceAt: s.nextInvoiceAt.slice(0, 10),
+      collectionMethod: s.collectionMethod === "STRIPE" ? "STRIPE" : "MANUAL_TRANSFER",
     });
     setOpen(true);
   }
+
+  /** Date de 1re facture encore modifiable : rien de facturé ni de prélèvement Stripe relié. */
+  const editing = rows.find((r) => r.id === editingId) ?? null;
+  const firstInvoiceEditable = !editing || (!editing.lastInvoiceId && !editing.stripeSubscriptionId);
 
   const revising = rows.find((r) => r.id === reviseId) ?? null;
 
@@ -364,13 +430,18 @@ export function SubscriptionsPage() {
         billingDay: Number(form.billingDay),
         billingInterval: form.billingInterval,
         startDate: form.startDate,
+        firstInvoiceAt: form.firstInvoiceAt || null,
+        collectionMethod: form.collectionMethod,
       };
       if (editingId) {
+        const firstInvoiceChanged =
+          firstInvoiceEditable && form.firstInvoiceAt && editing && form.firstInvoiceAt !== editing.nextInvoiceAt.slice(0, 10);
         await api(`/api/subscriptions/${editingId}`, {
           method: "PATCH",
           body: JSON.stringify({
             label: payload.label,
             billingDay: payload.billingDay,
+            ...(firstInvoiceChanged ? { firstInvoiceAt: form.firstInvoiceAt } : {}),
           }),
         });
         toast.success("Abonnement modifié");
@@ -752,6 +823,35 @@ export function SubscriptionsPage() {
         onClose={() => setEndTarget(null)}
       />
 
+      <Modal open={toAttach !== null} onClose={closeAttach} title={`Rattacher l'avenant ${toAttach?.quoteNumber ?? ""}`}>
+        {toAttach ? (
+          <form onSubmit={confirmAttach} className="space-y-4">
+            <p className="text-sm text-[var(--muted)]">
+              {toAttach.displayName} a accepté « {toAttach.description} » ({formatEUR(toAttach.amountCents)}
+              {periodSuffix(toAttach.billingInterval)}). Ce devis date d'avant les abonnements multiples : choisissez l'abonnement qu'il révise.
+            </p>
+            <Field label="Abonnement révisé">
+              <Select value={attachTarget} onChange={(e) => setAttachTarget(e.target.value)}>
+                {toAttach.subscriptions.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.label} : {formatEUR(s.amountCents)}
+                    {periodSuffix(s.billingInterval)}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+            <ModalActions>
+              <Button type="button" variant="secondary" onClick={closeAttach}>
+                Annuler
+              </Button>
+              <Button type="submit" disabled={attachBusy || !attachTarget}>
+                {attachBusy ? "…" : "Rattacher"}
+              </Button>
+            </ModalActions>
+          </form>
+        ) : null}
+      </Modal>
+
       <Modal
         open={open}
         onClose={() => setOpen(false)}
@@ -884,13 +984,37 @@ export function SubscriptionsPage() {
                 disabled={!!editingId}
               />
             </Field>
+            {firstInvoiceEditable ? (
+              <Field
+                label="1re facture (facultatif)"
+                hint="Vide : au prochain jour de prélèvement. Pour offrir une période (ex. un an), la date de la 1re facture ; le client est prévenu 30 jours avant."
+              >
+                <Input
+                  type="date"
+                  min={form.startDate}
+                  value={form.firstInvoiceAt}
+                  onChange={(e) => setForm({ ...form, firstInvoiceAt: e.target.value })}
+                />
+              </Field>
+            ) : null}
+            {moduleStripeEnabled && !editingId ? (
+              <Field label="Encaissement">
+                <Select
+                  value={form.collectionMethod}
+                  onChange={(e) => setForm({ ...form, collectionMethod: e.target.value === "STRIPE" ? "STRIPE" : "MANUAL_TRANSFER" })}
+                >
+                  <option value="MANUAL_TRANSFER">Virement (facture de l'ERP)</option>
+                  <option value="STRIPE">Prélèvement Stripe (carte ou SEPA)</option>
+                </Select>
+              </Field>
+            ) : null}
           </div>
           <p className="text-xs text-[var(--muted)]">
             {editingId
               ? "Édition administrative (libellé, jour de prélèvement). Pour changer le montant ou la périodicité, utilisez « Réviser (avenant) » dans le contrat : il émet un devis d'avenant au client et met à jour l'abonnement à l'acceptation."
               : form.billingInterval === "YEAR"
-                ? "Une facture sera émise automatiquement chaque année à cette date (numéro légal alloué, snapshot client figé). Le client reçoit un rappel 30 jours avant chaque renouvellement. Si SMTP est configuré, le PDF lui est envoyé."
-                : "Une facture sera émise automatiquement chaque mois à cette date (numéro légal alloué, snapshot client figé). Si SMTP est configuré, le PDF sera envoyé au client."}
+                ? `Une facture sera émise automatiquement chaque année (numéro légal alloué, snapshot client figé). Avant chaque reconduction, le client reçoit l'information prévue par la loi, avant la date limite pour la refuser.${form.collectionMethod === "STRIPE" ? " Prélèvement Stripe : le client reçoit le lien pour le mettre en place." : ""}`
+                : `Une facture sera émise automatiquement chaque mois à cette date (numéro légal alloué, snapshot client figé). Si SMTP est configuré, le PDF sera envoyé au client.${form.collectionMethod === "STRIPE" ? " Prélèvement Stripe : le client reçoit le lien pour le mettre en place." : ""}`}
           </p>
           <ModalActions>
             <Button type="button" variant="secondary" onClick={() => setOpen(false)}>

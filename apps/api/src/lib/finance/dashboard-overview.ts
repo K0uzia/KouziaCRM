@@ -9,6 +9,8 @@ import { prisma } from "@/lib/prisma.js";
 import { listPendingReminders } from "@/lib/reminders.js";
 import { computeMrrCents } from "@/lib/subscriptions/subscription-service.js";
 import { listPendingStarts } from "@/lib/quotes/withdrawal-pending.js";
+import { listDueClientRenewals } from "@/lib/clients/renewals.js";
+import { listRevisionsToAttach } from "@/lib/subscriptions/activate-from-document.js";
 
 /** Temps maximal d'un bloc secondaire : au-delà, le tableau de bord part sans lui (il ne l'attend jamais). */
 const BLOC_BUDGET_MS = 4000;
@@ -62,7 +64,7 @@ async function latestThreads(take: number) {
  */
 export async function getDashboardOverview(scope: CashflowScope) {
   const indisponibles: string[] = [];
-  const [snapshot, reminders, mrr, obligations, threads, mailSync, ownerPay, pendingStarts] = await Promise.all([
+  const [snapshot, reminders, mrr, obligations, threads, mailSync, ownerPay, pendingStarts, renewals, revisionsToAttach] = await Promise.all([
     getDashboardSnapshot(scope),
     optional("relances", listPendingReminders, indisponibles),
     optional("abonnements", () => computeMrrCents(), indisponibles),
@@ -79,6 +81,8 @@ export async function getDashboardOverview(scope: CashflowScope) {
     ),
     optional("salaire", () => getOwnerPaySummary(), indisponibles),
     optional("délais de rétractation", () => listPendingStarts(), indisponibles),
+    optional("renouvellements chez l'hébergeur", () => listDueClientRenewals(), indisponibles),
+    optional("avenants à rattacher", () => listRevisionsToAttach(), indisponibles),
   ]);
 
   const cfe = obligations?.items
@@ -97,6 +101,8 @@ export async function getDashboardOverview(scope: CashflowScope) {
     mailSync,
     ownerPay,
     pendingStarts: pendingStarts ?? [],
+    renewals: renewals ?? [],
+    revisionsToAttach: (revisionsToAttach ?? []).map((r) => ({ lineId: r.lineId, quoteId: r.quoteId, quoteNumber: r.quoteNumber, displayName: r.displayName, description: r.description })),
     indisponibles,
   };
 }
