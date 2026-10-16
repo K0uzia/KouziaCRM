@@ -398,6 +398,19 @@ describe("rappel signé de l'Action (POST /api/webhooks/site-deploy)", () => {
     expect([row.status, row.error]).toEqual([SitePublicationStatus.FAILED, "L'Action du site a refusé ce commit."]);
   });
 
+  it("résultat « non-configure » (accès Hostinger absents côté GitHub) : FAILED avec le guide, pas « rappel non reçu »", async () => {
+    const q = await prisma.siteFaq.findFirstOrThrow();
+    await prisma.siteFaq.update({ where: { id: q.id }, data: { answer: "Réponse sans déploiement configuré." } });
+    const p = await publishSite();
+    expect((await send(event(p.commitSha!, "non-configure", "1004-1"))).statusCode).toBe(204);
+    const row = await prisma.sitePublication.findUniqueOrThrow({ where: { id: p.id } });
+    expect(row.status).toBe(SitePublicationStatus.FAILED);
+    expect(row.error).toBe(
+      "Déploiement non configuré : le contenu est dans le dépôt, mais GitHub n'a pas les accès Hostinger. Voir le guide docs/deploiement-hostinger.md du site.",
+    );
+    expect(publicationOut(row).notice).not.toBe(CALLBACK_MISSING);
+  });
+
   it("signature fausse, corps modifié d'un octet, secret absent : 404 comme une route inconnue", async () => {
     const unknown = await app.inject({ method: "POST", url: "/api/webhooks/inconnu", payload: {} });
     for (const res of [await send(event(sha("b")), { secret: "autre" }), await send(event(sha("b")), { tamper: true })]) {

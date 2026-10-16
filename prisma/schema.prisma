@@ -1727,7 +1727,7 @@ model SiteDeployEvent {
   id            String           @id @default(cuid())
   deliveryId    String           @unique
   sha           String
-  /// deploye | simulation | echec | ignore | refuse
+  /// deploye | simulation | echec | non-configure | ignore (ancien) | refuse
   result        String
   runUrl        String?
   publicationId String?
