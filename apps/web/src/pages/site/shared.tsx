@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { faArrowDown, faArrowUp, faChevronRight, faImage, faUpload } from "@fortawesome/free-solid-svg-icons";
+import { faArrowDown, faArrowUp, faChevronRight, faImage, faPhotoFilm, faUpload } from "@fortawesome/free-solid-svg-icons";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { Badge, Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Field";
+import { Modal } from "@/components/ui/Modal";
+import { Link } from "react-router-dom";
 
 export type SiteItemStatus = "DRAFT" | "PUBLISHED" | "WITHDRAWN";
 /** État par rapport à kouzia.com : nouveau, modifié ou retiré depuis la dernière publication (calculé par l'API). */
@@ -322,8 +324,34 @@ export function SiteImage({ path, alt, className = "" }: { path: string | null |
 
 export type MediaKind = "CAPTURE" | "MOBILE" | "LOGO";
 type UploadedMedia = { path: string; width: number; height: number; width2x: number | null };
+/** Image de la médiathèque (GET /api/site/media). */
+export type LibraryMedia = {
+  id: string;
+  sha12: string;
+  kind: MediaKind;
+  path: string;
+  width: number;
+  height: number;
+  bytes: number;
+  width2x: number | null;
+  height2x: number | null;
+  bytes2x: number | null;
+  label: string | null;
+  originalName: string | null;
+  originalPath: string | null;
+  originalBytes: number | null;
+  focalX: number | null;
+  focalY: number | null;
+  createdAt: string;
+  usages: Array<{ label: string; to: string }>;
+  /** Citée par la dernière publication ; null : inconnu (site publié avant le suivi). */
+  online: boolean | null;
+  previousVersion: boolean;
+};
+export const MEDIA_KIND_LABEL: Record<MediaKind, string> = { CAPTURE: "Capture", MOBILE: "Téléphone", LOGO: "Logo" };
+export const mediaName = (m: Pick<LibraryMedia, "label" | "sha12">) => m.label || `Image ${m.sha12}`;
 
-const KIND_HINT: Record<MediaKind, string> = {
+export const KIND_HINT: Record<MediaKind, string> = {
   CAPTURE: "Capture d'écran d'ordinateur : recadrée en 16:9, 960×540 px au moins (1920×1080 pour les écrans haute densité).",
   MOBILE: "Capture de téléphone : 390×844 px au moins (780×1688 conseillé), recadrée par le haut.",
   LOGO: "Logo : SVG ou PNG transparent, 200 px de large au moins. Converti en WebP, fond transparent conservé.",
@@ -335,8 +363,8 @@ const KIND_FRAME: Record<MediaKind, string> = {
 };
 
 /**
- * Champ image : aperçu, envoi (normalisé en WebP sans métadonnées par l'API) et retrait si facultatif.
- * Le fichier choisi n'est envoyé qu'à l'API de l'ERP ; l'original n'est pas conservé.
+ * Champ image : aperçu, envoi (normalisé en WebP sans métadonnées par l'API), choix dans la médiathèque et retrait
+ * si facultatif. Le fichier choisi n'est envoyé qu'à l'API de l'ERP, qui en garde un original sans métadonnées.
  */
 export function ImageField({
   label,
@@ -359,6 +387,7 @@ export function ImageField({
   const pathId = useId();
   const [existing, setExisting] = useState("");
   const [existingError, setExistingError] = useState<string | null>(null);
+  const [picking, setPicking] = useState(false);
 
   // Image déjà dans le dépôt du site (public/projets/) : référencée par son chemin, sans envoi.
   function applyExisting() {
@@ -413,6 +442,10 @@ export function ImageField({
           >
             <FontAwesomeIcon icon={faUpload} className="h-3.5 w-3.5" aria-hidden />
             {busy ? "Envoi…" : value ? "Remplacer" : "Choisir une image"}
+          </Button>
+          <Button variant="secondary" disabled={busy} aria-haspopup="dialog" onClick={() => setPicking(true)} aria-label={`Prendre dans la médiathèque : ${label}`}>
+            <FontAwesomeIcon icon={faPhotoFilm} className="h-3.5 w-3.5" aria-hidden />
+            Médiathèque
           </Button>
           {optional && value ? (
             <Button variant="ghost" disabled={busy} onClick={() => onChange(null)} aria-label={`Retirer : ${label}`}>
@@ -482,7 +515,105 @@ export function ImageField({
           {error}
         </p>
       ) : null}
+      <MediaPicker
+        open={picking}
+        kind={kind}
+        label={label}
+        value={value}
+        onClose={() => setPicking(false)}
+        onPick={(path) => {
+          setPicking(false);
+          onChange(path);
+        }}
+      />
     </fieldset>
+  );
+}
+
+/** Choix d'une image déjà envoyée, du même type que le champ (anciennes versions recadrées exclues). */
+function MediaPicker({
+  open,
+  kind,
+  label,
+  value,
+  onClose,
+  onPick,
+}: {
+  open: boolean;
+  kind: MediaKind;
+  label: string;
+  value: string | null;
+  onClose: () => void;
+  onPick: (path: string) => void;
+}) {
+  const [rows, setRows] = useState<LibraryMedia[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [query, setQuery] = useState("");
+  const load = useCallback(async () => {
+    setError(null);
+    try {
+      setRows(await api<LibraryMedia[]>("/api/site/media"));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Chargement impossible");
+    }
+  }, []);
+  useEffect(() => {
+    if (open) void load();
+  }, [open, load]);
+  const q = query.trim().toLowerCase();
+  const visible = (rows ?? []).filter(
+    (m) => m.kind === kind && !m.previousVersion && (!q || mediaName(m).toLowerCase().includes(q) || (m.originalName ?? "").toLowerCase().includes(q)),
+  );
+  return (
+    <Modal open={open} onClose={onClose} title="Médiathèque" description={`${label} : images de type « ${MEDIA_KIND_LABEL[kind]} » déjà envoyées.`} wide fullScreenMobile>
+      {error ? (
+        <div className="flex flex-col items-start gap-3" role="alert">
+          <p className="text-sm text-[var(--danger)]">{error}</p>
+          <Button variant="secondary" onClick={() => void load()}>
+            Réessayer
+          </Button>
+        </div>
+      ) : !rows ? (
+        <p className="text-sm text-[var(--muted)]" role="status">
+          Chargement…
+        </p>
+      ) : (
+        <div className="space-y-3">
+          <label className="block space-y-1.5">
+            <span className="block text-sm font-medium">Rechercher</span>
+            <Input type="search" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Nom de l'image ou du fichier" autoComplete="off" />
+          </label>
+          {visible.length ? (
+            <ul className="grid grid-cols-[repeat(auto-fill,minmax(8.5rem,1fr))] gap-3">
+              {visible.map((m) => {
+                const current = m.path === value;
+                return (
+                  <li key={m.id} className="min-w-0">
+                    <button
+                      type="button"
+                      onClick={() => onPick(m.path)}
+                      aria-pressed={current}
+                      className={`flex min-h-11 w-full flex-col gap-1.5 rounded-[var(--radius)] border p-2 text-left transition-colors hover:border-[var(--primary)] ${current ? "border-[var(--primary)] bg-[var(--primary-soft)]" : "border-[var(--border)] bg-[var(--surface)]"}`}
+                    >
+                      <SiteImage path={m.path} alt="" className={`w-full rounded-[var(--radius-sm)] ${kind === "MOBILE" ? "aspect-[9/19.5]" : "aspect-video"} ${kind === "LOGO" ? "object-contain" : ""}`} />
+                      <span className="line-clamp-2 break-words text-sm font-medium">{mediaName(m)}</span>
+                      <span className="text-xs text-[var(--muted)]">{current ? "Image actuelle" : m.usages.length ? `Utilisée ${m.usages.length} fois` : "Non utilisée"}</span>
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          ) : (
+            <p className="text-sm text-[var(--muted)]">
+              {q ? "Aucune image ne correspond à cette recherche." : "Aucune image de ce type pour l'instant : envoyez-en une avec « Choisir une image »."}{" "}
+              <Link to="/site/images" className="link" onClick={onClose}>
+                Ouvrir la médiathèque
+              </Link>
+            </p>
+          )}
+        </div>
+      )}
+    </Modal>
   );
 }
 

@@ -92,24 +92,32 @@ export async function buildSiteSnapshot(contract?: unknown): Promise<SiteSnapsho
     }
   }
 
-  const cited: [string | null, string][] = [
-    ...projects.flatMap((p): [string | null, string][] => [
-      [p.imagePath, `capture de « ${p.name} »`],
-      [p.imageMobilePath, `capture de téléphone de « ${p.name} »`],
+  const cited: [string | null, string, SiteFileName][] = [
+    ...projects.flatMap((p): [string | null, string, SiteFileName][] => [
+      [p.imagePath, `capture de « ${p.name} »`, "realisations"],
+      [p.imageMobilePath, `capture de téléphone de « ${p.name} »`, "realisations"],
     ]),
-    ...references.map((r): [string | null, string] => [r.logoPath, `logo de « ${r.name} »`]),
+    ...references.map((r): [string | null, string, SiteFileName] => [r.logoPath, `logo de « ${r.name} »`, "references"]),
   ];
   const mediaNames: Record<string, string> = {};
-  for (const [path, name] of cited) {
+  const mediaFile: Record<string, SiteFileName> = {};
+  for (const [path, name, file] of cited) {
     const sha = MEDIA_RE.exec(path ?? "")?.[1];
-    if (sha && !mediaNames[sha]) mediaNames[sha] = name;
+    if (sha && !mediaNames[sha]) {
+      mediaNames[sha] = name;
+      mediaFile[sha] = file;
+    }
   }
   const media = Object.keys(mediaNames).sort();
   const known = new Set(
     (await prisma.siteMedia.findMany({ where: { sha12: { in: media } }, select: { sha12: true } })).map((m) => m.sha12),
   );
   for (const sha of media) {
-    if (!known.has(sha)) issues.push({ file: "realisations", path: sha, message: "Image introuvable dans l'ERP" });
+    // Fichier en ligne mais absent de l'ERP : contenu repris du site sans ses images, ou base restaurée sans le
+    // dossier des fichiers (uploads). Renvoyer l'image depuis la fiche la recrée.
+    if (!known.has(sha)) {
+      issues.push({ file: mediaFile[sha]!, path: mediaNames[sha]!, message: `Image absente de l'ERP (${sha}) : la renvoyer avec « Remplacer » sur la fiche` });
+    }
   }
 
   const files = Object.fromEntries(SITE_FILES.map((n) => [n, serializeSiteFile(values[n])])) as Record<SiteFileName, string>;

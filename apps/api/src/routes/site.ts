@@ -25,7 +25,7 @@ import { itemHash, pendingChanges, publicationState as itemPublicationState, tex
 import { previewPublication, publicationOut, publishSite, PublishError } from "@/lib/site/publish.js";
 import { TESTIMONIAL_SOURCE, withdrawalsOnSite } from "@/lib/site/testimonials.js";
 import { importSiteFiles, siteContentExists, SiteImportError } from "@/lib/site/import.js";
-import { GithubError, readSiteRepoFiles, saveGithubToken, siteBranch, siteRepo, testGithubConnection } from "@/lib/site/github.js";
+import { GithubError, readSiteRepoBinary, readSiteRepoFiles, saveGithubToken, siteBranch, siteRepo, testGithubConnection } from "@/lib/site/github.js";
 import {
   loadSharp,
   readSiteMedia,
@@ -34,6 +34,9 @@ import {
   SiteMediaError,
   SITE_MEDIA_MAX_INPUT_BYTES,
 } from "@/lib/site/media.js";
+import { adoptMissingMedia, deleteLibraryMedia, LibraryError, listLibrary, recropLibraryMedia } from "@/lib/site/library.js";
+import { issuedPdfAbsolutePath } from "@/lib/pdf/issued-archive.js";
+import { readFile } from "node:fs/promises";
 
 /**
  * Espace « Site » (admin) : contenu de kouzia.com saisi dans l'ERP, puis publié dans le dépôt du site.
@@ -665,8 +668,7 @@ export const siteRoutes: FastifyPluginAsync = async (app) => {
   app.get(
     "/api/site/media",
     admin(async () => {
-      const rows = await prisma.siteMedia.findMany({ orderBy: { createdAt: "desc" } });
-      return rows.map((m) => ({ ...m, path: siteMediaPublicPath(m.sha12) }));
+      return listLibrary();
     }),
   );
 
@@ -680,9 +682,11 @@ export const siteRoutes: FastifyPluginAsync = async (app) => {
         return reply.code(503).send({ error: "Envoi d'images indisponible : sharp n'est pas installé sur ce serveur." });
       }
       let input: Buffer;
+      let filename: string | null = null;
       try {
         const file = await request.file({ limits: { fileSize: SITE_MEDIA_MAX_INPUT_BYTES, files: 1 } });
         if (!file) return reply.code(400).send({ error: "Fichier manquant" });
+        filename = file.filename || null;
         input = await file.toBuffer();
       } catch (e) {
         if ((e as { code?: string }).code === "FST_REQ_FILE_TOO_LARGE") {
@@ -691,12 +695,73 @@ export const siteRoutes: FastifyPluginAsync = async (app) => {
         throw e;
       }
       try {
-        const media = await saveSiteImage(input, kind.data);
+        const media = await saveSiteImage(input, kind.data, filename);
         return reply.code(201).send({ ...media, path: siteMediaPublicPath(media.sha12) });
       } catch (e) {
         if (e instanceof SiteMediaError) return reply.code(e.code === "UNAVAILABLE" ? 503 : 400).send({ error: e.message, code: e.code });
         throw e;
       }
+    }),
+  );
+
+  const mediaId = (request: FastifyRequest) => z.string().min(1).max(64).parse((request.params as { id: string }).id);
+  const libraryError = (reply: FastifyReply, e: unknown) => {
+    if (e instanceof LibraryError) return reply.code(e.status).send({ error: e.message });
+    if (e instanceof SiteMediaError) return reply.code(e.code === "UNAVAILABLE" ? 503 : 400).send({ error: e.message, code: e.code });
+    throw e;
+  };
+
+  // Nom lisible dans la médiathèque (jamais publié).
+  app.patch(
+    "/api/site/media/:id",
+    admin(async (request, reply) => {
+      const body = z.strictObject({ label: z.string().trim().max(120).nullable() }).safeParse(request.body);
+      if (!body.success) return invalid(reply, body.error);
+      const media = await prisma.siteMedia.findUnique({ where: { id: mediaId(request) } });
+      if (!media) return reply.code(404).send({ error: "Image introuvable" });
+      return prisma.siteMedia.update({ where: { id: media.id }, data: { label: body.data.label || null } });
+    }),
+  );
+
+  // Recadrage autour d'un point d'intérêt (0 à 1) : nouvelle version, fiches repointées.
+  app.post(
+    "/api/site/media/:id/recadrage",
+    admin(async (request, reply) => {
+      const body = z.strictObject({ x: z.number().min(0).max(1), y: z.number().min(0).max(1) }).safeParse(request.body);
+      if (!body.success) return invalid(reply, body.error);
+      try {
+        const media = await recropLibraryMedia(mediaId(request), body.data);
+        return { ...media, path: siteMediaPublicPath(media.sha12) };
+      } catch (e) {
+        return libraryError(reply, e);
+      }
+    }),
+  );
+
+  app.delete(
+    "/api/site/media/:id",
+    admin(async (request, reply) => {
+      try {
+        await deleteLibraryMedia(mediaId(request));
+        return reply.code(204).send();
+      } catch (e) {
+        return libraryError(reply, e);
+      }
+    }),
+  );
+
+  // Original conservé (sans métadonnées), pour choisir le point d'intérêt. Logos SVG exclus : pas de recadrage.
+  app.get(
+    "/api/site/media/:id/original",
+    admin(async (request, reply) => {
+      const media = await prisma.siteMedia.findUnique({ where: { id: mediaId(request) } });
+      const type = /.(jpg|png|webp)$/.exec(media?.originalPath ?? "")?.[1];
+      const buf = media?.originalPath && type ? await readFile(issuedPdfAbsolutePath(media.originalPath)).catch(() => null) : null;
+      if (!buf) return reply.code(404).send({ error: "Introuvable" });
+      return reply
+        .type(type === "jpg" ? "image/jpeg" : `image/${type}`)
+        .header("Cache-Control", "private, max-age=31536000, immutable")
+        .send(buf);
     }),
   );
 
@@ -747,6 +812,10 @@ export const siteRoutes: FastifyPluginAsync = async (app) => {
       try {
         const { files } = await readSiteRepoFiles();
         await importSiteFiles(files);
+        // Images déjà publiées : copiées depuis le dépôt, sinon « Image absente de l'ERP » bloquerait la publication.
+        await adoptMissingMedia(readSiteRepoBinary).catch((e) => {
+          console.error("[site] Reprise des images publiées incomplète :", e instanceof Error ? e.message : e);
+        });
       } catch (e) {
         if (e instanceof GithubError) return reply.code(e.status === 412 ? 412 : 502).send({ error: e.message });
         if (e instanceof SiteImportError) {
