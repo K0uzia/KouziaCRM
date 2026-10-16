@@ -64,6 +64,7 @@ import {
 import { isValidSiren, isValidSiret } from "@kouzia/forms";
 import { listPortalProjects } from "@/lib/projects/service.js";
 import { reviewInviteEligible } from "@/lib/projects/review-invite.js";
+import { publicStart } from "@/lib/subscriptions/start.js";
 import {
   CONSENT_TEXT,
   CONSENT_VERSION,
@@ -310,7 +311,18 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
           project: { select: { steps: true } },
           // Avoir : devis de la facture créditée (documents[].projectId).
           creditedInvoice: { select: { quoteId: true } },
-          lines: { where: { isSubscription: true }, select: { billingInterval: true, unitPriceCents: true } },
+          lines: {
+            where: { isSubscription: true },
+            orderBy: { position: "asc" },
+            select: {
+              description: true,
+              billingInterval: true,
+              unitPriceCents: true,
+              subscriptionStart: true,
+              subscriptionStartDate: true,
+              subscriptionFreeMonths: true,
+            },
+          },
           quoteAcceptanceAudits: {
             orderBy: { createdAt: "desc" },
             take: 1,
@@ -507,6 +519,14 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
                           directDebit: settings.moduleStripeEnabled,
                           ...(showAmounts ? { amountCents: d.lines.reduce((s, l) => s + l.unitPriceCents, 0) } : {}),
                         },
+                        // Une entrée par ligne d'abonnement, dans l'ordre du devis (contrat KouziaWebsite, README
+                        // « Espace client ») : départ de la facturation et mois offerts comptés depuis ce départ.
+                        subscriptionLines: d.lines.map((l) => ({
+                          label: l.description,
+                          interval: l.billingInterval === "YEAR" ? "YEAR" : "MONTH",
+                          ...(showAmounts ? { amountCents: l.unitPriceCents } : {}),
+                          ...publicStart(l, offer !== "NONE"),
+                        })),
                         ...(offer !== "NONE" && showAmounts ? { oneOffTotalCents: depositBaseOf(d) } : {}),
                       }
                     : {}),

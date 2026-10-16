@@ -62,7 +62,7 @@ type Subscription = {
   service: { id: string; name: string };
 };
 
-type Client = { id: string; displayName: string };
+type Client = { id: string; displayName: string; billingDay?: number | null };
 type Service = {
   id: string;
   name: string;
@@ -873,7 +873,11 @@ export function SubscriptionsPage() {
             <Select
               required
               value={form.clientId}
-              onChange={(e) => setForm({ ...form, clientId: e.target.value })}
+              onChange={(e) => {
+                // Jour de prélèvement du client par défaut (modifiable pour cet abonnement).
+                const day = clients.find((c) => c.id === e.target.value)?.billingDay;
+                setForm({ ...form, clientId: e.target.value, ...(day ? { billingDay: String(day) } : {}) });
+              }}
               disabled={!!editingId}
             >
               <option value="">-</option>

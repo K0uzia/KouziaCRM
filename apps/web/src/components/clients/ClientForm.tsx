@@ -9,7 +9,7 @@ import { Link } from "react-router-dom";
 import { formatPhoneFr } from "@/lib/format";
 import { Button } from "@/components/ui/Button";
 import { ModalActions } from "@/components/ui/Modal";
-import { Field, Input, Textarea } from "@/components/ui/Field";
+import { Field, Input, Select, Textarea } from "@/components/ui/Field";
 import { NeedsEditor, type ClientNeed } from "@/components/clients/NeedsEditor";
 import {
   AddressAutocomplete,
@@ -44,6 +44,8 @@ export type Client = {
   addressLat?: number | null;
   addressLon?: number | null;
   notes: string | null;
+  /** Jour de prélèvement par défaut de ses abonnements (1 à 28) ; null = le 1er. */
+  billingDay?: number | null;
   needs?: ClientNeed[];
   emailVerifiedAt?: string | null;
   onboardingCompletedAt?: string | null;
@@ -78,6 +80,8 @@ export type ClientFormData = {
   addressLon: number | null;
   addressManualConfirmed: boolean;
   notes: string;
+  /** "" = le 1er (valeur par défaut). */
+  billingDay: string;
   sirenLocked: boolean;
 };
 
@@ -102,6 +106,7 @@ export const emptyClientForm = (): ClientFormData => ({
   addressLon: null,
   addressManualConfirmed: false,
   notes: "",
+  billingDay: "",
   sirenLocked: false,
 });
 
@@ -127,6 +132,7 @@ export function clientToForm(c: Client): ClientFormData {
     addressLon: c.addressLon ?? null,
     addressManualConfirmed: false,
     notes: c.notes ?? "",
+    billingDay: c.billingDay ? String(c.billingDay) : "",
     sirenLocked: Boolean(c.companyVerifiedAt),
   };
 }
@@ -236,6 +242,7 @@ export function ClientFormEditor({
         addressLon: form.addressLon,
         addressManualConfirmed: form.addressManualConfirmed,
         notes: form.notes,
+        billingDay: form.billingDay ? Number(form.billingDay) : null,
         ...(clientId ? {} : { sendPortalAccess: sendPortalAccess && Boolean(form.email), needs }),
       };
       const client = await api<Client & { portalAccess?: { sent: boolean; reason?: string } | null }>(
@@ -390,6 +397,22 @@ export function ClientFormEditor({
         )}
         <Field label="Notes internes" hint="Non visibles sur les documents PDF">
           <Textarea value={form.notes} onChange={(e) => set("notes", e.target.value)} rows={3} />
+        </Field>
+      </FormSection>
+
+      <FormSection title="Abonnements" defaultOpen>
+        <Field
+          label="Jour de prélèvement"
+          hint="Appliqué par défaut à tous ses abonnements (devis, nouvel abonnement). Chaque abonnement peut garder un autre jour. Les abonnements existants ne changent pas."
+        >
+          <Select value={form.billingDay} onChange={(e) => set("billingDay", e.target.value)}>
+            <option value="">Le 1er du mois (par défaut)</option>
+            {Array.from({ length: 27 }, (_, d) => d + 2).map((d) => (
+              <option key={d} value={String(d)}>
+                Le {d} du mois
+              </option>
+            ))}
+          </Select>
         </Field>
       </FormSection>
 

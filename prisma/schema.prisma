@@ -255,11 +255,11 @@ model AdminDevice {
 
 /// Session serveur (cookie httpOnly opaque)
 model Session {
-  id        String   @id @default(cuid())
-  userId    String
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  expiresAt DateTime
-  createdAt DateTime @default(now())
+  id         String    @id @default(cuid())
+  userId     String
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt  DateTime
+  createdAt  DateTime  @default(now())
   /// Dernière requête authentifiée : session close après 24 h d'inactivité (null : session antérieure)
   lastSeenAt DateTime?
 
@@ -465,12 +465,12 @@ model CompanySettings {
   /// Google a refusé le jeton (invalid_grant) : plus de tentative jusqu'à la reconnexion
   googleCalendarReauthRequiredAt      DateTime?
   /// CGV publiées sur le site : acceptation exigée à la signature, lien et version sur les devis
-  cgvPublished                        Boolean @default(false)
-  cgvUrl                              String? @default("https://kouzia.com/cgv")
+  cgvPublished                        Boolean   @default(false)
+  cgvUrl                              String?   @default("https://kouzia.com/cgv")
   /// Version en vigueur (date de mise en ligne, ex. 2026-11-04)
   cgvVersion                          String?
   /// Libellé de la case « exécution avant la fin du délai de rétractation » (clients particuliers)
-  withdrawalExpressRequestText        String  @default("Je demande que la prestation commence avant la fin du délai de rétractation de 14 jours. Si je me rétracte ensuite, je paierai un montant proportionnel à ce qui aura été fourni jusqu'à ma rétractation. Si la prestation est entièrement exécutée avant la fin de ce délai, je perds mon droit de rétractation.")
+  withdrawalExpressRequestText        String    @default("Je demande que la prestation commence avant la fin du délai de rétractation de 14 jours. Si je me rétracte ensuite, je paierai un montant proportionnel à ce qui aura été fourni jusqu'à ma rétractation. Si la prestation est entièrement exécutée avant la fin de ce délai, je perds mon droit de rétractation.")
   /// Destinataire emails de rappel obligations (hors ClientEmailEvent)
   obligationReminderEmail             String    @default("kouziaeffa.pro@gmail.com")
   obligationEmailRemindersEnabled     Boolean   @default(true)
@@ -664,6 +664,8 @@ model Client {
   /// Numéro public CLI-0001
   clientNumber          String?                @unique
   type                  ClientType
+  /// Jour de prélèvement par défaut de ses abonnements (1 à 28) ; null = le 1er. Chaque abonnement garde le sien.
+  billingDay            Int?
   displayName           String
   firstName             String?
   lastName              String?
@@ -767,55 +769,55 @@ enum ClientProjectKind {
 }
 
 model ClientProject {
-  id                 String      @id @default(cuid())
+  id                 String             @id @default(cuid())
   clientId           String
-  client             Client      @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  client             Client             @relation(fields: [clientId], references: [id], onDelete: Cascade)
   name               String
   /// 0 à 100
-  progress           Int         @default(0)
+  progress           Int                @default(0)
   /// JSON [{ label, status: done|current|todo, date?: YYYY-MM-DD }]
-  steps              String      @default("[]")
+  steps              String             @default("[]")
   /// JSON [{ label, url (https) }]
-  links              String      @default("[]")
+  links              String             @default("[]")
   /// JSON [{ label, done, note? }]
-  checklist          String      @default("[]")
-  visibleOnPortal    Boolean     @default(true)
-  position           Int         @default(0)
+  checklist          String             @default("[]")
+  visibleOnPortal    Boolean            @default(true)
+  position           Int                @default(0)
   /// Devis d'origine : le projet naît de la facture d'acompte (ou totale) de ce devis.
-  quoteId            String?     @unique
-  quote              Invoice?    @relation("QuoteProject", fields: [quoteId], references: [id], onDelete: SetNull)
+  quoteId            String?            @unique
+  quote              Invoice?           @relation("QuoteProject", fields: [quoteId], references: [id], onDelete: SetNull)
   /// PLANNED (acompte facturé, en attente de paiement) | ACTIVE (démarré) | DONE
-  status             String      @default("ACTIVE")
+  status             String             @default("ACTIVE")
   startedAt          DateTime?
   /// Type de projet (site, logiciel, maintenance, autre) ; null tant qu'il n'est pas renseigné.
   kind               ClientProjectKind?
   /// Invitation à laisser un avis envoyée (une seule fois par projet, au passage à DONE).
   reviewInviteSentAt DateTime?
   testimonial        SiteReview?
-  createdAt          DateTime    @default(now())
-  updatedAt          DateTime    @updatedAt
+  createdAt          DateTime           @default(now())
+  updatedAt          DateTime           @updatedAt
 
   @@index([clientId, position])
 }
 
 /// Journal des emails sortants vers un client (suivi portail /admin)
 model ClientEmailEvent {
-  id             String   @id @default(cuid())
-  clientId       String
-  client         Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
-  kind           String
-  subject        String
+  id                 String   @id @default(cuid())
+  clientId           String
+  client             Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  kind               String
+  subject            String
   /// Ancienne colonne en clair : "" pour toute ligne écrite ou recopiée depuis le chiffrement
-  toAddress      String
+  toAddress          String
   /// Adresse du destinataire, chiffrée (lecture : toAddressEncrypted, à défaut toAddress)
   toAddressEncrypted String?
-  documentId     String?
-  documentNumber String?
-  success        Boolean  @default(true)
-  errorMessage   String?
-  sentAt         DateTime @default(now())
-  outboxId       String?
-  threadId       String?
+  documentId         String?
+  documentNumber     String?
+  success            Boolean  @default(true)
+  errorMessage       String?
+  sentAt             DateTime @default(now())
+  outboxId           String?
+  threadId           String?
 
   @@index([clientId, sentAt])
   @@index([documentId])
@@ -1127,27 +1129,33 @@ model RevolutWebhookEvent {
 }
 
 model InvoiceLine {
-  id              String        @id @default(cuid())
-  invoiceId       String
-  invoice         Invoice       @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
-  position        Int
-  description     String
-  quantity        Decimal
-  unitPriceCents  Int
-  lineTotalCents  Int
+  id                     String        @id @default(cuid())
+  invoiceId              String
+  invoice                Invoice       @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  position               Int
+  description            String
+  quantity               Decimal
+  unitPriceCents         Int
+  lineTotalCents         Int
   /// Ligne d'abonnement mensuel (1ʳᵉ échéance dans le total du document)
-  isSubscription  Boolean       @default(false)
-  billingDay      Int?
+  isSubscription         Boolean       @default(false)
+  billingDay             Int?
   /// MONTH | YEAR (null = MONTH) : périodicité de l'abonnement de la ligne
-  billingInterval String?
-  serviceId       String?
-  service         Service?      @relation(fields: [serviceId], references: [id])
+  billingInterval        String?
+  /// Départ de la facturation (ligne d'abonnement de devis) : SIGNATURE | DELIVERY | DATE | FREE_MONTHS ; null = défaut du devis
+  subscriptionStart      String?
+  /// 1re facture à cette date (subscriptionStart = DATE)
+  subscriptionStartDate  DateTime?
+  /// Mois offerts avant la 1re facture, comptés depuis le départ par défaut (subscriptionStart = FREE_MONTHS)
+  subscriptionFreeMonths Int?
+  serviceId              String?
+  service                Service?      @relation(fields: [serviceId], references: [id])
   /// Rempli quand le Subscription a été créé (idempotence)
-  subscriptionId  String?
-  subscription    Subscription? @relation("SubscriptionLines", fields: [subscriptionId], references: [id])
+  subscriptionId         String?
+  subscription           Subscription? @relation("SubscriptionLines", fields: [subscriptionId], references: [id])
   /// Devis d'avenant : abonnement révisé par cette ligne (mis à jour à l'acceptation au lieu d'en créer un)
-  revisesSubscriptionId String?
-  revisesSubscription   Subscription? @relation("SubscriptionRevisions", fields: [revisesSubscriptionId], references: [id], onDelete: SetNull)
+  revisesSubscriptionId  String?
+  revisesSubscription    Subscription? @relation("SubscriptionRevisions", fields: [revisesSubscriptionId], references: [id], onDelete: SetNull)
 
   @@index([invoiceId])
   @@index([serviceId])
@@ -1336,20 +1344,20 @@ enum EmailOutboxStatus {
 }
 
 model EmailOutbox {
-  id          String            @id @default(cuid())
-  status      EmailOutboxStatus @default(PENDING)
-  attempts    Int               @default(0)
-  maxAttempts Int               @default(3)
-  scheduledAt DateTime          @default(now())
-  sentAt      DateTime?
-  lastError   String?
+  id               String            @id @default(cuid())
+  status           EmailOutboxStatus @default(PENDING)
+  attempts         Int               @default(0)
+  maxAttempts      Int               @default(3)
+  scheduledAt      DateTime          @default(now())
+  sentAt           DateTime?
+  lastError        String?
   /// JSON : to, subject, text, html, headers, attachments, clientId, documentId, threadId, kind.
   /// Ancienne colonne en clair : "" depuis le chiffrement (lecture : payloadEncrypted, à défaut payload)
-  payload     String
+  payload          String
   /// Même JSON, chiffré ; vidé (avec payload) 30 jours après l'envoi, la ligne reste
   payloadEncrypted String?
-  createdAt   DateTime          @default(now())
-  updatedAt   DateTime          @updatedAt
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
 
   @@index([status, scheduledAt])
 }
@@ -1670,15 +1678,15 @@ model SiteReference {
 
 /// Question de FAQ (faq.json)
 model SiteFaq {
-  id          String         @id @default(cuid())
-  page        SiteFaqPage
-  position    Int            @default(0)
-  status      SiteItemStatus @default(DRAFT)
-  question    String
-  answer      String
-  createdAt   DateTime       @default(now())
-  updatedAt   DateTime       @updatedAt
-  publishedAt DateTime?
+  id            String         @id @default(cuid())
+  page          SiteFaqPage
+  position      Int            @default(0)
+  status        SiteItemStatus @default(DRAFT)
+  question      String
+  answer        String
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+  publishedAt   DateTime?
   /// Empreinte de la version publiée (forme écrite dans le dépôt du site) : différente de l'actuelle, statut « Modifié ».
   publishedHash String?
 
@@ -1697,27 +1705,27 @@ model SiteText {
 /// Image normalisée (WebP, sans métadonnées) sous data/uploads/site/ : <sha12>.webp, et <sha12>-2x.webp si la source est assez grande.
 /// L'original n'est jamais gardé.
 model SiteMedia {
-  id        String        @id @default(cuid())
+  id            String        @id @default(cuid())
   /// 12 premiers caractères hexadécimaux du SHA-256 de la version 1x : nom publié /media/<sha12>.webp
-  sha12     String        @unique
-  kind      SiteMediaKind
-  width     Int
-  height    Int
-  bytes     Int
-  width2x   Int?
-  height2x  Int?
-  bytes2x   Int?
+  sha12         String        @unique
+  kind          SiteMediaKind
+  width         Int
+  height        Int
+  bytes         Int
+  width2x       Int?
+  height2x      Int?
+  bytes2x       Int?
   /// Nom lisible dans la médiathèque (admin seulement, jamais publié)
-  label     String?
+  label         String?
   /// Nom du fichier envoyé, pour le retrouver
   originalName  String?
   /// Original conservé sans métadonnées (EXIF, GPS), relatif au dossier des fichiers : recadrage ultérieur. Null : image antérieure à la médiathèque ou reprise du site
   originalPath  String?
   originalBytes Int?
   /// Point d'intérêt du recadrage, de 0 à 1 depuis le coin haut gauche de l'original. Null : recadrage automatique
-  focalX    Float?
-  focalY    Float?
-  createdAt DateTime      @default(now())
+  focalX        Float?
+  focalY        Float?
+  createdAt     DateTime      @default(now())
 }
 
 enum SitePublicationStatus {

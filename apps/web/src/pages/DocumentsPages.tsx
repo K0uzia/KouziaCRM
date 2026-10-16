@@ -6,6 +6,7 @@ import { faPlus } from "@fortawesome/free-solid-svg-icons";
 import { toast } from "sonner";
 import { useLiveRefresh } from "@/lib/notifications";
 import { api, formatEUR } from "@/lib/api";
+import { startFromLine, startPhrase } from "@/lib/subscription-start";
 import {
   formatDate,
   formatDecimal,
@@ -113,6 +114,9 @@ type Doc = {
     billingInterval?: string | null;
     serviceId?: string | null;
     subscriptionId?: string | null;
+    subscriptionStart?: string | null;
+    subscriptionStartDate?: string | null;
+    subscriptionFreeMonths?: number | null;
   }>;
   milestones?: Milestone[];
 };
@@ -1034,9 +1038,7 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
                           {l.isSubscription ? (
                             <p className="mt-1 max-w-xl text-xs text-[var(--muted)]">
                               {subscriptionQuote || mixedQuote
-                                ? `Facturé chaque ${l.billingInterval === "YEAR" ? "année" : "mois"} à partir ${
-                                    subscriptionQuote ? "de la signature" : "de la livraison (projet terminé)"
-                                  }, sans acompte.`
+                                ? `${quoteStartPhrase(l, mixedQuote)}, prélevé le ${l.billingDay ?? 1} ${l.billingInterval === "YEAR" ? "du mois anniversaire" : "de chaque mois"}, sans acompte.`
                                 : `${l.billingInterval === "YEAR" ? "Facturé chaque année à la date anniversaire." : `Facturé le ${l.billingDay ?? "…"} de chaque mois.`} Ce document inclut la 1re échéance.`}
                             </p>
                           ) : null}
@@ -1075,11 +1077,9 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
                         <li key={i}>
                           <span className="text-[var(--text)]">{l.description}</span>
                           {" : "}
-                          {formatEUR(l.unitPriceCents)} facturés{" "}
+                          {subscriptionQuote || mixedQuote ? `${quoteStartPhrase(l, mixedQuote)}, sans acompte.` : <>{formatEUR(l.unitPriceCents)} facturés </>}
                           {subscriptionQuote || mixedQuote
-                            ? `${l.billingInterval === "YEAR" ? "chaque année" : "chaque mois"} à partir ${
-                                subscriptionQuote ? "de la signature" : "de la livraison (projet terminé)"
-                              }, sans acompte.`
+                            ? null
                             : l.billingInterval === "YEAR"
                             ? "chaque année à la date anniversaire. Les années suivantes seront facturées automatiquement, avec un rappel au client 30 jours avant."
                             : `chaque mois${l.billingDay ? ` le ${l.billingDay}` : ""}. Les mois suivants seront facturés automatiquement.`}
@@ -1739,6 +1739,7 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
               billingDay: String(l.billingDay ?? 1),
               billingInterval: l.billingInterval === "YEAR" ? "YEAR" : "MONTH",
               serviceId: l.serviceId ?? "",
+              ...startFromLine(l),
             })),
           }}
           onCancel={() => setEditOpen(false)}
@@ -1824,4 +1825,13 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
       />
     </div>
   );
+}
+
+/** Phrase du départ d'une ligne d'abonnement de devis, comme sur le PDF et l'espace client. */
+function quoteStartPhrase(
+  l: { unitPriceCents: number; billingInterval?: string | null; subscriptionStart?: string | null; subscriptionStartDate?: string | null; subscriptionFreeMonths?: number | null },
+  hasProject: boolean,
+): string {
+  const interval = l.billingInterval === "YEAR" ? "YEAR" : "MONTH";
+  return startPhrase(startFromLine(l), hasProject, l.unitPriceCents, interval) ?? `${formatEUR(l.unitPriceCents)} par ${interval === "YEAR" ? "an" : "mois"}`;
 }

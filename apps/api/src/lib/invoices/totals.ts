@@ -11,7 +11,22 @@ export type LineInput = {
   billingInterval?: string | null;
   serviceId?: string | null;
   subscriptionId?: string | null;
+  /** Avenant : abonnement révisé par la ligne (gardé quand les lignes sont réécrites). */
+  revisesSubscriptionId?: string | null;
+  /** Départ de la facturation (lib/subscriptions/start.ts) : SIGNATURE | DELIVERY | DATE | FREE_MONTHS. */
+  subscriptionStart?: string | null;
+  subscriptionStartDate?: Date | string | null;
+  subscriptionFreeMonths?: number | null;
 };
+
+const STARTS = new Set(["SIGNATURE", "DELIVERY", "DATE", "FREE_MONTHS"]);
+/** Départ d'une ligne d'abonnement : seuls les champs utiles au départ choisi sont gardés. */
+function lineStart(line: LineInput, isSubscription: boolean) {
+  const start = isSubscription && STARTS.has(line.subscriptionStart ?? "") ? line.subscriptionStart! : null;
+  const date = start === "DATE" && line.subscriptionStartDate ? new Date(line.subscriptionStartDate) : null;
+  const months = start === "FREE_MONTHS" && line.subscriptionFreeMonths ? line.subscriptionFreeMonths : null;
+  return { subscriptionStart: start, subscriptionStartDate: date, subscriptionFreeMonths: months };
+}
 
 export type DiscountType = "NONE" | "PERCENT" | "FIXED";
 
@@ -56,6 +71,8 @@ export function computeLineTotals(lines: LineInput[], discount: DiscountInput = 
       billingInterval: isSubscription && line.billingInterval === "YEAR" ? "YEAR" : null,
       serviceId: isSubscription ? line.serviceId || null : null,
       subscriptionId: line.subscriptionId ?? null,
+      revisesSubscriptionId: isSubscription ? (line.revisesSubscriptionId ?? null) : null,
+      ...lineStart(line, isSubscription),
     };
   });
 
