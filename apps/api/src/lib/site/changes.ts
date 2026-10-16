@@ -89,18 +89,24 @@ const short = (s: string, n = 70) => (s.length > n ? `${s.slice(0, n - 1).trimEn
  * Liste des changements à publier, calculée sans GitHub. `detailed` : faux si le contenu diffère de la dernière
  * publication sans qu'aucun changement ne soit identifiable (publication antérieure au suivi par empreinte).
  */
+/** Fichiers de la dernière publication arrivée dans le dépôt (commit ou rien à changer), null si aucune n'est connue. */
+export async function lastPublishedFiles(): Promise<Record<string, string> | null> {
+  const last = await prisma.sitePublication.findFirst({
+    where: { filesJson: { not: null }, OR: [{ commitSha: { not: null } }, { status: SitePublicationStatus.NOOP }] },
+    orderBy: { startedAt: "desc" },
+    select: { filesJson: true },
+  });
+  return last?.filesJson ? (JSON.parse(last.filesJson) as Record<string, string>) : null;
+}
+
 export async function pendingChanges(snapshot: SiteSnapshot): Promise<{ changes: PendingChange[]; lastFiles: Record<string, string> | null }> {
-  const [projects, reviews, references, faq, texts, last] = await Promise.all([
+  const [projects, reviews, references, faq, texts, lastFiles] = await Promise.all([
     prisma.siteProject.findMany(),
     prisma.siteReview.findMany(),
     prisma.siteReference.findMany(),
     prisma.siteFaq.findMany(),
     prisma.siteText.findMany(),
-    prisma.sitePublication.findFirst({
-      where: { filesJson: { not: null }, OR: [{ commitSha: { not: null } }, { status: SitePublicationStatus.NOOP }] },
-      orderBy: { startedAt: "desc" },
-      select: { filesJson: true },
-    }),
+    lastPublishedFiles(),
   ]);
   const changes: PendingChange[] = [];
   const touched = new Set<SiteFileName>();
@@ -120,7 +126,6 @@ export async function pendingChanges(snapshot: SiteSnapshot): Promise<{ changes:
     touched.add(key === "infos" ? "infos" : key === "avisMethode" ? "avis" : "textes");
   }
   // Fichier différent de la version publiée sans élément changé : seul l'ordre a bougé.
-  const lastFiles = last?.filesJson ? (JSON.parse(last.filesJson) as Record<string, string>) : null;
   if (lastFiles) {
     for (const name of SITE_FILES) {
       const order = ORDER_LABEL[name];

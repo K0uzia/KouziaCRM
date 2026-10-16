@@ -1694,6 +1694,16 @@ model SiteMedia {
   width2x   Int?
   height2x  Int?
   bytes2x   Int?
+  /// Nom lisible dans la médiathèque (admin seulement, jamais publié)
+  label     String?
+  /// Nom du fichier envoyé, pour le retrouver
+  originalName  String?
+  /// Original conservé sans métadonnées (EXIF, GPS), relatif au dossier des fichiers : recadrage ultérieur. Null : image antérieure à la médiathèque ou reprise du site
+  originalPath  String?
+  originalBytes Int?
+  /// Point d'intérêt du recadrage, de 0 à 1 depuis le coin haut gauche de l'original. Null : recadrage automatique
+  focalX    Float?
+  focalY    Float?
   createdAt DateTime      @default(now())
 }
 

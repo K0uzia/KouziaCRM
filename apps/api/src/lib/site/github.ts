@@ -164,6 +164,17 @@ export async function githubJson<T>(method: "GET" | "POST" | "PATCH", pathname: 
   return (res.status === 204 ? undefined : await res.json()) as T;
 }
 
+/** Fichier binaire de la branche du site (image déjà publiée), null s'il n'y est pas. */
+export async function readSiteRepoBinary(path: string): Promise<Buffer | null> {
+  try {
+    const res = await call(await githubToken(), `/repos/${siteRepo()}/contents/${path}?ref=${siteBranch()}`, "application/vnd.github.raw+json");
+    return Buffer.from(await res.arrayBuffer());
+  } catch (e) {
+    if (e instanceof GithubError && e.status === 404) return null;
+    throw e;
+  }
+}
+
 /** Fichier brut du dépôt à un commit donné (lecture du contrat au moment de publier). */
 export async function readRepoFileAt(path: string, ref: string): Promise<string> {
   const res = await call(await githubToken(), `/repos/${siteRepo()}/contents/${path}?ref=${ref}`, "application/vnd.github.raw+json");

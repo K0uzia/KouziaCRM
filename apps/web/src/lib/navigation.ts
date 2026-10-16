@@ -7,6 +7,7 @@ import {
   faGlobe,
   faHandshake,
   faImages,
+  faPhotoFilm,
   faAddressCard,
   faBullhorn,
   faTags,
@@ -141,6 +142,7 @@ export const SITE_SECTIONS: NavSection[] = [
       { id: "site-reviews", to: "/site/avis", label: "Témoignages", tabLabel: "Retours", icon: faStar, match: starts("/site/avis") },
       { id: "site-references", to: "/site/references", label: "Références", icon: faHandshake, match: starts("/site/references") },
       { id: "site-faq", to: "/site/faq", label: "FAQ", icon: faCircleQuestion, match: starts("/site/faq") },
+      { id: "site-media", to: "/site/images", label: "Images", icon: faPhotoFilm, match: starts("/site/images") },
       {
         id: "site-contact",
         to: "/site/coordonnees",

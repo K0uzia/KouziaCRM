@@ -105,7 +105,7 @@ describe("import puis instantané", () => {
     const snap = await buildSiteSnapshot(contract);
     expect(snap.files.realisations).toBe(withMobile.realisations);
     expect(snap.media).toEqual(["0123456789ab"]);
-    expect(snap.issues.map((i) => i.message)).toContain("Image introuvable dans l'ERP");
+    expect(snap.issues).toContainEqual({ file: "realisations", path: expect.stringContaining("capture de téléphone"), message: expect.stringMatching(/^Image absente de l'ERP \(0123456789ab\) : la renvoyer/) });
   });
 
   it("captures de téléphone réelles (main 08bfe72) : importées telles quelles, tracebay sans clé, aucun écart à republier", async () => {
@@ -221,6 +221,6 @@ describe("import puis instantané", () => {
     expect(messages).toContain("Accord de l'auteur non renseigné");
     expect(messages).toContain("Logo publié sans autorisation pour le logo");
     expect(messages).toContain("Produit « inconnu » absent des réalisations publiées");
-    expect(messages).toContain("Image introuvable dans l'ERP");
+    expect(messages.some((m) => m.startsWith("Image absente de l'ERP"))).toBe(true);
   });
 });

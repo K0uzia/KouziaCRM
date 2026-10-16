@@ -5,6 +5,7 @@ import { SITE_FILES, type SiteIssue } from "@/lib/site/contract.js";
 import { buildSiteSnapshot, type SiteSnapshot } from "@/lib/site/snapshot.js";
 import { readSiteMedia } from "@/lib/site/media.js";
 import { recordPublished } from "@/lib/site/changes.js";
+import { purgePreviousVersions } from "@/lib/site/library.js";
 import { GithubError, githubJson, readRepoFileAt, SITE_CONTENT_DIR, siteBranch, siteRepo } from "@/lib/site/github.js";
 
 /**
@@ -175,6 +176,13 @@ const fail = (id: string, error: string) =>
  * Publie : verrou (une seule publication à la fois), commit unique sur la branche du site (3 essais si
  * elle a bougé entre-temps), puis déclenchement du déploiement. Aucun écart : NOOP, aucun commit.
  */
+/** Contenu arrivé dans le dépôt : empreintes et fichiers publiés enregistrés, anciennes versions d'images retirées. */
+async function afterPublished(readAt: Date, snapshot: SiteSnapshot, publicationId: string): Promise<void> {
+  await recordPublished(readAt, snapshot, publicationId);
+  // Ménage seulement : un échec ici n'annule pas une publication réussie.
+  await purgePreviousVersions().catch((e) => console.error("[site] Ménage des anciennes images impossible :", e instanceof Error ? e.message : e));
+}
+
 export async function publishSite(): Promise<SitePublication> {
   await expireStalePublications();
   let row: SitePublication;
@@ -198,7 +206,7 @@ export async function publishSite(): Promise<SitePublication> {
       p = await plan();
       if (!p.changes.length) {
         // Dépôt déjà identique au contenu saisi : ce qui est marqué « sur le site » y est bien.
-        await recordPublished(readAt, p.snapshot, row.id);
+        await afterPublished(readAt, p.snapshot, row.id);
         return await prisma.sitePublication.update({
           where: { id: row.id },
           data: {
@@ -245,7 +253,7 @@ export async function publishSite(): Promise<SitePublication> {
       data: { status: SitePublicationStatus.COMMITTED, commitSha },
     });
     // Contenu dans le dépôt dès le commit poussé, même si le déploiement échoue ensuite (il se relance depuis l'Action).
-    await recordPublished(readAt, p!.snapshot, row.id);
+    await afterPublished(readAt, p!.snapshot, row.id);
   } catch (e) {
     const message = e instanceof Error ? e.message : "Publication impossible.";
     await fail(row.id, message);
