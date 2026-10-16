@@ -23,6 +23,7 @@ export function Modal({
   footer,
   wide = false,
   fullScreenMobile = false,
+  side = false,
 }: {
   open: boolean;
   onClose: () => void;
@@ -33,7 +34,10 @@ export function Modal({
   wide?: boolean;
   /** Sous 640 px : plein écran (formulaire long saisi au téléphone), feuille du bas sinon. */
   fullScreenMobile?: boolean;
+  /** Panneau latéral : bord droit sur toute la hauteur dès 640 px, plein écran en dessous (publication du site). */
+  side?: boolean;
 }) {
+  const full = fullScreenMobile || side;
   const titleId = useId();
   const descId = useId();
   const panelRef = useRef<HTMLDivElement>(null);
@@ -83,7 +87,7 @@ export function Modal({
   if (!open) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center sm:items-center sm:p-6">
+    <div className={`fixed inset-0 z-50 flex items-end justify-center ${side ? "sm:items-stretch sm:justify-end" : "sm:items-center sm:p-6"}`}>
       <button
         type="button"
         aria-label="Fermer"
@@ -99,13 +103,15 @@ export function Modal({
         aria-modal="true"
         aria-labelledby={titleId}
         aria-describedby={description ? descId : undefined}
-        className={`relative z-10 flex focus:outline-none w-full min-w-0 flex-col overflow-hidden border-[var(--border)] bg-[var(--surface)] pb-[env(safe-area-inset-bottom)] shadow-[var(--shadow)] sm:max-h-[92vh] sm:rounded-[var(--radius-lg)] sm:border ${
-          fullScreenMobile
-            ? "h-dvh max-h-dvh rounded-none border-0 sm:h-auto"
-            : "max-h-[92vh] rounded-t-[var(--radius-lg)] border"
-        } ${wide ? "sm:max-w-3xl" : "sm:max-w-lg"}`}
+        className={`relative z-10 flex focus:outline-none w-full min-w-0 flex-col overflow-hidden border-[var(--border)] bg-[var(--surface)] pb-[env(safe-area-inset-bottom)] shadow-[var(--shadow)] ${
+          side
+            ? "h-dvh max-h-dvh rounded-none border-0 sm:max-w-md sm:border-l"
+            : `sm:max-h-[92vh] sm:rounded-[var(--radius-lg)] sm:border ${
+                fullScreenMobile ? "h-dvh max-h-dvh rounded-none border-0 sm:h-auto" : "max-h-[92vh] rounded-t-[var(--radius-lg)] border"
+              } ${wide ? "sm:max-w-3xl" : "sm:max-w-lg"}`
+        }`}
       >
-        {fullScreenMobile ? null : (
+        {full ? null : (
           <div className="flex h-10 shrink-0 items-center justify-center sm:hidden" aria-hidden>
             <div className="h-1 w-10 rounded-full bg-[var(--muted)]/40" />
           </div>

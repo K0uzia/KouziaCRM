@@ -21,6 +21,7 @@ import { httpsUrl, imagePath, siteText, slug } from "@/lib/site/contract.js";
 import { parseTech } from "@/lib/site/mapping.js";
 import { readSiteText, writeSiteText, isSiteTextKey } from "@/lib/site/texts.js";
 import { buildSiteSnapshot } from "@/lib/site/snapshot.js";
+import { itemHash, pendingChanges, publicationState as itemPublicationState, textHash, type SiteCollection } from "@/lib/site/changes.js";
 import { previewPublication, publicationOut, publishSite, PublishError } from "@/lib/site/publish.js";
 import { TESTIMONIAL_SOURCE, withdrawalsOnSite } from "@/lib/site/testimonials.js";
 import { importSiteFiles, siteContentExists, SiteImportError } from "@/lib/site/import.js";
@@ -192,6 +193,7 @@ type Delegate = {
 function registerCollectionBasics(
   app: Parameters<FastifyPluginAsync>[0],
   base: string,
+  collection: SiteCollection,
   delegate: () => Delegate,
   out: (row: never) => unknown = (row) => row,
   include?: object,
@@ -200,7 +202,8 @@ function registerCollectionBasics(
     base,
     admin(async () => {
       const rows = await delegate().findMany({ orderBy: [{ position: "asc" }, { createdAt: "asc" }], ...(include ? { include } : {}) });
-      return rows.map((r) => out(r as never));
+      // État de publication (Brouillon, Nouveau, Modifié, Publié, retrait à publier), calculé sans GitHub.
+      return rows.map((r) => ({ ...(out(r as never) as object), publication: itemPublicationState(r as never, itemHash(collection, r as never)) }));
     }),
   );
 
@@ -288,8 +291,31 @@ export const siteRoutes: FastifyPluginAsync = async (app) => {
     }),
   );
 
+  /**
+   * Changements qui partiront à la prochaine publication, calculés sans GitHub : compteur et panneau de la barre du
+   * haut. undetailed : le contenu diffère de la dernière publication sans changement identifiable (publication
+   * antérieure au suivi par empreinte) ; la prochaine publication rétablit le détail.
+   */
+  app.get(
+    "/api/site/changes",
+    admin(async () => {
+      const settings = await getCompanySettings();
+      const snapshot = await buildSiteSnapshot();
+      const [{ changes }, publication] = await Promise.all([pendingChanges(snapshot), publicationState(snapshot.digest)]);
+      return {
+        changes,
+        undetailed: publication.unpublished === true && changes.length === 0,
+        unpublished: publication.unpublished,
+        live: publication.live,
+        last: publication.last,
+        issues: snapshot.issues,
+        tokenSet: Boolean(settings.githubTokenEncrypted),
+      };
+    }),
+  );
+
   // --- Réalisations ----------------------------------------------------------------------------
-  registerCollectionBasics(app, "/api/site/projects", () => prisma.siteProject as unknown as Delegate, (p: never) => {
+  registerCollectionBasics(app, "/api/site/projects", "projects", () => prisma.siteProject as unknown as Delegate, (p: never) => {
     const row = p as { techJson: string | null };
     return { ...(row as object), tech: parseTech(row.techJson) ?? [] };
   });
@@ -350,7 +376,7 @@ export const siteRoutes: FastifyPluginAsync = async (app) => {
   );
 
   // --- Avis ------------------------------------------------------------------------------------
-  registerCollectionBasics(app, "/api/site/reviews", () => prisma.siteReview as unknown as Delegate, reviewOutAdmin as (r: never) => unknown, {
+  registerCollectionBasics(app, "/api/site/reviews", "reviews", () => prisma.siteReview as unknown as Delegate, reviewOutAdmin as (r: never) => unknown, {
     project: { select: { id: true, name: true } },
     client: { select: { id: true, displayName: true } },
   });
@@ -508,6 +534,7 @@ export const siteRoutes: FastifyPluginAsync = async (app) => {
   registerCollectionBasics(
     app,
     "/api/site/references",
+    "references",
     () => prisma.siteReference as unknown as Delegate,
     referenceOutAdmin as (r: never) => unknown,
   );
@@ -574,7 +601,7 @@ export const siteRoutes: FastifyPluginAsync = async (app) => {
   );
 
   // --- FAQ -------------------------------------------------------------------------------------
-  registerCollectionBasics(app, "/api/site/faq", () => prisma.siteFaq as unknown as Delegate);
+  registerCollectionBasics(app, "/api/site/faq", "faq", () => prisma.siteFaq as unknown as Delegate);
 
   app.post(
     "/api/site/faq",
@@ -605,12 +632,19 @@ export const siteRoutes: FastifyPluginAsync = async (app) => {
   // --- Coordonnées, accroche, offres ------------------------------------------------------------
   app.get(
     "/api/site/texts",
-    admin(async () => ({
-      infos: await readSiteText("infos"),
-      accroche: await readSiteText("accroche"),
-      offres: await readSiteText("offres"),
-      avisMethode: await readSiteText("avisMethode"),
-    })),
+    admin(async () => {
+      const rows = await prisma.siteText.findMany();
+      const publication = Object.fromEntries(
+        rows.map((t) => [t.key, t.publishedHash && t.publishedHash !== textHash(t.valueJson) ? "modified" : t.publishedHash ? "published" : "unknown"]),
+      );
+      return {
+        infos: await readSiteText("infos"),
+        accroche: await readSiteText("accroche"),
+        offres: await readSiteText("offres"),
+        avisMethode: await readSiteText("avisMethode"),
+        publication,
+      };
+    }),
   );
 
   app.put(

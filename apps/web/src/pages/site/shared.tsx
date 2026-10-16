@@ -8,6 +8,8 @@ import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Field";
 
 export type SiteItemStatus = "DRAFT" | "PUBLISHED" | "WITHDRAWN";
+/** État par rapport à kouzia.com : nouveau, modifié ou retiré depuis la dernière publication (calculé par l'API). */
+export type PublicationState = "draft" | "new" | "modified" | "published" | "removal" | "withdrawn";
 
 type SiteItem = {
   id: string;
@@ -16,6 +18,7 @@ type SiteItem = {
   createdAt: string;
   updatedAt: string;
   publishedAt: string | null;
+  publication?: PublicationState;
 };
 
 export type SiteProject = SiteItem & {
@@ -119,13 +122,24 @@ export const STATUS_OPTIONS: ReadonlyArray<{ id: SiteItemStatus; label: string }
   { id: "WITHDRAWN", label: "Retiré du site" },
 ];
 
-export function statusView(row: Pick<SiteItem, "status" | "publishedAt">): { label: string; tone: "neutral" | "green" | "blue" | "amber" } {
+const PUBLICATION_VIEW: Record<PublicationState, { label: string; tone: "neutral" | "green" | "blue" | "amber" | "red" }> = {
+  draft: { label: "Brouillon", tone: "neutral" },
+  new: { label: "Nouveau", tone: "blue" },
+  modified: { label: "Modifié", tone: "amber" },
+  published: { label: "Publié", tone: "green" },
+  removal: { label: "À retirer", tone: "red" },
+  withdrawn: { label: "Retiré", tone: "neutral" },
+};
+
+/** Statut affiché : état de publication de l'API ; sans lui (réponse ancienne), statut saisi et date de publication. */
+export function statusView(row: Pick<SiteItem, "status" | "publishedAt" | "publication">): { label: string; tone: "neutral" | "green" | "blue" | "amber" | "red" } {
+  if (row.publication) return PUBLICATION_VIEW[row.publication];
   if (row.status === "DRAFT") return { label: "Brouillon", tone: "neutral" };
   if (row.status === "WITHDRAWN") return { label: "Retiré", tone: "amber" };
   return row.publishedAt ? { label: "Publié", tone: "green" } : { label: "Prêt à publier", tone: "blue" };
 }
 
-export function StatusBadge({ row }: { row: Pick<SiteItem, "status" | "publishedAt"> }) {
+export function StatusBadge({ row }: { row: Pick<SiteItem, "status" | "publishedAt" | "publication"> }) {
   const v = statusView(row);
   return <Badge tone={v.tone}>{v.label}</Badge>;
 }

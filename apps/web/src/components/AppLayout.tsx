@@ -18,6 +18,9 @@ import { NotificationBell } from "@/components/NotificationBell";
 import { PageErrorBoundary } from "@/components/PageErrorBoundary";
 import { NotificationsProvider } from "@/lib/notifications";
 import { MoreMenu } from "@/components/ui/MoreMenu";
+
+// Publication du site : seulement dans l'espace Site, chargé à la demande.
+const SitePublishBar = lazy(() => import("@/components/site/SitePublishBar"));
 import { useNewMailAlert } from "@/hooks/useNewMailAlert";
 import {
   filterSections,
@@ -394,7 +397,12 @@ export function AppLayout() {
               </Link>
             ) : null}
           </nav>
-          <Link to="/" className="flex min-h-11 min-w-0 flex-1 items-center gap-2 md:hidden" aria-label="Kouzia ERP, tableau de bord">
+          {/* Espace Site sous 352 px : titre masqué, la place va au bouton Publier (la page garde son titre). */}
+          <Link
+            to="/"
+            className={`min-h-11 min-w-0 flex-1 items-center gap-2 md:hidden ${space.id === "site" ? "hidden min-[22rem]:flex" : "flex"}`}
+            aria-label="Kouzia ERP, tableau de bord"
+          >
             {/* Sous 400 px : logo masqué, titre court, pour garder le titre lisible à côté des actions. */}
             <BrandMark className="hidden h-7 w-7 shrink-0 min-[25rem]:block" />
             <span className="truncate font-display text-base font-semibold">
@@ -421,6 +429,11 @@ export function AppLayout() {
               <FontAwesomeIcon icon={faMagnifyingGlass} className="h-4 w-4" />
             </button>
             <NotificationBell />
+            {space.id === "site" ? (
+              <Suspense fallback={null}>
+                <SitePublishBar />
+              </Suspense>
+            ) : null}
             <MoreMenu
               items={createItems}
               label={<span className="hidden sm:inline">Créer</span>}
