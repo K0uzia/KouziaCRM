@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type FormEvent, type ReactNode } from "react";
+import { useEffect, useState, type FormEvent, type ReactNode } from "react";
 import { Navigate, useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
@@ -6,8 +6,8 @@ import { Card, PageHeader } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { Field, Input, Textarea } from "@/components/ui/Field";
 import { fieldErrorsOf, LoadState, type FieldErrors } from "./shared";
-import { EditorFooter, EditorLayout, useAutosave } from "./editor";
-import { OfferCardPreview } from "./preview";
+import { EditorFooter, EditorLayout, useDocumentEditor } from "./editor";
+import { ContactPreview, OfferCardPreview } from "./preview";
 
 /** Textes uniques du site (table SiteText), un écran chacun : coordonnées, accroche, offres. */
 
@@ -159,77 +159,131 @@ function FormCard({ onSubmit, busy, columns = false, children }: { onSubmit: (e:
   );
 }
 
-function Section({ title, wide = false, children }: { title: string; wide?: boolean; children: ReactNode }) {
-  return (
-    <fieldset className={`min-w-0 space-y-4${wide ? " xl:col-span-2" : ""}`}>
-      <legend className="text-sm font-semibold">{title}</legend>
-      {children}
-    </fieldset>
-  );
+type InfosDraft = {
+  email: string;
+  telephone: string;
+  delaiReponse: string;
+  anneesExperience: string;
+  zone: string;
+  villes: string;
+  github: string;
+  instagram: string;
+  ficheGoogle: string;
+  avisGoogle: string;
+};
+
+const infosValue = (f: InfosDraft): Infos => ({ ...f, anneesExperience: Number(f.anneesExperience), villes: lines(f.villes) });
+const HTTPS = /^https:\/\/[^\s/]+\.[^\s]+$/;
+
+/** Règles de l'API (infos.json) reprises avant l'envoi. */
+function infosErrors(f: InfosDraft): FieldErrors {
+  const e: FieldErrors = {};
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(f.email.trim())) e.email = "Adresse e-mail complète attendue.";
+  if (!/^0\d( \d\d){4}$/.test(f.telephone.trim())) e.telephone = "Téléphone au format 06 12 34 56 78.";
+  if (!f.delaiReponse.trim()) e.delaiReponse = "Délai obligatoire (affiché sous le bloc contact).";
+  const annees = Number(f.anneesExperience);
+  if (f.anneesExperience.trim() === "" || !Number.isInteger(annees) || annees < 0 || annees > 80) e.anneesExperience = "Nombre entier de 0 à 80.";
+  if (!f.zone.trim()) e.zone = "Zone obligatoire.";
+  if (!lines(f.villes).length) e.villes = "Au moins une ville.";
+  for (const k of ["github", "instagram", "ficheGoogle", "avisGoogle"] as const) {
+    if (!HTTPS.test(f[k].trim())) e[k] = "Adresse https complète attendue.";
+  }
+  return e;
 }
 
+/** Coordonnées et réseaux : fiche en onglets, enregistrement automatique, aperçu des moyens de contact du site. */
 function InfosForm({ initial, onSaved }: { initial: Infos | null; onSaved: (v: Infos) => void }) {
-  const [f, setF] = useState(() => ({
-    email: initial?.email ?? "",
-    telephone: initial?.telephone ?? "",
-    delaiReponse: initial?.delaiReponse ?? "",
-    anneesExperience: initial ? String(initial.anneesExperience) : "",
-    zone: initial?.zone ?? "",
-    villes: initial?.villes.join("\n") ?? "",
-    github: initial?.github ?? "",
-    instagram: initial?.instagram ?? "",
-    ficheGoogle: initial?.ficheGoogle ?? "",
-    avisGoogle: initial?.avisGoogle ?? "",
-  }));
-  const { errors, busy, save } = useTextForm<Infos>("infos", onSaved);
-  const set = (k: keyof typeof f) => (e: { target: { value: string } }) => setF((x) => ({ ...x, [k]: e.target.value }));
-  const onSubmit = (e: FormEvent) => {
-    e.preventDefault();
-    void save({ ...f, anneesExperience: Number(f.anneesExperience), villes: lines(f.villes) });
-  };
+  const doc = useDocumentEditor<InfosDraft, Infos>({
+    textKey: "infos",
+    initial: {
+      email: initial?.email ?? "",
+      telephone: initial?.telephone ?? "",
+      delaiReponse: initial?.delaiReponse ?? "",
+      anneesExperience: initial ? String(initial.anneesExperience) : "",
+      zone: initial?.zone ?? "",
+      villes: initial?.villes.join("\n") ?? "",
+      github: initial?.github ?? "",
+      instagram: initial?.instagram ?? "",
+      ficheGoogle: initial?.ficheGoogle ?? "",
+      avisGoogle: initial?.avisGoogle ?? "",
+    },
+    toValue: infosValue,
+    validate: infosErrors,
+    onSaved,
+  });
+  const { form: f, errorFor } = doc;
+  const set = (k: keyof InfosDraft) => (e: { target: { value: string } }) => doc.set(k, e.target.value);
+
+  const joindre = (
+    <div className="space-y-4">
+      <div className="grid gap-4 sm:grid-cols-2">
+        <Field label="Adresse e-mail affichée" error={errorFor("email")}>
+          <Input type="email" autoComplete="email" value={f.email} onChange={set("email")} />
+        </Field>
+        <Field label="Téléphone affiché" hint="Sous la forme 06 12 34 56 78" error={errorFor("telephone")}>
+          <Input type="tel" inputMode="tel" autoComplete="tel" value={f.telephone} onChange={set("telephone")} />
+        </Field>
+      </div>
+      <Field label="Délai de réponse annoncé" hint="Exemple : sous 24 à 48 h. Affiché « Réponse sous 24 à 48 h. »" error={errorFor("delaiReponse")}>
+        <Input autoComplete="off" value={f.delaiReponse} onChange={set("delaiReponse")} />
+      </Field>
+    </div>
+  );
+  const activite = (
+    <div className="space-y-4">
+      <Field label="Années d'expérience" error={errorFor("anneesExperience")}>
+        <Input type="number" inputMode="numeric" min={0} max={80} value={f.anneesExperience} onChange={set("anneesExperience")} />
+      </Field>
+      <Field label="Zone d'intervention" hint="Une ou deux phrases : sur place et à distance." error={errorFor("zone")}>
+        <Textarea rows={3} value={f.zone} onChange={set("zone")} />
+      </Field>
+      <Field label="Villes mises en avant" hint="Une ville par ligne." error={errorFor("villes")}>
+        <Textarea className="field-sizing-content" rows={rowsFor(f.villes)} value={f.villes} onChange={set("villes")} />
+      </Field>
+    </div>
+  );
+  const reseaux = (
+    <div className="grid gap-4 sm:grid-cols-2">
+      <Field label="Profil GitHub" error={errorFor("github")}>
+        <Input type="url" inputMode="url" autoComplete="url" value={f.github} onChange={set("github")} />
+      </Field>
+      <Field label="Compte Instagram" error={errorFor("instagram")}>
+        <Input type="url" inputMode="url" autoComplete="url" value={f.instagram} onChange={set("instagram")} />
+      </Field>
+      <Field label="Fiche Google de l'entreprise" error={errorFor("ficheGoogle")}>
+        <Input type="url" inputMode="url" autoComplete="url" value={f.ficheGoogle} onChange={set("ficheGoogle")} />
+      </Field>
+      <Field label="Lien « Laisser un avis Google »" error={errorFor("avisGoogle")}>
+        <Input type="url" inputMode="url" autoComplete="url" value={f.avisGoogle} onChange={set("avisGoogle")} />
+      </Field>
+    </div>
+  );
+
   return (
-    <FormCard onSubmit={onSubmit} busy={busy} columns>
-      <Section title="Pour vous joindre">
-        <div className="grid gap-4 sm:grid-cols-2">
-          <Field label="Adresse e-mail affichée" error={errorFor(errors, "email")}>
-            <Input type="email" autoComplete="off" value={f.email} onChange={set("email")} />
-          </Field>
-          <Field label="Téléphone affiché" hint="Sous la forme 06 12 34 56 78" error={errorFor(errors, "telephone")}>
-            <Input type="tel" inputMode="tel" autoComplete="off" value={f.telephone} onChange={set("telephone")} />
-          </Field>
-        </div>
-        <Field label="Délai de réponse annoncé" hint="Exemple : sous 24 à 48 h" error={errorFor(errors, "delaiReponse")}>
-          <Input value={f.delaiReponse} onChange={set("delaiReponse")} />
-        </Field>
-      </Section>
-      <Section title="Votre activité">
-        <Field label="Années d'expérience" error={errorFor(errors, "anneesExperience")}>
-          <Input type="number" inputMode="numeric" min={0} max={80} value={f.anneesExperience} onChange={set("anneesExperience")} />
-        </Field>
-        <Field label="Zone d'intervention" hint="Une ou deux phrases : sur place et à distance." error={errorFor(errors, "zone")}>
-          <Textarea rows={3} value={f.zone} onChange={set("zone")} />
-        </Field>
-        <Field label="Villes mises en avant" hint="Une ville par ligne." error={errorFor(errors, "villes")}>
-          <Textarea className="field-sizing-content" rows={rowsFor(f.villes)} value={f.villes} onChange={set("villes")} />
-        </Field>
-      </Section>
-      <Section title="Réseaux et Google" wide>
-        <div className="grid gap-4 sm:grid-cols-2">
-          <Field label="Profil GitHub" error={errorFor(errors, "github")}>
-            <Input type="url" inputMode="url" value={f.github} onChange={set("github")} />
-          </Field>
-          <Field label="Compte Instagram" error={errorFor(errors, "instagram")}>
-            <Input type="url" inputMode="url" value={f.instagram} onChange={set("instagram")} />
-          </Field>
-          <Field label="Fiche Google de l'entreprise" error={errorFor(errors, "ficheGoogle")}>
-            <Input type="url" inputMode="url" value={f.ficheGoogle} onChange={set("ficheGoogle")} />
-          </Field>
-          <Field label="Lien « Laisser un avis Google »" error={errorFor(errors, "avisGoogle")}>
-            <Input type="url" inputMode="url" value={f.avisGoogle} onChange={set("avisGoogle")} />
-          </Field>
-        </div>
-      </Section>
-    </FormCard>
+    <form noValidate onSubmit={doc.onSubmit}>
+      <EditorLayout
+        label="Sections des coordonnées"
+        tabs={[
+          { id: "joindre", label: "Pour vous joindre", content: joindre, errors: doc.count("email", "telephone", "delaiReponse") },
+          { id: "activite", label: "Activité", content: activite, errors: doc.count("anneesExperience", "zone", "villes") },
+          { id: "reseaux", label: "Réseaux et Google", content: reseaux, errors: doc.count("github", "instagram", "ficheGoogle", "avisGoogle") },
+        ]}
+        preview={() => (
+          <ContactPreview
+            email={f.email.trim()}
+            telephone={f.telephone.trim()}
+            zone={f.zone.trim()}
+            delaiReponse={f.delaiReponse.trim()}
+            liens={[
+              { label: "GitHub", url: f.github.trim() },
+              { label: "Instagram", url: f.instagram.trim() },
+              { label: "Fiche Google", url: f.ficheGoogle.trim() },
+            ]}
+          />
+        )}
+        footer={<EditorFooter auto={doc.auto} creating={false} busy={false} createLabel="" />}
+      />
+    </form>
   );
 }
 
@@ -277,38 +331,23 @@ function offresErrors(f: OffresDraft): FieldErrors {
 
 /** Offres : deux formules et le tarif, enregistrés automatiquement, avec l'aperçu de la formule sur le site. */
 function OffresForm({ initial, onSaved }: { initial: Offres | null; onSaved: (v: Offres) => void }) {
-  const [initialDraft] = useState<OffresDraft>(() => ({
-    siteTitre: initial?.formules.site.titre ?? "",
-    siteItems: initial?.formules.site.items.join("\n") ?? "",
-    logicielTitre: initial?.formules.logiciel.titre ?? "",
-    logicielItems: initial?.formules.logiciel.items.join("\n") ?? "",
-    tarif: initial?.tarif ?? "",
-  }));
-  const [f, setF] = useState(initialDraft);
-  const [errors, setErrors] = useState<FieldErrors>({});
-  const save = useCallback(
-    async (draft: OffresDraft) => {
-      const local = offresErrors(draft);
-      setErrors(local);
-      if (Object.keys(local).length) throw new Error("champs à compléter");
-      try {
-        onSaved(await api<Offres>("/api/site/texts/offres", { method: "PUT", body: JSON.stringify(offresValue(draft)) }));
-      } catch (e) {
-        setErrors(fieldErrorsOf(e));
-        throw e;
-      }
+  const doc = useDocumentEditor<OffresDraft, Offres>({
+    textKey: "offres",
+    initial: {
+      siteTitre: initial?.formules.site.titre ?? "",
+      siteItems: initial?.formules.site.items.join("\n") ?? "",
+      logicielTitre: initial?.formules.logiciel.titre ?? "",
+      logicielItems: initial?.formules.logiciel.items.join("\n") ?? "",
+      tarif: initial?.tarif ?? "",
     },
-    [onSaved],
-  );
-  const auto = useAutosave(f, save, true);
-  const { reset } = auto;
-  useEffect(() => reset(initialDraft), [reset, initialDraft]);
-  const hasErrors = Object.keys(errors).length > 0;
-  useEffect(() => {
-    if (hasErrors) setErrors(offresErrors(f));
-  }, [f, hasErrors]);
+    toValue: offresValue,
+    validate: offresErrors,
+    onSaved,
+  });
+  const { form: f, errors, auto } = doc;
+  const setF = doc.setForm;
   const set = (k: keyof OffresDraft) => (e: { target: { value: string } }) => setF((x) => ({ ...x, [k]: e.target.value }));
-  const count = (prefix: string) => Object.keys(errors).filter((k) => k === prefix || k.startsWith(`${prefix}.`)).length;
+  const count = (prefix: string) => doc.count(prefix);
   const value = offresValue(f);
 
   const formule = (kind: "site" | "logiciel") => (
@@ -328,13 +367,7 @@ function OffresForm({ initial, onSaved }: { initial: Offres | null; onSaved: (v:
   );
 
   return (
-    <form
-      noValidate
-      onSubmit={(e) => {
-        e.preventDefault();
-        void auto.flush();
-      }}
-    >
+    <form noValidate onSubmit={doc.onSubmit}>
       <EditorLayout
         label="Sections des offres"
         tabs={[

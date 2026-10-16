@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { faArrowUpRightFromSquare, faCheck, faImage, faQuoteLeft } from "@fortawesome/free-solid-svg-icons";
+import { faArrowUpRightFromSquare, faCheck, faEnvelope, faImage, faLocationDot, faPhone, faQuoteLeft } from "@fortawesome/free-solid-svg-icons";
 import { siteImageSrc } from "./shared";
 import type { PreviewDevice } from "./editor";
 
@@ -202,6 +202,55 @@ export function OfferCardPreview({ titre, items, tarif }: { titre: string; items
       <span className="inline-flex min-h-11 items-center rounded-[var(--radius)] border border-[var(--border-strong)] px-4 font-semibold">
         Demander un devis de maintenance
       </span>
+    </div>
+  );
+}
+
+/**
+ * Moyens de contact du bloc Contact (Contact.astro) et liens vers les réseaux. La ville (Huelgoat, Finistère,
+ * Bretagne) est écrite dans le site ; le titre et l'intro du bloc viennent des textes des pages.
+ */
+export function ContactPreview({
+  email,
+  telephone,
+  zone,
+  delaiReponse,
+  liens,
+}: {
+  email: string;
+  telephone: string;
+  zone: string;
+  delaiReponse: string;
+  liens: Array<{ label: string; url: string }>;
+}) {
+  const ligne = "flex items-baseline gap-3";
+  const icone = "h-3.5 w-3.5 flex-none text-[var(--apercu-accent)]";
+  return (
+    <div className="space-y-4 text-[var(--text)]">
+      <p className="font-mono text-[0.8125rem] uppercase tracking-[0.14em] text-[var(--apercu-accent)]">Contact</p>
+      <ul className="space-y-3">
+        <li className={ligne}>
+          <FontAwesomeIcon icon={faEnvelope} className={icone} aria-hidden />
+          <span className="min-w-0 break-all font-semibold">{email || "adresse e-mail"}</span>
+        </li>
+        <li className={ligne}>
+          <FontAwesomeIcon icon={faPhone} className={icone} aria-hidden />
+          <span className="font-semibold">{telephone || "téléphone"}</span>
+        </li>
+        <li className={ligne}>
+          <FontAwesomeIcon icon={faLocationDot} className={icone} aria-hidden />
+          <span className="text-[var(--muted)]">Huelgoat, Finistère, Bretagne. {zone || "Zone d'intervention."}</span>
+        </li>
+      </ul>
+      <p className="text-[0.9rem] text-[var(--muted)]">Réponse {delaiReponse || "(délai)"}.</p>
+      <ul className="flex flex-wrap gap-x-4 gap-y-1 border-t border-[var(--border)] pt-3 text-[0.9rem]">
+        {liens.map((l) => (
+          <li key={l.label} className={l.url ? "text-[var(--apercu-accent)]" : "text-[var(--muted)]"}>
+            {l.label}
+            {l.url ? "" : " (vide)"}
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }
