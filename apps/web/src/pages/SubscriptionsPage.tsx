@@ -1001,6 +1001,7 @@ export function SubscriptionsPage() {
             </Field>
             {firstInvoiceEditable ? (
               <Field
+                className="sm:col-span-3"
                 label="1re facture (facultatif)"
                 hint="Vide : au prochain jour de prélèvement. Pour offrir une période (ex. un an), la date de la 1re facture ; le client est prévenu 30 jours avant."
               >

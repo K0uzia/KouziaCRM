@@ -528,7 +528,7 @@ export function InvoiceDocument({ company, client, invoice }: InvoicePdfData) {
                       : `Abonnement mensuel, facturé chaque mois${line.billingDay ? ` le ${line.billingDay}` : ""}`}{" "}
                     : {fmtMoney(line.unitPriceCents)}.{" "}
                     {line.startText
-                      ? `Facturation : ${line.startText}.`
+                      ? `Facturation : ${line.startText}.`
                       : invoice.subscriptionOnly
                         ? "Facturé à partir de la signature, sans acompte."
                         : invoice.subscriptionFromDelivery
@@ -603,7 +603,7 @@ export function InvoiceDocument({ company, client, invoice }: InvoicePdfData) {
                       : `chaque mois${l.billingDay ? ` le ${l.billingDay}` : ""}`
                   }. ${
                     l.startText
-                      ? `Départ de la facturation : ${l.startText}.`
+                      ? `Départ de la facturation : ${l.startText}.`
                       : invoice.subscriptionOnly
                       ? "1re échéance facturée à partir de la signature, sans acompte."
                       : invoice.subscriptionFromDelivery

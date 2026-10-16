@@ -837,9 +837,11 @@ function SubscriptionStartFields({
       </div>
       <p className="text-[var(--muted)]" aria-live="polite">
         {phrase ? `Sur le devis : « ${phrase} », sans acompte.` : "Complétez la date ou le nombre de mois offerts."}
-        {start.subscriptionStart === "DATE" || start.subscriptionStart === "FREE_MONTHS"
+        {start.subscriptionStart === "DATE"
           ? " 1re facture au premier jour de prélèvement à partir de cette date."
-          : ""}
+          : start.subscriptionStart === "FREE_MONTHS"
+            ? " 1re facture au premier jour de prélèvement après les mois offerts."
+            : ""}
       </p>
     </div>
   );
