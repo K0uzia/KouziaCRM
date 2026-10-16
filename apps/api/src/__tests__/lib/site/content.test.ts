@@ -9,10 +9,11 @@ import { buildSiteSnapshot } from "@/lib/site/snapshot.js";
 import { resetDb } from "../../helpers/db.js";
 import { createClient, seedCompanySettings } from "../../helpers/factories.js";
 
-// Fichiers réels du site (KouziaWebsite, src/content/site, main 600dec6) : le contrat et son export.
+// Fichiers réels du site (KouziaWebsite, src/content/site, main 600dec6) et le contrat de cette version, antérieur aux textes
+// alternatifs et au lot 6 (site pas encore à jour) ; contenu.schema.json est le contrat en ligne (main b2b331c).
 const fixture = (name: string) => readFileSync(fileURLToPath(new URL(`../../fixtures/site/${name}`, import.meta.url)), "utf8");
 const raw = Object.fromEntries(SITE_FILES.map((n) => [n, fixture(`${n}.json`)])) as Record<SiteFileName, string>;
-const contract = JSON.parse(fixture("contenu.schema.json")) as unknown;
+const contract = JSON.parse(fixture("contenu.schema.600dec6.json")) as unknown;
 const parsed = () => Object.fromEntries(SITE_FILES.map((n) => [n, JSON.parse(raw[n])])) as Record<SiteFileName, any>; // eslint-disable-line @typescript-eslint/no-explicit-any
 
 beforeEach(async () => {
@@ -95,8 +96,8 @@ describe("import puis instantané", () => {
   });
 
   it("textes alternatifs (contrat 5edecfc) : imageAlt après imageMobile, \"\" = décorative, absent = calcul du site ; logoAlt jamais vide ; refusés par le contrat en ligne avec un message clair", async () => {
-    // Contrat du site avec imageAlt et logoAlt (KouziaWebsite, integration ff2e9f3) ; `contract` reste celui en ligne.
-    const nouveau = JSON.parse(fixture("contenu.schema.textes-alternatifs.json")) as unknown;
+    // Contrat en ligne (b2b331c), avec imageAlt et logoAlt ; `contract` est celui d'un site pas encore à jour (600dec6).
+    const nouveau = JSON.parse(fixture("contenu.schema.json")) as unknown;
     const ALT = "Page d'accueil du site de La Capsule, réservation de salles";
     await importSiteFiles(raw);
     await prisma.siteProject.update({ where: { slug: "la-capsule" }, data: { imageAlt: ALT } });
@@ -121,7 +122,7 @@ describe("import puis instantané", () => {
     expect((await prisma.siteProject.findUniqueOrThrow({ where: { slug: "capsuleos" } })).imageAlt).toBeNull();
     expect((await buildSiteSnapshot(nouveau)).files.realisations).toBe(repris.realisations);
 
-    // Site en ligne pas encore à jour : blocage avec ce qu'il faut faire, jamais un message technique.
+    // Site pas encore à jour : blocage avec ce qu'il faut faire, jamais un message technique.
     const enLigne = (await buildSiteSnapshot(contract)).issues.filter((i) => i.message.includes("pas encore pris en charge"));
     expect(enLigne.length).toBeGreaterThan(0);
     expect(enLigne[0]!.message).toMatch(/^Contrat du site : imageAlt pas encore pris en charge par kouzia\.com ; mettre le site à jour/);

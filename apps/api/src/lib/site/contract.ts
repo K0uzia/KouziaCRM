@@ -123,12 +123,134 @@ export const siteFileSchemas = {
 
 export type SiteFiles = { [K in SiteFileName]: z.output<(typeof siteFileSchemas)[K]> };
 
+/**
+ * Fichiers facultatifs (lot 6), déclarés par le site sous « fichiersFacultatifs » de contenu.schema.json : absents,
+ * le site garde ses textes actuels. L'ERP ne les écrit que si le contrat du dépôt les connaît.
+ */
+export const SITE_OPTIONAL_FILES = ["pages", "seo", "menus"] as const;
+export type SiteOptionalFileName = (typeof SITE_OPTIONAL_FILES)[number];
+export type SiteAnyFileName = SiteFileName | SiteOptionalFileName;
+
+/** Pages indexables du site (clés de contenu.ts), seules visées par seo.json et les menus. */
+export const SITE_PAGE_IDS = ["accueil", "sitesWeb", "logiciels", "faq", "aPropos"] as const;
+export type SitePageId = (typeof SITE_PAGE_IDS)[number];
+
+/** Nom d'une page du site dans l'ERP (récapitulatif de publication). */
+export const SITE_PAGE_LABEL: Record<SitePageId, string> = {
+  accueil: "Accueil",
+  sitesWeb: "Sites web",
+  logiciels: "Logiciels",
+  faq: "Questions fréquentes",
+  aPropos: "À propos",
+};
+/** Cibles d'un lien de menu : pages, ancres de l'accueil, et l'espace client (pied seulement : l'en-tête a son lien fixe). */
+export const MENU_HEADER_TARGETS = [...SITE_PAGE_IDS, "services", "realisations", "methode", "contact"] as const;
+export const MENU_TARGETS = [...MENU_HEADER_TARGETS, "espaceClient"] as const;
+export type MenuTarget = (typeof MENU_TARGETS)[number];
+
+/** Variables permises dans les textes du site, remplacées par le site au build. */
+export const SITE_TEXT_VARIABLES = ["ville", "delaiReponse"] as const;
+const KNOWN_VARIABLES_ONLY = /^(?:[^{}]|\{(?:ville|delaiReponse)\})*$/;
+const template = (max: number) =>
+  siteText.max(max).regex(KNOWN_VARIABLES_ONLY, "Variable inconnue : seules {ville} et {delaiReponse} sont permises");
+const plainTemplate = (max: number) => template(max).regex(/^[^*]*$/, "Astérisque interdit ici");
+/** Titre avec au plus un passage *entre astérisques*, affiché en couleur d'accent sur le site. */
+const accentTemplate = (max: number) => template(max).regex(/^[^*]*(\*[^*\s][^*]*\*[^*]*)?$/, "Un seul passage *entre astérisques* au plus");
+
+const pageBlock = z.strictObject({ surTitre: plainTemplate(40).optional(), titre: plainTemplate(90).optional(), intro: plainTemplate(300).optional() });
+const serviceHero = z.strictObject({ surTitre: plainTemplate(60).optional(), titre: plainTemplate(90).optional(), intro: plainTemplate(300).optional() });
+/** pages.json sans schemaVersion (lot 6 A) : textes affichés des pages, ordre des clés du contrat du site. */
+export const pagesValue = z.strictObject({
+  pages: z.strictObject({
+    accueil: z
+      .strictObject({
+        hero: z.strictObject({ surTitre: plainTemplate(60).optional(), titre: accentTemplate(90).optional() }).optional(),
+        services: pageBlock.optional(),
+        realisations: pageBlock.optional(),
+        maintenanceOption: z.strictObject({ titre: plainTemplate(60).optional(), texte: plainTemplate(200).optional() }).optional(),
+        zone: z.strictObject({ titre: plainTemplate(60).optional(), texte: plainTemplate(400).optional() }).optional(),
+        contact: z.strictObject({ titre: accentTemplate(90).optional(), intro: plainTemplate(300).optional() }).optional(),
+      })
+      .optional(),
+    sitesWeb: z.strictObject({ hero: serviceHero.optional() }).optional(),
+    logiciels: z.strictObject({ hero: serviceHero.optional() }).optional(),
+    aPropos: z.strictObject({ titre: plainTemplate(90).optional(), histoire: plainTemplate(600).optional() }).optional(),
+    faq: z.strictObject({ intro: plainTemplate(300).optional() }).optional(),
+  }),
+});
+
+export const SEO_TITLE_MAX = 60;
+export const SEO_DESCRIPTION_MIN = 140;
+export const SEO_DESCRIPTION_MAX = 155;
+export const SEO_IMAGE_ALT_MAX = 120;
+export const MENU_LABEL_MAX = 30;
+export const shareImagePath = z.string().regex(/^\/media\/[a-z0-9]{12}\.jpg$/, "Image de partage attendue : /media/<12 caractères>.jpg");
+
+const seoShare = {
+  description: template(SEO_DESCRIPTION_MAX).min(SEO_DESCRIPTION_MIN).optional(),
+  image: shareImagePath.optional(),
+  imageAlt: plainTemplate(SEO_IMAGE_ALT_MAX).optional(),
+};
+const seoPage = z.strictObject({ titre: plainTemplate(SEO_TITLE_MAX).optional(), ...seoShare });
+/** seo.json sans schemaVersion. Charte : le titre de l'accueil est fixe, la clé titre y est refusée. */
+export const seoValue = z.strictObject({
+  pages: z.strictObject({
+    accueil: z.strictObject(seoShare).optional(),
+    sitesWeb: seoPage.optional(),
+    logiciels: seoPage.optional(),
+    faq: seoPage.optional(),
+    aPropos: seoPage.optional(),
+  }),
+});
+
+const menuEntry = <T extends readonly [string, ...string[]]>(targets: T) =>
+  z.strictObject({ cible: z.enum(targets), libelle: plainTemplate(MENU_LABEL_MAX).optional() });
+const noDuplicateTarget = (l: { cible: string }[]) => new Set(l.map((e) => e.cible)).size === l.length;
+/** menus.json sans schemaVersion : liens d'en-tête (1 à 6) et de pied de page (1 à 10). */
+export const menusValue = z.strictObject({
+  entete: z.array(menuEntry(MENU_HEADER_TARGETS)).min(1).max(6).refine(noDuplicateTarget, "Cible en double").optional(),
+  pied: z.array(menuEntry(MENU_TARGETS)).min(1).max(10).refine(noDuplicateTarget, "Cible en double").optional(),
+});
+
+export const siteOptionalSchemas = {
+  pages: file({ pages: pagesValue.shape.pages }),
+  seo: file({ pages: seoValue.shape.pages }),
+  menus: file(menusValue.shape),
+} satisfies Record<SiteOptionalFileName, z.ZodType>;
+
+/** Fichiers facultatifs que le contrat du dépôt déclare : seuls ceux-là sont publiables. */
+export function contractOptionalFiles(contract: unknown): Set<SiteOptionalFileName> {
+  const declared = (contract as { fichiersFacultatifs?: Record<string, unknown> } | null)?.fichiersFacultatifs ?? {};
+  return new Set(SITE_OPTIONAL_FILES.filter((n) => Object.hasOwn(declared, `${n}.json`)));
+}
+
+/** Valide les fichiers facultatifs produits : règles de l'ERP, puis le schéma déclaré par le site, s'il est fourni. */
+export function validateOptionalSiteFiles(files: Partial<Record<SiteOptionalFileName, unknown>>, contract?: unknown): SiteIssue[] {
+  const issues: SiteIssue[] = [];
+  const declared = (contract as { fichiersFacultatifs?: Record<string, unknown> } | null)?.fichiersFacultatifs ?? {};
+  for (const name of SITE_OPTIONAL_FILES) {
+    if (files[name] === undefined) continue;
+    const local = siteOptionalSchemas[name].safeParse(files[name]);
+    if (!local.success) {
+      for (const i of local.error.issues) issues.push({ file: name, path: i.path.join(".") || "(racine)", message: i.message });
+    }
+    const js = declared[`${name}.json`];
+    if (js) {
+      const r = z.fromJSONSchema(js as Parameters<typeof z.fromJSONSchema>[0]).safeParse(files[name]);
+      if (!r.success) {
+        for (const i of r.error.issues) issues.push({ file: name, path: i.path.join(".") || "(racine)", message: `Contrat du site : ${i.message}` });
+      }
+    }
+  }
+  return issues;
+}
+
 /** Sérialisation identique aux fichiers du dépôt : 2 espaces, saut de ligne final (LF). */
 export function serializeSiteFile(value: unknown): string {
   return `${JSON.stringify(value, null, 2)}\n`;
 }
 
-export type SiteIssue = { file: SiteFileName; path: string; message: string };
+export type SiteIssue = { file: SiteAnyFileName; path: string; message: string };
 
 /**
  * Valide les 6 fichiers : règles de l'ERP (charte comprise), puis, si fourni, contenu.schema.json lu dans

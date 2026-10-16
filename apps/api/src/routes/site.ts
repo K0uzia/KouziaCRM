@@ -20,6 +20,7 @@ import { secretMeta } from "@/lib/settings/secrets.js";
 import { httpsUrl, imagePath, SITE_FILES, siteText, slug } from "@/lib/site/contract.js";
 import { parseTech } from "@/lib/site/mapping.js";
 import { readSiteText, writeSiteText, isSiteTextKey } from "@/lib/site/texts.js";
+import { readSiteDefaults, textVariables } from "@/lib/site/seo-menus.js";
 import { buildSiteSnapshot } from "@/lib/site/snapshot.js";
 import { itemHash, pendingChanges, publicationState as itemPublicationState, textHash, type SiteCollection } from "@/lib/site/changes.js";
 import { previewPublication, publicationOut, publishSite, PublishError } from "@/lib/site/publish.js";
@@ -30,12 +31,11 @@ import {
   loadSharp,
   readSiteMedia,
   saveSiteImage,
-  siteMediaPublicPath,
   SiteMediaError,
   SITE_MEDIA_MAX_INPUT_BYTES,
 } from "@/lib/site/media.js";
 import { HistoryError, publicationDetail, restoreVersion } from "@/lib/site/history.js";
-import { adoptMissingMedia, deleteLibraryMedia, LibraryError, listLibrary, recropLibraryMedia } from "@/lib/site/library.js";
+import { adoptMissingMedia, deleteLibraryMedia, LibraryError, libraryPath, listLibrary, recropLibraryMedia } from "@/lib/site/library.js";
 import { issuedPdfAbsolutePath } from "@/lib/pdf/issued-archive.js";
 import { readFile } from "node:fs/promises";
 
@@ -653,8 +653,26 @@ export const siteRoutes: FastifyPluginAsync = async (app) => {
         accroche: await readSiteText("accroche"),
         offres: await readSiteText("offres"),
         avisMethode: await readSiteText("avisMethode"),
+        seo: await readSiteText("seo"),
+        menus: await readSiteText("menus"),
         publication,
       };
+    }),
+  );
+
+  // Valeurs actuelles du site (contenu.schema.json, « defauts ») et valeurs des variables, pour les fiches
+  // Référencement et Menus. defaults null : le site en ligne ne les exporte pas encore.
+  app.get(
+    "/api/site/defauts",
+    admin(async (request) => {
+      const force = (request.query as { rafraichir?: string }).rafraichir === "1";
+      const variables = await textVariables();
+      try {
+        return { defaults: await readSiteDefaults(force), variables, error: null };
+      } catch (e) {
+        const message = e instanceof GithubError ? e.message : "Contrat du site illisible.";
+        return { defaults: null, variables, error: message };
+      }
     }),
   );
 
@@ -684,7 +702,7 @@ export const siteRoutes: FastifyPluginAsync = async (app) => {
     "/api/site/media",
     admin(async (request, reply) => {
       const kind = z.enum(SiteMediaKind).safeParse((request.query as { kind?: string }).kind);
-      if (!kind.success) return reply.code(400).send({ error: "Type d'image attendu : CAPTURE, MOBILE ou LOGO" });
+      if (!kind.success) return reply.code(400).send({ error: "Type d'image attendu : CAPTURE, MOBILE, LOGO ou PARTAGE" });
       // Un fichier refusé par sharp ou par le contrôle SVG garde son message (400), jamais une 500.
       if (!(await loadSharp())) {
         return reply.code(503).send({ error: "Envoi d'images indisponible : sharp n'est pas installé sur ce serveur." });
@@ -704,7 +722,7 @@ export const siteRoutes: FastifyPluginAsync = async (app) => {
       }
       try {
         const media = await saveSiteImage(input, kind.data, filename);
-        return reply.code(201).send({ ...media, path: siteMediaPublicPath(media.sha12) });
+        return reply.code(201).send({ ...media, path: libraryPath(media) });
       } catch (e) {
         if (e instanceof SiteMediaError) return reply.code(e.code === "UNAVAILABLE" ? 503 : 400).send({ error: e.message, code: e.code });
         throw e;
@@ -739,7 +757,7 @@ export const siteRoutes: FastifyPluginAsync = async (app) => {
       if (!body.success) return invalid(reply, body.error);
       try {
         const media = await recropLibraryMedia(mediaId(request), body.data);
-        return { ...media, path: siteMediaPublicPath(media.sha12) };
+        return { ...media, path: libraryPath(media) };
       } catch (e) {
         return libraryError(reply, e);
       }
@@ -776,10 +794,11 @@ export const siteRoutes: FastifyPluginAsync = async (app) => {
   app.get(
     "/api/site/media/:file",
     admin(async (request, reply) => {
-      const m = /^([a-f0-9]{12})(-2x)?\.webp$/.exec((request.params as { file: string }).file);
-      const buf = m ? await readSiteMedia(m[1], Boolean(m[2])) : null;
+      const m = /^([a-f0-9]{12})(?:(-2x)?\.webp|(\.jpg))$/.exec((request.params as { file: string }).file);
+      const ext = m?.[3] ? "jpg" : "webp";
+      const buf = m ? await readSiteMedia(m[1]!, Boolean(m[2]), ext) : null;
       if (!buf) return reply.code(404).send({ error: "Introuvable" });
-      return reply.type("image/webp").header("Cache-Control", "private, max-age=31536000, immutable").send(buf);
+      return reply.type(ext === "jpg" ? "image/jpeg" : "image/webp").header("Cache-Control", "private, max-age=31536000, immutable").send(buf);
     }),
   );
 
