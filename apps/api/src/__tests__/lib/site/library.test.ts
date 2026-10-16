@@ -1,6 +1,6 @@
 import { existsSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import sharp from "sharp";
 import { SiteMediaKind, SitePublicationStatus } from "@prisma/client";
 import { prisma } from "@/lib/prisma.js";
@@ -16,6 +16,9 @@ import { seedCompanySettings } from "../../helpers/factories.js";
 
 const fixture = (name: string) => readFileSync(fileURLToPath(new URL(`../../fixtures/site/${name}`, import.meta.url)), "utf8");
 const raw = Object.fromEntries(SITE_FILES.map((n) => [n, fixture(`${n}.json`).replace(/\r\n/g, "\n")])) as Record<SiteFileName, string>;
+
+// Rendu sharp d'images de 3 000 px : plus long que les 5 s par défaut quand toute la suite tourne en parallèle.
+vi.setConfig({ testTimeout: 30_000 });
 
 beforeEach(async () => {
   await resetDb();
@@ -138,6 +141,29 @@ describe("recadrage et images en ligne", () => {
     await expect(recropLibraryMedia(logo.id, { x: 0.5, y: 0.5 })).rejects.toMatchObject({ code: "FORMAT" });
     await prisma.siteMedia.update({ where: { id: droite.id }, data: { originalPath: null } });
     await expect(recropLibraryMedia(droite.id, { x: 0.5, y: 0.5 })).rejects.toMatchObject({ message: expect.stringContaining("Original non conservé") });
+  });
+});
+
+describe("doublons", () => {
+  it("même fichier renvoyé après un recadrage : la version recadrée revient, aucune nouvelle image", async () => {
+    const input = await photo(3000, 1080, 11);
+    const media = await saveSiteImage(input, SiteMediaKind.CAPTURE, "vitrine.jpg");
+    const recadree = await recropLibraryMedia(media.id, { x: 0, y: 0.5 });
+    const encore = await saveSiteImage(input, SiteMediaKind.CAPTURE, "vitrine.jpg");
+    expect(encore.id).toBe(recadree.id);
+    expect(await prisma.siteMedia.count()).toBe(1);
+  });
+
+  it("ancienne version en ligne : signalée comme telle, même si aucune version n'est utilisée", async () => {
+    const media = await saveSiteImage(await photo(3000, 1080, 12), SiteMediaKind.CAPTURE);
+    const projet = await firstProject();
+    await prisma.siteProject.update({ where: { id: projet.id }, data: { imagePath: `/media/${media.sha12}.webp` } });
+    await publier();
+    const recadree = await recropLibraryMedia(media.id, { x: 1, y: 0.5 });
+    await prisma.siteProject.update({ where: { id: projet.id }, data: { imagePath: projet.imagePath } });
+    const liste = await listLibrary();
+    expect(liste.find((m) => m.id === media.id)).toMatchObject({ previousVersion: true, online: true });
+    expect(liste.find((m) => m.id === recadree.id)).toMatchObject({ previousVersion: false });
   });
 });
 

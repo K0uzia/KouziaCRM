@@ -61,7 +61,11 @@ export async function listLibrary(): Promise<LibraryItem[]> {
     mediaUsages(),
     onlineMedia(),
   ]);
-  const usedOriginals = new Set(rows.filter((m) => usages.has(m.sha12) && m.originalPath).map((m) => m.originalPath));
+  // Version la plus récente de chaque original : les autres, inutilisées, sont d'anciennes versions recadrées.
+  const latest = new Map<string, Date>();
+  for (const m of rows) {
+    if (m.originalPath && !(latest.get(m.originalPath)! > m.createdAt)) latest.set(m.originalPath, m.createdAt);
+  }
   return rows.map((m) => {
     const used = usages.get(m.sha12) ?? [];
     return {
@@ -69,7 +73,7 @@ export async function listLibrary(): Promise<LibraryItem[]> {
       path: siteMediaPublicPath(m.sha12),
       usages: used,
       online: online ? online.has(m.sha12) : null,
-      previousVersion: !used.length && Boolean(m.originalPath && usedOriginals.has(m.originalPath)),
+      previousVersion: !used.length && Boolean(m.originalPath && latest.get(m.originalPath)! > m.createdAt),
     };
   });
 }

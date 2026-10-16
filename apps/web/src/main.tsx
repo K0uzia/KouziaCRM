@@ -24,10 +24,11 @@ createRoot(document.getElementById("root")!).render(
           </PageErrorBoundary>
           <Toaster
             richColors
-            // Centré en haut : loin des onglets du bas et de la feuille des notifications sur mobile.
+            // Centré en haut : loin des onglets du bas et de la feuille des notifications sur mobile. Sur ordinateur,
+            // sous la barre du haut (recherche, Publier, Créer restent visibles) ; en bas, il masquerait les actions des modales.
             position="top-center"
             theme="dark"
-            offset="1.5rem"
+            offset={{ top: "calc(var(--topbar-h) + 0.75rem)" }}
             mobileOffset={{ top: "calc(0.75rem + env(safe-area-inset-top))" }}
             toastOptions={{ className: "max-w-[calc(100vw-2rem)]" }}
           />
