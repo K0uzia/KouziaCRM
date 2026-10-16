@@ -344,7 +344,7 @@ export function SiteReviewsPage() {
         title={editing ? `Témoignage de ${editing.author}` : "Nouveau témoignage"}
         description={
           clientSpace
-            ? "Déposé par le client depuis son espace : ses mots et son nom ne se modifient pas. Le publier tel quel ou l'écarter avec un motif."
+            ? "Déposé par le client depuis son espace : ses mots et son nom ne se modifient pas. L'afficher sur le site tel quel ou l'écarter avec un motif."
             : locked
               ? "Publié : auteur, date et texte sont figés. Pour corriger, le retirer puis le recréer."
               : "Témoignage reçu autrement (e-mail, papier) : recopié à l'identique, avec la preuve de l'accord."
@@ -491,7 +491,7 @@ export function SiteReviewsPage() {
             </Button>
             {clientSpace && editing && editing.status !== "PUBLISHED" && !editing.publishedAt ? (
               <Button disabled={busy} onClick={() => void publish()}>
-                Publier tel quel
+                Afficher sur le site
               </Button>
             ) : null}
           </ModalActions>
