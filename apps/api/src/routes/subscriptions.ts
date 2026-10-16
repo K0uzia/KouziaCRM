@@ -29,12 +29,17 @@ const createSchema = z.object({
   billingInterval: z.enum(["MONTH", "YEAR"]).default("MONTH"),
   startDate: z.string().optional(),
   endDate: z.string().optional().nullable(),
+  /** 1re facture ou 1er prélèvement différé (ex. une année offerte). Absent : prochain jour de facturation. */
+  firstInvoiceAt: z.string().min(1).optional().nullable(),
+  /** Virement (facture de l'ERP) ou prélèvement Stripe (carte ou SEPA, lien de mise en place envoyé au client). */
+  collectionMethod: z.enum(["MANUAL_TRANSFER", "STRIPE"]).default("MANUAL_TRANSFER"),
 });
 
 const patchSchema = z.object({
   label: z.string().min(1).max(200).optional(),
   billingDay: z.number().int().min(1).max(28).optional(),
   endDate: z.string().optional().nullable(),
+  firstInvoiceAt: z.string().min(1).optional(),
 });
 
 function toCents(euros: number): number {
@@ -81,7 +86,14 @@ export const subscriptionsRoutes: FastifyPluginAsync = async (app) => {
         billingInterval: parsed.data.billingInterval,
         startDate: parsed.data.startDate ? new Date(parsed.data.startDate) : new Date(),
         endDate: parseDate(parsed.data.endDate),
+        firstInvoiceAt: parseDate(parsed.data.firstInvoiceAt) ?? undefined,
+        collectionMethod: parsed.data.collectionMethod,
       });
+      // Prélèvement Stripe : le client reçoit le lien de mise en place (mandat SEPA ou carte, 1er prélèvement à la 1re échéance).
+      if (sub.collectionMethod === "STRIPE") {
+        const { notifyStripeSubscriptionSetup } = await import("@/lib/subscriptions/activate-from-document.js");
+        await notifyStripeSubscriptionSetup([sub.id]);
+      }
       return reply.code(201).send(sub);
     } catch (err) {
       if (err instanceof SubscriptionError) {
@@ -112,6 +124,7 @@ export const subscriptionsRoutes: FastifyPluginAsync = async (app) => {
         amountCents: undefined,
         billingDay: parsed.data.billingDay,
         endDate: parseDate(parsed.data.endDate),
+        firstInvoiceAt: parseDate(parsed.data.firstInvoiceAt) ?? undefined,
       });
       return sub;
     } catch (err) {
@@ -184,6 +197,29 @@ export const subscriptionsRoutes: FastifyPluginAsync = async (app) => {
     if (reply.sent) return;
     const generated = await generateDueSubscriptionInvoices();
     return { generated };
+  });
+
+  /** Avenants antérieurs aux abonnements multiples, restés sans abonnement : à rattacher par l'admin. */
+  app.get("/api/subscriptions/revisions-to-attach", async (request, reply) => {
+    await requireAuth(request, reply);
+    if (reply.sent) return;
+    const { listRevisionsToAttach } = await import("@/lib/subscriptions/activate-from-document.js");
+    return listRevisionsToAttach();
+  });
+
+  app.post<{ Params: { id: string } }>("/api/subscriptions/:id/attach-line", async (request, reply) => {
+    await requireAuth(request, reply);
+    if (reply.sent) return;
+    const parsed = z.object({ lineId: z.string().min(1) }).safeParse(request.body);
+    if (!parsed.success) return reply.code(400).send({ error: parsed.error.flatten() });
+    const { attachRevisionLine } = await import("@/lib/subscriptions/activate-from-document.js");
+    try {
+      await attachRevisionLine(request.params.id, parsed.data.lineId);
+      return { ok: true };
+    } catch (err) {
+      if (err instanceof SubscriptionError) return reply.code(400).send({ error: err.message });
+      throw err;
+    }
   });
 
   /** Renvoie le lien de mise en place du prélèvement Stripe. */

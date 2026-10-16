@@ -739,6 +739,7 @@ export async function convertQuoteToInvoice(quoteId: string) {
             billingInterval: line.billingInterval,
             serviceId: line.serviceId,
             subscriptionId: line.subscriptionId,
+            revisesSubscriptionId: line.revisesSubscriptionId,
           })),
         },
       },

@@ -704,6 +704,7 @@ model Client {
   emailThreads          EmailThread[]
   emailEvents           ClientEmailEvent[]
   subscriptions         Subscription[]
+  renewals              ClientRenewal[]
   onboardingAsExisting  OnboardingInvitation[] @relation("OnboardingExisting")
   onboardingAsCreated   OnboardingInvitation[] @relation("OnboardingCreated")
 
@@ -939,7 +940,9 @@ model Subscription {
   /// Lien de mise en place du prélèvement Stripe envoyé au client (un seul envoi automatique)
   setupLinkSentAt         DateTime?
   invoices                Invoice[]
-  sourceLines             InvoiceLine[]
+  sourceLines             InvoiceLine[]                @relation("SubscriptionLines")
+  /// Lignes de devis d'avenant qui révisent cet abonnement
+  revisionLines           InvoiceLine[]                @relation("SubscriptionRevisions")
   createdAt               DateTime                     @default(now())
   updatedAt               DateTime                     @updatedAt
 
@@ -1141,11 +1144,15 @@ model InvoiceLine {
   service         Service?      @relation(fields: [serviceId], references: [id])
   /// Rempli quand le Subscription a été créé (idempotence)
   subscriptionId  String?
-  subscription    Subscription? @relation(fields: [subscriptionId], references: [id])
+  subscription    Subscription? @relation("SubscriptionLines", fields: [subscriptionId], references: [id])
+  /// Devis d'avenant : abonnement révisé par cette ligne (mis à jour à l'acceptation au lieu d'en créer un)
+  revisesSubscriptionId String?
+  revisesSubscription   Subscription? @relation("SubscriptionRevisions", fields: [revisesSubscriptionId], references: [id], onDelete: SetNull)
 
   @@index([invoiceId])
   @@index([serviceId])
   @@index([subscriptionId])
+  @@index([revisesSubscriptionId])
 }
 
 model Payment {
@@ -1756,4 +1763,28 @@ model SiteDeployEvent {
   publicationId String?
   publication   SitePublication? @relation(fields: [publicationId], references: [id], onDelete: SetNull)
   receivedAt    DateTime         @default(now())
+}
+
+/// Renouvellement chez un tiers (hébergement et domaine en gestion autonome, au nom du client) : rien n'est
+/// facturé par l'ERP. Tâche interne à J-30 dans « À traiter » ; e-mail au client seulement si notifyClient.
+model ClientRenewal {
+  id            String    @id @default(cuid())
+  clientId      String
+  client        Client    @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  /// Ex. « Hébergement et domaine »
+  label         String
+  /// Hébergeur ou registrar (ex. Hostinger)
+  provider      String?
+  /// Prochaine date de renouvellement chez le tiers
+  renewsAt      DateTime
+  /// MONTH | YEAR : la date avance d'une période une fois l'échéance passée
+  interval      String    @default("YEAR")
+  notifyClient  Boolean   @default(false)
+  /// Échéance (renewsAt) pour laquelle l'e-mail au client est parti
+  noticeSentFor DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@index([clientId])
+  @@index([renewsAt])
 }

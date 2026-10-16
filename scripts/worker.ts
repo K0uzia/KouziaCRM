@@ -5,13 +5,14 @@ import { syncImapInbox } from "../apps/api/src/lib/email/imap-sync.js";
 import { processEmailOutbox } from "../apps/api/src/lib/email/mailer/index.js";
 import { expireQuotes, scheduleReminders } from "../apps/api/src/lib/reminders.js";
 import { generateDueSubscriptionInvoices } from "../apps/api/src/lib/subscriptions/subscription-service.js";
-import { sendDueRenewalReminders } from "../apps/api/src/lib/subscriptions/renewal-reminder.js";
+import { sendDueFirstChargeNotices, sendDueRenewalReminders } from "../apps/api/src/lib/subscriptions/renewal-reminder.js";
 import { sendDueActionReminders } from "../apps/api/src/lib/subscriptions/dunning.js";
 import { checkExpiringCards } from "../apps/api/src/lib/subscriptions/card-expiry.js";
 import { archivePendingIssuedPdfs } from "../apps/api/src/lib/pdf/issued-archive.js";
 import { archivePendingReceipts } from "../apps/api/src/lib/pdf/receipt-archive.js";
 import { sendDueReminders, sendDueDepositReminders } from "../apps/api/src/lib/reminders/send.js";
 import { syncObligations } from "../apps/api/src/lib/obligations/obligation-service.js";
+import { advancePastClientRenewals, sendDueClientRenewalNotices } from "../apps/api/src/lib/clients/renewals.js";
 import { sendDueObligationEmails } from "../apps/api/src/lib/obligations/email-reminders.js";
 import { activateDueMilestoneCheckouts } from "../apps/api/src/lib/payments/milestonePaymentService.js";
 import { getCompanySettings } from "../apps/api/src/lib/company.js";
@@ -28,6 +29,10 @@ async function runMaintenance() {
     const scheduled = await scheduleReminders();
     const subscriptions = await generateDueSubscriptionInvoices();
     const renewalReminders = await sendDueRenewalReminders();
+    const firstChargeNotices = await sendDueFirstChargeNotices();
+    // Renouvellements chez un tiers : date passée avancée d'une période, puis e-mail au client à J-30 s'il est demandé.
+    await advancePastClientRenewals();
+    const clientRenewalNotices = await sendDueClientRenewalNotices();
     const actionReminders = await sendDueActionReminders();
     const cardNotices = await checkExpiringCards();
     // Factures et avoirs émis sans PDF archivé (émission sans accès, ou antérieurs à l'archivage).
@@ -37,7 +42,7 @@ async function runMaintenance() {
     const depositRemindersSent = await sendDueDepositReminders();
     const obligationEmails = await sendDueObligationEmails();
     console.log(
-      `[worker] maintenance: expired=${expired} remindersScheduled=${scheduled} subscriptionsInvoices=${subscriptions} renewalReminders=${renewalReminders} actionReminders=${actionReminders} cardNotices=${cardNotices} pdfArchived=${pdfArchived} receiptsArchived=${receiptsArchived} remindersSent=${remindersSent} depositReminders=${depositRemindersSent} obligationEmails=${obligationEmails}`,
+      `[worker] maintenance: expired=${expired} remindersScheduled=${scheduled} subscriptionsInvoices=${subscriptions} renewalReminders=${renewalReminders} firstChargeNotices=${firstChargeNotices} clientRenewalNotices=${clientRenewalNotices} actionReminders=${actionReminders} cardNotices=${cardNotices} pdfArchived=${pdfArchived} receiptsArchived=${receiptsArchived} remindersSent=${remindersSent} depositReminders=${depositRemindersSent} obligationEmails=${obligationEmails}`,
     );
   } catch (err) {
     console.error(`[worker] maintenance error`, err);

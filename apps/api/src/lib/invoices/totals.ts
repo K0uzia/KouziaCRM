@@ -106,11 +106,7 @@ export function assertSubscriptionLinesValid(
     billingInterval?: string | null;
   }>,
 ): void {
-  // Un seul abonnement par client : les lignes d'abonnement d'un document en forment un seul.
-  const intervals = new Set(lines.filter((l) => l.isSubscription).map((l) => (l.billingInterval === "YEAR" ? "YEAR" : "MONTH")));
-  if (intervals.size > 1) {
-    throw new Error("Les lignes d'abonnement d'un même document doivent avoir la même périodicité (toutes mensuelles ou toutes annuelles).");
-  }
+  // Chaque ligne d'abonnement devient son propre abonnement : mensuel et annuel peuvent se côtoyer.
   for (const line of lines) {
     if (!line.isSubscription) continue;
     const day = Number(line.billingDay);

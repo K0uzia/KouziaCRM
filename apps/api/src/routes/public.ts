@@ -325,7 +325,10 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
         where: { clientId: client.id, status: { in: ["ACTIVE", "PAUSED"] } },
         orderBy: { nextInvoiceAt: "asc" },
         // Lignes de devis (ou de facture) d'origine : subscriptions[].projectId, en une passe.
-        include: { sourceLines: { select: { invoice: { select: { id: true, documentType: true, quoteId: true } } } } },
+        include: {
+          sourceLines: { select: { invoice: { select: { id: true, documentType: true, quoteId: true } } } },
+          _count: { select: { invoices: true } },
+        },
       });
 
       const emailEvents = await prisma.clientEmailEvent.findMany({
@@ -554,7 +557,12 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
           id: s.id,
           projectId:
             s.sourceLines.map((l) => projectOfDocument(projectByQuote, l.invoice)).find((p) => p !== null) ?? null,
-          ...portalSubscriptionFields(s, settings.nonRenewalNoticeDays),
+          ...portalSubscriptionFields(
+            s,
+            settings.nonRenewalNoticeDays,
+            new Date(),
+            Boolean(s.lastInvoiceId) || s._count.invoices > 0 || s.sourceLines.some((l) => l.invoice.documentType === "INVOICE"),
+          ),
         })),
         emails: emailEvents.map((e) => ({
           id: e.id,

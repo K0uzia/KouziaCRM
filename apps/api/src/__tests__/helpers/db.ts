@@ -27,6 +27,7 @@ const TABLES = [
   "ClientTestimonial",
   "PortalCode",
   "PortalSession",
+  "ClientRenewal",
   "Client",
   "Counter",
   "NamedCounter",

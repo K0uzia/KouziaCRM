@@ -24,7 +24,7 @@ vi.mock("@/lib/email/send-document-pdf.js", () => ({ sendDocumentPdf: vi.fn(asyn
 const { issueQuote, acceptQuoteByClient, convertQuoteToInvoice, issueInvoice } = await import(
   "@/lib/invoices/transitions.js"
 );
-const { generateDueSubscriptionInvoices } = await import("@/lib/subscriptions/subscription-service.js");
+const { generateDueSubscriptionInvoices, createSubscriptionRevision } = await import("@/lib/subscriptions/subscription-service.js");
 const { notifyStripeSubscriptionSetup } = await import("@/lib/subscriptions/activate-from-document.js");
 const { ensureQuoteMilestonesFromSettings } = await import("@/lib/payments/milestonePaymentService.js");
 const { assertSubscriptionLinesValid } = await import("@/lib/invoices/totals.js");
@@ -151,28 +151,30 @@ describe("devis d'abonnement seul", () => {
     await expect(convertQuoteToInvoice(quote.id)).rejects.toThrow(/facturée par l'abonnement/);
   });
 
-  it("plusieurs lignes de même périodicité : un seul abonnement au montant cumulé", async () => {
+  it("plusieurs lignes : un abonnement par ligne, chacun avec son montant et sa périodicité", async () => {
     await setStripe(false);
     const { client, quote } = await quoteWith([
       { description: "Maintenance site : hébergement et mises à jour", unitPriceCents: 2900, sub: {} },
-      { description: "Fiche Google : suivi mensuel", unitPriceCents: 1500, sub: {} },
+      { description: "Adresses e-mail : annuel", unitPriceCents: 6000, sub: { interval: "YEAR" } },
     ]);
     await issueQuote(quote.id);
     await acceptQuoteByClient(quote.id, "Lou Abonnée", { source: "PORTAL" });
-    const subs = await prisma.subscription.findMany({ where: { clientId: client.id } });
-    expect(subs).toHaveLength(1);
-    expect(subs[0]).toMatchObject({ amountCents: 4400, label: "Maintenance site + Fiche Google" });
-    const linked = await prisma.invoiceLine.findMany({ where: { invoiceId: quote.id } });
-    expect(linked.every((l) => l.subscriptionId === subs[0]!.id)).toBe(true);
+    const subs = await prisma.subscription.findMany({ where: { clientId: client.id }, orderBy: { amountCents: "asc" } });
+    expect(subs.map((s) => [s.label, s.amountCents, s.billingInterval, s.status])).toEqual([
+      ["Maintenance site : hébergement et mises à jour", 2900, "MONTH", "ACTIVE"],
+      ["Adresses e-mail : annuel", 6000, "YEAR", "ACTIVE"],
+    ]);
+    const lines = await prisma.invoiceLine.findMany({ where: { invoiceId: quote.id }, orderBy: { position: "asc" } });
+    expect(lines.map((l) => l.subscriptionId)).toEqual([subs[0]!.id, subs[1]!.id]);
   });
 
-  it("périodicités différentes refusées à la saisie", () => {
+  it("mensuel et annuel dans le même document : acceptés à la saisie", () => {
     expect(() =>
       assertSubscriptionLinesValid([
         { isSubscription: true, billingDay: 1, serviceId: "s1", billingInterval: "MONTH" },
         { isSubscription: true, billingDay: 1, serviceId: "s2", billingInterval: "YEAR" },
       ]),
-    ).toThrow(/même périodicité/);
+    ).not.toThrow();
   });
 });
 
@@ -191,7 +193,7 @@ describe("corrections associées", () => {
     expect(after.every((m) => m.status === MilestoneStatus.CANCELLED && m.checkoutUrl === null)).toBe(true);
   });
 
-  it("facture avec ligne abonnement pour un client déjà abonné : l'échéance suivante est décalée d'une période", async () => {
+  it("nouvelle ligne d'abonnement pour un client déjà abonné : 2e abonnement, le 1er intact", async () => {
     await setStripe(false);
     const { client, quote } = await quoteWith([{ description: "Maintenance : mensuel", unitPriceCents: 2900, sub: {} }]);
     await issueQuote(quote.id);
@@ -213,10 +215,28 @@ describe("corrections associées", () => {
     });
     await issueInvoice(invoice.id);
     const after = await prisma.subscription.findUniqueOrThrow({ where: { id: sub.id } });
-    expect(after.amountCents).toBe(3900);
-    const expected = new Date(sub.nextInvoiceAt);
-    expected.setMonth(expected.getMonth() + 1);
-    expect(after.nextInvoiceAt.getTime()).toBe(expected.getTime());
+    expect([after.amountCents, after.label, after.nextInvoiceAt.getTime()]).toEqual([2900, sub.label, sub.nextInvoiceAt.getTime()]);
+    const second = await prisma.subscription.findFirstOrThrow({ where: { clientId: client.id, id: { not: sub.id } } });
+    expect([second.amountCents, second.label, second.status]).toEqual([3900, "Maintenance renforcée", "ACTIVE"]);
+  });
+
+  it("avenant ciblé : révise l'abonnement visé, pas l'autre abonnement du client", async () => {
+    await setStripe(false);
+    const { client, quote } = await quoteWith([
+      { description: "Maintenance : mensuel", unitPriceCents: 2900, sub: {} },
+      { description: "Adresses e-mail : annuel", unitPriceCents: 6000, sub: { interval: "YEAR" } },
+    ]);
+    await issueQuote(quote.id);
+    await acceptQuoteByClient(quote.id, "Lou Abonnée", { source: "PORTAL" });
+    const [maintenance, mails] = await prisma.subscription.findMany({ where: { clientId: client.id }, orderBy: { amountCents: "asc" } });
+    const revision = await createSubscriptionRevision({ subscriptionId: mails!.id, amountCents: 7200 });
+    const line = await prisma.invoiceLine.findFirstOrThrow({ where: { invoiceId: revision.quoteId } });
+    expect(line.revisesSubscriptionId).toBe(mails!.id);
+    await acceptQuoteByClient(revision.quoteId, "Lou Abonnée", { source: "PORTAL" });
+    const after = await prisma.subscription.findMany({ where: { clientId: client.id }, orderBy: { createdAt: "asc" } });
+    expect(after).toHaveLength(2);
+    expect(after.find((s) => s.id === maintenance!.id)!.amountCents).toBe(2900);
+    expect(after.find((s) => s.id === mails!.id)!.amountCents).toBe(7200);
   });
 
   it("cron : une facture déjà émise dans le cycle (autre jour que l'échéance) n'est pas doublée", async () => {

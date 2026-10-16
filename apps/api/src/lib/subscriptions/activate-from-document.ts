@@ -33,16 +33,110 @@ export type ActivateSubscriptionsOptions = {
   startDate?: Date;
 };
 
+/** Migration qui a introduit les avenants ciblés (InvoiceLine.revisesSubscriptionId). */
+const TARGETED_REVISIONS_MIGRATION = "20261112090000_avenant_abonnement";
+let cutoffCache: Date | null | undefined;
+
+/**
+ * Heure d'application de cette migration : un document créé avant ne pouvait pas marquer un avenant. Base créée
+ * sans historique de migrations (tests, db push) : null, aucun document n'est ancien.
+ */
+export async function targetedRevisionsCutoff(db: Db = prisma): Promise<Date | null> {
+  if (cutoffCache !== undefined) return cutoffCache;
+  try {
+    const rows = await db.$queryRaw<Array<{ finished_at: Date | string | number | null }>>`
+      SELECT finished_at FROM _prisma_migrations WHERE migration_name = ${TARGETED_REVISIONS_MIGRATION} AND finished_at IS NOT NULL LIMIT 1`;
+    const v = rows[0]?.finished_at;
+    cutoffCache = v == null ? null : new Date(v);
+  } catch {
+    // Historique illisible (base créée par db push) : tout document est traité comme nouveau, jamais de révision
+    // au hasard. En production, migrate deploy tient toujours cette table.
+    console.warn("[subscriptions] _prisma_migrations illisible : aucun devis n'est traité comme antérieur aux avenants ciblés");
+    cutoffCache = null;
+  }
+  return cutoffCache;
+}
+
+/** Tests : oublie l'heure mémorisée. */
+export function resetTargetedRevisionsCutoff(): void {
+  cutoffCache = undefined;
+}
+
 /** Nom court d'une ligne du catalogue (« Nom : description » → « Nom »). */
 function shortName(description: string): string {
   return description.split(" : ")[0]!.trim();
 }
 
 /**
- * Crée ou met à jour l'abonnement des lignes `isSubscription` d'un document.
- * Un seul abonnement actif par client : plusieurs lignes d'un même document forment un seul
- * abonnement (montants additionnés, même périodicité exigée). Si un abonnement actif existe
- * déjà, il est mis à jour au lieu d'en créer un second. Idempotent via InvoiceLine.subscriptionId.
+ * Document antérieur aux avenants ciblés : comportement d'avant (un seul abonnement par client, lignes
+ * additionnées, l'abonnement actif est révisé). Si le client a désormais plusieurs abonnements actifs, rien
+ * n'est écrasé : les lignes restent sans abonnement et le tableau de bord demande de les rattacher.
+ */
+async function activateLegacyDocument(
+  doc: { clientId: string },
+  pending: Array<{ id: string; description: string; unitPriceCents: number; serviceId: string | null; billingDay: number | null; billingInterval: string | null }>,
+  linked: string[],
+  db: Db,
+  opts: ActivateSubscriptionsOptions,
+): Promise<ActivateSubscriptionsResult> {
+  const actives = await db.subscription.findMany({
+    where: { clientId: doc.clientId, status: SubscriptionStatus.ACTIVE },
+    select: { id: true, nextInvoiceAt: true, stripeSubscriptionId: true },
+  });
+  if (actives.length > 1) return { created: 0, updated: 0, subscriptionIds: linked, createdIds: [] };
+  const intervals = new Set(pending.map((l) => normalizeInterval(l.billingInterval)));
+  if (intervals.size > 1) {
+    throw new SubscriptionError(
+      "Devis antérieur aux abonnements multiples : ses lignes d'abonnement doivent avoir la même périodicité.",
+    );
+  }
+  const first = pending[0]!;
+  const billingInterval = normalizeInterval(first.billingInterval);
+  const amountCents = pending.reduce((sum, l) => sum + l.unitPriceCents, 0);
+  const label = pending.length === 1 ? first.description : pending.map((l) => shortName(l.description)).join(" + ");
+  const existing = actives[0];
+  let subId: string;
+  let created = 0;
+  let updated = 0;
+  const createdIds: string[] = [];
+  if (existing) {
+    await updateSubscription(existing.id, { label, amountCents, billingDay: first.billingDay!, billingInterval }, db);
+    if (!opts.firstPeriodNow && !existing.stripeSubscriptionId) {
+      const next = new Date(existing.nextInvoiceAt);
+      next.setMonth(next.getMonth() + periodMonths(billingInterval));
+      await db.subscription.update({ where: { id: existing.id }, data: { nextInvoiceAt: next } });
+    }
+    subId = existing.id;
+    updated = 1;
+  } else {
+    const sub = await createSubscription(
+      {
+        clientId: doc.clientId,
+        serviceId: first.serviceId!,
+        label,
+        amountCents,
+        billingDay: first.billingDay!,
+        billingInterval,
+        startDate: opts.startDate ?? new Date(),
+        skipCurrentPeriod: !opts.firstPeriodNow,
+        firstPeriodNow: opts.firstPeriodNow,
+        ...(opts.awaitStripe ? { collectionMethod: SubscriptionCollectionMethod.STRIPE } : {}),
+      },
+      db,
+    );
+    subId = sub.id;
+    created = 1;
+    createdIds.push(sub.id);
+  }
+  await db.invoiceLine.updateMany({ where: { id: { in: pending.map((l) => l.id) } }, data: { subscriptionId: subId } });
+  return { created, updated, subscriptionIds: [...new Set([...linked, subId])], createdIds };
+}
+
+/**
+ * Abonnements des lignes `isSubscription` d'un document. Un client peut avoir plusieurs abonnements actifs
+ * (ex. maintenance mensuelle et e-mails annuels) : chaque ligne crée le sien, avec sa périodicité. Une ligne
+ * de devis d'avenant (revisesSubscriptionId) met à jour l'abonnement qu'elle vise, et lui seul.
+ * Idempotent via InvoiceLine.subscriptionId.
  */
 export async function activateSubscriptionsFromDocument(
   documentId: string,
@@ -71,71 +165,141 @@ export async function activateSubscriptionsFromDocument(
       );
     }
   }
-  const intervals = new Set(pending.map((l) => normalizeInterval(l.billingInterval)));
-  if (intervals.size > 1) {
-    throw new SubscriptionError(
-      "Un seul abonnement par client : les lignes d'abonnement d'un document doivent avoir la même périodicité (toutes mensuelles ou toutes annuelles).",
-    );
+
+  // Document créé avant les avenants ciblés, sans ligne d'avenant marquée : comportement d'avant.
+  const cutoff = await targetedRevisionsCutoff(db);
+  if (cutoff && doc.createdAt < cutoff && pending.every((l) => !l.revisesSubscriptionId)) {
+    return activateLegacyDocument(doc, pending, linked, db, opts);
   }
 
-  const first = pending[0]!;
-  const billingInterval = normalizeInterval(first.billingInterval);
-  const amountCents = pending.reduce((sum, l) => sum + l.unitPriceCents, 0);
-  const label = pending.length === 1 ? first.description : pending.map((l) => shortName(l.description)).join(" + ");
-
-  // Un abonnement actif existe déjà pour ce client ? On le met à jour.
-  const existing = await db.subscription.findFirst({
-    where: { clientId: doc.clientId, status: SubscriptionStatus.ACTIVE },
-    select: { id: true, nextInvoiceAt: true, stripeSubscriptionId: true },
-  });
-
-  let subId: string;
   let created = 0;
   let updated = 0;
   const createdIds: string[] = [];
-  if (existing) {
-    await updateSubscription(
-      existing.id,
-      { label, amountCents, billingDay: first.billingDay!, billingInterval },
-      db,
-    );
-    // Le document facture déjà une période (facture, ou devis qui inclut la 1re échéance) :
-    // l'échéance suivante de l'abonnement est décalée d'une période, sinon elle serait facturée
-    // deux fois. Un prélèvement Stripe suit son propre calendrier : on n'y touche pas.
-    if (!opts.firstPeriodNow && !existing.stripeSubscriptionId) {
-      const next = new Date(existing.nextInvoiceAt);
-      next.setMonth(next.getMonth() + periodMonths(billingInterval));
-      await db.subscription.update({ where: { id: existing.id }, data: { nextInvoiceAt: next } });
+  const ids: string[] = [];
+  for (const line of pending) {
+    const billingInterval = normalizeInterval(line.billingInterval);
+    let subId: string;
+    if (line.revisesSubscriptionId) {
+      // Avenant : l'abonnement visé, appartenant à ce client et encore actif.
+      const target = await db.subscription.findUnique({
+        where: { id: line.revisesSubscriptionId },
+        select: { id: true, clientId: true, status: true, nextInvoiceAt: true, stripeSubscriptionId: true },
+      });
+      if (!target || target.clientId !== doc.clientId || target.status !== SubscriptionStatus.ACTIVE) {
+        throw new SubscriptionError(`Ligne « ${line.description} » : l'abonnement révisé n'est plus actif pour ce client`);
+      }
+      await updateSubscription(
+        target.id,
+        { label: line.description, amountCents: line.unitPriceCents, billingDay: line.billingDay!, billingInterval },
+        db,
+      );
+      // Le document facture déjà une période (facture, ou devis qui inclut la 1re échéance) : l'échéance suivante
+      // est décalée d'une période, sinon elle serait facturée deux fois. Un prélèvement Stripe suit son propre
+      // calendrier : on n'y touche pas.
+      if (!opts.firstPeriodNow && !target.stripeSubscriptionId) {
+        const next = new Date(target.nextInvoiceAt);
+        next.setMonth(next.getMonth() + periodMonths(billingInterval));
+        await db.subscription.update({ where: { id: target.id }, data: { nextInvoiceAt: next } });
+      }
+      subId = target.id;
+      updated += 1;
+    } else {
+      const sub = await createSubscription(
+        {
+          clientId: doc.clientId,
+          serviceId: line.serviceId!,
+          label: line.description,
+          amountCents: line.unitPriceCents,
+          billingDay: line.billingDay!,
+          billingInterval,
+          startDate: opts.startDate ?? new Date(),
+          skipCurrentPeriod: !opts.firstPeriodNow,
+          firstPeriodNow: opts.firstPeriodNow,
+          ...(opts.awaitStripe ? { collectionMethod: SubscriptionCollectionMethod.STRIPE } : {}),
+        },
+        db,
+      );
+      subId = sub.id;
+      created += 1;
+      createdIds.push(sub.id);
     }
-    subId = existing.id;
-    updated = 1;
-  } else {
-    const sub = await createSubscription(
-      {
-        clientId: doc.clientId,
-        serviceId: first.serviceId!,
-        label,
-        amountCents,
-        billingDay: first.billingDay!,
-        billingInterval,
-        startDate: opts.startDate ?? new Date(),
-        skipCurrentPeriod: !opts.firstPeriodNow,
-        firstPeriodNow: opts.firstPeriodNow,
-        ...(opts.awaitStripe ? { collectionMethod: SubscriptionCollectionMethod.STRIPE } : {}),
-      },
-      db,
-    );
-    subId = sub.id;
-    created = 1;
-    createdIds.push(sub.id);
+    await db.invoiceLine.update({ where: { id: line.id }, data: { subscriptionId: subId } });
+    ids.push(subId);
   }
 
-  await db.invoiceLine.updateMany({
-    where: { id: { in: pending.map((l) => l.id) } },
-    data: { subscriptionId: subId },
-  });
+  return { created, updated, subscriptionIds: [...new Set([...linked, ...ids])], createdIds };
+}
 
-  return { created, updated, subscriptionIds: [...new Set([...linked, subId])], createdIds };
+/**
+ * Avenants à rattacher : lignes d'abonnement d'un devis accepté, antérieur aux avenants ciblés, restées sans
+ * abonnement parce que le client en avait déjà plusieurs (rien n'a été écrasé). Liste calculée, rien de stocké.
+ */
+export async function listRevisionsToAttach() {
+  const cutoff = await targetedRevisionsCutoff();
+  if (!cutoff) return [];
+  const lines = await prisma.invoiceLine.findMany({
+    where: {
+      isSubscription: true,
+      subscriptionId: null,
+      revisesSubscriptionId: null,
+      invoice: { documentType: "QUOTE", quoteStatus: "ACCEPTED", createdAt: { lt: cutoff } },
+    },
+    orderBy: { position: "asc" },
+    select: {
+      id: true,
+      description: true,
+      unitPriceCents: true,
+      billingInterval: true,
+      invoice: { select: { id: true, number: true, clientId: true, client: { select: { displayName: true } } } },
+    },
+  });
+  const out = [];
+  for (const l of lines) {
+    const actives = await prisma.subscription.findMany({
+      where: { clientId: l.invoice.clientId, status: SubscriptionStatus.ACTIVE },
+      select: { id: true, label: true, amountCents: true, billingInterval: true },
+      orderBy: { startDate: "asc" },
+    });
+    if (actives.length < 2) continue;
+    out.push({
+      lineId: l.id,
+      quoteId: l.invoice.id,
+      quoteNumber: l.invoice.number,
+      displayName: l.invoice.client.displayName,
+      description: l.description,
+      amountCents: l.unitPriceCents,
+      billingInterval: normalizeInterval(l.billingInterval),
+      subscriptions: actives.map((s) => ({ ...s, billingInterval: normalizeInterval(s.billingInterval) })),
+    });
+  }
+  return out;
+}
+
+/**
+ * Rattache une ligne d'avenant à l'abonnement choisi par l'admin, puis applique la révision (même règle qu'un
+ * avenant ciblé). La ligne de la facture issue du devis, s'il y en a une, est reliée au même abonnement.
+ */
+export async function attachRevisionLine(subscriptionId: string, lineId: string) {
+  return prisma.$transaction(async (tx) => {
+    const line = await tx.invoiceLine.findUnique({
+      where: { id: lineId },
+      select: { id: true, position: true, isSubscription: true, subscriptionId: true, invoice: { select: { id: true, clientId: true, documentType: true, quoteStatus: true } } },
+    });
+    if (!line || !line.isSubscription || line.subscriptionId || line.invoice.documentType !== "QUOTE" || line.invoice.quoteStatus !== "ACCEPTED") {
+      throw new SubscriptionError("Ligne d'avenant introuvable ou déjà rattachée");
+    }
+    const sub = await tx.subscription.findUnique({ where: { id: subscriptionId }, select: { clientId: true, status: true } });
+    if (!sub || sub.clientId !== line.invoice.clientId || sub.status !== SubscriptionStatus.ACTIVE) {
+      throw new SubscriptionError("Abonnement introuvable, clôturé ou d'un autre client");
+    }
+    await tx.invoiceLine.update({ where: { id: line.id }, data: { revisesSubscriptionId: subscriptionId } });
+    const result = await activateSubscriptionsFromDocument(line.invoice.id, tx);
+    await tx.invoiceLine.updateMany({
+      where: { invoice: { quoteId: line.invoice.id, documentType: "INVOICE" }, isSubscription: true, position: line.position, subscriptionId: null },
+      data: { subscriptionId },
+    });
+    return result;
+  });
 }
 
 /**

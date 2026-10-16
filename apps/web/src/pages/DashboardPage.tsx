@@ -10,7 +10,9 @@ import {
   faFileSignature,
   faHourglassHalf,
   faLandmark,
+  faLink,
   faPenToSquare,
+  faRotate,
   faUserPlus,
   faWallet,
 } from "@fortawesome/free-solid-svg-icons";
@@ -148,6 +150,10 @@ type Overview = DashboardData & {
   ownerPay: OwnerPay | null;
   /** Particuliers dans le délai de rétractation, sans demande d'exécution anticipée. */
   pendingStarts: Array<{ quoteId: string; number: string | null; displayName: string; startsNotBefore: string }>;
+  /** Renouvellements payés par le client chez son hébergeur, dans les 30 jours. */
+  renewals?: Array<{ id: string; clientId: string; displayName: string; label: string; provider: string | null; renewsAt: string; notifyClient: boolean }>;
+  /** Avenants acceptés, antérieurs aux abonnements multiples, dont l'abonnement révisé reste à choisir. */
+  revisionsToAttach?: Array<{ lineId: string; quoteId: string; quoteNumber: string | null; displayName: string; description: string }>;
   /** Blocs secondaires en échec ou trop lents côté serveur : affichés comme indisponibles, pas comme vides. */
   indisponibles?: string[];
 };
@@ -302,6 +308,8 @@ export function DashboardPage() {
     : null;
   const mailStale = mailSyncAge !== null && mailSyncAge > MAIL_SYNC_STALE_MIN;
   const pendingStarts = data?.pendingStarts ?? [];
+  const renewals = data?.renewals ?? [];
+  const revisionsToAttach = data?.revisionsToAttach ?? [];
   const deposit2Rows = [
     ...(data?.deposit2?.toInvoice ?? []).map((q) => ({ ...q, kind: "toInvoice" as const })),
     ...(data?.deposit2?.missingStep ?? []).map((q) => ({ ...q, kind: "missingStep" as const })),
@@ -662,7 +670,7 @@ export function DashboardPage() {
             <SectionTitle
               action={
                 <span className="rounded-full bg-[var(--surface-hover)] px-2 text-xs font-medium tabular-nums leading-6 text-[var(--muted)]">
-                  {ready ? obligationAlerts + (echeanceDue ? 1 : 0) + ((data?.drafts ?? 0) > 0 ? 1 : 0) + (mailStale ? 1 : 0) + (companyEmailAlert ? 1 : 0) + deposit2Rows.length + pendingStarts.length : <Skeleton className="w-3" />}
+                  {ready ? obligationAlerts + (echeanceDue ? 1 : 0) + ((data?.drafts ?? 0) > 0 ? 1 : 0) + (mailStale ? 1 : 0) + (companyEmailAlert ? 1 : 0) + deposit2Rows.length + pendingStarts.length + renewals.length + revisionsToAttach.length : <Skeleton className="w-3" />}
                 </span>
               }
             >
@@ -670,7 +678,7 @@ export function DashboardPage() {
             </SectionTitle>
             {!ready ? (
               <SkeletonRows count={2} rowClass="flex min-h-15 items-center px-5 py-3" />
-            ) : obligationAlerts === 0 && !echeanceDue && (data?.drafts ?? 0) === 0 && !mailStale && !companyEmailAlert && deposit2Rows.length === 0 && pendingStarts.length === 0 ? (
+            ) : obligationAlerts === 0 && !echeanceDue && (data?.drafts ?? 0) === 0 && !mailStale && !companyEmailAlert && deposit2Rows.length === 0 && pendingStarts.length === 0 && renewals.length === 0 && revisionsToAttach.length === 0 ? (
               <p className="px-5 py-6 text-center text-sm text-[var(--muted)]">Rien en attente. Tout est à jour.</p>
             ) : (
               <ul className="divide-y divide-[var(--border)] px-5">
@@ -704,6 +712,34 @@ export function DashboardPage() {
                     }
                   />
                 ) : null}
+                {revisionsToAttach.map((r) => (
+                  <TodoRow
+                    key={`attach-${r.lineId}`}
+                    icon={faLink}
+                    tone="warning"
+                    title={`Avenant ${r.quoteNumber ?? ""} à rattacher`}
+                    detail={`${r.displayName} : « ${r.description} », plusieurs abonnements possibles`}
+                    action={
+                      <Link to={`/abonnements?rattacher=${encodeURIComponent(r.lineId)}`} className="link inline-flex min-h-11 items-center gap-1 text-sm">
+                        Rattacher <FontAwesomeIcon icon={faArrowRight} className="h-3 w-3" aria-hidden />
+                      </Link>
+                    }
+                  />
+                ))}
+                {renewals.map((r) => (
+                  <TodoRow
+                    key={`renewal-${r.id}`}
+                    icon={faRotate}
+                    tone="primary"
+                    title={`${r.label} : renouvellement le ${formatDate(r.renewsAt)}`}
+                    detail={`${r.displayName}${r.provider ? `, chez ${r.provider}` : ""}${r.notifyClient ? ", client prévenu par e-mail" : ""}`}
+                    action={
+                      <Link to={`/clients/${r.clientId}#renouvellements`} className="link inline-flex min-h-11 items-center gap-1 text-sm">
+                        Voir <FontAwesomeIcon icon={faArrowRight} className="h-3 w-3" aria-hidden />
+                      </Link>
+                    }
+                  />
+                ))}
                 {pendingStarts.map((p) => (
                   <TodoRow
                     key={`start-${p.quoteId}`}

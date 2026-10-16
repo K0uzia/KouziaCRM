@@ -36,7 +36,8 @@ type PortalSubscription = Pick<
  * - paymentIssue : seulement pour un abonnement prélevé par Stripe ;
  * - renewalDeadline : abonnement annuel, date limite pour refuser la reconduction (même calcul que l'e-mail).
  */
-export function portalSubscriptionFields(sub: PortalSubscription, noticeDays: number, now = new Date()) {
+/** billed : abonnement déjà facturé au moins une fois. Jamais facturé (1re échéance différée) : pas de reconduction. */
+export function portalSubscriptionFields(sub: PortalSubscription, noticeDays: number, now = new Date(), billed = true) {
   const stripe = isStripeManaged(sub);
   const endsAt = sub.stripeCancelAt ?? (sub.endDate && sub.endDate > now ? sub.endDate : null);
   const paymentIssue = stripe
@@ -52,7 +53,7 @@ export function portalSubscriptionFields(sub: PortalSubscription, noticeDays: nu
       ? ("REQUEST" as const)
       : null;
   const annualOpen =
-    sub.billingInterval === "YEAR" && sub.status === "ACTIVE" && !endsAt && !sub.cancellationRequestedAt && isRenewal(sub);
+    sub.billingInterval === "YEAR" && sub.status === "ACTIVE" && !endsAt && !sub.cancellationRequestedAt && billed && isRenewal(sub);
   return {
     status: sub.status === "PAUSED" ? ("PAUSED" as const) : ("ACTIVE" as const),
     paymentIssue,

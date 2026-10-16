@@ -24,6 +24,7 @@ import {
 import { ClientEmailLink } from "@/components/clients/ClientEmailLink";
 import { ClientProjects } from "@/components/clients/ClientProjects";
 import { ClientNeedsCard } from "@/components/clients/ClientNeedsCard";
+import { ClientRenewalsCard } from "@/components/clients/ClientRenewalsCard";
 import { ClientMessagesTab } from "@/pages/messaging/ClientMessagesTab";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { useCreateParam } from "@/lib/use-create-param";
@@ -489,6 +490,7 @@ export function ClientDetailPage() {
                   {docList(docs, 5)}
                 </Card>
                 <ClientNeedsCard key={client.id} clientId={client.id} initial={client.needs ?? []} />
+                <ClientRenewalsCard clientId={client.id} />
                 {client.notes ? (
                   <Card className="p-5">
                     <h2 className="mb-2 text-sm font-semibold">Notes internes</h2>

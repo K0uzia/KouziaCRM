@@ -489,6 +489,8 @@ export const invoicesRoutes: FastifyPluginAsync = async (app) => {
               serviceId: l.serviceId,
               subscriptionId:
                 existingLines.find((e) => e.position === idx + 1)?.subscriptionId ?? null,
+              revisesSubscriptionId:
+                existingLines.find((e) => e.position === idx + 1)?.revisesSubscriptionId ?? null,
             }));
           })()
         : (
@@ -506,6 +508,7 @@ export const invoicesRoutes: FastifyPluginAsync = async (app) => {
             billingInterval: l.billingInterval,
             serviceId: l.serviceId,
             subscriptionId: l.subscriptionId,
+            revisesSubscriptionId: l.revisesSubscriptionId,
           }));
 
       if (parsed.data.lines) {

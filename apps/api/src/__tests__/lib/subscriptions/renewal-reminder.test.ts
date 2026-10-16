@@ -14,7 +14,8 @@ vi.mock("@/lib/email/mailer/index.js", () => ({
 }));
 
 import { mailEnqueue } from "@/lib/email/mailer/index.js";
-import { sendDueRenewalReminders } from "@/lib/subscriptions/renewal-reminder.js";
+import { sendDueFirstChargeNotices, sendDueRenewalReminders } from "@/lib/subscriptions/renewal-reminder.js";
+import { portalSubscriptionFields } from "@/lib/subscriptions/self-service.js";
 
 beforeEach(async () => {
   await resetDb();
@@ -26,7 +27,8 @@ afterEach(async () => {
   await resetDb();
 });
 
-async function subscription(data: { billingInterval?: string; startDate?: Date; nextInvoiceAt?: Date } = {}) {
+/** billed (par défaut) : déjà facturé au moins une fois, comme tout abonnement qui arrive à reconduction. */
+async function subscription(data: { billingInterval?: string; startDate?: Date; nextInvoiceAt?: Date; billed?: boolean } = {}) {
   const c = await createClient({ displayName: "Lou Martin" });
   await prisma.client.update({ where: { id: c.id }, data: { emailEncrypted: encrypt("lou@example.test") } });
   const s = await createService();
@@ -40,6 +42,7 @@ async function subscription(data: { billingInterval?: string; startDate?: Date; 
       billingInterval: data.billingInterval ?? "YEAR",
       startDate: data.startDate ?? new Date(2026, 0, 1),
       nextInvoiceAt: data.nextInvoiceAt ?? new Date(2027, 0, 1),
+      lastInvoiceId: data.billed === false ? null : "facture-de-la-1re-annee",
     },
   });
 }
@@ -106,5 +109,50 @@ describe("information annuelle de reconduction (L215-1)", () => {
     await prisma.subscription.update({ where: { id: unpaid.id }, data: { status: "PAUSED", stripeStatus: "unpaid" } });
     expect(await sendDueRenewalReminders(new Date(2026, 10, 20))).toBe(0);
     expect(mailEnqueue).not.toHaveBeenCalled();
+  });
+});
+
+describe("1re échéance différée (ex. une année offerte)", () => {
+  // Début le 1er janvier 2026, 1re facture le 1er janvier 2027, jamais facturé.
+  const offert = () => subscription({ billed: false });
+
+  it("jamais l'e-mail de reconduction ni de date limite de refus sur /suivi", async () => {
+    const sub = await offert();
+    for (const jour of [new Date(2026, 9, 20), new Date(2026, 10, 20), new Date(2026, 11, 15)]) {
+      expect(await sendDueRenewalReminders(jour)).toBe(0);
+    }
+    expect(vi.mocked(mailEnqueue).mock.calls.some(([m]) => /Reconduction/.test(m.subject))).toBe(false);
+    expect(portalSubscriptionFields(sub, 1, new Date(2026, 10, 20), false)).not.toHaveProperty("renewalDeadline");
+    // Le même abonnement, une fois facturé, retrouve sa date limite (garde-fou du test).
+    expect(portalSubscriptionFields(sub, 1, new Date(2026, 10, 20), true)).toHaveProperty("renewalDeadline");
+  });
+
+  it("avis de 1re facture à J-30, une seule fois", async () => {
+    const sub = await offert();
+    expect(await sendDueFirstChargeNotices(new Date(2026, 10, 30))).toBe(0);
+    expect(await sendDueFirstChargeNotices(new Date(2026, 11, 2))).toBe(1);
+    expect(await sendDueFirstChargeNotices(new Date(2026, 11, 10))).toBe(0);
+    const call = vi.mocked(mailEnqueue).mock.calls[0]![0];
+    expect(call.subject).toBe("Votre abonnement « Maintenance annuelle » : 1re facture le 1er janvier 2027");
+    expect(call.text).toContain("La 1re échéance de votre abonnement « Maintenance annuelle », de 3");
+    expect(call.text).toContain("Une facture de 3");
+    expect(call.text).not.toMatch(/reconduction/i);
+    expect((await prisma.subscription.findUniqueOrThrow({ where: { id: sub.id } })).renewalReminderSentFor).toEqual(new Date(2027, 0, 1));
+  });
+
+  it("mensuel différé et prélèvement Stripe : « 1er prélèvement », lien de gestion", async () => {
+    const sub = await subscription({ billed: false, billingInterval: "MONTH" });
+    await prisma.subscription.update({ where: { id: sub.id }, data: { collectionMethod: SubscriptionCollectionMethod.STRIPE, stripeSubscriptionId: "sub_differe" } });
+    expect(await sendDueFirstChargeNotices(new Date(2026, 11, 2))).toBe(1);
+    const call = vi.mocked(mailEnqueue).mock.calls[0]![0];
+    expect(call.subject).toContain("1er prélèvement le 1er janvier 2027");
+    expect(call.text).toContain("par mois");
+    expect(call.text).toContain("/api/public/manage/");
+  });
+
+  it("pas d'avis si la 1re échéance suit le début de près, ni pour un abonnement déjà facturé", async () => {
+    await subscription({ billed: false, startDate: new Date(2026, 11, 20) });
+    await subscription();
+    expect(await sendDueFirstChargeNotices(new Date(2026, 11, 2))).toBe(0);
   });
 });
