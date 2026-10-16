@@ -263,13 +263,17 @@ export async function publishSite(): Promise<SitePublication> {
 
 // --- Suivi du déploiement ---------------------------------------------------------------------
 
-export const DEPLOY_RESULTS = ["deploye", "simulation", "echec", "ignore", "refuse"] as const;
+// « non-configure » : secrets Hostinger absents côté GitHub. « ignore » : ancien nom, envoyé par les runs antérieurs
+// à ce résultat (envoi sauté, secrets absents ou étape précédente en échec).
+export const DEPLOY_RESULTS = ["deploye", "simulation", "echec", "non-configure", "ignore", "refuse"] as const;
 export type DeployResult = (typeof DEPLOY_RESULTS)[number];
 
 const RESULT_ERROR: Partial<Record<DeployResult, string>> = {
   echec: "Le déploiement a échoué (voir le run de l'Action).",
   refuse: "L'Action du site a refusé ce commit.",
-  ignore: "Déploiement non lancé : secrets Hostinger absents dans le dépôt du site.",
+  "non-configure":
+    "Déploiement non configuré : le contenu est dans le dépôt, mais GitHub n'a pas les accès Hostinger. Voir le guide docs/deploiement-hostinger.md du site.",
+  ignore: "Déploiement non lancé : accès Hostinger absents ou étape précédente en échec (voir le run de l'Action).",
 };
 
 /**
