@@ -24,7 +24,7 @@ export const PUBLICATION_LIVE_TIMEOUT_MS = 10 * 60_000;
 const COMMIT_ATTEMPTS = 3;
 const MEDIA_DIR = "public/media";
 /** Seules les images publiées par l'ERP sont supprimables : le reste de public/ appartient au site. */
-const ERP_MEDIA_FILE = /^public\/media\/[a-f0-9]{12}(-2x)?\.webp$/;
+const ERP_MEDIA_FILE = /^public\/media\/[a-f0-9]{12}((-2x)?\.webp|\.jpg)$/;
 const FOLLOWED = [SitePublicationStatus.DISPATCHED, SitePublicationStatus.BUILDING, SitePublicationStatus.DEPLOYED];
 
 /** Workflow du site lancé par le push sur sa branche (construction, puis branche deploy installée par hPanel). */
@@ -67,10 +67,12 @@ async function desiredFiles(snapshot: SiteSnapshot): Promise<Desired> {
   const put = (path: string, content: Buffer, label?: string) => desired.set(path, { content, sha: gitBlobSha(content), label });
   for (const name of SITE_FILES) put(`${SITE_CONTENT_DIR}/${name}.json`, Buffer.from(snapshot.files[name], "utf8"));
   for (const sha12 of snapshot.media) {
-    const x1 = await readSiteMedia(sha12);
+    const ext = snapshot.mediaExt[sha12] ?? "webp";
+    const x1 = await readSiteMedia(sha12, false, ext);
     if (!x1) throw new PublishError(`Image ${sha12} absente du disque de l'ERP.`, 422);
-    put(`${MEDIA_DIR}/${sha12}.webp`, x1, snapshot.mediaNames[sha12]);
-    const x2 = await readSiteMedia(sha12, true);
+    put(`${MEDIA_DIR}/${sha12}.${ext}`, x1, snapshot.mediaNames[sha12]);
+    // Image de partage (JPEG) : une seule taille.
+    const x2 = ext === "webp" ? await readSiteMedia(sha12, true) : null;
     if (x2) put(`${MEDIA_DIR}/${sha12}-2x.webp`, x2, snapshot.mediaNames[sha12]);
   }
   return desired;

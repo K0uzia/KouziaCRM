@@ -7,7 +7,8 @@ import { issuedPdfAbsolutePath } from "@/lib/pdf/issued-archive.js";
 
 /**
  * Images de l'espace Site : normalisées en WebP sans métadonnées (EXIF et position GPS retirés), en deux
- * largeurs, sous data/uploads/site/. L'original est conservé sous site/originaux/ pour recadrer plus tard,
+ * largeurs, sous data/uploads/site/. Exception : l'image de partage (og:image), un JPEG unique de 1200×630, format
+ * le mieux lu par les réseaux sociaux. L'original est conservé sous site/originaux/ pour recadrer plus tard,
  * lui aussi réécrit sans métadonnées et ramené à ORIGINAL_MAX_SIDE px au plus ; le fichier envoyé tel quel
  * n'est jamais écrit sur disque.
  * sharp est chargé à la demande : sans son binaire, l'API démarre et seul l'envoi d'image est refusé.
@@ -64,7 +65,7 @@ export function focalCrop(w: number, h: number, ratio: number, focal: Focal): { 
 }
 
 type Variant = { width: number; height?: number; maxBytes: number; position?: "attention" | "top" };
-const VARIANTS: Record<SiteMediaKind, { x1: Variant; x2: Variant }> = {
+const VARIANTS: Record<SiteMediaKind, { x1: Variant; x2: Variant | null }> = {
   // Capture 16:9, affichée en 960×540 sur le site.
   CAPTURE: { x1: { width: 960, height: 540, maxBytes: 150_000 }, x2: { width: 1920, height: 1080, maxBytes: 300_000 } },
   // Capture de téléphone 9:19,5, recadrée par le haut : le haut de page reste, le bas d'une page plus longue est coupé.
@@ -73,7 +74,15 @@ const VARIANTS: Record<SiteMediaKind, { x1: Variant; x2: Variant }> = {
     x2: { width: 780, height: 1688, maxBytes: 150_000, position: "top" },
   },
   LOGO: { x1: { width: 200, maxBytes: 30_000 }, x2: { width: 400, maxBytes: 60_000 } },
+  // Image de partage : taille fixe imposée par og:image, sans version 2x ; 300 Ko au plus (contrôle du build du site).
+  PARTAGE: { x1: { width: 1200, height: 630, maxBytes: 300_000 }, x2: null },
 };
+
+export type SiteMediaExt = "webp" | "jpg";
+/** Extension publiée d'un type d'image : JPEG pour le partage, WebP sinon. */
+export const siteMediaExt = (kind: SiteMediaKind): SiteMediaExt => (kind === SiteMediaKind.PARTAGE ? "jpg" : "webp");
+/** Chemin publié d'une image du site : /media/<sha12>.webp ou .jpg (capture : sha12 et extension). */
+export const SITE_MEDIA_PATH_RE = /^\/media\/([a-f0-9]{12})\.(webp|jpg)$/;
 const QUALITIES = [80, 72, 64, 56, 48];
 const ACCEPTED_FORMATS = new Set(["jpeg", "png", "webp", "avif", "heif"]);
 
@@ -128,8 +137,8 @@ export function loadSharp(): Promise<SharpModule["default"] | null> {
   return sharpPromise;
 }
 
-export const siteMediaRelativePath = (sha12: string, x2 = false) => `${SITE_MEDIA_DIR}/${sha12}${x2 ? "-2x" : ""}.webp`;
-export const siteMediaPublicPath = (sha12: string) => `/media/${sha12}.webp`;
+export const siteMediaRelativePath = (sha12: string, x2 = false, ext: SiteMediaExt = "webp") => `${SITE_MEDIA_DIR}/${sha12}${x2 ? "-2x" : ""}.${ext}`;
+export const siteMediaPublicPath = (sha12: string, ext: SiteMediaExt = "webp") => `/media/${sha12}.${ext}`;
 
 export type ProcessedImage = { buffer: Buffer; width: number; height: number };
 
@@ -158,8 +167,9 @@ export async function normalizeSiteImage(
   let meta: Awaited<ReturnType<ReturnType<typeof open>["metadata"]>>;
   try {
     meta = await open().metadata();
-    if (isSvg && meta.width && meta.width < VARIANTS.LOGO.x2.width) {
-      density = Math.min(2400, Math.ceil((72 * VARIANTS.LOGO.x2.width) / meta.width));
+    const logo2x = VARIANTS.LOGO.x2!.width;
+    if (isSvg && meta.width && meta.width < logo2x) {
+      density = Math.min(2400, Math.ceil((72 * logo2x) / meta.width));
       meta = await open().metadata();
     }
   } catch {
@@ -180,6 +190,7 @@ export async function normalizeSiteImage(
   const srcWidth = (rotated ? meta.height : meta.width) ?? 0;
   const srcHeight = (rotated ? meta.width : meta.height) ?? 0;
   const { x1, x2 } = VARIANTS[kind];
+  const jpeg = siteMediaExt(kind) === "jpg";
   if (srcWidth < x1.width || (x1.height && srcHeight < x1.height)) {
     throw new SiteMediaError(
       `Image trop petite : ${x1.width}${x1.height ? `×${x1.height}` : ""} px au moins (reçu ${srcWidth}×${srcHeight}).`,
@@ -192,14 +203,14 @@ export async function normalizeSiteImage(
       // Point d'intérêt choisi : zone gardée calculée ici, puis mise à la taille exacte du cadre.
       const crop = focal && v.height ? focalCrop(srcWidth, srcHeight, v.width / v.height, focal) : null;
       const pipeline = crop ? base().rotate().extract(crop) : base().rotate();
-      const { data, info } = await pipeline
-        .resize(
-          v.height
-            ? { width: v.width, height: v.height, fit: "cover", position: v.position ?? "attention" }
-            : { width: v.width, fit: "inside", withoutEnlargement: true },
-        )
-        .webp({ quality, effort: 4 })
-        .toBuffer({ resolveWithObject: true });
+      const resized = pipeline.resize(
+        v.height
+          ? { width: v.width, height: v.height, fit: "cover", position: v.position ?? "attention" }
+          : { width: v.width, fit: "inside", withoutEnlargement: true },
+      );
+      // JPEG sans transparence : fond blanc sous les zones transparentes (PNG), plutôt que du noir.
+      const encoded = jpeg ? resized.flatten({ background: "#ffffff" }).jpeg({ quality, mozjpeg: true }) : resized.webp({ quality, effort: 4 });
+      const { data, info } = await encoded.toBuffer({ resolveWithObject: true });
       if (data.length <= v.maxBytes) return { buffer: data, width: info.width, height: info.height };
     }
     throw new SiteMediaError(
@@ -208,7 +219,7 @@ export async function normalizeSiteImage(
     );
   };
   const first = await render(x1);
-  const bigEnough = srcWidth >= x2.width && (!x2.height || srcHeight >= x2.height);
+  const bigEnough = x2 !== null && srcWidth >= x2.width && (!x2.height || srcHeight >= x2.height);
   return { x1: first, x2: bigEnough ? await render(x2) : null, type };
 }
 
@@ -230,11 +241,11 @@ export async function cleanOriginal(input: Buffer, type: SniffedType): Promise<{
 
 const mediaSha = (x1: Buffer) => createHash("sha256").update(x1).digest("hex").slice(0, 12);
 
-async function writeVariants(sha12: string, x1: ProcessedImage, x2: ProcessedImage | null): Promise<void> {
-  const abs1 = issuedPdfAbsolutePath(siteMediaRelativePath(sha12));
+async function writeVariants(sha12: string, x1: ProcessedImage, x2: ProcessedImage | null, ext: SiteMediaExt = "webp"): Promise<void> {
+  const abs1 = issuedPdfAbsolutePath(siteMediaRelativePath(sha12, false, ext));
   await fs.mkdir(path.dirname(abs1), { recursive: true });
   await fs.writeFile(abs1, x1.buffer);
-  if (x2) await fs.writeFile(issuedPdfAbsolutePath(siteMediaRelativePath(sha12, true)), x2.buffer);
+  if (x2) await fs.writeFile(issuedPdfAbsolutePath(siteMediaRelativePath(sha12, true, ext)), x2.buffer);
 }
 
 const variantColumns = (x1: ProcessedImage, x2: ProcessedImage | null) => ({
@@ -268,7 +279,7 @@ export async function saveSiteImage(input: Buffer, kind: SiteMediaKind, original
   await fs.writeFile(absOriginal, original.buffer);
   const originalColumns = { originalPath, originalBytes: original.buffer.length, originalName: originalName?.slice(0, 255) ?? null };
   if (existing) return prisma.siteMedia.update({ where: { id: existing.id }, data: { ...originalColumns, label: existing.label ?? labelFromName(originalName) } });
-  await writeVariants(sha12, x1, x2);
+  await writeVariants(sha12, x1, x2, siteMediaExt(kind));
   return prisma.siteMedia.upsert({
     where: { sha12 },
     update: {},
@@ -295,7 +306,7 @@ export async function renderFromOriginal(media: SiteMedia, focal: Focal): Promis
   const sha12 = mediaSha(x1.buffer);
   const same = await prisma.siteMedia.findUnique({ where: { sha12 } });
   if (same) return prisma.siteMedia.update({ where: { id: same.id }, data: { focalX: focal.x, focalY: focal.y } });
-  await writeVariants(sha12, x1, x2);
+  await writeVariants(sha12, x1, x2, siteMediaExt(media.kind));
   return prisma.siteMedia.create({
     data: {
       sha12,
@@ -314,8 +325,9 @@ export async function renderFromOriginal(media: SiteMedia, focal: Focal): Promis
 /** Supprime les fichiers d'une image (1x, 2x) et son original s'il n'est plus partagé par une autre version. */
 export async function removeSiteMediaFiles(media: SiteMedia): Promise<void> {
   const rm = (rel: string) => fs.rm(issuedPdfAbsolutePath(rel), { force: true });
-  await rm(siteMediaRelativePath(media.sha12));
-  await rm(siteMediaRelativePath(media.sha12, true));
+  const ext = siteMediaExt(media.kind);
+  await rm(siteMediaRelativePath(media.sha12, false, ext));
+  await rm(siteMediaRelativePath(media.sha12, true, ext));
   if (media.originalPath && !(await prisma.siteMedia.count({ where: { originalPath: media.originalPath, id: { not: media.id } } }))) {
     await rm(media.originalPath);
   }
@@ -338,10 +350,10 @@ export async function adoptPublishedImage(sha12: string, kind: SiteMediaKind, x1
 }
 
 /** Fichier d'une image de l'ERP (aperçu dans l'admin, puis publication). */
-export async function readSiteMedia(sha12: string, x2 = false): Promise<Buffer | null> {
+export async function readSiteMedia(sha12: string, x2 = false, ext: SiteMediaExt = "webp"): Promise<Buffer | null> {
   if (!/^[a-f0-9]{12}$/.test(sha12)) return null;
   try {
-    return await fs.readFile(issuedPdfAbsolutePath(siteMediaRelativePath(sha12, x2)));
+    return await fs.readFile(issuedPdfAbsolutePath(siteMediaRelativePath(sha12, x2, ext)));
   } catch {
     return null;
   }

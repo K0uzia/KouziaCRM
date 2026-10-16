@@ -121,6 +121,23 @@ describe("images de l'espace Site", () => {
     await expect(saveSiteImage(clean, SiteMediaKind.CAPTURE)).rejects.toMatchObject({ code: "FORMAT" });
   });
 
+  it("image de partage : un JPEG unique de 1200×630, sans métadonnées, fond blanc sous la transparence ; refusée en dessous", async () => {
+    const media = await saveSiteImage(await phonePhoto(2400, 1600), SiteMediaKind.PARTAGE);
+    expect(media).toMatchObject({ kind: "PARTAGE", width: 1200, height: 630, width2x: null });
+    expect(media.bytes).toBeLessThanOrEqual(300_000);
+    const out = await readSiteMedia(media.sha12, false, "jpg");
+    const meta = await sharp(out!).metadata();
+    expect([meta.format, meta.width, meta.height, meta.exif]).toEqual(["jpeg", 1200, 630, undefined]);
+    expect(await readSiteMedia(media.sha12)).toBeNull();
+
+    const transparent = await sharp({ create: { width: 1200, height: 630, channels: 4, background: { r: 0, g: 0, b: 0, alpha: 0 } } }).png().toBuffer();
+    const flat = await saveSiteImage(transparent, SiteMediaKind.PARTAGE);
+    const { data } = await sharp((await readSiteMedia(flat.sha12, false, "jpg"))!).raw().toBuffer({ resolveWithObject: true });
+    expect(data[0]).toBeGreaterThan(240);
+
+    await expect(saveSiteImage(await phonePhoto(1000, 600), SiteMediaKind.PARTAGE)).rejects.toThrow(/1200×630/);
+  });
+
   it("refuse un fichier qui n'est pas une image, ou un SVG", async () => {
     await expect(saveSiteImage(Buffer.from("pas une image"), SiteMediaKind.LOGO)).rejects.toBeInstanceOf(SiteMediaError);
     const svg = Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" width="400" height="200"><script>alert(1)</script></svg>');

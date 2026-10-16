@@ -11,6 +11,7 @@ import {
 } from "@/lib/site/contract.js";
 import { faqOut, projectOut, referenceOut, reviewOut } from "@/lib/site/mapping.js";
 import { readSiteText } from "@/lib/site/texts.js";
+import { SITE_MEDIA_PATH_RE, type SiteMediaExt } from "@/lib/site/media.js";
 
 export type SiteSnapshot = {
   /** Contenu des fichiers src/content/site/<nom>.json, prêt à écrire. */
@@ -19,6 +20,8 @@ export type SiteSnapshot = {
   media: string[];
   /** Ce que montre chaque image citée (sha12), pour le récapitulatif : « capture de « Nom » », « logo de « Nom » ». */
   mediaNames: Record<string, string>;
+  /** Extension publiée de chaque image citée (sha12) : webp, ou jpg pour une image de partage. */
+  mediaExt: Record<string, SiteMediaExt>;
   /** Empreinte de l'ensemble : deux instantanés égaux ne donnent aucun commit. */
   digest: string;
   issues: SiteIssue[];
@@ -28,7 +31,6 @@ export type SiteSnapshot = {
 
 const published = { status: SiteItemStatus.PUBLISHED };
 const ordered = [{ position: "asc" as const }, { createdAt: "asc" as const }];
-const MEDIA_RE = /^\/media\/([a-f0-9]{12})\.webp$/;
 
 /**
  * Instantané du contenu publié (éléments PUBLISHED seulement), validé par les règles de l'ERP et, si
@@ -108,11 +110,14 @@ export async function buildSiteSnapshot(contract?: unknown): Promise<SiteSnapsho
   ];
   const mediaNames: Record<string, string> = {};
   const mediaFile: Record<string, SiteFileName> = {};
+  const mediaExt: Record<string, SiteMediaExt> = {};
   for (const [path, name, file] of cited) {
-    const sha = MEDIA_RE.exec(path ?? "")?.[1];
+    const m = SITE_MEDIA_PATH_RE.exec(path ?? "");
+    const sha = m?.[1];
     if (sha && !mediaNames[sha]) {
       mediaNames[sha] = name;
       mediaFile[sha] = file;
+      mediaExt[sha] = m![2] as SiteMediaExt;
     }
   }
   const media = Object.keys(mediaNames).sort();
@@ -131,5 +136,5 @@ export async function buildSiteSnapshot(contract?: unknown): Promise<SiteSnapsho
   const digest = createHash("sha256")
     .update(SITE_FILES.map((n) => `${n}\n${files[n]}`).join("\n") + media.join(","))
     .digest("hex");
-  return { files, media, mediaNames, digest, issues, warnings };
+  return { files, media, mediaNames, mediaExt, digest, issues, warnings };
 }

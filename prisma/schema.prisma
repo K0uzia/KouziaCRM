@@ -1549,6 +1549,8 @@ enum SiteMediaKind {
   CAPTURE
   MOBILE
   LOGO
+  /// Image de partage (og:image) : un JPEG de 1200×630, publié sous /media/<sha12>.jpg
+  PARTAGE
 }
 
 /// Réalisation (realisations.json)
