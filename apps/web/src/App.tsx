@@ -106,6 +106,9 @@ const SiteOffersPage = lazy(() =>
 const SiteTextsRedirect = lazy(() =>
   import("@/pages/site/SiteTextsPage").then((m) => ({ default: m.SiteTextsRedirect })),
 );
+const SiteSeoListPage = lazy(() => import("@/pages/site/SiteSeoMenusPages").then((m) => ({ default: m.SiteSeoListPage })));
+const SiteSeoPageEditor = lazy(() => import("@/pages/site/SiteSeoMenusPages").then((m) => ({ default: m.SiteSeoPageEditor })));
+const SiteMenusPage = lazy(() => import("@/pages/site/SiteSeoMenusPages").then((m) => ({ default: m.SiteMenusPage })));
 const SiteConnectionPage = lazy(() =>
   import("@/pages/site/SiteConnectionPage").then((m) => ({ default: m.SiteConnectionPage })),
 );
@@ -190,6 +193,9 @@ export default function App() {
           <Route path="site/accroche" element={<SiteHeroPage />} />
           <Route path="site/textes-pages" element={<SitePagesTextsPage />} />
           <Route path="site/offres" element={<SiteOffersPage />} />
+          <Route path="site/referencement" element={<SiteSeoListPage />} />
+          <Route path="site/referencement/:page" element={<SiteSeoPageEditor />} />
+          <Route path="site/menus" element={<SiteMenusPage />} />
           {/* Ancien écran unique « Textes et coordonnées » (?tab=accroche|offres). */}
           <Route path="site/textes" element={<SiteTextsRedirect />} />
           <Route path="site/connexion" element={<SiteConnectionPage />} />

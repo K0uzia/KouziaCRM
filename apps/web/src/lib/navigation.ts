@@ -1,5 +1,6 @@
 import type { IconDefinition } from "@fortawesome/fontawesome-svg-core";
 import {
+  faBars,
   faBook,
   faBoxOpen,
   faChartPie,
@@ -21,6 +22,7 @@ import {
   faFileSignature,
   faGear,
   faLandmark,
+  faMagnifyingGlass,
   faMoneyBillTransfer,
   faHandHoldingDollar,
   faRotate,
@@ -164,6 +166,15 @@ export const SITE_SECTIONS: NavSection[] = [
       },
       { id: "site-pages", to: "/site/textes-pages", label: "Textes des pages", shortLabel: "Pages", icon: faFileLines, match: starts("/site/textes-pages") },
       { id: "site-offers", to: "/site/offres", label: "Offres et tarifs", shortLabel: "Offres", icon: faTags, match: starts("/site/offres") },
+      {
+        id: "site-seo",
+        to: "/site/referencement",
+        label: "Référencement des pages",
+        shortLabel: "Référencement",
+        icon: faMagnifyingGlass,
+        match: starts("/site/referencement"),
+      },
+      { id: "site-menus", to: "/site/menus", label: "Menus", icon: faBars, match: starts("/site/menus") },
     ],
   },
   {
