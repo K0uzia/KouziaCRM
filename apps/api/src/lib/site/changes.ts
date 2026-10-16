@@ -116,9 +116,9 @@ export async function pendingChanges(snapshot: SiteSnapshot): Promise<{ changes:
     touched.add(COLLECTION_FILE[collection]);
   };
   for (const p of projects) add("projects", p.id, p.name, publicationState(p, itemHash("projects", p)), `/site/realisations/${p.id}`);
-  for (const r of reviews) add("reviews", r.id, `Témoignage de ${r.author}`, publicationState(r, itemHash("reviews", r)), "/site/avis");
-  for (const r of references) add("references", r.id, r.name, publicationState(r, itemHash("references", r)), "/site/references");
-  for (const f of faq) add("faq", f.id, short(f.question), publicationState(f, itemHash("faq", f)), "/site/faq");
+  for (const r of reviews) add("reviews", r.id, `Témoignage de ${r.author}`, publicationState(r, itemHash("reviews", r)), `/site/avis/${r.id}`);
+  for (const r of references) add("references", r.id, r.name, publicationState(r, itemHash("references", r)), `/site/references/${r.id}`);
+  for (const f of faq) add("faq", f.id, short(f.question), publicationState(f, itemHash("faq", f)), `/site/faq/${f.id}`);
   for (const t of texts) {
     const key = t.key as SiteTextKey;
     if (!Object.hasOwn(SITE_TEXT_SCHEMAS, key) || !t.publishedHash || t.publishedHash === textHash(t.valueJson)) continue;

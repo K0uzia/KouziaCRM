@@ -80,6 +80,9 @@ const SiteProjectPage = lazy(() =>
 const SiteReviewsPage = lazy(() =>
   import("@/pages/site/SiteReviewsPage").then((m) => ({ default: m.SiteReviewsPage })),
 );
+const SiteReviewPage = lazy(() => import("@/pages/site/SiteReviewsPage").then((m) => ({ default: m.SiteReviewPage })));
+const SiteReferencePage = lazy(() => import("@/pages/site/SiteReferencesPage").then((m) => ({ default: m.SiteReferencePage })));
+const SiteFaqItemPage = lazy(() => import("@/pages/site/SiteFaqPage").then((m) => ({ default: m.SiteFaqItemPage })));
 const SiteMediaPage = lazy(() => import("@/pages/site/SiteMediaPage").then((m) => ({ default: m.SiteMediaPage })));
 const SiteReferencesPage = lazy(() =>
   import("@/pages/site/SiteReferencesPage").then((m) => ({ default: m.SiteReferencesPage })),
@@ -172,9 +175,12 @@ export default function App() {
           <Route path="site/realisations" element={<SiteProjectsPage />} />
           <Route path="site/realisations/:id" element={<SiteProjectPage />} />
           <Route path="site/avis" element={<SiteReviewsPage />} />
+          <Route path="site/avis/:id" element={<SiteReviewPage />} />
           <Route path="site/references" element={<SiteReferencesPage />} />
+          <Route path="site/references/:id" element={<SiteReferencePage />} />
           <Route path="site/images" element={<SiteMediaPage />} />
           <Route path="site/faq" element={<SiteFaqPage />} />
+          <Route path="site/faq/:id" element={<SiteFaqItemPage />} />
           <Route path="site/coordonnees" element={<SiteContactPage />} />
           <Route path="site/accroche" element={<SiteHeroPage />} />
           <Route path="site/offres" element={<SiteOffersPage />} />
