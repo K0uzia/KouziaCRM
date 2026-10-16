@@ -306,4 +306,28 @@ describe("carte qui expire", () => {
     stripeSubsRetrieve.mockResolvedValue({ default_payment_method: { id: "pm_sepa", type: "sepa_debit" }, customer: "cus_1" });
     expect(await checkExpiringCards(now)).toBe(0);
   });
+
+  it("une carte partagée par deux abonnements : un seul e-mail", async () => {
+    const sub = await stripeSubscription();
+    const s2 = await createService({ name: "Adresses e-mail" });
+    await prisma.subscription.create({
+      data: {
+        clientId: sub.clientId,
+        serviceId: s2.id,
+        label: "Adresses e-mail",
+        amountCents: 6_000,
+        billingDay: 1,
+        billingInterval: "YEAR",
+        startDate: new Date(2026, 0, 1),
+        nextInvoiceAt: new Date(2027, 0, 1),
+        collectionMethod: SubscriptionCollectionMethod.STRIPE,
+        stripeSubscriptionId: "sub_mails",
+      },
+    });
+    stripeSubsRetrieve.mockResolvedValue(card(10, 2026));
+    expect(await checkExpiringCards(new Date(2026, 9, 5))).toBe(1);
+    expect(sentTo(CLIENT)).toHaveLength(1);
+    const keys = await prisma.subscription.findMany({ where: { clientId: sub.clientId }, select: { cardExpiryNoticeFor: true } });
+    expect(keys.map((k) => k.cardExpiryNoticeFor)).toEqual(["pm_card_1:2026-10", "pm_card_1:2026-10"]);
+  });
 });
