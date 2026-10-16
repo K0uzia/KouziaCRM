@@ -95,7 +95,10 @@ const SiteContactPage = lazy(() =>
   import("@/pages/site/SiteTextsPage").then((m) => ({ default: m.SiteContactPage })),
 );
 const SiteHeroPage = lazy(() =>
-  import("@/pages/site/SiteTextsPage").then((m) => ({ default: m.SiteHeroPage })),
+  import("@/pages/site/textesPages").then((m) => ({ default: m.SiteHeroScreen })),
+);
+const SitePagesTextsPage = lazy(() =>
+  import("@/pages/site/textesPages").then((m) => ({ default: m.SitePagesTextsPage })),
 );
 const SiteOffersPage = lazy(() =>
   import("@/pages/site/SiteTextsPage").then((m) => ({ default: m.SiteOffersPage })),
@@ -185,6 +188,7 @@ export default function App() {
           <Route path="site/faq/:id" element={<SiteFaqItemPage />} />
           <Route path="site/coordonnees" element={<SiteContactPage />} />
           <Route path="site/accroche" element={<SiteHeroPage />} />
+          <Route path="site/textes-pages" element={<SitePagesTextsPage />} />
           <Route path="site/offres" element={<SiteOffersPage />} />
           {/* Ancien écran unique « Textes et coordonnées » (?tab=accroche|offres). */}
           <Route path="site/textes" element={<SiteTextsRedirect />} />
