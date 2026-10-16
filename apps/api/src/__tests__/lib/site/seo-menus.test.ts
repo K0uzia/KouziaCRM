@@ -15,7 +15,7 @@ import { defaultsFromContract, fillVariables, finalMenus, finalSeo, finalSeoIssu
 import { resetDb } from "../../helpers/db.js";
 import { seedCompanySettings } from "../../helpers/factories.js";
 
-// Fichiers réels du site (main 600dec6), le contrat de cette version et le contrat en ligne du lot 6 (main b2b331c).
+// Fichiers réels du site (main 600dec6), le contrat de cette version et le contrat en ligne (KouziaWebsite main 7880574).
 const fixture = (name: string) => readFileSync(fileURLToPath(new URL(`../../fixtures/site/${name}`, import.meta.url)), "utf8");
 const raw = Object.fromEntries(SITE_FILES.map((n) => [n, fixture(`${n}.json`)])) as Record<SiteFileName, string>;
 const oldContract = JSON.parse(fixture("contenu.schema.600dec6.json")) as unknown;
@@ -94,10 +94,11 @@ describe("contrat seo.json et menus.json", () => {
 
 describe("valeurs finales (comme valider.ts au build du site)", () => {
   it("valeur de l'ERP sinon valeur actuelle, variables remplacées ; titre de l'accueil fixe", () => {
-    const final = finalSeo({ pages: { faq: { titre: "FAQ à {ville}" } } }, defaults, vars);
+    const final = finalSeo({ pages: { faq: { titre: "FAQ à {ville}", description: description("Réponse {delaiReponse}") } } }, defaults, vars);
     expect(final.faq.title).toBe("FAQ à Huelgoat");
+    expect(final.faq.description).toContain("Réponse sous 48 h :");
     expect(final.accueil.title).toBe(defaults.seo.accueil!.titre);
-    expect(final.accueil.description).toContain("Devis gratuit sous 48 h.");
+    expect(final.accueil.description).toBe(defaults.seo.accueil!.description);
     expect(final.sitesWeb.image).toBe("/og-kouzia.jpg");
     expect(fillVariables("{ville}, {delaiReponse}", vars)).toBe("Huelgoat, sous 48 h");
     expect(finalSeoIssues(null, defaults, vars)).toEqual([]);
@@ -108,17 +109,16 @@ describe("valeurs finales (comme valider.ts au build du site)", () => {
     expect(twin).toEqual([expect.objectContaining({ path: "faq.description", message: expect.stringMatching(/« Logiciels »/) })]);
     // 153 caractères bruts, 156 une fois {delaiReponse} (14 caractères) remplacé par « sous 48 h ouvrées » (17).
     const long = finalSeoIssues({ pages: { faq: { description: description("{delaiReponse}", 153) } } }, defaults, { ...vars, delaiReponse: "sous 48 h ouvrées" });
-    expect(long).toContainEqual(expect.objectContaining({ path: "faq.description", message: expect.stringMatching(/^156 caractères/) }));
-    // La description actuelle de l'accueil contient aussi {delaiReponse} : un délai plus long la fait dépasser.
-    expect(long).toContainEqual(expect.objectContaining({ path: "accueil.description" }));
+    expect(long).toEqual([expect.objectContaining({ path: "faq.description", message: expect.stringMatching(/^156 caractères/) })]);
   });
 
   it("{ville} : valeur exportée par le site (defauts.variables), sinon ville des réglages ; {delaiReponse} : coordonnées de l'ERP", async () => {
     await importSiteFiles(raw);
-    const withCity = JSON.parse(JSON.stringify(contract)) as { defauts: Record<string, unknown> };
-    withCity.defauts.variables = { ville: "Huelgoat" };
-    expect(defaultsFromContract(withCity)!.variables).toEqual({ ville: "Huelgoat" });
-    expect(defaults.variables).toBeUndefined();
+    expect(defaults.variables).toEqual({ ville: "Huelgoat" });
+    // Contrat du lot 6 antérieur à l'export de la ville (b2b331c) : pas de variables.
+    const withoutCity = JSON.parse(JSON.stringify(contract)) as { defauts: Record<string, unknown> };
+    delete withoutCity.defauts.variables;
+    expect(defaultsFromContract(withoutCity)!.variables).toBeUndefined();
     const delai = JSON.parse(raw.infos).infos.delaiReponse as string;
     expect(await textVariables("Huelgoat")).toEqual({ ville: "Huelgoat", delaiReponse: delai });
     // Contrat antérieur (sans variables) : ville des réglages de l'entreprise (Quimper dans la fabrique de test).
@@ -170,11 +170,17 @@ describe("publication des fichiers facultatifs", () => {
     ]);
   });
 
-  it("sans seo.json : description actuelle de l'accueil trop longue avec un délai de réponse plus long, publication bloquée", async () => {
+  it("sans seo.json : description actuelle avec {delaiReponse} trop longue avec un délai plus long, publication bloquée", async () => {
     await importSiteFiles(raw);
     const infos = await prisma.siteText.findUniqueOrThrow({ where: { key: "infos" } });
     await writeSiteText("infos", { ...JSON.parse(infos.valueJson), delaiReponse: "sous 24 à 48 heures ouvrées" });
-    const snap = await buildSiteSnapshot(contract);
+    // Description actuelle de l'accueil sans variable (site en ligne) : rien à bloquer.
+    expect((await buildSiteSnapshot(contract)).issues).toEqual([]);
+    // Site dont la description actuelle contient {delaiReponse} (texte de b2b331c) : un délai plus long la fait dépasser.
+    const withVariable = JSON.parse(JSON.stringify(contract)) as { defauts: { seo: { accueil: { description: string } } } };
+    withVariable.defauts.seo.accueil.description =
+      "Développeur web à Huelgoat, près de Morlaix (Finistère) : création de sites internet, applications et logiciels sur mesure. Devis gratuit {delaiReponse}.";
+    const snap = await buildSiteSnapshot(withVariable);
     expect(snap.files.seo).toBeUndefined();
     expect(snap.issues).toEqual([expect.objectContaining({ file: "seo", path: "accueil.description" })]);
     expect((await buildSiteSnapshot(oldContract)).issues).toEqual([]);

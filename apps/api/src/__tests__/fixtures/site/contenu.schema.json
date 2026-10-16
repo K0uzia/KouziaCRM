@@ -1449,7 +1449,7 @@
     "seo": {
       "accueil": {
         "titre": "Kouzia, sites web et logiciels sur mesure à Huelgoat",
-        "description": "Développeur web à Huelgoat, près de Morlaix (Finistère) : création de sites internet, applications et logiciels sur mesure. Devis gratuit {delaiReponse}."
+        "description": "Création de sites internet, d’applications et de logiciels sur mesure à Huelgoat, près de Morlaix (Finistère). Devis gratuit et sans engagement."
       },
       "sitesWeb": {
         "titre": "Création de site internet dans le Finistère | Kouzia",
@@ -1556,7 +1556,10 @@
       }
     },
     "image": "/og-kouzia.jpg",
-    "imageAlt": "Kouzia, sites web et logiciels sur mesure"
+    "imageAlt": "Kouzia, sites web et logiciels sur mesure",
+    "variables": {
+      "ville": "Huelgoat"
+    }
   },
   "variables": [
     "ville",
