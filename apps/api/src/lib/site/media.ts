@@ -260,6 +260,9 @@ export async function saveSiteImage(input: Buffer, kind: SiteMediaKind, original
   if (existing?.originalPath) return existing;
   const original = await cleanOriginal(input, type);
   const originalPath = `${ORIGINALS_DIR}/${createHash("sha256").update(original.buffer).digest("hex").slice(0, 16)}.${original.ext}`;
+  // Même fichier renvoyé après un recadrage : c'est la même image, sa dernière version sert (pas de doublon).
+  const sameOriginal = existing ? null : await prisma.siteMedia.findFirst({ where: { originalPath, kind }, orderBy: { createdAt: "desc" } });
+  if (sameOriginal) return sameOriginal;
   const absOriginal = issuedPdfAbsolutePath(originalPath);
   await fs.mkdir(path.dirname(absOriginal), { recursive: true });
   await fs.writeFile(absOriginal, original.buffer);

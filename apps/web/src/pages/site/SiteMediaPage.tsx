@@ -1,7 +1,7 @@
 import { useEffect, useId, useMemo, useRef, useState, type DragEvent, type FormEvent } from "react";
 import { Link } from "react-router-dom";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { faCrop, faTrash, faUpload } from "@fortawesome/free-solid-svg-icons";
+import { faCloudArrowUp, faCrop, faTrash, faUpload } from "@fortawesome/free-solid-svg-icons";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { Badge, Card, PageHeader } from "@/components/ui/Card";
@@ -14,13 +14,13 @@ import { StatStrip } from "@/components/ui/StatStrip";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { KIND_HINT, LoadState, MEDIA_KIND_LABEL, mediaName, SiteImage, useSiteCollection, type LibraryMedia, type MediaKind } from "./shared";
 
-type Filter = "all" | MediaKind | "unused";
+type Filter = "all" | MediaKind | "unused" | "previous";
 type Upload = { key: string; name: string; state: "pending" | "done" | "error"; message?: string };
 
 const KIND_OPTIONS: ReadonlyArray<{ id: MediaKind; label: string }> = [
-  { id: "CAPTURE", label: "Captures d'écran" },
+  { id: "CAPTURE", label: "Capture" },
   { id: "MOBILE", label: "Téléphone" },
-  { id: "LOGO", label: "Logos" },
+  { id: "LOGO", label: "Logo" },
 ];
 const ACCEPT: Record<MediaKind, string> = {
   CAPTURE: "image/jpeg,image/png,image/webp,image/avif",
@@ -65,15 +65,23 @@ export function SiteMediaPage() {
   const [openId, setOpenId] = useState<string | null>(null);
   const input = useRef<HTMLInputElement>(null);
   const hintId = useId();
+  const kindLabelId = useId();
 
+  // Anciennes versions d'images recadrées : hors de la grille par défaut, gardées tant qu'elles sont en ligne.
+  const current = rows.filter((m) => !m.previousVersion);
+  const previous = rows.filter((m) => m.previousVersion);
   const q = query.trim().toLowerCase();
-  const visible = rows.filter(
+  const visible = (filter === "previous" ? previous : current).filter(
     (m) =>
-      (filter === "all" || (filter === "unused" ? !m.usages.length : m.kind === filter)) &&
+      (filter === "all" || filter === "previous" || (filter === "unused" ? !m.usages.length : m.kind === filter)) &&
       (!q || mediaName(m).toLowerCase().includes(q) || (m.originalName ?? "").toLowerCase().includes(q) || m.usages.some((u) => u.label.toLowerCase().includes(q))),
   );
-  const unused = rows.filter((m) => !m.usages.length).length;
+  const unused = current.filter((m) => !m.usages.length).length;
   const unknownOnline = rows.some((m) => m.online === null);
+  // Filtre « Anciennes versions » vidé (publication passée) : retour à toutes les images.
+  useEffect(() => {
+    if (filter === "previous" && !previous.length) setFilter("all");
+  }, [filter, previous.length]);
   const opened = rows.find((m) => m.id === openId) ?? null;
   const busy = uploads.some((u) => u.state === "pending");
 
@@ -112,42 +120,61 @@ export function SiteMediaPage() {
       <PageHeader
         title="Images"
         subtitle="Captures et logos du site : envoyés une fois, puis choisis dans les fiches. Chaque image est publiée en WebP sans métadonnées ; l'original, nettoyé lui aussi, reste dans l'ERP pour recadrer."
-        actions={
-          <Button onClick={() => input.current?.click()} disabled={busy} aria-describedby={hintId}>
-            <FontAwesomeIcon icon={faUpload} className="h-3.5 w-3.5" aria-hidden />
-            {busy ? "Envoi…" : "Envoyer des images"}
-          </Button>
-        }
       />
       <LoadState loading={loading} error={error} onRetry={() => void reload()}>
         <StatStrip
           className="mb-4"
           items={[
-            { label: "Images", value: rows.length },
-            { label: "Utilisées", value: rows.length - unused },
+            { label: "Images", value: current.length, hint: previous.length ? `et ${previous.length} ancienne${previous.length > 1 ? "s" : ""} version${previous.length > 1 ? "s" : ""}` : undefined },
+            { label: "Utilisées", value: current.length - unused },
             { label: "Non utilisées", value: unused, hint: unused ? "Supprimables si elles ne sont plus en ligne" : undefined },
             { label: "En ligne", value: unknownOnline ? "?" : rows.filter((m) => m.online).length, hint: unknownOnline ? "Connu après la prochaine publication" : "Dernière publication" },
           ]}
         />
 
-        <Card
-          className={`mb-4 p-4 transition-colors ${dragging ? "border-[var(--primary)] bg-[var(--primary-soft)]" : ""}`}
-          onDragOver={(e: DragEvent) => {
-            e.preventDefault();
-            setDragging(true);
-          }}
-          onDragLeave={() => setDragging(false)}
-          onDrop={onDrop}
-        >
-          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-            <div className="min-w-0 space-y-1.5">
-              <Segmented label="Type des images envoyées" options={KIND_OPTIONS} value={kind} onChange={setKind} />
-              <p id={hintId} className="text-xs text-[var(--muted)]">
-                {KIND_HINT[kind]} 15 Mo au plus par fichier.
-              </p>
-            </div>
-            <p className="text-sm text-[var(--muted)] pointer-coarse:hidden">Glisser-déposer plusieurs fichiers ici, ou « Envoyer des images ».</p>
+        <Card className="mb-4 space-y-3 p-4">
+          <div className="space-y-1.5">
+            <p id={kindLabelId} className="text-sm font-medium">
+              Type des images à envoyer
+            </p>
+            <Segmented label="Type des images à envoyer" options={KIND_OPTIONS} value={kind} onChange={setKind} />
           </div>
+          {/* Zone de dépôt : le bouton « Choisir des fichiers » reste le chemin principal (clavier, téléphone). */}
+          <div
+            className={`flex flex-col items-center justify-center gap-2 rounded-[var(--radius)] border-2 border-dashed px-4 py-8 text-center transition-colors ${
+              dragging ? "border-[var(--primary)] bg-[var(--primary-soft)]" : "border-[var(--border-strong)] bg-[var(--bg-subtle)]"
+            }`}
+            onDragEnter={(e: DragEvent) => {
+              e.preventDefault();
+              setDragging(true);
+            }}
+            onDragOver={(e: DragEvent) => {
+              e.preventDefault();
+              e.dataTransfer.dropEffect = "copy";
+              setDragging(true);
+            }}
+            onDragLeave={(e: DragEvent) => {
+              if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setDragging(false);
+            }}
+            onDrop={onDrop}
+          >
+            <FontAwesomeIcon icon={dragging ? faCloudArrowUp : faUpload} className={`h-6 w-6 ${dragging ? "text-[var(--primary)]" : "text-[var(--muted)]"}`} aria-hidden />
+            <p className="text-sm">
+              {dragging ? (
+                <span className="font-medium">Déposer pour envoyer en « {MEDIA_KIND_LABEL[kind]} »</span>
+              ) : (
+                <>
+                  <span className="pointer-coarse:hidden">Glisser-déposer vos images ici ou </span>
+                  <Button variant="secondary" className="mt-1" onClick={() => input.current?.click()} disabled={busy} aria-describedby={`${kindLabelId} ${hintId}`}>
+                    {busy ? "Envoi…" : "Choisir des fichiers"}
+                  </Button>
+                </>
+              )}
+            </p>
+          </div>
+          <p id={hintId} className="text-xs text-[var(--muted)]">
+            {KIND_HINT[kind]} 15 Mo au plus par fichier.
+          </p>
           <input
             ref={input}
             type="file"
@@ -185,11 +212,12 @@ export function SiteMediaPage() {
               onChange={setFilter}
               wrap
               options={[
-                { id: "all", label: "Toutes", count: rows.length },
-                { id: "CAPTURE", label: "Captures", count: rows.filter((m) => m.kind === "CAPTURE").length },
-                { id: "MOBILE", label: "Téléphone", count: rows.filter((m) => m.kind === "MOBILE").length },
-                { id: "LOGO", label: "Logos", count: rows.filter((m) => m.kind === "LOGO").length },
+                { id: "all", label: "Toutes", count: current.length },
+                { id: "CAPTURE", label: "Captures", count: current.filter((m) => m.kind === "CAPTURE").length },
+                { id: "MOBILE", label: "Téléphone", count: current.filter((m) => m.kind === "MOBILE").length },
+                { id: "LOGO", label: "Logos", count: current.filter((m) => m.kind === "LOGO").length },
                 { id: "unused", label: "Non utilisées", count: unused },
+                ...(previous.length ? [{ id: "previous" as const, label: "Anciennes versions", count: previous.length }] : []),
               ]}
             />
           </div>
@@ -205,17 +233,23 @@ export function SiteMediaPage() {
                     className="flex h-full min-h-11 w-full flex-col gap-2 rounded-[var(--radius)] border border-[var(--border)] bg-[var(--surface)] p-2 text-left transition-colors hover:border-[var(--primary)]"
                   >
                     <SiteImage path={m.path} alt="" className={`aspect-video w-full rounded-[var(--radius-sm)] ${m.kind === "CAPTURE" ? "" : "object-contain"}`} />
-                    <span className="line-clamp-2 break-words text-sm font-medium">{mediaName(m)}</span>
+                    <span className="min-w-0">
+                      <span className="block truncate text-sm font-medium" title={mediaName(m)}>
+                        {mediaName(m)}
+                      </span>
+                      <span className="block text-xs text-[var(--muted)]">
+                        {MEDIA_KIND_LABEL[m.kind]}, {m.width}×{m.height} px, {size(m.bytes)}
+                      </span>
+                    </span>
                     <span className="mt-auto flex flex-wrap gap-1">
-                      <Badge>{MEDIA_KIND_LABEL[m.kind]}</Badge>
                       {m.previousVersion ? (
-                        <Badge tone="amber">Ancienne version</Badge>
+                        <Badge tone="amber">{m.online ? "Ancienne version, encore en ligne" : "Ancienne version"}</Badge>
                       ) : m.usages.length ? (
-                        <Badge tone="green">{m.usages.length > 1 ? `Utilisée ${m.usages.length} fois` : "Utilisée"}</Badge>
+                        <Badge tone="green">{`Utilisée par ${m.usages.length} fiche${m.usages.length > 1 ? "s" : ""}`}</Badge>
                       ) : (
                         <Badge tone="neutral">Non utilisée</Badge>
                       )}
-                      {m.online ? <Badge tone="blue">En ligne</Badge> : null}
+                      {m.online && !m.previousVersion ? <Badge tone="blue">En ligne</Badge> : null}
                     </span>
                   </button>
                 </li>
@@ -223,9 +257,9 @@ export function SiteMediaPage() {
             </ul>
           ) : (
             <div className="py-8 text-center">
-              <p className="font-medium">{rows.length ? "Aucune image ne correspond" : "Aucune image pour l'instant"}</p>
+              <p className="font-medium">{current.length ? "Aucune image ne correspond" : "Aucune image pour l'instant"}</p>
               <p className="mt-1 text-sm text-[var(--muted)]">
-                {rows.length ? "Changer le filtre ou la recherche." : "Envoyez des captures ou des logos : ils se choisissent ensuite dans les réalisations et les références."}
+                {current.length ? "Changer le filtre ou la recherche." : "Envoyez des captures ou des logos : ils se choisissent ensuite dans les réalisations et les références."}
               </p>
             </div>
           )}
