@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { Link } from "react-router-dom";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faArrowUpRightFromSquare, faCloudArrowUp } from "@fortawesome/free-solid-svg-icons";
 import { api, SITE_CHANGED_EVENT } from "@/lib/api";
@@ -132,22 +133,10 @@ export function SitePublicationCard({ state, onPublished }: { state: SiteState; 
         </div>
       ) : null}
 
-      {history && history.length > 1 ? (
-        <details className="mt-4">
-          <summary className="inline-flex min-h-11 cursor-pointer items-center text-sm font-medium">Historique des publications</summary>
-          <ul className="mt-2 divide-y divide-[var(--border)]">
-            {history.slice(1).map((p) => (
-              <li key={p.id} className="flex flex-col gap-1 py-2.5 text-sm sm:flex-row sm:items-center sm:gap-3">
-                <span className="shrink-0 text-[var(--muted)] sm:w-40">{when(p.startedAt)}</span>
-                <Badge tone={PUBLICATION_STATUS[p.status].tone} className="self-start sm:self-auto">
-                  {PUBLICATION_STATUS[p.status].label}
-                </Badge>
-                <span className="min-w-0 flex-1 break-words">{p.error ?? p.summary}</span>
-                <PublicationLinks p={p} />
-              </li>
-            ))}
-          </ul>
-        </details>
+      {history?.length ? (
+        <Link to="/site/historique" className="link mt-3 inline-flex min-h-11 items-center text-sm font-medium">
+          Historique des publications et restauration
+        </Link>
       ) : null}
 
     </section>
