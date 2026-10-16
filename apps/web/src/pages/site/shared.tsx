@@ -476,7 +476,8 @@ export function ImageField({
         {KIND_HINT[kind]}
         {value ? <span className="block font-mono">{value}</span> : null}
       </p>
-      {kind !== "LOGO" ? (
+      {/* Chemin /projets/*.webp : captures reprises du site ; ni un logo ni une image de partage (JPEG de la médiathèque). */}
+      {kind === "CAPTURE" || kind === "MOBILE" ? (
         <details className="group text-sm">
           <summary className="inline-flex min-h-11 cursor-pointer list-none items-center gap-2 text-[var(--muted)] hover:text-[var(--text)] [&::-webkit-details-marker]:hidden">
             <FontAwesomeIcon icon={faChevronRight} className="h-3 w-3 transition-transform group-open:rotate-90 motion-reduce:transition-none" aria-hidden />

@@ -155,6 +155,16 @@ describe("publication des fichiers facultatifs", () => {
     ]);
   });
 
+  it("sans seo.json : description actuelle de l'accueil trop longue avec un délai de réponse plus long, publication bloquée", async () => {
+    await importSiteFiles(raw);
+    const infos = await prisma.siteText.findUniqueOrThrow({ where: { key: "infos" } });
+    await writeSiteText("infos", { ...JSON.parse(infos.valueJson), delaiReponse: "sous 24 à 48 heures ouvrées" });
+    const snap = await buildSiteSnapshot(contract);
+    expect(snap.files.seo).toBeUndefined();
+    expect(snap.issues).toEqual([expect.objectContaining({ file: "seo", path: "accueil.description" })]);
+    expect((await buildSiteSnapshot(oldContract)).issues).toEqual([]);
+  });
+
   it("sans document : aucun fichier facultatif, empreinte inchangée", async () => {
     await importSiteFiles(raw);
     const a = await buildSiteSnapshot(oldContract);

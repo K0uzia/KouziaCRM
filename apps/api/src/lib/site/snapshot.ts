@@ -102,11 +102,12 @@ export async function buildSiteSnapshot(contract?: unknown): Promise<SiteSnapsho
   if (seo && allowed.has("seo")) optional.seo = { schemaVersion: SITE_SCHEMA_VERSION, pages: seo.pages };
   if (menus && allowed.has("menus")) optional.menus = { schemaVersion: SITE_SCHEMA_VERSION, ...menus };
   issues.push(...validateOptionalSiteFiles(optional, contract));
-  if (optional.seo && contract !== undefined) {
-    // Contrôles du build du site sur les valeurs finales (variables remplacées, valeurs actuelles comprises).
+  // Contrôles du build du site sur les valeurs finales (variables remplacées, valeurs actuelles comprises), dès que le
+  // site les applique : même sans seo.json, un délai de réponse plus long peut faire dépasser une description actuelle.
+  if (contract !== undefined && allowed.has("seo")) {
     const [defaults, vars] = [defaultsFromContract(contract), await textVariables()];
     if (!defaults) issues.push({ file: "seo", path: "(racine)", message: "Contrat du site sans valeurs actuelles (defauts) : impossible de vérifier les descriptions" });
-    else if (vars) issues.push(...finalSeoIssues(seo, defaults, vars));
+    else if (vars) issues.push(...finalSeoIssues(optional.seo ? seo : null, defaults, vars));
   }
 
   const projectSlugs = new Set(projects.map((p) => p.slug));
