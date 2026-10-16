@@ -1,12 +1,11 @@
 import { useEffect, useRef, useState } from "react";
-import { toast } from "sonner";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faArrowUpRightFromSquare, faCloudArrowUp } from "@fortawesome/free-solid-svg-icons";
-import { api } from "@/lib/api";
+import { api, SITE_CHANGED_EVENT } from "@/lib/api";
+import { SITE_PUBLISH_OPEN_EVENT } from "@/components/site/SitePublishBar";
 import { formatDate, formatTime } from "@/lib/format";
 import { Badge } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
-import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import type { SiteState } from "./shared";
 
 export type FileChange = { path: string; change: "added" | "modified" | "deleted"; label?: string };
@@ -30,9 +29,8 @@ export type SitePublication = {
   startedAt: string;
   liveAt: string | null;
 };
-type Preview = { headSha: string; digest: string; changes: FileChange[]; lines: string[] };
 
-const STATUS: Record<SitePublication["status"], { label: string; tone: "neutral" | "green" | "blue" | "amber" | "red" }> = {
+export const PUBLICATION_STATUS: Record<SitePublication["status"], { label: string; tone: "neutral" | "green" | "blue" | "amber" | "red" }> = {
   PREPARING: { label: "Préparation", tone: "blue" },
   COMMITTED: { label: "Enregistré dans le dépôt", tone: "blue" },
   DISPATCHED: { label: "Déploiement lancé", tone: "blue" },
@@ -50,9 +48,6 @@ const when = (iso: string) => `${formatDate(iso)} à ${formatTime(iso)}`;
  */
 export function SitePublicationCard({ state, onPublished }: { state: SiteState; onPublished: () => void }) {
   const [history, setHistory] = useState<SitePublication[] | null>(null);
-  const [preview, setPreview] = useState<Preview | null>(null);
-  const [checking, setChecking] = useState(false);
-  const [busy, setBusy] = useState(false);
   const timer = useRef<number | null>(null);
 
   async function loadHistory() {
@@ -77,36 +72,15 @@ export function SitePublicationCard({ state, onPublished }: { state: SiteState; 
     };
   }, [watching]);
 
-  async function openPreview() {
-    setChecking(true);
-    try {
-      const p = await api<Preview>("/api/site/publish/preview");
-      if (!p.changes.length) toast.success("Rien à publier : kouzia.com a déjà ce contenu.");
-      else setPreview(p);
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Comparaison avec le dépôt du site impossible");
-    } finally {
-      setChecking(false);
-    }
-  }
-
-  async function publish() {
-    setBusy(true);
-    try {
-      const p = await api<SitePublication>("/api/site/publish", { method: "POST" });
-      setPreview(null);
-      if (p.status === "NOOP") toast.success("Rien à publier : kouzia.com a déjà ce contenu.");
-      else if (p.status === "FAILED") toast.error(p.error ?? "Publication en échec");
-      else toast.success("Contenu enregistré dans le dépôt du site, déploiement lancé.");
-      await loadHistory();
+  // Une publication lancée depuis la barre du haut : l'historique et l'état de la page suivent.
+  useEffect(() => {
+    const onChanged = () => {
+      void loadHistory();
       onPublished();
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Publication impossible");
-      await loadHistory();
-    } finally {
-      setBusy(false);
-    }
-  }
+    };
+    window.addEventListener(SITE_CHANGED_EVENT, onChanged);
+    return () => window.removeEventListener(SITE_CHANGED_EVENT, onChanged);
+  }, [onPublished]);
 
   const blocked = !state.github.token.set
     ? "Enregistrer d'abord un jeton GitHub (Connexion)."
@@ -134,18 +108,10 @@ export function SitePublicationCard({ state, onPublished }: { state: SiteState; 
                 : "Publier enregistre le contenu dans le dépôt du site, qui se reconstruit puis se déploie."}
           </p>
         </div>
-        {/* Jamais désactivé pendant la comparaison : il garde le focus, rendu par la modale à sa fermeture. */}
-        <Button
-          type="button"
-          className="min-h-11 shrink-0"
-          disabled={Boolean(blocked)}
-          aria-busy={checking}
-          onClick={() => {
-            if (!checking) void openPreview();
-          }}
-        >
+        {/* Même panneau que le bouton Publier de la barre du haut : changements, anomalies, mise en ligne. */}
+        <Button type="button" className="min-h-11 shrink-0" aria-haspopup="dialog" onClick={() => window.dispatchEvent(new CustomEvent(SITE_PUBLISH_OPEN_EVENT))}>
           <FontAwesomeIcon icon={faCloudArrowUp} className="h-4 w-4" aria-hidden />
-          {checking ? "Comparaison…" : "Publier…"}
+          Publier…
         </Button>
       </div>
       {blocked && !running ? <p className="mt-2 text-sm text-[var(--warning)]">{blocked}</p> : null}
@@ -153,7 +119,7 @@ export function SitePublicationCard({ state, onPublished }: { state: SiteState; 
       {current ? (
         <div className="mt-4 rounded-[var(--radius-sm)] bg-[var(--surface-raised)] p-3 text-sm" aria-live="polite">
           <div className="flex flex-wrap items-center gap-2">
-            <Badge tone={STATUS[current.status].tone}>{STATUS[current.status].label}</Badge>
+            <Badge tone={PUBLICATION_STATUS[current.status].tone}>{PUBLICATION_STATUS[current.status].label}</Badge>
             <span className="text-[var(--muted)]">{when(current.startedAt)}</span>
           </div>
           {current.summary ? <p className="mt-2 break-words">{current.summary}</p> : null}
@@ -173,8 +139,8 @@ export function SitePublicationCard({ state, onPublished }: { state: SiteState; 
             {history.slice(1).map((p) => (
               <li key={p.id} className="flex flex-col gap-1 py-2.5 text-sm sm:flex-row sm:items-center sm:gap-3">
                 <span className="shrink-0 text-[var(--muted)] sm:w-40">{when(p.startedAt)}</span>
-                <Badge tone={STATUS[p.status].tone} className="self-start sm:self-auto">
-                  {STATUS[p.status].label}
+                <Badge tone={PUBLICATION_STATUS[p.status].tone} className="self-start sm:self-auto">
+                  {PUBLICATION_STATUS[p.status].label}
                 </Badge>
                 <span className="min-w-0 flex-1 break-words">{p.error ?? p.summary}</span>
                 <PublicationLinks p={p} />
@@ -184,26 +150,11 @@ export function SitePublicationCard({ state, onPublished }: { state: SiteState; 
         </details>
       ) : null}
 
-      <ConfirmDialog
-        open={Boolean(preview)}
-        title="Publier sur kouzia.com"
-        message="Ces changements seront enregistrés dans le dépôt du site, puis le site sera reconstruit et mis en ligne."
-        confirmLabel="Publier"
-        busy={busy}
-        onConfirm={() => void publish()}
-        onClose={() => setPreview(null)}
-      >
-        <ul className="mt-3 list-disc space-y-1 pl-5 text-sm">
-          {(preview?.lines ?? []).map((line) => (
-            <li key={line}>{line}</li>
-          ))}
-        </ul>
-      </ConfirmDialog>
     </section>
   );
 }
 
-function PublicationLinks({ p }: { p: SitePublication }) {
+export function PublicationLinks({ p }: { p: SitePublication }) {
   if (!p.commitUrl && !p.runUrl) return null;
   return (
     <span className="flex flex-wrap gap-x-4">

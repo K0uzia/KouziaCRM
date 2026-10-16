@@ -1,9 +1,10 @@
 import { createHash } from "node:crypto";
-import { Prisma, SiteItemStatus, SitePublicationStatus, type SitePublication } from "@prisma/client";
+import { Prisma, SitePublicationStatus, type SitePublication } from "@prisma/client";
 import { prisma } from "@/lib/prisma.js";
 import { SITE_FILES, type SiteIssue } from "@/lib/site/contract.js";
 import { buildSiteSnapshot, type SiteSnapshot } from "@/lib/site/snapshot.js";
 import { readSiteMedia } from "@/lib/site/media.js";
+import { recordPublished } from "@/lib/site/changes.js";
 import { GithubError, githubJson, readRepoFileAt, SITE_CONTENT_DIR, siteBranch, siteRepo } from "@/lib/site/github.js";
 
 /**
@@ -174,22 +175,6 @@ const fail = (id: string, error: string) =>
  * Publie : verrou (une seule publication à la fois), commit unique sur la branche du site (3 essais si
  * elle a bougé entre-temps), puis déclenchement du déploiement. Aucun écart : NOOP, aucun commit.
  */
-/**
- * Éléments désormais dans le dépôt du site (statut PUBLISHED, jamais publiés jusque-là) : publishedAt renseigné. Il
- * fige leur identifiant et interdit leur suppression, comme pour le contenu repris du site. Seuls ceux lus avant
- * l'instantané (updatedAt antérieur à la lecture) : un élément modifié pendant la publication n'est pas compté.
- */
-async function markPublished(readAt: Date): Promise<void> {
-  const at = new Date();
-  const where = { status: SiteItemStatus.PUBLISHED, publishedAt: null, updatedAt: { lte: readAt } };
-  await prisma.$transaction([
-    prisma.siteProject.updateMany({ where, data: { publishedAt: at } }),
-    prisma.siteReview.updateMany({ where: { ...where, rejectedAt: null }, data: { publishedAt: at } }),
-    prisma.siteReference.updateMany({ where, data: { publishedAt: at } }),
-    prisma.siteFaq.updateMany({ where, data: { publishedAt: at } }),
-  ]);
-}
-
 export async function publishSite(): Promise<SitePublication> {
   await expireStalePublications();
   let row: SitePublication;
@@ -213,7 +198,7 @@ export async function publishSite(): Promise<SitePublication> {
       p = await plan();
       if (!p.changes.length) {
         // Dépôt déjà identique au contenu saisi : ce qui est marqué « sur le site » y est bien.
-        await markPublished(readAt);
+        await recordPublished(readAt, p.snapshot, row.id);
         return await prisma.sitePublication.update({
           where: { id: row.id },
           data: {
@@ -260,7 +245,7 @@ export async function publishSite(): Promise<SitePublication> {
       data: { status: SitePublicationStatus.COMMITTED, commitSha },
     });
     // Contenu dans le dépôt dès le commit poussé, même si le déploiement échoue ensuite (il se relance depuis l'Action).
-    await markPublished(readAt);
+    await recordPublished(readAt, p!.snapshot, row.id);
   } catch (e) {
     const message = e instanceof Error ? e.message : "Publication impossible.";
     await fail(row.id, message);

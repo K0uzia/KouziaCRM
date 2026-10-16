@@ -1570,6 +1570,8 @@ model SiteProject {
   createdAt       DateTime        @default(now())
   updatedAt       DateTime        @updatedAt
   publishedAt     DateTime?
+  /// Empreinte de la version publiée (forme écrite dans le dépôt du site) : différente de l'actuelle, statut « Modifié ».
+  publishedHash   String?
 
   @@index([status, position])
 }
@@ -1614,6 +1616,8 @@ model SiteReview {
   createdAt             DateTime       @default(now())
   updatedAt             DateTime       @updatedAt
   publishedAt           DateTime?
+  /// Empreinte de la version publiée (forme écrite dans le dépôt du site) : différente de l'actuelle, statut « Modifié ».
+  publishedHash         String?
 
   @@index([status, position])
 }
@@ -1645,6 +1649,8 @@ model SiteReference {
   createdAt            DateTime                @default(now())
   updatedAt            DateTime                @updatedAt
   publishedAt          DateTime?
+  /// Empreinte de la version publiée (forme écrite dans le dépôt du site) : différente de l'actuelle, statut « Modifié ».
+  publishedHash        String?
 
   @@index([status, position])
 }
@@ -1660,15 +1666,19 @@ model SiteFaq {
   createdAt   DateTime       @default(now())
   updatedAt   DateTime       @updatedAt
   publishedAt DateTime?
+  /// Empreinte de la version publiée (forme écrite dans le dépôt du site) : différente de l'actuelle, statut « Modifié ».
+  publishedHash String?
 
   @@index([page, status, position])
 }
 
 /// Documents d'un seul tenant : infos (infos.json), accroche et offres (textes.json). valueJson validé par zod selon la clé.
 model SiteText {
-  key       String   @id
-  valueJson String
-  updatedAt DateTime @updatedAt
+  key           String   @id
+  valueJson     String
+  updatedAt     DateTime @updatedAt
+  /// Empreinte de la valeur publiée : différente de l'actuelle, statut « Modifié ».
+  publishedHash String?
 }
 
 /// Image normalisée (WebP, sans métadonnées) sous data/uploads/site/ : <sha12>.webp, et <sha12>-2x.webp si la source est assez grande.
@@ -1708,6 +1718,9 @@ model SitePublication {
   digest       String
   /// Fichiers ajoutés, modifiés, supprimés : { path, change }[]
   summaryJson  String
+  /// Les 6 fichiers publiés ({ nom: contenu }), pour le détail des changements sans GitHub et l'historique.
+  /// Gardé pour les 50 dernières publications qui en ont un, vidé au-delà (rétention).
+  filesJson    String?
   baseSha      String?
   commitSha    String?
   runUrl       String?

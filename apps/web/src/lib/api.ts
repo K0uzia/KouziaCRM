@@ -1,3 +1,6 @@
+/** Écriture réussie dans l'espace Site : la barre de publication recompte les changements. */
+export const SITE_CHANGED_EVENT = "kouzia:site-changed";
+
 export async function api<T>(path: string, init?: RequestInit): Promise<T> {
   const headers = new Headers(init?.headers);
   // Ne pas forcer JSON sur FormData (boundary multipart requis par le navigateur)
@@ -46,6 +49,9 @@ export async function api<T>(path: string, init?: RequestInit): Promise<T> {
     throw Object.assign(new Error(message || `HTTP ${res.status}`), { status: res.status, code, fieldErrors });
   }
 
+  if ((init?.method ?? "GET") !== "GET" && path.startsWith("/api/site/")) {
+    window.dispatchEvent(new CustomEvent(SITE_CHANGED_EVENT));
+  }
   if (res.status === 204) return undefined as T;
   const ct = res.headers.get("content-type") ?? "";
   if (ct.includes("application/json")) return res.json() as Promise<T>;
