@@ -20,6 +20,15 @@ export type LineInput = {
 };
 
 const STARTS = new Set(["SIGNATURE", "DELIVERY", "DATE", "FREE_MONTHS"]);
+const DEFERRED_STARTS = new Set(["DATE", "FREE_MONTHS"]);
+
+/**
+ * Ligne comptée dans le total du document : tout sauf un abonnement dont la 1re facture est repoussée (date précise,
+ * mois offerts). Celui-ci n'est pas facturé avec le devis : il figure seulement dans l'engagement d'abonnement.
+ */
+export function billedWithDocument(line: { isSubscription?: boolean | null; subscriptionStart?: string | null }): boolean {
+  return !line.isSubscription || !DEFERRED_STARTS.has(line.subscriptionStart ?? "");
+}
 /** Départ d'une ligne d'abonnement : seuls les champs utiles au départ choisi sont gardés. */
 function lineStart(line: LineInput, isSubscription: boolean) {
   const start = isSubscription && STARTS.has(line.subscriptionStart ?? "") ? line.subscriptionStart! : null;
@@ -76,7 +85,7 @@ export function computeLineTotals(lines: LineInput[], discount: DiscountInput = 
     };
   });
 
-  const subtotalCents = computed.reduce((sum, l) => sum + l.lineTotalCents, 0);
+  const subtotalCents = computed.filter(billedWithDocument).reduce((sum, l) => sum + l.lineTotalCents, 0);
   const discountCents = computeDiscountCents(subtotalCents, discount);
   const discountType =
     discountCents > 0

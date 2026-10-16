@@ -17,6 +17,7 @@ import {
   type PlanSettings,
 } from "@/lib/quotes/payment-plans.js";
 import { startPhrase } from "@/lib/subscriptions/start.js";
+import { billedWithDocument } from "@/lib/invoices/totals.js";
 
 type InvoiceWithRelations = Invoice & {
   lines: InvoiceLine[];
@@ -163,7 +164,9 @@ export function buildInvoicePdfPayload({
       reference: p.reference,
       status: invoice.status === "PAID" ? "Payé" : "Enregistré",
     })),
+    // Abonnement à 1re facture repoussée : hors du tableau et du total, seulement dans l'engagement d'abonnement.
     lines: invoice.lines.map((l) => ({
+      inTotal: billedWithDocument(l),
       description: l.description,
       quantity: Number(l.quantity),
       unitPriceCents: l.unitPriceCents,
