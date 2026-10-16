@@ -120,6 +120,16 @@ describe("espace Site : réalisations", () => {
     const mobile = await call("PUT", `/api/site/projects/${created.json().id}`, { ...project, imageMobilePath: "/media/0123456789ab.webp" });
     expect(mobile.json()).toMatchObject({ imageMobilePath: "/media/0123456789ab.webp" });
     expect((await call("PUT", `/api/site/projects/${created.json().id}`, project)).json()).toMatchObject({ imageMobilePath: null });
+    // Texte alternatif de la capture : "" = décorative (gardé tel quel), texte, ou absent = calculé par le site (null).
+    const url = `/api/site/projects/${created.json().id}`;
+    expect((await call("PUT", url, { ...project, imageAlt: "" })).json()).toMatchObject({ imageAlt: "" });
+    expect((await call("PUT", url, { ...project, imageAlt: "Atelier : page d'accueil, meubles en chêne" })).json()).toMatchObject({
+      imageAlt: "Atelier : page d'accueil, meubles en chêne",
+    });
+    expect((await call("PUT", url, project)).json()).toMatchObject({ imageAlt: null });
+    for (const imageAlt of ["   ", "x".repeat(201), "Atelier — accueil"]) {
+      expect((await call("PUT", url, { ...project, imageAlt })).statusCode, JSON.stringify(imageAlt)).toBe(400);
+    }
 
     for (const bad of [
       { url: "http://atelier.example.fr/" },
@@ -229,9 +239,12 @@ describe("espace Site : avis et références", () => {
     expect((await call("POST", "/api/site/references", { ...logo, url: null })).json().error).toMatch(/Lien vers le site/);
     expect((await call("POST", "/api/site/references", { ...logo, logoPath: null })).json().error).toMatch(/Logo requis/);
     expect((await call("POST", "/api/site/references", { ...logo, onHome: false, onProjects: false })).json().error).toMatch(/emplacement/);
-    const ok = await call("POST", "/api/site/references", { ...logo, onProjects: true });
+    // Texte alternatif du logo : jamais vide (nom du lien), 120 caractères au plus.
+    expect((await call("POST", "/api/site/references", { ...logo, logoAlt: "" })).statusCode).toBe(400);
+    expect((await call("POST", "/api/site/references", { ...logo, logoAlt: "x".repeat(121) })).statusCode).toBe(400);
+    const ok = await call("POST", "/api/site/references", { ...logo, onProjects: true, logoAlt: "Mairie de Huelgoat, Finistère" });
     expect(ok.statusCode).toBe(201);
-    expect(ok.json()).toMatchObject({ onHome: true, onProjects: true });
+    expect(ok.json()).toMatchObject({ onHome: true, onProjects: true, logoAlt: "Mairie de Huelgoat, Finistère" });
     // Brouillon : rien n'est exigé.
     expect((await call("POST", "/api/site/references", { slug: "brouillon", type: "PARTNER", name: "Partenaire" })).statusCode).toBe(201);
   });

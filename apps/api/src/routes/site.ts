@@ -61,6 +61,8 @@ const projectInput = z.strictObject({
   linkLabel: siteText.max(40),
   imagePath,
   imageMobilePath: imagePath.nullish(),
+  /** null : le site calcule le texte ; "" : capture décorative ; texte : publié tel quel. */
+  imageAlt: z.union([z.literal(""), siteText.max(200)]).nullish(),
   status,
 });
 
@@ -86,6 +88,8 @@ const referenceInput = z.strictObject({
   type: z.enum(SiteReferenceType),
   name: siteText.max(120),
   logoPath: z.string().regex(/^\/media\/[a-f0-9]{12}\.webp$/).nullish(),
+  /** Jamais vide : le logo est le nom du lien vers la structure. null : le nom de la structure. */
+  logoAlt: siteText.max(120).nullish(),
   url: httpsUrl.nullish(),
   productSlug: slug.nullish(),
   testimonial: z
@@ -336,6 +340,7 @@ export const siteRoutes: FastifyPluginAsync = async (app) => {
     linkLabel: d.linkLabel,
     imagePath: d.imagePath,
     imageMobilePath: d.imageMobilePath ?? null,
+    imageAlt: d.imageAlt ?? null,
     ...(d.status ? { status: d.status } : {}),
   });
 
@@ -547,6 +552,7 @@ export const siteRoutes: FastifyPluginAsync = async (app) => {
     type: d.type,
     name: d.name,
     logoPath: d.logoPath ?? null,
+    logoAlt: d.logoAlt ?? null,
     url: d.url ?? null,
     productSlug: d.productSlug ?? null,
     testimonialText: d.testimonial?.text ?? null,

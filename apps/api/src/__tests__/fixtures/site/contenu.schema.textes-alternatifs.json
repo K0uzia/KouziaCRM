@@ -1,0 +1,526 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Contenu de kouzia.com publié par l’ERP",
+  "schemaVersion": 1,
+  "fichiers": {
+    "infos.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "schemaVersion": {
+          "type": "number",
+          "const": 1
+        },
+        "infos": {
+          "type": "object",
+          "properties": {
+            "email": {
+              "type": "string",
+              "format": "email",
+              "pattern": "^(?:[A-Za-z0-9_'+\\-]+\\.)*[A-Za-z0-9_'+\\-]*[A-Za-z0-9_+-]@(?:[A-Za-z0-9][A-Za-z0-9\\-]*\\.)+[A-Za-z]{2,}$"
+            },
+            "telephone": {
+              "type": "string",
+              "pattern": "^0\\d( \\d\\d){4}$"
+            },
+            "delaiReponse": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^[^\\u2013\\u2014]*$"
+            },
+            "anneesExperience": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 80
+            },
+            "zone": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^[^\\u2013\\u2014]*$"
+            },
+            "villes": {
+              "minItems": 1,
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1,
+                "pattern": "^[^\\u2013\\u2014]*$"
+              }
+            },
+            "github": {
+              "type": "string",
+              "pattern": "^https:\\/\\/[^\\s/?#]+[^\\s]*$"
+            },
+            "instagram": {
+              "type": "string",
+              "pattern": "^https:\\/\\/[^\\s/?#]+[^\\s]*$"
+            },
+            "ficheGoogle": {
+              "type": "string",
+              "pattern": "^https:\\/\\/[^\\s/?#]+[^\\s]*$"
+            },
+            "avisGoogle": {
+              "type": "string",
+              "pattern": "^https:\\/\\/[^\\s/?#]+[^\\s]*$"
+            }
+          },
+          "required": [
+            "email",
+            "telephone",
+            "delaiReponse",
+            "anneesExperience",
+            "zone",
+            "villes",
+            "github",
+            "instagram",
+            "ficheGoogle",
+            "avisGoogle"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "infos"
+      ],
+      "additionalProperties": false
+    },
+    "textes.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "schemaVersion": {
+          "type": "number",
+          "const": 1
+        },
+        "accroche": {
+          "type": "object",
+          "properties": {
+            "titre": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^[^\\u2013\\u2014]*$"
+            },
+            "texte": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^[^\\u2013\\u2014]*$"
+            }
+          },
+          "required": [
+            "titre",
+            "texte"
+          ],
+          "additionalProperties": false
+        },
+        "offres": {
+          "type": "object",
+          "properties": {
+            "formules": {
+              "type": "object",
+              "properties": {
+                "site": {
+                  "type": "object",
+                  "properties": {
+                    "titre": {
+                      "type": "string",
+                      "minLength": 1,
+                      "pattern": "^[^\\u2013\\u2014]*$"
+                    },
+                    "items": {
+                      "minItems": 1,
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "minLength": 1,
+                        "pattern": "^[^\\u2013\\u2014]*$"
+                      }
+                    }
+                  },
+                  "required": [
+                    "titre",
+                    "items"
+                  ],
+                  "additionalProperties": false
+                },
+                "logiciel": {
+                  "type": "object",
+                  "properties": {
+                    "titre": {
+                      "type": "string",
+                      "minLength": 1,
+                      "pattern": "^[^\\u2013\\u2014]*$"
+                    },
+                    "items": {
+                      "minItems": 1,
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "minLength": 1,
+                        "pattern": "^[^\\u2013\\u2014]*$"
+                      }
+                    }
+                  },
+                  "required": [
+                    "titre",
+                    "items"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "required": [
+                "site",
+                "logiciel"
+              ],
+              "additionalProperties": false
+            },
+            "tarif": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^[^\\u2013\\u2014]*$"
+            }
+          },
+          "required": [
+            "formules",
+            "tarif"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "accroche",
+        "offres"
+      ],
+      "additionalProperties": false
+    },
+    "faq.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "schemaVersion": {
+          "type": "number",
+          "const": 1
+        },
+        "questions": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "page": {
+                "type": "string",
+                "enum": [
+                  "accueil",
+                  "sitesWeb",
+                  "logiciels"
+                ]
+              },
+              "q": {
+                "type": "string",
+                "minLength": 1,
+                "pattern": "^[^\\u2013\\u2014]*$"
+              },
+              "r": {
+                "type": "string",
+                "minLength": 1,
+                "pattern": "^[^\\u2013\\u2014]*$"
+              }
+            },
+            "required": [
+              "page",
+              "q",
+              "r"
+            ],
+            "additionalProperties": false
+          }
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "questions"
+      ],
+      "additionalProperties": false
+    },
+    "realisations.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "schemaVersion": {
+          "type": "number",
+          "const": 1
+        },
+        "realisations": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$"
+              },
+              "nom": {
+                "type": "string",
+                "minLength": 1,
+                "pattern": "^[^\\u2013\\u2014]*$"
+              },
+              "sousTitre": {
+                "type": "string",
+                "minLength": 1,
+                "pattern": "^[^\\u2013\\u2014]*$"
+              },
+              "mention": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 60,
+                "pattern": "^[^\\u2013\\u2014]*$"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "Site web",
+                  "Logiciel"
+                ]
+              },
+              "texte": {
+                "type": "string",
+                "minLength": 1,
+                "pattern": "^[^\\u2013\\u2014]*$"
+              },
+              "role": {
+                "type": "string",
+                "minLength": 1,
+                "pattern": "^[^\\u2013\\u2014]*$"
+              },
+              "techno": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1,
+                  "pattern": "^[^\\u2013\\u2014]*$"
+                }
+              },
+              "url": {
+                "type": "string",
+                "pattern": "^https:\\/\\/(?!(www\\.)?(github\\.com|gitlab\\.com|bitbucket\\.org)(\\/|$))[^\\s/?#]+[^\\s]*$"
+              },
+              "lien": {
+                "type": "string",
+                "minLength": 1,
+                "pattern": "^[^\\u2013\\u2014]*$"
+              },
+              "image": {
+                "type": "string",
+                "pattern": "^\\/(projets|media)\\/[a-z0-9-]+\\.webp$"
+              },
+              "imageMobile": {
+                "type": "string",
+                "pattern": "^\\/(projets|media)\\/[a-z0-9-]+\\.webp$"
+              },
+              "imageAlt": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "const": ""
+                  },
+                  {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 200,
+                    "pattern": "^[^\\u2013\\u2014]*$"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "id",
+              "nom",
+              "type",
+              "texte",
+              "url",
+              "lien",
+              "image"
+            ],
+            "additionalProperties": false
+          }
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "realisations"
+      ],
+      "additionalProperties": false
+    },
+    "avis.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "schemaVersion": {
+          "type": "number",
+          "const": 1
+        },
+        "methode": {
+          "type": "object",
+          "properties": {
+            "titre": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^[^\\u2013\\u2014]*$"
+            },
+            "texte": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^[^\\u2013\\u2014]*$"
+            }
+          },
+          "required": [
+            "titre",
+            "texte"
+          ],
+          "additionalProperties": false
+        },
+        "avis": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "auteur": {
+                "type": "string",
+                "minLength": 1,
+                "pattern": "^[^\\u2013\\u2014]*$"
+              },
+              "publieLe": {
+                "type": "string",
+                "format": "date",
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))$"
+              },
+              "experienceLe": {
+                "type": "string",
+                "format": "date",
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))$"
+              },
+              "texte": {
+                "type": "string",
+                "minLength": 1,
+                "pattern": "^[^\\u2013\\u2014]*$"
+              }
+            },
+            "required": [
+              "auteur",
+              "publieLe",
+              "texte"
+            ],
+            "additionalProperties": false
+          }
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "avis"
+      ],
+      "additionalProperties": false
+    },
+    "references.json": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "type": "object",
+      "properties": {
+        "schemaVersion": {
+          "type": "number",
+          "const": 1
+        },
+        "references": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "CLIENT",
+                  "PARTENAIRE",
+                  "UTILISATEUR"
+                ]
+              },
+              "nom": {
+                "type": "string",
+                "minLength": 1,
+                "pattern": "^[^\\u2013\\u2014]*$"
+              },
+              "logo": {
+                "type": "string",
+                "pattern": "^\\/media\\/[a-z0-9-]+\\.webp$"
+              },
+              "logoAlt": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 120,
+                "pattern": "^[^\\u2013\\u2014]*$"
+              },
+              "url": {
+                "type": "string",
+                "pattern": "^https:\\/\\/[^\\s/?#]+[^\\s]*$"
+              },
+              "emplacements": {
+                "minItems": 1,
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "enum": [
+                    "accueil",
+                    "realisations"
+                  ]
+                }
+              },
+              "realisation": {
+                "type": "string",
+                "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$"
+              },
+              "produit": {
+                "type": "string"
+              },
+              "temoignage": {
+                "type": "object",
+                "properties": {
+                  "texte": {
+                    "type": "string",
+                    "minLength": 1,
+                    "pattern": "^[^\\u2013\\u2014]*$"
+                  },
+                  "auteur": {
+                    "type": "string",
+                    "minLength": 1,
+                    "pattern": "^[^\\u2013\\u2014]*$"
+                  },
+                  "fonction": {
+                    "type": "string",
+                    "minLength": 1,
+                    "pattern": "^[^\\u2013\\u2014]*$"
+                  }
+                },
+                "required": [
+                  "texte",
+                  "auteur"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "id",
+              "type",
+              "nom"
+            ],
+            "additionalProperties": false
+          }
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "references"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

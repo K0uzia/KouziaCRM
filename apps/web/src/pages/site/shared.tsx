@@ -36,6 +36,8 @@ export type SiteProject = SiteItem & {
   linkLabel: string;
   imagePath: string;
   imageMobilePath: string | null;
+  /** null : texte calculé par le site ; "" : capture décorative. */
+  imageAlt: string | null;
 };
 
 export type SiteReview = SiteItem & {
@@ -62,6 +64,8 @@ export type SiteReference = SiteItem & {
   type: SiteReferenceType;
   name: string;
   logoPath: string | null;
+  /** null : nom de la structure. */
+  logoAlt: string | null;
   url: string | null;
   productSlug: string | null;
   testimonialText: string | null;
@@ -646,6 +650,34 @@ export function Checkbox({
         </label>
         {hint ? (
           <p id={`${id}-aide`} className="-mt-1.5 text-xs text-[var(--muted)]">
+            {hint}
+          </p>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+/** Bouton radio au thème, même gabarit que Checkbox (cible de 44 px, aide reliée). */
+export function Radio({ name, label, hint, checked, onChange }: { name: string; label: string; hint?: string; checked: boolean; onChange: () => void }) {
+  const id = useId();
+  return (
+    <div className="flex items-start gap-3">
+      <input
+        id={id}
+        type="radio"
+        name={name}
+        checked={checked}
+        onChange={onChange}
+        aria-describedby={hint ? `${id}-aide` : undefined}
+        className="mt-3 h-5 w-5 shrink-0 accent-[var(--primary)]"
+      />
+      <div className="min-w-0">
+        <label htmlFor={id} className="flex min-h-11 cursor-pointer items-center text-sm font-medium">
+          {label}
+        </label>
+        {hint ? (
+          <p id={`${id}-aide`} className="-mt-1.5 break-words text-xs text-[var(--muted)]">
             {hint}
           </p>
         ) : null}

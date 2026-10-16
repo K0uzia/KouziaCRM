@@ -80,6 +80,7 @@ export async function importSiteFiles(raw: Record<SiteFileName, string>, now = n
           linkLabel: r.lien,
           imagePath: r.image,
           imageMobilePath: r.imageMobile ?? null,
+          imageAlt: r.imageAlt ?? null,
         },
       }),
     ),
@@ -102,6 +103,7 @@ export async function importSiteFiles(raw: Record<SiteFileName, string>, now = n
           type: REFERENCE_TYPE_IN[r.type],
           name: r.nom,
           logoPath: r.logo ?? null,
+          logoAlt: r.logoAlt ?? null,
           url: r.url ?? null,
           productSlug: (r.type === "UTILISATEUR" ? r.produit : r.realisation) ?? null,
           // Sans emplacements (fichier antérieur au mur de logos) : bandeau de l'accueil, comme le défaut.

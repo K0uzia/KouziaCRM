@@ -63,6 +63,8 @@ export const realisationValue = z.strictObject({
   lien: siteText,
   image: imagePath,
   imageMobile: imagePath.optional(),
+  /** Texte alternatif de la capture : absent = calculé par le site (altCapture), "" = capture décorative. */
+  imageAlt: z.union([z.literal(""), siteText.max(200)]).optional(),
 });
 
 export const avisValue = z.strictObject({
@@ -82,6 +84,8 @@ export const referenceValue = z
     type: z.enum(["CLIENT", "PARTENAIRE", "UTILISATEUR"]),
     nom: siteText,
     logo: logoPath.optional(),
+    /** Texte alternatif du logo, nom du lien vers la structure : absent = nom de la structure. */
+    logoAlt: siteText.max(120).optional(),
     url: httpsUrl.optional(),
     /** accueil : bandeau « Ils m'ont fait confiance » ; realisations : sous les exemples de réalisations. */
     emplacements: z
@@ -145,7 +149,12 @@ export function validateSiteFiles(files: Record<SiteFileName, unknown>, contract
       const r = schema.safeParse(files[name]);
       if (!r.success) {
         for (const i of r.error.issues) {
-          issues.push({ file: name, path: i.path.join(".") || "(racine)", message: `Contrat du site : ${i.message}` });
+          // Champ récent de l'ERP que la version en ligne du site ne connaît pas encore (contrat en strictObject).
+          const message =
+            i.code === "unrecognized_keys"
+              ? `Contrat du site : ${i.keys.join(", ")} pas encore pris en charge par kouzia.com ; mettre le site à jour avant de publier, ou vider ce champ`
+              : `Contrat du site : ${i.message}`;
+          issues.push({ file: name, path: i.path.join(".") || "(racine)", message });
         }
       }
     }
