@@ -14,7 +14,7 @@ vi.mock("@/lib/email/smtp.js", async (orig) => ({
 }));
 vi.mock("@/lib/email/send-document-pdf.js", () => ({ sendDocumentPdf: vi.fn(async () => ({ sent: false })) }));
 
-const { issueQuote, acceptQuoteByClient, startDeferredSubscriptions } = await import("@/lib/invoices/transitions.js");
+const { issueQuote, acceptQuoteByClient, startDeferredSubscriptions, convertQuoteToInvoice } = await import("@/lib/invoices/transitions.js");
 const { computeNextInvoiceAt } = await import("@/lib/subscriptions/subscription-service.js");
 const { activationPoint, lineFirstInvoiceAt, publicStart, startPhrase } = await import("@/lib/subscriptions/start.js");
 const { firstChargeTiming } = await import("@/lib/stripe/checkout.js");
@@ -176,6 +176,57 @@ describe("activation à la signature et à la livraison", () => {
     const [sub] = await subsOf(client.id);
     expect(sub!.nextInvoiceAt).toEqual(computeNextInvoiceAt(1, inMonths(3, delivered)));
     expect(await prisma.invoice.count({ where: { subscriptionId: sub!.id } })).toBe(0);
+  });
+
+  it("12 mois offerts : Net à payer = partie ponctuelle seule (devis, acomptes, PDF, facture du devis)", async () => {
+    const client = await createClient({ displayName: "Lou Pro", type: "B2B" });
+    const service = await createService({ name: "Adresses e-mail", unitPriceCents: 7200 });
+    // Même calcul que la route de création d'un devis.
+    const computed = computeLineTotals([
+      { description: "Site une page", quantity: 1, unitPriceCents: 69000 },
+      { description: "Adresses e-mail", quantity: 1, unitPriceCents: 7200, isSubscription: true, billingDay: 1, billingInterval: "YEAR", serviceId: service.id, subscriptionStart: "FREE_MONTHS", subscriptionFreeMonths: 12 },
+      { description: "Maintenance", quantity: 1, unitPriceCents: 2900, isSubscription: true, billingDay: 1, serviceId: service.id },
+    ]);
+    // La maintenance (départ par défaut, facturée à la livraison) reste dans le total ; l'abonnement offert non.
+    expect([computed.subtotalCents, computed.totalCents]).toEqual([71900, 71900]);
+    const onlyOffered = computeLineTotals([
+      { description: "Site une page", quantity: 1, unitPriceCents: 69000 },
+      { description: "Adresses e-mail", quantity: 1, unitPriceCents: 7200, isSubscription: true, billingDay: 1, billingInterval: "YEAR", serviceId: service.id, subscriptionStart: "FREE_MONTHS", subscriptionFreeMonths: 12 },
+    ]);
+    expect(onlyOffered.totalCents).toBe(69000);
+    const q = await prisma.invoice.create({
+      data: {
+        documentType: InvoiceDocumentType.QUOTE,
+        status: InvoiceStatus.DRAFT,
+        clientId: client.id,
+        subtotalCents: onlyOffered.subtotalCents,
+        totalCents: onlyOffered.totalCents,
+        paymentPlanOffer: "TWO",
+        lines: { create: onlyOffered.lines },
+      },
+    });
+    const issued = await issueQuote(q.id);
+    expect([issued.totalCents, issued.depositBaseCents]).toEqual([69000, 69000]);
+    const milestones = await prisma.paymentMilestone.findMany({ where: { quoteId: q.id } });
+    expect(milestones.reduce((s, m) => s + m.amountCents, 0)).toBe(69000);
+
+    const invoice = await prisma.invoice.findUniqueOrThrow({
+      where: { id: q.id },
+      include: { client: true, lines: { orderBy: { position: "asc" } }, milestones: true, payments: true },
+    });
+    const settings = await prisma.companySettings.findFirstOrThrow();
+    const payload = buildInvoicePdfPayload({ invoice, settings, clauses: [] } as never);
+    expect(payload.totalCents).toBe(69000);
+    expect(payload.lines.map((l) => [l.description, l.inTotal])).toEqual([
+      ["Site une page", true],
+      ["Adresses e-mail", false],
+    ]);
+
+    await acceptQuoteByClient(q.id, "Lou Pro", { source: "ADMIN" });
+    const { id: invoiceId } = await convertQuoteToInvoice(q.id);
+    const converted = await prisma.invoice.findUniqueOrThrow({ where: { id: invoiceId }, include: { lines: true } });
+    expect(converted.totalCents).toBe(69000);
+    expect(converted.lines.map((l) => l.description)).toEqual(["Site une page"]);
   });
 
   it("PDF du devis : la phrase du départ remplace le départ par défaut", async () => {

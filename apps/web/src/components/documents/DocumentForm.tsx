@@ -8,7 +8,7 @@ import { Field, Input, Select, Textarea } from "@/components/ui/Field";
 import type { Client } from "@/components/clients/ClientForm";
 import type { ClientNeed } from "@/components/clients/NeedsEditor";
 import { Segmented } from "@/components/ui/Segmented";
-import { FREE_MONTHS_MAX, startFromLine, startOptions, startPayload, startPhrase, type StartFields, type SubscriptionStart } from "@/lib/subscription-start";
+import { billedWithDocument, FREE_MONTHS_MAX, startFromLine, startOptions, startPayload, startPhrase, type StartFields, type SubscriptionStart } from "@/lib/subscription-start";
 import {
   INTERVAL_OPTIONS,
   normalizeInterval,
@@ -282,6 +282,7 @@ export function DocumentFormEditor({
   }
 
   const subtotalPreview = form.lines.reduce((sum, l) => {
+    if (documentType === "QUOTE" && !billedWithDocument(l)) return sum;
     const q = l.isSubscription ? 1 : Number(l.quantity) || 0;
     const p = Number(l.unitPriceEuros) || 0;
     return sum + q * p;
@@ -597,7 +598,13 @@ export function DocumentFormEditor({
                   </Button>
                 </div>
                 <p className="mt-1.5 text-right text-xs text-[var(--muted)]">
-                  Total ligne : <span className="font-medium tabular-nums text-[var(--text)]">{eur(lineTotal)}</span>
+                  {documentType === "QUOTE" && !billedWithDocument(line) ? (
+                    "Hors total du devis : 1re facture repoussée (date précise ou mois offerts)"
+                  ) : (
+                    <>
+                      Total ligne : <span className="font-medium tabular-nums text-[var(--text)]">{eur(lineTotal)}</span>
+                    </>
+                  )}
                 </p>
               </li>
             );

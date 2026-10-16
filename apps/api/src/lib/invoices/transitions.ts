@@ -14,7 +14,7 @@ import { getCompanySettings } from "@/lib/company.js";
 import { allocateInvoiceNumber, allocateQuoteNumber } from "@/lib/invoices/numberingService.js";
 import { ensureQuoteMilestones } from "@/lib/quotes/milestones.js";
 import { startAfterWithdrawal, withdrawalEndsAt } from "@/lib/quotes/withdrawal.js";
-import { computeDepositBaseCents, depositBaseOf } from "@/lib/invoices/totals.js";
+import { billedWithDocument, computeDepositBaseCents, depositBaseOf } from "@/lib/invoices/totals.js";
 import {
   applyPlanMilestones,
   effectiveOffer,
@@ -717,7 +717,8 @@ export async function convertQuoteToInvoice(quoteId: string) {
     // Devis mixte : la facture totale porte la partie ponctuelle ; l'abonnement sera facturé à
     // chaque période à partir de la livraison. Devis antérieur à la fonction : tout le devis.
     const deferred = isDeferredSubscriptionQuote(quote);
-    const invoicedLines = deferred ? quote.lines.filter((l) => !l.isSubscription) : quote.lines;
+    // Abonnement à 1re facture repoussée (date, mois offerts) : jamais dans la facture du devis.
+    const invoicedLines = deferred ? quote.lines.filter((l) => !l.isSubscription) : quote.lines.filter(billedWithDocument);
     const oneOffSubtotal = invoicedLines.reduce((sum, l) => sum + l.lineTotalCents, 0);
     const invoiceTotal = deferred ? depositBaseOf(quote) : quote.totalCents;
     const created = await tx.invoice.create({

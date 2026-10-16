@@ -339,6 +339,8 @@ export type InvoicePdfData = {
       unitPriceCents: number;
       lineTotalCents: number;
       isSubscription?: boolean;
+      /** false : abonnement à 1re facture repoussée, hors tableau et hors total (seulement dans l'engagement d'abonnement). */
+      inTotal?: boolean;
       billingDay?: number | null;
       billingInterval?: string | null;
       /** Départ choisi sur la ligne du devis, en clair : « 12 mois offerts à partir de la livraison du projet, puis 72,00 € par an ». */
@@ -513,7 +515,7 @@ export function InvoiceDocument({ company, client, invoice }: InvoicePdfData) {
             <Text style={styles.colPrice}>PRIX UNITAIRE</Text>
             <Text style={[styles.colTotal, { fontFamily: "Helvetica-Bold" }]}>MONTANT</Text>
           </View>
-          {invoice.lines.map((line, i) => (
+          {invoice.lines.filter((l) => l.inTotal !== false).map((line, i) => (
             <View
               key={i}
               style={[styles.tr, i % 2 === 1 ? { backgroundColor: SOFT } : {}]}

@@ -34,6 +34,13 @@ export function startPhrase(f: StartFields, hasProject: boolean, amountCents: nu
   return `${price} ${point}`;
 }
 
+/**
+ * Ligne comptée dans le total du devis (même règle que l'API, billedWithDocument) : tout sauf un abonnement à 1re
+ * facture repoussée (date précise, mois offerts), qui figure seulement dans l'engagement d'abonnement.
+ */
+export const billedWithDocument = (l: { isSubscription?: boolean | null; subscriptionStart?: string | null }) =>
+  !l.isSubscription || (l.subscriptionStart !== "DATE" && l.subscriptionStart !== "FREE_MONTHS");
+
 /** Champs envoyés à l'API : seuls ceux du départ choisi. */
 export function startPayload(f: StartFields) {
   return {

@@ -6,7 +6,7 @@ import { faPlus } from "@fortawesome/free-solid-svg-icons";
 import { toast } from "sonner";
 import { useLiveRefresh } from "@/lib/notifications";
 import { api, formatEUR } from "@/lib/api";
-import { startFromLine, startPhrase } from "@/lib/subscription-start";
+import { billedWithDocument, startFromLine, startPhrase } from "@/lib/subscription-start";
 import {
   formatDate,
   formatDecimal,
@@ -1051,7 +1051,7 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
                         {formatEUR(l.unitPriceCents)}
                       </td>
                       <td className="w-32 px-5 py-3 text-right font-medium tabular-nums sm:px-6" data-label="Total">
-                        {formatEUR(l.lineTotalCents)}
+                        {billedWithDocument(l) ? formatEUR(l.lineTotalCents) : <span className="font-normal text-[var(--muted)]">Hors total</span>}
                       </td>
                     </tr>
                   ))}
