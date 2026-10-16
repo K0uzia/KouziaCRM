@@ -139,7 +139,7 @@ export function SiteMediaPage() {
             <p id={kindLabelId} className="text-sm font-medium">
               Type des images à envoyer
             </p>
-            <Segmented label="Type des images à envoyer" options={KIND_OPTIONS} value={kind} onChange={setKind} />
+            <Segmented label="Type des images à envoyer" options={KIND_OPTIONS} value={kind} onChange={setKind} wrap />
           </div>
           {/* Zone de dépôt : le bouton « Choisir des fichiers » reste le chemin principal (clavier, téléphone). */}
           <div

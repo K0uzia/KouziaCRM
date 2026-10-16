@@ -315,20 +315,6 @@
               "imageMobile": {
                 "type": "string",
                 "pattern": "^\\/(projets|media)\\/[a-z0-9-]+\\.webp$"
-              },
-              "imageAlt": {
-                "anyOf": [
-                  {
-                    "type": "string",
-                    "const": ""
-                  },
-                  {
-                    "type": "string",
-                    "minLength": 1,
-                    "maxLength": 200,
-                    "pattern": "^[^\\u2013\\u2014]*$"
-                  }
-                ]
               }
             },
             "required": [
@@ -452,12 +438,6 @@
               "logo": {
                 "type": "string",
                 "pattern": "^\\/media\\/[a-z0-9-]+\\.webp$"
-              },
-              "logoAlt": {
-                "type": "string",
-                "minLength": 1,
-                "maxLength": 120,
-                "pattern": "^[^\\u2013\\u2014]*$"
               },
               "url": {
                 "type": "string",

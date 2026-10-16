@@ -5,18 +5,21 @@ export function Segmented<T extends string>({
   onChange,
   label,
   className = "",
+  wrap = false,
 }: {
   options: ReadonlyArray<{ id: T; label: string }>;
   value: T;
   onChange: (id: T) => void;
   label: string;
   className?: string;
+  /** Plus de trois choix : grille de deux colonnes au téléphone, en ligne à partir de 640 px. */
+  wrap?: boolean;
 }) {
   return (
     <div
       role="group"
       aria-label={label}
-      className={`inline-flex rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--surface)] p-1 ${className}`}
+      className={`${wrap ? "grid grid-cols-2 sm:inline-flex" : "inline-flex"} rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--surface)] p-1 ${className}`}
     >
       {options.map((o) => {
         const active = o.id === value;

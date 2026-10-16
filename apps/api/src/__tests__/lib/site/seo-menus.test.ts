@@ -12,11 +12,11 @@ import { defaultsFromContract, fillVariables, finalMenus, finalSeo, finalSeoIssu
 import { resetDb } from "../../helpers/db.js";
 import { seedCompanySettings } from "../../helpers/factories.js";
 
-// Fichiers réels du site (main 600dec6) et contrat du lot 6 (KouziaWebsite integration b2b331c).
+// Fichiers réels du site (main 600dec6), le contrat de cette version et le contrat en ligne du lot 6 (main b2b331c).
 const fixture = (name: string) => readFileSync(fileURLToPath(new URL(`../../fixtures/site/${name}`, import.meta.url)), "utf8");
 const raw = Object.fromEntries(SITE_FILES.map((n) => [n, fixture(`${n}.json`)])) as Record<SiteFileName, string>;
-const oldContract = JSON.parse(fixture("contenu.schema.json")) as unknown;
-const contract = JSON.parse(fixture("contenu.schema.lot6.json")) as unknown;
+const oldContract = JSON.parse(fixture("contenu.schema.600dec6.json")) as unknown;
+const contract = JSON.parse(fixture("contenu.schema.json")) as unknown;
 const defaults = defaultsFromContract(contract) as SiteDefaults;
 const vars = { ville: "Huelgoat", delaiReponse: "sous 48 h" };
 
