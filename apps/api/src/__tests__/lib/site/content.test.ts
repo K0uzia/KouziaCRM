@@ -94,6 +94,54 @@ describe("import puis instantané", () => {
     }
   });
 
+  it("textes alternatifs (contrat 5edecfc) : imageAlt après imageMobile, \"\" = décorative, absent = calcul du site ; logoAlt jamais vide ; refusés par le contrat en ligne avec un message clair", async () => {
+    // Contrat du site avec imageAlt et logoAlt (KouziaWebsite, integration ff2e9f3) ; `contract` reste celui en ligne.
+    const nouveau = JSON.parse(fixture("contenu.schema.textes-alternatifs.json")) as unknown;
+    const ALT = "Page d'accueil du site de La Capsule, réservation de salles";
+    await importSiteFiles(raw);
+    await prisma.siteProject.update({ where: { slug: "la-capsule" }, data: { imageAlt: ALT } });
+    await prisma.siteProject.update({ where: { slug: "tracebay" }, data: { imageAlt: "" } });
+
+    const snap = await buildSiteSnapshot(nouveau);
+    expect(snap.issues).toEqual([]);
+    const out = JSON.parse(snap.files.realisations).realisations as Array<Record<string, unknown>>;
+    const byId = (id: string) => out.find((r) => r.id === id)!;
+    expect(byId("la-capsule").imageAlt).toBe(ALT);
+    expect(byId("tracebay").imageAlt).toBe("");
+    expect(byId("capsuleos")).not.toHaveProperty("imageAlt");
+    const keys = Object.keys(byId("tracebay"));
+    expect(keys.indexOf("imageAlt")).toBe(keys.indexOf(keys.includes("imageMobile") ? "imageMobile" : "image") + 1);
+
+    // Reprise : un fichier du site avec ces clés revient à l'identique.
+    await resetDb();
+    await seedCompanySettings();
+    const repris = { ...raw, realisations: snap.files.realisations };
+    await importSiteFiles(repris);
+    expect((await prisma.siteProject.findUniqueOrThrow({ where: { slug: "tracebay" } })).imageAlt).toBe("");
+    expect((await prisma.siteProject.findUniqueOrThrow({ where: { slug: "capsuleos" } })).imageAlt).toBeNull();
+    expect((await buildSiteSnapshot(nouveau)).files.realisations).toBe(repris.realisations);
+
+    // Site en ligne pas encore à jour : blocage avec ce qu'il faut faire, jamais un message technique.
+    const enLigne = (await buildSiteSnapshot(contract)).issues.filter((i) => i.message.includes("pas encore pris en charge"));
+    expect(enLigne.length).toBeGreaterThan(0);
+    expect(enLigne[0]!.message).toMatch(/^Contrat du site : imageAlt pas encore pris en charge par kouzia\.com ; mettre le site à jour/);
+
+    // Logo : texte alternatif après logo, jamais vide ni plus long que 120 caractères.
+    const refs = parsed().references;
+    const avecLogo = { id: "asso", type: "CLIENT", nom: "Asso", logo: "/media/0123456789ab.webp", logoAlt: "Asso, association de quartier", url: "https://asso.example", emplacements: ["accueil"] };
+    const files = (r: unknown) => ({ ...parsed(), references: { ...refs, references: [...refs.references, r] } });
+    expect(validateSiteFiles(files(avecLogo), nouveau)).toEqual([]);
+    expect(validateSiteFiles(files({ ...avecLogo, logoAlt: "" }), nouveau).length).toBeGreaterThan(0);
+    expect(validateSiteFiles(files({ ...avecLogo, logoAlt: "x".repeat(121) }), nouveau).length).toBeGreaterThan(0);
+    expect(validateSiteFiles(files({ ...avecLogo, logoAlt: "" })).length).toBeGreaterThan(0);
+    for (const bad of ["x".repeat(201), "  ", "Accueil — La Capsule"]) {
+      const f = parsed();
+      f.realisations.realisations[0].imageAlt = bad;
+      expect(validateSiteFiles(f, nouveau).length, JSON.stringify(bad)).toBeGreaterThan(0);
+      expect(validateSiteFiles(f).length, JSON.stringify(bad)).toBeGreaterThan(0);
+    }
+  });
+
   it("capture de téléphone facultative (imageMobile) : reprise à l'identique ; image inconnue bloquante", async () => {
     const files = parsed();
     files.realisations.realisations[0].imageMobile = "/media/0123456789ab.webp";

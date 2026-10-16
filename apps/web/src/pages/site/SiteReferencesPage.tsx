@@ -42,6 +42,7 @@ const emptyForm = {
   type: "CLIENT" as SiteReferenceType,
   name: "",
   logoPath: null as string | null,
+  logoAlt: "",
   url: "",
   productSlug: "",
   testimonialText: "",
@@ -257,6 +258,7 @@ function referenceBody(form: ReferenceForm) {
     type: form.type,
     name: form.name,
     logoPath: form.logoPath,
+    logoAlt: form.logoAlt.trim() || null,
     url: form.url.trim() || null,
     productSlug: form.productSlug || null,
     testimonial: hasTestimonial ? { text: form.testimonialText, author: form.testimonialAuthor, role: form.testimonialRole.trim() || null } : null,
@@ -286,6 +288,7 @@ export function SiteReferencePage() {
       type: r.type,
       name: r.name,
       logoPath: r.logoPath,
+      logoAlt: r.logoAlt ?? "",
       url: r.url ?? "",
       productSlug: r.productSlug ?? "",
       testimonialText: r.testimonialText ?? "",
@@ -370,6 +373,13 @@ export function SiteReferencePage() {
   const logo = (
     <div className="space-y-4">
       <ImageField label="Logo" kind="LOGO" optional={form.type === "USER"} value={form.logoPath} onChange={(p) => set("logoPath", p)} error={errors.logoPath} />
+      <Field
+        label="Texte alternatif du logo (facultatif)"
+        hint={`Vide : le nom de la structure. Le logo est le nom du lien vers son site : jamais vide, l'écrire comme un nom (ex. « La Capsule, Morlaix »). ${form.logoAlt.length} / 120`}
+        error={errors.logoAlt}
+      >
+        <Input maxLength={120} autoComplete="off" value={form.logoAlt} placeholder={form.name || "Nom de la structure"} onChange={(e) => set("logoAlt", e.target.value)} />
+      </Field>
       <fieldset className="space-y-1 rounded-[var(--radius)] border border-[var(--border)] p-4" aria-describedby={errors.placement ? "placement-err" : undefined}>
         <legend className="px-1 text-sm font-medium">Où afficher le logo</legend>
         <Checkbox label="Bandeau « Ils m'ont fait confiance » de l'accueil" checked={form.onHome} onChange={(v) => set("onHome", v)} />
@@ -456,11 +466,11 @@ export function SiteReferencePage() {
             label="Sections de la référence"
             tabs={[
               { id: "structure", label: "Structure", content: structure, errors: ed.countErrors(["name", "type", "url", "productSlug", "slug"]) },
-              { id: "logo", label: "Logo", content: logo, errors: ed.countErrors(["logoPath", "placement"]) },
+              { id: "logo", label: "Logo", content: logo, errors: ed.countErrors(["logoPath", "logoAlt", "placement"]) },
               { id: "autorisation", label: "Autorisation", content: autorisation, errors: ed.countErrors(["authorizationAt", "authorizationChannel", "authorizationScope", "contact", "testimonial"]) },
               { id: "publication", label: "Publication", content: publication, errors: ed.countErrors(["status"]) },
             ]}
-            preview={() => <LogoTilePreview name={form.name} logoPath={form.logoPath} url={form.url.trim() || null} />}
+            preview={() => <LogoTilePreview name={form.logoAlt.trim() || form.name} logoPath={form.logoPath} url={form.url.trim() || null} />}
             footer={<EditorFooter auto={ed.auto} creating={creating} busy={ed.busy} createLabel="Créer la référence" />}
           />
         </form>

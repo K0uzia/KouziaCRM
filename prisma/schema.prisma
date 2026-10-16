@@ -1574,6 +1574,8 @@ model SiteProject {
   imagePath       String
   /// Capture de téléphone facultative (imageMobile), même forme de chemin que imagePath
   imageMobilePath String?
+  /// Texte alternatif de la capture publié (imageAlt). Null : calculé par le site ; "" : capture décorative
+  imageAlt        String?
   createdAt       DateTime        @default(now())
   updatedAt       DateTime        @updatedAt
   publishedAt     DateTime?
@@ -1639,6 +1641,8 @@ model SiteReference {
   name                 String
   /// /media/<sha12>.webp (SiteMedia de type LOGO)
   logoPath             String?
+  /// Texte alternatif du logo publié (logoAlt), jamais vide : nom du lien. Null : nom de la structure
+  logoAlt              String?
   url                  String?
   /// slug d'une réalisation, obligatoire pour USER
   productSlug          String?

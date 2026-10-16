@@ -20,6 +20,7 @@ import {
   saveOrder,
   SiteImage,
   STATUS_OPTIONS,
+  Radio,
   StatusBadge,
   TagInput,
   useSiteCollection,
@@ -159,9 +160,19 @@ const emptyForm = {
   linkLabel: "Voir le site",
   imagePath: null as string | null,
   imageMobilePath: null as string | null,
+  altMode: "auto" as AltMode,
+  imageAlt: "",
   status: "DRAFT" as SiteItemStatus,
 };
+type AltMode = "auto" | "custom" | "decorative";
 type ProjectForm = typeof emptyForm;
+
+/** Texte que le site calcule sans saisie (altCapture du dépôt KouziaWebsite, src/data/contenu.ts). */
+export function defaultCaptureAlt(f: { kind: SiteProject["kind"]; name: string; subtitle: string }): string {
+  return f.kind === "SOFTWARE" ? `Écran d’accueil du logiciel ${f.name}` : `Page d’accueil du site ${f.name}${f.subtitle.trim() ? `, ${f.subtitle.trim()}` : ""}`;
+}
+/** Texte alternatif publié pour la capture, tel que le site l'écrira. */
+const publishedAlt = (f: ProjectForm) => (f.altMode === "auto" ? defaultCaptureAlt(f) : f.altMode === "decorative" ? "" : f.imageAlt.trim());
 
 /** Identifiant publié depuis le nom : minuscules sans accents, chiffres et tirets. */
 export function slugify(value: string): string {
@@ -188,6 +199,7 @@ function projectBody(form: ProjectForm) {
     linkLabel: form.linkLabel,
     imagePath: form.imagePath,
     imageMobilePath: form.imageMobilePath,
+    imageAlt: form.altMode === "auto" ? null : form.altMode === "decorative" ? "" : form.imageAlt.trim(),
     status: form.status,
   };
 }
@@ -201,12 +213,13 @@ function projectErrors(form: ProjectForm): FieldErrors {
   if (!/^https:\/\/[^\s/]+\.[^\s]+$/.test(form.url.trim())) e.url = "Adresse https complète attendue (https://exemple.fr).";
   if (!form.linkLabel.trim()) e.linkLabel = "Libellé obligatoire.";
   if (!form.imagePath) e.imagePath = "Image obligatoire : la carte du site en affiche une.";
+  if (form.altMode === "custom" && !form.imageAlt.trim()) e.imageAlt = "Texte vide : l'écrire, ou choisir le texte calculé par le site.";
   return e;
 }
 
 const TAB_FIELDS = {
   contenu: ["name", "subtitle", "mention", "kind", "text", "role", "tech"],
-  images: ["imagePath", "imageMobilePath"],
+  images: ["imagePath", "imageMobilePath", "imageAlt"],
   lien: ["url", "linkLabel", "slug"],
   publication: ["status"],
 } as const;
@@ -234,6 +247,8 @@ export function SiteProjectPage() {
       linkLabel: p.linkLabel,
       imagePath: p.imagePath,
       imageMobilePath: p.imageMobilePath,
+      altMode: p.imageAlt === null ? "auto" : p.imageAlt === "" ? "decorative" : "custom",
+      imageAlt: p.imageAlt ?? "",
       status: p.status,
     }),
     toBody: projectBody,
@@ -311,6 +326,27 @@ export function SiteProjectPage() {
   const images = (
     <div className="space-y-6">
       <ImageField label="Capture d'écran" kind="CAPTURE" value={form.imagePath} onChange={(p) => set("imagePath", p)} error={errors.imagePath} />
+      <fieldset className="space-y-2 rounded-[var(--radius)] border border-[var(--border)] p-4" aria-describedby="alt-aide">
+        <legend className="px-1 text-sm font-medium">Texte alternatif de la capture</legend>
+        <p id="alt-aide" className="text-xs text-[var(--muted)]">
+          Lu à la place de l'image par un lecteur d'écran, et affiché si elle ne charge pas. L'information d'abord, sans « image de », 150 caractères
+          environ.
+        </p>
+        <Radio name="altMode" checked={form.altMode === "auto"} onChange={() => set("altMode", "auto")} label="Calculé par le site" hint={`« ${defaultCaptureAlt(form)} »`} />
+        <Radio name="altMode" checked={form.altMode === "custom"} onChange={() => set("altMode", "custom")} label="Texte saisi" />
+        {form.altMode === "custom" ? (
+          <Field label="Texte alternatif" hint={`${form.imageAlt.length} / 200 caractères`} error={errors.imageAlt} className="pl-8">
+            <Textarea rows={2} maxLength={200} value={form.imageAlt} onChange={(e) => set("imageAlt", e.target.value)} placeholder={defaultCaptureAlt(form)} />
+          </Field>
+        ) : null}
+        <Radio
+          name="altMode"
+          checked={form.altMode === "decorative"}
+          onChange={() => set("altMode", "decorative")}
+          label="Image décorative"
+          hint="Alt vide : à choisir seulement si la capture n'apporte rien que le texte de la carte ne dise déjà."
+        />
+      </fieldset>
       <ImageField
         label="Capture de téléphone"
         kind="MOBILE"
@@ -394,10 +430,12 @@ export function SiteProjectPage() {
               { id: "publication", label: "Publication", content: publication, errors: countErrors(TAB_FIELDS.publication) },
             ]}
             preview={(device) => (
-              <ProjectCardPreview
-                device={device}
-                p={{ ...form, kindLabel: PROJECT_KIND_LABEL[form.kind] }}
-              />
+              <div className="space-y-3">
+                <ProjectCardPreview device={device} p={{ ...form, kindLabel: PROJECT_KIND_LABEL[form.kind] }} />
+                <p className="text-xs text-[var(--muted)]">
+                  {publishedAlt(form) ? `Texte alternatif de la capture : « ${publishedAlt(form)} »` : "Capture décorative : alt vide."}
+                </p>
+              </div>
             )}
             footer={<EditorFooter auto={auto} creating={creating} busy={busy} createLabel="Créer la réalisation" />}
           />

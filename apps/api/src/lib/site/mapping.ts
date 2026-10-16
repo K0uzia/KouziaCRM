@@ -63,6 +63,8 @@ export function projectOut(p: SiteProject): z.input<typeof realisationValue> {
     image: p.imagePath,
     // Clé absente (et non undefined) sans capture : un contrat du site antérieur à imageMobile la refuserait.
     ...(p.imageMobilePath ? { imageMobile: p.imageMobilePath } : {}),
+    // "" est une valeur (capture décorative) : seule l'absence de saisie (null) laisse le site calculer.
+    ...(p.imageAlt !== null ? { imageAlt: p.imageAlt } : {}),
   };
 }
 
@@ -83,6 +85,7 @@ export function referenceOut(r: SiteReference): z.input<typeof referenceValue> {
     type: REFERENCE_TYPE_OUT[r.type],
     nom: r.name,
     ...(r.logoPath ? { logo: r.logoPath } : {}),
+    ...(r.logoAlt ? { logoAlt: r.logoAlt } : {}),
     ...(r.url ? { url: r.url } : {}),
     ...(wall && emplacements.length ? { emplacements } : {}),
     ...(wall && r.productSlug ? { realisation: r.productSlug } : {}),
