@@ -117,7 +117,7 @@ describe("routes : changements à publier et statut dans les listes", { timeout:
       const res = await app.inject({ method: "GET", url: "/api/site/changes", headers: { cookie } });
       expect(res.statusCode).toBe(200);
       const body = res.json();
-      expect(body.changes).toEqual([{ collection: "faq", id: q.id, label: q.question, state: "modified", to: "/site/faq" }]);
+      expect(body.changes).toEqual([{ collection: "faq", id: q.id, label: q.question, state: "modified", to: `/site/faq/${q.id}` }]);
       expect(body.undetailed).toBe(false);
       expect(body.unpublished).toBe(true);
 

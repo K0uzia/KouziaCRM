@@ -18,7 +18,7 @@ const shaOf = (path: string | null) => /^\/media\/([a-f0-9]{12})\.webp$/.exec(pa
 export async function mediaUsages(): Promise<Map<string, MediaUsage[]>> {
   const [projects, references] = await Promise.all([
     prisma.siteProject.findMany({ select: { id: true, name: true, imagePath: true, imageMobilePath: true } }),
-    prisma.siteReference.findMany({ select: { name: true, logoPath: true } }),
+    prisma.siteReference.findMany({ select: { id: true, name: true, logoPath: true } }),
   ]);
   const usages = new Map<string, MediaUsage[]>();
   const add = (path: string | null, usage: MediaUsage) => {
@@ -29,7 +29,7 @@ export async function mediaUsages(): Promise<Map<string, MediaUsage[]>> {
     add(p.imagePath, { label: `Capture de « ${p.name} »`, to: `/site/realisations/${p.id}`, field: "imagePath" });
     add(p.imageMobilePath, { label: `Capture de téléphone de « ${p.name} »`, to: `/site/realisations/${p.id}`, field: "imageMobilePath" });
   }
-  for (const r of references) add(r.logoPath, { label: `Logo de « ${r.name} »`, to: "/site/references", field: "logoPath" });
+  for (const r of references) add(r.logoPath, { label: `Logo de « ${r.name} »`, to: `/site/references/${r.id}`, field: "logoPath" });
   return usages;
 }
 

@@ -1,18 +1,18 @@
-import { useEffect, useState, type FormEvent } from "react";
+import { useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { faPlus } from "@fortawesome/free-solid-svg-icons";
-import { toast } from "sonner";
-import { api } from "@/lib/api";
-import { Badge, Card, PageHeader } from "@/components/ui/Card";
+import { faArrowsUpDown, faCheck, faPlus } from "@fortawesome/free-solid-svg-icons";
+import { Card, PageHeader } from "@/components/ui/Card";
 import { Button, ButtonLink } from "@/components/ui/Button";
+import { EditorFooter, EditorLayout, useItemEditor } from "./editor";
+import { reorderVisible, saveIds, SortableList } from "./sortable";
+import { ProjectCardPreview } from "./preview";
 import { DataTable, type DataColumn } from "@/components/ui/DataTable";
 import { Field, Input, Select, Textarea } from "@/components/ui/Field";
 import { Segmented } from "@/components/ui/Segmented";
 import { StatStrip } from "@/components/ui/StatStrip";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import {
-  fieldErrorsOf,
   ImageField,
   LoadState,
   OrderButtons,
@@ -33,6 +33,8 @@ export function SiteProjectsPage() {
   const navigate = useNavigate();
   const { rows, setRows, loading, error, reload } = useSiteCollection<SiteProject>(BASE);
   const move = (id: string, dir: -1 | 1) => void saveOrder(BASE, rows, rows, id, dir, setRows, (p) => p.name);
+  const [reordering, setReordering] = useState(false);
+  const reorder = (ids: string[]) => void saveIds(BASE, rows, reorderVisible(rows, rows, ids), setRows);
 
   const columns: DataColumn<SiteProject>[] = [
     {
@@ -73,10 +75,16 @@ export function SiteProjectsPage() {
         title="Réalisations"
         subtitle="Projets montrés sur kouzia.com, dans l'ordre de cette liste. Un lien vers du code source est refusé (charte du site)."
         actions={
+          <>
+          <Button variant="secondary" aria-pressed={reordering} onClick={() => setReordering((v) => !v)}>
+            <FontAwesomeIcon icon={reordering ? faCheck : faArrowsUpDown} className="h-3.5 w-3.5" aria-hidden />
+            {reordering ? "Terminer" : "Réorganiser"}
+          </Button>
           <ButtonLink to="/site/realisations/nouvelle">
             <FontAwesomeIcon icon={faPlus} className="h-3.5 w-3.5" aria-hidden />
             Nouvelle réalisation
           </ButtonLink>
+          </>
         }
       />
       <LoadState loading={loading} error={error} onRetry={() => void reload()}>
@@ -88,6 +96,24 @@ export function SiteProjectsPage() {
             { label: "Retirées", value: count("WITHDRAWN") },
           ]}
         />
+        {reordering ? (
+          <Card className="p-2 sm:p-3">
+            <p className="px-2 pb-2 text-sm text-[var(--muted)]">
+              Glisser une réalisation par sa poignée, ou au clavier : Espace pour prendre, flèches pour déplacer, Espace pour poser. L'ordre est enregistré à chaque déplacement et suit au site à la prochaine publication.
+            </p>
+            <SortableList
+              items={rows}
+              name={(p) => p.name}
+              onReorder={reorder}
+              render={(p) => (
+                <span className="flex min-w-0 items-center gap-3">
+                  <SiteImage path={p.imagePath} alt="" className="hidden h-9 w-14 shrink-0 rounded-[var(--radius-sm)] sm:block" />
+                  <span className="line-clamp-2 min-w-0 break-words font-medium">{p.name}</span>
+                </span>
+              )}
+            />
+          </Card>
+        ) : (
         <Card className="overflow-hidden">
           <DataTable
             columns={columns}
@@ -113,6 +139,7 @@ export function SiteProjectsPage() {
             )}
           />
         </Card>
+        )}
       </LoadState>
     </div>
   );
@@ -133,6 +160,7 @@ const emptyForm = {
   imageMobilePath: null as string | null,
   status: "DRAFT" as SiteItemStatus,
 };
+type ProjectForm = typeof emptyForm;
 
 /** Identifiant publié depuis le nom : minuscules sans accents, chiffres et tirets. */
 export function slugify(value: string): string {
@@ -145,118 +173,209 @@ export function slugify(value: string): string {
     .slice(0, 60);
 }
 
+const techList = (tech: string) =>
+  tech
+    .split(",")
+    .map((t) => t.trim())
+    .filter(Boolean);
+
+function projectBody(form: ProjectForm) {
+  return {
+    slug: form.slug.trim(),
+    name: form.name,
+    subtitle: form.subtitle.trim() || null,
+    mention: form.mention.trim() || null,
+    kind: form.kind,
+    text: form.text,
+    role: form.role.trim() || null,
+    tech: techList(form.tech),
+    url: form.url.trim(),
+    linkLabel: form.linkLabel,
+    imagePath: form.imagePath,
+    imageMobilePath: form.imageMobilePath,
+    status: form.status,
+  };
+}
+
+/** Champs obligatoires vérifiés avant l'envoi (l'API garde le dernier mot). */
+function projectErrors(form: ProjectForm): FieldErrors {
+  const e: FieldErrors = {};
+  if (!form.name.trim()) e.name = "Nom obligatoire.";
+  if (!form.slug.trim()) e.slug = "Identifiant obligatoire.";
+  if (!form.text.trim()) e.text = "Texte obligatoire.";
+  if (!/^https:\/\/[^\s/]+\.[^\s]+$/.test(form.url.trim())) e.url = "Adresse https complète attendue (https://exemple.fr).";
+  if (!form.linkLabel.trim()) e.linkLabel = "Libellé obligatoire.";
+  if (!form.imagePath) e.imagePath = "Image obligatoire : la carte du site en affiche une.";
+  return e;
+}
+
+const TAB_FIELDS = {
+  contenu: ["name", "subtitle", "mention", "kind", "text", "role", "tech"],
+  images: ["imagePath", "imageMobilePath"],
+  lien: ["url", "linkLabel", "slug"],
+  publication: ["status"],
+} as const;
+
 export function SiteProjectPage() {
   const { id = "" } = useParams();
   const creating = id === "nouvelle";
-  const navigate = useNavigate();
-  const [project, setProject] = useState<SiteProject | null>(null);
-  const [form, setForm] = useState(emptyForm);
   const [slugTouched, setSlugTouched] = useState(!creating);
-  const [loading, setLoading] = useState(!creating);
-  const [loadError, setLoadError] = useState<string | null>(null);
-  const [errors, setErrors] = useState<FieldErrors>({});
-  const [busy, setBusy] = useState(false);
   const [deleting, setDeleting] = useState(false);
-
-  async function load() {
-    if (creating) return;
-    setLoading(true);
-    try {
-      const all = await api<SiteProject[]>(BASE);
-      const p = all.find((r) => r.id === id);
-      if (!p) throw new Error("Réalisation introuvable");
-      setProject(p);
-      setForm({
-        slug: p.slug,
-        name: p.name,
-        subtitle: p.subtitle ?? "",
-        mention: p.mention ?? "",
-        kind: p.kind,
-        text: p.text,
-        role: p.role ?? "",
-        tech: p.tech.join(", "),
-        url: p.url,
-        linkLabel: p.linkLabel,
-        imagePath: p.imagePath,
-        imageMobilePath: p.imageMobilePath,
-        status: p.status,
-      });
-      setLoadError(null);
-    } catch (e) {
-      setLoadError(e instanceof Error ? e.message : "Chargement impossible");
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  useEffect(() => {
-    void load();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [id]);
-
-  const set = <K extends keyof typeof form>(key: K, value: (typeof form)[K]) => setForm((f) => ({ ...f, [key]: value }));
-
-  async function onSubmit(e: FormEvent) {
-    e.preventDefault();
-    if (!form.imagePath) {
-      setErrors({ imagePath: "Image obligatoire : la carte du site en affiche une." });
-      return;
-    }
-    setBusy(true);
-    setErrors({});
-    const body = {
-      slug: form.slug.trim(),
-      name: form.name,
-      subtitle: form.subtitle.trim() || null,
-      mention: form.mention.trim() || null,
-      kind: form.kind,
-      text: form.text,
-      role: form.role.trim() || null,
-      tech: form.tech
-        .split(",")
-        .map((t) => t.trim())
-        .filter(Boolean),
-      url: form.url.trim(),
-      linkLabel: form.linkLabel,
-      imagePath: form.imagePath,
-      imageMobilePath: form.imageMobilePath,
-      status: form.status,
-    };
-    try {
-      if (creating) {
-        const created = await api<SiteProject>(BASE, { method: "POST", body: JSON.stringify(body) });
-        toast.success("Réalisation créée");
-        navigate(`/site/realisations/${created.id}`, { replace: true });
-      } else {
-        const saved = await api<SiteProject>(`${BASE}/${id}`, { method: "PUT", body: JSON.stringify(body) });
-        setProject(saved);
-        toast.success("Réalisation enregistrée");
-      }
-    } catch (err) {
-      const fields = fieldErrorsOf(err);
-      // tech.2 : erreur sur une technologie, affichée sous le champ unique.
-      const flat = Object.fromEntries(Object.entries(fields).map(([k, v]) => [k.split(".")[0]!, v]));
-      setErrors(flat);
-      toast.error(err instanceof Error ? err.message : "Enregistrement impossible");
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function remove() {
-    setBusy(true);
-    try {
-      await api(`${BASE}/${id}`, { method: "DELETE" });
-      toast.success("Réalisation supprimée");
-      navigate("/site/realisations", { replace: true });
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Suppression impossible");
-      setBusy(false);
-      setDeleting(false);
-    }
-  }
-
+  const ed = useItemEditor<SiteProject, ProjectForm>({
+    base: BASE,
+    id,
+    creating,
+    empty: emptyForm,
+    toForm: (p) => ({
+      slug: p.slug,
+      name: p.name,
+      subtitle: p.subtitle ?? "",
+      mention: p.mention ?? "",
+      kind: p.kind,
+      text: p.text,
+      role: p.role ?? "",
+      tech: p.tech.join(", "),
+      url: p.url,
+      linkLabel: p.linkLabel,
+      imagePath: p.imagePath,
+      imageMobilePath: p.imageMobilePath,
+      status: p.status,
+    }),
+    toBody: projectBody,
+    validate: projectErrors,
+    itemPath: (p) => `/site/realisations/${p.id}`,
+    listPath: "/site/realisations",
+    labels: { created: "Réalisation créée : la suite s'enregistre toute seule", deleted: "Réalisation supprimée", notFound: "Réalisation introuvable" },
+  });
+  const { form, set, setForm, errors, busy, auto, item: project } = ed;
+  const remove = () => ed.remove().catch(() => setDeleting(false));
   const slugLocked = Boolean(project?.publishedAt);
+  const countErrors = ed.countErrors;
+
+  const contenu = (
+    <div className="space-y-4">
+      <Field label="Nom" error={errors.name}>
+        <Input
+          required
+          maxLength={80}
+          autoComplete="off"
+          value={form.name}
+          onChange={(e) => {
+            const name = e.target.value;
+            setForm((f) => ({ ...f, name, slug: slugTouched ? f.slug : slugify(name) }));
+          }}
+        />
+      </Field>
+      <Field label="Sous-titre (facultatif)" error={errors.subtitle}>
+        <Input autoComplete="off" value={form.subtitle} onChange={(e) => set("subtitle", e.target.value)} />
+      </Field>
+      <Field
+        label="Mention sous le projet (facultatif)"
+        hint={`Ex. : Développé par Kouzia au sein de La Capsule. ${form.mention.length} / 60 caractères`}
+        error={errors.mention}
+      >
+        <Input maxLength={60} autoComplete="off" value={form.mention} onChange={(e) => set("mention", e.target.value)} />
+      </Field>
+      {form.mention.trim() && form.role.trim() ? (
+        // Les deux s'affichent sur la carte : signaler un doublon possible (ex. « Réalisé dans le cadre de… »).
+        <p className="-mt-2 text-xs text-[var(--warning)]" aria-live="polite">
+          Le rôle est aussi rempli : les deux paraissent sur la carte. Videz l'un des deux s'ils disent la même chose.
+        </p>
+      ) : null}
+      <div className="space-y-1.5">
+        <p className="text-sm font-medium" aria-hidden>
+          Type
+        </p>
+        <Segmented
+          className="w-full max-w-sm"
+          label="Type de réalisation"
+          value={form.kind}
+          onChange={(k) => set("kind", k)}
+          options={[
+            { id: "WEBSITE", label: PROJECT_KIND_LABEL.WEBSITE },
+            { id: "SOFTWARE", label: PROJECT_KIND_LABEL.SOFTWARE },
+          ]}
+        />
+      </div>
+      <Field label="Texte" hint={`${form.text.length} / 400 caractères`} error={errors.text}>
+        <Textarea required maxLength={400} rows={5} value={form.text} onChange={(e) => set("text", e.target.value)} />
+      </Field>
+      <Field label="Rôle (facultatif)" hint="Ce que Kouzia a fait sur ce projet." error={errors.role}>
+        <Input autoComplete="off" value={form.role} onChange={(e) => set("role", e.target.value)} />
+      </Field>
+      <Field label="Technologies (facultatif)" hint="Séparées par des virgules : Astro, TypeScript. Affichées en puces." error={errors.tech}>
+        <Input autoComplete="off" value={form.tech} onChange={(e) => set("tech", e.target.value)} />
+      </Field>
+    </div>
+  );
+
+  const images = (
+    <div className="space-y-6">
+      <ImageField label="Capture d'écran" kind="CAPTURE" value={form.imagePath} onChange={(p) => set("imagePath", p)} error={errors.imagePath} />
+      <ImageField
+        label="Capture de téléphone"
+        kind="MOBILE"
+        optional
+        value={form.imageMobilePath}
+        onChange={(p) => set("imageMobilePath", p)}
+        error={errors.imageMobilePath}
+      />
+    </div>
+  );
+
+  const lien = (
+    <div className="space-y-4">
+      <Field label="Lien" hint="https obligatoire, vers le site ou la démo (jamais vers le code source)." error={errors.url}>
+        <Input required type="url" inputMode="url" autoComplete="url" value={form.url} onChange={(e) => set("url", e.target.value)} />
+      </Field>
+      <Field label="Libellé du lien" hint={`${form.linkLabel.length} / 40 caractères`} error={errors.linkLabel}>
+        <Input required maxLength={40} autoComplete="off" value={form.linkLabel} onChange={(e) => set("linkLabel", e.target.value)} />
+      </Field>
+      <Field
+        label="Identifiant"
+        hint={
+          slugLocked
+            ? "Publié : l'identifiant ne change plus (le code du site y fait référence)."
+            : "Minuscules, chiffres et tirets, tiré du nom. Il ne change plus une fois publié."
+        }
+        error={errors.slug}
+      >
+        <Input
+          required
+          value={form.slug}
+          disabled={slugLocked}
+          spellCheck={false}
+          autoComplete="off"
+          className="font-mono"
+          onChange={(e) => {
+            setSlugTouched(true);
+            set("slug", e.target.value);
+          }}
+        />
+      </Field>
+    </div>
+  );
+
+  const publication = (
+    <div className="space-y-4">
+      <Field label="Statut" hint="« Sur le site » : inclus à la prochaine publication (bouton Publier en haut)." error={errors.status}>
+        <Select value={form.status} onChange={(e) => set("status", e.target.value as SiteItemStatus)}>
+          {STATUS_OPTIONS.map((o) => (
+            <option key={o.id} value={o.id}>
+              {o.label}
+            </option>
+          ))}
+        </Select>
+      </Field>
+      {project?.publishedAt ? (
+        <p className="text-sm text-[var(--muted)]">Déjà publiée : pour l'enlever du site, choisir « Retiré du site » plutôt que la supprimer.</p>
+      ) : !creating && project ? (
+        <Button variant="danger-ghost" disabled={busy} onClick={() => setDeleting(true)}>
+          Supprimer la réalisation
+        </Button>
+      ) : null}
+    </div>
+  );
 
   return (
     <div>
@@ -265,138 +384,30 @@ export function SiteProjectPage() {
         title={creating ? "Nouvelle réalisation" : project?.name ?? "Réalisation"}
         subtitle={project ? <StatusBadge row={project} /> : undefined}
       />
-      <LoadState loading={loading} error={loadError} onRetry={() => void load()}>
-        <form onSubmit={onSubmit} noValidate className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_20rem] lg:items-start">
-          <Card className="space-y-4 p-4 sm:p-6">
-            <Field label="Nom" error={errors.name}>
-              <Input
-                required
-                value={form.name}
-                onChange={(e) => {
-                  const name = e.target.value;
-                  setForm((f) => ({ ...f, name, slug: slugTouched ? f.slug : slugify(name) }));
-                }}
+      <LoadState loading={ed.loading} error={ed.loadError} onRetry={() => void ed.load()}>
+        <form onSubmit={ed.onSubmit} noValidate>
+          <EditorLayout
+            label="Sections de la réalisation"
+            tabs={[
+              { id: "contenu", label: "Contenu", content: contenu, errors: countErrors(TAB_FIELDS.contenu) },
+              { id: "images", label: "Images", content: images, errors: countErrors(TAB_FIELDS.images) },
+              { id: "lien", label: "Lien", content: lien, errors: countErrors(TAB_FIELDS.lien) },
+              { id: "publication", label: "Publication", content: publication, errors: countErrors(TAB_FIELDS.publication) },
+            ]}
+            preview={(device) => (
+              <ProjectCardPreview
+                device={device}
+                p={{ ...form, kindLabel: PROJECT_KIND_LABEL[form.kind], tech: techList(form.tech) }}
               />
-            </Field>
-            <Field label="Sous-titre (facultatif)" error={errors.subtitle}>
-              <Input value={form.subtitle} onChange={(e) => set("subtitle", e.target.value)} />
-            </Field>
-            <Field
-              label="Mention sous le projet (facultatif)"
-              hint={`Ex. : Développé par Kouzia au sein de La Capsule. ${form.mention.length} / 60 caractères`}
-              error={errors.mention}
-            >
-              <Input maxLength={60} autoComplete="off" value={form.mention} onChange={(e) => set("mention", e.target.value)} />
-            </Field>
-            {form.mention.trim() && form.role.trim() ? (
-              // Les deux s'affichent sur la carte : signaler un doublon possible (ex. « Réalisé dans le cadre de… »).
-              <p className="-mt-2 text-xs text-[var(--warning)]" aria-live="polite">
-                Le rôle est aussi rempli : les deux paraissent sur la carte. Videz l'un des deux s'ils disent la même chose.
-              </p>
-            ) : null}
-            <Field
-              label="Identifiant"
-              hint={
-                slugLocked
-                  ? "Publié : l'identifiant ne change plus (le code du site y fait référence)."
-                  : "Minuscules, chiffres et tirets. Il ne change plus une fois publié."
-              }
-              error={errors.slug}
-            >
-              <Input
-                required
-                value={form.slug}
-                disabled={slugLocked}
-                spellCheck={false}
-                className="font-mono"
-                onChange={(e) => {
-                  setSlugTouched(true);
-                  set("slug", e.target.value);
-                }}
-              />
-            </Field>
-            <div className="space-y-1.5">
-              <p className="text-sm font-medium" aria-hidden>
-                Type
-              </p>
-              <Segmented
-                className="w-full max-w-sm"
-                label="Type de réalisation"
-                value={form.kind}
-                onChange={(k) => set("kind", k)}
-                options={[
-                  { id: "WEBSITE", label: PROJECT_KIND_LABEL.WEBSITE },
-                  { id: "SOFTWARE", label: PROJECT_KIND_LABEL.SOFTWARE },
-                ]}
-              />
-            </div>
-            <Field label="Texte" hint={`${form.text.length} / 400 caractères`} error={errors.text}>
-              <Textarea required maxLength={400} rows={4} value={form.text} onChange={(e) => set("text", e.target.value)} />
-            </Field>
-            <Field label="Rôle (facultatif)" hint="Ce que Kouzia a fait sur ce projet." error={errors.role}>
-              <Input value={form.role} onChange={(e) => set("role", e.target.value)} />
-            </Field>
-            <Field label="Technologies (facultatif)" hint="Séparées par des virgules : Astro, TypeScript" error={errors.tech}>
-              <Input value={form.tech} onChange={(e) => set("tech", e.target.value)} />
-            </Field>
-            <Field label="Lien" hint="https obligatoire, vers le site ou la démo (jamais vers le code source)." error={errors.url}>
-              <Input required type="url" inputMode="url" value={form.url} onChange={(e) => set("url", e.target.value)} />
-            </Field>
-            <Field label="Libellé du lien" hint="40 caractères au plus." error={errors.linkLabel}>
-              <Input required maxLength={40} value={form.linkLabel} onChange={(e) => set("linkLabel", e.target.value)} />
-            </Field>
-            <ImageField
-              label="Capture d'écran"
-              kind="CAPTURE"
-              value={form.imagePath}
-              onChange={(p) => set("imagePath", p)}
-              error={errors.imagePath}
-            />
-            <ImageField
-              label="Capture de téléphone"
-              kind="MOBILE"
-              optional
-              value={form.imageMobilePath}
-              onChange={(p) => set("imageMobilePath", p)}
-              error={errors.imageMobilePath}
-            />
-          </Card>
-
-          <div className="space-y-4 lg:sticky lg:top-4">
-            <Card className="space-y-4 p-4 sm:p-5">
-              <Field label="Statut" hint="« Sur le site » : inclus à la prochaine publication." error={errors.status}>
-                <Select value={form.status} onChange={(e) => set("status", e.target.value as SiteItemStatus)}>
-                  {STATUS_OPTIONS.map((o) => (
-                    <option key={o.id} value={o.id}>
-                      {o.label}
-                    </option>
-                  ))}
-                </Select>
-              </Field>
-              <div className="flex flex-col gap-2">
-                <Button type="submit" disabled={busy}>
-                  {busy ? "Enregistrement…" : creating ? "Créer la réalisation" : "Enregistrer"}
-                </Button>
-                {!creating && project && !project.publishedAt ? (
-                  <Button variant="danger-ghost" disabled={busy} onClick={() => setDeleting(true)}>
-                    Supprimer
-                  </Button>
-                ) : null}
-              </div>
-              {project?.publishedAt ? (
-                <p className="text-xs text-[var(--muted)]">
-                  Déjà publiée : pour l'enlever du site, choisir « Retiré du site » plutôt que la supprimer.
-                </p>
-              ) : null}
-            </Card>
-            <ProjectPreview form={form} />
-          </div>
+            )}
+            footer={<EditorFooter auto={auto} creating={creating} busy={busy} createLabel="Créer la réalisation" />}
+          />
         </form>
       </LoadState>
       <ConfirmDialog
         open={deleting}
         title="Supprimer cette réalisation ?"
-        message="Elle n'a jamais été publiée : elle disparaît de l'ERP. Les images envoyées restent disponibles."
+        message="Elle n'a jamais été publiée : elle disparaît de l'ERP. Les images envoyées restent dans la médiathèque."
         confirmLabel="Supprimer"
         danger
         busy={busy}
@@ -404,23 +415,5 @@ export function SiteProjectPage() {
         onClose={() => setDeleting(false)}
       />
     </div>
-  );
-}
-
-/** Aperçu du contenu de la carte (texte et images), dans le style de l'ERP et non celui du site. */
-function ProjectPreview({ form }: { form: typeof emptyForm }) {
-  return (
-    <Card className="overflow-hidden" aria-label="Aperçu du contenu">
-      <SiteImage path={form.imagePath} alt="Capture d'écran" className="aspect-video w-full" />
-      <div className="space-y-2 p-4">
-        <p className="text-xs font-medium uppercase tracking-[0.08em] text-[var(--muted)]">Aperçu du contenu</p>
-        <p className="font-display text-lg font-semibold leading-tight">{form.name || "Nom de la réalisation"}</p>
-        {form.subtitle ? <p className="text-sm text-[var(--muted)]">{form.subtitle}</p> : null}
-        {form.mention.trim() ? <p className="text-xs text-[var(--muted)]">{form.mention.trim()}</p> : null}
-        <Badge tone="violet">{PROJECT_KIND_LABEL[form.kind]}</Badge>
-        <p className="whitespace-pre-line text-sm leading-relaxed">{form.text || "Texte de présentation."}</p>
-        {form.linkLabel ? <p className="text-sm font-medium text-[var(--primary)]">{form.linkLabel}</p> : null}
-      </div>
-    </Card>
   );
 }

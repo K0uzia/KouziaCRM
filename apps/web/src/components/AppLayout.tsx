@@ -287,9 +287,9 @@ export function AppLayout() {
 
   const createItems = space.id === "site" ? [
     { label: "Nouvelle réalisation", onSelect: () => navigate("/site/realisations/nouvelle") },
-    { label: "Nouveau témoignage", onSelect: () => navigate("/site/avis?new=1") },
-    { label: "Nouvelle référence", onSelect: () => navigate("/site/references?new=1") },
-    { label: "Nouvelle question", onSelect: () => navigate("/site/faq?new=1") },
+    { label: "Nouveau témoignage", onSelect: () => navigate("/site/avis/nouveau") },
+    { label: "Nouvelle référence", onSelect: () => navigate("/site/references/nouvelle") },
+    { label: "Nouvelle question", onSelect: () => navigate("/site/faq/nouvelle") },
   ] : [
     { label: "Nouveau devis", onSelect: () => navigate("/quotes?new=1") },
     { label: "Nouvelle facture", onSelect: () => navigate("/invoices?new=1") },

@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent, type ReactNode } from "react";
+import { useCallback, useEffect, useState, type FormEvent, type ReactNode } from "react";
 import { Navigate, useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
@@ -6,6 +6,8 @@ import { Card, PageHeader } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { Field, Input, Textarea } from "@/components/ui/Field";
 import { fieldErrorsOf, LoadState, type FieldErrors } from "./shared";
+import { EditorFooter, EditorLayout, useAutosave } from "./editor";
+import { OfferCardPreview } from "./preview";
 
 /** Textes uniques du site (table SiteText), un écran chacun : coordonnées, accroche, offres. */
 
@@ -252,52 +254,113 @@ function AccrocheForm({ initial, onSaved }: { initial: Accroche | null; onSaved:
   );
 }
 
+type OffresDraft = { siteTitre: string; siteItems: string; logicielTitre: string; logicielItems: string; tarif: string };
+
+const offresValue = (f: OffresDraft): Offres => ({
+  formules: {
+    site: { titre: f.siteTitre, items: lines(f.siteItems) },
+    logiciel: { titre: f.logicielTitre, items: lines(f.logicielItems) },
+  },
+  tarif: f.tarif,
+});
+
+/** Champs obligatoires des offres, signalés avant l'envoi (l'API garde le dernier mot). */
+function offresErrors(f: OffresDraft): FieldErrors {
+  const e: FieldErrors = {};
+  if (!f.siteTitre.trim()) e["formules.site.titre"] = "Titre obligatoire.";
+  if (!lines(f.siteItems).length) e["formules.site.items"] = "Au moins un point.";
+  if (!f.logicielTitre.trim()) e["formules.logiciel.titre"] = "Titre obligatoire.";
+  if (!lines(f.logicielItems).length) e["formules.logiciel.items"] = "Au moins un point.";
+  if (!f.tarif.trim()) e.tarif = "Phrase sur le tarif obligatoire.";
+  return e;
+}
+
+/** Offres : deux formules et le tarif, enregistrés automatiquement, avec l'aperçu de la formule sur le site. */
 function OffresForm({ initial, onSaved }: { initial: Offres | null; onSaved: (v: Offres) => void }) {
-  const [f, setF] = useState(() => ({
+  const [initialDraft] = useState<OffresDraft>(() => ({
     siteTitre: initial?.formules.site.titre ?? "",
     siteItems: initial?.formules.site.items.join("\n") ?? "",
     logicielTitre: initial?.formules.logiciel.titre ?? "",
     logicielItems: initial?.formules.logiciel.items.join("\n") ?? "",
     tarif: initial?.tarif ?? "",
   }));
-  const { errors, busy, save } = useTextForm<Offres>("offres", onSaved);
-  const set = (k: keyof typeof f) => (e: { target: { value: string } }) => setF((x) => ({ ...x, [k]: e.target.value }));
+  const [f, setF] = useState(initialDraft);
+  const [errors, setErrors] = useState<FieldErrors>({});
+  const save = useCallback(
+    async (draft: OffresDraft) => {
+      const local = offresErrors(draft);
+      setErrors(local);
+      if (Object.keys(local).length) throw new Error("champs à compléter");
+      try {
+        onSaved(await api<Offres>("/api/site/texts/offres", { method: "PUT", body: JSON.stringify(offresValue(draft)) }));
+      } catch (e) {
+        setErrors(fieldErrorsOf(e));
+        throw e;
+      }
+    },
+    [onSaved],
+  );
+  const auto = useAutosave(f, save, true);
+  const { reset } = auto;
+  useEffect(() => reset(initialDraft), [reset, initialDraft]);
+  const hasErrors = Object.keys(errors).length > 0;
+  useEffect(() => {
+    if (hasErrors) setErrors(offresErrors(f));
+  }, [f, hasErrors]);
+  const set = (k: keyof OffresDraft) => (e: { target: { value: string } }) => setF((x) => ({ ...x, [k]: e.target.value }));
+  const count = (prefix: string) => Object.keys(errors).filter((k) => k === prefix || k.startsWith(`${prefix}.`)).length;
+  const value = offresValue(f);
+
+  const formule = (kind: "site" | "logiciel") => (
+    <div className="space-y-4">
+      <Field label="Titre de la formule" error={errorFor(errors, `formules.${kind}.titre`)}>
+        <Input autoComplete="off" value={kind === "site" ? f.siteTitre : f.logicielTitre} onChange={set(kind === "site" ? "siteTitre" : "logicielTitre")} />
+      </Field>
+      <Field label="Ce qui est compris" hint="Un point par ligne, affiché coché sur le site." error={errorFor(errors, `formules.${kind}.items`)}>
+        <Textarea
+          className="field-sizing-content"
+          rows={rowsFor(kind === "site" ? f.siteItems : f.logicielItems)}
+          value={kind === "site" ? f.siteItems : f.logicielItems}
+          onChange={set(kind === "site" ? "siteItems" : "logicielItems")}
+        />
+      </Field>
+    </div>
+  );
+
   return (
-    <FormCard
-      busy={busy}
-      columns
+    <form
+      noValidate
       onSubmit={(e) => {
         e.preventDefault();
-        void save({
-          formules: {
-            site: { titre: f.siteTitre, items: lines(f.siteItems) },
-            logiciel: { titre: f.logicielTitre, items: lines(f.logicielItems) },
-          },
-          tarif: f.tarif,
-        });
+        void auto.flush();
       }}
     >
-      <Section title="Suivi d'un site web">
-        <Field label="Titre de la formule" error={errorFor(errors, "formules.site.titre")}>
-          <Input value={f.siteTitre} onChange={set("siteTitre")} />
-        </Field>
-        <Field label="Ce qui est compris" hint="Un point par ligne." error={errorFor(errors, "formules.site.items")}>
-          <Textarea className="field-sizing-content" rows={rowsFor(f.siteItems)} value={f.siteItems} onChange={set("siteItems")} />
-        </Field>
-      </Section>
-      <Section title="Suivi d'un logiciel ou d'une application">
-        <Field label="Titre de la formule" error={errorFor(errors, "formules.logiciel.titre")}>
-          <Input value={f.logicielTitre} onChange={set("logicielTitre")} />
-        </Field>
-        <Field label="Ce qui est compris" hint="Un point par ligne." error={errorFor(errors, "formules.logiciel.items")}>
-          <Textarea className="field-sizing-content" rows={rowsFor(f.logicielItems)} value={f.logicielItems} onChange={set("logicielItems")} />
-        </Field>
-      </Section>
-      <div className="xl:col-span-2">
-        <Field label="Phrase sur le tarif" hint="Affichée sous les deux formules." error={errorFor(errors, "tarif")}>
-          <Textarea rows={2} value={f.tarif} onChange={set("tarif")} />
-        </Field>
-      </div>
-    </FormCard>
+      <EditorLayout
+        label="Sections des offres"
+        tabs={[
+          { id: "site", label: "Site web", content: formule("site"), errors: count("formules.site") },
+          { id: "logiciel", label: "Logiciel", content: formule("logiciel"), errors: count("formules.logiciel") },
+          {
+            id: "tarif",
+            label: "Tarif",
+            content: (
+              <Field label="Phrase sur le tarif" hint="Affichée sous chaque formule." error={errorFor(errors, "tarif")}>
+                <Textarea rows={3} value={f.tarif} onChange={set("tarif")} />
+              </Field>
+            ),
+            errors: count("tarif"),
+          },
+        ]}
+        preview={() => (
+          <div className="space-y-4">
+            <p className="font-mono text-[0.8125rem] uppercase tracking-[0.14em] text-[var(--muted)]">Page Sites web</p>
+            <OfferCardPreview titre={value.formules.site.titre} items={value.formules.site.items} tarif={value.tarif} />
+            <p className="font-mono text-[0.8125rem] uppercase tracking-[0.14em] text-[var(--muted)]">Page Logiciels</p>
+            <OfferCardPreview titre={value.formules.logiciel.titre} items={value.formules.logiciel.items} tarif={value.tarif} />
+          </div>
+        )}
+        footer={<EditorFooter auto={auto} creating={false} busy={false} createLabel="" />}
+      />
+    </form>
   );
 }
