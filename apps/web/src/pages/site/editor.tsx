@@ -225,6 +225,62 @@ export function useItemEditor<T extends { id: string }, F>({
   return { item, setItem, form, setForm, set, loading, loadError, load, errors, setErrors, busy, setBusy, auto, onSubmit, remove, countErrors };
 }
 
+/**
+ * Document unique du site (coordonnées, offres, textes des pages) : brouillon de formulaire `D`, valeur publiée `V`
+ * envoyée par PUT /api/site/texts/:key, enregistrement automatique et erreurs par chemin (formules.site.titre).
+ */
+export function useDocumentEditor<D, V>({
+  textKey,
+  initial,
+  toValue,
+  validate,
+  onSaved,
+}: {
+  textKey: string;
+  initial: D;
+  toValue: (draft: D) => V;
+  validate: (draft: D) => FieldErrors;
+  onSaved: (value: V) => void;
+}) {
+  const [baseline] = useState(initial);
+  const [form, setForm] = useState(initial);
+  const [errors, setErrors] = useState<FieldErrors>({});
+  const save = useCallback(
+    async (draft: D) => {
+      const local = validate(draft);
+      setErrors(local);
+      if (Object.keys(local).length) throw new Error("champs à compléter");
+      try {
+        onSaved(await api<V>(`/api/site/texts/${textKey}`, { method: "PUT", body: JSON.stringify(toValue(draft)) }));
+      } catch (e) {
+        setErrors(fieldErrorsOf(e));
+        throw e;
+      }
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [textKey, onSaved],
+  );
+  const auto = useAutosave(form, save, true);
+  const { reset } = auto;
+  useEffect(() => reset(baseline), [reset, baseline]);
+  // Après un refus, les erreurs suivent la frappe : un champ corrigé n'est plus signalé.
+  const hasErrors = Object.keys(errors).length > 0;
+  useEffect(() => {
+    if (hasErrors) setErrors(validate(form));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [form, hasErrors]);
+  const set = useCallback(<K extends keyof D>(key: K, value: D[K]) => setForm((f) => ({ ...f, [key]: value })), []);
+  /** Nombre d'erreurs dont le chemin commence par l'un des préfixes (compte d'un onglet). */
+  const count = (...prefixes: string[]) => Object.keys(errors).filter((k) => prefixes.some((p) => k === p || k.startsWith(`${p}.`))).length;
+  /** Premier message d'erreur sous un chemin (listes : villes.2). */
+  const errorFor = (prefix: string) => Object.entries(errors).find(([k]) => k === prefix || k.startsWith(`${prefix}.`))?.[1];
+  const onSubmit = (e: FormEvent) => {
+    e.preventDefault();
+    void auto.flush();
+  };
+  return { form, setForm, set, errors, errorFor, count, auto, onSubmit };
+}
+
 /** Bas de fiche : état de l'enregistrement, puis « Créer » (création) ou « Enregistrer maintenant ». */
 export function EditorFooter({ auto, creating, busy, createLabel }: { auto: { state: SaveState; dirty: boolean }; creating: boolean; busy: boolean; createLabel: string }) {
   return (

@@ -317,6 +317,7 @@ export const siteRoutes: FastifyPluginAsync = async (app) => {
         live: publication.live,
         last: publication.last,
         issues: snapshot.issues,
+        warnings: snapshot.warnings,
         tokenSet: Boolean(settings.githubTokenEncrypted),
       };
     }),

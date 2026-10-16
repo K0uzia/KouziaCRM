@@ -142,6 +142,29 @@ describe("import puis instantané", () => {
     }
   });
 
+  it("référence du mur de logos sans réalisation liée : alerte non bloquante (KouziaWebsite c42e74b)", async () => {
+    await importSiteFiles(raw);
+    const projet = await prisma.siteProject.findFirstOrThrow();
+    const ref = await prisma.siteReference.create({
+      data: {
+        slug: "asso-du-bourg",
+        type: SiteReferenceType.CLIENT,
+        name: "Asso du bourg",
+        url: "https://asso.example",
+        logoPath: "/media/0123456789ab.webp",
+        onHome: true,
+        status: SiteItemStatus.PUBLISHED,
+        authorizationAt: new Date(),
+        authorizationScope: SiteAuthorizationScope.NAME_LOGO,
+      },
+    });
+    const snap = await buildSiteSnapshot();
+    expect(snap.warnings).toEqual([{ file: "references", path: "Asso du bourg", message: expect.stringMatching(/^n'apparaît que dans “Autres” sur l'accueil : la lier à une réalisation$/) }]);
+    expect(snap.issues.some((i) => i.message.includes("Autres"))).toBe(false);
+    await prisma.siteReference.update({ where: { id: ref.id }, data: { productSlug: projet.slug } });
+    expect((await buildSiteSnapshot()).warnings).toEqual([]);
+  });
+
   it("capture de téléphone facultative (imageMobile) : reprise à l'identique ; image inconnue bloquante", async () => {
     const files = parsed();
     files.realisations.realisations[0].imageMobile = "/media/0123456789ab.webp";

@@ -27,6 +27,8 @@ type Changes = {
   live: boolean | null;
   last: SitePublication | null;
   issues: SiteIssue[];
+  /** Alertes à vérifier : ne bloquent jamais la publication. */
+  warnings?: SiteIssue[];
   tokenSet: boolean;
 };
 
@@ -235,6 +237,30 @@ export default function SitePublishBar() {
                       <Badge tone="red">Bloquant</Badge>
                       <span className="min-w-0 flex-1">
                         {i.message} <span className="text-[var(--muted)]">({i.path})</span>
+                      </span>
+                      {ISSUE_ROUTE[i.file] ? (
+                        <Link to={ISSUE_ROUTE[i.file]!} className="link inline-flex min-h-11 items-center" onClick={() => setOpen(false)}>
+                          Corriger
+                        </Link>
+                      ) : null}
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            ) : null}
+
+            {data.warnings?.length ? (
+              <section aria-labelledby="publication-alertes">
+                <h3 id="publication-alertes" className="font-semibold">
+                  À vérifier ({data.warnings.length})
+                </h3>
+                <p className="text-[var(--muted)]">Ne bloque pas la publication.</p>
+                <ul className="mt-2 divide-y divide-[var(--border)]">
+                  {data.warnings.map((i) => (
+                    <li key={`${i.file}:${i.path}:${i.message}`} className="flex flex-wrap items-center gap-x-3 gap-y-1 py-2">
+                      <Badge tone="amber">Alerte</Badge>
+                      <span className="min-w-0 flex-1">
+                        <span className="font-medium">{i.path}</span> {i.message}
                       </span>
                       {ISSUE_ROUTE[i.file] ? (
                         <Link to={ISSUE_ROUTE[i.file]!} className="link inline-flex min-h-11 items-center" onClick={() => setOpen(false)}>
