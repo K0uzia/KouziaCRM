@@ -83,6 +83,7 @@ const SiteReviewsPage = lazy(() =>
 const SiteReviewPage = lazy(() => import("@/pages/site/SiteReviewsPage").then((m) => ({ default: m.SiteReviewPage })));
 const SiteReferencePage = lazy(() => import("@/pages/site/SiteReferencesPage").then((m) => ({ default: m.SiteReferencePage })));
 const SiteFaqItemPage = lazy(() => import("@/pages/site/SiteFaqPage").then((m) => ({ default: m.SiteFaqItemPage })));
+const SiteHistoryPage = lazy(() => import("@/pages/site/SiteHistoryPage").then((m) => ({ default: m.SiteHistoryPage })));
 const SiteMediaPage = lazy(() => import("@/pages/site/SiteMediaPage").then((m) => ({ default: m.SiteMediaPage })));
 const SiteReferencesPage = lazy(() =>
   import("@/pages/site/SiteReferencesPage").then((m) => ({ default: m.SiteReferencesPage })),
@@ -179,6 +180,7 @@ export default function App() {
           <Route path="site/references" element={<SiteReferencesPage />} />
           <Route path="site/references/:id" element={<SiteReferencePage />} />
           <Route path="site/images" element={<SiteMediaPage />} />
+          <Route path="site/historique" element={<SiteHistoryPage />} />
           <Route path="site/faq" element={<SiteFaqPage />} />
           <Route path="site/faq/:id" element={<SiteFaqItemPage />} />
           <Route path="site/coordonnees" element={<SiteContactPage />} />

@@ -8,6 +8,7 @@ import {
   faHandshake,
   faImages,
   faPhotoFilm,
+  faClockRotateLeft,
   faAddressCard,
   faBullhorn,
   faTags,
@@ -167,6 +168,7 @@ export const SITE_SECTIONS: NavSection[] = [
     id: "site-publication",
     label: "Publication",
     items: [
+      { id: "site-history", to: "/site/historique", label: "Historique", icon: faClockRotateLeft, match: starts("/site/historique") },
       {
         id: "site-github",
         to: "/site/connexion",

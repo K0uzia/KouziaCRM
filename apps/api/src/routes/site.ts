@@ -17,7 +17,7 @@ import { prisma } from "@/lib/prisma.js";
 import { decryptOptional, encryptOptional } from "@/lib/crypto.js";
 import { getCompanySettings } from "@/lib/company.js";
 import { secretMeta } from "@/lib/settings/secrets.js";
-import { httpsUrl, imagePath, siteText, slug } from "@/lib/site/contract.js";
+import { httpsUrl, imagePath, SITE_FILES, siteText, slug } from "@/lib/site/contract.js";
 import { parseTech } from "@/lib/site/mapping.js";
 import { readSiteText, writeSiteText, isSiteTextKey } from "@/lib/site/texts.js";
 import { buildSiteSnapshot } from "@/lib/site/snapshot.js";
@@ -34,6 +34,7 @@ import {
   SiteMediaError,
   SITE_MEDIA_MAX_INPUT_BYTES,
 } from "@/lib/site/media.js";
+import { HistoryError, publicationDetail, restoreVersion } from "@/lib/site/history.js";
 import { adoptMissingMedia, deleteLibraryMedia, LibraryError, listLibrary, recropLibraryMedia } from "@/lib/site/library.js";
 import { issuedPdfAbsolutePath } from "@/lib/pdf/issued-archive.js";
 import { readFile } from "node:fs/promises";
@@ -846,6 +847,39 @@ export const siteRoutes: FastifyPluginAsync = async (app) => {
     admin(async () => {
       const rows = await prisma.sitePublication.findMany({ orderBy: { startedAt: "desc" }, take: 20 });
       return rows.map(publicationOut);
+    }),
+  );
+
+  // --- Historique : changements d'une publication, restauration d'une version dans l'ERP -------------------
+  const historyError = (reply: FastifyReply, e: unknown) => {
+    if (e instanceof HistoryError) return reply.code(e.status).send({ error: e.message });
+    throw e;
+  };
+  const publicationId = (request: FastifyRequest) => z.string().min(1).max(64).parse((request.params as { id: string }).id);
+
+  app.get(
+    "/api/site/publications/:id/detail",
+    admin(async (request, reply) => {
+      try {
+        return await publicationDetail(publicationId(request));
+      } catch (e) {
+        return historyError(reply, e);
+      }
+    }),
+  );
+
+  app.post(
+    "/api/site/publications/:id/restore",
+    admin(async (request, reply) => {
+      const body = z
+        .strictObject({ file: z.enum(SITE_FILES), key: z.string().min(1).max(600), side: z.enum(["after", "before"]) })
+        .safeParse(request.body);
+      if (!body.success) return invalid(reply, body.error);
+      try {
+        return await restoreVersion(publicationId(request), body.data.file, body.data.key, body.data.side);
+      } catch (e) {
+        return historyError(reply, e);
+      }
     }),
   );
 
