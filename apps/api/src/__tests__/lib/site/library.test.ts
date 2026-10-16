@@ -17,8 +17,9 @@ import { seedCompanySettings } from "../../helpers/factories.js";
 const fixture = (name: string) => readFileSync(fileURLToPath(new URL(`../../fixtures/site/${name}`, import.meta.url)), "utf8");
 const raw = Object.fromEntries(SITE_FILES.map((n) => [n, fixture(`${n}.json`).replace(/\r\n/g, "\n")])) as Record<SiteFileName, string>;
 
-// Rendu sharp d'images de 3 000 px : plus long que les 5 s par défaut quand toute la suite tourne en parallèle.
-vi.setConfig({ testTimeout: 30_000 });
+// Rendu sharp d'images de 3 000 px, et import de toute l'application pour le test de routes : jusqu'à 45 s quand
+// toute la suite tourne en parallèle sur une machine chargée (constaté par kouziacrm-b1).
+vi.setConfig({ testTimeout: 90_000 });
 
 beforeEach(async () => {
   await resetDb();
