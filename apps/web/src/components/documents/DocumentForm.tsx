@@ -1,6 +1,7 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { toast } from "sonner";
 import { api, formatEUR } from "@/lib/api";
+import { subscriptionsTotalText } from "@/lib/quote-totals";
 import { euros } from "@/lib/format";
 import { Button } from "@/components/ui/Button";
 import { ModalActions } from "@/components/ui/Modal";
@@ -352,6 +353,11 @@ export function DocumentFormEditor({
     documentType === "QUOTE" && filledLines.some((l) => l.isSubscription) && filledLines.some((l) => !l.isSubscription);
   // Base de l'acompte : partie ponctuelle, remise entière déduite (comme computeDepositBaseCents).
   const oneOffPreview = Math.max(0, oneOffSubtotal - discountPreview);
+  const subscriptionLinesPreview = form.lines.filter((l) => l.isSubscription && (Number(l.unitPriceEuros) || 0) > 0);
+  const subscriptionsPreviewText = subscriptionsTotalText({
+    yearCents: Math.round(subscriptionLinesPreview.filter((l) => l.billingInterval === "YEAR").reduce((s, l) => s + Number(l.unitPriceEuros) * 100, 0)),
+    monthCents: Math.round(subscriptionLinesPreview.filter((l) => l.billingInterval !== "YEAR").reduce((s, l) => s + Number(l.unitPriceEuros) * 100, 0)),
+  });
   // Conditions par défaut : suivent la nature du devis tant qu'elles n'ont pas été modifiées.
   useEffect(() => {
     setForm((f) => {
@@ -797,13 +803,25 @@ export function DocumentFormEditor({
 
       <ModalActions>
         <div className="mr-auto basis-full text-sm sm:basis-auto">
-          {discountPreview > 0 ? (
-            <span className="mr-2 text-xs text-[var(--muted)]">
-              {eur(subtotalPreview)} − {eur(discountPreview)} =
-            </span>
-          ) : null}
-          <span className="text-[var(--muted)]">Total </span>
-          <span className="font-display text-lg font-semibold tabular-nums">{eur(totalPreview)}</span>
+          {mixedQuote ? (
+            <>
+              <span className="text-[var(--muted)]">Total du projet </span>
+              <span className="font-display text-lg font-semibold tabular-nums">{eur(oneOffPreview)}</span>
+              <span className="block text-xs text-[var(--muted)]">
+                Abonnement{subscriptionLinesPreview.length > 1 ? "s" : ""} en plus : {subscriptionsPreviewText}
+              </span>
+            </>
+          ) : (
+            <>
+              {discountPreview > 0 ? (
+                <span className="mr-2 text-xs text-[var(--muted)]">
+                  {eur(subtotalPreview)} − {eur(discountPreview)} =
+                </span>
+              ) : null}
+              <span className="text-[var(--muted)]">Total </span>
+              <span className="font-display text-lg font-semibold tabular-nums">{eur(totalPreview)}</span>
+            </>
+          )}
         </div>
         <Button variant="secondary" onClick={onCancel} disabled={busy}>
           Annuler

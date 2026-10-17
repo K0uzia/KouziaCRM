@@ -1,8 +1,11 @@
 import { formatEUR } from "@/lib/api";
+import { mixedQuoteTotals } from "@/lib/quote-totals";
 
 type IssueEmailDoc = {
   client: { displayName: string; email?: string | null };
   totalCents: number;
+  subtotalCents?: number | null;
+  depositBaseCents?: number | null;
   lines?: Array<{
     description: string;
     isSubscription?: boolean;
@@ -30,10 +33,16 @@ export function buildIssueEmailDraft(
   // Devis mixte : l'abonnement démarre à la livraison, hors acompte et échéancier.
   const mixedQuote = kind === "QUOTE" && subs.length > 0 && !subscriptionOnly;
 
+  // Devis mixte : le montant annoncé est le total du projet (partie ponctuelle remisée) ; l'abonnement est à part.
+  const projectCents = mixedQuote
+    ? mixedQuoteTotals(doc.lines ?? [], doc.subtotalCents ?? doc.totalCents, doc.totalCents, doc.depositBaseCents).projectCents
+    : doc.totalCents;
   const lines: string[] = [
     firstName ? `Bonjour ${firstName},` : "Bonjour,",
     "",
-    `Veuillez trouver ci-joint votre ${label} {{numero}}, d'un montant de ${formatEUR(doc.totalCents)}.`,
+    mixedQuote
+      ? `Veuillez trouver ci-joint votre ${label} {{numero}} : total du projet ${formatEUR(projectCents)}, abonnement en plus (détail ci-dessous).`
+      : `Veuillez trouver ci-joint votre ${label} {{numero}}, d'un montant de ${formatEUR(doc.totalCents)}.`,
     "",
   ];
 

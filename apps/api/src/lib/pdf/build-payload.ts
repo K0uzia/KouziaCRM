@@ -148,6 +148,26 @@ export function buildInvoicePdfPayload({
     subscriptionOnly: isQuote && (offer === "NONE" || isSubscriptionOnly(invoice.lines)),
     // Devis mixte : l'abonnement démarre à la livraison, hors échéancier.
     subscriptionFromDelivery: fromDelivery,
+    // Devis mixte : total du projet (partie ponctuelle remisée, base de l'acompte) et abonnements à part.
+    mixedTotals: fromDelivery
+      ? (() => {
+          const oneOffCents = invoice.lines.filter((l) => !l.isSubscription).reduce((s, l) => s + l.lineTotalCents, 0);
+          const subs = invoice.lines.filter((l) => l.isSubscription);
+          const sum = (iv: "YEAR" | "MONTH") =>
+            subs.filter((l) => (l.billingInterval === "YEAR" ? "YEAR" : "MONTH") === iv).reduce((s, l) => s + l.unitPriceCents, 0);
+          return {
+            oneOffCents,
+            discountCents: Math.max(0, invoice.subtotalCents - invoice.totalCents),
+            projectCents: invoice.depositBaseCents ?? 0,
+            subscriptions: subs.map((l) => ({
+              label: l.description,
+              text: startPhrase(l, true, l.unitPriceCents, l.billingInterval === "YEAR" ? "YEAR" : "MONTH"),
+            })),
+            yearCents: sum("YEAR"),
+            monthCents: sum("MONTH"),
+          };
+        })()
+      : null,
     balanceSummary: balanceSummary ?? null,
     milestones: invoice.milestones.map((m) => ({
       label: m.label,
