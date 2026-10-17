@@ -1162,7 +1162,7 @@ export function SubscriptionsPage() {
           </Field>
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <Field
-              label="Prix / mois (€)"
+              label={normalizeInterval(editingOffer?.billingInterval) === "YEAR" ? "Prix / an (€)" : "Prix / mois (€)"}
               hint={editingOffer ? "Vaut pour les nouveaux contrats ; ceux en cours gardent leur montant (avenant pour le changer)." : undefined}
             >
               <Input
@@ -1185,7 +1185,7 @@ export function SubscriptionsPage() {
               >
                 {Array.from({ length: 28 }, (_, d) => d + 1).map((d) => (
                   <option key={d} value={String(d)}>
-                    Le {d} de chaque mois
+                    {normalizeInterval(editingOffer?.billingInterval) === "YEAR" ? `Le ${d} du mois anniversaire` : `Le ${d} de chaque mois`}
                   </option>
                 ))}
               </Select>

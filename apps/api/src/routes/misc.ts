@@ -122,6 +122,7 @@ export const miscRoutes: FastifyPluginAsync = async (app) => {
           unitPriceCents: true,
           active: true,
           isSubscription: true,
+          billingInterval: true,
         },
         orderBy: { name: "asc" },
         take: 6,

@@ -13,6 +13,7 @@ import {
 } from "@fortawesome/free-solid-svg-icons";
 import { api, formatEUR } from "@/lib/api";
 import { useFeatures } from "@/lib/features";
+import { periodSuffix } from "@/lib/billing-interval";
 import { NAV_SPACES, SETTINGS_ITEM } from "@/lib/navigation";
 import {
   invoiceStatusLabel,
@@ -43,6 +44,7 @@ type SearchService = {
   unitPriceCents: number;
   active: boolean;
   isSubscription: boolean;
+  billingInterval?: string | null;
 };
 
 type SearchResult = {
@@ -293,7 +295,7 @@ export function CommandPalette({
                   </span>
                   <span className="shrink-0 text-xs text-[var(--muted)]">
                     {formatEUR(s.unitPriceCents)}
-                    {s.isSubscription ? " / mois" : ""}
+                    {s.isSubscription ? ` ${periodSuffix(s.billingInterval)}` : ""}
                   </span>
                 </Command.Item>
               ))}
