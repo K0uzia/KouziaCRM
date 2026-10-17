@@ -1470,6 +1470,9 @@ model EmailMessage {
   hasAttachments   Boolean           @default(false)
   imapUid          Int?
   orphaned         Boolean           @default(false)
+  /// Lu/non lu ou étoile changé dans l'ERP, pas encore écrit sur le serveur IMAP : la synchro le pousse
+  /// au lieu de l'écraser par l'état du serveur.
+  flagsPending     Boolean           @default(false)
   createdAt        DateTime          @default(now())
   attachments      EmailAttachment[]
 

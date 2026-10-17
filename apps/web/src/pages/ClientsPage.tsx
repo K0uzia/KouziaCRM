@@ -1,6 +1,6 @@
 import { CLIENT_TYPE_LABEL, CLIENT_TYPE_SHORT, CLIENT_TYPE_TONE, isOrganization } from "@/lib/client-type";
 import { useCallback, useEffect, useState } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faPlus, faPaperPlane, faEnvelope, faPen } from "@fortawesome/free-solid-svg-icons";
 import { toast } from "sonner";
@@ -19,6 +19,9 @@ import { Avatar } from "@/components/ui/Avatar";
 import {
   ClientFormEditor,
   clientToForm,
+  prefillToForm,
+  type ClientPrefill,
+  type ClientFormData,
   type Client,
 } from "@/components/clients/ClientForm";
 import { ClientEmailLink } from "@/components/clients/ClientEmailLink";
@@ -40,10 +43,15 @@ export function ClientsPage() {
   const [inviteEmail, setInviteEmail] = useState("");
   const [inviteBusy, setInviteBusy] = useState(false);
   const [correspondenceFilter, setCorrespondenceFilter] = useState<"all" | "with" | "without">("all");
+  // Création depuis un message du formulaire du site : fiche préremplie (état de navigation, pas l'URL).
+  const location = useLocation();
+  const [createInitial, setCreateInitial] = useState<ClientFormData | undefined>(undefined);
   const openCreate = useCallback(() => {
+    const prefill = (location.state as { prefill?: ClientPrefill } | null)?.prefill;
+    setCreateInitial(prefill ? prefillToForm(prefill) : undefined);
     setEditing(null);
     setModal("create");
-  }, []);
+  }, [location.state]);
 
   useCreateParam(openCreate);
 
@@ -246,7 +254,7 @@ export function ClientsPage() {
       >
         <ClientFormEditor
           clientId={editing?.id}
-          initial={editing ? clientToForm(editing) : undefined}
+          initial={editing ? clientToForm(editing) : createInitial}
           onCancel={() => setModal(null)}
           onSuccess={async (client) => {
             setModal(null);

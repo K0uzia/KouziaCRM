@@ -1,25 +1,15 @@
 import { prisma } from "@/lib/prisma.js";
 import { withImapClient } from "@/lib/email/sync/imap-connection.js";
+import { countUnreadInThread, refreshFolderUnread } from "@/lib/email/sync/folder-sync.js";
 
 async function recountUnread(threadId: string | null, folderId: string | null): Promise<void> {
   if (threadId) {
-    const unreadInThread = await prisma.emailMessage.count({
-      where: { threadId, isRead: false, orphaned: false },
-    });
     await prisma.emailThread.update({
       where: { id: threadId },
-      data: { unreadCount: unreadInThread },
+      data: { unreadCount: await countUnreadInThread(threadId) },
     });
   }
-  if (folderId) {
-    const unreadInFolder = await prisma.emailMessage.count({
-      where: { folderId, isRead: false, orphaned: false },
-    });
-    await prisma.mailFolder.update({
-      where: { id: folderId },
-      data: { unreadCount: unreadInFolder },
-    });
-  }
+  await refreshFolderUnread([folderId]);
 }
 
 /** Résout un id ERP, un Message-ID RFC, ou un uid IMAP local. */
@@ -77,14 +67,16 @@ export async function setMessageFlags(
 
   if (Object.keys(data).length === 0) return true;
 
-  /* Local d'abord : l'UI ne doit pas attendre IMAP, ni être écrasée par un poll. */
-  await prisma.emailMessage.update({ where: { id: message.id }, data });
+  const onServer = Boolean(message.folder && message.imapUid);
+  /* Local d'abord : l'UI ne doit pas attendre IMAP. flagsPending protège ce choix d'une synchro
+     concurrente et fait réessayer l'écriture IMAP au passage suivant si elle échoue ici. */
+  await prisma.emailMessage.update({ where: { id: message.id }, data: { ...data, ...(onServer ? { flagsPending: true } : {}) } });
   await recountUnread(
     flags.read !== undefined ? message.threadId : null,
     flags.read !== undefined ? message.folderId : null,
   );
 
-  if (message.folder && message.imapUid) {
+  if (onServer) {
     try {
       await withImapClient(async ({ client }) => {
         await client.mailboxOpen(message.folder!.imapPath);
@@ -95,8 +87,13 @@ export async function setMessageFlags(
           await client.messageFlagsRemove(String(message.imapUid), imapRemove, { uid: true });
         }
       });
+      // Écrit sur le serveur, et pas de nouveau changement entre-temps : plus rien à pousser.
+      await prisma.emailMessage.updateMany({
+        where: { id: message.id, flagsPending: true, ...data },
+        data: { flagsPending: false },
+      });
     } catch {
-      /* IMAP best-effort : l'état local reste la source de vérité après action utilisateur. */
+      /* IMAP injoignable : flagsPending reste vrai, la prochaine synchro écrit l'état sur le serveur. */
     }
   }
 

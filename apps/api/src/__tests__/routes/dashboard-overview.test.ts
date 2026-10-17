@@ -34,12 +34,14 @@ describe("tableau de bord en un appel", () => {
     expect((await get("/api/dashboard/overview?scope=decennie")).statusCode).toBe(400);
   });
 
-  it("mêmes valeurs que les routes unitaires, 5 fils sans corps de message", async () => {
+  it("mêmes valeurs que les routes unitaires, 5 messages de la Réception sans corps", async () => {
     const client = await createClient();
     const inv = await prisma.invoice.create({
       data: { documentType: "INVOICE", invoiceType: "SIMPLE", status: "ISSUED", number: "F-2026-0001", clientId: client.id, issueDate: new Date(), subtotalCents: 120000, totalCents: 120000 },
     });
     await prisma.payment.create({ data: { invoiceId: inv.id, amountCents: 20000, paidAt: new Date() } });
+    const account = await prisma.mailAccount.create({ data: { email: "contact@kouzia.test", isDefault: true } });
+    const inbox = await prisma.mailFolder.create({ data: { accountId: account.id, imapPath: "INBOX", displayName: "Réception", role: "INBOX" } });
     for (let i = 0; i < 7; i++) {
       const t = await prisma.emailThread.create({
         data: { subject: `Fil ${i}`, participants: "[]", lastMessageAt: new Date(Date.now() - i * 60_000) },
@@ -48,6 +50,7 @@ describe("tableau de bord en un appel", () => {
         data: {
           threadId: t.id, direction: "INBOUND", messageId: `<fil-${i}@kouzia.test>`, fromAddress: `exp${i}@exemple.test`,
           subject: `Fil ${i}`, toAddresses: "[]", bodyText: "corps ".repeat(500), receivedAt: new Date(Date.now() - i * 60_000),
+          folderId: inbox.id, imapUid: i + 1,
         },
       });
     }
@@ -65,9 +68,10 @@ describe("tableau de bord en un appel", () => {
     const ownerPay = (await get("/api/owner-pay")).json();
     expect(o.ownerPay.availableCents).toBe(ownerPay.availableCents);
 
-    expect(o.threads.map((t: { subject: string }) => t.subject)).toEqual(["Fil 0", "Fil 1", "Fil 2", "Fil 3", "Fil 4"]);
-    expect(o.threads[0].lastFrom).toBe("exp0@exemple.test");
-    expect(JSON.stringify(o.threads)).not.toContain("corps");
+    expect(o.mail.messages.map((t: { subject: string }) => t.subject)).toEqual(["Fil 0", "Fil 1", "Fil 2", "Fil 3", "Fil 4"]);
+    expect(o.mail.messages[0].fromAddress).toBe("exp0@exemple.test");
+    expect(o.mail.unreadCount).toBe(7);
+    expect(JSON.stringify(o.mail)).not.toContain("corps");
     const sync = (await get("/api/emails/sync-status")).json();
     expect(o.mailSync).toEqual({ imapConfigured: sync.imapConfigured, lastSyncAt: sync.lastSyncAt });
   });

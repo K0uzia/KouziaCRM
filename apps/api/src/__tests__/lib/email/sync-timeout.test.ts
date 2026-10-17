@@ -43,7 +43,8 @@ describe("synchro de la messagerie bloquée", () => {
   it("la synchro suivante repart et met lastSyncAt à jour, même sans nouveau message", async () => {
     await expect(runMailSync(50)).rejects.toThrow();
     hang = false;
-    const result = await runMailSync(50);
+    // Passage normal : délai large (la suite complète charge la base en parallèle), seul le blocage est testé à 50 ms.
+    const result = await runMailSync(5000);
     expect(result.imported).toBe(0);
     const status = await prisma.mailSyncStatus.findUnique({ where: { id: "default" } });
     expect(status?.connected).toBe(true);
