@@ -1,7 +1,9 @@
 import { assertSecurityEnv, getApiPort, getTrustedProxies } from "@/lib/env.js";
 import { getAdminPublicHost } from "@/lib/tunnel-hosts.js";
 import { enableWal, prisma } from "@/lib/prisma.js";
+import type { FastifyInstance } from "fastify";
 import { buildApp } from "@/app.js";
+import { startHubListener } from "@/lib/hub/server.js";
 import { hydrateSettingsFromEnv } from "@/lib/settings/service.js";
 import { checkPendingMigrations, checkPrismaClientUpToDate } from "@/lib/migration-check.js";
 
@@ -64,6 +66,7 @@ async function main() {
   const port = getApiPort();
 
   // Arrêt propre (Ctrl+C, redémarrage de tsx watch, OpenRC) : connexions fermées, base libérée.
+  let hub: FastifyInstance | null = null;
   let closing = false;
   const shutdown = (signal: string) => {
     if (closing) return;
@@ -71,8 +74,7 @@ async function main() {
     app.log.info(`[arrêt] ${signal}`);
     const force = setTimeout(() => process.exit(0), 3000);
     force.unref();
-    void app
-      .close()
+    void Promise.all([app.close(), hub?.close()])
       .then(() => prisma.$disconnect())
       .catch(() => undefined)
       .finally(() => process.exit(0));
@@ -81,6 +83,12 @@ async function main() {
 
   await app.listen({ port, host: "0.0.0.0" });
   app.log.info(`API Kouzia ERP sur :${port}`);
+  // Écouteur du hub (réseau local seulement) : une erreur de configuration ne coupe pas l'ERP.
+  try {
+    hub = await startHubListener(app.log);
+  } catch (err) {
+    app.log.error(`[hub] écouteur non démarré : ${err instanceof Error ? err.message : String(err)}`);
+  }
   // Moteur publicodes (cotisations URSSAF) construit au démarrage : ~250 ms de calcul synchrone qui
   // bloquaient sinon la première requête du tableau de bord, et toute l'API pendant ce temps.
   setImmediate(() => {
