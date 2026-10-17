@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faArrowUpRightFromSquare, faCloudArrowUp } from "@fortawesome/free-solid-svg-icons";
 import { api, SITE_CHANGED_EVENT } from "@/lib/api";
+import { isOnline, onReconnect } from "@/lib/network";
 import { SITE_PUBLISH_OPEN_EVENT } from "@/components/site/SitePublishBar";
 import { formatDate, formatTime } from "@/lib/format";
 import { Badge } from "@/components/ui/Card";
@@ -68,9 +69,14 @@ export function SitePublicationCard({ state, onPublished }: { state: SiteState; 
   const watching = running || Boolean(current?.watching);
   useEffect(() => {
     if (!watching) return;
-    timer.current = window.setInterval(() => void loadHistory(), 3000);
+    // Hors ligne : suivi en pause, repris au retour du réseau.
+    timer.current = window.setInterval(() => {
+      if (isOnline()) void loadHistory();
+    }, 3000);
+    const stopReconnect = onReconnect(() => void loadHistory());
     return () => {
       if (timer.current) window.clearInterval(timer.current);
+      stopReconnect();
     };
   }, [watching]);
 

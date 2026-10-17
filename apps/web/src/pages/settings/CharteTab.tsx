@@ -9,6 +9,7 @@ import {
   faUpload,
 } from "@fortawesome/free-solid-svg-icons";
 import { api } from "@/lib/api";
+import { errorMessage } from "@/lib/network";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { Field, Input, Textarea } from "@/components/ui/Field";
@@ -264,7 +265,7 @@ export function CharteTab({
         })
         .catch((e: Error) => {
           if (ctrl.signal.aborted) return;
-          setState({ status: "error", message: e.message || "Aperçu indisponible." });
+          setState({ status: "error", message: errorMessage(e, "Aperçu indisponible.") });
         });
     }, DEBOUNCE_MS);
     return () => {

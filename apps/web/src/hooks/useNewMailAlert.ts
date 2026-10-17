@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
+import { isOnline, onReconnect } from "@/lib/network";
 
 // Un aller-retour par relevé : 30 s suffisent pour un badge (retour sur l'onglet : relevé immédiat).
 const POLL_MS = 30_000;
@@ -23,7 +24,8 @@ export function useNewMailAlert() {
   useEffect(() => {
     let cancelled = false;
     async function tick() {
-      if (document.visibilityState !== "visible") return;
+      // Onglet caché ou hors ligne : relevé en pause, repris au retour (visibilitychange, onReconnect).
+      if (document.visibilityState !== "visible" || !isOnline()) return;
       try {
         const status = await api<SyncStatus>("/api/emails/sync-status");
         if (cancelled) return;
@@ -38,9 +40,11 @@ export function useNewMailAlert() {
     // Retour sur l'onglet (téléphone déverrouillé, PWA rouverte) : relecture immédiate.
     const onVisible = () => void tick();
     document.addEventListener("visibilitychange", onVisible);
+    const stopReconnect = onReconnect(onVisible);
     return () => {
       cancelled = true;
       clearInterval(id);
+      stopReconnect();
       document.removeEventListener("visibilitychange", onVisible);
     };
   }, []);
