@@ -505,6 +505,7 @@ docker compose start app worker
 - [Délivrabilité email (SPF / DKIM / DMARC)](docs/email-deliverability.md)
 - [Google Calendar : projet Cloud, API, OAuth Web](docs/google-calendar-setup.md)
 - [Tailscale : admin ERP depuis le téléphone](docs/tailscale-setup.md)
+- [Hub Kouzia : lecture des clients par le réseau local](docs/hub-lecture.md)
 
 ## Sécurité
 

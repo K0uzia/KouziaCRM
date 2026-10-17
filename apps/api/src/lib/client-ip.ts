@@ -14,7 +14,11 @@ export function parseTrustedProxies(raw: string | undefined, production: boolean
   if (v === "false" || v === "0") return null;
   const entries = !v ? (production ? ["loopback"] : []) : v === "true" || v === "1" ? ["loopback"] : v.split(/[,\s]+/);
   if (entries.length === 0) return null;
+  return parseIpList(entries, "TRUST_PROXY");
+}
 
+/** Liste d'IP ou de CIDR (mot-clé "loopback" accepté) ; une entrée invalide lève une erreur. */
+export function parseIpList(entries: string[], label: string): BlockList {
   const list = new BlockList();
   for (const entry of entries.filter(Boolean)) {
     if (entry === "loopback") {
@@ -24,7 +28,7 @@ export function parseTrustedProxies(raw: string | undefined, production: boolean
     }
     const [addr, bits] = entry.split("/");
     const family = isIP(addr ?? "");
-    if (!addr || family === 0) throw new Error(`TRUST_PROXY : entrée invalide « ${entry} »`);
+    if (!addr || family === 0) throw new Error(`${label} : entrée invalide « ${entry} »`);
     const type = family === 4 ? "ipv4" : "ipv6";
     if (bits === undefined) list.addAddress(addr, type);
     else list.addSubnet(addr, Number(bits), type);
@@ -38,6 +42,10 @@ function normalize(addr: string): string {
 }
 
 export function isTrustedProxy(list: BlockList | null, addr: string | undefined): boolean {
+  return isInIpList(list, addr);
+}
+
+export function isInIpList(list: BlockList | null, addr: string | undefined): boolean {
   if (!list || !addr) return false;
   const a = normalize(addr);
   const family = isIP(a);
