@@ -1,4 +1,7 @@
 import { ServiceUnit, type PrismaClient, type Service } from "@prisma/client";
+import { getCompanySettings } from "@/lib/company.js";
+import { createLinkedService } from "@/lib/stripe/catalog-write.js";
+import { removeService, updateLinkedService } from "@/lib/services/linked-write.js";
 
 /**
  * Catalogue Kouzia (grille validée par Alexandre) : prix ronds, nets, pensés pour les petites structures
@@ -259,7 +262,20 @@ export type CatalogAction = {
    * stripe : prestation liée à Stripe, jamais écrite par le catalogue (nom, prix et archivage depuis l'ERP).
    * blocked : pack dont une prestation manque (à créer ou renommer d'abord).
    */
-  action: "create" | "update" | "same" | "differs" | "archive" | "stripe" | "blocked";
+  action:
+    | "create"
+    | "update"
+    | "same"
+    | "differs"
+    | "archive"
+    | "stripe"
+    | "blocked"
+    /** --stripe : écriture dans Stripe puis dans l'ERP, par le même chemin que l'écran Prestations. */
+    | "stripe-update"
+    | "stripe-create"
+    | "stripe-archive"
+    /** --stripe : Stripe a refusé ; rien n'a changé dans l'ERP pour cette prestation. */
+    | "failed";
   /** Écarts constatés (prix, description, type, archivée) pour « update » et « differs ». */
   changes: string[];
 };
@@ -273,7 +289,103 @@ export type CatalogOptions = {
    * modifié à la main dans l'ERP n'est jamais écrasé.
    */
   update?: boolean;
+  /**
+   * Applique aussi la grille aux prestations liées à Stripe, par le chemin de l'écran Prestations
+   * (lib/services/linked-write.ts) : nom et description repoussés, nouveau prix (l'ancien archivé), offres
+   * annuelles créées avec leur produit et leur prix, offres mensuelles remplacées archivées. Les contrats en cours
+   * gardent leur montant et leur prix Stripe. Un échec n'arrête pas les autres. Avec dryRun : rien n'est appelé.
+   */
+  stripe?: boolean;
 };
+
+const stripeErrorText = (e: unknown) => (e instanceof Error ? e.message : "erreur Stripe");
+/** Nom ERP d'une offre liée : « (annuel) » pour une offre annuelle, comme à sa création depuis l'ERP. */
+const linkedName = (e: CatalogEntry) => (e.yearly ? `${e.name} (annuel)` : e.name);
+
+/** Grille appliquée à une prestation liée à Stripe (--stripe). Renvoie les actions, échecs compris. */
+async function applyLinked(prisma: PrismaClient, entry: CatalogEntry, existing: Service | null, dryRun: boolean): Promise<CatalogAction[]> {
+  const actions: CatalogAction[] = [];
+  const price = `${euros(entry.priceCents)}${entry.yearly ? " par an" : ""}`;
+  // Offre à créer : absente, ou mensuelle alors que la grille la veut annuelle (un prix Stripe ne change pas de périodicité).
+  const replaced = existing && entry.yearly && existing.billingInterval !== "YEAR" ? existing : null;
+  if (!existing || replaced) {
+    const what = `produit et prix Stripe${entry.yearly ? " annuel" : ""} créés : ${price}`;
+    if (dryRun) {
+      actions.push({ name: linkedName(entry), action: "stripe-create", changes: [what] });
+    } else {
+      try {
+        const created = await createLinkedService({
+          name: entry.name,
+          description: entry.description,
+          unitPriceCents: entry.priceCents,
+          isSubscription: Boolean(entry.yearly),
+          billingInterval: entry.yearly ? "YEAR" : null,
+          defaultBillingDay: 1,
+          requestId: `catalog-${entry.name}-${entry.priceCents}`,
+        });
+        if (entry.category) await prisma.service.update({ where: { id: created.id }, data: { category: entry.category } });
+        actions.push({ name: created.name, action: "stripe-create", changes: [what] });
+      } catch (e) {
+        actions.push({ name: linkedName(entry), action: "failed", changes: [stripeErrorText(e)] });
+        return actions;
+      }
+    }
+  } else {
+    const target = linkedName(entry);
+    const changes: string[] = [];
+    if (existing.name !== target) changes.push(`renommée « ${existing.name} » -> « ${target} » (Stripe compris)`);
+    if (existing.unitPriceCents !== entry.priceCents) changes.push(`nouveau prix Stripe ${euros(existing.unitPriceCents)} -> ${price}, l'ancien archivé`);
+    if ((existing.description ?? "") !== entry.description) changes.push("description (Stripe compris)");
+    if (!existing.isSubscription && (existing.category ?? null) !== (entry.category ?? null)) changes.push("rubrique");
+    if (changes.length === 0) {
+      actions.push({ name: existing.name, action: "same", changes });
+    } else if (dryRun) {
+      actions.push({ name: existing.name, action: "stripe-update", changes });
+    } else {
+      try {
+        await updateLinkedService(
+          existing,
+          {
+            name: target,
+            description: entry.description,
+            unitPriceCents: entry.priceCents,
+            defaultBillingDay: existing.defaultBillingDay,
+            category: entry.category ?? null,
+          },
+          `catalog-${existing.id}-${entry.priceCents}`,
+        );
+        actions.push({ name: target, action: "stripe-update", changes });
+      } catch (e) {
+        actions.push({ name: existing.name, action: "failed", changes: [stripeErrorText(e)] });
+      }
+    }
+  }
+  // Offres mensuelles remplacées par l'offre annuelle (ancien nom, liées, encore actives) : archivées comme depuis l'écran.
+  if (entry.yearly) {
+    const monthly = await prisma.service.findMany({
+      where: {
+        name: { in: [entry.name, ...(entry.formerNames ?? [])] },
+        stripeProductId: { not: null },
+        active: true,
+        NOT: { billingInterval: "YEAR" },
+      },
+    });
+    for (const old of monthly) {
+      const what = "offre mensuelle archivée (Stripe compris) ; les contrats en cours gardent leur montant et leur prix";
+      if (dryRun) {
+        actions.push({ name: old.name, action: "stripe-archive", changes: [what] });
+        continue;
+      }
+      try {
+        await removeService(old.id);
+        actions.push({ name: old.name, action: "stripe-archive", changes: [what] });
+      } catch (e) {
+        actions.push({ name: old.name, action: "failed", changes: [stripeErrorText(e)] });
+      }
+    }
+  }
+  return actions;
+}
 
 const euros = (cents: number) => (cents / 100).toFixed(2).replace(".", ",") + " €";
 
@@ -297,6 +409,9 @@ async function findByNames(prisma: PrismaClient, names: string[]): Promise<Servi
  */
 export async function applyCatalog(prisma: PrismaClient, opts: CatalogOptions = {}): Promise<CatalogAction[]> {
   const actions: CatalogAction[] = [];
+  if (opts.stripe && !(await getCompanySettings()).moduleStripeEnabled) {
+    throw new Error("--stripe : le module Stripe est inactif dans les réglages de l'ERP.");
+  }
   for (const entry of CATALOG) {
     const data = {
       name: entry.name,
@@ -311,6 +426,11 @@ export async function applyCatalog(prisma: PrismaClient, opts: CatalogOptions = 
     const existing = await findByNames(prisma, knownNames(entry));
     // Prestation liée à Stripe : un prix écrit ici n'irait pas dans Stripe, et la synchro horaire (Stripe vers
     // l'ERP) le déferait. Elle se change dans Prestations, qui crée le nouveau prix Stripe.
+    // --stripe : prestations liées et prestations à créer passent par Stripe (module Stripe actif).
+    if (opts.stripe && (!existing || existing.stripeProductId)) {
+      actions.push(...(await applyLinked(prisma, entry, existing, Boolean(opts.dryRun))));
+      continue;
+    }
     if (existing?.stripeProductId) {
       const changes = [`liée à Stripe : changer dans l'ERP, écran Prestations (cible : « ${entry.name} », ${euros(entry.priceCents)}${entry.yearly ? " par an" : ""})`];
       if (data.category && !existing.category) {
@@ -352,7 +472,16 @@ export async function applyCatalog(prisma: PrismaClient, opts: CatalogOptions = 
     const existing = await prisma.service.findFirst({ where: { name: pack.name, isPack: true }, include: { packItems: true } });
     if (missing.length) {
       // En simulation, une prestation « à créer » n'existe pas encore : le pack est alors annoncé, pas bloqué.
-      const willExist = opts.dryRun && missing.every((n) => actions.some((a) => a.name === n && a.action === "create"));
+      const willExist =
+        opts.dryRun &&
+        missing.every((n) =>
+          actions.some(
+            (a) =>
+              // Créée, ou renommée vers ce nom (l'action porte encore l'ancien nom).
+              ((a.name === n || a.name === `${n} (annuel)`) && (a.action === "create" || a.action === "stripe-create")) ||
+              (a.action === "stripe-update" && a.changes.some((c) => c.includes(`-> « ${n} »`) || c.includes(`-> « ${n} (annuel) »`))),
+          ),
+        );
       if (!willExist) {
         actions.push({ name: pack.name, action: "blocked", changes: missing.map((n) => `prestation « ${n} » introuvable : la créer ou la renommer d'abord`) });
         continue;
@@ -397,7 +526,18 @@ export async function applyCatalog(prisma: PrismaClient, opts: CatalogOptions = 
     });
     for (const s of legacy) {
       if (s.stripeProductId) {
-        actions.push({ name: s.name, action: "stripe", changes: ["liée à Stripe : archiver dans l'ERP, écran Prestations"] });
+        if (!opts.stripe) {
+          actions.push({ name: s.name, action: "stripe", changes: ["liée à Stripe : archiver dans l'ERP, écran Prestations"] });
+        } else if (opts.dryRun) {
+          actions.push({ name: s.name, action: "stripe-archive", changes: ["archivée (Stripe compris)"] });
+        } else {
+          try {
+            await removeService(s.id);
+            actions.push({ name: s.name, action: "stripe-archive", changes: ["archivée (Stripe compris)"] });
+          } catch (e) {
+            actions.push({ name: s.name, action: "failed", changes: [stripeErrorText(e)] });
+          }
+        }
         continue;
       }
       if (!opts.dryRun) await prisma.service.update({ where: { id: s.id }, data: { active: false } });

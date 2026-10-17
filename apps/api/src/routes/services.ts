@@ -1,3 +1,4 @@
+import { removeService, updateLinkedService } from "@/lib/services/linked-write.js";
 import { packItemsSchema, packLines, PackError, validatePack } from "@/lib/services/packs.js";
 import { randomUUID } from "node:crypto";
 import type { FastifyPluginAsync } from "fastify";
@@ -6,13 +7,10 @@ import { ServiceUnit } from "@prisma/client";
 import { requireAuth } from "@/lib/auth.js";
 import { prisma } from "@/lib/prisma.js";
 import { eurosToCents } from "@/lib/money.js";
-import { getStripe } from "@/lib/stripe/client.js";
-import { StripeModeError, assertSameMode } from "@/lib/stripe/mode.js";
+import { StripeModeError } from "@/lib/stripe/mode.js";
 import { getCompanySettings } from "@/lib/company.js";
 import {
   StripeCatalogError,
-  archiveLinkedService,
-  changeLinkedServicePrice,
   createLinkedService,
 } from "@/lib/stripe/catalog-write.js";
 
@@ -180,62 +178,23 @@ export const servicesRoutes: FastifyPluginAsync = async (app) => {
       }
     }
 
-    // Prestation liée à Stripe : type et périodicité appartiennent au prix Stripe (lecture seule).
-    // Nom et description sont repoussés vers le produit Stripe, sinon la synchro horaire les écraserait ;
-    // un nouveau montant crée un nouveau prix Stripe (les abonnements en cours gardent l'ancien).
+    // Prestation liée à Stripe : même chemin que kouziactl catalog --stripe (lib/services/linked-write.ts).
     if (existing.stripeProductId) {
       try {
-        await assertSameMode(existing.stripeLivemode, "Cette prestation");
-      } catch (e) {
-        if (e instanceof StripeModeError) return reply.code(409).send({ error: e.message });
-        throw e;
+        return await updateLinkedService(
+          existing,
+          {
+            name: parsed.data.name,
+            description: parsed.data.description ?? null,
+            unitPriceCents: eurosToCents(parsed.data.unitPriceEuros),
+            defaultBillingDay: parsed.data.defaultBillingDay,
+            category: parsed.data.category,
+          },
+          parsed.data.requestId ?? randomUUID(),
+        );
+      } catch (err) {
+        return stripeError(reply, err);
       }
-      try {
-        const stripe = await getStripe();
-        await stripe.products.update(existing.stripeProductId, {
-          name: parsed.data.name.replace(/\s*\(annuel\)\s*$/i, "").trim(),
-          description: parsed.data.description?.trim() || "",
-        });
-      } catch (e) {
-        return reply.code(502).send({
-          error: `Stripe n'a pas accepté la modification : ${e instanceof Error ? e.message : "erreur"}`,
-        });
-      }
-      const newCents = eurosToCents(parsed.data.unitPriceEuros);
-      let stripePriceId = existing.stripePriceId;
-      if (newCents !== existing.unitPriceCents && existing.stripePriceId) {
-        try {
-          stripePriceId = await changeLinkedServicePrice(existing, newCents, parsed.data.requestId ?? randomUUID());
-        } catch (err) {
-          // Rien d'appliqué à moitié : le produit Stripe reprend son nom, l'ERP n'a pas changé.
-          try {
-            const stripe = await getStripe();
-            await stripe.products.update(existing.stripeProductId, {
-              name: existing.name.replace(/\s*\(annuel\)\s*$/i, "").trim(),
-              description: existing.description?.trim() || "",
-            });
-          } catch {
-            // Nom non rétabli : la synchro horaire (Stripe vers l'ERP) le reprendrait ; l'admin est prévenu.
-            if (err instanceof StripeCatalogError) {
-              return reply.code(502).send({
-                error: `${err.message} Le nouveau nom est resté dans Stripe : remettez l'ancien dans Stripe ou réessayez la modification.`,
-              });
-            }
-          }
-          return stripeError(reply, err);
-        }
-      }
-      return prisma.service.update({
-        where: { id: existing.id },
-        data: {
-          name: parsed.data.name,
-          description: parsed.data.description ?? null,
-          defaultBillingDay: existing.isSubscription ? parsed.data.defaultBillingDay : 1,
-          unitPriceCents: newCents,
-          stripePriceId,
-          ...(parsed.data.category !== undefined ? { category: existing.isSubscription ? null : parsed.data.category } : {}),
-        },
-      });
     }
 
     const updated = await prisma.service.update({
@@ -262,26 +221,12 @@ export const servicesRoutes: FastifyPluginAsync = async (app) => {
   app.delete<{ Params: { id: string } }>("/api/services/:id", async (request, reply) => {
     await requireAuth(request, reply);
     if (reply.sent) return;
-    const id = request.params.id;
-    const service = await prisma.service.findUnique({
-      where: { id },
-      include: { _count: { select: { invoiceLines: true, subscriptions: true, inPacks: true } } },
-    });
-    if (!service) return reply.code(404).send({ error: "Prestation introuvable" });
-    if (service.stripeProductId) {
-      try {
-        await assertSameMode(service.stripeLivemode, "Cette prestation");
-        await archiveLinkedService(service);
-      } catch (err) {
-        return stripeError(reply, err);
-      }
+    try {
+      const result = await removeService(request.params.id);
+      if (!result) return reply.code(404).send({ error: "Prestation introuvable" });
+      return { ok: true, ...result };
+    } catch (err) {
+      return stripeError(reply, err);
     }
-    // Prestation d'un pack : archivée (le pack garde son détail) ; un pack lui-même ne figure sur aucune ligne.
-    if (service._count.invoiceLines > 0 || service._count.subscriptions > 0 || service._count.inPacks > 0) {
-      await prisma.service.update({ where: { id }, data: { active: false } });
-      return { ok: true, archived: true };
-    }
-    await prisma.service.delete({ where: { id } });
-    return { ok: true, archived: false };
   });
 };

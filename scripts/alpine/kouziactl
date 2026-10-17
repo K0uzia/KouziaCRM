@@ -108,7 +108,7 @@ Services / data :
   selftest-respawn [worker|app]   tue le processus node et vérifie la relance par supervise-daemon
   repair-service app|worker       service « unsupervised » : zap, arrêt des orphelins, démarrage
   backup | restore | migrate
-  catalog [--dry-run] [--update]   importe le catalogue des prestations (sans doublon)
+  catalog [--dry-run] [--update] [--stripe]   importe le catalogue des prestations (sans doublon) ; --stripe : aussi les prestations liées à Stripe
   archive-pdfs   archive le PDF des factures et avoirs émis qui n'en ont pas (rendu du moment)
   2fa-reset <email>   désactive la double authentification admin et ferme ses sessions (secours)
   push-keys [mailto:…]   clés des notifications push, écrites dans .env si absentes (jamais remplacées)
@@ -217,7 +217,7 @@ run_cmd() {
     catalog|catalogue)
       require_root
       for a in "$@"; do
-        [[ "$a" == "--dry-run" || "$a" == "--update" ]] || die "Usage : kouziactl catalog [--dry-run] [--update]"
+        [[ "$a" == "--dry-run" || "$a" == "--update" || "$a" == "--stripe" ]] || die "Usage : kouziactl catalog [--dry-run] [--update] [--stripe]"
       done
       run_as_app "cd '$KOUZIA_APP_DIR' && npm run --silent catalog -- $*"
       ;;
