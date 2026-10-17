@@ -187,3 +187,19 @@ describe("assertSubscriptionLinesValid", () => {
     ).toThrow(/prestation du catalogue/);
   });
 });
+
+describe("remise globale : partie ponctuelle seulement", () => {
+  const lignes = [
+    { description: "Site", quantity: 1, unitPriceCents: 69000 },
+    { description: "Maintenance", quantity: 1, unitPriceCents: 2900, isSubscription: true, billingDay: 1, serviceId: "svc" },
+  ];
+  it("10 % : sur la partie ponctuelle, la 1re période de l'abonnement reste au prix prélevé ensuite", () => {
+    const r = computeLineTotals(lignes, { discountType: "PERCENT", discountValue: 1000 });
+    expect(r).toMatchObject({ subtotalCents: 71900, discountCents: 6900, totalCents: 65000 });
+    expect(r.lines[1]!.lineTotalCents).toBe(2900);
+  });
+  it("remise fixe plafonnée à la partie ponctuelle ; abonnement seul : aucune remise", () => {
+    expect(computeLineTotals(lignes, { discountType: "FIXED", discountValue: 100000 })).toMatchObject({ discountCents: 69000, totalCents: 2900 });
+    expect(computeLineTotals([lignes[1]!], { discountType: "PERCENT", discountValue: 1000 })).toMatchObject({ discountCents: 0, discountType: "NONE", totalCents: 2900 });
+  });
+});

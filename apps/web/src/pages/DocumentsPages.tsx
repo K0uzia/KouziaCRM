@@ -1134,7 +1134,7 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
                       Sous-total : {formatEUR(doc.subtotalCents ?? doc.totalCents)}
                     </p>
                     <p className="text-[var(--muted)]">
-                      Remise
+                      {docLines.some((l) => l.isSubscription) ? "Remise sur les prestations ponctuelles" : "Remise"}
                       {doc.discountType === "PERCENT"
                         ? ` (${formatDecimal((doc.discountValue ?? 0) / 100)} %)`
                         : ""}

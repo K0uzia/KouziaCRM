@@ -68,14 +68,14 @@ const outbox = async (kind: string) =>
   (await prisma.emailOutbox.findMany()).map((r) => parsePayload(outboxPayloadRaw(r))).filter((p) => p.kind === kind);
 
 describe("base de l'acompte (partie ponctuelle)", () => {
-  it("lignes hors abonnement, remise répartie au prorata", () => {
+  it("lignes hors abonnement, remise entière sur la partie ponctuelle (jamais sur l'abonnement)", () => {
     const lines = [
       { isSubscription: false, lineTotalCents: 69000 },
       { isSubscription: true, lineTotalCents: 2900 },
     ];
     expect(computeDepositBaseCents(lines, 71900, 71900)).toBe(69000);
-    // Remise de 10 % sur 719 € : 71,90 € dont 69,00 € portés par la partie ponctuelle.
-    expect(computeDepositBaseCents(lines, 71900, 64710)).toBe(62100);
+    // Remise de 71,90 € : portée entièrement par la partie ponctuelle (690 €), l'abonnement reste au prix prélevé.
+    expect(computeDepositBaseCents(lines, 71900, 64710)).toBe(61810);
     expect(computeDepositBaseCents([{ isSubscription: true, lineTotalCents: 2900 }], 2900, 2900)).toBe(0);
   });
 });
@@ -112,12 +112,12 @@ describe("devis mixte", () => {
     expect(await outbox("subscription_setup")).toHaveLength(0);
 
     const balance = await computeBalanceSummary(quote.id);
-    expect(balance).toMatchObject({ marketTotalCents: 62100, balanceDueCents: 62100 });
+    expect(balance).toMatchObject({ marketTotalCents: 61810, balanceDueCents: 61810 });
 
     const invoice = await convertQuoteToInvoice(quote.id);
     const lines = await prisma.invoiceLine.findMany({ where: { invoiceId: invoice.id } });
     expect(lines.map((l) => l.description)).toEqual(["Site une page"]);
-    expect(invoice).toMatchObject({ subtotalCents: 69000, totalCents: 62100, discountType: "FIXED", discountValue: 6900 });
+    expect(invoice).toMatchObject({ subtotalCents: 69000, totalCents: 61810, discountType: "FIXED", discountValue: 7190 });
     expect(await prisma.subscription.count({ where: { clientId: client.id } })).toBe(0);
   });
 

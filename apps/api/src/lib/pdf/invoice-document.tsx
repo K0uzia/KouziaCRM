@@ -573,7 +573,7 @@ export function InvoiceDocument({ company, client, invoice, specimen }: InvoiceP
               </View>
               <View style={styles.totalLine}>
                 <Text style={styles.muted}>
-                  Remise
+                  {invoice.lines.some((l) => l.isSubscription) ? "Remise sur les prestations ponctuelles" : "Remise"}
                   {invoice.discountType === "PERCENT"
                     ? ` (${((invoice.discountValue ?? 0) / 100).toFixed(2).replace(".", ",")} %)`
                     : ""}

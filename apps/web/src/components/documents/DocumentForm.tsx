@@ -80,7 +80,8 @@ const emptyLine = (): DocLine => ({
   unitPriceEuros: "",
   isSubscription: false,
   billingDay: "1",
-  billingInterval: "MONTH",
+  // Annuel par défaut : Stripe prélève des frais à chaque transaction (une par an plutôt que douze).
+  billingInterval: "YEAR",
   serviceId: "",
 });
 
@@ -288,11 +289,16 @@ export function DocumentFormEditor({
     return sum + q * p;
   }, 0);
 
+  // Remise sur la partie ponctuelle seulement : la 1re période d'un abonnement reste au prix prélevé ensuite.
+  const oneOffSubtotal = form.lines.reduce(
+    (sum, l) => (l.isSubscription ? sum : sum + (Number(l.quantity) || 0) * (Number(l.unitPriceEuros) || 0)),
+    0,
+  );
   const discountPreview =
     form.discountType === "PERCENT"
-      ? Math.min(subtotalPreview, (subtotalPreview * (Number(form.discountPercent) || 0)) / 100)
+      ? Math.min(oneOffSubtotal, (oneOffSubtotal * (Number(form.discountPercent) || 0)) / 100)
       : form.discountType === "FIXED"
-        ? Math.min(subtotalPreview, Number(form.discountEuros) || 0)
+        ? Math.min(oneOffSubtotal, Number(form.discountEuros) || 0)
         : 0;
 
   const totalPreview = Math.max(0, subtotalPreview - discountPreview);
@@ -302,12 +308,8 @@ export function DocumentFormEditor({
   // Devis mixte : acompte et échéancier sur la partie ponctuelle ; l'abonnement démarre à la livraison.
   const mixedQuote =
     documentType === "QUOTE" && filledLines.some((l) => l.isSubscription) && filledLines.some((l) => !l.isSubscription);
-  const oneOffSubtotal = form.lines.reduce(
-    (sum, l) => (l.isSubscription ? sum : sum + (Number(l.quantity) || 0) * (Number(l.unitPriceEuros) || 0)),
-    0,
-  );
-  const oneOffPreview =
-    subtotalPreview > 0 ? Math.max(0, oneOffSubtotal - (discountPreview * oneOffSubtotal) / subtotalPreview) : 0;
+  // Base de l'acompte : partie ponctuelle, remise entière déduite (comme computeDepositBaseCents).
+  const oneOffPreview = Math.max(0, oneOffSubtotal - discountPreview);
   // Conditions par défaut : suivent la nature du devis tant qu'elles n'ont pas été modifiées.
   useEffect(() => {
     setForm((f) => {

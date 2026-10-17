@@ -97,7 +97,8 @@ const emptyForm = {
   label: "",
   amountEuros: "",
   billingDay: "1",
-  billingInterval: "MONTH" as BillingInterval,
+  // Annuel par défaut : Stripe prélève des frais à chaque transaction (une par an plutôt que douze).
+  billingInterval: "YEAR" as BillingInterval,
   startDate: new Date().toISOString().slice(0, 10),
   /** Vide : 1re facture au prochain jour de prélèvement. Rempli : 1re échéance différée (ex. une année offerte). */
   firstInvoiceAt: "",
@@ -235,6 +236,8 @@ export function SubscriptionsPage() {
         active: offerForm.active,
         isSubscription: true,
         defaultBillingDay: Number(offerForm.defaultBillingDay) || 1,
+        // Nouvelle offre : annuelle (frais Stripe par transaction) ; une offre existante garde sa périodicité.
+        ...(editingOffer ? {} : { billingInterval: "YEAR" as const }),
       };
       if (editingOffer) {
         await api(`/api/services/${editingOffer.id}`, {
@@ -1162,7 +1165,7 @@ export function SubscriptionsPage() {
           </Field>
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <Field
-              label={normalizeInterval(editingOffer?.billingInterval) === "YEAR" ? "Prix / an (€)" : "Prix / mois (€)"}
+              label={normalizeInterval(editingOffer ? editingOffer.billingInterval : "YEAR") === "YEAR" ? "Prix / an (€)" : "Prix / mois (€)"}
               hint={editingOffer ? "Vaut pour les nouveaux contrats ; ceux en cours gardent leur montant (avenant pour le changer)." : undefined}
             >
               <Input
@@ -1185,7 +1188,7 @@ export function SubscriptionsPage() {
               >
                 {Array.from({ length: 28 }, (_, d) => d + 1).map((d) => (
                   <option key={d} value={String(d)}>
-                    {normalizeInterval(editingOffer?.billingInterval) === "YEAR" ? `Le ${d} du mois anniversaire` : `Le ${d} de chaque mois`}
+                    {normalizeInterval(editingOffer ? editingOffer.billingInterval : "YEAR") === "YEAR" ? `Le ${d} du mois anniversaire` : `Le ${d} de chaque mois`}
                   </option>
                 ))}
               </Select>

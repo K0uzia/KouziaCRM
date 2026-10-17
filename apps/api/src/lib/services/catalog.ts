@@ -154,7 +154,8 @@ export const CATALOG: CatalogEntry[] = [
 
 export type CatalogAction = {
   name: string;
-  action: "create" | "update" | "same" | "differs" | "archive";
+  /** stripe : prestation liée à Stripe, jamais écrite par le catalogue (prix et archivage depuis l'ERP). */
+  action: "create" | "update" | "same" | "differs" | "archive" | "stripe";
   /** Écarts constatés (prix, description, type, archivée) pour « update » et « differs ». */
   changes: string[];
 };
@@ -187,6 +188,12 @@ export async function applyCatalog(prisma: PrismaClient, opts: CatalogOptions = 
       isSubscription: Boolean(entry.monthly),
     };
     const existing = await prisma.service.findFirst({ where: { name: entry.name } });
+    // Prestation liée à Stripe : un prix écrit ici n'irait pas dans Stripe, et la synchro horaire (Stripe vers
+    // l'ERP) le déferait. Elle se change dans Prestations, qui crée le nouveau prix Stripe.
+    if (existing?.stripeProductId) {
+      actions.push({ name: entry.name, action: "stripe", changes: ["liée à Stripe : changer dans l'ERP, écran Prestations"] });
+      continue;
+    }
     if (!existing) {
       if (!opts.dryRun) await prisma.service.create({ data: { name: entry.name, defaultBillingDay: 1, ...data } });
       actions.push({ name: entry.name, action: "create", changes: [] });
@@ -215,9 +222,13 @@ export async function applyCatalog(prisma: PrismaClient, opts: CatalogOptions = 
         name: { notIn: CATALOG.map((e) => e.name) },
         OR: [{ unit: { not: ServiceUnit.FORFAIT } }, { name: { in: ["Forfait projet", "Maintenance site web"] } }],
       },
-      select: { id: true, name: true },
+      select: { id: true, name: true, stripeProductId: true },
     });
     for (const s of legacy) {
+      if (s.stripeProductId) {
+        actions.push({ name: s.name, action: "stripe", changes: ["liée à Stripe : archiver dans l'ERP, écran Prestations"] });
+        continue;
+      }
       if (!opts.dryRun) await prisma.service.update({ where: { id: s.id }, data: { active: false } });
       actions.push({ name: s.name, action: "archive", changes: ["archivée"] });
     }
