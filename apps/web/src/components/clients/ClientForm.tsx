@@ -20,6 +20,9 @@ import {
   CompanyLookup,
   type CompanyLookupValue,
 } from "@/components/forms/CompanyLookup";
+import { offlineEnabled } from "@/lib/offline/config";
+import { submitCreation, type QueueItem } from "@/lib/offline/queue";
+import { useReadOnly } from "@/lib/offline/read-only";
 
 export type Client = {
   id: string;
@@ -84,6 +87,32 @@ export type ClientFormData = {
   billingDay: string;
   sirenLocked: boolean;
 };
+
+/** Fiche préparée hors ligne (file de l'appareil), présentée comme un client en attente d'envoi. */
+export function pendingClient(item: QueueItem): Client & { pending: true } {
+  const body = item.body as Partial<Record<"type" | "firstName" | "lastName" | "companyName" | "email" | "phone" | "notes", string | null>>;
+  return {
+    id: item.clientId,
+    clientNumber: null,
+    type: (body.type as Client["type"]) ?? "B2C",
+    displayName: item.clientName,
+    firstName: body.firstName ?? null,
+    lastName: body.lastName ?? null,
+    companyName: body.companyName ?? null,
+    email: body.email || null,
+    phone: body.phone || null,
+    siret: null,
+    addressLine1: null,
+    addressLine2: null,
+    postalCode: null,
+    city: null,
+    country: "FRANCE",
+    notes: body.notes ?? null,
+    createdAt: item.preparedAt,
+    updatedAt: item.preparedAt,
+    pending: true,
+  };
+}
 
 /** Fiche proposée depuis un message du formulaire du site (bouton « Créer le client »). */
 export type ClientPrefill = { name: string | null; email: string | null; phone: string | null; company: string | null };
@@ -190,6 +219,10 @@ export function ClientFormEditor({
   onCancel: () => void;
 }) {
   const [form, setForm] = useState<ClientFormData>(initial ?? emptyClientForm());
+  // Hors ligne (origine du hors ligne) : fiche minimale mise en file, sans recherche d'adresse ni d'entreprise ;
+  // rien ne part (ni e-mail d'accès ni Stripe) avant le retour du réseau.
+  const { readOnly, canPrepare } = useReadOnly();
+  const minimal = !clientId && readOnly && canPrepare;
   // Médiateur de la consommation déclaré ? (null tant que les réglages ne sont pas lus)
   const [hasMediator, setHasMediator] = useState<boolean | null>(null);
   useEffect(() => {
@@ -217,57 +250,83 @@ export function ClientFormEditor({
     setBusy(true);
     setAddressError(null);
     try {
-      const addrErr = await revalidateAddressBeforeSubmit(toAddressValue(form), (addr) => {
-        setForm((f) => ({
-          ...f,
-          addressLine1: addr.addressLine1,
-          addressLine2: addr.addressLine2,
-          postalCode: addr.postalCode,
-          city: addr.city,
-          country: addr.country,
-          addressCityCode: addr.addressCityCode,
-          addressLat: addr.addressLat,
-          addressLon: addr.addressLon,
-          addressManualConfirmed: addr.addressManualConfirmed,
-        }));
-      });
-      if (addrErr) {
-        setAddressError(addrErr);
-        toast.error(addrErr);
-        return;
+      // Hors ligne : ni vérification d'adresse (service en ligne) ni adresse, SIRET ou accès à l'espace client.
+      if (!minimal) {
+        const addrErr = await revalidateAddressBeforeSubmit(toAddressValue(form), (addr) => {
+          setForm((f) => ({
+            ...f,
+            addressLine1: addr.addressLine1,
+            addressLine2: addr.addressLine2,
+            postalCode: addr.postalCode,
+            city: addr.city,
+            country: addr.country,
+            addressCityCode: addr.addressCityCode,
+            addressLat: addr.addressLat,
+            addressLon: addr.addressLon,
+            addressManualConfirmed: addr.addressManualConfirmed,
+          }));
+        });
+        if (addrErr) {
+          setAddressError(addrErr);
+          toast.error(addrErr);
+          return;
+        }
       }
 
-      const payload = {
-        type: form.type,
-        firstName: form.firstName,
-        lastName: form.lastName,
-        companyName: form.companyName,
-        email: form.email || null,
-        phone: form.phone || null,
-        siret: form.siret || null,
-        siren: form.siren || null,
-        apeCode: form.apeCode || null,
-        companyVerifiedAt: form.companyVerifiedAt,
-        addressLine1: form.addressLine1,
-        addressLine2: form.addressLine2,
-        postalCode: form.postalCode,
-        city: form.city,
-        country: form.country,
-        addressCityCode: form.addressCityCode || null,
-        addressLat: form.addressLat,
-        addressLon: form.addressLon,
-        addressManualConfirmed: form.addressManualConfirmed,
-        notes: form.notes,
-        billingDay: form.billingDay ? Number(form.billingDay) : null,
-        ...(clientId ? {} : { sendPortalAccess: sendPortalAccess && Boolean(form.email), needs }),
-      };
-      const client = await api<Client & { portalAccess?: { sent: boolean; reason?: string } | null }>(
-        clientId ? `/api/clients/${clientId}` : "/api/clients",
-        {
+      const payload = minimal
+        ? {
+            type: form.type,
+            firstName: form.firstName,
+            lastName: form.lastName,
+            companyName: form.companyName,
+            email: form.email || null,
+            phone: form.phone || null,
+            notes: form.notes,
+            needs,
+            sendPortalAccess: false,
+          }
+        : {
+            type: form.type,
+            firstName: form.firstName,
+            lastName: form.lastName,
+            companyName: form.companyName,
+            email: form.email || null,
+            phone: form.phone || null,
+            siret: form.siret || null,
+            siren: form.siren || null,
+            apeCode: form.apeCode || null,
+            companyVerifiedAt: form.companyVerifiedAt,
+            addressLine1: form.addressLine1,
+            addressLine2: form.addressLine2,
+            postalCode: form.postalCode,
+            city: form.city,
+            country: form.country,
+            addressCityCode: form.addressCityCode || null,
+            addressLat: form.addressLat,
+            addressLon: form.addressLon,
+            addressManualConfirmed: form.addressManualConfirmed,
+            notes: form.notes,
+            billingDay: form.billingDay ? Number(form.billingDay) : null,
+            ...(clientId ? {} : { sendPortalAccess: sendPortalAccess && Boolean(form.email), needs }),
+          };
+      type Saved = Client & { portalAccess?: { sent: boolean; reason?: string } | null };
+      let client: Saved;
+      if (!clientId && offlineEnabled()) {
+        // Origine du hors ligne : envoi direct avec un clientRequestId, ou mise en file (hors ligne, réseau tombé).
+        const name = form.type === "B2C" ? [form.firstName.trim(), form.lastName.trim()].filter(Boolean).join(" ") : form.companyName.trim();
+        const result = await submitCreation<Saved>({ kind: "client", label: name, clientName: name, body: payload });
+        if (result.queued) {
+          toast.success("Client préparé hors ligne : il sera créé au retour du réseau.");
+          onSuccess(pendingClient(result.item));
+          return;
+        }
+        client = result.data;
+      } else {
+        client = await api<Saved>(clientId ? `/api/clients/${clientId}` : "/api/clients", {
           method: clientId ? "PUT" : "POST",
           body: JSON.stringify(payload),
-        },
-      );
+        });
+      }
       if (!clientId) {
         const access = client.portalAccess;
         if (access?.sent) {
@@ -292,6 +351,12 @@ export function ClientFormEditor({
 
   return (
     <form onSubmit={onSubmit} className="space-y-5">
+      {minimal ? (
+        <p role="note" data-offline-form className="rounded-[var(--radius-sm)] border border-[var(--warning)]/40 bg-[var(--warning-soft)] px-3 py-2 text-sm text-[var(--text)]">
+          Hors ligne : fiche minimale, créée au retour du réseau. Adresse, SIRET et accès à l&apos;espace client se
+          complètent ensuite depuis la fiche.
+        </p>
+      ) : null}
       <div className="flex gap-2 rounded-[var(--radius)] bg-[var(--bg)] p-1">
         {(["B2C", "B2B", "ASSOCIATION"] as const).map((t) => (
           <button
@@ -330,6 +395,10 @@ export function ClientFormEditor({
             <Input required value={form.lastName} onChange={(e) => set("lastName", e.target.value)} />
           </Field>
         </div>
+      ) : minimal ? (
+        <Field label={form.type === "ASSOCIATION" ? "Nom de l'association" : "Raison sociale"} hint="Obligatoire">
+          <Input required autoComplete="organization" value={form.companyName} onChange={(e) => set("companyName", e.target.value)} />
+        </Field>
       ) : (
         <CompanyLookup
           nameLabel={form.type === "ASSOCIATION" ? "Nom de l'association" : "Raison sociale"}
@@ -382,6 +451,7 @@ export function ClientFormEditor({
         </Field>
       </div>
 
+      {minimal ? null : (
       <FormSection title="Adresse" defaultOpen={Boolean(clientId || form.addressLine1 || addressError)}>
       <AddressAutocomplete
         value={toAddressValue(form)}
@@ -402,6 +472,7 @@ export function ClientFormEditor({
       />
       {addressError ? <p className="text-sm text-[var(--danger)]">{addressError}</p> : null}
       </FormSection>
+      )}
 
       <FormSection title={clientId ? "Notes" : "Besoins et notes"} defaultOpen>
         {clientId ? null : (
@@ -416,6 +487,7 @@ export function ClientFormEditor({
         </Field>
       </FormSection>
 
+      {minimal ? null : (
       <FormSection title="Abonnements" defaultOpen>
         <Field
           label="Jour de prélèvement"
@@ -431,8 +503,9 @@ export function ClientFormEditor({
           </Select>
         </Field>
       </FormSection>
+      )}
 
-      {clientId ? null : (
+      {clientId || minimal ? null : (
         <label className="flex min-h-11 items-start gap-3 text-sm">
           <input
             type="checkbox"
@@ -457,7 +530,7 @@ export function ClientFormEditor({
           Annuler
         </Button>
         <Button type="submit" disabled={busy}>
-          {busy ? "Enregistrement…" : clientId ? "Enregistrer le client" : "Créer le client"}
+          {busy ? "Enregistrement…" : clientId ? "Enregistrer le client" : minimal ? "Préparer le client" : "Créer le client"}
         </Button>
       </ModalActions>
     </form>

@@ -57,6 +57,7 @@ import { renderEmailTextFooter } from "@/lib/email/layout.js";
 import { signDocumentToken } from "@/lib/documents/public-token.js";
 import { listActiveLegalClauses, subscriptionDateNoticeOf } from "@/lib/company/legal-clauses.js";
 import { FREE_MONTHS_MAX, SUBSCRIPTION_STARTS } from "@/lib/subscriptions/start.js";
+import { offlineConflicts, offlineQuoteFields } from "@/lib/invoices/offline-review.js";
 import { renderCreditNotePreviewPdf, renderDraftPreviewPdf } from "@/lib/pdf/draft-preview.js";
 
 const lineSchema = z.object({
@@ -124,6 +125,7 @@ const createSchema = z.object({
   discountEuros: z.coerce.number().min(0).optional(),
   /** Devis : paiement en 2 fois, en 3 fois ou au choix du client (défaut : réglages). */
   paymentPlanOffer: z.enum(["TWO", "THREE", "CHOICE"]).optional(),
+  ...offlineQuoteFields,
 });
 
 /** Aperçu d'un avoir : les champs de POST /api/invoices/:id/credit-note, avec la facture d'origine. */
@@ -241,8 +243,25 @@ export const invoicesRoutes: FastifyPluginAsync = async (app) => {
       if (!parsed.success) {
         return reply.code(400).send({ error: "Données invalides", details: parsed.error.flatten() });
       }
+      const { clientRequestId } = parsed.data;
+      const createdInclude = {
+        lines: true,
+        client: { select: { id: true, displayName: true, clientNumber: true } },
+      } as const;
+      // Renvoi d'un brouillon préparé hors ligne (réponse perdue, double envoi) : le brouillon déjà créé.
+      const replay = async () => {
+        const already = clientRequestId
+          ? await prisma.invoice.findUnique({ where: { clientRequestId }, include: createdInclude })
+          : null;
+        if (!already) return null;
+        const owner = await prisma.client.findUnique({ where: { id: already.clientId }, select: { updatedAt: true } });
+        const conflicts = owner ? await offlineConflicts(owner, parsed.data) : [];
+        return reply.code(200).send({ ...serializeInvoice(already), offline: { replayed: true, conflicts } });
+      };
+      const sent = await replay();
+      if (sent) return sent;
       const client = await prisma.client.findUnique({ where: { id: parsed.data.clientId } });
-      if (!client) return reply.code(404).send({ error: "Client introuvable" });
+      if (!client) return reply.code(404).send({ error: "Client introuvable", code: "client_not_found" });
 
       const discount = discountFromBody(parsed.data);
       const lineInputs = lineInputsOf(parsed.data.lines);
@@ -286,10 +305,12 @@ export const invoicesRoutes: FastifyPluginAsync = async (app) => {
           ? (parsed.data.paymentPlanOffer ?? ((await getCompanySettings()).paymentChoiceDefault ? "CHOICE" : "TWO"))
           : null;
 
+      const conflicts = clientRequestId ? await offlineConflicts(client, parsed.data) : [];
       const invoice = await prisma.invoice.create({
         data: {
           documentType,
           paymentPlanOffer,
+          ...(clientRequestId ? { clientRequestId } : {}),
           quoteStatus: documentType === InvoiceDocumentType.QUOTE ? QuoteStatus.DRAFT : null,
           clientId: parsed.data.clientId,
           notes: parsed.data.notes ?? null,
@@ -308,12 +329,16 @@ export const invoicesRoutes: FastifyPluginAsync = async (app) => {
           ...(linkedQuoteId ? { quoteId: linkedQuoteId, sourceQuoteId: linkedQuoteId } : {}),
           lines: { create: lines },
         },
-        include: {
-          lines: true,
-          client: { select: { id: true, displayName: true, clientNumber: true } },
-        },
+        include: createdInclude,
+      }).catch(async (e: unknown) => {
+        // Deux envois simultanés du même brouillon : le premier fait foi.
+        if ((e as { code?: string }).code === "P2002" && clientRequestId) return null;
+        throw e;
       });
-      return reply.code(201).send(serializeInvoice(invoice));
+      if (!invoice) return (await replay()) ?? reply.code(409).send({ error: "Brouillon déjà en cours de création" });
+      return reply
+        .code(201)
+        .send(clientRequestId ? { ...serializeInvoice(invoice), offline: { replayed: false, conflicts } } : serializeInvoice(invoice));
     } catch (e) {
       request.log.error({ err: e }, "POST /api/invoices");
       throw e;

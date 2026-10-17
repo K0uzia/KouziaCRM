@@ -1,16 +1,20 @@
 import { CLIENT_TYPE_LABEL, CLIENT_TYPE_SHORT, CLIENT_TYPE_TONE, isOrganization } from "@/lib/client-type";
-import { useCallback, useEffect, useState } from "react";
-import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { Link, Navigate, useLocation, useNavigate, useParams } from "react-router-dom";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faPlus, faPaperPlane, faEnvelope, faPen } from "@fortawesome/free-solid-svg-icons";
 import { toast } from "sonner";
 import { useLiveRefresh } from "@/lib/notifications";
+import { isNetworkFailure } from "@/lib/network";
 import { api, formatEUR } from "@/lib/api";
 import { formatDate, formatPhoneFr, invoiceStatusLabel, quoteStatusLabel, statusTone } from "@/lib/format";
 import { Button, ButtonLink } from "@/components/ui/Button";
 import { StatStrip } from "@/components/ui/StatStrip";
 import { Tabs, useTabParam } from "@/components/ui/Tabs";
-import { Badge, Card, PageHeader } from "@/components/ui/Card";
+import { Badge, Card, EmptyState, PageHeader } from "@/components/ui/Card";
+import { OfflineGuard } from "@/components/ui/OfflineGuard";
+import { ClientNotesCard } from "@/components/clients/ClientNotesCard";
+import { isLocalClientId, resolvedClientId, useOfflineQueue } from "@/lib/offline/queue";
 import { Modal, ModalActions } from "@/components/ui/Modal";
 import { Field, Input } from "@/components/ui/Field";
 import { FilterChips } from "@/components/ui/FilterChips";
@@ -23,6 +27,7 @@ import {
   type ClientPrefill,
   type ClientFormData,
   type Client,
+  pendingClient,
 } from "@/components/clients/ClientForm";
 import { ClientEmailLink } from "@/components/clients/ClientEmailLink";
 import { ClientProjects } from "@/components/clients/ClientProjects";
@@ -31,6 +36,7 @@ import { ClientRenewalsCard } from "@/components/clients/ClientRenewalsCard";
 import { ClientMessagesTab } from "@/pages/messaging/ClientMessagesTab";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { useCreateParam } from "@/lib/use-create-param";
+
 
 export function ClientsPage() {
   const navigate = useNavigate();
@@ -77,6 +83,12 @@ export function ClientsPage() {
     fetchList();
   }, [correspondenceFilter]);
 
+  const { items: queued } = useOfflineQueue();
+  const rows = useMemo(
+    () => [...queued.filter((i) => i.kind === "client").map(pendingClient), ...clients],
+    [queued, clients],
+  );
+
   const columns: DataColumn<Client>[] = [
     {
       name: "Client",
@@ -90,7 +102,11 @@ export function ClientsPage() {
             <Link to={`/clients/${c.id}`} className="block truncate font-medium hover:text-[var(--primary)]">
               {c.displayName}
             </Link>
-            <p className="font-mono text-xs text-[var(--muted)]">{c.clientNumber ?? "-"}</p>
+            {isLocalClientId(c.id) ? (
+              <Badge tone="amber">À envoyer</Badge>
+            ) : (
+              <p className="font-mono text-xs text-[var(--muted)]">{c.clientNumber ?? "-"}</p>
+            )}
           </div>
         </div>
       ),
@@ -168,6 +184,7 @@ export function ClientsPage() {
           <Button
             variant="ghost"
             className="min-h-9 min-w-9 px-0"
+            disabled={isLocalClientId(c.id)}
             aria-label={`Modifier ${c.displayName}`}
             title="Modifier"
             onClick={() => {
@@ -193,24 +210,26 @@ export function ClientsPage() {
               <FontAwesomeIcon icon={faPaperPlane} className="h-3.5 w-3.5" aria-hidden />
               Inviter par email
             </Button>
-            <Button onClick={openCreate}>
-              <FontAwesomeIcon icon={faPlus} className="h-3.5 w-3.5" aria-hidden />
-              Nouveau client
-            </Button>
           </>
+        }
+        offlineActions={
+          <Button onClick={openCreate}>
+            <FontAwesomeIcon icon={faPlus} className="h-3.5 w-3.5" aria-hidden />
+            Nouveau client
+          </Button>
         }
       />
 
       <DataTable
           columns={columns}
-          data={clients}
+          data={rows}
           loading={loading}
           error={loadError}
           onRetry={fetchList}
           pagination
           perPage={25}
           onRowClick={(c) => navigate(`/clients/${c.id}`)}
-          countLabel={clients.length > 1 ? "clients" : "client"}
+          countLabel={rows.length > 1 ? "clients" : "client"}
           toolbar={
             <FilterChips
               label="Filtrer les clients"
@@ -235,7 +254,7 @@ export function ClientsPage() {
                   {[c.clientNumber, c.city].filter(Boolean).join(" · ")}
                 </p>
               </div>
-              <Badge tone={CLIENT_TYPE_TONE[c.type]}>{CLIENT_TYPE_SHORT[c.type]}</Badge>
+              {isLocalClientId(c.id) ? <Badge tone="amber">À envoyer</Badge> : <Badge tone={CLIENT_TYPE_TONE[c.type]}>{CLIENT_TYPE_SHORT[c.type]}</Badge>}
             </Link>
           )}
           searchable={["displayName", "clientNumber", "email", "city", "phone"]}
@@ -258,7 +277,8 @@ export function ClientsPage() {
           onCancel={() => setModal(null)}
           onSuccess={async (client) => {
             setModal(null);
-            await load();
+            // Fiche mise en file hors ligne : la liste du serveur ne change pas.
+            if (!isLocalClientId(client.id)) await load();
             navigate(`/clients/${client.id}`);
           }}
         />
@@ -329,6 +349,96 @@ export function ClientsPage() {
 
 export function ClientDetailPage() {
   const { id } = useParams();
+  // Fiche préparée hors ligne, pas encore créée sur le serveur.
+  if (isLocalClientId(id)) return <PendingClientPage localId={id} />;
+  return <ClientDetail id={id} />;
+}
+
+function PendingClientPage({ localId }: { localId: string }) {
+  const { ready, items } = useOfflineQueue();
+  const item = items.find((i) => i.kind === "client" && i.clientId === localId);
+  const real = resolvedClientId(localId);
+  if (real) return <Navigate to={`/clients/${real}`} replace />;
+  if (!ready) {
+    return (
+      <div className="space-y-4" aria-busy="true">
+        <div className="ui-card h-24 animate-pulse" />
+      </div>
+    );
+  }
+  if (!item) {
+    return (
+      <div>
+        <PageHeader back={{ to: "/clients", label: "Clients" }} title="Fiche introuvable" />
+        <Card>
+          <EmptyState
+            title="Cette fiche préparée hors ligne n'est plus dans la file"
+            hint="Elle a peut-être déjà été envoyée : retrouvez-la dans la liste des clients."
+            action={<ButtonLink to="/clients">Voir les clients</ButtonLink>}
+          />
+        </Card>
+      </div>
+    );
+  }
+  const client = pendingClient(item);
+  return (
+    <div>
+      <PageHeader
+        back={{ to: "/clients", label: "Clients" }}
+        title={
+          <span className="flex min-w-0 items-center gap-3">
+            <Avatar name={client.displayName} size="lg" />
+            <span className="min-w-0 truncate">{client.displayName}</span>
+          </span>
+        }
+        subtitle={
+          <span className="flex flex-wrap items-center gap-2">
+            <Badge tone="amber">À envoyer</Badge>
+            <Badge tone={CLIENT_TYPE_TONE[client.type]}>{CLIENT_TYPE_LABEL[client.type]}</Badge>
+            <span className="text-xs">Préparée hors ligne le {formatDate(item.preparedAt)}</span>
+          </span>
+        }
+        offlineActions={
+          <ButtonLink to={`/quotes?new=1&clientId=${encodeURIComponent(localId)}`}>
+            <FontAwesomeIcon icon={faPlus} className="h-3.5 w-3.5" aria-hidden />
+            Nouveau devis
+          </ButtonLink>
+        }
+      />
+      <div className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1fr)_22rem]">
+        <div className="min-w-0 space-y-6">
+          <Card className="p-5 text-sm">
+            <p>
+              Fiche préparée hors ligne : elle sera créée au retour du réseau (numéro de client attribué à ce moment),
+              puis devis et notes préparés pour elle. Adresse et SIRET se complètent ensuite depuis la fiche.
+            </p>
+            <Link to="/a-envoyer" className="link mt-2 inline-flex min-h-11 items-center">
+              Voir « À envoyer »
+            </Link>
+          </Card>
+          <ClientNotesCard clientId={localId} clientName={client.displayName} />
+        </div>
+        <aside className="space-y-6" aria-label="Informations du client">
+          <Card className="p-5 text-sm">
+            <h2 className="mb-3 text-sm font-semibold">Coordonnées</h2>
+            <dl className="space-y-3 [&_dt]:text-xs [&_dt]:text-[var(--muted)] [&_dd]:mt-0.5 [&_dd]:break-words">
+              <div>
+                <dt>Email</dt>
+                <dd>{client.email ?? " - "}</dd>
+              </div>
+              <div>
+                <dt>Téléphone</dt>
+                <dd>{formatPhoneFr(client.phone) || " - "}</dd>
+              </div>
+            </dl>
+          </Card>
+        </aside>
+      </div>
+    </div>
+  );
+}
+
+function ClientDetail({ id }: { id: string | undefined }) {
   const [client, setClient] = useState<Client | null>(null);
   const [editOpen, setEditOpen] = useState(false);
   const [busyAccess, setBusyAccess] = useState(false);
@@ -347,6 +457,7 @@ export function ClientDetailPage() {
     }>
   >([]);
 
+  const [docsOffline, setDocsOffline] = useState(false);
   useLiveRefresh(() => refresh(), (i) => i.kind === "quote_accepted" || i.kind === "quote_rejected" || i.kind === "payment");
 
   function refresh() {
@@ -365,8 +476,13 @@ export function ClientDetailPage() {
     ])
       .then(([invoices, quotes]) => {
         setDocs([...invoices, ...quotes].filter((d) => d.client.id === id));
+        setDocsOffline(false);
       })
-      .catch((e: Error) => toast.error(`Documents du client non chargés : ${e.message}`));
+      .catch((e: Error) => {
+        // Hors ligne sans copie des documents : montants « consultables avec le réseau », jamais 0,00 €.
+        if (isNetworkFailure(e)) setDocsOffline(true);
+        else toast.error(`Documents du client non chargés : ${e.message}`);
+      });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
 
@@ -389,7 +505,9 @@ export function ClientDetailPage() {
 
   const docList = (rows: typeof docs, limit?: number) =>
     rows.length === 0 ? (
-      <p className="px-5 py-8 text-center text-sm text-[var(--muted)]">Aucun document pour ce client.</p>
+      <p className="px-5 py-8 text-center text-sm text-[var(--muted)]">
+        {docsOffline ? "Documents consultables avec le réseau." : "Aucun document pour ce client."}
+      </p>
     ) : (
       <ul className="divide-y divide-[var(--border)]">
         {rows.slice(0, limit ?? rows.length).map((d) => (
@@ -457,11 +575,13 @@ export function ClientDetailPage() {
               <FontAwesomeIcon icon={faPen} className="h-3.5 w-3.5" aria-hidden />
               Modifier
             </Button>
-            <ButtonLink to={`/quotes?new=1&clientId=${encodeURIComponent(client.id)}`}>
-              <FontAwesomeIcon icon={faPlus} className="h-3.5 w-3.5" aria-hidden />
-              Nouveau devis
-            </ButtonLink>
           </>
+        }
+        offlineActions={
+          <ButtonLink to={`/quotes?new=1&clientId=${encodeURIComponent(client.id)}`}>
+            <FontAwesomeIcon icon={faPlus} className="h-3.5 w-3.5" aria-hidden />
+            Nouveau devis
+          </ButtonLink>
         }
       />
 
@@ -481,7 +601,12 @@ export function ClientDetailPage() {
             {tab === "apercu" ? (
               <div className="space-y-6">
                 <StatStrip
-                  items={[
+                  items={docsOffline ? [
+                    { label: "Facturé", value: "-", hint: "Consultable avec le réseau" },
+                    { label: "Encaissé", value: "-", hint: "Consultable avec le réseau" },
+                    { label: "À encaisser", value: "-" },
+                    { label: "Devis", value: "-" },
+                  ] : [
                     { label: "Facturé", value: formatEUR(sumBy(invoices, ["ISSUED", "PAID"])), hint: `${invoices.length} facture${invoices.length > 1 ? "s" : ""}` },
                     { label: "Encaissé", value: formatEUR(sumBy(invoices, ["PAID"])), tone: "success" },
                     { label: "À encaisser", value: formatEUR(sumBy(invoices, ["ISSUED"])), tone: "primary" },
@@ -499,8 +624,11 @@ export function ClientDetailPage() {
                   </div>
                   {docList(docs, 5)}
                 </Card>
-                <ClientNeedsCard key={client.id} clientId={client.id} initial={client.needs ?? []} />
-                <ClientRenewalsCard clientId={client.id} />
+                <ClientNotesCard clientId={client.id} clientName={client.displayName} />
+                <OfflineGuard className="space-y-6">
+                  <ClientNeedsCard key={client.id} clientId={client.id} initial={client.needs ?? []} />
+                  <ClientRenewalsCard clientId={client.id} />
+                </OfflineGuard>
                 {client.notes ? (
                   <Card className="p-5">
                     <h2 className="mb-2 text-sm font-semibold">Notes internes</h2>
@@ -510,7 +638,11 @@ export function ClientDetailPage() {
               </div>
             ) : null}
             {tab === "documents" ? <Card className="overflow-hidden">{docList(docs)}</Card> : null}
-            {tab === "projets" ? <ClientProjects clientId={client.id} /> : null}
+            {tab === "projets" ? (
+              <OfflineGuard>
+                <ClientProjects clientId={client.id} />
+              </OfflineGuard>
+            ) : null}
             {tab === "messages" ? <ClientMessagesTab clientId={client.id} /> : null}
           </Tabs>
         </div>
@@ -558,6 +690,7 @@ export function ClientDetailPage() {
             </div>
           </dl>
           </Card>
+          <OfflineGuard>
           <Card className="space-y-4 p-5 text-sm">
             <h2 className="text-sm font-semibold">Espace client</h2>
         <div>
@@ -698,6 +831,7 @@ export function ClientDetailPage() {
           </p>
         ) : null}
       </Card>
+          </OfflineGuard>
         </aside>
       </div>
 

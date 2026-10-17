@@ -38,15 +38,18 @@ export function PageHeader({
   subtitle,
   actions,
   back,
+  offlineActions,
 }: {
   title: React.ReactNode;
   subtitle?: React.ReactNode;
   actions?: React.ReactNode;
+  /** Créations permises hors ligne (mises en file sur l'origine du hors ligne), après les autres actions. */
+  offlineActions?: React.ReactNode;
   /** Lien de retour vers la liste parente (affiché au-dessus du titre). */
   back?: { to: string; label: string };
 }) {
   // Hors ligne ou écran servi depuis la copie : date des données, et actions de l'en-tête désactivées.
-  const { readOnly, copyNotice, reason } = useReadOnly();
+  const { readOnly, copyNotice, reason, canPrepare } = useReadOnly();
   const noticeId = useId();
   return (
     <div className="mb-6 flex flex-col gap-3 sm:mb-8 sm:flex-row sm:items-start sm:justify-between sm:gap-6">
@@ -78,15 +81,21 @@ export function PageHeader({
           </span>
         ) : null}
       </div>
-      {actions ? (
+      {actions || offlineActions ? (
         // fieldset : un seul « disabled » coupe tous les boutons d'action de l'en-tête (les liens restent actifs).
-        <fieldset
-          disabled={readOnly}
-          aria-describedby={reason ? noticeId : undefined}
-          className="m-0 flex w-full min-w-0 flex-wrap items-center gap-2 border-0 p-0 sm:w-auto sm:max-w-[min(100%,32rem)] sm:justify-end [&>*]:flex-[1_1_8rem] sm:[&>*]:flex-none"
-        >
-          {actions}
-        </fieldset>
+        // Deux groupes en display: contents, pour que leurs boutons partagent la même rangée.
+        <div className="flex w-full min-w-0 flex-wrap items-center gap-2 sm:w-auto sm:max-w-[min(100%,32rem)] sm:justify-end [&>fieldset>*]:flex-[1_1_8rem] sm:[&>fieldset>*]:flex-none">
+          {actions ? (
+            <fieldset disabled={readOnly} aria-describedby={reason ? noticeId : undefined} className="contents">
+              {actions}
+            </fieldset>
+          ) : null}
+          {offlineActions ? (
+            <fieldset disabled={readOnly && !canPrepare} aria-describedby={reason ? noticeId : undefined} className="contents">
+              {offlineActions}
+            </fieldset>
+          ) : null}
+        </div>
       ) : null}
     </div>
   );

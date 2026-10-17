@@ -5,9 +5,12 @@ import { useAuth } from "@/lib/auth";
 import { Button } from "@/components/ui/Button";
 import { CodeInput } from "@/components/ui/CodeInput";
 import { Field, Input } from "@/components/ui/Field";
+import { itemsLabel, useOfflineQueue } from "@/lib/offline/queue";
 
 export function LoginPage() {
   const { user, loading, login, verifySecondFactor } = useAuth();
+  // Créations préparées hors ligne (file chiffrée de l'appareil) : elles partent une fois reconnecté.
+  const { items: queued } = useOfflineQueue();
   const navigate = useNavigate();
   const [email, setEmail] = useState(import.meta.env.DEV ? "admin@kouzia.com" : "");
   const [password, setPassword] = useState("");
@@ -100,6 +103,15 @@ export function LoginPage() {
           <p className="mt-1 text-sm text-[var(--muted)]">Gestion, facturation et suivi client</p>
         </div>
 
+        {queued.length > 0 ? (
+          <p
+            role="status"
+            data-queue-login
+            className="mb-4 rounded-[var(--radius-sm)] border border-[var(--warning)]/40 bg-[var(--warning-soft)] px-3 py-2 text-sm text-[var(--text)]"
+          >
+            Reconnectez-vous pour envoyer {itemsLabel(queued.length)}.
+          </p>
+        ) : null}
         {step === "code" ? (
           <form onSubmit={onSubmitCode} className="ui-card space-y-5 p-6 sm:p-8">
             <h1 className="text-lg font-semibold">Double authentification</h1>

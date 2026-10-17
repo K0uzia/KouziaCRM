@@ -46,6 +46,8 @@ import {
   type PaymentFieldsState,
 } from "@/components/documents/BillingDialog";
 import { useCreateParam } from "@/lib/use-create-param";
+import { signalFor, useOfflineQueue } from "@/lib/offline/queue";
+import { OfflineGuard } from "@/components/ui/OfflineGuard";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 
 type Milestone = {
@@ -156,6 +158,11 @@ function DocumentsListPage({
   }, []);
 
   useCreateParam(openCreate);
+  // Clients préparés hors ligne (file de l'appareil) : un devis brouillon peut leur être préparé.
+  const { items: queued } = useOfflineQueue();
+  const pendingClients = queued
+    .filter((i) => i.kind === "client")
+    .map((i) => ({ id: i.clientId, displayName: `${i.clientName} (à envoyer)`, clientNumber: null }));
 
   async function load() {
     const [docs, cls] = await Promise.all([
@@ -330,6 +337,13 @@ function DocumentsListPage({
         { label: "Brouillons", value: String(count("DRAFT")), hint: "à émettre" },
       ];
 
+  const createButton = (
+    <Button onClick={() => openCreate()}>
+      <FontAwesomeIcon icon={faPlus} className="h-3.5 w-3.5" aria-hidden />
+      {isQuote ? "Nouveau devis" : "Nouvelle facture"}
+    </Button>
+  );
+
   return (
     <div>
       <PageHeader
@@ -339,12 +353,9 @@ function DocumentsListPage({
             ? "Propositions envoyées aux clients et leur décision."
             : "Factures émises, encaissements et soldes restants."
         }
-        actions={
-          <Button onClick={() => openCreate()}>
-            <FontAwesomeIcon icon={faPlus} className="h-3.5 w-3.5" aria-hidden />
-            {isQuote ? "Nouveau devis" : "Nouvelle facture"}
-          </Button>
-        }
+        // Devis brouillon : création permise hors ligne (mise en file) ; facture : jamais hors ligne.
+        actions={isQuote ? undefined : createButton}
+        offlineActions={isQuote ? createButton : undefined}
       />
 
       {loading ? (
@@ -402,12 +413,14 @@ function DocumentsListPage({
         <DocumentFormEditor
           mode="create"
           documentType={documentType}
-          clients={clients}
+          clients={isQuote ? [...pendingClients, ...clients] : clients}
           initial={createClientId ? { clientId: createClientId } : undefined}
           onCancel={() => setCreateOpen(false)}
           onSuccess={(doc) => {
             setCreateOpen(false);
-            navigate(isQuote ? `/quotes/${doc.id}` : `/invoices/${doc.id}`);
+            // Devis mis en file hors ligne : retour sur la fiche du client, où il apparaîtra une fois envoyé.
+            if (doc.queued) navigate(`/clients/${doc.clientId}`);
+            else navigate(isQuote ? `/quotes/${doc.id}` : `/invoices/${doc.id}`);
           }}
         />
       </Modal>
@@ -464,6 +477,9 @@ function Deposit2Notice({ milestone, clientId }: { milestone: MarketMilestone | 
 export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
   const { id } = useParams();
   const navigate = useNavigate();
+  // Devis préparé hors ligne et créé avec un écart (client modifié, prix changé) : étiquette jusqu'à relecture.
+  useOfflineQueue();
+  const offlineReview = id && kind === "QUOTE" ? signalFor(id) : null;
   const isQuote = kind === "QUOTE";
   const [doc, setDoc] = useState<Doc | null>(null);
   const [clients, setClients] = useState<ClientOpt[]>([]);
@@ -886,6 +902,7 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
             </Link>
             <Badge tone={statusTone(st)}>{labels[st] ?? st}</Badge>
             {doc.stripeUncollectibleAt ? <Badge tone="red">Non recouvrable (Stripe)</Badge> : null}
+            {offlineReview ? <Badge tone="amber">Préparé hors ligne, à relire</Badge> : null}
             {doc.invoiceType && doc.invoiceType !== "SIMPLE" ? (
               <InvoiceTypeBadge type={doc.invoiceType} />
             ) : null}
@@ -955,7 +972,8 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
         }
       />
 
-      <div className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1fr)_22rem]">
+      {/* Hors ligne : boutons et champs du corps de la fiche désactivés (les liens restent actifs). */}
+      <OfflineGuard className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1fr)_22rem]">
         <div className="min-w-0 space-y-6">
           {/* Le document tel qu'il est émis */}
           <Card className="overflow-hidden">
@@ -1430,7 +1448,7 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
             </Card>
           ) : null}
         </aside>
-      </div>
+      </OfflineGuard>
 
       <Modal
         open={signOpen}

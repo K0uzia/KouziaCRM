@@ -128,11 +128,13 @@ describe("chiffrement de la copie (AES-GCM 256)", () => {
 });
 
 describe("liste fermée des lectures copiées", () => {
-  it("copiées : clients, fiche client, prestations, devis, factures, réglages des devis", () => {
+  it("copiées : clients, fiche client (notes de rendez-vous, projets), prestations, devis, factures, réglages des devis", () => {
     for (const path of [
       "/api/clients",
       "/api/clients?hasCorrespondence=true",
       "/api/clients/cmabc123",
+      "/api/clients/cmabc123/notes",
+      "/api/clients/cmabc123/projects",
       "/api/services",
       "/api/services?active=1",
       "/api/invoices?type=QUOTE",
@@ -145,7 +147,7 @@ describe("liste fermée des lectures copiées", () => {
     ]) {
       expect(offlineRule(path), path).not.toBeNull();
     }
-    expect(OFFLINE_RULES).toHaveLength(6);
+    expect(OFFLINE_RULES).toHaveLength(8);
   });
 
   it("jamais copiées : authentification, secrets, banque, paiements, messagerie, PDF, preuves, codes et jetons", () => {
@@ -184,6 +186,24 @@ describe("liste fermée des lectures copiées", () => {
     ]) {
       expect(offlineRule(path), path).toBeNull();
     }
+  });
+
+  it("projets de la fiche client : liste blanche de champs, champ inconnu exclu", () => {
+    const [project] = OFFLINE_RULES.find((r) => r.name === "projets du client")!.sanitize([
+      {
+        id: "p1",
+        name: "Site vitrine",
+        progress: 40,
+        status: "ACTIVE",
+        steps: [{ label: "Maquette", status: "done", date: "2026-10-01", secretStep: "x" }],
+        links: [{ label: "Préproduction", url: "https://pre.example.test", token: "abc" }],
+        checklist: [{ label: "Logo reçu", done: true, note: null }],
+        deposit2: { locked: false, missingStep: true, milestoneRef: "x" },
+        internalSecret: "jamais copié",
+      },
+    ]) as Array<Record<string, unknown>>;
+    expect(project).toMatchObject({ id: "p1", name: "Site vitrine", progress: 40, deposit2: { locked: false, missingStep: true } });
+    expect(JSON.stringify(project)).not.toMatch(/internalSecret|secretStep|token|milestoneRef/);
   });
 
   it("réglages : seulement le sous-ensemble des devis, aucun secret (Stripe, SMTP, IMAP, Revolut, IBAN)", () => {

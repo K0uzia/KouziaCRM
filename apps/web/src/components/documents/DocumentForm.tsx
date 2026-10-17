@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { toast } from "sonner";
 import { api, formatEUR } from "@/lib/api";
+import { offlineEnabled } from "@/lib/offline/config";
+import { isLocalClientId, submitCreation } from "@/lib/offline/queue";
 import { subscriptionsTotalText } from "@/lib/quote-totals";
 import { euros } from "@/lib/format";
 import { Button } from "@/components/ui/Button";
@@ -117,8 +119,9 @@ export function DocumentFormEditor({
   documentType: "INVOICE" | "QUOTE";
   documentId?: string;
   initial?: Partial<DocumentFormValues>;
-  clients: Array<{ id: string; displayName: string; clientNumber?: string | null; needs?: ClientNeed[]; billingDay?: number | null }>;
-  onSuccess: (doc: { id: string }) => void;
+  clients: Array<{ id: string; displayName: string; clientNumber?: string | null; needs?: ClientNeed[]; billingDay?: number | null; updatedAt?: string }>;
+  /** queued : devis brouillon mis en file hors ligne (id = clientRequestId), pas encore créé. */
+  onSuccess: (doc: { id: string; queued?: boolean; clientId?: string }) => void;
   onCancel: () => void;
 }) {
   const [showDoneNeeds, setShowDoneNeeds] = useState(false);
@@ -405,12 +408,14 @@ export function DocumentFormEditor({
   const [previewOpen, setPreviewOpen] = useState(false);
   const previewLines = form.lines.filter((l) => l.description.trim() || l.unitPriceEuros.trim());
   const previewBody = useMemo(
-    () => (form.clientId && previewLines.length > 0 ? JSON.stringify(requestBody(previewLines)) : null),
+    () => (form.clientId && !isLocalClientId(form.clientId) && previewLines.length > 0 ? JSON.stringify(requestBody(previewLines)) : null),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [form, documentType],
   );
   const previewPaused = !form.clientId
     ? "Choisissez un client pour voir l'aperçu."
+    : isLocalClientId(form.clientId)
+      ? "Aperçu disponible une fois le client créé, au retour du réseau."
     : "Ajoutez une prestation pour voir l'aperçu.";
   const previewKind = documentType === "QUOTE" ? "Devis" : "Facture";
 
@@ -425,6 +430,32 @@ export function DocumentFormEditor({
     setBusy(true);
     try {
       const body = requestBody(form.lines);
+      if (mode === "create" && documentType === "QUOTE" && offlineEnabled()) {
+        // Origine du hors ligne : devis brouillon mis en file hors ligne (jamais émis ni numéroté), sinon envoyé
+        // directement ; ce que l'appareil a vu (fiche client, prix catalogue) permet de signaler un écart.
+        const { clientId, ...rest } = body;
+        const client = clients.find((c) => c.id === clientId);
+        const servicePricesSeen = form.lines.flatMap((l) => {
+          const svc = l.serviceId ? services.find((x) => x.id === l.serviceId) : undefined;
+          return svc ? [{ serviceId: svc.id, unitPriceCents: svc.unitPriceCents }] : [];
+        });
+        const name = client?.displayName ?? "client";
+        const result = await submitCreation<{ id: string }>({
+          kind: "quote",
+          label: `Devis pour ${name}, ${formatEUR(Math.round(totalPreview * 100))}`,
+          clientId,
+          clientName: name,
+          body: { ...rest, clientSeenUpdatedAt: isLocalClientId(clientId) ? null : (client?.updatedAt ?? null), servicePricesSeen },
+        });
+        if (result.queued) {
+          toast.success("Devis brouillon préparé hors ligne : il partira au retour du réseau.");
+          onSuccess({ id: result.item.id, queued: true, clientId });
+        } else {
+          toast.success("Devis créé");
+          onSuccess(result.data);
+        }
+        return;
+      }
       const doc = await api<{ id: string }>(
         mode === "edit" && documentId ? `/api/invoices/${documentId}` : "/api/invoices",
         {

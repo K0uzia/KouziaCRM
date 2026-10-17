@@ -714,6 +714,9 @@ model Client {
 
   testimonials           ClientTestimonial[]
   projects               ClientProject[]
+  appointmentNotes       ClientNote[]
+  /// Fiche préparée hors ligne : UUID de l'appareil ; un renvoi rend la même fiche (idempotence)
+  clientRequestId        String?             @unique
   /// Identifiant Customer Stripe (cus_…)
   stripeCustomerId       String?             @unique
   /// Mode Stripe de stripeCustomerId : true = live, false = test
@@ -802,6 +805,22 @@ model ClientProject {
   @@index([clientId, position])
 }
 
+/// Note de rendez-vous (journal de la fiche client), saisie en ligne ou préparée hors ligne.
+model ClientNote {
+  id              String   @id @default(cuid())
+  clientId        String
+  client          Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  /// Texte de la note, chiffré au repos comme les autres données personnelles
+  bodyEncrypted   String
+  /// UUID de l'appareil : un renvoi rend la même note (idempotence)
+  clientRequestId String   @unique
+  /// Date de saisie (hors ligne : date de préparation sur l'appareil)
+  preparedAt      DateTime
+  createdAt       DateTime @default(now())
+
+  @@index([clientId, preparedAt])
+}
+
 /// Journal des emails sortants vers un client (suivi portail /admin)
 model ClientEmailEvent {
   id                 String   @id @default(cuid())
@@ -856,26 +875,26 @@ model OnboardingInvitation {
 }
 
 model Service {
-  id                String         @id @default(cuid())
+  id                String            @id @default(cuid())
   name              String
   description       String?
   unitPriceCents    Int
-  unit              ServiceUnit    @default(FORFAIT)
-  active            Boolean        @default(true)
+  unit              ServiceUnit       @default(FORFAIT)
+  active            Boolean           @default(true)
   /// Prestation d'abonnement mensuel (utilisable sur devis/facture)
-  isSubscription    Boolean        @default(false)
+  isSubscription    Boolean           @default(false)
   /// Jour de facturation par défaut (1-28) si isSubscription
-  defaultBillingDay Int            @default(1)
+  defaultBillingDay Int               @default(1)
   /// Identifiant Product Stripe (prod_…)
   stripeProductId   String?
   /// Identifiant Price Stripe (price_…) : une prestation ERP = un prix
-  stripePriceId     String?        @unique
+  stripePriceId     String?           @unique
   /// Mode Stripe des identifiants ci-dessus : true = live, false = test
   stripeLivemode    Boolean?
   /// MONTH | YEAR | null (prestation ponctuelle)
   billingInterval   String?
-  createdAt         DateTime       @default(now())
-  updatedAt         DateTime       @updatedAt
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
   subscriptions     Subscription[]
   invoiceLines      InvoiceLine[]
   /// Rubrique du catalogue : SITE | LOGICIEL | OPTION ; null = « Autres » (packs et abonnements : rubrique propre)
@@ -1068,6 +1087,8 @@ model Invoice {
   updatedAt                    DateTime               @updatedAt
   quoteAcceptanceAudits        QuoteAcceptanceAudit[]
   project                      ClientProject?         @relation("QuoteProject")
+  /// Brouillon préparé hors ligne : UUID de l'appareil ; un renvoi rend le même document (idempotence)
+  clientRequestId              String?                @unique
 
   @@unique([sequenceYear, sequenceNumber, documentType])
   @@index([status])

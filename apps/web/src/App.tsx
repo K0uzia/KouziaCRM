@@ -49,6 +49,7 @@ const OnboardingPage = lazy(() =>
 const ReceiptsBookPage = lazy(() =>
   import("@/pages/ReceiptsBookPage").then((m) => ({ default: m.ReceiptsBookPage })),
 );
+const OutboxPage = lazy(() => import("@/pages/OutboxPage").then((m) => ({ default: m.OutboxPage })));
 const ObligationsPage = lazy(() =>
   import("@/pages/ObligationsPage").then((m) => ({ default: m.ObligationsPage })),
 );
@@ -168,6 +169,7 @@ export default function App() {
           <Route path="payments" element={<PaymentsPage />} />
           <Route path="receipts" element={<ReceiptsBookPage />} />
           <Route path="obligations" element={<ObligationsPage />} />
+          <Route path="a-envoyer" element={<OutboxPage />} />
           <Route path="flux-stripe" element={<StripePayoutsPage />} />
           {/* Ancienne adresse « Versements Stripe » : redirigée vers « Flux Stripe ». */}
           <Route path="versements" element={<Navigate to="/flux-stripe" replace />} />

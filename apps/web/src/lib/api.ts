@@ -63,8 +63,10 @@ export async function api<T>(path: string, options?: ApiInit): Promise<T> {
     let message = statusMessage(res.status);
     let code: string | undefined;
     let fieldErrors: Record<string, string> | undefined;
+    let data: unknown;
     try {
       const body = await res.json();
+      data = body;
       if (typeof body.error === "string") message = body.error;
       else if (body.error?.formErrors) {
         message = "Données invalides";
@@ -88,7 +90,8 @@ export async function api<T>(path: string, options?: ApiInit): Promise<T> {
       /* ignore */
     }
     // status et code (ex. « stripe_mode_change ») : l'appelant peut demander une confirmation.
-    throw Object.assign(new Error(message || statusMessage(res.status)), { status: res.status, code, fieldErrors });
+    // data : corps de la réponse (ex. fiche existante d'un 409 « client_exists »).
+    throw Object.assign(new Error(message || statusMessage(res.status)), { status: res.status, code, fieldErrors, data });
   }
 
   if (method !== "GET" && path.startsWith("/api/site/")) {

@@ -14,11 +14,24 @@ import { revokeAllPortalSessions } from "@/lib/portal/auth.js";
 import { sendOnboardingInvite } from "@/lib/clients/onboarding.js";
 import { sendPortalWelcomeEmail } from "@/lib/clients/access-email.js";
 import { needsInputSchema, normalizeNeeds } from "@/lib/clients/needs.js";
+import { computeEmailHash } from "@/lib/clients/email-hash.js";
+import { createClientNote, listClientNotes, noteInputSchema, serializeNote } from "@/lib/clients/notes.js";
 
 const createOptionsSchema = z.object({
   /** Case du formulaire (cochée par défaut côté interface) : envoie l'accès si une adresse existe. */
   sendPortalAccess: z.boolean().optional().default(false),
+  /** UUID de l'appareil (création préparée hors ligne ou envoi direct) : un renvoi rend la même fiche. */
+  clientRequestId: z.string().uuid().optional(),
 });
+
+/** 409 « existe déjà » : la fiche existante (id, nom, numéro), pour y rattacher devis et notes. */
+function clientExists(client: { id: string; displayName: string; clientNumber: string | null }) {
+  return {
+    error: `Un client existe déjà avec cette adresse e-mail : ${client.displayName}.`,
+    code: "client_exists",
+    client: { id: client.id, displayName: client.displayName, clientNumber: client.clientNumber },
+  };
+}
 import { replyEntrepriseLookup } from "@/lib/company/entreprise-route.js";
 import {
   ClientRenewalError,
@@ -50,12 +63,33 @@ export const clientsRoutes: FastifyPluginAsync = async (app) => {
       return reply.code(400).send({ error: parsed.error.flatten() });
     }
     const options = createOptionsSchema.safeParse(request.body);
+    if (!options.success) return reply.code(400).send({ error: options.error.flatten() });
+    const { clientRequestId, sendPortalAccess } = options.data;
+    // Renvoi d'une fiche préparée hors ligne (réponse perdue, double envoi) : la fiche déjà créée, rien de plus.
+    const replay = async () => {
+      const already = clientRequestId ? await prisma.client.findUnique({ where: { clientRequestId } }) : null;
+      return already ? reply.code(200).send({ ...serializeClient(already), portalAccess: null, replayed: true }) : null;
+    };
+    const sent = await replay();
+    if (sent) return sent;
+    // Adresse e-mail déjà connue : pas de doublon, la fiche existante est désignée.
+    const emailHash = computeEmailHash(parsed.data.email || null);
+    const known = emailHash ? await prisma.client.findUnique({ where: { emailHash } }) : null;
+    if (known) return reply.code(409).send(clientExists(known));
     try {
-      const { client } = await createClientRecord(parsed.data);
-      const portalAccess =
-        options.success && options.data.sendPortalAccess && client.email
-          ? await sendPortalWelcomeEmail(client.id)
-          : null;
+      let client: Awaited<ReturnType<typeof createClientRecord>>["client"];
+      try {
+        ({ client } = await createClientRecord(parsed.data, clientRequestId ?? null));
+      } catch (e) {
+        // Course entre deux envois (même élément ou même adresse) : la fiche créée par l'autre fait foi.
+        if ((e as { code?: string }).code !== "P2002") throw e;
+        const raced = await replay();
+        if (raced) return raced;
+        const twin = emailHash ? await prisma.client.findUnique({ where: { emailHash } }) : null;
+        if (twin) return reply.code(409).send(clientExists(twin));
+        throw e;
+      }
+      const portalAccess = sendPortalAccess && client.email ? await sendPortalWelcomeEmail(client.id) : null;
       return reply.code(201).send({ ...client, portalAccess });
     } catch (e) {
       if (e instanceof AddressValidationError) {
@@ -126,6 +160,26 @@ export const clientsRoutes: FastifyPluginAsync = async (app) => {
     const client = await prisma.client.findUnique({ where: { id: request.params.id } });
     if (!client) return reply.code(404).send({ error: "Introuvable" });
     return serializeClient(client);
+  });
+
+  // Notes de rendez-vous : journal de la fiche, en lecture et en ajout (idempotent par clientRequestId).
+  app.get<{ Params: { id: string } }>("/api/clients/:id/notes", async (request, reply) => {
+    await requireAuth(request, reply);
+    if (reply.sent) return;
+    const client = await prisma.client.findUnique({ where: { id: request.params.id }, select: { id: true } });
+    if (!client) return reply.code(404).send({ error: "Introuvable" });
+    return listClientNotes(client.id);
+  });
+
+  app.post<{ Params: { id: string } }>("/api/clients/:id/notes", async (request, reply) => {
+    await requireAuth(request, reply);
+    if (reply.sent) return;
+    const parsed = noteInputSchema.safeParse(request.body);
+    if (!parsed.success) return reply.code(400).send({ error: parsed.error.flatten() });
+    const client = await prisma.client.findUnique({ where: { id: request.params.id }, select: { id: true } });
+    if (!client) return reply.code(404).send({ error: "Client introuvable", code: "client_not_found" });
+    const { note, replayed } = await createClientNote(client.id, parsed.data);
+    return reply.code(replayed ? 200 : 201).send({ ...note, replayed });
   });
 
   app.put<{ Params: { id: string } }>("/api/clients/:id", async (request, reply) => {
@@ -331,6 +385,7 @@ export const clientsRoutes: FastifyPluginAsync = async (app) => {
             orderBy: { createdAt: "asc" },
           },
           renewals: { orderBy: { renewsAt: "asc" } },
+          appointmentNotes: { orderBy: { preparedAt: "asc" } },
         },
       });
       if (!client) return reply.code(404).send({ error: "Introuvable" });
@@ -383,6 +438,10 @@ export const clientsRoutes: FastifyPluginAsync = async (app) => {
           interval: r.interval,
           notifyClient: r.notifyClient,
         })),
+        appointmentNotes: client.appointmentNotes.map((n) => {
+          const note = serializeNote(n);
+          return { preparedAt: note.preparedAt.toISOString(), body: note.body };
+        }),
         emailThreads: client.emailThreads.map((t) => ({
           subject: t.subject,
           lastMessageAt: t.lastMessageAt.toISOString(),
