@@ -1,5 +1,6 @@
-// Liste FERMÉE des lectures copiées pour le hors ligne : clients (coordonnées comprises), prestations, devis,
-// factures (sans PDF) et le petit sous-ensemble des réglages utile aux devis. Toute autre requête n'est jamais
+// Liste FERMÉE des lectures copiées pour le hors ligne : clients (coordonnées comprises), notes de rendez-vous et
+// projets des fiches clients, prestations, devis, factures (sans PDF) et le petit sous-ensemble des réglages utile
+// aux devis. Toute autre requête n'est jamais
 // copiée. Chaque réponse passe par une liste blanche de champs : un champ ajouté plus tard côté API n'entre pas
 // dans la copie sans être ajouté ici. Exclus : authentification, 2FA, codes de secours, abonnements push,
 // secrets des réglages (Stripe, SMTP, IMAP, Revolut, IBAN), banque, paiements, versements, messagerie,
@@ -71,6 +72,18 @@ const INVOICE_KEYS = [
   "milestoneId", "subscriptionId", "issuedAt", "createdAt", "updatedAt",
 ] as const;
 
+const NOTE_KEYS = ["id", "clientId", "body", "preparedAt", "createdAt"] as const;
+
+// Projet de la fiche client : avancement, étapes, liens et liste de contrôle, tels que la fiche les affiche.
+const PROJECT_KEYS = [
+  "id", "clientId", "name", "progress", "visibleOnPortal", "position", "quoteId", "status", "startedAt", "kind",
+  "startsNotBefore", "reviewInviteSentAt", "createdAt", "updatedAt",
+] as const;
+const STEP_KEYS = ["label", "status", "date", "triggersDeposit2"] as const;
+const LINK_KEYS = ["label", "url"] as const;
+const CHECK_KEYS = ["label", "done", "note"] as const;
+const DEPOSIT2_KEYS = ["locked", "missingStep"] as const;
+
 /** Réglages nécessaires au calcul et à l'affichage des devis (et au menu des modules). Rien d'autre. */
 export const SETTINGS_KEYS = [
   "legalName", "tradeName", "vatMention", "mediationClause", "paymentChoiceDefault", "split3MinTotalCents",
@@ -116,6 +129,21 @@ export function sanitizeInvoice(data: unknown): Json | null {
   return invoice;
 }
 
+export function sanitizeNote(data: unknown): Json | null {
+  return pick(data, NOTE_KEYS);
+}
+
+export function sanitizeProject(data: unknown): Json | null {
+  const project = pick(data, PROJECT_KEYS);
+  if (!project) return null;
+  const source = data as Json;
+  project.steps = listOf((v) => pick(v, STEP_KEYS))(source.steps);
+  project.links = listOf((v) => pick(v, LINK_KEYS))(source.links);
+  project.checklist = listOf((v) => pick(v, CHECK_KEYS))(source.checklist);
+  project.deposit2 = source.deposit2 ? pick(source.deposit2, DEPOSIT2_KEYS) : null;
+  return project;
+}
+
 export function sanitizeSettings(data: unknown): Json | null {
   return pick(data, SETTINGS_KEYS);
 }
@@ -123,6 +151,8 @@ export function sanitizeSettings(data: unknown): Json | null {
 export const OFFLINE_RULES: readonly OfflineRule[] = [
   { name: "clients", pattern: /^\/api\/clients(\?hasCorrespondence=(true|false))?$/, sanitize: listOf(sanitizeClient) },
   { name: "fiche client", pattern: new RegExp(`^/api/clients/${ID}$`), sanitize: sanitizeClient },
+  { name: "notes de rendez-vous", pattern: new RegExp(`^/api/clients/${ID}/notes$`), sanitize: listOf(sanitizeNote) },
+  { name: "projets du client", pattern: new RegExp(`^/api/clients/${ID}/projects$`), sanitize: listOf(sanitizeProject) },
   { name: "prestations", pattern: /^\/api\/services(\?active=1)?$/, sanitize: listOf(sanitizeService) },
   {
     name: "listes de devis et de factures",

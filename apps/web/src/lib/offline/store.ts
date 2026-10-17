@@ -7,8 +7,13 @@ import { openDB, type IDBPDatabase } from "idb";
  * effacement automatique (réglage par appareil au lot 4).
  */
 export const OFFLINE_DB = "kouzia-hors-ligne";
-/** Liste fermée des magasins : check:offline vérifie qu'il n'en existe aucun autre. */
-export const OFFLINE_STORES = ["cle", "copies"] as const;
+/**
+ * Liste fermée des magasins : check:offline vérifie qu'il n'en existe aucun autre.
+ * - cle : la clé AES-GCM ; copies : lectures copiées (lot 2) ;
+ * - file : créations préparées hors ligne, à envoyer (lot 3) ; relire : créations envoyées avec un écart signalé.
+ */
+export const OFFLINE_STORES = ["cle", "copies", "file", "relire"] as const;
+export type SealedStore = "copies" | "file" | "relire";
 const KEY_ID = "principale";
 /** Utilisateur courant (sans aucun secret), pour ouvrir l'ERP sans réseau. */
 const USER_ID = "session:utilisateur";
@@ -20,10 +25,16 @@ let dbPromise: Promise<IDBPDatabase> | null = null;
 let keyPromise: Promise<CryptoKey> | null = null;
 
 function db(): Promise<IDBPDatabase> {
-  dbPromise ??= openDB(OFFLINE_DB, 1, {
-    upgrade(database) {
-      database.createObjectStore("cle");
-      database.createObjectStore("copies");
+  dbPromise ??= openDB(OFFLINE_DB, 2, {
+    upgrade(database, oldVersion) {
+      if (oldVersion < 1) {
+        database.createObjectStore("cle");
+        database.createObjectStore("copies");
+      }
+      if (oldVersion < 2) {
+        database.createObjectStore("file");
+        database.createObjectStore("relire");
+      }
     },
     // Autre onglet en mise à niveau ou base supprimée : connexion rendue, rouverte au prochain accès.
     blocking(_current, _next, event) {
@@ -77,21 +88,41 @@ export async function unseal<T>(sealed: Sealed, cryptoKey: CryptoKey, id: string
   return JSON.parse(new TextDecoder().decode(plain)) as T;
 }
 
-async function put(id: string, value: unknown): Promise<void> {
+// Données authentifiées : la clé de l'enregistrement, préfixée du magasin hors « copies » (compatibilité lot 2).
+const aad = (store: SealedStore, id: string) => (store === "copies" ? id : `${store}:${id}`);
+
+async function put(id: string, value: unknown, store: SealedStore = "copies"): Promise<void> {
   const cryptoKey = await key();
-  const sealed = await seal(value, cryptoKey, id);
-  await (await db()).put("copies", sealed, id);
+  const sealed = await seal(value, cryptoKey, aad(store, id));
+  await (await db()).put(store, sealed, id);
 }
 
-async function get<T>(id: string): Promise<T | null> {
-  const sealed = (await (await db()).get("copies", id)) as Sealed | undefined;
+async function get<T>(id: string, store: SealedStore = "copies"): Promise<T | null> {
+  const sealed = (await (await db()).get(store, id)) as Sealed | undefined;
   if (!sealed) return null;
   try {
-    return await unseal<T>(sealed, await key(), id);
+    return await unseal<T>(sealed, await key(), aad(store, id));
   } catch {
     // Enregistrement illisible (clé remplacée, donnée altérée) : traité comme absent.
     return null;
   }
+}
+
+/** Enregistrement chiffré d'un magasin de la file (créations préparées, écarts à relire). */
+export function putSealed(store: Exclude<SealedStore, "copies">, id: string, value: unknown): Promise<void> {
+  return put(id, value, store);
+}
+
+export async function deleteSealed(store: Exclude<SealedStore, "copies">, id: string): Promise<void> {
+  await (await db()).delete(store, id);
+}
+
+/** Tous les enregistrements lisibles d'un magasin ; un enregistrement illisible est ignoré. */
+export async function readAllSealed<T>(store: Exclude<SealedStore, "copies">): Promise<T[]> {
+  const database = await db();
+  const ids = (await database.getAllKeys(store)).map(String);
+  const values = await Promise.all(ids.map((id) => get<T>(id, store)));
+  return values.filter((v): v is Awaited<T> => v !== null) as T[];
 }
 
 export function saveCopy(path: string, data: unknown, savedAt = Date.now()): Promise<void> {

@@ -3,17 +3,26 @@ import { toast } from "sonner";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faPlugCircleXmark, faWifi } from "@fortawesome/free-solid-svg-icons";
 import { OFFLINE_TOAST_ID, useOnline } from "@/lib/network";
+import { offlineEnabled } from "@/lib/offline/config";
+import { useOfflineQueue } from "@/lib/offline/queue";
 
 const BACK_ONLINE_MS = 3000;
 
 /**
- * Bandeau réseau de la barre du haut : « Hors ligne » pendant la coupure, « De nouveau en ligne » 3 s au retour.
+ * Bandeau réseau de la barre du haut : « Hors ligne · N à envoyer » pendant la coupure (créations mises en file,
+ * origine du hors ligne ; ailleurs « Hors ligne · consultation seule »), « De nouveau en ligne » 3 s au retour.
  * À placer juste sous la barre, dans un conteneur relatif de hauteur nulle : à cheval sur le filet, hors du flux,
  * aucun décalage de la mise en page.
  * La région role=status reste montée, vide en ligne, pour que le changement soit annoncé.
  */
 export function NetworkStatus() {
   const online = useOnline();
+  const { items } = useOfflineQueue();
+  const offlineLabel = !offlineEnabled()
+    ? "Hors ligne · consultation seule"
+    : items.length
+      ? `Hors ligne · ${items.length} à envoyer`
+      : "Hors ligne";
   const [backOnline, setBackOnline] = useState(false);
   const wasOffline = useRef(!online);
 
@@ -48,7 +57,7 @@ export function NetworkStatus() {
             className={`h-3 w-3 ${online ? "text-[var(--success)]" : "text-[var(--warning)]"}`}
             aria-hidden
           />
-          {online ? "De nouveau en ligne" : "Hors ligne · consultation seule"}
+          {online ? "De nouveau en ligne" : offlineLabel}
         </span>
       ) : null}
     </div>

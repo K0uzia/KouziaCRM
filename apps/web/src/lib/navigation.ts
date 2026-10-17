@@ -17,6 +17,7 @@ import {
   faPlug,
   faStar,
   faClipboardCheck,
+  faCloudArrowUp,
   faEnvelope,
   faFileInvoice,
   faFileSignature,
@@ -47,8 +48,10 @@ export type NavItem = {
   icon: IconDefinition;
   match: (pathname: string) => boolean;
   feature?: keyof FeatureFlags;
-  /** Compteur affiché à droite (messages non lus). */
-  badge?: "unread";
+  /** Compteur affiché à droite : messages non lus, ou créations hors ligne à envoyer. */
+  badge?: "unread" | "queue";
+  /** Écran du hors ligne : affiché seulement sur l'origine du hors ligne (erp.kouzia.com). */
+  offlineOnly?: boolean;
 };
 
 export type NavSection = { id: string; label: string | null; items: NavItem[] };
@@ -63,6 +66,8 @@ export const NAV_SECTIONS: NavSection[] = [
     items: [
       { id: "dashboard", to: "/", label: "Tableau de bord", shortLabel: "Accueil", icon: faChartPie, match: (p) => p === "/" },
       { id: "todo", to: "/obligations", label: "Démarches", icon: faClipboardCheck, match: starts("/obligations") },
+      // Créations préparées hors ligne (lib/offline/queue) : liste, état, nouvel essai, suppression.
+      { id: "outbox", to: "/a-envoyer", label: "À envoyer", icon: faCloudArrowUp, match: starts("/a-envoyer"), badge: "queue", offlineOnly: true },
     ],
   },
   {
@@ -223,9 +228,9 @@ export function spaceOf(pathname: string): NavSpace {
   return NAV_SPACES[isSitePath(pathname) ? 1 : 0]!;
 }
 
-export function filterSections(sections: NavSection[], flags: FeatureFlags): NavSection[] {
+export function filterSections(sections: NavSection[], flags: FeatureFlags, offline = false): NavSection[] {
   return sections
-    .map((s) => ({ ...s, items: s.items.filter((i) => !i.feature || flags[i.feature]) }))
+    .map((s) => ({ ...s, items: s.items.filter((i) => (!i.feature || flags[i.feature]) && (!i.offlineOnly || offline)) }))
     .filter((s) => s.items.length > 0);
 }
 

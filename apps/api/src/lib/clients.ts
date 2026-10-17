@@ -215,15 +215,22 @@ export class AddressValidationError extends Error {
   }
 }
 
-/** Crée la fiche (numéro attribué). L'accès à l'espace client s'envoie à part (sendPortalWelcomeEmail). */
-export async function createClientRecord(data: ClientInput) {
-  const clientNumber = await allocateClientNumber();
-  const client = await prisma.client.create({
-    data: {
-      ...(await toPrismaClientData(data)),
-      clientNumber,
-    },
-  });
+/**
+ * Crée la fiche (numéro attribué). L'accès à l'espace client s'envoie à part (sendPortalWelcomeEmail).
+ * clientRequestId : UUID de l'appareil (création préparée hors ligne), unique en base.
+ */
+export async function createClientRecord(data: ClientInput, clientRequestId: string | null = null) {
+  const prepared = await toPrismaClientData(data);
+  // Numéro et fiche dans la même transaction : un doublon refusé (P2002) ne consomme pas de numéro.
+  const client = await prisma.$transaction(async (tx) =>
+    tx.client.create({
+      data: {
+        ...prepared,
+        clientNumber: await allocateClientNumber(tx),
+        ...(clientRequestId ? { clientRequestId } : {}),
+      },
+    }),
+  );
   return { client: serializeClient(client) };
 }
 

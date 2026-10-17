@@ -3,6 +3,7 @@ import { Link, NavLink, Outlet, useLocation, useNavigate } from "react-router-do
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import {
   faBars,
+  faCloudArrowUp,
   faEllipsis,
   faMagnifyingGlass,
   faPlus,
@@ -19,6 +20,10 @@ import { NetworkStatus } from "@/components/NetworkStatus";
 import { PageErrorBoundary } from "@/components/PageErrorBoundary";
 import { optionalLazy } from "@/components/OptionalLazy";
 import { useReadOnly } from "@/lib/offline/read-only";
+import { offlineEnabled } from "@/lib/offline/config";
+import { getQueueSnapshot, itemsLabel, replayQueue, useOfflineQueue } from "@/lib/offline/queue";
+import { isOnline, onReconnect } from "@/lib/network";
+import { toast } from "sonner";
 import { NotificationsProvider } from "@/lib/notifications";
 import { MoreMenu } from "@/components/ui/MoreMenu";
 
@@ -91,8 +96,39 @@ function SpaceSwitch({ current }: { current: NavSpaceId }) {
   );
 }
 
+/**
+ * Envoi de la file des créations hors ligne depuis la page : à l'ouverture de l'ERP, au retour du réseau, et
+ * toutes les 30 s tant qu'il reste à envoyer (serveur injoignable sans coupure du réseau, donc sans événement
+ * online). Jamais par Background Sync. Session refusée : l'ERP repasse par la connexion, la file attend.
+ */
+function useQueueReplay(onSessionExpired: () => void) {
+  useEffect(() => {
+    if (!offlineEnabled()) return;
+    const run = async () => {
+      if (!isOnline()) return;
+      const before = getQueueSnapshot();
+      const signals = before.signals.length;
+      const status = await replayQueue({ onSessionExpired });
+      const after = getQueueSnapshot();
+      const sent = before.items.length - after.items.length;
+      if (sent > 0) toast.success(`${itemsLabel(sent)} préparé${sent > 1 ? "s" : ""} hors ligne envoyé${sent > 1 ? "s" : ""}.`);
+      if (after.signals.length > signals) toast.warning("Créé avec un écart à relire : voir « À envoyer ».");
+      if (status === "done" && after.items.some((i) => i.state === "review")) toast.warning("Des éléments sont à revoir : voir « À envoyer ».");
+    };
+    void run();
+    const stop = onReconnect(() => void run());
+    const timer = window.setInterval(() => {
+      if (getQueueSnapshot().items.some((i) => i.state !== "review")) void run();
+    }, 30_000);
+    return () => {
+      stop();
+      window.clearInterval(timer);
+    };
+  }, [onSessionExpired]);
+}
+
 /** Lien de la barre latérale : icône, libellé, compteur, état actif (barre d'accent + fond). */
-function SideLink({ item, active, unread }: { item: NavItem; active: boolean; unread: number }) {
+function SideLink({ item, active, unread, queued = 0 }: { item: NavItem; active: boolean; unread: number; queued?: number }) {
   return (
     <NavLink
       to={item.to}
@@ -114,6 +150,7 @@ function SideLink({ item, active, unread }: { item: NavItem; active: boolean; un
       />
       <span className="min-w-0 truncate">{item.label}</span>
       {item.badge === "unread" ? <UnreadBadge count={unread} /> : null}
+      {item.badge === "queue" ? <UnreadBadge count={queued} /> : null}
     </NavLink>
   );
 }
@@ -131,7 +168,8 @@ function Sidebar({
 }) {
   const features = useFeatures();
   const space = spaceOf(pathname);
-  const sections = filterSections(space.sections, features);
+  const sections = filterSections(space.sections, features, offlineEnabled());
+  const { items: queued } = useOfflineQueue();
   return (
     <div className="flex h-full min-h-0 flex-col">
       <Link to="/" className="flex h-[var(--topbar-h)] shrink-0 items-center gap-2.5 px-5" aria-label="Kouzia ERP, tableau de bord">
@@ -152,7 +190,7 @@ function Sidebar({
             <ul className="space-y-0.5">
               {section.items.map((item) => (
                 <li key={item.id}>
-                  <SideLink item={item} active={item.match(pathname)} unread={unread} />
+                  <SideLink item={item} active={item.match(pathname)} unread={unread} queued={queued.length} />
                 </li>
               ))}
             </ul>
@@ -180,10 +218,12 @@ function Sidebar({
 }
 
 export function AppLayout() {
-  const { logout, user } = useAuth();
+  const { logout, user, refresh } = useAuth();
+  useQueueReplay(refresh);
+  const { items: queuedItems } = useOfflineQueue();
   const navigate = useNavigate();
   const [paletteOpen, setPaletteOpen] = useState(false);
-  const { readOnly, reason } = useReadOnly();
+  const { readOnly, reason, canPrepare } = useReadOnly();
   const readOnlyId = useId();
   const [paletteUsed, setPaletteUsed] = useState(false);
   useEffect(() => {
@@ -290,7 +330,7 @@ export function AppLayout() {
   const userLabel = user?.name || user?.email || "";
   const tabs = space.tabs.map((id) => findNavItem(id)).filter((i): i is NavItem => Boolean(i));
 
-  const createItems = space.id === "site" ? [
+  const allCreateItems = space.id === "site" ? [
     { label: "Nouvelle réalisation", onSelect: () => navigate("/site/realisations/nouvelle") },
     { label: "Nouveau témoignage", onSelect: () => navigate("/site/avis/nouveau") },
     { label: "Nouvelle référence", onSelect: () => navigate("/site/references/nouvelle") },
@@ -311,6 +351,10 @@ export function AppLayout() {
         ]
       : []),
   ];
+  // Hors ligne sur l'origine du hors ligne : seulement les créations mises en file (devis brouillon, client).
+  const createItems = readOnly && canPrepare
+    ? allCreateItems.filter((i) => i.label === "Nouveau devis" || i.label === "Nouveau client")
+    : allCreateItems;
 
   return (
     <NotificationsProvider>
@@ -440,6 +484,19 @@ export function AppLayout() {
             >
               <FontAwesomeIcon icon={faMagnifyingGlass} className="h-4 w-4" />
             </button>
+            {queuedItems.length > 0 ? (
+              <Link
+                to="/a-envoyer"
+                aria-label={`À envoyer : ${itemsLabel(queuedItems.length)}`}
+                title="À envoyer"
+                className="relative inline-flex min-h-11 min-w-11 items-center justify-center rounded-[var(--radius-sm)] text-[var(--muted)] hover:bg-[var(--surface-hover)] hover:text-[var(--text)]"
+              >
+                <FontAwesomeIcon icon={faCloudArrowUp} className="h-4 w-4" aria-hidden />
+                <span className="absolute right-0.5 top-1 inline-flex min-w-4 items-center justify-center rounded-full bg-[var(--primary)] px-1 text-[0.625rem] font-semibold leading-4 text-[var(--primary-fg)] tabular-nums" aria-hidden>
+                  {queuedItems.length > 99 ? "99+" : queuedItems.length}
+                </span>
+              </Link>
+            ) : null}
             <NotificationBell />
             {space.id === "site" ? (
               <SitePublishBar />
@@ -452,7 +509,7 @@ export function AppLayout() {
               leading={<FontAwesomeIcon icon={faPlus} className="h-3.5 w-3.5" aria-hidden />}
               ariaLabel="Créer"
               compactMobile
-              disabled={readOnly}
+              disabled={readOnly && (!canPrepare || createItems.length === 0)}
               describedBy={readOnly ? readOnlyId : undefined}
             />
             {reason ? (
