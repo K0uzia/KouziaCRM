@@ -36,6 +36,9 @@ export function registerTunnelHostGuard(app: FastifyInstance): void {
     const host = request.headers.host?.toLowerCase() ?? "";
     if (adminHost && host === adminHost) return;
     if (isPublicRoute(request.routeOptions.url)) return;
+    // Preflight CORS : @fastify/cors le sert par sa route OPTIONS « * », dont le motif ne dit rien de la cible.
+    // On juge donc le chemin demandé ; la réponse ne porte que des en-têtes CORS, aucune donnée.
+    if (request.method === "OPTIONS" && isPublicRoute(request.url.split("?")[0])) return;
     // Même réponse qu'une route /api inexistante (app.ts, setNotFoundHandler). Pas de callNotFound :
     // hors /api, il servirait index.html, donc la SPA admin.
     return reply.code(404).send({ error: "Not found" });

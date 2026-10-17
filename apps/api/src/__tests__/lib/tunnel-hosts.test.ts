@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { FastifyInstance } from "fastify";
+import { getAllowedOrigins } from "@/lib/env.js";
 import { isPublicRoute } from "@/lib/tunnel-hosts.js";
 
 const saved = { trust: process.env.TRUST_PROXY, admin: process.env.ADMIN_PUBLIC_ORIGIN };
@@ -59,6 +60,24 @@ describe("garde d'hôte du tunnel", () => {
       ...viaTunnel("api.kouzia.test"),
     });
     expect(login.statusCode).toBe(404);
+  });
+
+  it("api. : preflight CORS servi pour une route publique, refusé pour l'admin", async () => {
+    const preflight = (url: string) =>
+      app.inject({
+        method: "OPTIONS",
+        url,
+        ...viaTunnel("api.kouzia.test", {
+          origin: getAllowedOrigins()[0]!,
+          "access-control-request-method": "POST",
+          "access-control-request-headers": "content-type",
+        }),
+      });
+    const code = await preflight("/api/public/auth/code");
+    expect(code.statusCode).toBe(204);
+    expect(code.headers["access-control-allow-origin"]).toBe(getAllowedOrigins()[0]);
+    expect((await preflight("/api/public/auth/code?x=1")).statusCode).toBe(204);
+    expect((await preflight("/api/auth/login")).statusCode).toBe(404);
   });
 
   it("hôte inconnu ou absent par le tunnel : traité comme api.", async () => {
