@@ -1,13 +1,11 @@
 import type { CompanySettings } from "@prisma/client";
 import type { EmailBrand } from "@/lib/email/templates.js";
 
+/** Raison sociale, SIRET et adresse : dans le pied de mail seulement (layout.ts), jamais ici. */
 function defaultBrandSignature(brand: EmailBrand): string {
   return [
     "Cordialement,",
     brand.tradeName || brand.legalName,
-    brand.legalName,
-    `EI · SIRET ${brand.siret}`,
-    [brand.addressLine1, `${brand.postalCode} ${brand.city}`].filter(Boolean).join(", "),
     brand.email || "",
     brand.website || "",
   ]

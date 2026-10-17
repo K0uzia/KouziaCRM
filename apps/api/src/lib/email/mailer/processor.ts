@@ -10,7 +10,7 @@ import {
   resolveFromAddress,
 } from "@/lib/email/smtp.js";
 import { saveEmailAttachment } from "@/lib/email/attachments.js";
-import { renderEmailHtml } from "@/lib/email/layout.js";
+import { renderEmailHtml, renderEmailTextFooter, type EmailLayoutBrand } from "@/lib/email/layout.js";
 import {
   buildReferences,
   extractDisplayName,
@@ -148,28 +148,35 @@ async function recordClientEvent(opts: {
   });
 }
 
-/**
- * Emails automatiques envoyés en texte seul : version HTML aux couleurs de la charte.
- * Les messages rédigés à la main (« custom ») restent tels quels.
- */
-function brandedHtml(
-  payload: ReturnType<typeof parsePayload>,
-  settings: Awaited<ReturnType<typeof getCompanySettings>> | null,
-): string | undefined {
-  if (!payload.text || !settings || !payload.kind || payload.kind === "custom") return undefined;
-  return renderEmailHtml({
-    text: payload.text,
-    brand: {
-      tradeName: settings.tradeName ?? settings.legalName,
-      legalName: settings.legalName,
-      siret: settings.siret,
-      addressLine1: settings.addressLine1,
-      postalCode: settings.postalCode,
-      city: settings.city,
-      website: settings.website,
-    },
-    colors: settings,
-  });
+type Settings = Awaited<ReturnType<typeof getCompanySettings>>;
+
+function layoutBrand(settings: Settings): EmailLayoutBrand {
+  return {
+    tradeName: settings.tradeName ?? settings.legalName,
+    legalName: settings.legalName,
+    siret: settings.siret,
+    addressLine1: settings.addressLine1,
+    postalCode: settings.postalCode,
+    city: settings.city,
+    website: settings.website,
+  };
+}
+
+/** E-mail automatique (pied de mentions légales) ; les messages rédigés à la main (« custom ») restent tels quels. */
+function isAutomatic(payload: ReturnType<typeof parsePayload>, settings: Settings | null): settings is Settings {
+  return Boolean(payload.text && settings && payload.kind && payload.kind !== "custom");
+}
+
+/** Emails automatiques envoyés en texte seul : version HTML aux couleurs de la charte. */
+function brandedHtml(payload: ReturnType<typeof parsePayload>, settings: Settings | null): string | undefined {
+  if (!isAutomatic(payload, settings)) return undefined;
+  return renderEmailHtml({ text: payload.text!, brand: layoutBrand(settings), colors: settings });
+}
+
+/** Partie text/plain : mêmes mentions légales que le pied HTML, ajoutées une seule fois à l'envoi. */
+function textWithFooter(payload: ReturnType<typeof parsePayload>, settings: Settings | null): string | undefined {
+  if (!isAutomatic(payload, settings)) return payload.text;
+  return `${payload.text!.trimEnd()}\n\n${renderEmailTextFooter(layoutBrand(settings))}`;
 }
 
 /** E-mails automatiques : partent de l'expéditeur transactionnel (noreply@) s'il est réglé. */
@@ -213,7 +220,7 @@ async function sendOutboxRow(outboxId: string, rawPayload: string): Promise<void
     cc: payload.cc,
     bcc: payload.bcc,
     subject: payload.subject,
-    text: payload.text,
+    text: textWithFooter(payload, settings),
     html: payload.html ?? brandedHtml(payload, settings),
     replyTo,
     headers,
