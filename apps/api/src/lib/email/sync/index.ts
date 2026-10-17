@@ -1,27 +1,34 @@
+import { MailFolderRole } from "@prisma/client";
 import { isImapConfigured } from "@/lib/email/imap-config.js";
 import { disconnectImapClient, formatConnectionError } from "@/lib/email/sync/imap-connection.js";
 import {
   buildMessageListWhere,
+  countUnreadInFolder,
   deleteMessage,
   deleteMessages,
   discoverAndEnsureFolders,
   emptyTrashFolder,
   moveMessageToFolder,
   pollFlagChanges,
+  recountThreadUnread,
   syncAllFolders,
   type MessageListFilter,
 } from "@/lib/email/sync/folder-sync.js";
 import { getMailSyncStatus, updateMailSyncStatus } from "@/lib/email/sync/sync-status.js";
+import { fetchMessageBody } from "@/lib/email/sync/body-fetch.js";
+import { linkPendingFormMessages } from "@/lib/email/web3forms.js";
 import { prisma } from "@/lib/prisma.js";
 
 export {
   buildMessageListWhere,
+  countUnreadInFolder,
   deleteMessage,
   deleteMessages,
   discoverAndEnsureFolders,
   emptyTrashFolder,
   moveMessageToFolder,
   pollFlagChanges,
+  recountThreadUnread,
   syncAllFolders,
 };
 
@@ -98,12 +105,17 @@ async function syncOnce(): Promise<MailSyncResult> {
 
   try {
     const result = await syncAllFolders();
+    // Formulaire du site : rattachement au client existant (corps chargé si besoin). Jamais bloquant.
+    await linkPendingFormMessages((id) => fetchMessageBody(id)).catch((err: unknown) =>
+      console.error("[mail] rattachement formulaire :", err instanceof Error ? err.message : String(err)),
+    );
     const folders = await prisma.mailFolder.findMany({
       where: { isVirtual: false },
     });
     for (const f of folders) {
       await pollFlagChanges(f.id);
     }
+    await recountThreadUnread();
     await updateMailSyncStatus({
       connected: true,
       lastError: null,
@@ -183,3 +195,40 @@ export async function getMailFoldersWithCounts() {
 }
 
 export { getMailSyncStatus };
+
+/**
+ * Boîte de réception telle que l'écran Messagerie l'ouvre (dossier Réception, sans filtre) : mêmes
+ * filtres (buildMessageListWhere), même tri. La carte du tableau de bord ne lit que cela, en base,
+ * sans contacter le serveur IMAP : elle suit la messagerie à chaque synchro du worker.
+ */
+export async function getInboxSummary(take = 5) {
+  const inbox = await prisma.mailFolder.findFirst({
+    where: { role: MailFolderRole.INBOX, isVirtual: false },
+    orderBy: { displayName: "asc" },
+    select: { id: true },
+  });
+  if (!inbox) return { folderId: null, unreadCount: 0, messages: [] };
+  const [unreadCount, rows] = await Promise.all([
+    countUnreadInFolder(inbox.id),
+    prisma.emailMessage.findMany({
+      where: buildMessageListWhere({ folderId: inbox.id }),
+      orderBy: { receivedAt: "desc" },
+      take,
+      select: {
+        id: true,
+        threadId: true,
+        subject: true,
+        fromAddress: true,
+        fromName: true,
+        receivedAt: true,
+        isRead: true,
+        thread: { select: { client: { select: { id: true, displayName: true } } } },
+      },
+    }),
+  ]);
+  return {
+    folderId: inbox.id,
+    unreadCount,
+    messages: rows.map(({ thread, ...m }) => ({ ...m, client: thread.client })),
+  };
+}
