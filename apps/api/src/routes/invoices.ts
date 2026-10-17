@@ -70,7 +70,13 @@ const lineSchema = z.object({
   subscriptionStart: z.enum(SUBSCRIPTION_STARTS).optional().nullable(),
   subscriptionStartDate: z.iso.date().optional().nullable(),
   subscriptionFreeMonths: z.coerce.number().int().min(1).max(FREE_MONTHS_MAX).optional().nullable(),
+  /** Pack : titre sous lequel la ligne est groupée, et ligne de remise du pack (montant négatif ou nul). */
+  groupTitle: z.string().trim().max(200).optional().nullable(),
+  isPackDiscount: z.boolean().optional().default(false),
 }).superRefine((l, ctx) => {
+  if (l.isPackDiscount && (l.isSubscription || l.unitPriceEuros > 0)) {
+    ctx.addIssue({ code: "custom", path: ["unitPriceEuros"], message: "La remise d'un pack est un montant négatif, hors abonnement" });
+  }
   if (l.subscriptionStart === "DATE" && !l.subscriptionStartDate) {
     ctx.addIssue({ code: "custom", path: ["subscriptionStartDate"], message: "Date de la 1re facture requise" });
   }
@@ -220,6 +226,8 @@ export const invoicesRoutes: FastifyPluginAsync = async (app) => {
         billingDay: l.billingDay,
         billingInterval: l.billingInterval,
         serviceId: l.serviceId,
+        groupTitle: l.groupTitle ?? null,
+        isPackDiscount: l.isPackDiscount,
         ...lineStartFields(l),
       }));
       try {
@@ -514,6 +522,8 @@ export const invoicesRoutes: FastifyPluginAsync = async (app) => {
                 existingLines.find((e) => e.position === idx + 1)?.subscriptionId ?? null,
               revisesSubscriptionId:
                 existingLines.find((e) => e.position === idx + 1)?.revisesSubscriptionId ?? null,
+              groupTitle: l.groupTitle ?? null,
+              isPackDiscount: l.isPackDiscount,
               ...lineStartFields(l),
             }));
           })()
@@ -533,6 +543,8 @@ export const invoicesRoutes: FastifyPluginAsync = async (app) => {
             serviceId: l.serviceId,
             subscriptionId: l.subscriptionId,
             revisesSubscriptionId: l.revisesSubscriptionId,
+            groupTitle: l.groupTitle,
+            isPackDiscount: l.isPackDiscount,
             subscriptionStart: l.subscriptionStart,
             subscriptionStartDate: l.subscriptionStartDate,
             subscriptionFreeMonths: l.subscriptionFreeMonths,

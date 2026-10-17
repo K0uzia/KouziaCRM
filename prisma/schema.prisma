@@ -876,6 +876,11 @@ model Service {
   updatedAt         DateTime       @updatedAt
   subscriptions     Subscription[]
   invoiceLines      InvoiceLine[]
+  /// Pack : prix de la partie ponctuelle (unitPriceCents) ; ses prestations sont dans packItems. Jamais lié à Stripe.
+  isPack            Boolean           @default(false)
+  packItems         ServicePackItem[] @relation("PackItems")
+  /// Packs qui contiennent cette prestation (elle s'archive au lieu d'être supprimée)
+  inPacks           ServicePackItem[] @relation("PackComponent")
 
   @@index([active])
   @@index([name])
@@ -1156,6 +1161,10 @@ model InvoiceLine {
   /// Devis d'avenant : abonnement révisé par cette ligne (mis à jour à l'acceptation au lieu d'en créer un)
   revisesSubscriptionId  String?
   revisesSubscription    Subscription? @relation("SubscriptionRevisions", fields: [revisesSubscriptionId], references: [id], onDelete: SetNull)
+  /// Titre du pack sous lequel la ligne est groupée (PDF, e-mail, vue) ; null hors pack
+  groupTitle             String?
+  /// Ligne « Remise pack » : prix du pack moins la somme de ses lignes ponctuelles (montant négatif)
+  isPackDiscount         Boolean       @default(false)
 
   @@index([invoiceId])
   @@index([serviceId])
@@ -1801,4 +1810,19 @@ model ClientRenewal {
 
   @@index([clientId])
   @@index([renewsAt])
+}
+
+/// Prestation d'un pack, avec sa quantité, dans l'ordre du pack.
+model ServicePackItem {
+  id        String  @id @default(cuid())
+  packId    String
+  pack      Service @relation("PackItems", fields: [packId], references: [id], onDelete: Cascade)
+  serviceId String
+  service   Service @relation("PackComponent", fields: [serviceId], references: [id], onDelete: Restrict)
+  quantity  Int     @default(1)
+  position  Int     @default(0)
+
+  @@unique([packId, serviceId])
+  @@index([packId])
+  @@index([serviceId])
 }
