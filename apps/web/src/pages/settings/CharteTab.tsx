@@ -17,6 +17,7 @@ import { Segmented } from "@/components/ui/Segmented";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { contrastRatio, DOCUMENT_PAPER, formatRatio, isHexColor, readableOn } from "@/lib/contrast";
 import type { PublicSettings } from "@/pages/settings/types";
+import { PdfThumbnail } from "@/components/documents/PdfThumbnail";
 
 /** Charte Kouzia (repli si l'API ne la renvoie pas) : ambre et nuit, comme apps/api/src/lib/brand.ts. */
 const KOUZIA = { primary: "#fe9a00", secondary: "#0b1020" };
@@ -121,63 +122,6 @@ type PreviewState =
   | { status: "loading" }
   | { status: "error"; message: string }
   | { status: "ready"; at: Date };
-
-/** Miniature fidèle : première page du PDF rendu par l'API, dessinée par pdf.js (aussi sur Android). */
-function PdfThumbnail({
-  pdf,
-  onPages,
-  onError,
-}: {
-  pdf: ArrayBuffer | null;
-  onPages: (n: number) => void;
-  onError: (message: string) => void;
-}) {
-  const canvas = useRef<HTMLCanvasElement>(null);
-  useEffect(() => {
-    if (!pdf || !canvas.current) return;
-    let cancelled = false;
-    const target = canvas.current;
-    let destroy: (() => Promise<void>) | null = null;
-    void (async () => {
-      const pdfjs = await import("pdfjs-dist");
-      const worker = await import("pdfjs-dist/build/pdf.worker.min.mjs?url");
-      pdfjs.GlobalWorkerOptions.workerSrc = worker.default;
-      const task = pdfjs.getDocument({ data: pdf.slice(0) });
-      destroy = () => task.destroy();
-      const doc = await task.promise;
-      if (cancelled) return;
-      onPages(doc.numPages);
-      const page = await doc.getPage(1);
-      const base = page.getViewport({ scale: 1 });
-      const width = target.parentElement?.clientWidth || 600;
-      const viewport = page.getViewport({ scale: (width * Math.min(window.devicePixelRatio || 1, 2)) / base.width });
-      const off = document.createElement("canvas");
-      off.width = Math.floor(viewport.width);
-      off.height = Math.floor(viewport.height);
-      await page.render({ canvas: off, viewport }).promise;
-      if (cancelled) return;
-      // Copie en une fois : pas de page blanche pendant le dessin du nouvel aperçu.
-      target.width = off.width;
-      target.height = off.height;
-      target.getContext("2d")?.drawImage(off, 0, 0);
-    })()
-      .catch(() => {
-        if (!cancelled) onError("La miniature n'a pas pu être dessinée : ouvrez le PDF d'exemple en grand.");
-      })
-      .finally(() => void destroy?.());
-    return () => {
-      cancelled = true;
-    };
-  }, [pdf, onPages, onError]);
-  return (
-    <canvas
-      ref={canvas}
-      role="img"
-      aria-label="Première page du document d'exemple"
-      className="block aspect-[210/297] h-auto w-full rounded-[var(--radius-sm)] bg-[var(--apercu-logo-fond)] shadow-[var(--shadow-sm)]"
-    />
-  );
-}
 
 export function CharteTab({
   form,
@@ -503,7 +447,13 @@ export function CharteTab({
 
           <div className={`relative transition-opacity duration-150 ${state.status === "loading" ? "opacity-60" : ""}`}>
             {view === "pdf" ? (
-              <PdfThumbnail pdf={pdf} onPages={setPages} onError={onThumbnailError} />
+              <PdfThumbnail
+                pdf={pdf}
+                label="Première page du document d'exemple"
+                errorMessage="La miniature n'a pas pu être dessinée : ouvrez le PDF d'exemple en grand."
+                onPages={setPages}
+                onError={onThumbnailError}
+              />
             ) : (
               <iframe
                 title="Aperçu de l'e-mail d'exemple"

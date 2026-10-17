@@ -3,6 +3,8 @@ import { mixedQuoteTotals } from "@/lib/quote-totals";
 
 type IssueEmailDoc = {
   client: { displayName: string; email?: string | null };
+  /** Devis avec abonnement : phrase de la clause « date de prélèvement », fournie par l'API. */
+  subscriptionDateNotice?: string | null;
   totalCents: number;
   subtotalCents?: number | null;
   depositBaseCents?: number | null;
@@ -90,6 +92,10 @@ export function buildIssueEmailDraft(
         : "Les échéances suivantes feront l'objet de factures séparées, envoyées automatiquement.",
     );
     lines.push("");
+    if (kind === "QUOTE" && doc.subscriptionDateNotice) {
+      lines.push(doc.subscriptionDateNotice);
+      lines.push("");
+    }
   }
 
   lines.push("Le PDF est joint à ce message.");
