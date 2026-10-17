@@ -302,6 +302,15 @@ export type InvoicePdfData = {
     subscriptionOnly?: boolean;
     /** Devis mixte : l'abonnement est facturé à partir de la livraison, hors échéancier. */
     subscriptionFromDelivery?: boolean;
+    /** Devis mixte : total du projet puis abonnements à part (null sinon). */
+    mixedTotals?: {
+      oneOffCents: number;
+      discountCents: number;
+      projectCents: number;
+      subscriptions: Array<{ label: string; text: string }>;
+      yearCents: number;
+      monthCents: number;
+    } | null;
     balanceSummary?: {
       marketTotalCents: number;
       quoteNumber: string | null;
@@ -584,6 +593,58 @@ export function InvoiceDocument({ company, client, invoice, specimen }: InvoiceP
         </View>
 
         <View style={styles.totals} wrap={false}>
+          {invoice.mixedTotals ? (
+            <>
+              {invoice.mixedTotals.discountCents > 0 ? (
+                <>
+                  <View style={styles.totalLine}>
+                    <Text style={styles.muted}>Prestations</Text>
+                    <Text>{fmtMoney(invoice.mixedTotals.oneOffCents)}</Text>
+                  </View>
+                  <View style={styles.totalLine}>
+                    <Text style={styles.muted}>
+                      Remise
+                      {invoice.discountType === "PERCENT"
+                        ? ` (${((invoice.discountValue ?? 0) / 100).toFixed(2).replace(".", ",")} %)`
+                        : ""}
+                    </Text>
+                    <Text>- {fmtMoney(invoice.mixedTotals.discountCents)}</Text>
+                  </View>
+                </>
+              ) : null}
+              <View style={styles.grandTotal}>
+                <Text style={styles.grandLabel}>Total du projet</Text>
+                <Text style={styles.grandValue}>{fmtMoney(invoice.mixedTotals.projectCents)}</Text>
+              </View>
+              <Text style={styles.vat}>Acompte et échéancier portent sur ce montant.</Text>
+              <View style={[styles.totalLine, { marginTop: 8 }]}>
+                <Text style={{ fontFamily: "Helvetica-Bold" }}>
+                  {invoice.mixedTotals.subscriptions.length > 1 ? "Abonnements" : "Abonnement"}
+                </Text>
+              </View>
+              {invoice.mixedTotals.subscriptions.map((s, i) => (
+                <Text key={i} style={styles.vat}>
+                  {invoice.mixedTotals!.subscriptions.length > 1 ? `${s.label} : ` : ""}
+                  {s.text}
+                </Text>
+              ))}
+              {invoice.mixedTotals.subscriptions.length > 1 ? (
+                <View style={styles.totalLine}>
+                  <Text style={styles.muted}>Total des abonnements</Text>
+                  <Text>
+                    {[
+                      invoice.mixedTotals.yearCents ? `${fmtMoney(invoice.mixedTotals.yearCents)} par an` : "",
+                      invoice.mixedTotals.monthCents ? `${fmtMoney(invoice.mixedTotals.monthCents)} par mois` : "",
+                    ]
+                      .filter(Boolean)
+                      .join(" + ")}
+                  </Text>
+                </View>
+              ) : null}
+              {company.vatMention ? <Text style={styles.vat}>{company.vatMention}</Text> : null}
+            </>
+          ) : (
+          <>
           {hasDiscount ? (
             <>
               <View style={styles.totalLine}>
@@ -626,6 +687,8 @@ export function InvoiceDocument({ company, client, invoice, specimen }: InvoiceP
               </Text>
             </View>
           ) : null}
+          </>
+          )}
         </View>
 
         {invoice.lines.some((l) => l.isSubscription) ? (

@@ -26,6 +26,8 @@ type Service = {
   stripePriceId?: string | null;
   billingInterval?: string | null;
   isPack?: boolean;
+  /** Rubrique d'une prestation ponctuelle : SITE | LOGICIEL | OPTION ; null = « Autres ». */
+  category?: string | null;
   packItems?: Array<{
     serviceId: string;
     quantity: number;
@@ -43,10 +45,31 @@ const emptyForm = {
   kind: "ONE_OFF" as "ONE_OFF" | "SUBSCRIPTION" | "PACK",
   /** Pack : prestations du catalogue et quantités. */
   items: [] as PackRow[],
+  /** Prestation ponctuelle : rubrique du catalogue (vide = Autres). */
+  category: "" as "" | "SITE" | "LOGICIEL" | "OPTION",
   // Annuel par défaut : Stripe prélève des frais à chaque transaction (une par an plutôt que douze).
   billingInterval: "YEAR" as BillingInterval,
   billingDay: "1",
 };
+
+/** Rubriques du catalogue : packs et abonnements se déduisent de leur type, les autres de leur rubrique. */
+type Rubrique = "SITE" | "LOGICIEL" | "OPTION" | "PACK" | "SUBSCRIPTION" | "OTHER";
+const RUBRIQUES: Array<{ id: Rubrique; label: string }> = [
+  { id: "SITE", label: "Sites" },
+  { id: "LOGICIEL", label: "Logiciels" },
+  { id: "OPTION", label: "Options" },
+  { id: "PACK", label: "Packs" },
+  { id: "SUBSCRIPTION", label: "Abonnements" },
+  { id: "OTHER", label: "Autres" },
+];
+const rubriqueOf = (s: Service): Rubrique =>
+  s.isPack
+    ? "PACK"
+    : s.isSubscription
+      ? "SUBSCRIPTION"
+      : s.category === "SITE" || s.category === "LOGICIEL" || s.category === "OPTION"
+        ? s.category
+        : "OTHER";
 
 const KIND_OPTIONS = [
   { id: "ONE_OFF", label: "Ponctuelle" },
@@ -74,6 +97,7 @@ export function ServicesPage() {
   const [form, setForm] = useState(emptyForm);
   const [catalog, setCatalog] = useState<Service[]>([]);
   const [view, setView] = useState<"active" | "archived">("active");
+  const [rubrique, setRubrique] = useState<Rubrique>("SITE");
   // Clé d'idempotence Stripe : une par ouverture du formulaire (un double envoi ne crée rien de plus).
   const [requestId, setRequestId] = useState("");
 
@@ -81,7 +105,7 @@ export function ServicesPage() {
     // Écran des prestations ponctuelles et packs ; le catalogue entier (abonnements compris) sert à composer un pack.
     const all = await api<Service[]>("/api/services");
     setCatalog(all);
-    setRows(all.filter((s) => !s.isSubscription));
+    setRows(all);
   }
 
   useEffect(() => {
@@ -92,7 +116,12 @@ export function ServicesPage() {
 
   function openCreate() {
     setEditing(null);
-    setForm(emptyForm);
+    // Type et rubrique de l'onglet affiché.
+    setForm({
+      ...emptyForm,
+      kind: rubrique === "PACK" ? "PACK" : rubrique === "SUBSCRIPTION" ? "SUBSCRIPTION" : "ONE_OFF",
+      category: rubrique === "SITE" || rubrique === "LOGICIEL" || rubrique === "OPTION" ? rubrique : "",
+    });
     setRequestId(crypto.randomUUID());
     setOpen(true);
   }
@@ -108,6 +137,7 @@ export function ServicesPage() {
       billingInterval: s.billingInterval === "YEAR" ? "YEAR" : "MONTH",
       billingDay: String(s.defaultBillingDay ?? 1),
       items: (s.packItems ?? []).map((i) => ({ serviceId: i.serviceId, quantity: String(i.quantity) })),
+      category: s.category === "SITE" || s.category === "LOGICIEL" || s.category === "OPTION" ? s.category : "",
     });
     setRequestId(crypto.randomUUID());
     setOpen(true);
@@ -128,6 +158,7 @@ export function ServicesPage() {
         defaultBillingDay: Number(form.billingDay) || 1,
         requestId,
         isPack: form.kind === "PACK",
+        category: form.kind === "ONE_OFF" ? form.category || null : null,
         ...(form.kind === "PACK"
           ? { packItems: form.items.filter((i) => i.serviceId).map((i) => ({ serviceId: i.serviceId, quantity: Number(i.quantity) || 1 })) }
           : {}),
@@ -202,7 +233,9 @@ export function ServicesPage() {
 
   const active = rows.filter((r) => r.active);
   const archived = rows.filter((r) => !r.active);
-  const visible = view === "active" ? active : archived;
+  const inView = view === "active" ? active : archived;
+  const visible = inView.filter((s) => rubriqueOf(s) === rubrique);
+  const countIn = (r: Rubrique) => inView.filter((s) => rubriqueOf(s) === r).length;
   const priceCents = Math.round(Number(form.priceEuros || 0) * 100);
   // Prestation liée : un nouveau montant crée un nouveau prix Stripe.
   const linkedPriceChange = Boolean(editing?.stripePriceId) && priceCents !== editing?.unitPriceCents;
@@ -234,15 +267,24 @@ export function ServicesPage() {
 
       <Card className="overflow-hidden">
         <div className="flex flex-col gap-3 border-b border-[var(--border)] p-3 sm:flex-row sm:items-center sm:justify-between sm:p-4">
-          <FilterChips
-            label="Afficher"
-            value={view}
-            onChange={setView}
-            options={[
-              { id: "active", label: "Actives", count: active.length },
-              { id: "archived", label: "Archivées", count: archived.length },
-            ]}
-          />
+          <div className="flex min-w-0 flex-col gap-2">
+            <FilterChips
+              label="Rubrique"
+              value={rubrique}
+              onChange={setRubrique}
+              wrap
+              options={RUBRIQUES.map((r) => ({ id: r.id, label: r.label, count: countIn(r.id) }))}
+            />
+            <FilterChips
+              label="Afficher"
+              value={view}
+              onChange={setView}
+              options={[
+                { id: "active", label: "Actives", count: active.length },
+                { id: "archived", label: "Archivées", count: archived.length },
+              ]}
+            />
+          </div>
           <p className="text-xs text-[var(--muted)]">Franchise de TVA : aucun montant de TVA n&apos;est facturé.</p>
         </div>
 
@@ -277,7 +319,9 @@ export function ServicesPage() {
                 <div className="flex shrink-0 flex-wrap items-center justify-between gap-x-4 gap-y-2 sm:justify-end">
                   <div className="text-left sm:text-right">
                     <p className="font-display text-lg font-semibold tabular-nums">{formatEUR(s.unitPriceCents)}</p>
-                    <p className="text-xs text-[var(--muted)]">Prix fixe</p>
+                    <p className="text-xs text-[var(--muted)]">
+                      {s.isSubscription ? (s.billingInterval === "YEAR" ? "Par an" : "Par mois") : s.isPack ? "Partie ponctuelle" : "Prix fixe"}
+                    </p>
                   </div>
                   <div className="flex flex-wrap justify-end gap-1">
                     {moduleStripeEnabled && s.stripeProductId ? (
@@ -374,6 +418,19 @@ export function ServicesPage() {
                 </Select>
               </Field>
             </div>
+          ) : null}
+          {form.kind === "ONE_OFF" ? (
+            <Field label="Rubrique" hint="Range la prestation dans Prestations ; sans effet sur le devis.">
+              <Select
+                value={form.category}
+                onChange={(e) => setForm({ ...form, category: e.target.value as typeof form.category })}
+              >
+                <option value="SITE">Sites</option>
+                <option value="LOGICIEL">Logiciels</option>
+                <option value="OPTION">Options</option>
+                <option value="">Autres</option>
+              </Select>
+            </Field>
           ) : null}
           <Field label="Nom">
             <Input required maxLength={120} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />

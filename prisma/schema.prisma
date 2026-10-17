@@ -876,6 +876,8 @@ model Service {
   updatedAt         DateTime       @updatedAt
   subscriptions     Subscription[]
   invoiceLines      InvoiceLine[]
+  /// Rubrique du catalogue : SITE | LOGICIEL | OPTION ; null = « Autres » (packs et abonnements : rubrique propre)
+  category          String?
   /// Pack : prix de la partie ponctuelle (unitPriceCents) ; ses prestations sont dans packItems. Jamais lié à Stripe.
   isPack            Boolean           @default(false)
   packItems         ServicePackItem[] @relation("PackItems")

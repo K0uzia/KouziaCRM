@@ -160,6 +160,17 @@ describe("packs", () => {
     expect(pdf.statusCode).toBe(200);
     expect(pdf.headers["content-type"]).toMatch(/pdf/);
     expect(pdf.rawPayload.length).toBeGreaterThan(1000);
+    // Devis mixte : deux totaux, le projet (base de l'acompte) puis l'abonnement avec son départ.
+    const { getDocument } = await import("pdfjs-dist/legacy/build/pdf.mjs");
+    const doc = await getDocument({ data: new Uint8Array(pdf.rawPayload) }).promise;
+    let texte = "";
+    for (let n = 1; n <= doc.numPages; n++) {
+      texte += (await (await doc.getPage(n)).getTextContent()).items.map((i) => ("str" in i ? i.str : "")).join(" ") + " ";
+    }
+    texte = texte.replace(/[\u00a0\u202f]/g, " ").replace(/\s+/g, " ");
+    expect(texte).toMatch(/Total du projet 1 050,00 €/);
+    expect(texte).toMatch(/Abonnement 300,00 € par an à partir de la livraison du projet/);
+    expect(texte).not.toMatch(/Net à payer/);
     await acceptQuoteByClient(quote.id, "Lou Pack", { source: "ADMIN" });
     const invoice = await convertQuoteToInvoice(quote.id);
     const invLines = await prisma.invoiceLine.findMany({ where: { invoiceId: invoice.id }, orderBy: { position: "asc" } });

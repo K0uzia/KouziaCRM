@@ -30,6 +30,8 @@ const serviceSchema = z.object({
   requestId: z.string().uuid().optional(),
   /** Pack : prestations du catalogue avec leur quantité ; le prix est celui de la partie ponctuelle. */
   isPack: z.boolean().optional().default(false),
+  /** Rubrique d'une prestation ponctuelle ; null = « Autres » (packs et abonnements : rubrique propre). */
+  category: z.enum(["SITE", "LOGICIEL", "OPTION"]).optional().nullable(),
   packItems: packItemsSchema.optional(),
 });
 
@@ -121,7 +123,7 @@ export const servicesRoutes: FastifyPluginAsync = async (app) => {
     const settings = await getCompanySettings();
     if (settings.moduleStripeEnabled) {
       try {
-        const linked = await createLinkedService({
+        const linked0 = await createLinkedService({
           name: parsed.data.name,
           description: parsed.data.description?.trim() || null,
           unitPriceCents: eurosToCents(parsed.data.unitPriceEuros),
@@ -130,6 +132,9 @@ export const servicesRoutes: FastifyPluginAsync = async (app) => {
           defaultBillingDay: parsed.data.defaultBillingDay,
           requestId: parsed.data.requestId ?? randomUUID(),
         });
+        // Rubrique : classement local, sans équivalent dans Stripe.
+        const category = parsed.data.isSubscription ? null : (parsed.data.category ?? null);
+        const linked = category ? await prisma.service.update({ where: { id: linked0.id }, data: { category } }) : linked0;
         return reply.code(201).send(linked);
       } catch (err) {
         return stripeError(reply, err);
@@ -143,6 +148,7 @@ export const servicesRoutes: FastifyPluginAsync = async (app) => {
         unit: parsed.data.unit,
         active: parsed.data.active,
         isSubscription: parsed.data.isSubscription,
+        category: parsed.data.isSubscription ? null : (parsed.data.category ?? null),
         defaultBillingDay: parsed.data.isSubscription
           ? parsed.data.defaultBillingDay
           : 1,
@@ -227,6 +233,7 @@ export const servicesRoutes: FastifyPluginAsync = async (app) => {
           defaultBillingDay: existing.isSubscription ? parsed.data.defaultBillingDay : 1,
           unitPriceCents: newCents,
           stripePriceId,
+          ...(parsed.data.category !== undefined ? { category: existing.isSubscription ? null : parsed.data.category } : {}),
         },
       });
     }
@@ -240,6 +247,7 @@ export const servicesRoutes: FastifyPluginAsync = async (app) => {
         unit: parsed.data.unit,
         active: parsed.data.active,
         isSubscription: parsed.data.isSubscription,
+        ...(parsed.data.category !== undefined ? { category: parsed.data.isSubscription ? null : parsed.data.category } : {}),
         defaultBillingDay: parsed.data.isSubscription
           ? parsed.data.defaultBillingDay
           : 1,

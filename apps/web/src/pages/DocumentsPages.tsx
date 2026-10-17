@@ -1,4 +1,5 @@
 import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
+import { mixedQuoteTotals, subscriptionsTotalText } from "@/lib/quote-totals";
 import type { ClientNeed } from "@/components/clients/NeedsEditor";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
@@ -1139,6 +1140,10 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
                 {doc.notes ? <p className="whitespace-pre-wrap text-[var(--muted)]">{doc.notes}</p> : null}
               </div>
               <div className="w-full shrink-0 space-y-1.5 text-sm sm:w-64">
+                {mixedQuote ? (
+                  <MixedQuoteTotals doc={doc} lines={docLines} />
+                ) : (
+                <>
                 {doc.discountType &&
                 doc.discountType !== "NONE" &&
                 (doc.subtotalCents ?? doc.totalCents) !== doc.totalCents ? (
@@ -1162,6 +1167,8 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
                   <span className="font-medium">Total</span>
                   <span className="font-display text-2xl font-semibold tabular-nums">{formatEUR(doc.totalCents)}</span>
                 </div>
+                </>
+                )}
               </div>
             </div>
           </Card>
@@ -1843,6 +1850,46 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
 }
 
 /** Phrase du départ d'une ligne d'abonnement de devis, comme sur le PDF et l'espace client. */
+/** Devis mixte : total du projet (base de l'acompte), puis chaque abonnement avec son départ, et leur sous-total. */
+function MixedQuoteTotals({
+  doc,
+  lines,
+}: {
+  doc: { subtotalCents?: number | null; totalCents: number; depositBaseCents?: number | null; discountType?: string; discountValue?: number | null };
+  lines: Array<Parameters<typeof quoteStartPhrase>[0] & { isSubscription?: boolean; lineTotalCents: number; description: string }>;
+}) {
+  const t = mixedQuoteTotals(lines, doc.subtotalCents ?? doc.totalCents, doc.totalCents, doc.depositBaseCents);
+  const subs = lines.filter((l) => l.isSubscription);
+  return (
+    <>
+      {t.discountCents > 0 ? (
+        <>
+          <p className="text-[var(--muted)]">Prestations : {formatEUR(t.oneOffCents)}</p>
+          <p className="text-[var(--muted)]">
+            Remise
+            {doc.discountType === "PERCENT" ? ` (${formatDecimal((doc.discountValue ?? 0) / 100)} %)` : ""} : −{formatEUR(t.discountCents)}
+          </p>
+        </>
+      ) : null}
+      <div className="flex items-baseline justify-between border-t border-[var(--border)] pt-2">
+        <span className="font-medium">Total du projet</span>
+        <span className="font-display text-2xl font-semibold tabular-nums">{formatEUR(t.projectCents)}</span>
+      </div>
+      <p className="text-xs text-[var(--muted)]">Acompte et échéancier portent sur ce montant.</p>
+      <div className="space-y-1 border-t border-[var(--border)] pt-2">
+        <p className="font-medium">{subs.length > 1 ? "Abonnements" : "Abonnement"}</p>
+        {subs.map((l, i) => (
+          <p key={i} className="text-[var(--muted)]">
+            {subs.length > 1 ? `${l.description} : ` : ""}
+            {quoteStartPhrase(l, true)}
+          </p>
+        ))}
+        {subs.length > 1 ? <p>Total des abonnements : {subscriptionsTotalText(t)}</p> : null}
+      </div>
+    </>
+  );
+}
+
 function quoteStartPhrase(
   l: { unitPriceCents: number; billingInterval?: string | null; subscriptionStart?: string | null; subscriptionStartDate?: string | null; subscriptionFreeMonths?: number | null },
   hasProject: boolean,
