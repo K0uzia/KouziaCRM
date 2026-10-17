@@ -13,6 +13,7 @@ vi.mock("@/lib/email/mailer/index.js", () => ({
 }));
 
 const { buildApp } = await import("@/app.js");
+const { issueInvoice } = await import("@/lib/invoices/transitions.js");
 
 const ADMIN = "admin-apercu@kouzia.test";
 const PASSWORD = "mot-de-passe-de-test";
@@ -136,5 +137,73 @@ describe("mention de la date de prélèvement", () => {
     expect(text).not.toContain(NOTICE);
     // La clause dédiée ne s'ajoute pas aux mentions légales génériques.
     expect(text.split("Date de prélèvement modifiable").length).toBe(2);
+  });
+});
+
+describe("aperçu d'un avoir", () => {
+  async function paidInvoice() {
+    const client = await createClient({ displayName: "Client Avoir" });
+    const created = await app.inject({
+      method: "POST",
+      url: "/api/invoices",
+      headers: { cookie },
+      payload: { clientId: client.id, documentType: "INVOICE", lines: [oneOff] },
+    });
+    const invoice = await issueInvoice(created.json().id);
+    await prisma.payment.create({ data: { invoiceId: invoice.id, amountCents: 150_000, paidAt: new Date(), method: "BANK_TRANSFER" } });
+    return invoice;
+  }
+  const creditBody = (invoiceId: string) => ({
+    documentType: "CREDIT_NOTE",
+    invoiceId,
+    amountEuros: 300,
+    reason: "COMMERCIAL_GESTURE",
+    reasonDetail: "Retard de livraison",
+    refundMethod: "BANK_TRANSFER",
+    issueDate: new Date().toISOString().slice(0, 10),
+  });
+
+  it("montre l'avoir tel qu'émis (facture d'origine, montants négatifs) sans écriture ni numéro consommé", async () => {
+    const invoice = await paidInvoice();
+    const eligibility = async () =>
+      (await app.inject({ method: "GET", url: `/api/invoices/${invoice.id}/credit-note/eligibility`, headers: { cookie } })).json();
+    const nextBefore = (await eligibility()).nextNumberPreview;
+    const before = await dbSnapshot();
+
+    const res = await preview(creditBody(invoice.id));
+    expect(res.statusCode).toBe(200);
+    const text = pdfText(res.rawPayload);
+    expect(text).toContain("AVOIR");
+    expect(text).toContain("APERÇU");
+    expect(text).toContain("Numéro attribué à l'émission");
+    expect(text).toContain(invoice.number!);
+    expect(text).toContain("-300,00");
+    expect(text).toContain("Retard de livraison");
+
+    expect(await dbSnapshot()).toBe(before);
+    expect((await eligibility()).nextNumberPreview).toBe(nextBefore);
+
+    // L'avoir émis ensuite porte le premier numéro et le même contenu que l'aperçu.
+    const issued = await app.inject({
+      method: "POST",
+      url: `/api/invoices/${invoice.id}/credit-note`,
+      headers: { cookie },
+      payload: { ...creditBody(invoice.id), documentType: undefined, invoiceId: undefined, registerRefundPayment: false },
+    });
+    expect(issued.statusCode).toBe(201);
+    expect(issued.json().number).toBe(nextBefore);
+    const pdf = await app.inject({ method: "GET", url: `/api/invoices/${issued.json().id}/pdf`, headers: { cookie } });
+    const issuedText = pdfText(pdf.rawPayload).replace(`N° ${nextBefore}`, "").replace(`Avoir ${nextBefore}`, "Avoir APERÇU");
+    // Filigrane puis numéro de l'en-tête ; le pied de page garde « Avoir APERÇU ».
+    const previewText = text.replace("APERÇU", "").replace("APERÇU", "").replace("Numéro attribué à l'émission", "");
+    expect(previewText).toBe(issuedText);
+  });
+
+  it("applique les contrôles de l'émission", async () => {
+    const invoice = await paidInvoice();
+    expect((await preview({ ...creditBody(invoice.id), amountEuros: 2000 })).statusCode).toBe(400);
+    expect((await preview({ ...creditBody(invoice.id), reason: "INCONNU" })).statusCode).toBe(400);
+    expect((await preview({ ...creditBody("inconnue") })).statusCode).toBe(404);
+    expect((await preview(creditBody(invoice.id), false)).statusCode).toBe(401);
   });
 });

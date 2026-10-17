@@ -6,6 +6,8 @@ import { api, formatEUR, formatDate } from "@/lib/api";
 import { Button } from "@/components/ui/Button";
 import { Field, Input, Select, Textarea } from "@/components/ui/Field";
 import { Modal, ModalActions } from "@/components/ui/Modal";
+import { DocumentPreview } from "@/components/documents/DocumentPreview";
+import { useMediaQuery } from "@/lib/use-media-query";
 
 type Eligibility = {
   allowed: boolean;
@@ -128,6 +130,36 @@ export function CreditNoteWizard({
   const needsCgv =
     !!elig?.requiresCgvCheck && reason === "REFUND_DEPOSIT";
 
+  // Aperçu PDF de l'avoir (étapes Informations et Prévisualiser) : panneau dès 1024 px, sinon fenêtre plein écran.
+  const widePreview = useMediaQuery("(min-width: 64rem)");
+  const [previewOpen, setPreviewOpen] = useState(false);
+  const previewStep = Boolean(elig?.allowed) && (step === 3 || step === 4);
+  const amountValid = !!elig && amountCents > 0 && amountCents <= elig.maxCreditCents;
+  const previewBody = useMemo(
+    () =>
+      previewStep && amountValid
+        ? JSON.stringify({
+            documentType: "CREDIT_NOTE",
+            invoiceId,
+            amountEuros: Number(amountEuros),
+            reason,
+            reasonDetail: reasonDetail || null,
+            refundMethod,
+            issueDate: issueDate || undefined,
+          })
+        : null,
+    [previewStep, amountValid, invoiceId, amountEuros, reason, reasonDetail, refundMethod, issueDate],
+  );
+  const previewPaused = elig
+    ? `Aperçu en pause : montant entre 0,01 € et ${formatEUR(elig.maxCreditCents)}.`
+    : "Analyse de la facture…";
+  const previewButton =
+    previewStep && !widePreview ? (
+      <Button variant="secondary" onClick={() => setPreviewOpen(true)}>
+        Aperçu
+      </Button>
+    ) : null;
+
   const stepTitle = useMemo(() => {
     const titles: Record<Step, string> = {
       1: "Diagnostic",
@@ -217,11 +249,14 @@ export function CreditNoteWizard({
       title={`Avoir · ${stepTitle}`}
       description="Procédure micro-entreprise (franchise TVA art. 293 B)"
       wide
+      extraWide={previewStep}
     >
       {loading || !elig ? (
         <p className="text-sm text-[var(--muted)]">Analyse de la facture…</p>
       ) : (
-        <div className="space-y-5">
+        <>
+        <div className={previewStep && widePreview ? "lg:grid lg:grid-cols-[minmax(0,1fr)_20rem] lg:items-start lg:gap-6" : ""}>
+        <div className="min-w-0 space-y-5">
           {step === 1 ? (
             <div className="space-y-4 text-sm">
               <p>
@@ -404,13 +439,14 @@ export function CreditNoteWizard({
                 Prochain numéro : {elig.nextNumberPreview}. Conservez tous les
                 documents 10 ans.
               </p>
-              <div className="flex justify-between gap-2">
+              <div className="flex flex-wrap justify-between gap-2">
                 <Button
                   variant="secondary"
                   onClick={() => setStep(needsCgv ? 2 : 1)}
                 >
                   Retour
                 </Button>
+                {previewButton}
                 <Button onClick={() => setStep(4)}>Prévisualiser</Button>
               </div>
             </div>
@@ -444,10 +480,11 @@ export function CreditNoteWizard({
                   <p className="font-medium">Vous n&apos;avez rien à payer.</p>
                 ) : null}
               </div>
-              <div className="flex justify-between gap-2">
+              <div className="flex flex-wrap justify-between gap-2">
                 <Button variant="secondary" onClick={() => setStep(3)}>
                   Retour
                 </Button>
+                {previewButton}
                 <Button variant="danger" disabled={busy} onClick={() => void generate()}>
                   {busy ? "Création…" : "Émettre l'avoir"}
                 </Button>
@@ -585,6 +622,30 @@ export function CreditNoteWizard({
             </div>
           ) : null}
         </div>
+        {previewStep && widePreview ? (
+          <aside aria-labelledby="avoir-apercu" className="sticky top-0 space-y-2">
+            <h3 id="avoir-apercu" className="text-xs font-semibold uppercase tracking-[0.08em] text-[var(--muted)]">
+              Aperçu
+            </h3>
+            <DocumentPreview body={previewBody} pausedReason={previewPaused} active kindLabel="Avoir" />
+          </aside>
+        ) : null}
+        </div>
+        <Modal
+          open={previewOpen && previewStep && !widePreview}
+          onClose={() => setPreviewOpen(false)}
+          title="Aperçu de l'avoir"
+          description="L'avoir tel qu'il sera émis. Rien n'est enregistré."
+          fullScreenMobile
+        >
+          <DocumentPreview
+            body={previewBody}
+            pausedReason={previewPaused}
+            active={previewOpen && previewStep && !widePreview}
+            kindLabel="Avoir"
+          />
+        </Modal>
+        </>
       )}
     </Modal>
   );

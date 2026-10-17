@@ -442,13 +442,16 @@ export function InvoiceDocument({ company, client, invoice, specimen, draft }: I
     null,
   );
 
+  // Aperçu avant émission : aucun numéro encore, jamais un blanc à sa place.
+  const shownNumber = draft ? "APERÇU" : invoice.number;
+
   const hasDiscount =
     invoice.discountType &&
     invoice.discountType !== "NONE" &&
     invoice.subtotalCents !== invoice.totalCents;
 
   return (
-    <Document title={`${title} ${invoice.number}`} author={brandName} creator={brandName}>
+    <Document title={`${title} ${shownNumber}`} author={brandName} creator={brandName}>
       <Page size="A4" style={styles.page}>
         <View style={styles.accent} fixed />
         {specimen || draft ? (
@@ -871,7 +874,7 @@ export function InvoiceDocument({ company, client, invoice, specimen, draft }: I
             <Text style={styles.h2}>Règlement par virement</Text>
             <Text>
               Merci de régler <Text style={styles.strong}>{fmtMoney(invoice.totalCents - paidCents)}</Text> en indiquant
-              la référence <Text style={styles.strong}>{invoice.number}</Text>.
+              la référence <Text style={styles.strong}>{draft ? "(numéro attribué à l'émission)" : invoice.number}</Text>.
             </Text>
             <View style={{ flexDirection: "row", gap: 24, marginTop: 6 }}>
               <View style={{ flex: 1 }}>
@@ -964,7 +967,7 @@ export function InvoiceDocument({ company, client, invoice, specimen, draft }: I
         {/* Pas de lineHeight sur la page : hérité, il masque le numéro de page (bug react-pdf). */}
         <View style={styles.footerRule} fixed />
         <Text style={styles.footerLeft} fixed>
-          {`${brandName} · ${title.charAt(0)}${title.slice(1).toLowerCase()} ${invoice.number}`}
+          {`${brandName} · ${title.charAt(0)}${title.slice(1).toLowerCase()} ${shownNumber}`}
         </Text>
         <Text
           style={styles.footerRight}
