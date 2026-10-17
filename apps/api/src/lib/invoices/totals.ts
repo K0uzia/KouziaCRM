@@ -86,7 +86,8 @@ export function computeLineTotals(lines: LineInput[], discount: DiscountInput = 
   });
 
   const subtotalCents = computed.filter(billedWithDocument).reduce((sum, l) => sum + l.lineTotalCents, 0);
-  const discountCents = computeDiscountCents(subtotalCents, discount);
+  // Remise sur la partie ponctuelle seulement : la 1re période d'un abonnement reste au prix prélevé ensuite.
+  const discountCents = computeDiscountCents(oneOffSubtotalCents(computed), discount);
   const discountType =
     discountCents > 0
       ? ((discount.discountType ?? "NONE").toUpperCase() as DiscountType)
@@ -103,19 +104,24 @@ export function computeLineTotals(lines: LineInput[], discount: DiscountInput = 
   };
 }
 
+/** Sous-total de la partie ponctuelle (lignes hors abonnement) : seule base de la remise globale. */
+export function oneOffSubtotalCents(lines: ReadonlyArray<{ isSubscription: boolean; lineTotalCents: number }>): number {
+  return lines.filter((l) => !l.isSubscription).reduce((s, l) => s + l.lineTotalCents, 0);
+}
+
 /**
- * Base de l'acompte et de l'échéancier d'un devis : la partie ponctuelle (lignes hors abonnement),
- * remise répartie au prorata. L'abonnement n'y entre pas : il est facturé à chaque période.
+ * Base de l'acompte et de l'échéancier d'un devis : la partie ponctuelle, remise déduite (elle ne porte que sur
+ * elle). L'abonnement n'y entre pas : il est facturé à chaque période.
  */
 export function computeDepositBaseCents(
   lines: ReadonlyArray<{ isSubscription: boolean; lineTotalCents: number }>,
   subtotalCents: number,
   totalCents: number,
 ): number {
-  const oneOff = lines.filter((l) => !l.isSubscription).reduce((s, l) => s + l.lineTotalCents, 0);
+  const oneOff = oneOffSubtotalCents(lines);
   if (subtotalCents <= 0 || oneOff <= 0) return 0;
   const discount = Math.max(0, subtotalCents - totalCents);
-  return Math.max(0, oneOff - Math.round((discount * oneOff) / subtotalCents));
+  return Math.max(0, oneOff - discount);
 }
 
 /** Base d'un devis : figée à l'émission ; devis antérieur à la fonction (null) : son total. */

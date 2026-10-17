@@ -22,6 +22,7 @@ const LABEL: Record<CatalogAction["action"], string> = {
   same: "identique",
   differs: "différente, inchangée (--update pour l'aligner)",
   archive: dryRun ? "à archiver" : "archivée",
+  stripe: "liée à Stripe, non modifiée",
 };
 
 const prisma = new PrismaClient();
@@ -34,7 +35,8 @@ applyCatalog(prisma, { dryRun, update })
     const count = (k: CatalogAction["action"]) => actions.filter((a) => a.action === k).length;
     console.log(
       `\n${dryRun ? "Simulation, rien n'est écrit. " : ""}${count("create")} création(s), ${count("update")} mise(s) à jour, ` +
-        `${count("archive")} archivage(s), ${count("same")} identique(s), ${count("differs")} différente(s) laissée(s) telles quelles.`,
+        `${count("archive")} archivage(s), ${count("same")} identique(s), ${count("differs")} différente(s) laissée(s) telles quelles, ` +
+        `${count("stripe")} liée(s) à Stripe non modifiée(s).`,
     );
   })
   .catch((e) => {

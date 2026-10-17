@@ -33,7 +33,8 @@ const emptyForm = {
   priceEuros: "",
   active: true,
   kind: "ONE_OFF" as "ONE_OFF" | "SUBSCRIPTION",
-  billingInterval: "MONTH" as BillingInterval,
+  // Annuel par défaut : Stripe prélève des frais à chaque transaction (une par an plutôt que douze).
+  billingInterval: "YEAR" as BillingInterval,
   billingDay: "1",
 };
 
