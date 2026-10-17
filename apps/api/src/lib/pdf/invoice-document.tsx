@@ -1,4 +1,4 @@
-import React from "react";
+import React, { Fragment } from "react";
 import {
   Document,
   Page,
@@ -86,6 +86,15 @@ function createStyles(primary: string, secondary: string) {
     section: { marginTop: 18 },
     box: { padding: 12, borderWidth: 1, borderColor: LINE, backgroundColor: SOFT },
     table: { marginTop: 4 },
+    groupRow: {
+      paddingTop: 10,
+      paddingBottom: 4,
+      paddingHorizontal: 8,
+      borderBottomWidth: 1,
+      borderColor: LINE,
+      fontFamily: "Helvetica-Bold",
+      color: INK,
+    },
     tr: {
       flexDirection: "row",
       borderBottomWidth: 1,
@@ -358,6 +367,9 @@ export type InvoicePdfData = {
       billingInterval?: string | null;
       /** Départ choisi sur la ligne du devis, en clair : « 12 mois offerts à partir de la livraison du projet, puis 72,00 € par an ». */
       startText?: string | null;
+      /** Pack : titre sous lequel la ligne est groupée ; ligne de remise du pack. */
+      groupTitle?: string | null;
+      isPackDiscount?: boolean;
     }>;
     legalClauses?: Array<{ title: string; body: string }>;
   };
@@ -533,13 +545,19 @@ export function InvoiceDocument({ company, client, invoice, specimen }: InvoiceP
             <Text style={styles.colPrice}>PRIX UNITAIRE</Text>
             <Text style={[styles.colTotal, { fontFamily: "Helvetica-Bold" }]}>MONTANT</Text>
           </View>
-          {invoice.lines.filter((l) => l.inTotal !== false).map((line, i) => (
+          {invoice.lines.filter((l) => l.inTotal !== false).map((line, i, shown) => (
+            <Fragment key={i}>
+            {/* Pack : titre au-dessus de ses lignes, détail et remise compris. */}
+            {line.groupTitle && line.groupTitle !== shown[i - 1]?.groupTitle ? (
+              <Text style={styles.groupRow} minPresenceAhead={40}>
+                {line.groupTitle}
+              </Text>
+            ) : null}
             <View
-              key={i}
               style={[styles.tr, i % 2 === 1 ? { backgroundColor: SOFT } : {}]}
               wrap={false}
             >
-              <View style={styles.colDesc}>
+              <View style={[styles.colDesc, line.groupTitle ? { paddingLeft: 8 } : {}]}>
                 <Text style={{ color: INK }}>{line.description}</Text>
                 {line.isSubscription ? (
                   <Text style={styles.lineNote}>
@@ -561,6 +579,7 @@ export function InvoiceDocument({ company, client, invoice, specimen }: InvoiceP
               <Text style={styles.colPrice}>{fmtMoney(line.unitPriceCents)}</Text>
               <Text style={styles.colTotal}>{fmtMoney(line.lineTotalCents)}</Text>
             </View>
+            </Fragment>
           ))}
         </View>
 

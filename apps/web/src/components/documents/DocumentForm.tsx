@@ -25,6 +25,9 @@ export type DocLine = {
   billingDay: string;
   billingInterval: BillingInterval;
   serviceId: string;
+  /** Pack : titre sous lequel la ligne est groupée ; ligne de remise du pack (montant négatif). */
+  groupTitle?: string;
+  isPackDiscount?: boolean;
 } & Partial<StartFields>;
 
 const NO_START: StartFields = { subscriptionStart: "", subscriptionStartDate: "", subscriptionFreeMonths: "" };
@@ -69,6 +72,19 @@ type ServiceOpt = {
   isSubscription?: boolean;
   defaultBillingDay?: number;
   billingInterval?: string | null;
+  isPack?: boolean;
+};
+
+type PackLine = {
+  serviceId: string;
+  description: string;
+  quantity: number;
+  unitPriceCents: number;
+  isSubscription: boolean;
+  billingInterval: "MONTH" | "YEAR" | null;
+  billingDay: number | null;
+  groupTitle: string;
+  isPackDiscount: boolean;
 };
 
 const DEPOSIT_TERMS = "Acompte à la validation du devis, solde à la livraison (voir l'échéancier).";
@@ -226,9 +242,35 @@ export function DocumentFormEditor({
     }));
   }
 
+  /** Pack : ses prestations détaillées à leur prix, groupées sous son titre, puis la remise du pack. */
+  async function addPack(packId: string) {
+    try {
+      const clientDay = clients.find((c) => c.id === form.clientId)?.billingDay;
+      const packLines = await api<PackLine[]>(`/api/services/${packId}/pack-lines`);
+      const added: DocLine[] = packLines.map((p) => ({
+        serviceId: p.isSubscription ? p.serviceId : "",
+        description: p.description,
+        quantity: String(p.quantity),
+        unitPriceEuros: (p.unitPriceCents / 100).toFixed(2),
+        isSubscription: p.isSubscription,
+        billingDay: String(clientDay ?? p.billingDay ?? 1),
+        billingInterval: p.billingInterval === "YEAR" ? "YEAR" : "MONTH",
+        groupTitle: p.groupTitle,
+        isPackDiscount: p.isPackDiscount,
+      }));
+      setForm((f) => {
+        const kept = f.lines.filter((l) => l.description.trim() || l.unitPriceEuros);
+        return { ...f, lines: [...kept, ...added] };
+      });
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Pack indisponible");
+    }
+  }
+
   function addFromCatalog(serviceId: string) {
     const svc = services.find((x) => x.id === serviceId);
     if (!svc) return;
+    if (svc.isPack) return void addPack(serviceId);
     const isSub = Boolean(svc.isSubscription);
     // Jour de prélèvement : celui de la fiche client, sinon celui de l'offre.
     const clientDay = clients.find((c) => c.id === form.clientId)?.billingDay;
@@ -351,6 +393,8 @@ export function DocumentFormEditor({
           billingDay: l.isSubscription ? Number(l.billingDay) || 1 : null,
           billingInterval: l.isSubscription ? l.billingInterval : null,
           serviceId: l.isSubscription ? l.serviceId : null,
+          groupTitle: l.groupTitle?.trim() || null,
+          isPackDiscount: Boolean(l.isPackDiscount),
           ...(documentType === "QUOTE" && l.isSubscription ? startPayload(startOf(l)) : {}),
         })),
       };
@@ -378,8 +422,9 @@ export function DocumentFormEditor({
 
   const isQuote = documentType === "QUOTE";
   const eur = (n: number) => euros(n);
-  const oneOff = services.filter((sv) => !sv.isSubscription);
+  const oneOff = services.filter((sv) => !sv.isSubscription && !sv.isPack);
   const monthly = services.filter((sv) => sv.isSubscription);
+  const packs = services.filter((sv) => sv.isPack);
   const sectionTitle = "text-xs font-semibold uppercase tracking-[0.08em] text-[var(--muted)]";
   const clientNeeds = clients.find((c) => c.id === form.clientId)?.needs ?? [];
   const doneNeeds = clientNeeds.filter((n) => n.done).length;
@@ -503,6 +548,15 @@ export function DocumentFormEditor({
                 ))}
               </optgroup>
             ) : null}
+            {packs.length ? (
+              <optgroup label="Packs (détail et remise ajoutés)">
+                {packs.map((sv) => (
+                  <option key={sv.id} value={sv.id}>
+                    {sv.name} : {eur(sv.unitPriceCents / 100)}
+                  </option>
+                ))}
+              </optgroup>
+            ) : null}
             {monthly.length ? (
               <optgroup label="Abonnements">
                 {monthly.map((sv) => (
@@ -520,6 +574,11 @@ export function DocumentFormEditor({
             const lineTotal = (line.isSubscription ? 1 : Number(line.quantity) || 0) * (Number(line.unitPriceEuros) || 0);
             return (
               <li key={i} className="rounded-[var(--radius)] border border-[var(--border)] bg-[var(--bg-subtle)] p-3">
+                {line.groupTitle ? (
+                  <p className="mb-2 text-xs font-medium text-[var(--muted)]">
+                    {line.isPackDiscount ? "Remise du pack" : "Pack"} : {line.groupTitle}
+                  </p>
+                ) : null}
                 {line.isSubscription ? (
                   <div className="mb-2 flex flex-wrap items-center gap-2 text-xs">
                     <Segmented

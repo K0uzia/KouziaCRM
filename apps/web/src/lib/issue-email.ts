@@ -9,6 +9,10 @@ type IssueEmailDoc = {
     billingDay?: number | null;
     billingInterval?: string | null;
     unitPriceCents: number;
+    lineTotalCents?: number;
+    /** Pack : titre sous lequel la ligne est groupée ; ligne de remise du pack. */
+    groupTitle?: string | null;
+    isPackDiscount?: boolean;
   }>;
 };
 
@@ -32,6 +36,19 @@ export function buildIssueEmailDraft(
     `Veuillez trouver ci-joint votre ${label} {{numero}}, d'un montant de ${formatEUR(doc.totalCents)}.`,
     "",
   ];
+
+  // Packs : détail de chaque prestation avec son prix, puis la remise du pack, sous le titre du pack.
+  const packs = [...new Set((doc.lines ?? []).map((l) => l.groupTitle).filter((g): g is string => Boolean(g)))];
+  for (const pack of packs) {
+    lines.push(`${pack} :`);
+    for (const l of (doc.lines ?? []).filter((x) => x.groupTitle === pack)) {
+      const amount = l.isSubscription
+        ? `${formatEUR(l.unitPriceCents)} ${l.billingInterval === "YEAR" ? "par an" : "par mois"}`
+        : formatEUR(l.lineTotalCents ?? l.unitPriceCents);
+      lines.push(`- ${l.description} : ${amount}`);
+    }
+    lines.push("");
+  }
 
   if (subs.length > 0) {
     const yearly = (s: (typeof subs)[number]) => s.billingInterval === "YEAR";

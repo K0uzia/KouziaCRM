@@ -25,14 +25,24 @@ type Service = {
   stripeProductId?: string | null;
   stripePriceId?: string | null;
   billingInterval?: string | null;
+  isPack?: boolean;
+  packItems?: Array<{
+    serviceId: string;
+    quantity: number;
+    service: { id: string; name: string; unitPriceCents: number; isSubscription: boolean; billingInterval?: string | null; active: boolean };
+  }>;
 };
+
+type PackRow = { serviceId: string; quantity: string };
 
 const emptyForm = {
   name: "",
   description: "",
   priceEuros: "",
   active: true,
-  kind: "ONE_OFF" as "ONE_OFF" | "SUBSCRIPTION",
+  kind: "ONE_OFF" as "ONE_OFF" | "SUBSCRIPTION" | "PACK",
+  /** Pack : prestations du catalogue et quantités. */
+  items: [] as PackRow[],
   // Annuel par défaut : Stripe prélève des frais à chaque transaction (une par an plutôt que douze).
   billingInterval: "YEAR" as BillingInterval,
   billingDay: "1",
@@ -41,6 +51,7 @@ const emptyForm = {
 const KIND_OPTIONS = [
   { id: "ONE_OFF", label: "Ponctuelle" },
   { id: "SUBSCRIPTION", label: "Abonnement" },
+  { id: "PACK", label: "Pack" },
 ] as const;
 
 /** Équivalent hors taxe si l'entreprise devient assujettie (TVA 20 % prise sur le prix affiché). */
@@ -61,12 +72,16 @@ export function ServicesPage() {
   const [deleting, setDeleting] = useState<Service | null>(null);
   const [busy, setBusy] = useState(false);
   const [form, setForm] = useState(emptyForm);
+  const [catalog, setCatalog] = useState<Service[]>([]);
   const [view, setView] = useState<"active" | "archived">("active");
   // Clé d'idempotence Stripe : une par ouverture du formulaire (un double envoi ne crée rien de plus).
   const [requestId, setRequestId] = useState("");
 
   async function load() {
-    setRows(await api<Service[]>("/api/services?subscription=0"));
+    // Écran des prestations ponctuelles et packs ; le catalogue entier (abonnements compris) sert à composer un pack.
+    const all = await api<Service[]>("/api/services");
+    setCatalog(all);
+    setRows(all.filter((s) => !s.isSubscription));
   }
 
   useEffect(() => {
@@ -89,9 +104,10 @@ export function ServicesPage() {
       description: s.description ?? "",
       priceEuros: (s.unitPriceCents / 100).toFixed(2),
       active: s.active,
-      kind: s.isSubscription ? "SUBSCRIPTION" : "ONE_OFF",
+      kind: s.isPack ? "PACK" : s.isSubscription ? "SUBSCRIPTION" : "ONE_OFF",
       billingInterval: s.billingInterval === "YEAR" ? "YEAR" : "MONTH",
       billingDay: String(s.defaultBillingDay ?? 1),
+      items: (s.packItems ?? []).map((i) => ({ serviceId: i.serviceId, quantity: String(i.quantity) })),
     });
     setRequestId(crypto.randomUUID());
     setOpen(true);
@@ -111,6 +127,10 @@ export function ServicesPage() {
         billingInterval: form.kind === "SUBSCRIPTION" ? form.billingInterval : null,
         defaultBillingDay: Number(form.billingDay) || 1,
         requestId,
+        isPack: form.kind === "PACK",
+        ...(form.kind === "PACK"
+          ? { packItems: form.items.filter((i) => i.serviceId).map((i) => ({ serviceId: i.serviceId, quantity: Number(i.quantity) || 1 })) }
+          : {}),
       };
       if (editing) {
         await api(`/api/services/${editing.id}`, { method: "PUT", body: JSON.stringify(body) });
@@ -120,7 +140,13 @@ export function ServicesPage() {
       } else {
         await api("/api/services", { method: "POST", body: JSON.stringify(body) });
         const where = form.kind === "SUBSCRIPTION" ? " (dans Abonnements > Offres)" : "";
-        toast.success(moduleStripeEnabled ? `Prestation créée dans l'ERP et dans Stripe${where}` : `Prestation créée${where}`);
+        toast.success(
+          form.kind === "PACK"
+            ? "Pack créé : sur un devis, il ajoute ses prestations et sa remise"
+            : moduleStripeEnabled
+              ? `Prestation créée dans l'ERP et dans Stripe${where}`
+              : `Prestation créée${where}`,
+        );
       }
       setOpen(false);
       await load();
@@ -160,7 +186,11 @@ export function ServicesPage() {
           unitPriceEuros: s.unitPriceCents / 100,
           unit: "FORFAIT",
           active: true,
-          isSubscription: false,
+          isSubscription: s.isSubscription,
+          billingInterval: s.isSubscription ? s.billingInterval ?? "MONTH" : null,
+          defaultBillingDay: s.defaultBillingDay,
+          isPack: Boolean(s.isPack),
+          ...(s.isPack ? { packItems: (s.packItems ?? []).map((i) => ({ serviceId: i.serviceId, quantity: i.quantity })) } : {}),
         }),
       });
       toast.success("Prestation réactivée");
@@ -176,6 +206,14 @@ export function ServicesPage() {
   const priceCents = Math.round(Number(form.priceEuros || 0) * 100);
   // Prestation liée : un nouveau montant crée un nouveau prix Stripe.
   const linkedPriceChange = Boolean(editing?.stripePriceId) && priceCents !== editing?.unitPriceCents;
+  // Pack : prestations proposables (actives, hors packs) et détail de la partie ponctuelle.
+  const components = catalog.filter((r) => r.active && !r.isPack && r.id !== editing?.id);
+  const detailCents = form.items.reduce((sum, i) => {
+    const svc = catalog.find((r) => r.id === i.serviceId);
+    return svc && !svc.isSubscription ? sum + svc.unitPriceCents * (Number(i.quantity) || 1) : sum;
+  }, 0);
+  const setItem = (index: number, patch: Partial<PackRow>) =>
+    setForm((f) => ({ ...f, items: f.items.map((it, k) => (k === index ? { ...it, ...patch } : it)) }));
 
   return (
     <div>
@@ -225,10 +263,16 @@ export function ServicesPage() {
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-2">
                     <p className="font-medium">{s.name}</p>
+                    {s.isPack ? <Badge tone="blue">Pack</Badge> : null}
                     {!s.active ? <Badge tone="neutral">Archivée</Badge> : null}
                     {s.unit !== "FORFAIT" ? <Badge tone="amber">Ancien tarif au {s.unit === "JOUR" ? "jour" : "heure"}</Badge> : null}
                   </div>
                   {s.description ? <p className="mt-1 text-sm text-[var(--muted)]">{s.description}</p> : null}
+                  {s.isPack && s.packItems?.length ? (
+                    <p className="mt-1 text-xs text-[var(--muted)]">
+                      {s.packItems.map((i) => `${i.service.name}${i.quantity > 1 ? ` × ${i.quantity}` : ""}`).join(" + ")}
+                    </p>
+                  ) : null}
                 </div>
                 <div className="flex shrink-0 flex-wrap items-center justify-between gap-x-4 gap-y-2 sm:justify-end">
                   <div className="text-left sm:text-right">
@@ -337,16 +381,62 @@ export function ServicesPage() {
           <Field label="Description" hint="Reprise sur le devis : ce qui est compris dans le prix.">
             <Textarea value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} rows={3} />
           </Field>
+          {form.kind === "PACK" ? (
+            <fieldset className="space-y-2">
+              <legend className="text-sm font-medium text-[var(--text)]">Contenu du pack</legend>
+              <p className="text-xs text-[var(--muted)]">
+                Sur le devis, chaque prestation apparaît avec son prix, puis la remise du pack. Un abonnement inclus reste au prix
+                plein, celui qui sera prélevé.
+              </p>
+              {form.items.map((item, i) => (
+                <div key={i} className="flex min-w-0 items-end gap-2">
+                  <div className="min-w-0 flex-1">
+                    <Field label={`Prestation ${i + 1}`}>
+                      <Select value={item.serviceId} onChange={(e) => setItem(i, { serviceId: e.target.value })}>
+                        <option value="">Choisir…</option>
+                        {components.map((c) => (
+                          <option key={c.id} value={c.id}>
+                            {c.name} : {formatEUR(c.unitPriceCents)}
+                            {c.isSubscription ? (c.billingInterval === "YEAR" ? " par an" : " par mois") : ""}
+                          </option>
+                        ))}
+                      </Select>
+                    </Field>
+                  </div>
+                  <div className="w-20 shrink-0">
+                    <Field label="Qté">
+                      <Input type="number" inputMode="numeric" min="1" max="999" value={item.quantity} onChange={(e) => setItem(i, { quantity: e.target.value })} />
+                    </Field>
+                  </div>
+                  <Button
+                    variant="danger-ghost"
+                    aria-label={`Retirer la prestation ${i + 1} du pack`}
+                    onClick={() => setForm((f) => ({ ...f, items: f.items.filter((_, k) => k !== i) }))}
+                  >
+                    <FontAwesomeIcon icon={faTrash} className="h-3.5 w-3.5" aria-hidden />
+                  </Button>
+                </div>
+              ))}
+              <Button variant="secondary" onClick={() => setForm((f) => ({ ...f, items: [...f.items, { serviceId: "", quantity: "1" }] }))}>
+                <FontAwesomeIcon icon={faPlus} className="h-3.5 w-3.5" aria-hidden />
+                Ajouter une prestation
+              </Button>
+            </fieldset>
+          ) : null}
           <Field
             label={
-              form.kind === "SUBSCRIPTION"
+              form.kind === "PACK"
+                ? "Prix du pack, partie ponctuelle (€)"
+                : form.kind === "SUBSCRIPTION"
                 ? form.billingInterval === "YEAR"
                   ? "Prix par an (€)"
                   : "Prix par mois (€)"
                 : "Prix (€)"
             }
             hint={
-              linkedPriceChange
+              form.kind === "PACK"
+                ? `Détail : ${formatEUR(detailCents)}${priceCents > 0 && priceCents <= detailCents ? `, remise du pack : ${formatEUR(detailCents - priceCents)}` : ""}. Le prix du pack ne dépasse jamais le détail. Un pack n'est pas envoyé à Stripe.`
+                : linkedPriceChange
                 ? `Un nouveau prix est créé dans Stripe et l'ancien (${formatEUR(editing?.unitPriceCents ?? 0)}) est archivé. Les abonnements en cours ne changent pas : ils gardent l'ancien prix.`
                 : priceCents > 0
                 ? `Montant payé par le client. Si vous devenez assujetti à la TVA, ce prix reste le même : ${htEquivalent(priceCents)} HT + TVA 20 %.`

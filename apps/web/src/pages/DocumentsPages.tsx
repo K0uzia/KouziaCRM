@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import type { ClientNeed } from "@/components/clients/NeedsEditor";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
@@ -114,6 +114,9 @@ type Doc = {
     billingInterval?: string | null;
     serviceId?: string | null;
     subscriptionId?: string | null;
+    /** Pack : titre sous lequel la ligne est groupée ; ligne de remise du pack. */
+    groupTitle?: string | null;
+    isPackDiscount?: boolean;
     subscriptionStart?: string | null;
     subscriptionStartDate?: string | null;
     subscriptionFreeMonths?: number | null;
@@ -1024,8 +1027,17 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
                   </tr>
                 </thead>
                 <tbody>
-                  {(doc.lines ?? []).map((l, i) => (
-                    <tr key={i} className="border-t border-[var(--border)]">
+                  {(doc.lines ?? []).map((l, i, all) => (
+                    <Fragment key={i}>
+                    {/* Pack : titre au-dessus de ses lignes. */}
+                    {l.groupTitle && l.groupTitle !== all[i - 1]?.groupTitle ? (
+                      <tr className="border-t border-[var(--border)] bg-[var(--surface-raised)]">
+                        <th scope="rowgroup" colSpan={4} className="px-5 py-2 text-left font-semibold sm:px-6">
+                          {l.groupTitle}
+                        </th>
+                      </tr>
+                    ) : null}
+                    <tr className="border-t border-[var(--border)]">
                       <td className="px-5 py-3 sm:px-6" data-label="Désignation">
                         {/* Un seul enfant : en cartes (mobile), la note ne devient pas une colonne étroite. */}
                         <div className="min-w-0">
@@ -1054,6 +1066,7 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
                         {billedWithDocument(l) ? formatEUR(l.lineTotalCents) : <span className="font-normal text-[var(--muted)]">Hors total</span>}
                       </td>
                     </tr>
+                    </Fragment>
                   ))}
                 </tbody>
               </table>
@@ -1739,6 +1752,8 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
               billingDay: String(l.billingDay ?? 1),
               billingInterval: l.billingInterval === "YEAR" ? "YEAR" : "MONTH",
               serviceId: l.serviceId ?? "",
+              groupTitle: l.groupTitle ?? "",
+              isPackDiscount: Boolean(l.isPackDiscount),
               ...startFromLine(l),
             })),
           }}

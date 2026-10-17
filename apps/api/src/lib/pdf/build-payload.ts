@@ -174,6 +174,8 @@ export function buildInvoicePdfPayload({
       isSubscription: l.isSubscription,
       billingDay: l.billingDay,
       billingInterval: l.billingInterval,
+      groupTitle: l.groupTitle,
+      isPackDiscount: l.isPackDiscount,
       // Départ choisi sur la ligne du devis (date précise, mois offerts…) : phrase à la place du départ par défaut.
       startText:
         isQuote && l.isSubscription && l.subscriptionStart

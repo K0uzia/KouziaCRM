@@ -17,6 +17,10 @@ export type LineInput = {
   subscriptionStart?: string | null;
   subscriptionStartDate?: Date | string | null;
   subscriptionFreeMonths?: number | null;
+  /** Titre du pack sous lequel la ligne est groupée. */
+  groupTitle?: string | null;
+  /** Ligne « Remise pack » (montant négatif, partie ponctuelle). */
+  isPackDiscount?: boolean | null;
 };
 
 const STARTS = new Set(["SIGNATURE", "DELIVERY", "DATE", "FREE_MONTHS"]);
@@ -81,6 +85,8 @@ export function computeLineTotals(lines: LineInput[], discount: DiscountInput = 
       serviceId: isSubscription ? line.serviceId || null : null,
       subscriptionId: line.subscriptionId ?? null,
       revisesSubscriptionId: isSubscription ? (line.revisesSubscriptionId ?? null) : null,
+      groupTitle: line.groupTitle?.trim() || null,
+      isPackDiscount: !isSubscription && Boolean(line.isPackDiscount),
       ...lineStart(line, isSubscription),
     };
   });

@@ -1,3 +1,4 @@
+import { packItemsSchema, packLines, PackError, validatePack } from "@/lib/services/packs.js";
 import { randomUUID } from "node:crypto";
 import type { FastifyPluginAsync } from "fastify";
 import { z } from "zod";
@@ -27,7 +28,44 @@ const serviceSchema = z.object({
   billingInterval: z.enum(["MONTH", "YEAR"]).optional().nullable(),
   /** Clé d'idempotence Stripe : une par ouverture du formulaire. */
   requestId: z.string().uuid().optional(),
+  /** Pack : prestations du catalogue avec leur quantité ; le prix est celui de la partie ponctuelle. */
+  isPack: z.boolean().optional().default(false),
+  packItems: packItemsSchema.optional(),
 });
+
+const PACK_INCLUDE = {
+  packItems: {
+    orderBy: { position: "asc" as const },
+    include: {
+      service: { select: { id: true, name: true, unitPriceCents: true, isSubscription: true, billingInterval: true, active: true } },
+    },
+  },
+};
+
+/** Enregistre un pack (jamais dans Stripe : il n'est pas vendu tel quel, ses lignes le sont). */
+async function savePack(data: z.output<typeof serviceSchema>, id?: string) {
+  if (!data.packItems) throw new PackError("Un pack contient au moins une prestation.");
+  const priceCents = eurosToCents(data.unitPriceEuros);
+  await validatePack(data.packItems, priceCents, id);
+  const fields = {
+    name: data.name,
+    description: data.description ?? null,
+    unitPriceCents: priceCents,
+    unit: ServiceUnit.FORFAIT,
+    active: data.active,
+    isPack: true,
+    isSubscription: false,
+    billingInterval: null,
+    defaultBillingDay: 1,
+  };
+  const items = data.packItems.map((i, position) => ({ serviceId: i.serviceId, quantity: i.quantity, position }));
+  return prisma.$transaction(async (tx) => {
+    if (id) await tx.servicePackItem.deleteMany({ where: { packId: id } });
+    return id
+      ? tx.service.update({ where: { id }, data: { ...fields, packItems: { create: items } }, include: PACK_INCLUDE })
+      : tx.service.create({ data: { ...fields, packItems: { create: items } }, include: PACK_INCLUDE });
+  });
+}
 
 function stripeError(reply: { code: (n: number) => { send: (b: unknown) => unknown } }, err: unknown) {
   if (err instanceof StripeCatalogError) return reply.code(502).send({ error: err.message });
@@ -50,7 +88,19 @@ export const servicesRoutes: FastifyPluginAsync = async (app) => {
     return prisma.service.findMany({
       where: Object.keys(where).length > 0 ? where : undefined,
       orderBy: { name: "asc" },
+      include: PACK_INCLUDE,
     });
+  });
+
+  app.get<{ Params: { id: string } }>("/api/services/:id/pack-lines", async (request, reply) => {
+    await requireAuth(request, reply);
+    if (reply.sent) return;
+    try {
+      return await packLines(request.params.id);
+    } catch (err) {
+      if (err instanceof PackError) return reply.code(404).send({ error: err.message });
+      throw err;
+    }
   });
 
   app.post("/api/services", async (request, reply) => {
@@ -59,6 +109,14 @@ export const servicesRoutes: FastifyPluginAsync = async (app) => {
     const parsed = serviceSchema.safeParse(request.body);
     if (!parsed.success) {
       return reply.code(400).send({ error: "Données invalides", details: parsed.error.flatten() });
+    }
+    if (parsed.data.isPack) {
+      try {
+        return reply.code(201).send(await savePack(parsed.data));
+      } catch (err) {
+        if (err instanceof PackError) return reply.code(400).send({ error: err.message });
+        throw err;
+      }
     }
     const settings = await getCompanySettings();
     if (settings.moduleStripeEnabled) {
@@ -88,6 +146,8 @@ export const servicesRoutes: FastifyPluginAsync = async (app) => {
         defaultBillingDay: parsed.data.isSubscription
           ? parsed.data.defaultBillingDay
           : 1,
+        // Sans Stripe aussi : la périodicité choisie est gardée (sinon un abonnement annuel passait en mensuel).
+        billingInterval: parsed.data.isSubscription ? (parsed.data.billingInterval ?? "MONTH") : null,
       },
     });
     return reply.code(201).send(created);
@@ -102,6 +162,17 @@ export const servicesRoutes: FastifyPluginAsync = async (app) => {
     }
     const existing = await prisma.service.findUnique({ where: { id: request.params.id } });
     if (!existing) return reply.code(404).send({ error: "Prestation introuvable" });
+    if (existing.isPack !== parsed.data.isPack) {
+      return reply.code(400).send({ error: "Un pack reste un pack, une prestation reste une prestation : créez-en une nouvelle." });
+    }
+    if (existing.isPack) {
+      try {
+        return await savePack(parsed.data, existing.id);
+      } catch (err) {
+        if (err instanceof PackError) return reply.code(400).send({ error: err.message });
+        throw err;
+      }
+    }
 
     // Prestation liée à Stripe : type et périodicité appartiennent au prix Stripe (lecture seule).
     // Nom et description sont repoussés vers le produit Stripe, sinon la synchro horaire les écraserait ;
@@ -172,6 +243,7 @@ export const servicesRoutes: FastifyPluginAsync = async (app) => {
         defaultBillingDay: parsed.data.isSubscription
           ? parsed.data.defaultBillingDay
           : 1,
+        billingInterval: parsed.data.isSubscription ? (parsed.data.billingInterval ?? existing.billingInterval ?? "MONTH") : null,
       },
     });
     return updated;
@@ -185,7 +257,7 @@ export const servicesRoutes: FastifyPluginAsync = async (app) => {
     const id = request.params.id;
     const service = await prisma.service.findUnique({
       where: { id },
-      include: { _count: { select: { invoiceLines: true, subscriptions: true } } },
+      include: { _count: { select: { invoiceLines: true, subscriptions: true, inPacks: true } } },
     });
     if (!service) return reply.code(404).send({ error: "Prestation introuvable" });
     if (service.stripeProductId) {
@@ -196,7 +268,8 @@ export const servicesRoutes: FastifyPluginAsync = async (app) => {
         return stripeError(reply, err);
       }
     }
-    if (service._count.invoiceLines > 0 || service._count.subscriptions > 0) {
+    // Prestation d'un pack : archivée (le pack garde son détail) ; un pack lui-même ne figure sur aucune ligne.
+    if (service._count.invoiceLines > 0 || service._count.subscriptions > 0 || service._count.inPacks > 0) {
       await prisma.service.update({ where: { id }, data: { active: false } });
       return { ok: true, archived: true };
     }

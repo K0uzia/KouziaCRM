@@ -752,6 +752,8 @@ export async function convertQuoteToInvoice(quoteId: string) {
             serviceId: line.serviceId,
             subscriptionId: line.subscriptionId,
             revisesSubscriptionId: line.revisesSubscriptionId,
+            groupTitle: line.groupTitle,
+            isPackDiscount: line.isPackDiscount,
             subscriptionStart: line.subscriptionStart,
             subscriptionStartDate: line.subscriptionStartDate,
             subscriptionFreeMonths: line.subscriptionFreeMonths,
