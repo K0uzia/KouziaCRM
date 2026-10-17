@@ -48,3 +48,11 @@ export async function offlineConflicts(
   }
   return conflicts;
 }
+
+const REASON_LABEL: Record<OfflineConflict["kind"], string> = { client_changed: "client modifié", price_changed: "prix changé" };
+
+/** Motif court gardé sur le devis (« client modifié, prix changé »), ou null sans écart. */
+export function offlineReviewReason(conflicts: OfflineConflict[]): string | null {
+  const kinds = (["client_changed", "price_changed"] as const).filter((k) => conflicts.some((c) => c.kind === k));
+  return kinds.length ? kinds.map((k) => REASON_LABEL[k]).join(", ") : null;
+}

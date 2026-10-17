@@ -76,6 +76,7 @@ describe("buildInvoicePdfPayload charte dynamique", () => {
         pdfSha256: null,
         pdfArchivedAt: null,
         clientRequestId: null,
+        offlineReviewReason: null,
         lines: [
           {
             id: "l1",

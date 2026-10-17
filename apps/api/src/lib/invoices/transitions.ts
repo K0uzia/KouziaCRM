@@ -185,6 +185,8 @@ export async function issueQuote(
         nextReminderAt: addDays(issueDate, settings.reminderQuoteDays),
         paymentPlanOffer: offer,
         depositBaseCents,
+        // Émis : le devis préparé hors ligne a été relu.
+        offlineReviewReason: null,
       },
       include: { lines: true, client: true, payments: true },
     });

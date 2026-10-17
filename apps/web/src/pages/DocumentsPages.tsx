@@ -46,8 +46,8 @@ import {
   type PaymentFieldsState,
 } from "@/components/documents/BillingDialog";
 import { useCreateParam } from "@/lib/use-create-param";
-import { signalFor, useOfflineQueue } from "@/lib/offline/queue";
 import { OfflineGuard } from "@/components/ui/OfflineGuard";
+import { useOfflineQueue } from "@/lib/offline/queue";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 
 type Milestone = {
@@ -64,6 +64,8 @@ type Milestone = {
 type Doc = {
   id: string;
   number: string | null;
+  /** Devis préparé hors ligne et créé avec un écart : motif court, jusqu'à relecture ou émission. */
+  offlineReviewReason?: string | null;
   status: string;
   quoteStatus?: string | null;
   quoteDecidedAt?: string | null;
@@ -221,6 +223,7 @@ function DocumentsListPage({
           <span className="flex flex-wrap justify-end gap-1">
             <Badge tone={statusTone(st)}>{labels[st] ?? st}</Badge>
             {d.stripeUncollectibleAt ? <Badge tone="red">Non recouvrable</Badge> : null}
+            {d.offlineReviewReason ? <Badge tone="amber">Préparé hors ligne, à relire</Badge> : null}
           </span>
         </div>
         <p className="mt-1 text-xs text-[var(--muted)]">{formatDate(d.issueDate)}</p>
@@ -245,6 +248,11 @@ function DocumentsListPage({
             </Link>
             <InvoiceTypeBadge type={d.documentType === "CREDIT_NOTE" ? "CREDIT_NOTE" : d.invoiceType} compact />
           </div>
+          {d.offlineReviewReason ? (
+            <span className="mt-0.5 block" title={`Préparé hors ligne, à relire : ${d.offlineReviewReason}`}>
+              <Badge tone="amber">Préparé hors ligne, à relire</Badge>
+            </span>
+          ) : null}
           {!isQuote && (d.quote?.number || d.quoteId) ? (
             <Link
               to={`/quotes/${d.quoteId ?? d.quote?.id}`}
@@ -477,11 +485,22 @@ function Deposit2Notice({ milestone, clientId }: { milestone: MarketMilestone | 
 export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
   const { id } = useParams();
   const navigate = useNavigate();
-  // Devis préparé hors ligne et créé avec un écart (client modifié, prix changé) : étiquette jusqu'à relecture.
-  useOfflineQueue();
-  const offlineReview = id && kind === "QUOTE" ? signalFor(id) : null;
   const isQuote = kind === "QUOTE";
   const [doc, setDoc] = useState<Doc | null>(null);
+  const [reviewBusy, setReviewBusy] = useState(false);
+  // Étiquette « Préparé hors ligne, à relire » retirée (elle l'est aussi d'office à l'émission).
+  async function markReviewed() {
+    setReviewBusy(true);
+    try {
+      await api(`/api/invoices/${id}/offline-review`, { method: "DELETE" });
+      setDoc((d) => (d ? { ...d, offlineReviewReason: null } : d));
+      toast.success("Devis marqué comme relu.");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Erreur");
+    } finally {
+      setReviewBusy(false);
+    }
+  }
   const [clients, setClients] = useState<ClientOpt[]>([]);
   const [editOpen, setEditOpen] = useState(false);
   const [payOpen, setPayOpen] = useState(false);
@@ -902,7 +921,7 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
             </Link>
             <Badge tone={statusTone(st)}>{labels[st] ?? st}</Badge>
             {doc.stripeUncollectibleAt ? <Badge tone="red">Non recouvrable (Stripe)</Badge> : null}
-            {offlineReview ? <Badge tone="amber">Préparé hors ligne, à relire</Badge> : null}
+            {doc.offlineReviewReason ? <Badge tone="amber">Préparé hors ligne, à relire</Badge> : null}
             {doc.invoiceType && doc.invoiceType !== "SIMPLE" ? (
               <InvoiceTypeBadge type={doc.invoiceType} />
             ) : null}
@@ -975,6 +994,17 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
       {/* Hors ligne : boutons et champs du corps de la fiche désactivés (les liens restent actifs). */}
       <OfflineGuard className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1fr)_22rem]">
         <div className="min-w-0 space-y-6">
+          {doc.offlineReviewReason ? (
+            <Card className="flex flex-col gap-3 border-[var(--warning)]/40 p-4 text-sm sm:flex-row sm:items-center sm:justify-between" data-offline-review>
+              <p>
+                <strong className="font-semibold">Préparé hors ligne, à relire</strong> : {doc.offlineReviewReason} depuis la
+                préparation. Le brouillon garde ce qui a été saisi ; vérifiez la fiche client et les prix avant l'émission.
+              </p>
+              <Button variant="secondary" className="shrink-0" disabled={reviewBusy} onClick={() => void markReviewed()}>
+                {reviewBusy ? "Enregistrement…" : "Marquer comme relu"}
+              </Button>
+            </Card>
+          ) : null}
           {/* Le document tel qu'il est émis */}
           <Card className="overflow-hidden">
             <div className="flex flex-col gap-4 border-b border-[var(--border)] p-5 sm:flex-row sm:items-start sm:justify-between sm:p-6">

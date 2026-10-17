@@ -1089,6 +1089,8 @@ model Invoice {
   project                      ClientProject?         @relation("QuoteProject")
   /// Brouillon préparé hors ligne : UUID de l'appareil ; un renvoi rend le même document (idempotence)
   clientRequestId              String?                @unique
+  /// Préparé hors ligne, à relire : motif court (« client modifié », « prix changé »), effacé à la relecture ou à l'émission
+  offlineReviewReason          String?
 
   @@unique([sequenceYear, sequenceNumber, documentType])
   @@index([status])

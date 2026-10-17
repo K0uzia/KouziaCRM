@@ -69,7 +69,7 @@ const INVOICE_KEYS = [
   "sequenceNumber", "currency", "subtotalCents", "totalCents", "discountType", "discountValue", "marketTotalCents",
   "depositBaseCents", "notes", "paymentTerms", "creditedInvoiceId", "creditReason", "creditReasonDetail",
   "refundMethod", "cgvDepositRefundable", "paymentPlanOffer", "paymentPlan", "quoteId", "sourceQuoteId",
-  "milestoneId", "subscriptionId", "issuedAt", "createdAt", "updatedAt",
+  "milestoneId", "subscriptionId", "issuedAt", "offlineReviewReason", "createdAt", "updatedAt",
 ] as const;
 
 const NOTE_KEYS = ["id", "clientId", "body", "preparedAt", "createdAt"] as const;

@@ -12,8 +12,8 @@ import { deleteSealed, putSealed, readAllSealed } from "./store";
  *   part sans l'utilisateur connecté devant l'ERP.
  * - Dépendances dans l'ordre : un devis ou une note pour un client préparé hors ligne (identifiant « local-… »)
  *   attend que ce client soit créé, puis prend son vrai identifiant.
- * - Écarts (client modifié, prix changé, adresse déjà connue) : l'élément est créé, l'écart est gardé à relire
- *   (magasin « relire ») ; client supprimé ou donnée refusée : l'élément reste dans la file, « à revoir ».
+ * - Écarts : client modifié ou prix changé, le devis est créé avec l'étiquette « Préparé hors ligne, à relire »
+ *   posée par le serveur ; adresse déjà connue, rattachement signalé ici (magasin « relire ») ; client supprimé ou donnée refusée : l'élément reste dans la file, « à revoir ».
  */
 export type QueueKind = "client" | "quote" | "note";
 /** waiting : à envoyer ; error : envoi échoué (serveur), nouvel essai automatique ; review : à revoir. */
@@ -136,11 +136,6 @@ export async function dismissSignal(id: string): Promise<void> {
   set({ signals: snapshot.signals.filter((s) => s.id !== id) }, true);
 }
 
-/** Écart à relire sur un élément créé (badge « Préparé hors ligne, à relire » de la fiche). */
-export function signalFor(targetId: string): ReviewSignal | null {
-  return snapshot.signals.find((s) => s.targetId === targetId) ?? null;
-}
-
 export function resolvedClientId(localId: string): string | null {
   return resolved.get(localId) ?? null;
 }
@@ -260,21 +255,9 @@ async function sendOne(item: QueueItem): Promise<"sent" | "review" | "session" |
     if (item.kind === "client") {
       const client = await send<{ id: string; displayName: string }>(item);
       await attach(item.clientId, client.id, client.displayName);
-    } else if (item.kind === "quote") {
-      const quote = await send<{ id: string; offline?: { conflicts: Array<{ message: string }> } }>(item);
-      const conflicts = quote.offline?.conflicts ?? [];
-      if (conflicts.length) {
-        await addSignal({
-          id: item.id,
-          kind: "quote",
-          label: item.label,
-          to: `/quotes/${quote.id}`,
-          targetId: quote.id,
-          messages: conflicts.map((c) => c.message),
-          at: new Date().toISOString(),
-        });
-      }
     } else {
+      // Devis : un écart (client modifié, prix changé) est gardé par le serveur (Invoice.offlineReviewReason),
+      // visible sur tous les appareils.
       await send(item);
     }
     await drop(item.id);

@@ -57,7 +57,7 @@ import { renderEmailTextFooter } from "@/lib/email/layout.js";
 import { signDocumentToken } from "@/lib/documents/public-token.js";
 import { listActiveLegalClauses, subscriptionDateNoticeOf } from "@/lib/company/legal-clauses.js";
 import { FREE_MONTHS_MAX, SUBSCRIPTION_STARTS } from "@/lib/subscriptions/start.js";
-import { offlineConflicts, offlineQuoteFields } from "@/lib/invoices/offline-review.js";
+import { offlineConflicts, offlineQuoteFields, offlineReviewReason } from "@/lib/invoices/offline-review.js";
 import { renderCreditNotePreviewPdf, renderDraftPreviewPdf } from "@/lib/pdf/draft-preview.js";
 
 const lineSchema = z.object({
@@ -310,7 +310,7 @@ export const invoicesRoutes: FastifyPluginAsync = async (app) => {
         data: {
           documentType,
           paymentPlanOffer,
-          ...(clientRequestId ? { clientRequestId } : {}),
+          ...(clientRequestId ? { clientRequestId, offlineReviewReason: offlineReviewReason(conflicts) } : {}),
           quoteStatus: documentType === InvoiceDocumentType.QUOTE ? QuoteStatus.DRAFT : null,
           clientId: parsed.data.clientId,
           notes: parsed.data.notes ?? null,
@@ -713,6 +713,16 @@ export const invoicesRoutes: FastifyPluginAsync = async (app) => {
 
   app.delete("/api/invoices/:id", async (_request, reply) => {
     return reply.code(405).send({ error: "Suppression interdite - annulez via un avoir" });
+  });
+
+  // Devis préparé hors ligne, relu : l'étiquette « Préparé hors ligne, à relire » est retirée.
+  app.delete<{ Params: { id: string } }>("/api/invoices/:id/offline-review", async (request, reply) => {
+    await requireAuth(request, reply);
+    if (reply.sent) return;
+    const found = await prisma.invoice.findUnique({ where: { id: request.params.id }, select: { id: true } });
+    if (!found) return reply.code(404).send({ error: "Introuvable" });
+    await prisma.invoice.update({ where: { id: found.id }, data: { offlineReviewReason: null } });
+    return { ok: true, offlineReviewReason: null };
   });
 
   app.post<{ Params: { id: string } }>("/api/invoices/:id/issue", async (request, reply) => {
