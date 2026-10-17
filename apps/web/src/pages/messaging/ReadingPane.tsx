@@ -6,10 +6,12 @@ import {
   faReply,
   faStar,
   faTrash,
+  faUserPlus,
 } from "@fortawesome/free-solid-svg-icons";
 import { api } from "@/lib/api";
 import { toast } from "sonner";
-import { Button } from "@/components/ui/Button";
+import { Button, ButtonLink } from "@/components/ui/Button";
+import type { ClientPrefill } from "@/components/clients/ClientForm";
 import { MessageBody } from "@/pages/messaging/MessageBody";
 import { AttachmentList } from "@/pages/messaging/AttachmentList";
 import { QuoteValidationBlock } from "@/pages/messaging/QuoteValidationBlock";
@@ -39,6 +41,8 @@ type MessageBodyPayload = {
   bodyText: string | null;
   bodyHtml: string | null;
   attachments?: Array<{ id: string; filename: string; mimeType: string; sizeBytes: number }>;
+  /** Formulaire du site sans client correspondant : fiche proposée, jamais créée d'office. */
+  formLead?: ClientPrefill | null;
 };
 
 type ThreadMessage = {
@@ -391,6 +395,15 @@ export function ReadingPane({
                       bodyText={body.bodyText}
                       bodyHtml={body.bodyHtml}
                     />
+                    {body.formLead ? (
+                      <div className="mt-3 flex flex-wrap items-center gap-2 rounded-lg border border-[var(--border)] px-3 py-2 text-sm">
+                        <span className="min-w-0 flex-1 text-[var(--muted)]">Aucun client ne correspond à ce message du formulaire.</span>
+                        <ButtonLink to="/clients?new=1" state={{ prefill: body.formLead }} variant="secondary">
+                          <FontAwesomeIcon icon={faUserPlus} className="h-4 w-4" aria-hidden />
+                          Créer le client
+                        </ButtonLink>
+                      </div>
+                    ) : null}
                   </div>
                 ) : null}
                 {open && !body && loadingBody ? (

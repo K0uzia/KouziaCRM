@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useRef, useState, type ComponentType, type ReactNode } from "react";
+import { lazy, Suspense, useCallback, useEffect, useRef, useState, type ComponentType, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import {
@@ -20,6 +20,7 @@ import type { IconDefinition } from "@fortawesome/fontawesome-svg-core";
 import { toast } from "sonner";
 import { type NotificationKind, useLiveRefresh } from "@/lib/notifications";
 import { MAIL_SYNC_STATUS_EVENT } from "@/hooks/useNewMailAlert";
+import { onMailChanged } from "@/lib/mailEvents";
 import { api, formatEUR } from "@/lib/api";
 import { formatAgoMinutes, formatDate, MAIL_SYNC_STALE_MIN, minutesSince } from "@/lib/format";
 import { useAuth } from "@/lib/auth";
@@ -122,13 +123,19 @@ type ReminderRow = {
 
 type MrrData = { mrrCents: number; arrCents: number; activeCount: number; upcomingCount?: number; upcomingMrrCents?: number };
 
-type ThreadRow = {
-  id: string;
-  subject: string;
-  lastMessageAt: string;
-  unreadCount?: number;
-  client: { id: string; displayName: string } | null;
-  lastFrom: string;
+/** GET /api/emails/inbox-summary : la boîte de réception telle que la Messagerie l'ouvre. */
+type InboxSummary = {
+  unreadCount: number;
+  messages: Array<{
+    id: string;
+    threadId: string;
+    subject: string;
+    fromAddress: string;
+    fromName: string | null;
+    receivedAt: string;
+    isRead: boolean;
+    client: { id: string; displayName: string } | null;
+  }>;
 };
 
 type CfeObligation = { label: string; dueDate: string; amountCents: number | null };
@@ -145,7 +152,7 @@ type Overview = DashboardData & {
   mrr: MrrData | null;
   obligations: ObligationsSummary | null;
   cfeObligation: CfeObligation | null;
-  threads: ThreadRow[] | null;
+  mail: InboxSummary | null;
   mailSync: { imapConfigured: boolean; lastSyncAt: string | null } | null;
   ownerPay: OwnerPay | null;
   /** Particuliers dans le délai de rétractation, sans demande d'exécution anticipée. */
@@ -303,6 +310,20 @@ export function DashboardPage() {
     window.addEventListener(MAIL_SYNC_STATUS_EVENT, onStatus);
     return () => window.removeEventListener(MAIL_SYNC_STATUS_EVENT, onStatus);
   }, []);
+  // Carte Messagerie relue seule (requête en base, sans IMAP) après un passage du worker ou une
+  // action dans la Messagerie : lu, suppression ou déplacement s'y voient sans recharger la page.
+  const reloadMail = useCallback(() => {
+    api<InboxSummary>("/api/emails/inbox-summary")
+      .then((mail) => setData((d) => (d ? { ...d, mail } : d)))
+      .catch(() => undefined);
+  }, []);
+  const seenSyncAt = useRef<string | null | undefined>(undefined);
+  useEffect(() => {
+    if (lastSyncAt === undefined) return;
+    if (seenSyncAt.current !== undefined && seenSyncAt.current !== lastSyncAt) reloadMail();
+    seenSyncAt.current = lastSyncAt;
+  }, [lastSyncAt, reloadMail]);
+  useEffect(() => onMailChanged(reloadMail), [reloadMail]);
   const mailSyncAge = data?.mailSync?.imapConfigured
     ? (minutesSince(lastSyncAt === undefined ? data.mailSync.lastSyncAt : lastSyncAt) ?? Infinity)
     : null;
@@ -318,7 +339,7 @@ export function DashboardPage() {
   const mrr = data?.mrr ?? null;
   const obligations = data?.obligations ?? null;
   const cfeObligation = data?.cfeObligation ?? null;
-  const threads = data?.threads ?? null;
+  const mail = data?.mail ?? null;
   const ownerPay = data?.ownerPay ?? null;
   const RevenueChart = useDeferredComponent(loadRevenueChart, data !== null);
   const FlowsChart = useDeferredComponent(loadFlowsChart, data !== null);
@@ -452,7 +473,7 @@ export function DashboardPage() {
   const obligationAlerts = os ? os.late + os.urgent + os.open : 0;
 
 
-  const unreadThreads = (threads ?? []).filter((t) => (t.unreadCount ?? 0) > 0).length;
+  const unreadMail = mail?.unreadCount ?? 0;
 
   const companyEmailAlert = obligations?.alerts?.find((a) => a.kind === "company-email");
 
@@ -828,33 +849,33 @@ export function DashboardPage() {
             >
               <span className="inline-flex items-center gap-2">
                 Messagerie
-                {unreadThreads > 0 ? (
+                {unreadMail > 0 ? (
                   <span className="rounded-full bg-[var(--primary)] px-1.5 text-[0.6875rem] font-semibold leading-5 text-[var(--primary-fg)]">
-                    {unreadThreads} non lu{unreadThreads > 1 ? "s" : ""}
+                    {unreadMail} non lu{unreadMail > 1 ? "s" : ""}
                   </span>
                 ) : null}
               </span>
             </SectionTitle>
             {!ready ? (
               <SkeletonRows count={5} rowClass="flex min-h-15 items-center px-5 py-3" />
-            ) : threads === null ? (
+            ) : mail === null ? (
               <p className="px-5 py-6 text-center text-sm text-[var(--muted)]">Messages indisponibles pour le moment.</p>
-            ) : threads.length === 0 && data?.mailSync?.imapConfigured === false ? (
+            ) : mail.messages.length === 0 && data?.mailSync?.imapConfigured === false ? (
               <div className="px-5 py-6 text-center text-sm text-[var(--muted)]">
                 <p>Boîte mail non connectée.</p>
                 <Link to="/settings?tab=email" className="link mt-1 inline-flex min-h-11 items-center">
                   Configurer la messagerie
                 </Link>
               </div>
-            ) : threads.length === 0 ? (
+            ) : mail.messages.length === 0 ? (
               <p className="px-5 py-6 text-center text-sm text-[var(--muted)]">Aucun échange pour le moment.</p>
             ) : (
               <ul className="divide-y divide-[var(--border)]">
-                {threads.map((t) => {
-                  const unread = (t.unreadCount ?? 0) > 0;
+                {mail.messages.map((m) => {
+                  const unread = !m.isRead;
                   return (
-                    <li key={t.id}>
-                      <Link to={`/inbox/${t.id}`} className="flex gap-3 px-5 py-3 hover:bg-[var(--surface-raised)]">
+                    <li key={m.id}>
+                      <Link to={`/inbox/${m.threadId}`} className="flex gap-3 px-5 py-3 hover:bg-[var(--surface-raised)]">
                         <span
                           className={`mt-1.5 h-2 w-2 shrink-0 rounded-full ${unread ? "bg-[var(--primary)]" : "bg-transparent"}`}
                           aria-label={unread ? "non lu" : undefined}
@@ -862,11 +883,11 @@ export function DashboardPage() {
                         <span className="min-w-0 flex-1">
                           <span className="flex items-baseline justify-between gap-2">
                             <span className={`truncate text-sm ${unread ? "font-semibold" : ""}`}>
-                              {t.client?.displayName ?? t.lastFrom}
+                              {m.client?.displayName ?? m.fromName ?? m.fromAddress}
                             </span>
-                            <span className="shrink-0 text-xs text-[var(--muted)]">{formatDate(t.lastMessageAt)}</span>
+                            <span className="shrink-0 text-xs text-[var(--muted)]">{formatDate(m.receivedAt)}</span>
                           </span>
-                          <span className="block truncate text-xs text-[var(--muted)]">{t.subject}</span>
+                          <span className="block truncate text-xs text-[var(--muted)]">{m.subject}</span>
                         </span>
                       </Link>
                     </li>

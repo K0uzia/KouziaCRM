@@ -85,6 +85,22 @@ export type ClientFormData = {
   sirenLocked: boolean;
 };
 
+/** Fiche proposée depuis un message du formulaire du site (bouton « Créer le client »). */
+export type ClientPrefill = { name: string | null; email: string | null; phone: string | null; company: string | null };
+
+export function prefillToForm(p: ClientPrefill): ClientFormData {
+  const [firstName = "", ...rest] = (p.name ?? "").trim().split(/\s+/);
+  return {
+    ...emptyClientForm(),
+    type: p.company ? "B2B" : "B2C",
+    firstName,
+    lastName: rest.join(" "),
+    companyName: p.company ?? "",
+    email: p.email ?? "",
+    phone: p.phone ?? "",
+  };
+}
+
 export const emptyClientForm = (): ClientFormData => ({
   type: "B2C",
   firstName: "",

@@ -18,12 +18,14 @@ import {
   deleteMessage,
   deleteMessages,
   emptyTrashFolder,
+  getInboxSummary,
   getMailFoldersWithCounts,
   getMailSyncStatus,
   moveMessageToFolder,
   runMailSync,
 } from "@/lib/email/sync/index.js";
 import { fetchMessageBody } from "@/lib/email/sync/body-fetch.js";
+import { formLeadForMessage } from "@/lib/email/web3forms.js";
 import { setBulkMessageFlags, setMessageFlags } from "@/lib/email/sync/flag-sync.js";
 import { withImapClient } from "@/lib/email/sync/imap-connection.js";
 import { toImapInt } from "@/lib/email/sync/imap-int.js";
@@ -215,16 +217,20 @@ export const miscRoutes: FastifyPluginAsync = async (app) => {
       lastSyncAt: null,
       lastError: null,
     };
-    const inbox = await prisma.mailFolder.findFirst({
-      where: { role: "INBOX", isVirtual: false },
-      select: { unreadCount: true },
-    });
+    const inbox = await getInboxSummary(0);
     return {
       ...status,
-      inboxUnreadCount: inbox?.unreadCount ?? 0,
+      inboxUnreadCount: inbox.unreadCount,
       // Alerte « pas de synchro depuis X min » seulement si la boîte est configurée.
       imapConfigured: await isImapConfigured(),
     };
+  });
+
+  /** Carte « Messagerie » du tableau de bord : relue après une synchro ou une action, sans IMAP. */
+  app.get("/api/emails/inbox-summary", async (request, reply) => {
+    await requireAuth(request, reply);
+    if (reply.sent) return;
+    return getInboxSummary(5);
   });
 
   app.get("/api/emails/messages", async (request, reply) => {
@@ -557,9 +563,12 @@ export const miscRoutes: FastifyPluginAsync = async (app) => {
       if (reply.sent) return;
       const q = request.query as { allowRemoteImages?: string };
       try {
-        return await fetchMessageBody(request.params.messageId, {
+        const body = await fetchMessageBody(request.params.messageId, {
           allowRemoteImages: q.allowRemoteImages !== "false",
         });
+        // Formulaire du site : rattaché au client existant, ou fiche proposée pour « Créer le client ».
+        const formLead = await formLeadForMessage(request.params.messageId).catch(() => null);
+        return { ...body, formLead };
       } catch (e) {
         return reply.code(400).send({
           error: e instanceof Error ? e.message : "Corps introuvable",

@@ -2,10 +2,10 @@ import { getDashboardSnapshot } from "@/lib/finance/dashboard-service.js";
 import type { CashflowScope } from "@/lib/finance/cashflow-service.js";
 import { getOwnerPaySummary } from "@/lib/finance/owner-pay.js";
 import { isImapConfigured } from "@/lib/email/imap-config.js";
+import { getInboxSummary } from "@/lib/email/sync/index.js";
 import { getMailSyncStatus } from "@/lib/email/sync/sync-status.js";
 import { serializeInvoice } from "@/lib/invoices/serialize.js";
 import { listObligationsDashboard } from "@/lib/obligations/obligation-service.js";
-import { prisma } from "@/lib/prisma.js";
 import { listPendingReminders } from "@/lib/reminders.js";
 import { computeMrrCents } from "@/lib/subscriptions/subscription-service.js";
 import { listPendingStarts } from "@/lib/quotes/withdrawal-pending.js";
@@ -41,35 +41,18 @@ async function optional<T>(label: string, run: () => Promise<T>, indisponibles: 
   }
 }
 
-/** Derniers fils de la messagerie, sans corps de message (seul l'expéditeur du dernier sert). */
-async function latestThreads(take: number) {
-  const threads = await prisma.emailThread.findMany({
-    orderBy: { lastMessageAt: "desc" },
-    take,
-    select: {
-      id: true,
-      subject: true,
-      lastMessageAt: true,
-      unreadCount: true,
-      client: { select: { id: true, displayName: true } },
-      messages: { orderBy: { receivedAt: "desc" }, take: 1, select: { fromAddress: true } },
-    },
-  });
-  return threads.map(({ messages, ...t }) => ({ ...t, lastFrom: messages[0]?.fromAddress ?? "" }));
-}
-
 /**
  * Tout le tableau de bord en un appel : une requête au lieu de huit, calculs en parallèle côté
  * serveur, obligations calculées une seule fois. Les routes unitaires restent pour les autres écrans.
  */
 export async function getDashboardOverview(scope: CashflowScope) {
   const indisponibles: string[] = [];
-  const [snapshot, reminders, mrr, obligations, threads, mailSync, ownerPay, pendingStarts, renewals, revisionsToAttach] = await Promise.all([
+  const [snapshot, reminders, mrr, obligations, mail, mailSync, ownerPay, pendingStarts, renewals, revisionsToAttach] = await Promise.all([
     getDashboardSnapshot(scope),
     optional("relances", listPendingReminders, indisponibles),
     optional("abonnements", () => computeMrrCents(), indisponibles),
     optional("obligations", () => listObligationsDashboard(), indisponibles),
-    optional("messagerie", () => latestThreads(5), indisponibles),
+    optional("messagerie", () => getInboxSummary(5), indisponibles),
     optional(
       "synchro mail",
       async () => {
@@ -97,7 +80,7 @@ export async function getDashboardOverview(scope: CashflowScope) {
       ? { summary: obligations.summary, alerts: obligations.alerts, nextDue: obligations.summary.nextDue }
       : null,
     cfeObligation: cfe ? { label: cfe.label, dueDate: cfe.dueDate, amountCents: cfe.amountCents } : null,
-    threads,
+    mail,
     mailSync,
     ownerPay,
     pendingStarts: pendingStarts ?? [],

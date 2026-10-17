@@ -17,6 +17,7 @@ import { hasImapFlag, toImapInt, toUidValidity } from "@/lib/email/sync/imap-int
 import { withImapClient } from "@/lib/email/sync/imap-connection.js";
 import { ensureMailAccount } from "@/lib/email/sync/sync-status.js";
 import { normalizeSubject, parseAddressList } from "@/lib/email/sync/threading.js";
+import { isWeb3FormsSender } from "@/lib/email/web3forms.js";
 import type { ImapFlow } from "imapflow";
 
 type EnvelopeLike = {
@@ -125,6 +126,8 @@ async function resolveThreadId(opts: {
   participants: string[];
   clientId: string | null;
   receivedAt: Date;
+  /** Faux pour le formulaire du site : tous ses messages ont le même objet, chacun garde son fil. */
+  mergeBySubject?: boolean;
 }): Promise<string> {
   if (opts.inReplyTo) {
     const parent = await prisma.emailMessage.findUnique({
@@ -146,10 +149,13 @@ async function resolveThreadId(opts: {
   }
 
   const normalized = normalizeSubject(opts.subject);
-  const recent = await prisma.emailThread.findMany({
-    take: 100,
-    orderBy: { lastMessageAt: "desc" },
-  });
+  const recent =
+    opts.mergeBySubject === false
+      ? []
+      : await prisma.emailThread.findMany({
+          take: 100,
+          orderBy: { lastMessageAt: "desc" },
+        });
   const match = recent.find((t) => normalizeSubject(t.subject) === normalized);
   if (match) {
     await prisma.emailThread.update({
@@ -173,7 +179,7 @@ async function resolveThreadId(opts: {
       participants: JSON.stringify(opts.participants),
       clientId: opts.clientId,
       lastMessageAt: opts.receivedAt,
-      unreadCount: 1,
+      unreadCount: 0,
     },
   });
   return thread.id;
@@ -302,10 +308,11 @@ export async function syncFolder(folderId: string): Promise<{ imported: number; 
         });
 
         if (existing) {
-          const mergedRead = existing.isRead || isRead;
+          const mergedRead = readFromServer(existing, isRead);
+          const mergedStarred = existing.flagsPending ? existing.isStarred : isStarred;
           if (
             existing.isRead !== mergedRead ||
-            existing.isStarred !== isStarred ||
+            existing.isStarred !== mergedStarred ||
             existing.orphaned ||
             (!existing.bodyFetched && existing.hasAttachments !== hasAttachments)
           ) {
@@ -313,7 +320,7 @@ export async function syncFolder(folderId: string): Promise<{ imported: number; 
               where: { id: existing.id },
               data: {
                 isRead: mergedRead,
-                isStarred,
+                isStarred: mergedStarred,
                 orphaned: false,
                 ...(!existing.bodyFetched ? { hasAttachments } : {}),
               },
@@ -327,18 +334,20 @@ export async function syncFolder(folderId: string): Promise<{ imported: number; 
 
         const byMessageId = await prisma.emailMessage.findUnique({ where: { messageId: mid } });
         if (byMessageId) {
+          // Déplacé côté serveur (nouveau dossier, nouvel uid) : suivi au lieu d'être dupliqué.
+          const movedRead = readFromServer(byMessageId, isRead);
           await prisma.emailMessage.update({
             where: { id: byMessageId.id },
             data: {
               folderId: folder.id,
               imapUid: uid,
-              isRead: byMessageId.isRead || isRead,
-              isStarred,
+              isRead: movedRead,
+              isStarred: byMessageId.flagsPending ? byMessageId.isStarred : isStarred,
               orphaned: false,
             },
           });
           maxUid = Math.max(maxUid, uid);
-          if (!(byMessageId.isRead || isRead)) folderUnread++;
+          if (!movedRead) folderUnread++;
           updated++;
           continue;
         }
@@ -369,6 +378,7 @@ export async function syncFolder(folderId: string): Promise<{ imported: number; 
           participants,
           clientId,
           receivedAt,
+          mergeBySubject: !(direction === EmailDirection.INBOUND && isWeb3FormsSender(fromAddress)),
         });
 
         await prisma.emailMessage.create({
@@ -419,9 +429,7 @@ export async function syncFolder(folderId: string): Promise<{ imported: number; 
       folderUnread = toImapInt(status.unseen) || folderUnread;
     }
 
-    const unreadLocal = await prisma.emailMessage.count({
-      where: { folderId: folder.id, isRead: false, orphaned: false },
-    });
+    const unreadLocal = await countUnreadInFolder(folder.id);
 
     await prisma.mailFolder.update({
       where: { id: folder.id },
@@ -435,6 +443,40 @@ export async function syncFolder(folderId: string): Promise<{ imported: number; 
   });
 
   return { imported, updated };
+}
+
+/**
+ * État lu à retenir pour un message déjà connu : le serveur fait foi (lu ou remis non lu dans un autre
+ * client), sauf changement fait dans l'ERP et pas encore écrit sur le serveur. Un envoi de l'ERP
+ * n'est jamais compté non lu, même si sa copie IMAP n'a pas \Seen.
+ */
+function readFromServer(
+  local: { isRead: boolean; flagsPending: boolean; direction: EmailDirection },
+  serverSeen: boolean,
+): boolean {
+  if (local.flagsPending) return local.isRead;
+  return serverSeen || local.direction === EmailDirection.OUTBOUND;
+}
+
+/** Écrit sur le serveur les drapeaux changés dans l'ERP dont l'écriture IMAP immédiate a échoué. */
+async function pushPendingFlags(folderId: string, client: ImapFlow): Promise<number> {
+  const pending = await prisma.emailMessage.findMany({
+    where: { folderId, flagsPending: true, orphaned: false, imapUid: { not: null } },
+    select: { id: true, imapUid: true, isRead: true, isStarred: true },
+  });
+  for (const m of pending) {
+    const uid = String(m.imapUid);
+    if (m.isRead) await client.messageFlagsAdd(uid, ["\\Seen"], { uid: true });
+    else await client.messageFlagsRemove(uid, ["\\Seen"], { uid: true });
+    if (m.isStarred) await client.messageFlagsAdd(uid, ["\\Flagged"], { uid: true });
+    else await client.messageFlagsRemove(uid, ["\\Flagged"], { uid: true });
+    // Rien n'a changé dans l'ERP pendant l'écriture : l'état est aligné.
+    await prisma.emailMessage.updateMany({
+      where: { id: m.id, flagsPending: true, isRead: m.isRead, isStarred: m.isStarred },
+      data: { flagsPending: false },
+    });
+  }
+  return pending.length;
 }
 
 /** Masque les copies locales absentes du serveur IMAP (ex. restes Mailpit). */
@@ -536,16 +578,14 @@ export async function pollFlagChanges(folderId: string): Promise<number> {
   const folder = await prisma.mailFolder.findUniqueOrThrow({ where: { id: folderId } });
   if (folder.isVirtual || folder.highestUid <= 0) return 0;
 
-  const tracked = await prisma.emailMessage.findMany({
-    where: {
-      folderId: folder.id,
-      imapUid: { not: null },
-      orphaned: false,
-    },
-    select: { id: true, imapUid: true, isRead: true, isStarred: true },
-    orderBy: { imapUid: "desc" },
-    take: 200,
-  });
+  const select = { id: true, imapUid: true, isRead: true, isStarred: true, direction: true, flagsPending: true } as const;
+  const base = { folderId: folder.id, imapUid: { not: null }, orphaned: false };
+  // Les 200 plus récents, plus tous les non lus : un ancien message lu ailleurs sort aussi du compteur.
+  const [recent, unread] = await Promise.all([
+    prisma.emailMessage.findMany({ where: base, select, orderBy: { imapUid: "desc" }, take: 200 }),
+    prisma.emailMessage.findMany({ where: { ...base, isRead: false }, select }),
+  ]);
+  const tracked = [...new Map([...recent, ...unread].map((m) => [m.id, m])).values()];
 
   if (tracked.length === 0) return 0;
 
@@ -553,7 +593,9 @@ export async function pollFlagChanges(folderId: string): Promise<number> {
 
   await withImapClient(async ({ client }) => {
     await client.mailboxOpen(folder.imapPath);
+    changed += await pushPendingFlags(folder.id, client);
     const uidSet = tracked
+      .filter((m) => !m.flagsPending)
       .map((m) => m.imapUid)
       .filter((uid): uid is number => typeof uid === "number" && uid > 0)
       .join(",");
@@ -566,20 +608,19 @@ export async function pollFlagChanges(folderId: string): Promise<number> {
       const isRead = hasImapFlag(msg.flags, "Seen");
       const isStarred = hasImapFlag(msg.flags, "Flagged");
       const existing = tracked.find((m) => toImapInt(m.imapUid) === uid);
-      if (!existing) continue;
-      /* Ne pas rétrograder un lu local : \Seen IMAP peut arriver en retard. */
-      const mergedRead = existing.isRead || isRead;
+      if (!existing || existing.flagsPending) continue;
+      // Le serveur fait foi (lu ou remis non lu ailleurs). Un changement fait dans l'ERP pendant ce
+      // relevé (flagsPending) n'est pas écrasé : il sera écrit sur le serveur au passage suivant.
+      const mergedRead = readFromServer(existing, isRead);
       if (existing.isRead === mergedRead && existing.isStarred === isStarred) continue;
-      await prisma.emailMessage.update({
-        where: { id: existing.id },
+      const res = await prisma.emailMessage.updateMany({
+        where: { id: existing.id, flagsPending: false },
         data: { isRead: mergedRead, isStarred },
       });
-      changed++;
+      changed += res.count;
     }
 
-    const unreadLocal = await prisma.emailMessage.count({
-      where: { folderId: folder.id, isRead: false, orphaned: false },
-    });
+    const unreadLocal = await countUnreadInFolder(folder.id);
     await prisma.mailFolder.update({
       where: { id: folder.id },
       data: { unreadCount: unreadLocal },
@@ -645,6 +686,7 @@ export async function moveMessageToFolder(
     where: { id: message.id },
     data: { folderId: target.id },
   });
+  await refreshFolderUnread([message.folderId, target.id]);
 }
 
 /** Mise à la corbeille impossible : le message est CONSERVÉ (jamais de suppression définitive à la place). */
@@ -684,6 +726,10 @@ async function deleteResolvedMessage(message: MessageWithFolder, permanent: bool
 
   const threadId = message.threadId;
   await prisma.emailMessage.delete({ where: { id: message.id } }).catch(() => undefined);
+  await refreshFolderUnread([message.folderId]);
+  await prisma.emailThread
+    .update({ where: { id: threadId }, data: { unreadCount: await countUnreadInThread(threadId) } })
+    .catch(() => undefined);
 
   const remaining = await prisma.emailMessage.count({ where: { threadId } });
   if (remaining === 0) {
@@ -794,4 +840,36 @@ export function buildMessageListWhere(filter: MessageListFilter): Prisma.EmailMe
   }
 
   return where;
+}
+
+/** Non lus d'un dossier : même filtre que la liste « Non lus » de la messagerie et la carte du tableau de bord. */
+export function countUnreadInFolder(folderId: string): Promise<number> {
+  return prisma.emailMessage.count({ where: buildMessageListWhere({ folderId, unread: true }) });
+}
+
+export function countUnreadInThread(threadId: string): Promise<number> {
+  return prisma.emailMessage.count({ where: { threadId, isRead: false, orphaned: false } });
+}
+
+export async function refreshFolderUnread(folderIds: Array<string | null>): Promise<void> {
+  for (const id of new Set(folderIds)) {
+    if (!id) continue;
+    await prisma.mailFolder
+      .update({ where: { id }, data: { unreadCount: await countUnreadInFolder(id) } })
+      .catch(() => undefined);
+  }
+}
+
+/**
+ * Recalcule en une requête le compteur de non lus de chaque fil dont il a changé : un message lu,
+ * supprimé ou déplacé côté serveur le laissait faux (fiche client, liste des fils).
+ */
+export function recountThreadUnread(): Promise<number> {
+  return prisma.$executeRaw`
+    UPDATE "EmailThread" SET "unreadCount" = (
+      SELECT COUNT(*) FROM "EmailMessage" m WHERE m."threadId" = "EmailThread"."id" AND m."isRead" = 0 AND m."orphaned" = 0
+    )
+    WHERE "unreadCount" <> (
+      SELECT COUNT(*) FROM "EmailMessage" m WHERE m."threadId" = "EmailThread"."id" AND m."isRead" = 0 AND m."orphaned" = 0
+    )`;
 }

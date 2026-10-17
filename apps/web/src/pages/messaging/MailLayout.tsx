@@ -5,6 +5,7 @@ import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faEnvelope } from "@fortawesome/free-solid-svg-icons";
 import { ButtonLink } from "@/components/ui/Button";
 import { api } from "@/lib/api";
+import { notifyMailChanged } from "@/lib/mailEvents";
 import { FolderSidebar } from "@/pages/messaging/FolderSidebar";
 import { MessageList } from "@/pages/messaging/MessageList";
 import { ReadingPane } from "@/pages/messaging/ReadingPane";
@@ -150,6 +151,7 @@ export function MailLayout() {
   }, []);
 
   const refresh = useCallback(async () => {
+    notifyMailChanged();
     await loadFolders();
     await loadMessages();
   }, [loadFolders, loadMessages]);
@@ -497,6 +499,7 @@ export function MailLayout() {
               }}
               onRefresh={() => void refresh()}
               onRead={(ids) => {
+                notifyMailChanged();
                 const idSet = new Set(ids);
                 setMessages((prev) =>
                   prev.map((m) =>
