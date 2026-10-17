@@ -136,6 +136,14 @@ export type PublicSettings = {
   };
   stripeWebhookUrl: string;
   stripeMode: "test" | "live" | null;
+  /** Couleurs réellement imprimées et charte Kouzia (API : lib/brand.ts). */
+  brand?: {
+    primary: string;
+    secondary: string;
+    kouziaPrimary: string;
+    kouziaSecondary: string;
+    legacyDefaults: string[];
+  };
 };
 
 export type SettingsTabId =
@@ -155,7 +163,7 @@ export const SETTINGS_TABS: Array<{ id: SettingsTabId; label: string }> = [
   { id: "email", label: "Emails" },
   { id: "payments", label: "Paiements" },
   { id: "reminders", label: "Rappels" },
-  { id: "identity", label: "Charte PDF" },
+  { id: "identity", label: "Charte des documents" },
   { id: "numbering", label: "Numérotation" },
   { id: "declarations", label: "Fiscalité" },
   { id: "legal", label: "Mentions légales" },

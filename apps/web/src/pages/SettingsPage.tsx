@@ -13,6 +13,7 @@ import { SettingsTabNav } from "@/pages/settings/TabNav";
 import { SecretField } from "@/pages/settings/SecretField";
 import { SecurityTab } from "@/pages/settings/SecurityTab";
 import { NotificationsTab } from "@/pages/settings/NotificationsTab";
+import { CharteTab, withPrintedBrandColors } from "@/pages/settings/CharteTab";
 import {
   SETTINGS_TABS,
   type PublicSettings,
@@ -202,7 +203,7 @@ export function SettingsPage() {
     void loadGoogleStatus();
     const s = await fetchSettings<PublicSettings>();
     setSettings(s);
-    setForm(withTwoDepositMilestones(s));
+    setForm(withPrintedBrandColors(withTwoDepositMilestones(s)));
     setInpiQuery(s.inpiUrl || s.siren || "");
     setTestEmailTo(s.email || "");
     setSmtpPass("");
@@ -337,7 +338,7 @@ export function SettingsPage() {
         body: JSON.stringify(body),
       });
       setSettings(updated);
-      setForm(withTwoDepositMilestones(updated));
+      setForm(withPrintedBrandColors(withTwoDepositMilestones(updated)));
       setSmtpPass("");
       setImapPass("");
       setStripeKey("");
@@ -738,25 +739,6 @@ export function SettingsPage() {
       );
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Échec synchronisation");
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function uploadLogo(file: File) {
-    setBusy(true);
-    try {
-      const fd = new FormData();
-      fd.append("file", file);
-      const updated = await api<PublicSettings>("/api/settings/identity/logo", {
-        method: "POST",
-        body: fd,
-      });
-      setSettings(updated);
-      setForm(updated);
-      toast.success("Logo mis à jour");
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Upload impossible");
     } finally {
       setBusy(false);
     }
@@ -1719,78 +1701,18 @@ export function SettingsPage() {
           ) : null}
 
           {tab === "identity" ? (
-            <Card className="space-y-4 border border-[var(--border)] p-5">
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                <Field label="Couleur primaire">
-                  <div className="flex gap-2">
-                    <input
-                      type="color"
-                      className="h-11 w-14 cursor-pointer rounded border border-[var(--border)] bg-transparent"
-                      value={form.brandPrimaryColor}
-                      onChange={(e) => setForm({ ...form, brandPrimaryColor: e.target.value })}
-                    />
-                    <Input
-                      value={form.brandPrimaryColor}
-                      onChange={(e) => setForm({ ...form, brandPrimaryColor: e.target.value })}
-                    />
-                  </div>
-                </Field>
-                <Field label="Couleur secondaire">
-                  <div className="flex gap-2">
-                    <input
-                      type="color"
-                      className="h-11 w-14 cursor-pointer rounded border border-[var(--border)] bg-transparent"
-                      value={form.brandSecondaryColor}
-                      onChange={(e) => setForm({ ...form, brandSecondaryColor: e.target.value })}
-                    />
-                    <Input
-                      value={form.brandSecondaryColor}
-                      onChange={(e) => setForm({ ...form, brandSecondaryColor: e.target.value })}
-                    />
-                  </div>
-                </Field>
-              </div>
-              <Field label="Logo">
-                <div className="flex flex-wrap items-center gap-4">
-                  {form.brandLogoPath ? (
-                    <img
-                      src="/api/settings/identity/logo"
-                      alt="Logo"
-                      className="h-16 max-w-[10rem] object-contain"
-                    />
-                  ) : (
-                    <span className="text-xs text-[var(--muted)]">Aucun logo</span>
-                  )}
-                  <Input
-                    type="file"
-                    accept="image/png,image/jpeg,image/webp"
-                    onChange={(e) => {
-                      const f = e.target.files?.[0];
-                      if (f) void uploadLogo(f);
-                    }}
-                  />
-                </div>
-              </Field>
-              <Field label="Pied de page PDF">
-                <Textarea
-                  rows={2}
-                  value={form.pdfFooterText ?? ""}
-                  onChange={(e) => setForm({ ...form, pdfFooterText: e.target.value || null })}
-                />
-              </Field>
-              <p className="rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--bg)] px-3 py-2 text-xs text-[var(--muted)]">
-                Mentions TVA, paiement, pénalités : onglet{" "}
-                <button
-                  type="button"
-                  className="inline-flex min-h-11 items-center font-medium text-[var(--primary)] hover:underline"
-                  onClick={() => setTab("legal")}
-                >
-                  Mentions légales
-                </button>
-                .
-              </p>
-              {saveBar(saveIdentity)}
-            </Card>
+            <CharteTab
+              form={form}
+              setForm={setForm}
+              saved={settings}
+              busy={busy}
+              saveBar={saveBar(saveIdentity)}
+              onSaved={(updated) => {
+                setSettings(updated);
+                setForm({ ...form, brandLogoPath: updated.brandLogoPath });
+              }}
+              onOpenLegal={() => setTab("legal")}
+            />
           ) : null}
 
           {tab === "numbering" ? (

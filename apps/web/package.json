@@ -21,6 +21,7 @@
     "@kouzia/forms": "*",
     "cmdk": "^1.1.1",
     "isomorphic-dompurify": "^3.19.0",
+    "pdfjs-dist": "^6.4.299",
     "react": "^19.2.8",
     "react-data-table-component": "^8.8.1",
     "react-dom": "^19.2.8",

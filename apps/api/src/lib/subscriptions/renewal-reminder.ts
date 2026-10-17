@@ -66,7 +66,7 @@ export function nonRenewalDeadline(renewalDate: Date, noticeDays: number): Date 
 
 export function renderRenewalReminderEmail(opts: {
   brand: EmailBrand;
-  settings: Pick<CompanySettings, "emailSignatureHtml" | "brandPrimaryColor">;
+  settings: Pick<CompanySettings, "emailSignatureHtml" | "brandPrimaryColor" | "brandSecondaryColor">;
   clientName: string;
   clientFirstName?: string | null;
   label: string;
@@ -106,7 +106,7 @@ export function renderRenewalReminderEmail(opts: {
   const html = renderEmailHtml({
     text,
     brand: opts.brand,
-    colors: { brandPrimaryColor: opts.settings.brandPrimaryColor },
+    colors: { brandPrimaryColor: opts.settings.brandPrimaryColor, brandSecondaryColor: opts.settings.brandSecondaryColor },
     callout,
     paymentUrl: opts.manageUrl,
     paymentLabel: "Gérer mon abonnement",
@@ -192,7 +192,7 @@ export async function sendDueRenewalReminders(now: Date = new Date()): Promise<n
 
 export function renderFirstChargeNoticeEmail(opts: {
   brand: EmailBrand;
-  settings: Pick<CompanySettings, "emailSignatureHtml" | "brandPrimaryColor">;
+  settings: Pick<CompanySettings, "emailSignatureHtml" | "brandPrimaryColor" | "brandSecondaryColor">;
   clientName: string;
   clientFirstName?: string | null;
   label: string;
@@ -227,7 +227,7 @@ export function renderFirstChargeNoticeEmail(opts: {
   const html = renderEmailHtml({
     text,
     brand: opts.brand,
-    colors: { brandPrimaryColor: opts.settings.brandPrimaryColor },
+    colors: { brandPrimaryColor: opts.settings.brandPrimaryColor, brandSecondaryColor: opts.settings.brandSecondaryColor },
     callout,
     paymentUrl: opts.manageUrl,
     paymentLabel: "Gérer mon abonnement",

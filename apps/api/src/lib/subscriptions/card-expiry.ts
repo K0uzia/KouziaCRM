@@ -30,7 +30,7 @@ export function cardNeedsNotice(expiresAt: Date, nextInvoiceAt: Date, now: Date)
 
 export function renderCardExpiryEmail(opts: {
   brand: EmailBrand;
-  settings: Pick<CompanySettings, "emailSignatureHtml" | "brandPrimaryColor">;
+  settings: Pick<CompanySettings, "emailSignatureHtml" | "brandPrimaryColor" | "brandSecondaryColor">;
   clientName: string;
   clientFirstName?: string | null;
   label: string;
@@ -59,7 +59,7 @@ export function renderCardExpiryEmail(opts: {
   const html = renderEmailHtml({
     text,
     brand: opts.brand,
-    colors: { brandPrimaryColor: opts.settings.brandPrimaryColor },
+    colors: { brandPrimaryColor: opts.settings.brandPrimaryColor, brandSecondaryColor: opts.settings.brandSecondaryColor },
     paymentUrl: opts.url,
     paymentLabel: "Mettre à jour ma carte",
   });

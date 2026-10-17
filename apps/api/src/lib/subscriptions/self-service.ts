@@ -123,7 +123,7 @@ export async function requestSubscriptionCancellation(subscriptionId: string, no
       to,
       subject: `Demande de résiliation reçue : ${sub.label}`,
       text,
-      html: renderEmailHtml({ text, brand, colors: { brandPrimaryColor: settings.brandPrimaryColor } }),
+      html: renderEmailHtml({ text, brand, colors: { brandPrimaryColor: settings.brandPrimaryColor, brandSecondaryColor: settings.brandSecondaryColor } }),
       clientId: sub.clientId,
       kind: "subscription_cancel_request",
       bodyTextForMessage: text,

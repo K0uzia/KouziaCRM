@@ -1,10 +1,10 @@
 import { createHash, randomBytes } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
 import { InvoiceDocumentType, InvoiceStatus } from "@prisma/client";
 import { prisma } from "@/lib/prisma.js";
 import { loadDocumentForPdf, renderLoadedDocumentPdf, type LoadedDocumentForPdf } from "@/lib/pdf/document-pdf.js";
+import { uploadsPath } from "@/lib/uploads.js";
 
 /**
  * PDF des factures et avoirs émis : rendu une fois, archivé (fichier + SHA-256), puis servi tel quel.
@@ -13,14 +13,8 @@ import { loadDocumentForPdf, renderLoadedDocumentPdf, type LoadedDocumentForPdf 
  */
 const ISSUED_DIR = "issued-documents";
 
-// Racine du dépôt (KOUZIA_APP_DIR en prod, /app sous Docker) et non process.cwd() : en dev, l'API
-// tourne dans apps/api et le worker à la racine ; les deux doivent lire le même dossier.
-const UPLOADS_DIR =
-  process.env.KOUZIA_UPLOADS_DIR ??
-  path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../../../../data/uploads");
-
 export function issuedPdfAbsolutePath(pdfPath: string): string {
-  return path.resolve(UPLOADS_DIR, pdfPath);
+  return uploadsPath(pdfPath);
 }
 
 type ArchiveState = {

@@ -377,7 +377,7 @@ export async function sendSubscriptionSetupEmail(subscriptionId: string): Promis
   const html = renderEmailHtml({
     text,
     brand,
-    colors: { brandPrimaryColor: settings.brandPrimaryColor },
+    colors: { brandPrimaryColor: settings.brandPrimaryColor, brandSecondaryColor: settings.brandSecondaryColor },
     paymentUrl: url,
     paymentLabel: "Activer le prélèvement",
   });
