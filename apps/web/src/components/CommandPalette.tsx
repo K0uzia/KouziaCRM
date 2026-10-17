@@ -84,10 +84,15 @@ const NAV_ITEMS: Array<{
   { label: "Réglages", to: "/settings", keywords: "entreprise" },
 ];
 
-const QUICK_ACTIONS = [
+const QUICK_ACTIONS: Array<{ label: string; to: string; subscriptions?: boolean }> = [
   { label: "Nouveau devis", to: "/quotes?new=1" },
   { label: "Nouvelle facture", to: "/invoices?new=1" },
   { label: "Nouveau client", to: "/clients?new=1" },
+  // Catalogue : mêmes types que Prestations > Créer.
+  { label: "Nouveau service", to: "/services?new=service" },
+  { label: "Nouvelle option", to: "/services?new=option" },
+  { label: "Nouveau pack", to: "/services?new=pack" },
+  { label: "Nouvel abonnement", to: "/services?new=abonnement", subscriptions: true },
   { label: "Écrire un message", to: "/inbox/compose" },
 ];
 
@@ -322,7 +327,7 @@ export function CommandPalette({
           {!hasQuery ? (
             <>
               <Command.Group heading="Créer" className={GROUP_CLASS}>
-                {QUICK_ACTIONS.map((item) => (
+                {QUICK_ACTIONS.filter((item) => !item.subscriptions || features.moduleSubscriptionsEnabled).map((item) => (
                   <Command.Item
                     key={item.to}
                     value={`créer ${item.label}`}

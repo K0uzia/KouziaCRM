@@ -1,10 +1,14 @@
 import { useEffect, useRef } from "react";
 import { useSearchParams } from "react-router-dom";
 
-export type CreateParams = { clientId?: string };
+export type CreateParams = {
+  clientId?: string;
+  /** `?new=<type>` : type à créer choisi d'avance (ex. Prestations : service, option, pack, abonnement). */
+  type?: string;
+};
 
 /**
- * Ouvre un formulaire de création quand la page est atteinte via `?new=1`
+ * Ouvre un formulaire de création quand la page est atteinte via `?new=1` (ou `?new=<type>`)
  * (option `clientId` : client présélectionné, ex. depuis une fiche client),
  * puis retire les paramètres pour qu'un rafraîchissement ne les rejoue pas.
  */
@@ -18,12 +22,13 @@ export function useCreateParam(open: (params: CreateParams) => void) {
   });
 
   useEffect(() => {
-    if (params.get("new") !== "1") return;
+    const wanted = params.get("new")?.trim();
+    if (!wanted) return;
     const clientId = params.get("clientId")?.trim() || undefined;
     const next = new URLSearchParams(params);
     next.delete("new");
     next.delete("clientId");
     setParams(next, { replace: true });
-    openRef.current({ clientId });
+    openRef.current({ clientId, ...(wanted !== "1" ? { type: wanted } : {}) });
   }, [params, setParams]);
 }

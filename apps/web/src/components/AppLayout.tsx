@@ -295,8 +295,15 @@ export function AppLayout() {
     { label: "Nouvelle facture", onSelect: () => navigate("/invoices?new=1") },
     { label: "Nouveau client", onSelect: () => navigate("/clients?new=1") },
     { label: "Enregistrer un paiement", onSelect: () => navigate("/payments?new=1") },
+    // Catalogue : mêmes types que Prestations > Créer.
+    { label: "Nouveau service", onSelect: () => navigate("/services?new=service") },
+    { label: "Nouvelle option", onSelect: () => navigate("/services?new=option") },
+    { label: "Nouveau pack", onSelect: () => navigate("/services?new=pack") },
     ...(features.moduleSubscriptionsEnabled
-      ? [{ label: "Nouvel abonnement", onSelect: () => navigate("/abonnements?new=1") }]
+      ? [
+          { label: "Nouvel abonnement", onSelect: () => navigate("/services?new=abonnement") },
+          { label: "Nouveau contrat d'abonnement", onSelect: () => navigate("/abonnements?new=1") },
+        ]
       : []),
   ];
 
