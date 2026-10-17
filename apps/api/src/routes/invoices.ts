@@ -55,8 +55,9 @@ import { brandFromSettings } from "@/lib/email/templates.js";
 import { formatPlainTextSignature } from "@/lib/email/signature.js";
 import { renderEmailTextFooter } from "@/lib/email/layout.js";
 import { signDocumentToken } from "@/lib/documents/public-token.js";
-import { listActiveLegalClauses } from "@/lib/company/legal-clauses.js";
+import { listActiveLegalClauses, subscriptionDateNoticeOf } from "@/lib/company/legal-clauses.js";
 import { FREE_MONTHS_MAX, SUBSCRIPTION_STARTS } from "@/lib/subscriptions/start.js";
+import { renderDraftPreviewPdf } from "@/lib/pdf/draft-preview.js";
 
 const lineSchema = z.object({
   description: z.string().min(1),
@@ -91,6 +92,21 @@ const lineStartFields = (l: z.output<typeof lineSchema>) => ({
   subscriptionStartDate: l.subscriptionStartDate ? new Date(`${l.subscriptionStartDate}T00:00:00`) : null,
   subscriptionFreeMonths: l.subscriptionFreeMonths ?? null,
 });
+
+/** Lignes saisies : centimes et champs de départ, telles qu'enregistrées à la création. */
+const lineInputsOf = (lines: z.output<typeof lineSchema>[]) =>
+  lines.map((l) => ({
+    description: l.description,
+    quantity: l.quantity,
+    unitPriceCents: eurosToCents(l.unitPriceEuros),
+    isSubscription: l.isSubscription,
+    billingDay: l.billingDay,
+    billingInterval: l.billingInterval,
+    serviceId: l.serviceId,
+    groupTitle: l.groupTitle ?? null,
+    isPackDiscount: l.isPackDiscount,
+    ...lineStartFields(l),
+  }));
 
 const createSchema = z.object({
   clientId: z.string().min(1),
@@ -218,18 +234,7 @@ export const invoicesRoutes: FastifyPluginAsync = async (app) => {
       if (!client) return reply.code(404).send({ error: "Client introuvable" });
 
       const discount = discountFromBody(parsed.data);
-      const lineInputs = parsed.data.lines.map((l) => ({
-        description: l.description,
-        quantity: l.quantity,
-        unitPriceCents: eurosToCents(l.unitPriceEuros),
-        isSubscription: l.isSubscription,
-        billingDay: l.billingDay,
-        billingInterval: l.billingInterval,
-        serviceId: l.serviceId,
-        groupTitle: l.groupTitle ?? null,
-        isPackDiscount: l.isPackDiscount,
-        ...lineStartFields(l),
-      }));
+      const lineInputs = lineInputsOf(parsed.data.lines);
       try {
         assertSubscriptionLinesValid(lineInputs);
       } catch (e) {
@@ -302,6 +307,42 @@ export const invoicesRoutes: FastifyPluginAsync = async (app) => {
       request.log.error({ err: e }, "POST /api/invoices");
       throw e;
     }
+  });
+
+  // Aperçu avant création : le brouillon du formulaire (même schéma que la création), rendu par le
+  // gabarit réel. Rien n'est enregistré et aucun numéro n'est consommé.
+  app.post("/api/invoices/preview.pdf", async (request, reply) => {
+    await requireAuth(request, reply);
+    if (reply.sent) return;
+    const parsed = createSchema.safeParse(request.body);
+    if (!parsed.success) {
+      return reply.code(400).send({ error: "Données invalides", details: parsed.error.flatten() });
+    }
+    const lineInputs = lineInputsOf(parsed.data.lines);
+    try {
+      assertSubscriptionLinesValid(lineInputs);
+    } catch (e) {
+      return reply.code(400).send({ error: e instanceof Error ? e.message : "Lignes invalides" });
+    }
+    const d = parsed.data;
+    const pdf = await renderDraftPreviewPdf({
+      documentType: d.documentType,
+      clientId: d.clientId,
+      notes: d.notes ?? null,
+      paymentTerms: d.paymentTerms ?? null,
+      serviceDate: d.serviceDate ? new Date(d.serviceDate) : null,
+      purchaseOrderRef: d.purchaseOrderRef ?? null,
+      validUntil: d.validUntil ? new Date(d.validUntil) : null,
+      sourceQuoteId: d.documentType === "INVOICE" ? (d.sourceQuoteId ?? null) : null,
+      paymentPlanOffer: d.paymentPlanOffer ?? null,
+      totals: computeLineTotals(lineInputs, discountFromBody(d)),
+    });
+    if (!pdf) return reply.code(404).send({ error: "Client introuvable" });
+    return reply
+      .header("Content-Type", "application/pdf")
+      .header("Cache-Control", "no-store")
+      .header("Content-Disposition", 'inline; filename="apercu.pdf"')
+      .send(pdf);
   });
 
   app.get("/api/invoices/search", async (request, reply) => {
@@ -402,9 +443,11 @@ export const invoicesRoutes: FastifyPluginAsync = async (app) => {
       },
     });
     if (!invoice) return reply.code(404).send({ error: "Introuvable" });
+    const clientType = (invoice.clientSnapshot as ClientSnapshot | null)?.type ?? invoice.client.type;
     return {
       ...serializeInvoice(invoice),
       client: serializeClient(invoice.client),
+      subscriptionDateNotice: await subscriptionDateNoticeOf(invoice, clientType, await getCompanySettings()),
       bankTransactions: invoice.bankTransactions.map((t) => ({
         ...t,
         bookedAt: t.bookedAt.toISOString(),

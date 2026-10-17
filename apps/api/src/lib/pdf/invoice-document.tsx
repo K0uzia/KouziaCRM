@@ -266,6 +266,8 @@ export type InvoicePdfData = {
   client: ClientSnapshot;
   /** Aperçu de la charte (Réglages) : filigrane « EXEMPLE » sur chaque page, aucun document réel. */
   specimen?: boolean;
+  /** Aperçu d'un brouillon avant création : filigrane « APERÇU » et numéro provisoire (attribué à l'émission). */
+  draft?: boolean;
   invoice: {
     number: string;
     documentType: "INVOICE" | "CREDIT_NOTE" | "QUOTE";
@@ -362,6 +364,8 @@ export type InvoicePdfData = {
     subscriptionTerms?: { MONTH: string | null; YEAR: string | null };
     /** Droit de rétractation et formulaire type : devis d'un client particulier. */
     withdrawalTerms?: string | null;
+    /** Devis avec abonnement : date de prélèvement à changer par un refus motivé (clause dédiée), sous les totaux. */
+    subscriptionDateNotice?: string | null;
     /** CGV applicables : version acceptée à la signature, sinon version publiée en vigueur. */
     cgv?: { url: string; version: string } | null;
     lines: Array<{
@@ -384,7 +388,7 @@ export type InvoicePdfData = {
   };
 };
 
-export function InvoiceDocument({ company, client, invoice, specimen }: InvoicePdfData) {
+export function InvoiceDocument({ company, client, invoice, specimen, draft }: InvoicePdfData) {
   const { primary, secondary } = resolveBrandColors(company);
   const styles = createStyles(primary, secondary);
 
@@ -447,9 +451,9 @@ export function InvoiceDocument({ company, client, invoice, specimen }: InvoiceP
     <Document title={`${title} ${invoice.number}`} author={brandName} creator={brandName}>
       <Page size="A4" style={styles.page}>
         <View style={styles.accent} fixed />
-        {specimen ? (
+        {specimen || draft ? (
           <Text style={styles.specimen} fixed>
-            EXEMPLE
+            {draft ? "APERÇU" : "EXEMPLE"}
           </Text>
         ) : null}
 
@@ -481,7 +485,14 @@ export function InvoiceDocument({ company, client, invoice, specimen }: InvoiceP
           </View>
           <View style={styles.docBlock}>
             <Text style={styles.docKind}>{title}</Text>
-            <Text style={styles.docNumber}>N° {invoice.number}</Text>
+            {draft ? (
+              <>
+                <Text style={styles.docNumber}>APERÇU</Text>
+                <Text style={styles.muted}>Numéro attribué à l&apos;émission</Text>
+              </>
+            ) : (
+              <Text style={styles.docNumber}>N° {invoice.number}</Text>
+            )}
             <View style={styles.docMeta}>
               {meta.map(([label, value]) => (
                 <View key={label} style={styles.metaRow}>
@@ -642,6 +653,9 @@ export function InvoiceDocument({ company, client, invoice, specimen }: InvoiceP
                 </View>
               ) : null}
               {company.vatMention ? <Text style={styles.vat}>{company.vatMention}</Text> : null}
+              {invoice.subscriptionDateNotice ? (
+                <Text style={[styles.vat, { marginTop: 6 }]}>{fillClauseVariables(invoice.subscriptionDateNotice, company)}</Text>
+              ) : null}
             </>
           ) : (
           <>
@@ -667,6 +681,9 @@ export function InvoiceDocument({ company, client, invoice, specimen }: InvoiceP
             <Text style={styles.grandValue}>{fmtMoney(invoice.totalCents)}</Text>
           </View>
           {company.vatMention ? <Text style={styles.vat}>{company.vatMention}</Text> : null}
+          {invoice.subscriptionDateNotice ? (
+            <Text style={[styles.vat, { marginTop: 6 }]}>{fillClauseVariables(invoice.subscriptionDateNotice, company)}</Text>
+          ) : null}
           {showSettlement && !settled ? (
             <>
               <View style={styles.totalLine}>

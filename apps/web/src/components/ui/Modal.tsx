@@ -22,6 +22,7 @@ export function Modal({
   children,
   footer,
   wide = false,
+  extraWide = false,
   fullScreenMobile = false,
   side = false,
 }: {
@@ -32,6 +33,8 @@ export function Modal({
   children: ReactNode;
   footer?: ReactNode;
   wide?: boolean;
+  /** Dès 1024 px : formulaire et panneau voisin (aperçu du document). */
+  extraWide?: boolean;
   /** Sous 640 px : plein écran (formulaire long saisi au téléphone), feuille du bas sinon. */
   fullScreenMobile?: boolean;
   /** Panneau latéral : bord droit sur toute la hauteur dès 640 px, plein écran en dessous (publication du site). */
@@ -56,6 +59,9 @@ export function Modal({
     (first ?? panel)?.focus();
 
     const onKey = (e: KeyboardEvent) => {
+      // Modale ouverte par-dessus une autre (aperçu plein écran) : seule la plus haute réagit.
+      const panels = document.querySelectorAll("[data-modal-panel]");
+      if (panel && panels[panels.length - 1] !== panel) return;
       if (e.key === "Escape") {
         onCloseRef.current();
         return;
@@ -79,7 +85,8 @@ export function Modal({
     document.body.style.overflow = "hidden";
     return () => {
       document.removeEventListener("keydown", onKey);
-      document.body.style.overflow = "";
+      // Une modale reste ouverte dessous : la page derrière ne défile toujours pas.
+      document.body.style.overflow = document.querySelector("[data-modal-panel]") ? "hidden" : "";
       previous?.focus?.();
     };
   }, [open]);
@@ -108,7 +115,7 @@ export function Modal({
             ? "h-dvh max-h-dvh rounded-none border-0 sm:max-w-md sm:border-l"
             : `sm:max-h-[92vh] sm:rounded-[var(--radius-lg)] sm:border ${
                 fullScreenMobile ? "h-dvh max-h-dvh rounded-none border-0 sm:h-auto" : "max-h-[92vh] rounded-t-[var(--radius-lg)] border"
-              } ${wide ? "sm:max-w-3xl" : "sm:max-w-lg"}`
+              } ${extraWide ? "sm:max-w-3xl lg:max-w-6xl" : wide ? "sm:max-w-3xl" : "sm:max-w-lg"}`
         }`}
       >
         {full ? null : (

@@ -67,6 +67,8 @@ type Doc = {
   quoteDecidedAt?: string | null;
   quoteSignerName?: string | null;
   quoteRejectReason?: string | null;
+  /** Devis avec abonnement : phrase de la clause « date de prélèvement » (Réglages > Mentions légales). */
+  subscriptionDateNotice?: string | null;
   documentType: string;
   invoiceType?: string;
   quoteId?: string | null;
@@ -395,6 +397,7 @@ function DocumentsListPage({
         title={isQuote ? "Nouveau devis" : "Nouvelle facture"}
         description="Ajoutez les lignes de prestation puis enregistrez le brouillon."
         wide
+        extraWide
       >
         <DocumentFormEditor
           mode="create"
@@ -1169,6 +1172,9 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
                 </div>
                 </>
                 )}
+                {doc.subscriptionDateNotice ? (
+                  <p className="border-t border-[var(--border)] pt-2 text-xs text-[var(--muted)]">{doc.subscriptionDateNotice}</p>
+                ) : null}
               </div>
             </div>
           </Card>
@@ -1721,7 +1727,7 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
         </form>
       </Modal>
 
-      <Modal open={editOpen} onClose={() => setEditOpen(false)} title="Modifier le document" wide>
+      <Modal open={editOpen} onClose={() => setEditOpen(false)} title="Modifier le document" wide extraWide>
         <DocumentFormEditor
           mode="edit"
           documentType={kind}

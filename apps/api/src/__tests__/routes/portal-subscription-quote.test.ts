@@ -83,6 +83,24 @@ async function setup() {
 }
 
 describe("espace client : devis d'abonnement seul", () => {
+  it("refus motivé : la date souhaitée remonte sur le devis et dans les notifications", async () => {
+    const { quoteId, kz_portal } = await setup();
+    const since = new Date(Date.now() - 1000);
+    const reason = "Je préfère un prélèvement le 15 du mois.";
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/public/quotes/${quoteId}/decision`,
+      cookies: { kz_portal },
+      payload: { decision: "REJECT", reason },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().quoteStatus).toBe("REJECTED");
+    expect((await prisma.invoice.findUniqueOrThrow({ where: { id: quoteId } })).quoteRejectReason).toBe(reason);
+    const { listNotifications } = await import("@/lib/notifications/feed.js");
+    const items = await listNotifications(since);
+    expect(items.some((n) => n.body.includes(reason))).toBe(true);
+  });
+
   it("expose l'offre NONE sans échéancier, puis le lien de prélèvement à la signature", async () => {
     const { quoteId, kz_portal } = await setup();
     const before = (await app.inject({ method: "GET", url: "/api/public/tracking", cookies: { kz_portal } })).json();

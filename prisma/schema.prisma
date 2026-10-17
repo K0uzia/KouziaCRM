@@ -524,6 +524,8 @@ enum LegalClauseKind {
   SUBSCRIPTION_ANNUAL
   /// Droit de rétractation et formulaire type : devis des clients particuliers
   WITHDRAWAL
+  /// Phrase sous les abonnements d'un devis : date de prélèvement à changer par un refus motivé
+  SUBSCRIPTION_BILLING_DATE
 }
 
 /// Clients auxquels une clause s'imprime (type du client du document)

@@ -73,6 +73,14 @@ export const DEFAULT_LEGAL_CLAUSES: Array<{
     required: true,
     position: 6,
   },
+  // Devis contenant un abonnement : imprimée sous les abonnements et le total du projet (PDF, fiche, e-mail d'envoi).
+  {
+    kind: LegalClauseKind.SUBSCRIPTION_BILLING_DATE,
+    title: "Date de prélèvement de l'abonnement",
+    body: "Si la date de prélèvement de l'abonnement ne vous convient pas, refusez ce devis en indiquant la date souhaitée : je vous en envoie un nouveau.",
+    required: true,
+    position: 6,
+  },
   // Information précontractuelle obligatoire envers un consommateur (art. L221-5) : sans elle, le
   // délai de rétractation est prolongé de 12 mois (art. L221-20). Devis des clients particuliers.
   {
@@ -94,6 +102,7 @@ export const DEDICATED_CLAUSE_KINDS: ReadonlySet<LegalClauseKind> = new Set([
   LegalClauseKind.SUBSCRIPTION_MONTHLY,
   LegalClauseKind.SUBSCRIPTION_ANNUAL,
   LegalClauseKind.WITHDRAWAL,
+  LegalClauseKind.SUBSCRIPTION_BILLING_DATE,
 ]);
 
 /** E-mail de contact absent des réglages : manque visible sur le document, jamais un blanc. */
@@ -151,6 +160,24 @@ export async function ensureDefaultLegalClauses() {
       });
     }
   }
+}
+
+/**
+ * Devis avec abonnement : phrase de la clause « date de prélèvement » (fiche du devis, e-mail d'envoi),
+ * variables remplies. null sans abonnement, pour une facture ou si la clause est désactivée.
+ */
+export async function subscriptionDateNoticeOf(
+  doc: { documentType: string; lines: ReadonlyArray<{ isSubscription: boolean }> },
+  clientType: string | null | undefined,
+  company: Parameters<typeof fillClauseVariables>[1],
+): Promise<string | null> {
+  if (doc.documentType !== "QUOTE" || !doc.lines.some((l) => l.isSubscription)) return null;
+  const clauses = await prisma.legalClause.findMany({
+    where: { active: true, kind: LegalClauseKind.SUBSCRIPTION_BILLING_DATE },
+    orderBy: [{ position: "asc" }, { createdAt: "asc" }],
+  });
+  const body = clausesForClient(clauses, clientType)[0]?.body;
+  return body ? fillClauseVariables(body, company) : null;
 }
 
 /** Clauses à imprimer pour un client de ce type (B2B ou B2C) ; type inconnu : clauses « tous » seulement. */
