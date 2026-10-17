@@ -51,6 +51,9 @@ import { processEmailOutbox } from "@/lib/email/mailer/index.js";
 import { isSmtpConfigured } from "@/lib/email/smtp.js";
 import { mailEnqueue } from "@/lib/email/mailer/index.js";
 import { sendDocumentPdf } from "@/lib/email/send-document-pdf.js";
+import { brandFromSettings } from "@/lib/email/templates.js";
+import { formatPlainTextSignature } from "@/lib/email/signature.js";
+import { renderEmailTextFooter } from "@/lib/email/layout.js";
 import { signDocumentToken } from "@/lib/documents/public-token.js";
 import { listActiveLegalClauses } from "@/lib/company/legal-clauses.js";
 import { FREE_MONTHS_MAX, SUBSCRIPTION_STARTS } from "@/lib/subscriptions/start.js";
@@ -797,7 +800,11 @@ export const invoicesRoutes: FastifyPluginAsync = async (app) => {
       const email = decryptOptional(invoice.client.emailEncrypted);
       const label = invoice.documentType === InvoiceDocumentType.QUOTE ? "devis" : "facture";
       const subject = `Relance - ${label} ${invoice.number ?? "brouillon"}`;
-      const body = `Bonjour,\n\nSauf erreur de notre part, le ${label} ${invoice.number ?? ""} est en attente.\n\nCordialement,\nKouzia`;
+      const brand = await brandFromSettings();
+      const signature = formatPlainTextSignature(await getCompanySettings(), brand);
+      const body = `Bonjour,\n\nSauf erreur de notre part, le ${label} ${invoice.number ?? ""} est en attente.\n\n${signature}`;
+      // Pied légal : ajouté une seule fois à l'envoi (processor) ; le brouillon mailto le reçoit ici.
+      const mailtoBody = `${body}\n\n${renderEmailTextFooter(brand)}`;
 
       const smtpOk = await isSmtpConfigured();
       if (email && smtpOk) {
@@ -818,7 +825,7 @@ export const invoicesRoutes: FastifyPluginAsync = async (app) => {
         ...serializeInvoice(updated),
         emailed: Boolean(email && smtpOk),
         mailto: email
-          ? `mailto:${encodeURIComponent(email)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`
+          ? `mailto:${encodeURIComponent(email)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(mailtoBody)}`
           : null,
       };
     },

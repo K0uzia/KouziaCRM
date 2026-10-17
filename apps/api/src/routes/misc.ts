@@ -36,7 +36,7 @@ import {
   saveComposeDraftAttachment,
 } from "@/lib/email/compose-attachments.js";
 import { ATTACHMENT_DEFAULTS } from "@/lib/settings/defaults.js";
-import { htmlSignatureToPlain } from "@/lib/email/signature.js";
+import { htmlSignatureToPlain, sanitizeSignatureHtml } from "@/lib/email/signature.js";
 import { escapeHtml } from "@/lib/email/layout.js";
 
 export const miscRoutes: FastifyPluginAsync = async (app) => {
@@ -915,7 +915,8 @@ export const miscRoutes: FastifyPluginAsync = async (app) => {
         : undefined;
 
     const settings = await getCompanySettings();
-    const signature = settings.emailSignatureHtml?.trim();
+    // Assainie aussi à la lecture : une valeur enregistrée avant la liste blanche ne passe pas brute.
+    const signature = sanitizeSignatureHtml(settings.emailSignatureHtml);
     const bodyWithSignature =
       signature && !threadId ? `${body}\n\n-- \n${htmlSignatureToPlain(signature)}` : body;
 
