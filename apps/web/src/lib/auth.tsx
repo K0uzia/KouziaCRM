@@ -9,8 +9,16 @@ import {
 } from "react";
 import { api } from "@/lib/api";
 import { isOnline, onReconnect } from "@/lib/network";
+import { offlineEnabled } from "@/lib/offline/config";
+import { forgetUser, readUser, saveUser } from "@/lib/offline/store";
 
 type User = { id: string; email: string; name: string | null };
+
+/** Utilisateur gardé dans la copie chiffrée (id, e-mail, nom : aucun secret), oublié à la déconnexion. */
+function rememberUser(user: User | null): void {
+  if (!offlineEnabled()) return;
+  void (user ? saveUser(user) : forgetUser()).catch(() => undefined);
+}
 
 type AuthCtx = {
   user: User | null;
@@ -33,20 +41,28 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [unreachable, setUnreachable] = useState(false);
 
   // Déconnexion seulement sur une réponse du serveur ({ user: null } ou 401). Réseau coupé ou serveur en
-  // panne : l'utilisateur connu est gardé ; au premier chargement, l'écran attend le retour du serveur.
+  // panne : l'utilisateur connu est gardé. Au premier chargement sur l'origine du hors ligne, l'utilisateur de
+  // la copie chiffrée ouvre l'ERP ; la session du serveur reprend la main dès qu'il répond.
   const refresh = useCallback(async () => {
     try {
       const data = await api<{ user: User | null }>("/api/auth/me");
       setUser(data.user);
       setUnreachable(false);
       setLoading(false);
+      rememberUser(data.user);
     } catch (error) {
       if ((error as { status?: unknown }).status === 401) {
         setUser(null);
         setUnreachable(false);
         setLoading(false);
+        rememberUser(null);
       } else {
         setUnreachable(true);
+        const known = offlineEnabled() ? await readUser().catch(() => null) : null;
+        if (known) {
+          setUser((current) => current ?? known);
+          setLoading(false);
+        }
       }
     }
   }, []);
@@ -55,9 +71,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     void refresh();
   }, [refresh]);
 
-  // Session encore inconnue (ERP ouvert sans réseau) : nouvel essai au retour du réseau, et toutes les 10 s.
+  // Session pas encore confirmée par le serveur (ERP ouvert sans réseau) : nouvel essai au retour du réseau,
+  // et toutes les 10 s.
   useEffect(() => {
-    if (!loading || !unreachable) return;
+    if (!unreachable) return;
     const stop = onReconnect(() => void refresh());
     const timer = window.setInterval(() => {
       if (isOnline()) void refresh();
@@ -66,7 +83,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       stop();
       window.clearInterval(timer);
     };
-  }, [loading, unreachable, refresh]);
+  }, [unreachable, refresh]);
 
   const login = useCallback(async (email: string, password: string) => {
     const data = await api<{ user: User } | { mfaRequired: true }>("/api/auth/login", {
@@ -75,6 +92,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     });
     if ("mfaRequired" in data) return "mfa" as const;
     setUser(data.user);
+    rememberUser(data.user);
     return "ok" as const;
   }, []);
 
@@ -84,11 +102,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       body: JSON.stringify(input),
     });
     setUser(data.user);
+    rememberUser(data.user);
   }, []);
 
   const logout = useCallback(async () => {
     await api("/api/auth/logout", { method: "POST" });
     setUser(null);
+    rememberUser(null);
   }, []);
 
   const value = useMemo(

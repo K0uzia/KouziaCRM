@@ -202,7 +202,7 @@ export function SettingsPage() {
     api<LegalClause[]>("/api/legal-clauses").then(setClauses).catch(fail);
     api<{ previews: NumberingPreview[] }>("/api/numbering/preview").then((p) => setPreviews(p.previews)).catch(fail);
     void loadGoogleStatus();
-    const s = await fetchSettings<PublicSettings>();
+    const s = await fetchSettings<PublicSettings>({ complete: true });
     setSettings(s);
     setForm(withPrintedBrandColors(withTwoDepositMilestones(s)));
     setInpiQuery(s.inpiUrl || s.siren || "");

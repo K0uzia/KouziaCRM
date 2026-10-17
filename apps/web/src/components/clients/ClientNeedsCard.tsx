@@ -20,13 +20,9 @@ export function ClientNeedsCard({ clientId, initial }: { clientId: string; initi
   useEffect(
     () => () => {
       if (!pending.current) return;
-      void fetch(`/api/clients/${clientId}/needs`, {
-        method: "PUT",
-        credentials: "include",
-        keepalive: true,
-        headers: { "Content-Type": "application/json" },
-        body: pending.current,
-      });
+      void api(`/api/clients/${clientId}/needs`, { method: "PUT", keepalive: true, body: pending.current }).catch(
+        (e: Error) => toast.error(`Besoins non enregistrés : ${e.message}`),
+      );
     },
     [clientId],
   );

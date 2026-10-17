@@ -1,13 +1,39 @@
 import { OfflineError } from "./network";
+import { offlineEnabled } from "./offline/config";
+import { copyServes, offlineRule } from "./offline/rules";
+import { markFresh, markServedFromCopy, tagCopy } from "./offline/served";
+import { readCopy, saveCopy } from "./offline/store";
 
 /** Écriture réussie dans l'espace Site : la barre de publication recompte les changements. */
 export const SITE_CHANGED_EVENT = "kouzia:site-changed";
 
-export async function api<T>(path: string, init?: RequestInit): Promise<T> {
-  const headers = new Headers(init?.headers);
+/** Serveur injoignable derrière le tunnel (passerelle Cloudflare, 502 à 530) : la copie locale peut servir. */
+const SERVER_DOWN = new Set([502, 503, 504, 520, 521, 522, 523, 524, 530]);
+
+export type ApiInit = RequestInit & {
+  /** « blob » : fichier (PDF, CSV) au lieu de JSON. */
+  responseType?: "json" | "blob";
+};
+
+export async function api<T>(path: string, options?: ApiInit): Promise<T> {
+  const { responseType = "json", ...init } = options ?? {};
+  const method = (init.method ?? "GET").toUpperCase();
+  // Lecture de la liste fermée (lib/offline/rules), sur l'origine autorisée : réseau d'abord, copie ensuite.
+  const rule = method === "GET" && responseType === "json" && offlineEnabled() ? offlineRule(path) : null;
+  const route = typeof window === "undefined" ? "" : window.location.pathname;
+  const fromCopy = async (): Promise<{ data: T } | null> => {
+    if (!rule || !copyServes(rule, route)) return null;
+    const copy = await readCopy<T>(path).catch(() => null);
+    if (!copy) return null;
+    // Donnée d'appoint (réglages) : pas de mention « Données du … » pour elle seule.
+    if (!rule.support) markServedFromCopy(path, copy.savedAt, route);
+    return { data: tagCopy(copy.data, copy.savedAt) };
+  };
+
+  const headers = new Headers(init.headers);
   // Ne pas forcer JSON sur FormData (boundary multipart requis par le navigateur)
   if (
-    init?.body &&
+    init.body &&
     !headers.has("Content-Type") &&
     !(init.body instanceof FormData)
   ) {
@@ -23,7 +49,14 @@ export async function api<T>(path: string, init?: RequestInit): Promise<T> {
   } catch (error) {
     // Annulation voulue par l'appelant : transmise telle quelle.
     if (isAbort(error)) throw error;
+    const copy = await fromCopy();
+    if (copy) return copy.data;
     throw new OfflineError();
+  }
+
+  if (!res.ok && SERVER_DOWN.has(res.status)) {
+    const copy = await fromCopy();
+    if (copy) return copy.data;
   }
 
   if (!res.ok) {
@@ -58,21 +91,32 @@ export async function api<T>(path: string, init?: RequestInit): Promise<T> {
     throw Object.assign(new Error(message || statusMessage(res.status)), { status: res.status, code, fieldErrors });
   }
 
-  if ((init?.method ?? "GET") !== "GET" && path.startsWith("/api/site/")) {
+  if (method !== "GET" && path.startsWith("/api/site/")) {
     window.dispatchEvent(new CustomEvent(SITE_CHANGED_EVENT));
   }
   if (res.status === 204) return undefined as T;
+  if (responseType === "blob") return (await readBody(() => res.blob())) as T;
   const ct = res.headers.get("content-type") ?? "";
   if (ct.includes("application/json")) {
-    try {
-      return (await res.json()) as T;
-    } catch (error) {
-      if (isAbort(error)) throw error;
-      // Corps coupé en route : le réseau est tombé pendant la lecture de la réponse.
-      throw new OfflineError();
+    const data = (await readBody(() => res.json())) as T;
+    if (rule) {
+      markFresh(path);
+      // Copie en arrière-plan : un échec d'écriture locale ne bloque jamais l'écran.
+      void saveCopy(path, rule.sanitize(data)).catch(() => undefined);
     }
+    return data;
   }
   return undefined as T;
+}
+
+async function readBody<T>(read: () => Promise<T>): Promise<T> {
+  try {
+    return await read();
+  } catch (error) {
+    if (isAbort(error)) throw error;
+    // Corps coupé en route : le réseau est tombé pendant la lecture de la réponse.
+    throw new OfflineError();
+  }
 }
 
 function isAbort(error: unknown): boolean {

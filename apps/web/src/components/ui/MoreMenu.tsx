@@ -22,6 +22,8 @@ export function MoreMenu({
   leading,
   ariaLabel,
   compactMobile = false,
+  disabled = false,
+  describedBy,
 }: {
   items: MoreMenuItem[];
   label?: ReactNode;
@@ -32,6 +34,9 @@ export function MoreMenu({
   ariaLabel?: string;
   /** Sous 640 px : bouton carré de 44 px (icône seule, libellé masqué par l'appelant). */
   compactMobile?: boolean;
+  /** Déclencheur désactivé (ex. hors ligne) ; describedBy : id du texte qui explique pourquoi. */
+  disabled?: boolean;
+  describedBy?: string;
 }) {
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
@@ -68,14 +73,16 @@ export function MoreMenu({
         aria-expanded={open}
         aria-controls={panelId}
         aria-label={ariaLabel}
+        aria-describedby={describedBy}
+        disabled={disabled}
         onClick={() => setOpen((v) => !v)}
-        className={buttonClass(variant, compactMobile ? "w-full px-0 sm:px-4" : "w-full")}
+        className={buttonClass(variant, `${compactMobile ? "w-full px-0 sm:px-4" : "w-full"} disabled:cursor-not-allowed disabled:opacity-50`)}
       >
         {leading}
         {icon ? <FontAwesomeIcon icon={faEllipsis} className="h-4 w-4" aria-hidden /> : null}
         {label}
       </button>
-      {open ? (
+      {open && !disabled ? (
         <ul
           id={panelId}
           className="absolute right-0 z-30 mt-2 min-w-56 overflow-hidden rounded-[var(--radius)] border border-[var(--border-strong)] bg-[var(--surface-raised)] py-1 shadow-[var(--shadow)]"

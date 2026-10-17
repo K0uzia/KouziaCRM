@@ -135,7 +135,7 @@ export function EmailSignatureCard() {
   const load = useCallback(async () => {
     setLoadError(null);
     try {
-      const s = await fetchSettings<PublicSettings>();
+      const s = await fetchSettings<PublicSettings>({ complete: true });
       const initial = htmlToText(s.emailSignatureHtml);
       setSettings(s);
       setText(initial);

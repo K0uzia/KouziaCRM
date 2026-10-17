@@ -240,10 +240,18 @@ Avant un merge dans `main` :
 | Types et build du front | `npm run build` (lance aussi `check:lockfile`) |
 | Lockfile | `npm run check:lockfile` : échoue si npm sous Windows a retiré les binaires des autres plateformes (dont `lightningcss-linux-x64-musl` pour le CT Alpine) |
 | Mobile | `npm run check:mobile` (voir ci-dessous) |
-| Hors ligne | `npm run check:offline` : réseau coupé (Playwright), changer d'écran ne recharge pas et ne renvoie pas vers /login, bandeau « Hors ligne » sans décalage, mesure `check:mobile` avec le bandeau. Mêmes identifiants que `check:mobile`, adresse `CHECK_OFFLINE_URL` |
-| Front (unitaires) | `npm test -w @kouzia-erp/web` : `api()` hors ligne, `isStaleChunk` (vitest, déjà installé à la racine) |
+| Hors ligne | `npm run check:offline` : réseau coupé (Playwright), changer d'écran ne recharge pas et ne renvoie pas vers /login, bandeau « Hors ligne » sans décalage, mesure `check:mobile` avec le bandeau. Sur l'origine du hors ligne (build de prod, `ADMIN_PUBLIC_ORIGIN` = `CHECK_OFFLINE_URL`, ex. `ADMIN_PUBLIC_ORIGIN=http://localhost:4173 npm run build` puis `vite preview`) : clients, devis et factures ouverts en ligne, puis rechargés hors ligne avec « Données du JJ/MM à HH h MM », et IndexedDB inspectée (magasins `cle` et `copies` seulement, valeurs chiffrées, rien de /api en Cache Storage). Mêmes identifiants que `check:mobile` ; base de recette avec au moins un client, un devis et une facture |
+| Front (unitaires) | `npm test -w @kouzia-erp/web` : `api()` hors ligne, `isStaleChunk`, copie chiffrée (aller-retour, liste fermée des exclusions, réseau puis copie, horodatage) |
 | Chargement des pages | `npm run qa:mesure -- --width=360 --profil=4g-lent` : temps de Réglages, Clients, Factures et Messagerie (navigation et chargement complet), GET /api et appels en double ; profil 4G lent (RTT 150 ms, 1,6 Mbit/s, processeur x4) ou `bureau`. Mêmes identifiants que `check:mobile`, compte de recette sans double authentification, build de prod de préférence (`MESURE_URL`). |
 | Typographie | aucun tiret cadratin ni demi-cadratin ajouté |
+
+### Mode hors ligne (consultation)
+
+Sur l'origine `ADMIN_PUBLIC_ORIGIN` seulement (`erp.kouzia.com`, lue à l'exécution : l'API l'écrit dans `index.html` à chaque service de la page ; valeur du build à défaut). Ailleurs (Tailscale, LAN, dev), ni copie ni cache des écrans : le service worker ne sert qu'aux notifications push.
+
+- Enveloppe : service worker `apps/web/sw/sw.ts` (push + Workbox) ; l'index et tous les fichiers des écrans en cache, toute page servie par `index.html` sauf `/api`. Nouvelle version : elle attend, un toast propose « Recharger ».
+- Données : copie locale chiffrée (IndexedDB, AES-GCM 256, clé WebCrypto non extractible, IV de 12 octets par enregistrement) des seules lectures de `apps/web/src/lib/offline/rules.ts` : clients, prestations, devis, factures (sans paiements ni PDF) et le sous-ensemble des réglages utile aux devis. Réseau d'abord, copie ensuite ; un écran servi depuis la copie affiche « Données du JJ/MM à HH h MM » et ses actions d'écriture sont désactivées. Rien dans Cache Storage pour `/api`. Utilisateur courant (sans secret) gardé pour ouvrir l'ERP sans réseau ; la session du serveur fait foi dès son retour. Pas de code de déverrouillage, pas d'effacement automatique.
+- Dépendances : `vite-plugin-pwa` (MIT, build du service worker et liste des fichiers à mettre en cache), `workbox-precaching`, `workbox-routing` et `workbox-window` (MIT, cache versionné des écrans et mise à jour en attente), `idb` (ISC, IndexedDB en promesses), `fake-indexeddb` (Apache-2.0, développement : IndexedDB pour les tests vitest).
 
 ### Contrôle mobile (`npm run check:mobile`)
 

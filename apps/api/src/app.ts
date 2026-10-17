@@ -1,6 +1,6 @@
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import Fastify, { type FastifyInstance } from "fastify";
+import Fastify, { type FastifyInstance, type FastifyReply } from "fastify";
 import cors from "@fastify/cors";
 import cookie from "@fastify/cookie";
 import helmet from "@fastify/helmet";
@@ -38,6 +38,7 @@ import { RATE_LIMITED, registerErrorHandler, setJsonSerializer } from "@/lib/htt
 import { logSerializers } from "@/lib/log-redact.js";
 import { registerInputGuards } from "@/lib/http-input.js";
 import { ensureDefaultLegalClauses } from "@/lib/company/legal-clauses.js";
+import { withOfflineOrigin } from "@/lib/spa-index.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -204,12 +205,21 @@ export async function buildApp(opts: BuildAppOptions = {}): Promise<FastifyInsta
       : path.resolve(__dirname, "../../../web/dist");
 
     try {
-      const { access } = await import("node:fs/promises");
-      await access(path.join(webDist, "index.html"));
+      const { access, readFile } = await import("node:fs/promises");
+      const indexFile = path.join(webDist, "index.html");
+      await access(indexFile);
+      // index.html porte l'origine du hors ligne de ce serveur : jamais servi tel quel par le statique.
+      const sendIndex = async (reply: FastifyReply) =>
+        reply
+          .header("Cache-Control", "no-cache")
+          .type("text/html; charset=utf-8")
+          .send(withOfflineOrigin(await readFile(indexFile, "utf8"), process.env.ADMIN_PUBLIC_ORIGIN));
       await app.register(fastifyStatic, {
         root: webDist,
         wildcard: false,
         cacheControl: false,
+        index: false,
+        allowedPath: (pathname) => pathname !== "/index.html",
         // Fichiers hashés de /assets : un an, immuables. Le reste (index.html, sw.js, manifeste) est
         // revalidé à chaque chargement, pour qu'une mise à jour soit prise tout de suite.
         setHeaders: (reply, filePath) => {
@@ -218,12 +228,13 @@ export async function buildApp(opts: BuildAppOptions = {}): Promise<FastifyInsta
       });
       app.setNotFoundHandler((request, reply) => {
         const pathname = request.url.split("?")[0]!;
+        if (pathname === "/index.html") return sendIndex(reply);
         // Un fichier absent (ancien chunk après une mise à jour) répond 404 : servi à sa place,
         // index.html ferait échouer l'import du module sans erreur exploitable par la SPA.
         if (pathname.startsWith("/api/") || pathname.startsWith("/assets/") || /\.[a-z0-9]+$/i.test(pathname)) {
           return reply.code(404).send({ error: "Not found" });
         }
-        return reply.sendFile("index.html");
+        return sendIndex(reply);
       });
       spaServed = true;
       app.log.info(`SPA static served from ${webDist}`);
