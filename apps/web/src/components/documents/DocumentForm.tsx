@@ -1,10 +1,12 @@
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { toast } from "sonner";
 import { api, formatEUR } from "@/lib/api";
 import { subscriptionsTotalText } from "@/lib/quote-totals";
 import { euros } from "@/lib/format";
 import { Button } from "@/components/ui/Button";
-import { ModalActions } from "@/components/ui/Modal";
+import { Modal, ModalActions } from "@/components/ui/Modal";
+import { DocumentPreview } from "@/components/documents/DocumentPreview";
+import { useMediaQuery } from "@/lib/use-media-query";
 import { Field, Input, Select, Textarea } from "@/components/ui/Field";
 import type { Client } from "@/components/clients/ClientForm";
 import type { ClientNeed } from "@/components/clients/NeedsEditor";
@@ -367,6 +369,51 @@ export function DocumentFormEditor({
     });
   }, [subscriptionOnly]);
 
+  /** Corps de la création (et de l'aperçu, qui reçoit le même brouillon). */
+  function requestBody(lines: DocLine[]) {
+    return {
+      clientId: form.clientId,
+      documentType,
+      notes: form.notes || null,
+      paymentTerms: form.paymentTerms || null,
+      serviceDate: documentType === "INVOICE" ? form.serviceDate || null : null,
+      purchaseOrderRef: form.purchaseOrderRef || null,
+      ...(documentType === "INVOICE" ? { sourceQuoteId: form.sourceQuoteId || null } : {}),
+      ...(documentType === "QUOTE" && form.paymentPlanOffer ? { paymentPlanOffer: form.paymentPlanOffer } : {}),
+      discountType: form.discountType,
+      discountPercent:
+        form.discountType === "PERCENT" ? Number(form.discountPercent) || 0 : undefined,
+      discountEuros:
+        form.discountType === "FIXED" ? Number(form.discountEuros) || 0 : undefined,
+      lines: lines.map((l) => ({
+        description: l.description,
+        quantity: l.isSubscription ? 1 : Number(l.quantity),
+        unitPriceEuros: Number(l.unitPriceEuros),
+        isSubscription: l.isSubscription,
+        billingDay: l.isSubscription ? Number(l.billingDay) || 1 : null,
+        billingInterval: l.isSubscription ? l.billingInterval : null,
+        serviceId: l.isSubscription ? l.serviceId : null,
+        groupTitle: l.groupTitle?.trim() || null,
+        isPackDiscount: Boolean(l.isPackDiscount),
+        ...(documentType === "QUOTE" && l.isSubscription ? startPayload(startOf(l)) : {}),
+      })),
+    };
+  }
+
+  // Aperçu : panneau voisin dès 1024 px, fenêtre plein écran en dessous (requêtes seulement si elle est ouverte).
+  const widePreview = useMediaQuery("(min-width: 64rem)");
+  const [previewOpen, setPreviewOpen] = useState(false);
+  const previewLines = form.lines.filter((l) => l.description.trim() || l.unitPriceEuros.trim());
+  const previewBody = useMemo(
+    () => (form.clientId && previewLines.length > 0 ? JSON.stringify(requestBody(previewLines)) : null),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [form, documentType],
+  );
+  const previewPaused = !form.clientId
+    ? "Choisissez un client pour voir l'aperçu."
+    : "Ajoutez une prestation pour voir l'aperçu.";
+  const previewKind = documentType === "QUOTE" ? "Devis" : "Facture";
+
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
     for (const l of form.lines) {
@@ -377,33 +424,7 @@ export function DocumentFormEditor({
     }
     setBusy(true);
     try {
-      const body = {
-        clientId: form.clientId,
-        documentType,
-        notes: form.notes || null,
-        paymentTerms: form.paymentTerms || null,
-        serviceDate: documentType === "INVOICE" ? form.serviceDate || null : null,
-        purchaseOrderRef: form.purchaseOrderRef || null,
-        ...(documentType === "INVOICE" ? { sourceQuoteId: form.sourceQuoteId || null } : {}),
-        ...(documentType === "QUOTE" && form.paymentPlanOffer ? { paymentPlanOffer: form.paymentPlanOffer } : {}),
-        discountType: form.discountType,
-        discountPercent:
-          form.discountType === "PERCENT" ? Number(form.discountPercent) || 0 : undefined,
-        discountEuros:
-          form.discountType === "FIXED" ? Number(form.discountEuros) || 0 : undefined,
-        lines: form.lines.map((l) => ({
-          description: l.description,
-          quantity: l.isSubscription ? 1 : Number(l.quantity),
-          unitPriceEuros: Number(l.unitPriceEuros),
-          isSubscription: l.isSubscription,
-          billingDay: l.isSubscription ? Number(l.billingDay) || 1 : null,
-          billingInterval: l.isSubscription ? l.billingInterval : null,
-          serviceId: l.isSubscription ? l.serviceId : null,
-          groupTitle: l.groupTitle?.trim() || null,
-          isPackDiscount: Boolean(l.isPackDiscount),
-          ...(documentType === "QUOTE" && l.isSubscription ? startPayload(startOf(l)) : {}),
-        })),
-      };
+      const body = requestBody(form.lines);
       const doc = await api<{ id: string }>(
         mode === "edit" && documentId ? `/api/invoices/${documentId}` : "/api/invoices",
         {
@@ -437,7 +458,9 @@ export function DocumentFormEditor({
   const visibleNeeds = showDoneNeeds ? clientNeeds : clientNeeds.filter((n) => !n.done);
 
   return (
-    <form onSubmit={onSubmit} className="space-y-6">
+    <>
+    <div className="lg:grid lg:grid-cols-[minmax(0,1fr)_20rem] lg:items-start lg:gap-6">
+    <form onSubmit={onSubmit} className="min-w-0 space-y-6">
       {/* 1. Client */}
       <section className="space-y-2" aria-labelledby="doc-client">
         <h3 id="doc-client" className={sectionTitle}>
@@ -823,6 +846,11 @@ export function DocumentFormEditor({
             </>
           )}
         </div>
+        {widePreview ? null : (
+          <Button variant="secondary" onClick={() => setPreviewOpen(true)}>
+            Aperçu
+          </Button>
+        )}
         <Button variant="secondary" onClick={onCancel} disabled={busy}>
           Annuler
         </Button>
@@ -831,6 +859,25 @@ export function DocumentFormEditor({
         </Button>
       </ModalActions>
     </form>
+    {widePreview ? (
+      <aside aria-labelledby="doc-preview" className="sticky top-0 space-y-2">
+        <h3 id="doc-preview" className={sectionTitle}>
+          Aperçu
+        </h3>
+        <DocumentPreview body={previewBody} pausedReason={previewPaused} active kindLabel={previewKind} />
+      </aside>
+    ) : null}
+    </div>
+    <Modal
+      open={previewOpen && !widePreview}
+      onClose={() => setPreviewOpen(false)}
+      title={`Aperçu ${documentType === "QUOTE" ? "du devis" : "de la facture"}`}
+      description="Le document tel qu'il sera émis. Rien n'est enregistré."
+      fullScreenMobile
+    >
+      <DocumentPreview body={previewBody} pausedReason={previewPaused} active={previewOpen && !widePreview} kindLabel={previewKind} />
+    </Modal>
+    </>
   );
 }
 

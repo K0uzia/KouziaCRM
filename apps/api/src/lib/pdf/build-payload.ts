@@ -206,6 +206,7 @@ export function buildInvoicePdfPayload({
     subscriptionTerms: { MONTH: clauseBody("SUBSCRIPTION_MONTHLY"), YEAR: clauseBody("SUBSCRIPTION_ANNUAL") },
     // Information précontractuelle des particuliers (audience B2C) : devis seulement.
     withdrawalTerms: isQuote ? clauseBody("WITHDRAWAL") : null,
+    subscriptionDateNotice: isQuote && invoice.lines.some((l) => l.isSubscription) ? clauseBody("SUBSCRIPTION_BILLING_DATE") : null,
     cgv: isQuote ? cgvShown : null,
     acceptance:
       invoice.quoteStatus === "ACCEPTED" && invoice.quoteSignerName && invoice.quoteDecidedAt
