@@ -1,13 +1,12 @@
+import DOMPurify from "isomorphic-dompurify";
 import type { CompanySettings } from "@prisma/client";
 import type { EmailBrand } from "@/lib/email/templates.js";
 
+/** Raison sociale, SIRET et adresse : dans le pied de mail seulement (layout.ts), jamais ici. */
 function defaultBrandSignature(brand: EmailBrand): string {
   return [
     "Cordialement,",
     brand.tradeName || brand.legalName,
-    brand.legalName,
-    `EI · SIRET ${brand.siret}`,
-    [brand.addressLine1, `${brand.postalCode} ${brand.city}`].filter(Boolean).join(", "),
     brand.email || "",
     brand.website || "",
   ]
@@ -62,4 +61,24 @@ export function formatPlainTextSignature(
   const custom = settings.emailSignatureHtml?.trim();
   if (custom) return htmlSignatureToPlain(custom);
   return defaultBrandSignature(brand);
+}
+
+/** Longueur maximale de la signature saisie dans les réglages (HTML brut, avant assainissement). */
+export const SIGNATURE_HTML_MAX = 4000;
+
+/**
+ * Signature HTML enregistrée : liste blanche p, br, strong, em, a (href http, https, mailto, tel).
+ * Tout le reste est retiré (balises, attributs, gestionnaires d'événements, styles), le texte est gardé.
+ * Tirets typographiques ramenés au trait d'union (charte). Signature vide une fois nettoyée : null.
+ */
+export function sanitizeSignatureHtml(html: string | null | undefined): string | null {
+  if (html == null) return null;
+  const clean = DOMPurify.sanitize(html.replace(/[\u2013\u2014]/g, "-"), {
+    ALLOWED_TAGS: ["p", "br", "strong", "em", "a"],
+    ALLOWED_ATTR: ["href"],
+    ALLOWED_URI_REGEXP: /^(?:https?:|mailto:|tel:)/i,
+    ALLOW_DATA_ATTR: false,
+    ALLOW_ARIA_ATTR: false,
+  }).trim();
+  return htmlSignatureToPlain(clean) ? clean : null;
 }

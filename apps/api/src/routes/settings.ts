@@ -21,6 +21,7 @@ import {
   resolveSmtpConfig,
 } from "@/lib/email/smtp.js";
 import { testImapConnection } from "@/lib/email/imap-config.js";
+import { SIGNATURE_HTML_MAX } from "@/lib/email/signature.js";
 import { decryptOptional } from "@/lib/crypto.js";
 import {
   saveGeneralTab,
@@ -146,6 +147,12 @@ export const settingsRoutes: FastifyPluginAsync = async (app) => {
       imapPollIntervalMinutes: z.number().int().min(1).max(60).optional(),
       attachmentMaxFileMb: z.number().int().min(1).max(200).optional(),
       attachmentMaxMessageMb: z.number().int().min(1).max(500).optional(),
+      // Assainie avant enregistrement (saveEmailTab) ; chaîne vide ou null : signature par défaut.
+      emailSignatureHtml: z
+        .string()
+        .max(SIGNATURE_HTML_MAX, `Signature trop longue (${SIGNATURE_HTML_MAX} caractères au plus)`)
+        .optional()
+        .nullable(),
     });
     const parsed = schema.safeParse(request.body);
     if (!parsed.success) {

@@ -1,4 +1,5 @@
-import { ObligationStatus } from "@prisma/client";
+import { ObligationStatus, type CompanySettings } from "@prisma/client";
+import { renderEmailHtml, type EmailLayoutBrand } from "@/lib/email/layout.js";
 import { isSmtpConfigured } from "@/lib/email/smtp.js";
 import { mailEnqueue } from "@/lib/email/mailer/index.js";
 import { getCompanySettings } from "@/lib/company.js";
@@ -38,13 +39,20 @@ export function stageTargetYmd(dueDate: Date, offsetDays: number): string {
   return addDaysYmd(dueDateYmd(dueDate), offsetDays);
 }
 
+/**
+ * Rappel d'obligation : même mise en page et même pied légal que les autres e-mails (layout.ts).
+ * Le texte brut est la source ; le HTML en dérive, le lien officiel y devient un bouton.
+ * Le pied de la partie texte est ajouté à l'envoi (processor), comme pour tout e-mail automatique.
+ */
 export function buildObligationReminderEmail(opts: {
   label: string;
   stageLabel: string;
   dueYmd: string;
   officialUrl: string;
-  brandName: string;
+  brand: EmailLayoutBrand;
+  colors?: Partial<Pick<CompanySettings, "brandPrimaryColor" | "brandSecondaryColor">> | null;
 }): { subject: string; text: string; html: string } {
+  const brandName = opts.brand.tradeName?.trim() || opts.brand.legalName;
   const subject = `[Kouzia] Rappel ${opts.stageLabel} : ${opts.label}`;
   const text = [
     `Rappel déclaration (${opts.stageLabel})`,
@@ -54,21 +62,16 @@ export function buildObligationReminderEmail(opts: {
     "",
     `Lien officiel : ${opts.officialUrl}`,
     "",
-    `- ${opts.brandName} / Kouzia ERP`,
+    `- ${brandName} / Kouzia ERP`,
   ].join("\n");
-  const html = `<p><strong>Rappel déclaration (${opts.stageLabel})</strong></p>
-<p>${escapeHtml(opts.label)}<br/>Échéance : ${escapeHtml(opts.dueYmd)}</p>
-<p><a href="${escapeHtml(opts.officialUrl)}">Ouvrir la démarche officielle</a></p>
-<p style="color:#64748b;font-size:12px;">${escapeHtml(opts.brandName)} / Kouzia ERP</p>`;
+  const html = renderEmailHtml({
+    text,
+    brand: opts.brand,
+    colors: opts.colors,
+    paymentUrl: opts.officialUrl,
+    paymentLabel: "Ouvrir la démarche officielle",
+  });
   return { subject, text, html };
-}
-
-function escapeHtml(s: string): string {
-  return s
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
 }
 
 /** Enfile les emails de rappel obligations dus aujourd'hui (J-7, J-3, J-1, jour J). */
@@ -86,7 +89,15 @@ export async function sendDueObligationEmails(now: Date = new Date()): Promise<n
 
   const todayYmd = startOfDayParis(now);
   const links = resolveOfficialLinks(settings.officialLinks);
-  const brandName = settings.tradeName?.trim() || settings.legalName;
+  const brand: EmailLayoutBrand = {
+    tradeName: settings.tradeName ?? settings.legalName,
+    legalName: settings.legalName,
+    siret: settings.siret,
+    addressLine1: settings.addressLine1,
+    postalCode: settings.postalCode,
+    city: settings.city,
+    website: settings.website,
+  };
 
   const open = await prisma.obligation.findMany({
     where: { status: { in: [ObligationStatus.PENDING, ObligationStatus.LATE] } },
@@ -112,7 +123,8 @@ export async function sendDueObligationEmails(now: Date = new Date()): Promise<n
         stageLabel: stage.label,
         dueYmd: dueDateYmd(obl.dueDate),
         officialUrl,
-        brandName,
+        brand,
+        colors: settings,
       });
 
       await mailEnqueue({

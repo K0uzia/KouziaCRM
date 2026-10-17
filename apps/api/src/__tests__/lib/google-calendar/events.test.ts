@@ -99,7 +99,14 @@ describe("obligation email reminders", () => {
       stageLabel: "J-7",
       dueYmd: "2026-04-15",
       officialUrl: "https://autoentrepreneur.urssaf.fr",
-      brandName: "Kouzia",
+      brand: {
+        tradeName: "Kouzia",
+        legalName: "Alexandre Kouziaeff",
+        siret: "10858002800018",
+        addressLine1: "13 Le Petit Moulin",
+        postalCode: "29690",
+        city: "Huelgoat",
+      },
     });
     expect(mail.subject).toContain("J-7");
     expect(mail.subject).toContain("Déclaration URSSAF");

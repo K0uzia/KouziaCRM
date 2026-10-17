@@ -14,6 +14,7 @@ import { SecretField } from "@/pages/settings/SecretField";
 import { SecurityTab } from "@/pages/settings/SecurityTab";
 import { NotificationsTab } from "@/pages/settings/NotificationsTab";
 import { CharteTab, withPrintedBrandColors } from "@/pages/settings/CharteTab";
+import { EmailSignatureCard } from "@/pages/settings/EmailSignatureCard";
 import {
   SETTINGS_TABS,
   type PublicSettings,
@@ -1050,6 +1051,7 @@ export function SettingsPage() {
             </Card>
           ) : null}
 
+          {tab === "email" ? <EmailSignatureCard /> : null}
           {tab === "email" ? (
             <Card className="space-y-6 border border-[var(--border)] p-5">
               <div className="flex flex-wrap items-center justify-between gap-2 rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--bg)] px-3 py-2.5">

@@ -14,6 +14,7 @@ import {
   type SmtpEncryption,
 } from "@/lib/settings/defaults.js";
 import { applyEncryptedSecret } from "@/lib/settings/secrets.js";
+import { sanitizeSignatureHtml } from "@/lib/email/signature.js";
 import { diffChangedFields, logSettingsAudit, type AuditActor } from "@/lib/settings/audit.js";
 import { toPublicSettings, type SettingsTabId } from "@/lib/settings/public.js";
 
@@ -248,7 +249,7 @@ export async function saveEmailTab(
         ? { imapFolderArchive: emptyToNull(patch.imapFolderArchive) }
         : {}),
       ...(patch.emailSignatureHtml !== undefined
-        ? { emailSignatureHtml: emptyToNull(patch.emailSignatureHtml) }
+        ? { emailSignatureHtml: sanitizeSignatureHtml(patch.emailSignatureHtml) }
         : {}),
       ...(patch.emailBrowserNotifications !== undefined
         ? { emailBrowserNotifications: patch.emailBrowserNotifications }
