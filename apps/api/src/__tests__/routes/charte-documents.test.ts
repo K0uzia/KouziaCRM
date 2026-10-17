@@ -179,10 +179,14 @@ describe("Charte des documents : aperçu", () => {
     expect(clean.json().footerDuplicates).toEqual([]);
   });
 
-  it("expose les couleurs imprimées : ancienne valeur par défaut remplacée par la charte Kouzia", async () => {
+  it("défaut du schéma : charte Kouzia ; une couleur choisie, même l'ancien vert, est respectée", async () => {
     const res = await app.inject({ method: "GET", url: "/api/settings", headers: { cookie } });
-    expect(res.json().brandPrimaryColor).toBe("#0f766e");
+    expect(res.json()).toMatchObject({ brandPrimaryColor: "#fe9a00", brandSecondaryColor: "#0b1020" });
     expect(res.json().brand).toMatchObject({ primary: "#fe9a00", secondary: "#0b1020" });
+    await prisma.companySettings.updateMany({ data: { brandPrimaryColor: "#0f766e" } });
+    invalidateCompanySettingsCache();
+    const after = await app.inject({ method: "GET", url: "/api/settings", headers: { cookie } });
+    expect(after.json().brand.primary).toBe("#0f766e");
   });
 });
 

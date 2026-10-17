@@ -50,10 +50,10 @@ describe("email HTML", () => {
   });
 
   it("échappe le contenu et applique la charte par défaut", () => {
-    const html = renderEmailHtml({ text: "<b>x</b>", brand, colors: { brandPrimaryColor: "#0f766e" } });
+    const html = renderEmailHtml({ text: "<b>x</b>", brand, colors: { brandPrimaryColor: "vert" } });
     expect(html).toContain("&lt;b&gt;x&lt;/b&gt;");
     expect(html).toContain("#fe9a00");
-    expect(html).not.toContain("#0f766e");
+    expect(html).not.toContain("vert");
   });
 });
 
@@ -67,12 +67,13 @@ describe("signature", () => {
 });
 
 describe("couleurs de marque", () => {
-  it("remplace l'ancien vert par défaut par la charte, garde une couleur choisie", () => {
-    expect(resolveBrandColors({ brandPrimaryColor: "#0f766e", brandSecondaryColor: "#0f172a" })).toEqual({
+  it("remplace une couleur absente ou invalide par la charte, garde une couleur choisie", () => {
+    expect(resolveBrandColors({ brandPrimaryColor: "", brandSecondaryColor: "bleu" })).toEqual({
       primary: "#fe9a00",
       secondary: "#0b1020",
     });
     expect(resolveBrandColors({ brandPrimaryColor: "#123456" }).primary).toBe("#123456");
+    expect(resolveBrandColors({ brandPrimaryColor: "#0F766E" }).primary).toBe("#0f766e");
     expect(readableOn("#fe9a00")).toBe("#1a1103");
     expect(readableOn("#0b1020")).toBe("#ffffff");
   });

@@ -144,7 +144,6 @@ export type PublicSettings = {
     secondary: string;
     kouziaPrimary: string;
     kouziaSecondary: string;
-    legacyDefaults: string[];
   };
 };
 

@@ -2,15 +2,9 @@
 export const KOUZIA_PRIMARY = "#fe9a00";
 export const KOUZIA_SECONDARY = "#0b1020";
 
-/**
- * Anciennes valeurs par défaut du schéma (vert d'avant la charte) : traitées comme « non personnalisées ».
- * Le défaut du schéma Prisma reste à changer (migration à valider) ; aucune donnée n'est réécrite.
- */
-export const LEGACY_BRAND_DEFAULTS: ReadonlySet<string> = new Set(["#0f766e", "#0f172a"]);
-
 function pick(value: string | null | undefined, fallback: string): string {
   const v = value?.trim().toLowerCase();
-  if (!v || !/^#[0-9a-f]{6}$/.test(v) || LEGACY_BRAND_DEFAULTS.has(v)) return fallback;
+  if (!v || !/^#[0-9a-f]{6}$/.test(v)) return fallback;
   return v;
 }
 

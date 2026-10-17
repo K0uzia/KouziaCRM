@@ -44,13 +44,12 @@ function kouziaOf(form: PublicSettings) {
 }
 
 /**
- * Formulaire : anciennes couleurs par défaut (vert d'avant la charte) remplacées par celles que les
- * documents impriment réellement. Rien n'est enregistré tant que l'onglet n'est pas enregistré.
+ * Formulaire : une couleur enregistrée invalide est remplacée par celle que les documents impriment
+ * réellement. Rien n'est enregistré tant que l'onglet n'est pas enregistré.
  */
 export function withPrintedBrandColors(s: PublicSettings): PublicSettings {
   if (!s.brand) return s;
-  const legacy = new Set(s.brand.legacyDefaults.map((c) => c.toLowerCase()));
-  const fix = (v: string, printed: string) => (!isHexColor(v) || legacy.has(v.toLowerCase()) ? printed : v);
+  const fix = (v: string, printed: string) => (isHexColor(v) ? v : printed);
   return {
     ...s,
     brandPrimaryColor: fix(s.brandPrimaryColor, s.brand.primary),
