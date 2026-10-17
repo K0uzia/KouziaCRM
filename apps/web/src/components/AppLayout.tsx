@@ -15,6 +15,7 @@ import { useAuth } from "@/lib/auth";
 const loadCommandPalette = () => import("@/components/CommandPalette");
 const CommandPalette = lazy(() => loadCommandPalette().then((m) => ({ default: m.CommandPalette })));
 import { NotificationBell } from "@/components/NotificationBell";
+import { NetworkStatus } from "@/components/NetworkStatus";
 import { PageErrorBoundary } from "@/components/PageErrorBoundary";
 import { NotificationsProvider } from "@/lib/notifications";
 import { MoreMenu } from "@/components/ui/MoreMenu";
@@ -445,6 +446,9 @@ export function AppLayout() {
             />
           </div>
         </header>
+        <div className="relative z-40 h-0">
+          <NetworkStatus />
+        </div>
 
         {/* Région qui défile : atteignable au clavier (axe scrollable-region-focusable),
             contour visible seulement au focus clavier. « relative » : un élément en position absolue

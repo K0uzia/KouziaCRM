@@ -11,6 +11,7 @@ import {
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
+import { isOnline, onReconnect } from "@/lib/network";
 import { NotificationToast } from "@/components/NotificationToast";
 
 export type NotificationKind =
@@ -193,7 +194,8 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
     }
 
     async function poll() {
-      if (!cursor.current || document.visibilityState === "hidden") return;
+      // Hors ligne : relevé en pause, repris par onReconnect.
+      if (!cursor.current || document.visibilityState === "hidden" || !isOnline()) return;
       const feed = await api<Feed>(`/api/notifications/feed?since=${encodeURIComponent(cursor.current)}`);
       if (cancelled) return;
       cursor.current = feed.serverTime;
@@ -217,9 +219,12 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
       if (document.visibilityState === "visible") void poll().catch(() => undefined);
     };
     document.addEventListener("visibilitychange", onVisible);
+    // Retour du réseau : rattrapage immédiat (ou premier chargement, s'il avait échoué).
+    const stopReconnect = onReconnect(() => void (cursor.current ? poll() : first()).catch(() => undefined));
     return () => {
       cancelled = true;
       clearInterval(id);
+      stopReconnect();
       document.removeEventListener("visibilitychange", onVisible);
     };
   }, [announce]);

@@ -16,6 +16,7 @@
     "check:mobile": "tsx scripts/check-mobile.ts",
     "qa:mesure": "tsx scripts/qa/mesure-pages.ts",
     "check:wide": "tsx scripts/check-mobile.ts --widths=768,1024,1280",
+    "check:offline": "tsx scripts/check-offline.ts",
     "push:keys": "tsx scripts/push-keys.ts",
     "prebuild": "npm run check:lockfile",
     "build": "npm run build -w @kouzia-erp/web",

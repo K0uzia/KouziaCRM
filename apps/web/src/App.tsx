@@ -122,11 +122,11 @@ function PageFallback() {
 }
 
 function Protected({ children }: { children: ReactNode }) {
-  const { user, loading } = useAuth();
+  const { user, loading, unreachable } = useAuth();
   if (loading) {
     return (
-      <div className="flex min-h-screen items-center justify-center text-sm text-[var(--muted)]">
-        Chargement…
+      <div role="status" className="flex min-h-screen items-center justify-center px-[var(--gutter)] text-center text-sm text-[var(--muted)]">
+        {unreachable ? "Pas de connexion au serveur. L'ERP s'ouvrira dès le retour du réseau." : "Chargement…"}
       </div>
     );
   }

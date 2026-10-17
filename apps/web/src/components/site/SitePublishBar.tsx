@@ -4,6 +4,7 @@ import { toast } from "sonner";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faCloudArrowUp } from "@fortawesome/free-solid-svg-icons";
 import { api, SITE_CHANGED_EVENT } from "@/lib/api";
+import { isOnline, onReconnect } from "@/lib/network";
 import { Badge } from "@/components/ui/Card";
 import { Button, ButtonLink } from "@/components/ui/Button";
 import { Modal } from "@/components/ui/Modal";
@@ -100,8 +101,15 @@ export default function SitePublishBar() {
   const watching = Boolean(data?.last?.running || data?.last?.watching);
   useEffect(() => {
     if (!watching) return;
-    const timer = window.setInterval(() => void load(), 3000);
-    return () => window.clearInterval(timer);
+    // Hors ligne : suivi en pause, repris au retour du réseau.
+    const timer = window.setInterval(() => {
+      if (isOnline()) void load();
+    }, 3000);
+    const stopReconnect = onReconnect(() => void load());
+    return () => {
+      window.clearInterval(timer);
+      stopReconnect();
+    };
   }, [watching, load]);
 
   const count = data?.changes.length ?? 0;
