@@ -11,6 +11,8 @@ import { Field, Input, Select, Textarea } from "@/components/ui/Field";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { FilterChips } from "@/components/ui/FilterChips";
 import { Segmented } from "@/components/ui/Segmented";
+import { Tabs, useTabParam } from "@/components/ui/Tabs";
+import { useCreateParam } from "@/lib/use-create-param";
 import { INTERVAL_OPTIONS, type BillingInterval } from "@/lib/billing-interval";
 
 type Service = {
@@ -26,7 +28,7 @@ type Service = {
   stripePriceId?: string | null;
   billingInterval?: string | null;
   isPack?: boolean;
-  /** Rubrique d'une prestation ponctuelle : SITE | LOGICIEL | OPTION ; null = « Autres ». */
+  /** Classement d'une prestation ponctuelle : SITE | LOGICIEL | OPTION ; null = service non précisé. */
   category?: string | null;
   packItems?: Array<{
     serviceId: string;
@@ -45,37 +47,36 @@ const emptyForm = {
   kind: "ONE_OFF" as "ONE_OFF" | "SUBSCRIPTION" | "PACK",
   /** Pack : prestations du catalogue et quantités. */
   items: [] as PackRow[],
-  /** Prestation ponctuelle : rubrique du catalogue (vide = Autres). */
+  /** Prestation ponctuelle : site, logiciel ou option (vide = service non précisé). */
   category: "" as "" | "SITE" | "LOGICIEL" | "OPTION",
   // Annuel par défaut : Stripe prélève des frais à chaque transaction (une par an plutôt que douze).
   billingInterval: "YEAR" as BillingInterval,
   billingDay: "1",
 };
 
-/** Rubriques du catalogue : packs et abonnements se déduisent de leur type, les autres de leur rubrique. */
-type Rubrique = "SITE" | "LOGICIEL" | "OPTION" | "PACK" | "SUBSCRIPTION" | "OTHER";
-const RUBRIQUES: Array<{ id: Rubrique; label: string }> = [
-  { id: "SITE", label: "Sites" },
-  { id: "LOGICIEL", label: "Logiciels" },
-  { id: "OPTION", label: "Options" },
-  { id: "PACK", label: "Packs" },
-  { id: "SUBSCRIPTION", label: "Abonnements" },
-  { id: "OTHER", label: "Autres" },
-];
-const rubriqueOf = (s: Service): Rubrique =>
-  s.isPack
-    ? "PACK"
-    : s.isSubscription
-      ? "SUBSCRIPTION"
-      : s.category === "SITE" || s.category === "LOGICIEL" || s.category === "OPTION"
-        ? s.category
-        : "OTHER";
+/**
+ * Onglets de Prestations (les abonnements sont dans l'écran Abonnements) : Services (site, logiciel ou sans
+ * classement), Packs, Options.
+ */
+type Onglet = "services" | "packs" | "options";
+const ONGLETS = ["services", "packs", "options"] as const;
+const ongletOf = (s: Service): Onglet => (s.isPack ? "packs" : s.category === "OPTION" ? "options" : "services");
 
-const KIND_OPTIONS = [
-  { id: "ONE_OFF", label: "Ponctuelle" },
-  { id: "SUBSCRIPTION", label: "Abonnement" },
-  { id: "PACK", label: "Pack" },
-] as const;
+/** Ce que le bouton « Créer » propose ; aussi accessible par ?new=<type> (menu Créer, palette Ctrl K). */
+export type CreateType = "service" | "option" | "pack" | "abonnement";
+const CREATE_TYPES: Array<{ id: CreateType; label: string; hint: string }> = [
+  { id: "service", label: "Service", hint: "Une prestation seule : un site, un logiciel, un atelier." },
+  { id: "option", label: "Option", hint: "Un complément à ajouter à un service : page, rédaction, formation." },
+  { id: "pack", label: "Pack", hint: "Plusieurs prestations à un prix d'ensemble, avec la remise affichée sur le devis." },
+  { id: "abonnement", label: "Abonnement", hint: "Une offre facturée chaque année (ou chaque mois) : hébergement, maintenance." },
+];
+const isCreateType = (v: unknown): v is CreateType => CREATE_TYPES.some((c) => c.id === v);
+const CREATE_TITLE: Record<CreateType, string> = {
+  service: "Nouveau service",
+  option: "Nouvelle option",
+  pack: "Nouveau pack",
+  abonnement: "Nouvel abonnement",
+};
 
 /** Équivalent hors taxe si l'entreprise devient assujettie (TVA 20 % prise sur le prix affiché). */
 export function htEquivalent(cents: number): string {
@@ -87,7 +88,7 @@ function stripeProductUrl(productId: string): string {
 }
 
 export function ServicesPage() {
-  const { moduleStripeEnabled } = useFeatures();
+  const { moduleStripeEnabled, moduleSubscriptionsEnabled } = useFeatures();
   const [rows, setRows] = useState<Service[]>([]);
   const [loading, setLoading] = useState(true);
   const [open, setOpen] = useState(false);
@@ -97,15 +98,19 @@ export function ServicesPage() {
   const [form, setForm] = useState(emptyForm);
   const [catalog, setCatalog] = useState<Service[]>([]);
   const [view, setView] = useState<"active" | "archived">("active");
-  const [rubrique, setRubrique] = useState<Rubrique>("SITE");
+  const [onglet, setOnglet] = useTabParam(ONGLETS, "services");
+  /** Onglet Services : filtre secondaire par classement (site, logiciel). */
+  const [genre, setGenre] = useState<"all" | "SITE" | "LOGICIEL">("all");
+  const [choosing, setChoosing] = useState(false);
+  const [creating, setCreating] = useState<CreateType | null>(null);
   // Clé d'idempotence Stripe : une par ouverture du formulaire (un double envoi ne crée rien de plus).
   const [requestId, setRequestId] = useState("");
 
   async function load() {
-    // Écran des prestations ponctuelles et packs ; le catalogue entier (abonnements compris) sert à composer un pack.
+    // Prestations, packs et options ; les abonnements sont dans Abonnements (le catalogue entier sert à composer un pack).
     const all = await api<Service[]>("/api/services");
     setCatalog(all);
-    setRows(all);
+    setRows(all.filter((s) => !s.isSubscription));
   }
 
   useEffect(() => {
@@ -114,20 +119,30 @@ export function ServicesPage() {
       .finally(() => setLoading(false));
   }, []);
 
-  function openCreate() {
+  /** « Créer » : sans type, demande lequel ; avec un type, ouvre directement le bon formulaire. */
+  function openCreate(type?: CreateType) {
+    if (!type) {
+      setChoosing(true);
+      return;
+    }
+    setChoosing(false);
     setEditing(null);
-    // Type et rubrique de l'onglet affiché.
+    setCreating(type);
     setForm({
       ...emptyForm,
-      kind: rubrique === "PACK" ? "PACK" : rubrique === "SUBSCRIPTION" ? "SUBSCRIPTION" : "ONE_OFF",
-      category: rubrique === "SITE" || rubrique === "LOGICIEL" || rubrique === "OPTION" ? rubrique : "",
+      kind: type === "pack" ? "PACK" : type === "abonnement" ? "SUBSCRIPTION" : "ONE_OFF",
+      category: type === "option" ? "OPTION" : type === "service" && genre !== "all" ? genre : "",
     });
     setRequestId(crypto.randomUUID());
     setOpen(true);
   }
+  useCreateParam(({ type }) =>
+    openCreate(isCreateType(type) && (type !== "abonnement" || moduleSubscriptionsEnabled) ? type : undefined),
+  );
 
   function openEdit(s: Service) {
     setEditing(s);
+    setCreating(null);
     setForm({
       name: s.name,
       description: s.description ?? "",
@@ -170,7 +185,7 @@ export function ServicesPage() {
         );
       } else {
         await api("/api/services", { method: "POST", body: JSON.stringify(body) });
-        const where = form.kind === "SUBSCRIPTION" ? " (dans Abonnements > Offres)" : "";
+        const where = form.kind === "SUBSCRIPTION" ? " (dans Abonnements)" : "";
         toast.success(
           form.kind === "PACK"
             ? "Pack créé : sur un devis, il ajoute ses prestations et sa remise"
@@ -234,8 +249,13 @@ export function ServicesPage() {
   const active = rows.filter((r) => r.active);
   const archived = rows.filter((r) => !r.active);
   const inView = view === "active" ? active : archived;
-  const visible = inView.filter((s) => rubriqueOf(s) === rubrique);
-  const countIn = (r: Rubrique) => inView.filter((s) => rubriqueOf(s) === r).length;
+  const inTab = inView.filter((s) => ongletOf(s) === onglet);
+  const visible = onglet === "services" && genre !== "all" ? inTab.filter((s) => s.category === genre) : inTab;
+  // Compteur seulement s'il y a quelque chose : un « 0 » n'apporte rien, l'onglet vide le dit lui-même.
+  const countIn = (o: Onglet) => inView.filter((s) => ongletOf(s) === o).length || null;
+  const classified = inTab.some((s) => s.category === "SITE" || s.category === "LOGICIEL");
+  const tabNoun = { services: "service", packs: "pack", options: "option" } as const;
+  const tabCreate: Record<Onglet, CreateType> = { services: "service", packs: "pack", options: "option" };
   const priceCents = Math.round(Number(form.priceEuros || 0) * 100);
   // Prestation liée : un nouveau montant crée un nouveau prix Stripe.
   const linkedPriceChange = Boolean(editing?.stripePriceId) && priceCents !== editing?.unitPriceCents;
@@ -258,23 +278,42 @@ export function ServicesPage() {
             : "Catalogue à prix fixe, repris dans les devis et factures. Prix : montant final payé par le client (TVA non applicable)."
         }
         actions={
-          <Button onClick={openCreate}>
+          <Button onClick={() => openCreate()}>
             <FontAwesomeIcon icon={faPlus} className="h-3.5 w-3.5" aria-hidden />
-            Nouvelle prestation
+            Créer
           </Button>
         }
       />
 
+      <Tabs
+        label="Prestations"
+        value={onglet}
+        onChange={(o) => {
+          setOnglet(o);
+          setGenre("all");
+        }}
+        tabs={[
+          { id: "services", label: "Services", count: countIn("services") },
+          { id: "packs", label: "Packs", count: countIn("packs") },
+          { id: "options", label: "Options", count: countIn("options") },
+        ]}
+      >
       <Card className="overflow-hidden">
         <div className="flex flex-col gap-3 border-b border-[var(--border)] p-3 sm:flex-row sm:items-center sm:justify-between sm:p-4">
           <div className="flex min-w-0 flex-col gap-2">
-            <FilterChips
-              label="Rubrique"
-              value={rubrique}
-              onChange={setRubrique}
-              wrap
-              options={RUBRIQUES.map((r) => ({ id: r.id, label: r.label, count: countIn(r.id) }))}
-            />
+            {onglet === "services" && classified ? (
+              <FilterChips
+                label="Type de service"
+                value={genre}
+                onChange={setGenre}
+                wrap
+                options={[
+                  { id: "all", label: "Tous" },
+                  { id: "SITE", label: "Sites" },
+                  { id: "LOGICIEL", label: "Logiciels" },
+                ]}
+              />
+            ) : null}
             <FilterChips
               label="Afficher"
               value={view}
@@ -292,8 +331,19 @@ export function ServicesPage() {
           <div className="h-40 animate-pulse" aria-busy="true" />
         ) : visible.length === 0 ? (
           <EmptyState
-            title={view === "active" ? "Aucune prestation" : "Aucune prestation archivée"}
-            hint={view === "active" ? "Ajoutez vos tarifs avec le bouton Nouvelle prestation." : undefined}
+            title={
+              view === "active"
+                ? `Aucun${onglet === "options" ? "e" : ""} ${tabNoun[onglet]}${onglet === "services" && genre !== "all" ? ` de ce type` : ""}.`
+                : `Aucun${onglet === "options" ? "e" : ""} ${tabNoun[onglet]} archivé${onglet === "options" ? "e" : ""}.`
+            }
+            action={
+              view === "active" ? (
+                <Button onClick={() => openCreate(tabCreate[onglet])}>
+                  <FontAwesomeIcon icon={faPlus} className="h-3.5 w-3.5" aria-hidden />
+                  {`Créer ${onglet === "options" ? "une" : "un"} ${tabNoun[onglet]}`}
+                </Button>
+              ) : undefined
+            }
           />
         ) : (
           <ul className="divide-y divide-[var(--border)]">
@@ -371,11 +421,42 @@ export function ServicesPage() {
           </ul>
         )}
       </Card>
+      </Tabs>
+
+      {/* « Créer » : le type d'abord, puis le formulaire adapté. */}
+      <Modal open={choosing} onClose={() => setChoosing(false)} title="Créer" description="Que voulez-vous ajouter au catalogue ?">
+        <ul className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+          {CREATE_TYPES.filter((c) => c.id !== "abonnement" || moduleSubscriptionsEnabled).map((c) => (
+            <li key={c.id}>
+              <button
+                type="button"
+                onClick={() => openCreate(c.id)}
+                className="flex h-full min-h-11 w-full flex-col items-start gap-1 rounded-[var(--radius)] border border-[var(--border)] bg-[var(--surface)] p-3 text-left hover:border-[var(--primary)] hover:bg-[var(--surface-raised)]"
+              >
+                <span className="font-medium text-[var(--text)]">{c.label}</span>
+                <span className="text-xs text-[var(--muted)]">{c.hint}</span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      </Modal>
 
       <Modal
         open={open}
         onClose={() => setOpen(false)}
-        title={editing ? "Modifier la prestation" : "Nouvelle prestation"}
+        title={
+          editing
+            ? form.kind === "PACK"
+              ? "Modifier le pack"
+              : form.kind === "SUBSCRIPTION"
+                ? "Modifier l'abonnement"
+                : form.category === "OPTION"
+                  ? "Modifier l'option"
+                  : "Modifier le service"
+            : creating
+              ? CREATE_TITLE[creating]
+              : "Nouvelle prestation"
+        }
         description={
           moduleStripeEnabled
             ? "Créée ou modifiée aussi dans Stripe. Prix fixe repris tel quel dans les devis."
@@ -383,19 +464,6 @@ export function ServicesPage() {
         }
       >
         <form onSubmit={onSubmit} className="space-y-4">
-          {/* Groupes de boutons hors d'un <label> (il nommerait le premier bouton). */}
-          {editing ? null : (
-            <div className="space-y-1.5">
-              <p className="text-sm font-medium text-[var(--text)]">Type</p>
-              <Segmented
-                label="Type de prestation"
-                options={KIND_OPTIONS}
-                value={form.kind}
-                onChange={(kind) => setForm({ ...form, kind })}
-                className="w-full"
-              />
-            </div>
-          )}
           {!editing && form.kind === "SUBSCRIPTION" ? (
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div className="space-y-1.5">
@@ -420,15 +488,15 @@ export function ServicesPage() {
             </div>
           ) : null}
           {form.kind === "ONE_OFF" ? (
-            <Field label="Rubrique" hint="Range la prestation dans Prestations ; sans effet sur le devis.">
+            <Field label="Classement" hint="Range la prestation dans Prestations (Services ou Options) ; sans effet sur le devis.">
               <Select
                 value={form.category}
                 onChange={(e) => setForm({ ...form, category: e.target.value as typeof form.category })}
               >
-                <option value="SITE">Sites</option>
-                <option value="LOGICIEL">Logiciels</option>
-                <option value="OPTION">Options</option>
-                <option value="">Autres</option>
+                <option value="SITE">Service : site</option>
+                <option value="LOGICIEL">Service : logiciel</option>
+                <option value="">Service, sans précision</option>
+                <option value="OPTION">Option</option>
               </Select>
             </Field>
           ) : null}

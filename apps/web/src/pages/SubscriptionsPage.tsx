@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent } from "react";
-import { Navigate, useSearchParams } from "react-router-dom";
+import { Navigate, useNavigate, useSearchParams } from "react-router-dom";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import {
   faPlus,
@@ -205,12 +205,6 @@ export function SubscriptionsPage() {
   useEffect(() => {
     load().catch((e: Error) => toast.error(e.message));
   }, []);
-
-  function openCreateOffer() {
-    setEditingOffer(null);
-    setOfferForm(emptyOfferForm);
-    setOfferOpen(true);
-  }
 
   function openEditOffer(s: Service) {
     setEditingOffer(s);
@@ -507,7 +501,10 @@ export function SubscriptionsPage() {
     }
   }
 
-  const [tab, setTab] = useTabParam(["contrats", "offres"] as const, "contrats");
+  // 1er onglet : les abonnements proposés (offres du catalogue) ; 2e : les contrats des clients.
+  const [tab, setTab] = useTabParam(["offres", "contrats"] as const, "offres");
+  const navigate = useNavigate();
+  const activeOffers = offers.filter((o) => o.active);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [endTarget, setEndTarget] = useState<Subscription | null>(null);
   const selected = rows.find((r) => r.id === selectedId) ?? null;
@@ -584,15 +581,14 @@ export function SubscriptionsPage() {
         subtitle="Contrats de maintenance mensuels ou annuels : chaque échéance est facturée automatiquement."
         actions={
           <>
-            {!moduleStripeEnabled ? (
-              <Button variant="secondary" onClick={openCreateOffer}>
-                <FontAwesomeIcon icon={faPlus} className="h-3.5 w-3.5" aria-hidden />
-                Nouvelle offre
-              </Button>
-            ) : null}
-            <Button onClick={openCreate}>
+            {/* Même création que Prestations > Créer > Abonnement (Stripe compris, annuel par défaut). */}
+            <Button variant="secondary" onClick={() => navigate("/services?new=abonnement")}>
               <FontAwesomeIcon icon={faPlus} className="h-3.5 w-3.5" aria-hidden />
               Nouvel abonnement
+            </Button>
+            <Button onClick={openCreate}>
+              <FontAwesomeIcon icon={faPlus} className="h-3.5 w-3.5" aria-hidden />
+              Nouveau contrat
             </Button>
           </>
         }
@@ -641,8 +637,8 @@ export function SubscriptionsPage() {
         value={tab}
         onChange={setTab}
         tabs={[
-          { id: "contrats", label: "Contrats clients", count: rows.length },
-          { id: "offres", label: "Offres", count: offers.filter((o) => o.active).length },
+          { id: "offres", label: "Abonnements", count: activeOffers.length || null },
+          { id: "contrats", label: "Contrats", count: rows.length || null },
         ]}
       >
         {tab === "contrats" ? (
@@ -652,8 +648,8 @@ export function SubscriptionsPage() {
               searchable={["client.displayName", "label", "service.name"]}
               searchPlaceholder="Rechercher un contrat…"
               countLabel={rows.length > 1 ? "contrats" : "contrat"}
-              emptyTitle="Aucun abonnement"
-              emptyHint="Créez un contrat de maintenance mensuel ou annuel : chaque échéance sera facturée automatiquement."
+              emptyTitle="Aucun contrat"
+              emptyHint="Un contrat relie un client à un abonnement : chaque échéance est facturée automatiquement. Bouton « Nouveau contrat »."
               onRowClick={(s) => setSelectedId(s.id)}
               renderMobileCard={(s) => (
                 // Carte entière = bouton : ouvre le panneau du contrat et ses actions.
@@ -681,10 +677,16 @@ export function SubscriptionsPage() {
             />
         ) : (
             <Card className="overflow-hidden">
-              {offers.length === 0 ? (
+              {activeOffers.length === 0 ? (
                 <EmptyState
-                  title="Aucune offre abonnement"
-                  hint="Définissez vos forfaits mensuels (maintenance, hébergement, etc.) avant de créer un contrat."
+                  title="Aucun abonnement."
+                  hint="Hébergement, maintenance… : l'offre que vos contrats reprennent ensuite."
+                  action={
+                    <Button onClick={() => navigate("/services?new=abonnement")}>
+                      <FontAwesomeIcon icon={faPlus} className="h-3.5 w-3.5" aria-hidden />
+                      Créer un abonnement
+                    </Button>
+                  }
                 />
               ) : (
                 <ul className="divide-y divide-[var(--border)]">
