@@ -8,10 +8,10 @@
 //   CHECK_MOBILE_URL (défaut http://localhost:5173), CHECK_MOBILE_WIDTHS (défaut « 320,375,414 »,
 //   ou --widths=… ; npm run check:wide = 768, 1024 et 1280)
 //   CHECK_MOBILE_REPORT (chemin d'un rapport JSON, facultatif)
-import { createHmac } from "node:crypto";
 import { readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { chromium, type BrowserContext, type Page } from "playwright";
+import { login } from "./check-login";
 import { NAV_SPACES, SETTINGS_ITEM } from "../apps/web/src/lib/navigation";
 import { SETTINGS_TABS } from "../apps/web/src/pages/settings/types";
 
@@ -24,50 +24,6 @@ const TOLERANCE = 2;
 
 type Issue = { kind: "scroll" | "clip" | "target" | "state" | "lisible" | "tableau"; detail: string; selector: string };
 type Result = { screen: string; width: number; issues: Issue[] };
-
-function totp(secretBase32: string): string {
-  const A = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
-  let bits = 0;
-  let value = 0;
-  const bytes: number[] = [];
-  for (const ch of secretBase32.replace(/\s/g, "").toUpperCase()) {
-    value = (value << 5) | A.indexOf(ch);
-    bits += 5;
-    if (bits >= 8) {
-      bytes.push((value >>> (bits - 8)) & 255);
-      bits -= 8;
-    }
-  }
-  const msg = Buffer.alloc(8);
-  msg.writeBigUInt64BE(BigInt(Math.floor(Date.now() / 30000)));
-  const mac = createHmac("sha1", Buffer.from(bytes)).update(msg).digest();
-  const o = mac[mac.length - 1]! & 15;
-  return String((mac.readUInt32BE(o) & 0x7fffffff) % 1e6).padStart(6, "0");
-}
-
-async function login(page: Page) {
-  const email = process.env.CHECK_MOBILE_EMAIL;
-  const password = process.env.CHECK_MOBILE_PASSWORD;
-  if (!email || !password) {
-    throw new Error("CHECK_MOBILE_EMAIL et CHECK_MOBILE_PASSWORD requis (compte admin de la base de recette).");
-  }
-  await page.goto(`${BASE}/login`);
-  await page.getByLabel("Email").fill(email);
-  await page.getByLabel("Mot de passe").fill(password);
-  await page.getByRole("button", { name: "Se connecter" }).click();
-  const code = page.getByLabel("Code", { exact: true });
-  await Promise.race([page.waitForURL(`${BASE}/`), code.waitFor()]);
-  if (await code.isVisible().catch(() => false)) {
-    const secret = process.env.CHECK_MOBILE_TOTP;
-    if (!secret) throw new Error("Double authentification active : CHECK_MOBILE_TOTP (secret base32) requis.");
-    await code.fill(totp(secret));
-    // Code complet : le formulaire part tout seul. « Valider » seulement s'il n'est pas parti.
-    await page.waitForURL(`${BASE}/`, { timeout: 5000 }).catch(async () => {
-      await page.getByRole("button", { name: "Valider" }).click();
-      await page.waitForURL(`${BASE}/`);
-    });
-  }
-}
 
 /** Mesure dans la page : code navigateur pur (check-mobile.measure.js), sans transpilation tsx. */
 const MEASURE = readFileSync(path.resolve("scripts/check-mobile.measure.js"), "utf8").trim();
@@ -144,7 +100,7 @@ async function main() {
       });
       const page = await context.newPage();
       if (!session) {
-        await login(page);
+        await login(page, BASE);
         session = await context.storageState();
       }
 

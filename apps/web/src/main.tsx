@@ -5,14 +5,13 @@ import { Toaster } from "sonner";
 import { AuthProvider } from "@/lib/auth";
 import { FeaturesProvider } from "@/lib/features";
 import App from "./App";
-import { PageErrorBoundary, reloadOnceForStaleChunk } from "@/components/PageErrorBoundary";
+import { PageErrorBoundary } from "@/components/PageErrorBoundary";
+import { installOfflineToasts } from "@/lib/network";
 import "./index.css";
 
-// Fichier d'une page supprimé par une mise à jour (onglet resté ouvert) : rechargement unique ; au-delà,
-// l'erreur remonte à PageErrorBoundary, qui propose « Recharger ».
-window.addEventListener("vite:preloadError", (event) => {
-  if (reloadOnceForStaleChunk()) event.preventDefault();
-});
+// Fichier d'une page introuvable (vite:preloadError non intercepté) : l'erreur remonte à PageErrorBoundary, qui
+// distingue la mise à jour (rechargement unique) de la coupure réseau (attente du retour en ligne).
+installOfflineToasts();
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>

@@ -9,6 +9,7 @@ import {
 } from "react";
 import { fetchSettings } from "@/lib/settings-request";
 import { useAuth } from "@/lib/auth";
+import { onReconnect } from "@/lib/network";
 
 export type FeatureFlags = {
   moduleBankEnabled: boolean;
@@ -33,6 +34,7 @@ export function FeaturesProvider({ children }: { children: ReactNode }) {
   const { user } = useAuth();
   const [flags, setFlags] = useState<FeatureFlags>(DEFAULTS);
   const [loading, setLoading] = useState(true);
+  const [stale, setStale] = useState(false);
 
   const load = useCallback(async (force: boolean) => {
     if (!user) {
@@ -48,8 +50,10 @@ export function FeaturesProvider({ children }: { children: ReactNode }) {
           data.moduleSubscriptionsEnabled ?? DEFAULTS.moduleSubscriptionsEnabled,
         moduleStripeEnabled: data.moduleStripeEnabled ?? DEFAULTS.moduleStripeEnabled,
       });
+      setStale(false);
     } catch {
-      setFlags(DEFAULTS);
+      // Lecture impossible (réseau coupé) : les modules déjà connus restent affichés, le menu ne change pas.
+      setStale(true);
     } finally {
       setLoading(false);
     }
@@ -60,6 +64,8 @@ export function FeaturesProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     void load(false);
   }, [load]);
+  // Lecture manquée hors ligne : reprise au retour du réseau.
+  useEffect(() => (stale ? onReconnect(() => void load(true)) : undefined), [stale, load]);
 
   const value = useMemo(
     () => ({ ...flags, loading, refresh }),

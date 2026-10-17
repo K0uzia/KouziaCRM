@@ -15,6 +15,7 @@ import { useAuth } from "@/lib/auth";
 const loadCommandPalette = () => import("@/components/CommandPalette");
 const CommandPalette = lazy(() => loadCommandPalette().then((m) => ({ default: m.CommandPalette })));
 import { NotificationBell } from "@/components/NotificationBell";
+import { NetworkStatus } from "@/components/NetworkStatus";
 import { PageErrorBoundary } from "@/components/PageErrorBoundary";
 import { NotificationsProvider } from "@/lib/notifications";
 import { MoreMenu } from "@/components/ui/MoreMenu";
@@ -295,8 +296,15 @@ export function AppLayout() {
     { label: "Nouvelle facture", onSelect: () => navigate("/invoices?new=1") },
     { label: "Nouveau client", onSelect: () => navigate("/clients?new=1") },
     { label: "Enregistrer un paiement", onSelect: () => navigate("/payments?new=1") },
+    // Catalogue : mêmes types que Prestations > Créer.
+    { label: "Nouveau service", onSelect: () => navigate("/services?new=service") },
+    { label: "Nouvelle option", onSelect: () => navigate("/services?new=option") },
+    { label: "Nouveau pack", onSelect: () => navigate("/services?new=pack") },
     ...(features.moduleSubscriptionsEnabled
-      ? [{ label: "Nouvel abonnement", onSelect: () => navigate("/abonnements?new=1") }]
+      ? [
+          { label: "Nouvel abonnement", onSelect: () => navigate("/services?new=abonnement") },
+          { label: "Nouveau contrat d'abonnement", onSelect: () => navigate("/abonnements?new=1") },
+        ]
       : []),
   ];
 
@@ -445,6 +453,9 @@ export function AppLayout() {
             />
           </div>
         </header>
+        <div className="relative z-40 h-0">
+          <NetworkStatus />
+        </div>
 
         {/* Région qui défile : atteignable au clavier (axe scrollable-region-focusable),
             contour visible seulement au focus clavier. « relative » : un élément en position absolue

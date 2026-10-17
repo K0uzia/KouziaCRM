@@ -362,9 +362,11 @@ export function ClientDetailPage() {
     Promise.all([
       api<typeof docs>(`/api/invoices?clientId=${id}&pageSize=100`),
       api<typeof docs>(`/api/invoices?type=QUOTE&clientId=${id}&pageSize=100`),
-    ]).then(([invoices, quotes]) => {
-      setDocs([...invoices, ...quotes].filter((d) => d.client.id === id));
-    });
+    ])
+      .then(([invoices, quotes]) => {
+        setDocs([...invoices, ...quotes].filter((d) => d.client.id === id));
+      })
+      .catch((e: Error) => toast.error(`Documents du client non chargés : ${e.message}`));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
 
