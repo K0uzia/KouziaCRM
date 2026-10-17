@@ -6,6 +6,7 @@ import React from "react";
 import { prisma } from "@/lib/prisma.js";
 import { getCompanySettings } from "@/lib/company.js";
 import { issuedPdfAbsolutePath } from "@/lib/pdf/issued-archive.js";
+import { loadBrandLogoDataUrl } from "@/lib/pdf/brand-assets.js";
 import { PaymentReceiptDocument, type PaymentReceiptPdfData } from "@/lib/pdf/payment-receipt-document.js";
 import type { ClientSnapshot } from "@/lib/invoices/transitions.js";
 
@@ -60,6 +61,10 @@ export async function buildReceiptData(paymentId: string, now = new Date()): Pro
       city: company.city,
       email: company.email,
       vatMention: company.vatMention,
+      brandPrimaryColor: company.brandPrimaryColor,
+      brandSecondaryColor: company.brandSecondaryColor,
+      brandLogoDataUrl: await loadBrandLogoDataUrl(company.brandLogoPath),
+      pdfFooterText: company.pdfFooterText,
     },
     client: {
       displayName: snapshot?.displayName ?? invoice.client.displayName,

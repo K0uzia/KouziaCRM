@@ -178,6 +178,17 @@ function createStyles(primary: string, secondary: string) {
     footerRule: { position: "absolute", bottom: 34, left: 40, right: 40, height: 1, backgroundColor: LINE },
     footerLeft: { position: "absolute", bottom: 22, left: 40, fontSize: 7.5, color: MUTED },
     footerRight: { position: "absolute", bottom: 22, left: 40, right: 40, fontSize: 7.5, color: MUTED, textAlign: "right" },
+    specimen: {
+      position: "absolute",
+      top: 360,
+      left: 0,
+      right: 0,
+      textAlign: "center",
+      fontSize: 96,
+      fontFamily: "Helvetica-Bold",
+      color: LINE,
+      transform: "rotate(-30deg)",
+    },
   });
 }
 
@@ -244,6 +255,8 @@ function fmtQty(q: number) {
 export type InvoicePdfData = {
   company: PdfCompanySettings;
   client: ClientSnapshot;
+  /** Aperçu de la charte (Réglages) : filigrane « EXEMPLE » sur chaque page, aucun document réel. */
+  specimen?: boolean;
   invoice: {
     number: string;
     documentType: "INVOICE" | "CREDIT_NOTE" | "QUOTE";
@@ -350,7 +363,7 @@ export type InvoicePdfData = {
   };
 };
 
-export function InvoiceDocument({ company, client, invoice }: InvoicePdfData) {
+export function InvoiceDocument({ company, client, invoice, specimen }: InvoicePdfData) {
   const { primary, secondary } = resolveBrandColors(company);
   const styles = createStyles(primary, secondary);
 
@@ -413,6 +426,11 @@ export function InvoiceDocument({ company, client, invoice }: InvoicePdfData) {
     <Document title={`${title} ${invoice.number}`} author={brandName} creator={brandName}>
       <Page size="A4" style={styles.page}>
         <View style={styles.accent} fixed />
+        {specimen ? (
+          <Text style={styles.specimen} fixed>
+            EXEMPLE
+          </Text>
+        ) : null}
 
         <View style={styles.header}>
           <View style={{ flex: 1 }}>

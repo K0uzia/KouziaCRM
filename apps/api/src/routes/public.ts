@@ -30,6 +30,7 @@ import { decryptOptional } from "@/lib/crypto.js";
 import { renderInvoicePdf } from "@/lib/pdf/render.js";
 import { buildInvoicePdfPayload, pdfSettingsOf } from "@/lib/pdf/build-payload.js";
 import { enrichCompanyForPdf } from "@/lib/pdf/brand-assets.js";
+import { resolveBrandColors } from "@/lib/brand.js";
 import { listActiveLegalClauses } from "@/lib/company/legal-clauses.js";
 import { CLIENT_TYPES, isOrganization } from "@/lib/clients/client-type.js";
 import {
@@ -409,7 +410,7 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
         },
         brand: {
           tradeName: settings.tradeName ?? settings.legalName,
-          accentColor: "#0f766e",
+          accentColor: resolveBrandColors(settings).primary,
           logoUrl: null as string | null,
           contactUrl: settings.website ?? null,
         },

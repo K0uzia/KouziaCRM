@@ -1,5 +1,8 @@
 import path from "node:path";
-import { mkdir, writeFile, readFile } from "node:fs/promises";
+import { mkdir, writeFile, rm } from "node:fs/promises";
+import { uploadsPath } from "@/lib/uploads.js";
+import { brandLogoCandidates, readBrandLogo } from "@/lib/pdf/brand-assets.js";
+import { footerDuplicates, renderChartePreviewEmail, renderChartePreviewPdf } from "@/lib/pdf/charte-preview.js";
 import type { FastifyPluginAsync } from "fastify";
 import { z } from "zod";
 import { UrssafPeriodicity } from "@prisma/client";
@@ -69,8 +72,12 @@ const isEmail = (v: string) => z.string().email().safeParse(v).success;
 const isUrl = (v: string) => z.string().url().safeParse(v).success;
 const isHttpsUrl = (v: string) => isUrl(v) && v.startsWith("https://");
 
-function brandUploadsDir(): string {
-  return path.resolve(process.cwd(), "data", "uploads", "brand");
+/** Signature du fichier du logo : PNG, JPEG ou WebP, sinon null. */
+function sniffLogo(buf: Buffer): "png" | "jpeg" | "webp" | null {
+  if (buf.length > 8 && buf.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))) return "png";
+  if (buf.length > 3 && buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff) return "jpeg";
+  if (buf.length > 12 && buf.toString("latin1", 0, 4) === "RIFF" && buf.toString("latin1", 8, 12) === "WEBP") return "webp";
+  return null;
 }
 
 export const settingsRoutes: FastifyPluginAsync = async (app) => {
@@ -391,13 +398,30 @@ export const settingsRoutes: FastifyPluginAsync = async (app) => {
     if (buf.length > 2 * 1024 * 1024) {
       return reply.code(400).send({ error: "Logo trop volumineux (max 2 Mo)" });
     }
-    const ext = file.mimetype === "image/png" ? "png" : file.mimetype === "image/webp" ? "webp" : "jpg";
-    const dir = brandUploadsDir();
+    // Le contenu fait foi, pas le type annoncé par le navigateur.
+    const sniffed = sniffLogo(buf);
+    if (!sniffed) return reply.code(400).send({ error: "Fichier illisible : envoyez une image PNG, JPEG ou WebP" });
+    let stored = buf;
+    let ext: "png" | "jpg" = sniffed === "jpeg" ? "jpg" : "png";
+    if (sniffed === "webp") {
+      // @react-pdf n'imprime que le PNG et le JPEG : un WebP est converti en PNG à l'envoi.
+      const { loadSharp } = await import("@/lib/site/media.js");
+      const sharp = await loadSharp();
+      if (!sharp) return reply.code(400).send({ error: "WebP indisponible sur ce serveur : envoyez un PNG ou un JPEG" });
+      try {
+        stored = await sharp(buf).png().toBuffer();
+      } catch {
+        return reply.code(400).send({ error: "Image WebP illisible" });
+      }
+      ext = "png";
+    }
+    const dir = uploadsPath("brand");
     await mkdir(dir, { recursive: true });
     const filename = `logo.${ext}`;
-    await writeFile(path.join(dir, filename), buf);
-    const rel = path.join("brand", filename);
-    const updated = await saveIdentityTab({ brandLogoPath: rel }, actorOf(request));
+    await writeFile(path.join(dir, filename), stored);
+    // Ancien logo d'une autre extension : retiré pour ne pas laisser de fichier orphelin.
+    await rm(path.join(dir, ext === "png" ? "logo.jpg" : "logo.png"), { force: true });
+    const updated = await saveIdentityTab({ brandLogoPath: `brand/${filename}` }, actorOf(request));
     return serialize(updated);
   });
 
@@ -406,16 +430,55 @@ export const settingsRoutes: FastifyPluginAsync = async (app) => {
     if (reply.sent) return;
     const settings = await getCompanySettings();
     if (!settings.brandLogoPath) return reply.code(404).send({ error: "Aucun logo" });
-    const abs = path.resolve(process.cwd(), "data", "uploads", settings.brandLogoPath);
-    try {
-      const buf = await readFile(abs);
-      const ext = path.extname(abs).toLowerCase();
-      const ctype =
-        ext === ".png" ? "image/png" : ext === ".webp" ? "image/webp" : "image/jpeg";
-      return reply.type(ctype).send(buf);
-    } catch {
-      return reply.code(404).send({ error: "Fichier logo introuvable" });
+    const logo = await readBrandLogo(settings.brandLogoPath);
+    if (!logo) return reply.code(404).send({ error: "Fichier logo introuvable" });
+    return reply.type(logo.mime).send(logo.buffer);
+  });
+
+  // Les PDF déjà émis gardent leur logo : il y est incorporé, pas lié au fichier.
+  app.delete("/api/settings/identity/logo", async (request, reply) => {
+    await requireAuth(request, reply);
+    if (reply.sent) return;
+    const settings = await getCompanySettings();
+    if (settings.brandLogoPath) {
+      for (const abs of brandLogoCandidates(settings.brandLogoPath)) await rm(abs, { force: true });
     }
+    const updated = await saveIdentityTab({ brandLogoPath: null }, actorOf(request));
+    return serialize(updated);
+  });
+
+  // Aperçu de la charte : rendu réel à partir de données d'exemple, rien n'est enregistré.
+  const previewSchema = z.object({
+    brandPrimaryColor: hexColor,
+    brandSecondaryColor: hexColor,
+    pdfFooterText: z.string().max(2000).optional().nullable(),
+    logo: z.enum(["current", "none"]).default("current"),
+    kind: z.enum(["QUOTE", "INVOICE", "CREDIT_NOTE", "RECEIPT"]).default("INVOICE"),
+  });
+
+  app.post("/api/settings/identity/preview.pdf", async (request, reply) => {
+    await requireAuth(request, reply);
+    if (reply.sent) return;
+    const parsed = previewSchema.safeParse(request.body);
+    if (!parsed.success) return reply.code(400).send({ error: parsed.error.flatten() });
+    const { kind, ...draft } = parsed.data;
+    const pdf = await renderChartePreviewPdf(kind, draft);
+    return reply
+      .header("Content-Type", "application/pdf")
+      .header("Content-Disposition", 'inline; filename="charte-exemple.pdf"')
+      .send(pdf);
+  });
+
+  app.post("/api/settings/identity/preview", async (request, reply) => {
+    await requireAuth(request, reply);
+    if (reply.sent) return;
+    const parsed = previewSchema.safeParse(request.body);
+    if (!parsed.success) return reply.code(400).send({ error: parsed.error.flatten() });
+    const [emailHtml, duplicates] = await Promise.all([
+      renderChartePreviewEmail(parsed.data),
+      footerDuplicates(parsed.data.pdfFooterText),
+    ]);
+    return { emailHtml, footerDuplicates: duplicates };
   });
 
   app.patch("/api/settings/declarations", async (request, reply) => {

@@ -38,11 +38,6 @@ export const ATTACHMENT_DEFAULTS = {
   maxMessageMbCap: 500,
 };
 
-export const BRAND_COLOR_DEFAULTS = {
-  primary: "#0f766e",
-  secondary: "#0f172a",
-};
-
 export type SmtpEncryption = "SSL" | "STARTTLS" | "NONE";
 
 export function isSmtpEncryption(value: string | null | undefined): value is SmtpEncryption {

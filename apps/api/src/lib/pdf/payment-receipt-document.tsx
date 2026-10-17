@@ -1,10 +1,11 @@
 import React from "react";
-import { Document, Page, Text, View, StyleSheet } from "@react-pdf/renderer";
+import { Document, Image, Page, Text, View, StyleSheet } from "@react-pdf/renderer";
 import { formatEUR } from "@/lib/money.js";
+import { resolveBrandColors } from "@/lib/brand.js";
 
 /** Reçu d'un règlement : pièce remise au client, distincte de la facture (qui reste telle qu'émise). */
 
-const styles = StyleSheet.create({
+const createStyles = (primary: string, secondary: string) => StyleSheet.create({
   page: { padding: 36, fontSize: 9.5, fontFamily: "Helvetica", color: "#1f2433", lineHeight: 1.4 },
   head: {
     flexDirection: "row",
@@ -13,9 +14,10 @@ const styles = StyleSheet.create({
     paddingBottom: 12,
     marginBottom: 18,
     borderBottomWidth: 2,
-    borderBottomColor: "#fe9a00",
+    borderBottomColor: primary,
   },
-  brand: { fontSize: 15, fontFamily: "Helvetica-Bold", color: "#0b1020" },
+  logo: { width: 48, height: 48, objectFit: "contain", marginBottom: 6 },
+  brand: { fontSize: 15, fontFamily: "Helvetica-Bold", color: secondary },
   muted: { color: "#5b6478" },
   title: { fontSize: 15, fontFamily: "Helvetica-Bold", textAlign: "right" },
   section: { marginBottom: 14 },
@@ -33,6 +35,17 @@ const styles = StyleSheet.create({
     textAlign: "center",
   },
   legal: { marginTop: 24, fontSize: 7.5, color: "#5b6478" },
+  specimen: {
+    position: "absolute",
+    top: 360,
+    left: 0,
+    right: 0,
+    textAlign: "center",
+    fontSize: 96,
+    fontFamily: "Helvetica-Bold",
+    color: "#e3e6ee",
+    transform: "rotate(-30deg)",
+  },
 });
 
 export type PaymentReceiptPdfData = {
@@ -45,6 +58,11 @@ export type PaymentReceiptPdfData = {
     city: string;
     email: string | null;
     vatMention: string | null;
+    /** Charte des documents (Réglages) : couleurs, logo et note de bas de document. */
+    brandPrimaryColor?: string | null;
+    brandSecondaryColor?: string | null;
+    brandLogoDataUrl?: string | null;
+    pdfFooterText?: string | null;
   };
   client: { displayName: string; addressLine1: string | null; postalCode: string | null; city: string | null };
   payment: { paidAt: Date; amountCents: number; methodLabel: string; reference: string | null };
@@ -53,6 +71,8 @@ export type PaymentReceiptPdfData = {
   paidToDateCents: number;
   remainingCents: number;
   issuedAt: Date;
+  /** Aperçu de la charte : filigrane « EXEMPLE ». */
+  specimen?: boolean;
 };
 
 const fmtDate = (d: Date) => new Intl.DateTimeFormat("fr-FR", { timeZone: "Europe/Paris" }).format(d);
@@ -60,11 +80,19 @@ const fmtDate = (d: Date) => new Intl.DateTimeFormat("fr-FR", { timeZone: "Europ
 export function PaymentReceiptDocument(data: PaymentReceiptPdfData) {
   const { company, client, payment, invoice } = data;
   const brand = company.tradeName || company.legalName;
+  const { primary, secondary } = resolveBrandColors(company);
+  const styles = createStyles(primary, secondary);
   return (
     <Document title={`Reçu de paiement ${invoice.number}`} author={company.legalName} language="fr">
       <Page size="A4" style={styles.page}>
+        {data.specimen ? (
+          <Text style={styles.specimen} fixed>
+            EXEMPLE
+          </Text>
+        ) : null}
         <View style={styles.head}>
           <View>
+            {company.brandLogoDataUrl ? <Image src={company.brandLogoDataUrl} style={styles.logo} /> : null}
             <Text style={styles.brand}>{brand}</Text>
             <Text style={styles.muted}>{company.legalName}</Text>
             <Text style={styles.muted}>
@@ -124,6 +152,7 @@ export function PaymentReceiptDocument(data: PaymentReceiptPdfData) {
           Ce reçu atteste du paiement indiqué ci-dessus. Il ne remplace pas la facture, qui reste la pièce de référence.
           {company.vatMention ? ` ${company.vatMention}.` : ""}
         </Text>
+        {company.pdfFooterText ? <Text style={[styles.legal, { marginTop: 6 }]}>{company.pdfFooterText}</Text> : null}
       </Page>
     </Document>
   );

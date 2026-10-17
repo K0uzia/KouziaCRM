@@ -19,7 +19,7 @@ export function pdfText(pdf: Buffer): string {
     } catch {
       /* flux non compressé ou image */
     }
-    re.lastIndex = end;
+    re.lastIndex = end + "endstream".length;
   }
   const text: string[] = [];
   for (const content of chunks) {

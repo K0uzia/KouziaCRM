@@ -97,7 +97,7 @@ export async function listDueClientRenewals(now: Date = new Date()) {
 
 export function renderClientRenewalEmail(opts: {
   brand: EmailBrand;
-  settings: Pick<CompanySettings, "emailSignatureHtml" | "brandPrimaryColor">;
+  settings: Pick<CompanySettings, "emailSignatureHtml" | "brandPrimaryColor" | "brandSecondaryColor">;
   clientName: string;
   clientFirstName?: string | null;
   renewal: Pick<ClientRenewal, "label" | "provider" | "renewsAt">;
@@ -119,7 +119,7 @@ export function renderClientRenewalEmail(opts: {
     "",
     formatPlainTextSignature(opts.settings, opts.brand),
   ].join("\n");
-  const html = renderEmailHtml({ text, brand: opts.brand, colors: { brandPrimaryColor: opts.settings.brandPrimaryColor }, callout });
+  const html = renderEmailHtml({ text, brand: opts.brand, colors: { brandPrimaryColor: opts.settings.brandPrimaryColor, brandSecondaryColor: opts.settings.brandSecondaryColor }, callout });
   return { subject, text, html };
 }
 

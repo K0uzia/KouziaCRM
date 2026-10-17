@@ -5,6 +5,7 @@ import {
   resolveSmtpEncryption,
 } from "@/lib/settings/defaults.js";
 import { secretMeta } from "@/lib/settings/secrets.js";
+import { KOUZIA_PRIMARY, KOUZIA_SECONDARY, resolveBrandColors } from "@/lib/brand.js";
 
 const OMIT = new Set([
   "smtpPassEncrypted",
@@ -54,6 +55,13 @@ export type PublicCompanySettings = Omit<
   };
   stripeWebhookUrl: string;
   stripeMode: "test" | "live" | null;
+  /** Couleurs réellement imprimées (valeur invalide remplacée) et charte Kouzia. */
+  brand: {
+    primary: string;
+    secondary: string;
+    kouziaPrimary: string;
+    kouziaSecondary: string;
+  };
 };
 
 export function publicApiBaseUrl(): string {
@@ -126,5 +134,10 @@ export function toPublicSettings(settings: CompanySettings): PublicCompanySettin
     },
     stripeWebhookUrl: stripeWebhookUrl(),
     stripeMode,
+    brand: {
+      ...resolveBrandColors(settings),
+      kouziaPrimary: KOUZIA_PRIMARY,
+      kouziaSecondary: KOUZIA_SECONDARY,
+    },
   };
 }

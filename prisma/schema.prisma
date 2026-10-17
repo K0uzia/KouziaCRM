@@ -414,8 +414,8 @@ model CompanySettings {
   decennaleCoverageZone String?
 
   /// Charte documents (PDF / emails)
-  brandPrimaryColor   String  @default("#0f766e")
-  brandSecondaryColor String  @default("#0f172a")
+  brandPrimaryColor   String  @default("#fe9a00")
+  brandSecondaryColor String  @default("#0b1020")
   brandLogoPath       String?
   pdfFooterText       String?
 

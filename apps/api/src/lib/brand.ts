@@ -1,20 +1,15 @@
-import type { CompanySettings } from "@prisma/client";
-
 /** Charte Kouzia : nuit #0b1020, ambre #fe9a00. */
 export const KOUZIA_PRIMARY = "#fe9a00";
 export const KOUZIA_SECONDARY = "#0b1020";
 
-/** Anciennes valeurs par défaut du schéma (vert d'avant la charte) : traitées comme « non personnalisées ». */
-const LEGACY_DEFAULTS = new Set(["#0f766e", "#0f172a"]);
-
 function pick(value: string | null | undefined, fallback: string): string {
   const v = value?.trim().toLowerCase();
-  if (!v || LEGACY_DEFAULTS.has(v)) return fallback;
+  if (!v || !/^#[0-9a-f]{6}$/.test(v)) return fallback;
   return v;
 }
 
 export function resolveBrandColors(
-  settings?: Partial<Pick<CompanySettings, "brandPrimaryColor" | "brandSecondaryColor">> | null,
+  settings?: { brandPrimaryColor?: string | null; brandSecondaryColor?: string | null } | null,
 ): { primary: string; secondary: string } {
   return {
     primary: pick(settings?.brandPrimaryColor, KOUZIA_PRIMARY),

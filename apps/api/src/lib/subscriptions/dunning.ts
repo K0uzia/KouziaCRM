@@ -26,7 +26,7 @@ const fmtDate = formatLongDate;
 
 type MailContext = {
   brand: EmailBrand;
-  settings: Pick<CompanySettings, "emailSignatureHtml" | "brandPrimaryColor">;
+  settings: Pick<CompanySettings, "emailSignatureHtml" | "brandPrimaryColor" | "brandSecondaryColor">;
   clientName: string;
   clientFirstName?: string | null;
 };
@@ -41,7 +41,7 @@ function finish(ctx: MailContext, subject: string, body: string[], button?: { ur
   const html = renderEmailHtml({
     text,
     brand: ctx.brand,
-    colors: { brandPrimaryColor: ctx.settings.brandPrimaryColor },
+    colors: { brandPrimaryColor: ctx.settings.brandPrimaryColor, brandSecondaryColor: ctx.settings.brandSecondaryColor },
     paymentUrl: button?.url,
     paymentLabel: button?.label,
   });
