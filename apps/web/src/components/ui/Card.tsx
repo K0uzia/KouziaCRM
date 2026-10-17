@@ -193,11 +193,13 @@ export function StatCard({
   );
 }
 
-export function EmptyState({ title, hint }: { title: string; hint?: string }) {
+/** État vide : ce qui manque, et en option l'action qui le crée (ex. « Créer un pack »). */
+export function EmptyState({ title, hint, action }: { title: string; hint?: string; action?: ReactNode }) {
   return (
     <div className="px-6 py-14 text-center">
       <p className="text-base font-medium text-[var(--text)]">{title}</p>
       {hint ? <p className="mt-1.5 text-sm text-[var(--muted)]">{hint}</p> : null}
+      {action ? <div className="mt-4 flex justify-center">{action}</div> : null}
     </div>
   );
 }
