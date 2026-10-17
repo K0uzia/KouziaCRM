@@ -1259,7 +1259,8 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
               </div>
               <Badge tone={statusTone(st)}>{labels[st] ?? st}</Badge>
             </div>
-            {!isQuote ? (
+            {/* Copie hors ligne sans paiements : ni « Encaissé » ni « Reste dû » plutôt qu'un montant faux. */}
+            {!isQuote && doc.payments !== undefined ? (
               <div className="mt-5">
                 <div
                   className="h-2 overflow-hidden rounded-full bg-[var(--bg-subtle)]"
@@ -1333,7 +1334,10 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
           {!isQuote ? (
             <Card className="p-5 text-sm">
               <h2 className="mb-3 text-sm font-semibold">Paiements reçus</h2>
-              {(doc.payments ?? []).length === 0 ? (
+              {doc.payments === undefined ? (
+                // Copie hors ligne : les paiements n'y sont jamais gardés.
+                <p className="text-[var(--muted)]">Paiements consultables avec le réseau.</p>
+              ) : doc.payments.length === 0 ? (
                 <p className="text-[var(--muted)]">Aucun paiement enregistré.</p>
               ) : (
                 <ul className="divide-y divide-[var(--border)]">
@@ -1368,7 +1372,7 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
             </Card>
           ) : null}
 
-          {!isQuote && doc.number && doc.status === "ISSUED" && remaining > 0 ? (
+          {!isQuote && doc.payments !== undefined && doc.number && doc.status === "ISSUED" && remaining > 0 ? (
             <Card className="p-5 text-sm">
               <div className="flex items-center justify-between gap-2">
                 <h2 className="text-sm font-semibold">Paiement en ligne</h2>

@@ -41,12 +41,8 @@ type ReceiptsData = {
   totalCents: number;
 };
 
-async function fetchReceiptsPdf(queryParams: string): Promise<Blob> {
-  const res = await fetch(`/api/receipts/pdf?${queryParams}`, {
-    credentials: "include",
-  });
-  if (!res.ok) throw new Error("Export PDF impossible");
-  return res.blob();
+function fetchReceiptsPdf(queryParams: string): Promise<Blob> {
+  return api<Blob>(`/api/receipts/pdf?${queryParams}`, { responseType: "blob" });
 }
 
 export function ReceiptsBookPage() {
@@ -78,11 +74,7 @@ export function ReceiptsBookPage() {
 
   async function exportCsv() {
     try {
-      const res = await fetch(`/api/receipts/csv?${queryParams}`, {
-        credentials: "include",
-      });
-      if (!res.ok) throw new Error("Export CSV impossible");
-      const blob = await res.blob();
+      const blob = await api<Blob>(`/api/receipts/csv?${queryParams}`, { responseType: "blob" });
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;

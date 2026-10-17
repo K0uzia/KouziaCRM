@@ -1,0 +1,316 @@
+import "fake-indexeddb/auto";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { api } from "../api";
+import { OfflineError } from "../network";
+import { offlineRule, OFFLINE_RULES, sanitizeInvoice, sanitizeSettings, SETTINGS_KEYS } from "../offline/rules";
+import { copiedAt, copyDateFor, formatCopyDate, resetServedForTests } from "../offline/served";
+import {
+  OFFLINE_DB,
+  OFFLINE_STORES,
+  readCopy,
+  readUser,
+  resetOfflineStoreForTests,
+  saveCopy,
+  saveUser,
+  seal,
+  unseal,
+} from "../offline/store";
+
+const ORIGIN = "https://erp.kouzia.test";
+const latin1 = (bytes: ArrayBuffer) => new TextDecoder("latin1").decode(bytes);
+
+/** Navigateur minimal : origine, contexte sécurisé, balise de configuration du hors ligne. */
+function browserAt(origin: string, configured: string | null = ORIGIN, pathname = "/clients") {
+  vi.stubGlobal("window", {
+    isSecureContext: true,
+    location: { origin, pathname },
+    dispatchEvent: () => true,
+  });
+  vi.stubGlobal("document", {
+    querySelector: () => (configured === null ? null : { content: configured }),
+  });
+}
+
+function deleteDb(): Promise<void> {
+  return new Promise((resolve) => {
+    const req = indexedDB.deleteDatabase(OFFLINE_DB);
+    req.onsuccess = req.onerror = req.onblocked = () => resolve();
+  });
+}
+
+/** Enregistrements bruts du magasin « copies », tels que le navigateur les garde. */
+function rawRecords(): Promise<{ stores: string[]; values: unknown[] }> {
+  return new Promise((resolve, reject) => {
+    const open = indexedDB.open(OFFLINE_DB);
+    open.onerror = () => reject(open.error);
+    open.onsuccess = () => {
+      const db = open.result;
+      const stores = Array.from(db.objectStoreNames);
+      const req = db.transaction("copies").objectStore("copies").getAll();
+      req.onsuccess = () => {
+        db.close();
+        resolve({ stores, values: req.result });
+      };
+      req.onerror = () => reject(req.error);
+    };
+  });
+}
+
+async function eventually<T>(read: () => Promise<T | null>): Promise<T> {
+  for (let i = 0; i < 50; i++) {
+    const value = await read();
+    if (value !== null) return value;
+    await new Promise((r) => setTimeout(r, 10));
+  }
+  throw new Error("délai dépassé");
+}
+
+const json = (body: unknown, status = 200) =>
+  new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
+
+beforeEach(async () => {
+  await resetOfflineStoreForTests();
+  resetServedForTests();
+  await deleteDb();
+});
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+  vi.restoreAllMocks();
+});
+
+describe("chiffrement de la copie (AES-GCM 256)", () => {
+  it("aller-retour, IV de 12 octets différent à chaque enregistrement, rien en clair", async () => {
+    const key = await crypto.subtle.generateKey({ name: "AES-GCM", length: 256 }, false, ["encrypt", "decrypt"]);
+    const value = { displayName: "Client Témoin", email: "temoin@example.test" };
+    const a = await seal(value, key, "/api/clients/c1");
+    const b = await seal(value, key, "/api/clients/c1");
+    expect(a.iv).toHaveLength(12);
+    expect(a.iv.join()).not.toBe(b.iv.join());
+    expect(latin1(a.data)).not.toContain("temoin@example.test");
+    expect(await unseal(a, key, "/api/clients/c1")).toEqual(value);
+  });
+
+  it("valeur déplacée sous une autre clé d'enregistrement : refusée (données authentifiées)", async () => {
+    const key = await crypto.subtle.generateKey({ name: "AES-GCM", length: 256 }, false, ["encrypt", "decrypt"]);
+    const sealed = await seal({ x: 1 }, key, "/api/clients/c1");
+    await expect(unseal(sealed, key, "/api/clients/c2")).rejects.toThrow();
+  });
+
+  it("base IndexedDB : magasins « cle » et « copies » seulement, clé non extractible, valeurs illisibles en clair", async () => {
+    await saveCopy("/api/clients/c1", { displayName: "Client Témoin", phone: "0600000000" });
+    await saveUser({ id: "u1", email: "admin@example.test", name: "Admin" });
+    expect(await readCopy("/api/clients/c1")).toMatchObject({ data: { displayName: "Client Témoin", phone: "0600000000" } });
+    expect(await readUser()).toEqual({ id: "u1", email: "admin@example.test", name: "Admin" });
+
+    const { stores, values } = await rawRecords();
+    expect(stores.sort()).toEqual([...OFFLINE_STORES].sort());
+    for (const value of values) {
+      expect(Object.keys(value as object).sort()).toEqual(["data", "iv"]);
+      const bytes = latin1((value as { data: ArrayBuffer }).data);
+      expect(bytes).not.toMatch(/Client Témoin|0600000000|admin@example\.test|displayName/);
+    }
+
+    const key = await new Promise<CryptoKey>((resolve) => {
+      const open = indexedDB.open(OFFLINE_DB);
+      open.onsuccess = () => {
+        const req = open.result.transaction("cle").objectStore("cle").get("principale");
+        req.onsuccess = () => {
+          open.result.close();
+          resolve(req.result as CryptoKey);
+        };
+      };
+    });
+    expect(key.extractable).toBe(false);
+    expect(key.algorithm).toMatchObject({ name: "AES-GCM", length: 256 });
+    await expect(crypto.subtle.exportKey("raw", key)).rejects.toThrow();
+  });
+});
+
+describe("liste fermée des lectures copiées", () => {
+  it("copiées : clients, fiche client, prestations, devis, factures, réglages des devis", () => {
+    for (const path of [
+      "/api/clients",
+      "/api/clients?hasCorrespondence=true",
+      "/api/clients/cmabc123",
+      "/api/services",
+      "/api/services?active=1",
+      "/api/invoices?type=QUOTE",
+      "/api/invoices?type=INVOICE",
+      "/api/invoices?clientId=cmabc123&pageSize=100",
+      "/api/invoices?type=QUOTE&clientId=cmabc123&pageSize=100",
+      "/api/invoices?type=INVOICE&market=cmq1",
+      "/api/invoices/cminv1",
+      "/api/settings",
+    ]) {
+      expect(offlineRule(path), path).not.toBeNull();
+    }
+    expect(OFFLINE_RULES).toHaveLength(6);
+  });
+
+  it("jamais copiées : authentification, secrets, banque, paiements, messagerie, PDF, preuves, codes et jetons", () => {
+    for (const path of [
+      "/api/auth/me",
+      "/api/auth/2fa/status",
+      "/api/auth/2fa/recovery-codes",
+      "/api/push/subscriptions",
+      "/api/push/config",
+      "/api/settings/smtp",
+      "/api/settings/stripe",
+      "/api/settings/imap",
+      "/api/settings/revolut",
+      "/api/withdrawals/beneficiaries",
+      "/api/bank/transactions",
+      "/api/banque",
+      "/api/payments",
+      "/api/receipts?year=2026",
+      "/api/stripe/payouts",
+      "/api/stripe/flux",
+      "/api/inbox/threads",
+      "/api/emails/threads/t1",
+      "/api/clients/cmabc123/emails",
+      "/api/emails/attachments/a1",
+      "/api/invoices/cminv1/pdf",
+      "/api/quotes/cmq1/acceptances",
+      "/api/quotes/cmq1/acceptances/a1/pdf",
+      "/api/quotes/cmq1/market",
+      "/api/clients/cmabc123/portal/codes",
+      "/api/onboarding/invitations",
+      "/api/public/onboarding/jeton",
+      "/api/invoices/search?q=dupont",
+      "/api/clients?q=dupont",
+      "/api/invoices?type=ALL",
+      "/api/dashboard/overview?scope=month",
+    ]) {
+      expect(offlineRule(path), path).toBeNull();
+    }
+  });
+
+  it("réglages : seulement le sous-ensemble des devis, aucun secret (Stripe, SMTP, IMAP, Revolut, IBAN)", () => {
+    const settings = sanitizeSettings({
+      legalName: "EI Kouzia",
+      vatMention: "TVA non applicable, art. 293 B du CGI",
+      paymentChoiceDefault: true,
+      split3MinTotalCents: 150000,
+      stripeSecretKeyHint: "sk_live_x",
+      stripeWebhookSecretHint: "whsec_x",
+      smtpHost: "smtp.example.test",
+      smtpUser: "contact@example.test",
+      smtpPassHint: "abcd",
+      imapPassHint: "abcd",
+      imapUser: "contact@example.test",
+      revolutApiKeyHint: "x",
+      bankIban: "FR7600000000000000000000000",
+      bankBic: "REVOFRP2",
+      siret: "00000000000000",
+      emailSignatureHtml: "<p>x</p>",
+    });
+    expect(Object.keys(settings!).every((k) => (SETTINGS_KEYS as readonly string[]).includes(k))).toBe(true);
+    expect(JSON.stringify(settings)).not.toMatch(/sk_live|whsec|smtp|imap|revolut|FR76|REVOFRP2/i);
+  });
+
+  it("devis et factures : sans paiements, banque, liens de paiement, PDF, signataire ni identifiants Stripe ou Revolut", () => {
+    const invoice = sanitizeInvoice({
+      id: "i1",
+      number: "F-2026-0001",
+      totalCents: 120000,
+      status: "PAID",
+      client: { id: "c1", displayName: "Client Témoin", email: "temoin@example.test", stripeCustomerId: "cus_x" },
+      lines: [{ id: "l1", description: "Site", quantity: 1, unitPriceCents: 120000, lineTotalCents: 120000 }],
+      payments: [{ id: "p1", amountCents: 120000, method: "CARD" }],
+      bankTransactions: [{ id: "b1", counterpartyName: "TEMOIN", reference: "VIR" }],
+      checkoutUrl: "https://pay.example.test/x",
+      stripeActionUrl: "https://stripe.example.test/x",
+      stripeInvoiceId: "in_x",
+      revolutOrderId: "rev_x",
+      pdfPath: "data/pdf/F-2026-0001.pdf",
+      pdfSha256: "abc",
+      quoteSignerName: "Client Témoin",
+      quoteAcceptanceAudits: [{ ip: "203.0.113.1" }],
+      milestones: [{ id: "m1", label: "Acompte", amountCents: 36000, checkoutUrl: "https://pay.example.test/m", revolutOrderId: "rev_m", manualReference: "VIR" }],
+    });
+    expect(invoice).toMatchObject({ id: "i1", number: "F-2026-0001", totalCents: 120000, client: { email: "temoin@example.test" } });
+    expect(invoice!.lines).toHaveLength(1);
+    const text = JSON.stringify(invoice);
+    for (const banned of ["payments", "bankTransactions", "checkoutUrl", "stripe", "revolut", "pdfPath", "pdfSha256", "quoteSignerName", "Audits", "manualReference", "cus_x", "203.0.113.1"]) {
+      expect(text, banned).not.toContain(banned);
+    }
+  });
+});
+
+describe("api() : réseau d'abord, copie chiffrée ensuite", () => {
+  it("en ligne : réponse du serveur, copie filtrée enregistrée", async () => {
+    browserAt(ORIGIN);
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(json([{ id: "c1", displayName: "Client Témoin", lastExchange: { subject: "Devis" } }])));
+    const rows = await api<Array<{ id: string }>>("/api/clients");
+    expect(rows).toHaveLength(1);
+    expect(copiedAt(rows)).toBeNull();
+    const copy = await eventually(() => readCopy<Array<Record<string, unknown>>>("/api/clients"));
+    expect(copy.data).toEqual([{ id: "c1", displayName: "Client Témoin" }]);
+  });
+
+  it("hors ligne : copie servie, horodatée, rattachée à l'écran", async () => {
+    browserAt(ORIGIN, ORIGIN, "/clients/c1");
+    const savedAt = new Date(2026, 9, 17, 14, 5).getTime();
+    await saveCopy("/api/clients/c1", { id: "c1", displayName: "Client Témoin" }, savedAt);
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new TypeError("Failed to fetch")));
+    const client = await api<{ displayName: string }>("/api/clients/c1");
+    expect(client.displayName).toBe("Client Témoin");
+    expect(copiedAt(client)).toBe(savedAt);
+    expect(copyDateFor("/clients/c1")).toBe(savedAt);
+    expect(copyDateFor("/clients")).toBeNull();
+  });
+
+  it("serveur injoignable derrière le tunnel (502) : copie servie", async () => {
+    browserAt(ORIGIN, ORIGIN, "/services");
+    await saveCopy("/api/services", [{ id: "s1", name: "Site vitrine" }], 1000);
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(json({ error: "Bad Gateway" }, 502)));
+    expect(await api("/api/services")).toEqual([{ id: "s1", name: "Site vitrine" }]);
+  });
+
+  it("écran non consultable hors ligne : pas de copie ; réglages d'appoint servis sans mention de date", async () => {
+    browserAt(ORIGIN, ORIGIN, "/payments");
+    await saveCopy("/api/clients", [{ id: "c1" }], 1000);
+    await saveCopy("/api/settings", { legalName: "EI Kouzia" }, 1000);
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new TypeError("Failed to fetch")));
+    await expect(api("/api/clients")).rejects.toBeInstanceOf(OfflineError);
+    const settings = await api<{ legalName: string }>("/api/settings");
+    expect(settings.legalName).toBe("EI Kouzia");
+    expect(copiedAt(settings)).toBe(1000);
+    expect(copyDateFor("/payments")).toBeNull();
+  });
+
+  it("session refusée (401) : jamais la copie", async () => {
+    browserAt(ORIGIN);
+    await saveCopy("/api/clients", [{ id: "c1" }]);
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(json({ error: "Non authentifié" }, 401)));
+    await expect(api("/api/clients")).rejects.toMatchObject({ status: 401 });
+  });
+
+  it("lecture hors liste ou sans copie : OfflineError", async () => {
+    browserAt(ORIGIN);
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new TypeError("Failed to fetch")));
+    await expect(api("/api/payments")).rejects.toBeInstanceOf(OfflineError);
+    await expect(api("/api/clients/inconnu")).rejects.toBeInstanceOf(OfflineError);
+  });
+
+  it("autre origine (Tailscale, LAN, dev) ou origine non configurée : rien n'est copié", async () => {
+    for (const [origin, configured] of [["https://erp.tailnet.test", ORIGIN], [ORIGIN, null]] as const) {
+      await resetOfflineStoreForTests();
+      await deleteDb();
+      browserAt(origin, configured);
+      vi.stubGlobal("fetch", vi.fn().mockResolvedValue(json([{ id: "c1" }])));
+      await api("/api/clients");
+      await new Promise((r) => setTimeout(r, 50));
+      vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new TypeError("Failed to fetch")));
+      await expect(api("/api/clients")).rejects.toBeInstanceOf(OfflineError);
+    }
+  });
+});
+
+describe("horodatage", () => {
+  it("« Données du JJ/MM à HH h MM », en heure locale", () => {
+    expect(formatCopyDate(new Date(2026, 9, 17, 9, 5).getTime())).toBe("Données du 17/10 à 09 h 05");
+    expect(formatCopyDate(new Date(2026, 0, 3, 23, 59).getTime())).toBe("Données du 03/01 à 23 h 59");
+  });
+});

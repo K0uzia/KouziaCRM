@@ -1,8 +1,9 @@
-import type { ReactNode } from "react";
+import { useId, type ReactNode } from "react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import type { IconDefinition } from "@fortawesome/fontawesome-svg-core";
-import { faArrowDown, faArrowLeft, faArrowUp } from "@fortawesome/free-solid-svg-icons";
+import { faArrowDown, faArrowLeft, faArrowUp, faClockRotateLeft } from "@fortawesome/free-solid-svg-icons";
 import { Link } from "react-router-dom";
+import { useReadOnly } from "@/lib/offline/read-only";
 
 const tones = {
   neutral: "bg-[var(--surface-raised)] text-[var(--muted)] ring-1 ring-[var(--border)]",
@@ -44,6 +45,9 @@ export function PageHeader({
   /** Lien de retour vers la liste parente (affiché au-dessus du titre). */
   back?: { to: string; label: string };
 }) {
+  // Hors ligne ou écran servi depuis la copie : date des données, et actions de l'en-tête désactivées.
+  const { readOnly, copyNotice, reason } = useReadOnly();
+  const noticeId = useId();
   return (
     <div className="mb-6 flex flex-col gap-3 sm:mb-8 sm:flex-row sm:items-start sm:justify-between sm:gap-6">
       <div className="min-w-0">
@@ -62,11 +66,27 @@ export function PageHeader({
         {subtitle ? (
           <div className="mt-2 max-w-xl text-sm leading-relaxed text-[var(--muted)]">{subtitle}</div>
         ) : null}
+        {copyNotice ? (
+          <p id={noticeId} data-offline-notice className="mt-2 flex max-w-xl items-start gap-2 text-sm leading-snug text-[var(--warning)]">
+            <FontAwesomeIcon icon={faClockRotateLeft} className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />
+            <span>{copyNotice}</span>
+          </p>
+        ) : reason ? (
+          // Hors ligne sans copie : le bandeau du haut l'affiche déjà ; ici pour les lecteurs d'écran, sans décaler la page.
+          <span id={noticeId} className="sr-only">
+            {reason}
+          </span>
+        ) : null}
       </div>
       {actions ? (
-        <div className="flex w-full min-w-0 flex-wrap items-center gap-2 sm:w-auto sm:max-w-[min(100%,32rem)] sm:justify-end [&>*]:flex-[1_1_8rem] sm:[&>*]:flex-none">
+        // fieldset : un seul « disabled » coupe tous les boutons d'action de l'en-tête (les liens restent actifs).
+        <fieldset
+          disabled={readOnly}
+          aria-describedby={reason ? noticeId : undefined}
+          className="m-0 flex w-full min-w-0 flex-wrap items-center gap-2 border-0 p-0 sm:w-auto sm:max-w-[min(100%,32rem)] sm:justify-end [&>*]:flex-[1_1_8rem] sm:[&>*]:flex-none"
+        >
           {actions}
-        </div>
+        </fieldset>
       ) : null}
     </div>
   );

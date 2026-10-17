@@ -25,7 +25,7 @@ beforeAll(async () => {
   // Build minimal de la SPA : page, chunk hashé et fichier de public/.
   dist = mkdtempSync(path.join(tmpdir(), "kouzia-dist-"));
   mkdirSync(path.join(dist, "assets"));
-  writeFileSync(path.join(dist, "index.html"), "<!doctype html><title>ERP</title>");
+  writeFileSync(path.join(dist, "index.html"), '<!doctype html><meta name="kouzia-offline-origin" content="https://build.invalid" /><title>ERP</title>');
   writeFileSync(path.join(dist, "assets", "SettingsPage-Ab12Cd34.js"), "export const x = 1;");
   writeFileSync(path.join(dist, "sw.js"), "self.addEventListener('push', () => {});");
   process.env.WEB_DIST = dist;
@@ -65,6 +65,24 @@ describe("SPA servie par l'API (production)", () => {
       expect(res.statusCode, url).toBe(200);
       expect(res.headers["content-type"], url).toContain("text/html");
       expect(res.headers["cache-control"], url).toBe("no-cache");
+    }
+  });
+
+  it("index.html : origine du hors ligne réécrite avec la configuration du serveur (jamais celle du build)", async () => {
+    const previous = process.env.ADMIN_PUBLIC_ORIGIN;
+    try {
+      process.env.ADMIN_PUBLIC_ORIGIN = "https://erp.kouzia.test/";
+      for (const url of ["/", "/clients/abc", "/index.html"]) {
+        const res = await app.inject({ method: "GET", url });
+        expect(res.body, url).toContain('<meta name="kouzia-offline-origin" content="https://erp.kouzia.test" />');
+      }
+      delete process.env.ADMIN_PUBLIC_ORIGIN;
+      const res = await app.inject({ method: "GET", url: "/" });
+      expect(res.body).toContain('<meta name="kouzia-offline-origin" content="" />');
+      expect(res.body).not.toContain("build.invalid");
+    } finally {
+      if (previous === undefined) delete process.env.ADMIN_PUBLIC_ORIGIN;
+      else process.env.ADMIN_PUBLIC_ORIGIN = previous;
     }
   });
 

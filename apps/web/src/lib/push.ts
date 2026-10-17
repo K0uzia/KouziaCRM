@@ -1,4 +1,5 @@
 import { api } from "@/lib/api";
+import { serviceWorkerUrl } from "@/lib/sw-register";
 
 /** État des notifications push sur cet appareil (navigateur). */
 export type PushSupport = "ok" | "insecure" | "unsupported";
@@ -60,7 +61,7 @@ function keyToBytes(base64url: string): Uint8Array<ArrayBuffer> {
 }
 
 async function registration(): Promise<ServiceWorkerRegistration> {
-  return navigator.serviceWorker.register("/sw.js", { scope: "/" });
+  return navigator.serviceWorker.register(serviceWorkerUrl(), { scope: "/" });
 }
 
 /** Abonnement push actuel de cet appareil (null si aucun). */

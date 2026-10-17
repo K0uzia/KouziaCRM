@@ -48,7 +48,7 @@ export function NetworkStatus() {
             className={`h-3 w-3 ${online ? "text-[var(--success)]" : "text-[var(--warning)]"}`}
             aria-hidden
           />
-          {online ? "De nouveau en ligne" : "Hors ligne"}
+          {online ? "De nouveau en ligne" : "Hors ligne · consultation seule"}
         </span>
       ) : null}
     </div>

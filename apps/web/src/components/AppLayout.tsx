@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { Link, NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import {
@@ -13,15 +13,17 @@ import { useAuth } from "@/lib/auth";
 // Palette Ctrl K (cmdk, Radix Dialog) hors du chunk d'entrée : chargée au premier usage, ou en
 // tâche de fond une fois la page affichée.
 const loadCommandPalette = () => import("@/components/CommandPalette");
-const CommandPalette = lazy(() => loadCommandPalette().then((m) => ({ default: m.CommandPalette })));
+const CommandPalette = optionalLazy(() => loadCommandPalette().then((m) => m.CommandPalette));
 import { NotificationBell } from "@/components/NotificationBell";
 import { NetworkStatus } from "@/components/NetworkStatus";
 import { PageErrorBoundary } from "@/components/PageErrorBoundary";
+import { optionalLazy } from "@/components/OptionalLazy";
+import { useReadOnly } from "@/lib/offline/read-only";
 import { NotificationsProvider } from "@/lib/notifications";
 import { MoreMenu } from "@/components/ui/MoreMenu";
 
 // Publication du site : seulement dans l'espace Site, chargé à la demande.
-const SitePublishBar = lazy(() => import("@/components/site/SitePublishBar"));
+const SitePublishBar = optionalLazy(() => import("@/components/site/SitePublishBar").then((m) => m.default));
 import { useNewMailAlert } from "@/hooks/useNewMailAlert";
 import {
   filterSections,
@@ -181,6 +183,8 @@ export function AppLayout() {
   const { logout, user } = useAuth();
   const navigate = useNavigate();
   const [paletteOpen, setPaletteOpen] = useState(false);
+  const { readOnly, reason } = useReadOnly();
+  const readOnlyId = useId();
   const [paletteUsed, setPaletteUsed] = useState(false);
   useEffect(() => {
     if (paletteOpen) setPaletteUsed(true);
@@ -438,9 +442,7 @@ export function AppLayout() {
             </button>
             <NotificationBell />
             {space.id === "site" ? (
-              <Suspense fallback={null}>
-                <SitePublishBar />
-              </Suspense>
+              <SitePublishBar />
             ) : null}
             <MoreMenu
               items={createItems}
@@ -450,7 +452,14 @@ export function AppLayout() {
               leading={<FontAwesomeIcon icon={faPlus} className="h-3.5 w-3.5" aria-hidden />}
               ariaLabel="Créer"
               compactMobile
+              disabled={readOnly}
+              describedBy={readOnly ? readOnlyId : undefined}
             />
+            {reason ? (
+              <span id={readOnlyId} className="sr-only">
+                {reason}
+              </span>
+            ) : null}
           </div>
         </header>
         <div className="relative z-40 h-0">
@@ -525,9 +534,7 @@ export function AppLayout() {
       </div>
 
       {paletteOpen || paletteUsed ? (
-        <Suspense fallback={null}>
-          <CommandPalette open={paletteOpen} onOpenChange={setPaletteOpen} />
-        </Suspense>
+        <CommandPalette open={paletteOpen} onOpenChange={setPaletteOpen} />
       ) : null}
     </div>
     </NotificationsProvider>
