@@ -109,6 +109,8 @@ export type PublicSettings = {
   googleCalendarConnectedEmail: string | null;
   obligationReminderEmail: string;
   obligationEmailRemindersEnabled: boolean;
+  /** Signature des e-mails (HTML assaini par l'API) ; null : signature par défaut. */
+  emailSignatureHtml: string | null;
   secrets: {
     smtpPass: SecretMeta;
     imapPass: SecretMeta;
