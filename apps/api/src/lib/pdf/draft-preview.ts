@@ -14,9 +14,17 @@ import {
 import { buildInvoicePdfPayload, type BuildPdfPayloadInput, type ClientSnapshot } from "@/lib/pdf/build-payload.js";
 import { enrichCompanyForPdf } from "@/lib/pdf/brand-assets.js";
 import { renderInvoicePdf } from "@/lib/pdf/render.js";
+import { formatEUR } from "@/lib/money.js";
+import { buildClientSnapshot } from "@/lib/invoices/documentFlowService.js";
+import {
+  assessCreditNoteEligibility,
+  creditNoteContent,
+  CreditNoteError,
+  type CreateCreditNoteInput,
+} from "@/lib/invoices/credit-note-service.js";
 
 /**
- * Aperçu d'un devis ou d'une facture avant création : le brouillon du formulaire passe par le même
+ * Aperçu d'un devis, d'une facture ou d'un avoir avant création : le brouillon du formulaire passe par le même
  * payload et le même gabarit que le document émis, avec les calculs de l'émission (offre de paiement,
  * base de l'acompte, échéancier) faits en mémoire. Lecture seule : aucune écriture, aucun numéro.
  */
@@ -127,6 +135,104 @@ export async function renderDraftPreviewPdf(input: DraftPreviewInput, now = new 
     client: snapshot,
     invoice: buildInvoicePdfPayload({
       invoice,
+      legalClauses: clauses,
+      clientType: snapshot.type,
+      planSettings: settings,
+      cgv: { published: settings.cgvPublished, url: settings.cgvUrl, version: settings.cgvVersion },
+    }),
+  });
+}
+
+export type CreditNotePreviewInput = {
+  invoiceId: string;
+  amountCents: number;
+  reason: CreateCreditNoteInput["reason"];
+  reasonDetail: string | null;
+  refundMethod: CreateCreditNoteInput["refundMethod"];
+  issueDate: Date;
+};
+
+/**
+ * Aperçu d'un avoir avant émission : mêmes contrôles d'éligibilité et de montant, mêmes textes
+ * (creditNoteContent) et même document que createCreditNote, montants négatifs et référence de la
+ * facture d'origine compris. Lecture seule : aucun avoir créé, aucun numéro d'avoir consommé.
+ */
+export async function renderCreditNotePreviewPdf(input: CreditNotePreviewInput): Promise<Buffer> {
+  const eligibility = await assessCreditNoteEligibility(input.invoiceId);
+  if (!eligibility.allowed) {
+    throw new CreditNoteError(eligibility.message ?? "Avoir non autorisé", eligibility.code ?? "BAD_STATUS");
+  }
+  if (!Number.isInteger(input.amountCents) || input.amountCents <= 0 || input.amountCents > eligibility.maxCreditCents) {
+    throw new CreditNoteError(`Montant invalide (au plus ${formatEUR(eligibility.maxCreditCents)}).`, "AMOUNT");
+  }
+  const [settings, original, clauses] = await Promise.all([
+    getCompanySettings(),
+    prisma.invoice.findUniqueOrThrow({
+      where: { id: input.invoiceId },
+      include: { quote: { select: { number: true, issueDate: true } } },
+    }),
+    prisma.legalClause.findMany({ where: { active: true }, orderBy: [{ position: "asc" }, { createdAt: "asc" }] }),
+  ]);
+  const snapshot = (original.clientSnapshot as ClientSnapshot | null) ?? (await buildClientSnapshot(original.clientId));
+  const { description, notes } = creditNoteContent(original, input);
+  const amount = input.amountCents;
+
+  const creditNote = {
+    id: "apercu",
+    number: null,
+    documentType: "CREDIT_NOTE",
+    invoiceType: "SIMPLE",
+    status: "ISSUED",
+    issueDate: input.issueDate,
+    serviceDate: null,
+    purchaseOrderRef: null,
+    dueDate: input.issueDate,
+    validUntil: null,
+    paymentTerms: original.paymentTerms,
+    notes,
+    subtotalCents: -amount,
+    totalCents: -amount,
+    discountType: "NONE",
+    discountValue: 0,
+    refundMethod: input.refundMethod,
+    marketTotalCents: null,
+    paymentPlanOffer: null,
+    paymentPlan: null,
+    depositBaseCents: null,
+    quoteStatus: null,
+    quoteSignerName: null,
+    quoteDecidedAt: null,
+    creditedInvoice: { number: original.number, issueDate: original.issueDate },
+    quote: original.quote,
+    sourceMilestone: null,
+    milestones: [],
+    payments: [],
+    quoteAcceptanceAudits: [],
+    lines: [
+      {
+        position: 0,
+        description,
+        quantity: 1,
+        unitPriceCents: -amount,
+        lineTotalCents: -amount,
+        isSubscription: false,
+        billingDay: null,
+        billingInterval: null,
+        groupTitle: null,
+        isPackDiscount: false,
+        subscriptionStart: null,
+        subscriptionStartDate: null,
+        subscriptionFreeMonths: null,
+      },
+    ],
+  } as unknown as Invoice & BuildPdfPayloadInput["invoice"];
+
+  return renderInvoicePdf({
+    draft: true,
+    company: await enrichCompanyForPdf(settings),
+    client: snapshot,
+    invoice: buildInvoicePdfPayload({
+      invoice: creditNote,
       legalClauses: clauses,
       clientType: snapshot.type,
       planSettings: settings,

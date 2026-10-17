@@ -106,7 +106,7 @@ export function DocumentPreview({
           : state.status === "paused"
             ? state.message
             : state.status === "ready"
-              ? `${kindLabel} tel qu'il sera émis, numéro en attente${pages > 1 ? ` · page 1 sur ${pages}` : ""}.`
+              ? `Aperçu à jour, numéro attribué à l'émission${pages > 1 ? ` · page 1 sur ${pages}` : ""}.`
               : null}
       </p>
       {state.status === "error" ? (
@@ -123,7 +123,7 @@ export function DocumentPreview({
         <div className={`transition-opacity duration-150 ${state.status === "ready" ? "" : "opacity-60"}`}>
           <PdfThumbnail
             pdf={pdf}
-            label={`Première page de l'aperçu du ${kindLabel.toLowerCase()}`}
+            label={`Première page de l'aperçu (${kindLabel.toLowerCase()})`}
             errorMessage="La miniature n'a pas pu être dessinée : ouvrez l'aperçu en grand."
             onPages={setPages}
             onError={onThumbnailError}
