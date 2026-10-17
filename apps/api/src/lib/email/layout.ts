@@ -96,6 +96,33 @@ function textToHtml(
     .join("\n");
 }
 
+/**
+ * Mentions légales du pied de mail (raison sociale, SIRET, adresse, site) : seule source,
+ * reprise par le pied HTML et par la partie texte. La signature ne les répète pas.
+ */
+export function emailLegalFooter(brand: EmailLayoutBrand): {
+  parts: string[];
+  website: { href: string; label: string } | null;
+} {
+  const parts = [
+    brand.legalName,
+    `SIRET ${brand.siret}`,
+    [brand.addressLine1, `${brand.postalCode} ${brand.city}`].filter((s) => s.trim()).join(", "),
+  ].filter((s) => s.trim());
+  // Site saisi sans schéma (« kouzia.com ») : lien absolu, sinon relatif et cassé dans le client mail.
+  const site = brand.website?.trim();
+  const website = site
+    ? { href: /^https?:\/\//i.test(site) ? site : `https://${site}`, label: site.replace(/^https?:\/\//i, "") }
+    : null;
+  return { parts, website };
+}
+
+/** Pied de la partie text/plain : mêmes mentions que le pied HTML. */
+export function renderEmailTextFooter(brand: EmailLayoutBrand): string {
+  const legal = emailLegalFooter(brand);
+  return [legal.parts.join(" · "), legal.website?.label ?? ""].filter(Boolean).join("\n");
+}
+
 export function renderEmailHtml(opts: EmailLayoutOptions): string {
   const { primary, secondary } = resolveBrandColors(opts.colors);
   const name = escapeHtml(opts.brand.tradeName || opts.brand.legalName);
@@ -106,19 +133,10 @@ export function renderEmailHtml(opts: EmailLayoutOptions): string {
     secondary,
     callout: opts.callout,
   });
-  const footer = [
-    opts.brand.legalName,
-    `SIRET ${opts.brand.siret}`,
-    [opts.brand.addressLine1, `${opts.brand.postalCode} ${opts.brand.city}`].filter((s) => s.trim()).join(", "),
-  ]
-    .filter((s) => s.trim())
-    .map(escapeHtml)
-    .join(" · ");
-  // Site saisi sans schéma (« kouzia.com ») : lien absolu, sinon relatif et cassé dans le client mail.
-  const website = opts.brand.website?.trim();
-  const siteHref = website ? (/^https?:\/\//i.test(website) ? website : `https://${website}`) : "";
-  const site = website
-    ? `<br><a href="${escapeHtml(siteHref)}" style="color:#5b6478;">${escapeHtml(website.replace(/^https?:\/\//i, ""))}</a>`
+  const legal = emailLegalFooter(opts.brand);
+  const footer = legal.parts.map(escapeHtml).join(" · ");
+  const site = legal.website
+    ? `<br><a href="${escapeHtml(legal.website.href)}" style="color:#5b6478;">${escapeHtml(legal.website.label)}</a>`
     : "";
 
   return `<!doctype html>
