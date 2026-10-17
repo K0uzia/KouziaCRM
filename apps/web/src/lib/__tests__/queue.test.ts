@@ -271,7 +271,7 @@ describe("file des créations hors ligne", () => {
     expect(signal!.messages[0]).toMatch(/déjà connue.*2 éléments rattachés/);
   });
 
-  it("devis pour un client modifié depuis : créé, puis gardé « à relire » avec le lien vers le brouillon", async () => {
+  it("devis pour un client modifié depuis : créé et retiré de la file, l'étiquette reste au serveur", async () => {
     await enqueue({
       kind: "quote",
       label: "Devis pour Camille",
@@ -283,9 +283,8 @@ describe("file des créations hors ligne", () => {
     online = true;
     expect(await replayQueue()).toBe("done");
     expect(getQueueSnapshot().items).toHaveLength(0);
-    const [signal] = getQueueSnapshot().signals;
-    expect(signal).toMatchObject({ kind: "quote", to: "/quotes/srv-quote-1", targetId: "srv-quote-1" });
-    expect(signal!.messages).toEqual(["Fiche client modifiée depuis la préparation du devis."]);
+    // Plus de copie locale de l'écart : Invoice.offlineReviewReason le porte sur tous les appareils.
+    expect(getQueueSnapshot().signals).toHaveLength(0);
   });
 
   it("client retiré de la file : ses devis et notes passent « à revoir », jamais envoyés", async () => {

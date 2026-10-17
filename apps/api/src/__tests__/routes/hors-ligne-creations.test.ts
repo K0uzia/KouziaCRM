@@ -180,3 +180,61 @@ describe("session expirée", () => {
     expect(await prisma.clientNote.count()).toBe(0);
   });
 });
+
+describe("étiquette « Préparé hors ligne, à relire » (Invoice.offlineReviewReason)", () => {
+  /** Devis préparé sur une fiche vue avant sa dernière modification, avec un prix catalogue changé depuis. */
+  async function quoteToReview() {
+    const client = (await post("/api/clients", clientBody())).json();
+    const service = await createService({ name: "Site vitrine", unitPriceCents: 120000, isSubscription: false });
+    await prisma.service.update({ where: { id: service.id }, data: { unitPriceCents: 150000 } });
+    await new Promise((r) => setTimeout(r, 5));
+    await app.inject({ method: "PUT", url: `/api/clients/${client.id}`, headers: { cookie }, payload: clientBody({ phone: "0612345678" }) });
+    const clientRequestId = randomUUID();
+    const body = quoteBody(client.id, {
+      clientRequestId,
+      clientSeenUpdatedAt: client.updatedAt,
+      servicePricesSeen: [{ serviceId: service.id, unitPriceCents: 120000 }],
+    });
+    const res = await post("/api/invoices", body);
+    return { res, body, id: res.json().id as string };
+  }
+
+  it("posée par la création idempotente, motif court, visible sur la fiche et dans la liste ; un renvoi ne la change pas", async () => {
+    const { res, body, id } = await quoteToReview();
+    expect(res.statusCode).toBe(201);
+    expect(res.json().offlineReviewReason).toBe("client modifié, prix changé");
+    const replay = await post("/api/invoices", body);
+    expect(replay.statusCode).toBe(200);
+    expect(replay.json().offlineReviewReason).toBe("client modifié, prix changé");
+    const detail = await app.inject({ method: "GET", url: `/api/invoices/${id}`, headers: { cookie } });
+    expect(detail.json().offlineReviewReason).toBe("client modifié, prix changé");
+    const list = await app.inject({ method: "GET", url: "/api/invoices?type=QUOTE", headers: { cookie } });
+    expect(list.json().find((q: { id: string }) => q.id === id).offlineReviewReason).toBe("client modifié, prix changé");
+  });
+
+  it("sans écart, ou créé en ligne sans clientRequestId : aucune étiquette", async () => {
+    const client = (await post("/api/clients", clientBody())).json();
+    const offline = await post("/api/invoices", quoteBody(client.id, { clientRequestId: randomUUID(), clientSeenUpdatedAt: client.updatedAt }));
+    const online = await post("/api/invoices", quoteBody(client.id));
+    expect(offline.json().offlineReviewReason).toBeNull();
+    expect(online.json().offlineReviewReason).toBeNull();
+  });
+
+  it("« Marquer comme relu » l'efface ; 404 inconnu ; 401 sans session", async () => {
+    const { id } = await quoteToReview();
+    expect((await app.inject({ method: "DELETE", url: `/api/invoices/${id}/offline-review` })).statusCode).toBe(401);
+    expect((await app.inject({ method: "DELETE", url: "/api/invoices/inconnu/offline-review", headers: { cookie } })).statusCode).toBe(404);
+    const res = await app.inject({ method: "DELETE", url: `/api/invoices/${id}/offline-review`, headers: { cookie } });
+    expect(res.statusCode).toBe(200);
+    expect((await prisma.invoice.findUniqueOrThrow({ where: { id } })).offlineReviewReason).toBeNull();
+  });
+
+  it("effacée automatiquement à l'émission du devis", async () => {
+    const { id } = await quoteToReview();
+    const issued = await app.inject({ method: "POST", url: `/api/invoices/${id}/issue`, headers: { cookie }, payload: {} });
+    expect(issued.statusCode).toBe(200);
+    const quote = await prisma.invoice.findUniqueOrThrow({ where: { id } });
+    expect(quote.number).not.toBeNull();
+    expect(quote.offlineReviewReason).toBeNull();
+  });
+});

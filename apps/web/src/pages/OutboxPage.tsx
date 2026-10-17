@@ -198,7 +198,7 @@ export function OutboxPage() {
                     {s.label}
                   </Link>
                   <Badge tone="amber" className="ml-2">
-                    Préparé hors ligne, à relire
+                    À relire
                   </Badge>
                   <ul className="mt-1 space-y-1 text-sm text-[var(--muted)]">
                     {s.messages.map((m) => (
