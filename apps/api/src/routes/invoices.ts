@@ -1,4 +1,4 @@
-import type { FastifyPluginAsync } from "fastify";
+import type { FastifyPluginAsync, FastifyReply } from "fastify";
 import { z } from "zod";
 import {
   InvoiceDocumentType,
@@ -58,7 +58,7 @@ import { signDocumentToken } from "@/lib/documents/public-token.js";
 import { listActiveLegalClauses, subscriptionDateNoticeOf } from "@/lib/company/legal-clauses.js";
 import { FREE_MONTHS_MAX, SUBSCRIPTION_STARTS } from "@/lib/subscriptions/start.js";
 import { offlineConflicts, offlineQuoteFields } from "@/lib/invoices/offline-review.js";
-import { renderDraftPreviewPdf } from "@/lib/pdf/draft-preview.js";
+import { renderCreditNotePreviewPdf, renderDraftPreviewPdf } from "@/lib/pdf/draft-preview.js";
 
 const lineSchema = z.object({
   description: z.string().min(1),
@@ -126,6 +126,17 @@ const createSchema = z.object({
   /** Devis : paiement en 2 fois, en 3 fois ou au choix du client (défaut : réglages). */
   paymentPlanOffer: z.enum(["TWO", "THREE", "CHOICE"]).optional(),
   ...offlineQuoteFields,
+});
+
+/** Aperçu d'un avoir : les champs de POST /api/invoices/:id/credit-note, avec la facture d'origine. */
+const creditNotePreviewSchema = z.object({
+  documentType: z.literal("CREDIT_NOTE"),
+  invoiceId: z.string().min(1),
+  amountEuros: z.coerce.number().positive(),
+  reason: z.nativeEnum(CreditNoteReason),
+  reasonDetail: z.string().max(2000).optional().nullable(),
+  refundMethod: z.nativeEnum(RefundMethod),
+  issueDate: z.iso.date().optional(),
 });
 
 const updateSchema = z.object({
@@ -336,9 +347,39 @@ export const invoicesRoutes: FastifyPluginAsync = async (app) => {
 
   // Aperçu avant création : le brouillon du formulaire (même schéma que la création), rendu par le
   // gabarit réel. Rien n'est enregistré et aucun numéro n'est consommé.
+  const pdfReply = (reply: FastifyReply, pdf: Buffer) =>
+    reply
+      .header("Content-Type", "application/pdf")
+      .header("Cache-Control", "no-store")
+      .header("Content-Disposition", 'inline; filename="apercu.pdf"')
+      .send(pdf);
+
   app.post("/api/invoices/preview.pdf", async (request, reply) => {
     await requireAuth(request, reply);
     if (reply.sent) return;
+    // Avoir : les champs de l'assistant d'avoir, contrôlés comme à l'émission.
+    if ((request.body as { documentType?: unknown } | null)?.documentType === "CREDIT_NOTE") {
+      const credit = creditNotePreviewSchema.safeParse(request.body);
+      if (!credit.success) {
+        return reply.code(400).send({ error: "Données invalides", details: credit.error.flatten() });
+      }
+      try {
+        const pdf = await renderCreditNotePreviewPdf({
+          invoiceId: credit.data.invoiceId,
+          amountCents: eurosToCents(credit.data.amountEuros),
+          reason: credit.data.reason,
+          reasonDetail: credit.data.reasonDetail ?? null,
+          refundMethod: credit.data.refundMethod,
+          issueDate: credit.data.issueDate ? new Date(credit.data.issueDate) : new Date(),
+        });
+        return pdfReply(reply, pdf);
+      } catch (e) {
+        if (e instanceof CreditNoteError) {
+          return reply.code(e.code === "NOT_FOUND" ? 404 : 400).send({ error: e.message, code: e.code });
+        }
+        throw e;
+      }
+    }
     const parsed = createSchema.safeParse(request.body);
     if (!parsed.success) {
       return reply.code(400).send({ error: "Données invalides", details: parsed.error.flatten() });
@@ -363,11 +404,7 @@ export const invoicesRoutes: FastifyPluginAsync = async (app) => {
       totals: computeLineTotals(lineInputs, discountFromBody(d)),
     });
     if (!pdf) return reply.code(404).send({ error: "Client introuvable" });
-    return reply
-      .header("Content-Type", "application/pdf")
-      .header("Cache-Control", "no-store")
-      .header("Content-Disposition", 'inline; filename="apercu.pdf"')
-      .send(pdf);
+    return pdfReply(reply, pdf);
   });
 
   app.get("/api/invoices/search", async (request, reply) => {

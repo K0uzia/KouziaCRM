@@ -85,6 +85,33 @@ function reasonLineDescription(
   return detail?.trim() ? `${base} - ${detail.trim()}` : base;
 }
 
+/** Ligne et notes de l'avoir : mêmes textes à l'émission et dans l'aperçu avant émission. */
+export function creditNoteContent(
+  original: { number: string | null; issueDate: Date | null },
+  input: Pick<CreateCreditNoteInput, "reason" | "reasonDetail" | "refundMethod">,
+): { description: string; notes: string } {
+  const notesParts = [
+    `Avoir sur facture ${original.number ?? "?"} du ${
+      original.issueDate
+        ? original.issueDate.toLocaleDateString("fr-FR")
+        : "?"
+    }`,
+    `Motif : ${REASON_LABEL[input.reason]}`,
+    input.reasonDetail?.trim() || null,
+    `Remboursement : ${REFUND_LABEL[input.refundMethod]}`,
+    input.refundMethod === RefundMethod.BANK_TRANSFER
+      ? "Vous n'avez rien à payer."
+      : null,
+    input.refundMethod === RefundMethod.DEDUCT_FROM_BALANCE
+      ? `À déduire du solde restant dû.`
+      : null,
+  ].filter(Boolean);
+  return {
+    description: reasonLineDescription(input.reason, original.number, input.reasonDetail),
+    notes: notesParts.join("\n"),
+  };
+}
+
 export async function assessCreditNoteEligibility(
   invoiceId: string,
 ): Promise<CreditNoteEligibility> {
@@ -251,28 +278,7 @@ export async function createCreditNote(
       amount >= original.totalCents &&
       original.creditNotes.length === 0;
 
-    const description = reasonLineDescription(
-      input.reason,
-      original.number,
-      input.reasonDetail,
-    );
-
-    const notesParts = [
-      `Avoir sur facture ${original.number ?? "?"} du ${
-        original.issueDate
-          ? original.issueDate.toLocaleDateString("fr-FR")
-          : "?"
-      }`,
-      `Motif : ${REASON_LABEL[input.reason]}`,
-      input.reasonDetail?.trim() || null,
-      `Remboursement : ${REFUND_LABEL[input.refundMethod]}`,
-      input.refundMethod === RefundMethod.BANK_TRANSFER
-        ? "Vous n'avez rien à payer."
-        : null,
-      input.refundMethod === RefundMethod.DEDUCT_FROM_BALANCE
-        ? `À déduire du solde restant dû.`
-        : null,
-    ].filter(Boolean);
+    const { description, notes } = creditNoteContent(original, input);
 
     const creditNote = await tx.invoice.create({
       data: {
@@ -289,7 +295,7 @@ export async function createCreditNote(
         currency: original.currency,
         subtotalCents: -amount,
         totalCents: -amount,
-        notes: notesParts.join("\n"),
+        notes,
         paymentTerms: original.paymentTerms,
         creditedInvoiceId: original.id,
         quoteId: original.quoteId,
