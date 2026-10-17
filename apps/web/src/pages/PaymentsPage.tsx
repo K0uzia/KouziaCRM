@@ -11,6 +11,7 @@ import { DataTable, type DataColumn } from "@/components/ui/DataTable";
 import { PaymentForm } from "@/components/payments/PaymentForm";
 import { Field, Select } from "@/components/ui/Field";
 import { useCreateParam } from "@/lib/use-create-param";
+import { OFFLINE_MESSAGE, useOnline } from "@/lib/network";
 
 type Payment = {
   id: string;
@@ -52,6 +53,7 @@ export function PaymentsPage() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [open, setOpen] = useState(false);
   const [invoiceId, setInvoiceId] = useState("");
+  const online = useOnline();
 
   async function load() {
     const [pays, invs] = await Promise.all([
@@ -207,7 +209,12 @@ export function PaymentsPage() {
       <StatStrip
         busy={loading}
         className="mb-6"
-        items={[
+        // Paiements jamais copiés hors ligne : pas de 0,00 € trompeur faute de réseau.
+        items={loadError !== null && (!online || loadError === OFFLINE_MESSAGE) ? [
+          { label: "Encaissé ce mois", value: "-", hint: "Consultable avec le réseau" },
+          { label: "Paiements enregistrés", value: "-" },
+          { label: "Factures à encaisser", value: "-" },
+        ] : [
           { label: "Encaissé ce mois", value: formatEUR(totalMonth), tone: "success" },
           { label: "Paiements enregistrés", value: String(payments.length) },
           {

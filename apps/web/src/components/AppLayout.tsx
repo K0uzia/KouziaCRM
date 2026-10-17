@@ -489,7 +489,7 @@ export function AppLayout() {
                 to="/a-envoyer"
                 aria-label={`À envoyer : ${itemsLabel(queuedItems.length)}`}
                 title="À envoyer"
-                className="relative inline-flex min-h-11 min-w-11 items-center justify-center rounded-[var(--radius-sm)] text-[var(--muted)] hover:bg-[var(--surface-hover)] hover:text-[var(--text)]"
+                className="relative hidden min-h-11 min-w-11 min-[25rem]:inline-flex items-center justify-center rounded-[var(--radius-sm)] text-[var(--muted)] hover:bg-[var(--surface-hover)] hover:text-[var(--text)]"
               >
                 <FontAwesomeIcon icon={faCloudArrowUp} className="h-4 w-4" aria-hidden />
                 <span className="absolute right-0.5 top-1 inline-flex min-w-4 items-center justify-center rounded-full bg-[var(--primary)] px-1 text-[0.625rem] font-semibold leading-4 text-[var(--primary-fg)] tabular-nums" aria-hidden>
@@ -582,10 +582,17 @@ export function AppLayout() {
             onClick={openDrawer}
             aria-expanded={drawerOpen}
             aria-controls="menu-principal"
-            className="flex min-h-14 flex-col items-center justify-center gap-1 text-xs text-[var(--muted)]"
+            className="relative flex min-h-14 flex-col items-center justify-center gap-1 text-xs text-[var(--muted)]"
           >
             <FontAwesomeIcon icon={faEllipsis} className="h-4 w-4" aria-hidden />
             Plus
+            {queuedItems.length > 0 ? (
+              <>
+                {/* Sous 400 px, le lien « À envoyer » de la barre du haut cède la place : il est dans le menu. */}
+                <span className="absolute right-[calc(50%-1.25rem)] top-2 h-2 w-2 rounded-full bg-[var(--primary)] min-[25rem]:hidden" aria-hidden />
+                <span className="sr-only">{`, ${queuedItems.length} à envoyer`}</span>
+              </>
+            ) : null}
           </button>
         </nav>
       </div>

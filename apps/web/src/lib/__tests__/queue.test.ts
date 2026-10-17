@@ -36,7 +36,7 @@ function browser() {
   });
 }
 
-type Sent = { method: string; path: string; body: Record<string, unknown> | null; cookieless: boolean };
+type Sent = { method: string; path: string; body: Record<string, unknown> | null };
 
 /**
  * Serveur factice : création idempotente par clientRequestId, comme l'API. session=false : /api/auth/me répond
@@ -54,7 +54,7 @@ function fakeServer(opts: { session?: boolean; deletedClients?: string[]; knownE
     if (!online) throw new TypeError("Failed to fetch");
     const method = (init?.method ?? "GET").toUpperCase();
     const body = init?.body ? (JSON.parse(String(init.body)) as Record<string, unknown>) : null;
-    state.sent.push({ method, path: input, body, cookieless: !("headers" in (init ?? {})) || true });
+    state.sent.push({ method, path: input, body });
     if (input === "/api/auth/me") return json({ user: state.session ? { id: "u1" } : null });
     if (!state.session) return json({ error: "Non authentifié" }, 401);
     const requestId = String(body?.clientRequestId ?? "");
@@ -78,7 +78,9 @@ function fakeServer(opts: { session?: boolean; deletedClients?: string[]; knownE
       if (opts.deletedClients?.includes(String(body?.clientId))) return respond(404, { error: "Client introuvable", code: "client_not_found" });
       const id = `srv-quote-${++n}`;
       state.created.set(requestId, { id, kind: "quote", clientId: String(body?.clientId) });
-      return respond(201, { id, offline: { replayed: false, conflicts: [] } });
+      // Fiche vue à la préparation plus ancienne que la fiche actuelle : écart signalé, brouillon créé quand même.
+      const conflicts = body?.clientSeenUpdatedAt === "2026-10-01T00:00:00.000Z" ? [{ kind: "client_changed", message: "Fiche client modifiée depuis la préparation du devis." }] : [];
+      return respond(201, { id, offline: { replayed: false, conflicts } });
     }
     const note = /^\/api\/clients\/([^/]+)\/notes$/.exec(input);
     if (note && method === "POST") {
@@ -267,6 +269,23 @@ describe("file des créations hors ligne", () => {
     const [signal] = getQueueSnapshot().signals;
     expect(signal).toMatchObject({ kind: "client", to: "/clients/srv-existant" });
     expect(signal!.messages[0]).toMatch(/déjà connue.*2 éléments rattachés/);
+  });
+
+  it("devis pour un client modifié depuis : créé, puis gardé « à relire » avec le lien vers le brouillon", async () => {
+    await enqueue({
+      kind: "quote",
+      label: "Devis pour Camille",
+      clientId: "srv-camille",
+      clientName: "Camille",
+      body: { lines: [], clientSeenUpdatedAt: "2026-10-01T00:00:00.000Z" },
+    });
+    fakeServer();
+    online = true;
+    expect(await replayQueue()).toBe("done");
+    expect(getQueueSnapshot().items).toHaveLength(0);
+    const [signal] = getQueueSnapshot().signals;
+    expect(signal).toMatchObject({ kind: "quote", to: "/quotes/srv-quote-1", targetId: "srv-quote-1" });
+    expect(signal!.messages).toEqual(["Fiche client modifiée depuis la préparation du devis."]);
   });
 
   it("client retiré de la file : ses devis et notes passent « à revoir », jamais envoyés", async () => {

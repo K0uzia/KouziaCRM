@@ -5,6 +5,7 @@ import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faPlus, faPaperPlane, faEnvelope, faPen } from "@fortawesome/free-solid-svg-icons";
 import { toast } from "sonner";
 import { useLiveRefresh } from "@/lib/notifications";
+import { isNetworkFailure } from "@/lib/network";
 import { api, formatEUR } from "@/lib/api";
 import { formatDate, formatPhoneFr, invoiceStatusLabel, quoteStatusLabel, statusTone } from "@/lib/format";
 import { Button, ButtonLink } from "@/components/ui/Button";
@@ -456,6 +457,7 @@ function ClientDetail({ id }: { id: string | undefined }) {
     }>
   >([]);
 
+  const [docsOffline, setDocsOffline] = useState(false);
   useLiveRefresh(() => refresh(), (i) => i.kind === "quote_accepted" || i.kind === "quote_rejected" || i.kind === "payment");
 
   function refresh() {
@@ -474,8 +476,13 @@ function ClientDetail({ id }: { id: string | undefined }) {
     ])
       .then(([invoices, quotes]) => {
         setDocs([...invoices, ...quotes].filter((d) => d.client.id === id));
+        setDocsOffline(false);
       })
-      .catch((e: Error) => toast.error(`Documents du client non chargés : ${e.message}`));
+      .catch((e: Error) => {
+        // Hors ligne sans copie des documents : montants « consultables avec le réseau », jamais 0,00 €.
+        if (isNetworkFailure(e)) setDocsOffline(true);
+        else toast.error(`Documents du client non chargés : ${e.message}`);
+      });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
 
@@ -498,7 +505,9 @@ function ClientDetail({ id }: { id: string | undefined }) {
 
   const docList = (rows: typeof docs, limit?: number) =>
     rows.length === 0 ? (
-      <p className="px-5 py-8 text-center text-sm text-[var(--muted)]">Aucun document pour ce client.</p>
+      <p className="px-5 py-8 text-center text-sm text-[var(--muted)]">
+        {docsOffline ? "Documents consultables avec le réseau." : "Aucun document pour ce client."}
+      </p>
     ) : (
       <ul className="divide-y divide-[var(--border)]">
         {rows.slice(0, limit ?? rows.length).map((d) => (
@@ -592,7 +601,12 @@ function ClientDetail({ id }: { id: string | undefined }) {
             {tab === "apercu" ? (
               <div className="space-y-6">
                 <StatStrip
-                  items={[
+                  items={docsOffline ? [
+                    { label: "Facturé", value: "-", hint: "Consultable avec le réseau" },
+                    { label: "Encaissé", value: "-", hint: "Consultable avec le réseau" },
+                    { label: "À encaisser", value: "-" },
+                    { label: "Devis", value: "-" },
+                  ] : [
                     { label: "Facturé", value: formatEUR(sumBy(invoices, ["ISSUED", "PAID"])), hint: `${invoices.length} facture${invoices.length > 1 ? "s" : ""}` },
                     { label: "Encaissé", value: formatEUR(sumBy(invoices, ["PAID"])), tone: "success" },
                     { label: "À encaisser", value: formatEUR(sumBy(invoices, ["ISSUED"])), tone: "primary" },

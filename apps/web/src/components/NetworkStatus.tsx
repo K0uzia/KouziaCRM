@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { Link } from "react-router-dom";
 import { toast } from "sonner";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faPlugCircleXmark, faWifi } from "@fortawesome/free-solid-svg-icons";
@@ -18,11 +19,22 @@ const BACK_ONLINE_MS = 3000;
 export function NetworkStatus() {
   const online = useOnline();
   const { items } = useOfflineQueue();
-  const offlineLabel = !offlineEnabled()
-    ? "Hors ligne · consultation seule"
-    : items.length
-      ? `Hors ligne · ${items.length} à envoyer`
-      : "Hors ligne";
+  const queued = offlineEnabled() ? items.length : 0;
+  // « N à envoyer » : lien vers l'écran à partir de 768 px (souris, tablette) ; en dessous, le lien de 44 px est
+  // dans la barre du haut (ou le menu sous 400 px), le bandeau garde le texte seul. Cible de 24 px (WCAG 2.5.8).
+  const offlineLabel = !offlineEnabled() ? (
+    "Hors ligne · consultation seule"
+  ) : queued ? (
+    <>
+      Hors ligne ·{" "}
+      <span className="md:hidden">{queued} à envoyer</span>
+      <Link to="/a-envoyer" className="pointer-events-auto -my-1 hidden min-h-6 items-center underline underline-offset-2 hover:text-[var(--primary)] md:inline-flex">
+        {queued} à envoyer
+      </Link>
+    </>
+  ) : (
+    "Hors ligne"
+  );
   const [backOnline, setBackOnline] = useState(false);
   const wasOffline = useRef(!online);
 
