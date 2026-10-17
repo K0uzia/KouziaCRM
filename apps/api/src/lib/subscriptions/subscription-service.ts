@@ -176,17 +176,68 @@ async function pendingFirstInvoiceIds(subs: Array<{ id: string; lastInvoiceId: s
   return new Set(subs.filter((s) => !billed.has(s.id) && s.nextInvoiceAt > now).map((s) => s.id));
 }
 
+/** Contrat verrouillé : la suppression ou le changement direct de montant est refusé (409). */
+export class SubscriptionLockedError extends SubscriptionError {}
+
+const DRAFT_COUNTS = { invoices: true, sourceLines: true, revisionLines: true } as const;
+type DraftProbe = {
+  stripeSubscriptionId: string | null;
+  lastInvoiceId: string | null;
+  _count: { invoices: number; sourceLines: number; revisionLines: number };
+};
+/**
+ * Contrat corrigeable comme un brouillon : créé à la main (aucune ligne de devis ou d'avenant liée), jamais facturé,
+ * sans prélèvement Stripe. Seul ce cas se supprime ou change de montant directement ; sinon : avenant ou clôture.
+ */
+const isDraftLike = (s: DraftProbe) =>
+  !s.stripeSubscriptionId && !s.lastInvoiceId && s._count.invoices === 0 && s._count.sourceLines === 0 && s._count.revisionLines === 0;
+
+async function assertDraftLike(id: string, message: string, db: Db = prisma) {
+  const sub = await db.subscription.findUnique({ where: { id }, include: { _count: { select: DRAFT_COUNTS } } });
+  if (!sub) throw new SubscriptionError("Abonnement introuvable");
+  if (!isDraftLike(sub)) throw new SubscriptionLockedError(message);
+  return sub;
+}
+
 export async function listSubscriptions(status?: SubscriptionStatus) {
   const rows = await prisma.subscription.findMany({
     where: status ? { status } : undefined,
     include: {
       client: { select: { id: true, displayName: true, clientNumber: true } },
       service: { select: { id: true, name: true } },
+      _count: { select: DRAFT_COUNTS },
     },
     orderBy: { createdAt: "desc" },
   });
   const pending = await pendingFirstInvoiceIds(rows, new Date());
-  return rows.map((r) => ({ ...r, firstInvoicePending: pending.has(r.id) }));
+  return rows.map(({ _count, ...r }) => ({
+    ...r,
+    firstInvoicePending: pending.has(r.id),
+    /** Créé à la main, jamais facturé, sans Stripe : supprimable et montant modifiable directement. */
+    draftLike: isDraftLike({ ...r, _count }),
+  }));
+}
+
+/**
+ * Correction directe du montant par l'admin : seulement un contrat « brouillon ». Sinon l'avenant (accord du client),
+ * dont l'acceptation applique le nouveau montant par updateSubscription, sans passer par ce contrôle.
+ */
+export async function assertAmountCorrectable(id: string, amountCents: number) {
+  const current = await prisma.subscription.findUnique({ where: { id }, select: { amountCents: true } });
+  if (!current || current.amountCents === amountCents) return;
+  await assertDraftLike(
+    id,
+    "Le montant de ce contrat ne se change plus directement : il a été facturé, vient d'un devis ou est prélevé par Stripe. Passez par « Réviser (avenant) ».",
+  );
+}
+
+/** Supprime un contrat créé par erreur ; tout autre contrat se clôture (historique et factures intacts). */
+export async function deleteSubscription(id: string) {
+  await assertDraftLike(
+    id,
+    "Ce contrat ne se supprime pas : il a été facturé, vient d'un devis ou est prélevé par Stripe. Clôturez-le.",
+  );
+  await prisma.subscription.delete({ where: { id } });
 }
 
 export async function getSubscription(id: string) {

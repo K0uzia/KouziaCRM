@@ -130,6 +130,21 @@ export const servicesRoutes: FastifyPluginAsync = async (app) => {
         try {
           stripePriceId = await changeLinkedServicePrice(existing, newCents, parsed.data.requestId ?? randomUUID());
         } catch (err) {
+          // Rien d'appliqué à moitié : le produit Stripe reprend son nom, l'ERP n'a pas changé.
+          try {
+            const stripe = await getStripe();
+            await stripe.products.update(existing.stripeProductId, {
+              name: existing.name.replace(/\s*\(annuel\)\s*$/i, "").trim(),
+              description: existing.description?.trim() || "",
+            });
+          } catch {
+            // Nom non rétabli : la synchro horaire (Stripe vers l'ERP) le reprendrait ; l'admin est prévenu.
+            if (err instanceof StripeCatalogError) {
+              return reply.code(502).send({
+                error: `${err.message} Le nouveau nom est resté dans Stripe : remettez l'ancien dans Stripe ou réessayez la modification.`,
+              });
+            }
+          }
           return stripeError(reply, err);
         }
       }
