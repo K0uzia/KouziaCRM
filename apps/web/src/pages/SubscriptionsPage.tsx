@@ -60,6 +60,8 @@ type Subscription = {
   cancellationRequestedAt?: string | null;
   client: { id: string; displayName: string; clientNumber: string | null };
   service: { id: string; name: string };
+  /** Créé à la main, jamais facturé, sans Stripe : supprimable et montant corrigeable (sinon : avenant ou clôture). */
+  draftLike?: boolean;
 };
 
 type Client = { id: string; displayName: string; billingDay?: number | null };
@@ -339,6 +341,22 @@ export function SubscriptionsPage() {
   }, [createRequested, loaded]);
 
   const [offerToArchive, setOfferToArchive] = useState<Service | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<Subscription | null>(null);
+  const [deleteBusy, setDeleteBusy] = useState(false);
+
+  async function deleteContract(s: Subscription) {
+    setDeleteBusy(true);
+    try {
+      await api(`/api/subscriptions/${s.id}`, { method: "DELETE" });
+      toast.success("Contrat supprimé");
+      setDeleteTarget(null);
+      await load();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Suppression impossible");
+    } finally {
+      setDeleteBusy(false);
+    }
+  }
 
   async function archiveOffer(o: Service) {
     try {
@@ -438,12 +456,14 @@ export function SubscriptionsPage() {
       if (editingId) {
         const firstInvoiceChanged =
           firstInvoiceEditable && form.firstInvoiceAt && editing && form.firstInvoiceAt !== editing.nextInvoiceAt.slice(0, 10);
+        const amountChanged = editing?.draftLike && Math.round(Number(form.amountEuros) * 100) !== editing.amountCents;
         await api(`/api/subscriptions/${editingId}`, {
           method: "PATCH",
           body: JSON.stringify({
             label: payload.label,
             billingDay: payload.billingDay,
             ...(firstInvoiceChanged ? { firstInvoiceAt: form.firstInvoiceAt } : {}),
+            ...(amountChanged ? { amountEuros: Number(form.amountEuros) } : {}),
           }),
         });
         toast.success("Abonnement modifié");
@@ -702,8 +722,7 @@ export function SubscriptionsPage() {
                                 />
                               </a>
                             ) : null}
-                            {!moduleStripeEnabled ? (
-                              <>
+                            <>
                                 <Button
                                   variant="ghost"
                                   className="px-0"
@@ -722,8 +741,7 @@ export function SubscriptionsPage() {
                                 >
                                   <FontAwesomeIcon icon={faTrash} className="h-3.5 w-3.5" aria-hidden />
                                 </Button>
-                              </>
-                            ) : null}
+                            </>
                           </div>
                         </div>
                       </li>
@@ -738,7 +756,7 @@ export function SubscriptionsPage() {
       <ConfirmDialog
         open={Boolean(offerToArchive)}
         title="Retirer cette offre"
-        message={`« ${offerToArchive?.name ?? ""} » ne sera plus proposée. Les contrats en cours ne changent pas ; si l'offre est déjà utilisée, elle est archivée.`}
+        message={`« ${offerToArchive?.name ?? ""} » ne sera plus proposée. Les contrats en cours ne changent pas ; si l'offre est déjà utilisée, elle est archivée.${offerToArchive?.stripeProductId ? " Elle est aussi archivée dans Stripe : les prélèvements en cours continuent." : ""}`}
         confirmLabel="Retirer"
         danger
         onConfirm={() => offerToArchive && void archiveOffer(offerToArchive)}
@@ -816,10 +834,27 @@ export function SubscriptionsPage() {
                   Clôturer
                 </Button>
               ) : null}
+              {selected.draftLike ? (
+                <Button variant="danger-ghost" onClick={() => fromPanel(() => setDeleteTarget(selected))}>
+                  <FontAwesomeIcon icon={faTrash} className="h-3.5 w-3.5" aria-hidden />
+                  Supprimer
+                </Button>
+              ) : null}
             </div>
           </div>
         ) : null}
       </Modal>
+
+      <ConfirmDialog
+        open={Boolean(deleteTarget)}
+        title="Supprimer ce contrat"
+        message={`« ${deleteTarget?.label ?? ""} » (${deleteTarget?.client.displayName ?? ""}) n'a jamais été facturé : il est supprimé définitivement. Un contrat déjà facturé se clôture.`}
+        confirmLabel="Supprimer"
+        danger
+        busy={deleteBusy}
+        onConfirm={() => deleteTarget && void deleteContract(deleteTarget)}
+        onClose={() => setDeleteTarget(null)}
+      />
 
       <ConfirmDialog
         open={Boolean(endTarget)}
@@ -966,7 +1001,13 @@ export function SubscriptionsPage() {
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
             <Field
               label={form.billingInterval === "YEAR" ? "Montant par an (€)" : "Montant par mois (€)"}
-              hint={editingId ? "Via un nouveau devis (légal)" : undefined}
+              hint={
+                editingId
+                  ? editing?.draftLike
+                    ? "Correction possible : rien n'a encore été facturé."
+                    : "Contrat facturé, issu d'un devis ou prélevé par Stripe : « Réviser (avenant) »."
+                  : undefined
+              }
             >
               <Input
                 required
@@ -975,7 +1016,7 @@ export function SubscriptionsPage() {
                 min="0"
                 value={form.amountEuros}
                 onChange={(e) => setForm({ ...form, amountEuros: e.target.value })}
-                disabled={!!editingId}
+                disabled={!!editingId && !editing?.draftLike}
               />
             </Field>
             <Field label="Jour de prélèvement">
@@ -1120,7 +1161,10 @@ export function SubscriptionsPage() {
             />
           </Field>
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <Field label="Prix / mois (€)">
+            <Field
+              label="Prix / mois (€)"
+              hint={editingOffer ? "Vaut pour les nouveaux contrats ; ceux en cours gardent leur montant (avenant pour le changer)." : undefined}
+            >
               <Input
                 required
                 type="number"

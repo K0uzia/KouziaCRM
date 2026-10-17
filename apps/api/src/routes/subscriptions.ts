@@ -18,6 +18,9 @@ import {
   generateDueSubscriptionInvoices,
   createSubscriptionRevision,
   SubscriptionError,
+  SubscriptionLockedError,
+  deleteSubscription,
+  assertAmountCorrectable,
 } from "@/lib/subscriptions/subscription-service.js";
 
 const createSchema = z.object({
@@ -37,6 +40,8 @@ const createSchema = z.object({
 
 const patchSchema = z.object({
   label: z.string().min(1).max(200).optional(),
+  /** Correction du montant : seulement un contrat créé à la main, jamais facturé, sans Stripe (sinon 409). */
+  amountEuros: z.coerce.number().min(0.01).optional(),
   billingDay: z.number().int().min(1).max(28).optional(),
   endDate: z.string().optional().nullable(),
   firstInvoiceAt: z.string().min(1).optional(),
@@ -119,18 +124,34 @@ export const subscriptionsRoutes: FastifyPluginAsync = async (app) => {
       return reply.code(400).send({ error: parsed.error.flatten() });
     }
     try {
+      if (parsed.data.amountEuros !== undefined) await assertAmountCorrectable(request.params.id, toCents(parsed.data.amountEuros));
       const sub = await updateSubscription(request.params.id, {
         label: parsed.data.label,
-        amountCents: undefined,
+        amountCents: parsed.data.amountEuros === undefined ? undefined : toCents(parsed.data.amountEuros),
         billingDay: parsed.data.billingDay,
         endDate: parseDate(parsed.data.endDate),
         firstInvoiceAt: parseDate(parsed.data.firstInvoiceAt) ?? undefined,
       });
       return sub;
     } catch (err) {
+      if (err instanceof SubscriptionLockedError) return reply.code(409).send({ error: err.message });
       if (err instanceof SubscriptionError) {
         return reply.code(400).send({ error: err.message });
       }
+      throw err;
+    }
+  });
+
+  // Supprime un contrat créé par erreur (à la main, jamais facturé, sans Stripe) ; sinon 409 : le clôturer.
+  app.delete<{ Params: { id: string } }>("/api/subscriptions/:id", async (request, reply) => {
+    await requireAuth(request, reply);
+    if (reply.sent) return;
+    try {
+      await deleteSubscription(request.params.id);
+      return { ok: true };
+    } catch (err) {
+      if (err instanceof SubscriptionLockedError) return reply.code(409).send({ error: err.message });
+      if (err instanceof SubscriptionError) return reply.code(404).send({ error: err.message });
       throw err;
     }
   });
