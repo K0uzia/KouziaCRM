@@ -4,7 +4,28 @@ import { InvoiceDocumentType, InvoiceStatus } from "@prisma/client";
 import { prisma } from "@/lib/prisma.js";
 import { getCompanySettings } from "@/lib/company.js";
 import { buildPayUrl } from "@/lib/stripe/pay-urls.js";
-import { depositBaseOf } from "@/lib/invoices/totals.js";
+import { billedWithDocument, depositBaseOf } from "@/lib/invoices/totals.js";
+
+/**
+ * Remise appliquée à la partie ponctuelle d'un document (contrat KouziaWebsite, README « Espace client »).
+ * Devis émis : partie ponctuelle facturée avec le devis moins sa base figée (oneOffTotalCents), devis antérieurs
+ * compris ; autre document : sous-total moins total. 0 sans remise.
+ */
+function oneOffDiscountOf(d: {
+  documentType: string;
+  subtotalCents: number;
+  totalCents: number;
+  depositBaseCents: number | null;
+  lines: Array<{ unitPriceCents: number; subscriptionStart: string | null }>;
+}): number {
+  if (d.documentType === "QUOTE" && d.depositBaseCents !== null) {
+    const billedSubs = d.lines
+      .filter((l) => billedWithDocument({ isSubscription: true, subscriptionStart: l.subscriptionStart }))
+      .reduce((s, l) => s + l.unitPriceCents, 0);
+    return Math.max(0, d.subtotalCents - billedSubs - d.depositBaseCents);
+  }
+  return Math.max(0, d.subtotalCents - d.totalCents);
+}
 import { verifyDocumentToken } from "@/lib/documents/public-token.js";
 import {
   checkPortalCode,
@@ -468,6 +489,7 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
                   subtotalCents: d.subtotalCents,
                   paidCents: paid,
                   remainingCents: d.totalCents - paid,
+                  ...(oneOffDiscountOf(d) > 0 ? { oneOffDiscountCents: oneOffDiscountOf(d) } : {}),
                 }
               : {}),
             payments: d.payments.map((p) => ({

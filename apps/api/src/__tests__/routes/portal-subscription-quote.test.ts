@@ -151,5 +151,46 @@ describe("espace client : devis d'abonnement seul", () => {
     });
     expect(doc.paymentPlans[0].milestones.map((m: { amountCents: number }) => m.amountCents)).toEqual([20700, 48300]);
     expect(doc.milestones.map((m: { amountCents: number }) => m.amountCents)).toEqual([20700, 48300]);
+    // Sans remise : pas de oneOffDiscountCents.
+    expect(doc).not.toHaveProperty("oneOffDiscountCents");
+  });
+
+  it("devis mixte remisé : oneOffDiscountCents = remise de la partie ponctuelle ; masqué avec les montants ; rien d'un autre client", async () => {
+    const { kz_portal } = await setup();
+    const client = await prisma.client.findFirstOrThrow({ where: { emailHash: computeEmailHash(EMAIL) } });
+    const service = await prisma.service.findFirstOrThrow();
+    const lignes = (sub: string) => [
+      { position: 1, description: "Site une page", quantity: 1, unitPriceCents: 69000, lineTotalCents: 69000 },
+      { position: 2, description: sub, quantity: 1, unitPriceCents: 2900, lineTotalCents: 2900, isSubscription: true, billingDay: 1, serviceId: service.id },
+    ];
+    // Remise de 69 € sur la partie ponctuelle (10 %), abonnement au prix plein.
+    const quote = await prisma.invoice.create({
+      data: {
+        clientId: client.id, documentType: InvoiceDocumentType.QUOTE, status: InvoiceStatus.DRAFT, paymentPlanOffer: "TWO",
+        subtotalCents: 71900, totalCents: 65000, discountType: "PERCENT", discountValue: 1000, lines: { create: lignes("Maintenance : mensuel") },
+      },
+    });
+    await issueQuote(quote.id);
+    // Devis remisé d'un autre client : jamais visible.
+    const autre = await createClient({ displayName: "Autre client" });
+    const etranger = await prisma.invoice.create({
+      data: {
+        clientId: autre.id, documentType: InvoiceDocumentType.QUOTE, status: InvoiceStatus.DRAFT, paymentPlanOffer: "TWO",
+        subtotalCents: 71900, totalCents: 50000, discountType: "FIXED", discountValue: 21900, lines: { create: lignes("Maintenance étrangère") },
+      },
+    });
+    await issueQuote(etranger.id);
+
+    const t = (await app.inject({ method: "GET", url: "/api/public/tracking", cookies: { kz_portal } })).json();
+    const doc = t.documents.find((d: { id: string }) => d.id === quote.id);
+    expect(doc).toMatchObject({ oneOffTotalCents: 62100, oneOffDiscountCents: 6900 });
+    expect(t.documents.some((d: { id: string }) => d.id === etranger.id)).toBe(false);
+    expect(JSON.stringify(t)).not.toContain("Maintenance étrangère");
+    expect(JSON.stringify(t)).not.toContain("21900");
+
+    await prisma.companySettings.updateMany({ data: { publicTrackingShowAmounts: false } });
+    invalidateCompanySettingsCache();
+    const masque = (await app.inject({ method: "GET", url: "/api/public/tracking", cookies: { kz_portal } })).json();
+    expect(masque.documents.find((d: { id: string }) => d.id === quote.id)).not.toHaveProperty("oneOffDiscountCents");
   });
 });
