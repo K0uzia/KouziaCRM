@@ -1,6 +1,7 @@
 import { EmailDirection } from "@prisma/client";
 import { prisma } from "@/lib/prisma.js";
 import { findClientIdByEmail } from "@/lib/email/match-client.js";
+import { decryptOptional } from "@/lib/crypto.js";
 
 /**
  * Formulaire du site relayé par Web3Forms (expéditeur notify+…@web3forms.com, « Site Kouzia ») :
@@ -194,4 +195,58 @@ export async function formLeadForMessage(messageId: string): Promise<Omit<FormLe
   const email = formLeadEmail({ replyToAddress: m.replyToAddress, body: m.bodyText ?? m.bodyHtml });
   if (!email && !lead.name) return null;
   return { name: lead.name, email, phone: lead.phone, company: lead.company };
+}
+
+export type FormSubmission = {
+  messageId: string;
+  receivedAt: Date;
+  /** Champs du formulaire, pour une liste lisible (pas le texte brut). */
+  fields: FormLead & { email: string | null };
+  /** Client rattaché au message (fiche existante), sinon null : l'écran propose alors « Créer le client ». */
+  client: { id: string; displayName: string } | null;
+  /** Adresse de réponse : celle du client, sinon celle saisie dans le formulaire ; jamais l'expéditeur Web3Forms. */
+  replyTo: string | null;
+};
+
+/**
+ * Message du formulaire du site dans un fil (le plus récent) : champs analysés, client rattaché (rattachement
+ * fait ici s'il manquait, sans effet s'il est déjà fait) et adresse de réponse. null si le fil n'en contient pas.
+ * `loadBody` charge le corps s'il n'a pas encore été relevé.
+ */
+export async function formSubmissionForThread(
+  threadId: string,
+  loadBody: (messageId: string) => Promise<unknown>,
+): Promise<FormSubmission | null> {
+  const candidate = await prisma.emailMessage.findFirst({
+    where: { threadId, direction: EmailDirection.INBOUND, orphaned: false, fromAddress: { contains: "web3forms.com" } },
+    orderBy: { receivedAt: "desc" },
+    select: { id: true, fromAddress: true, bodyText: true, bodyHtml: true },
+  });
+  if (!candidate || !isWeb3FormsSender(candidate.fromAddress)) return null;
+  if (!candidate.bodyText && !candidate.bodyHtml) await loadBody(candidate.id).catch(() => undefined);
+  await formLeadForMessage(candidate.id).catch(() => null);
+  const m = await prisma.emailMessage.findUnique({
+    where: { id: candidate.id },
+    select: {
+      id: true,
+      receivedAt: true,
+      replyToAddress: true,
+      bodyText: true,
+      bodyHtml: true,
+      thread: { select: { client: { select: { id: true, displayName: true, emailEncrypted: true } } } },
+    },
+  });
+  if (!m) return null;
+  const body = m.bodyText ?? m.bodyHtml;
+  const lead = parseWeb3FormsBody(body);
+  const email = formLeadEmail({ replyToAddress: m.replyToAddress, body });
+  const client = m.thread.client;
+  const clientEmail = client ? decryptOptional(client.emailEncrypted)?.trim().toLowerCase() || null : null;
+  return {
+    messageId: m.id,
+    receivedAt: m.receivedAt,
+    fields: { ...lead, email },
+    client: client ? { id: client.id, displayName: client.displayName } : null,
+    replyTo: clientEmail ?? email,
+  };
 }

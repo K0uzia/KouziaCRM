@@ -13,6 +13,7 @@ import { ReadingPane } from "@/pages/messaging/ReadingPane";
 import { ComposeModal } from "@/pages/messaging/ComposeModal";
 import { useInboxSync } from "@/pages/messaging/useInboxSync";
 import { useMailNotifications } from "@/pages/messaging/useMailNotifications";
+import { isFormSender } from "@/pages/messaging/sender";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { formatAgoMinutes, formatDate, formatTime, MAIL_SYNC_STALE_MIN, minutesSince } from "@/lib/format";
 
@@ -318,6 +319,11 @@ export function MailLayout() {
   }
 
   function replyToMessage(msg: MailMessageItem) {
+    // Formulaire du site sans Reply-To : l'adresse du client est dans l'encart du fil (« Répondre au client »).
+    if (msg.direction !== "OUTBOUND" && isFormSender(msg.fromAddress) && !msg.replyToAddress) {
+      openMessage(msg);
+      return;
+    }
     const to =
       msg.direction === "OUTBOUND"
         ? msg.toAddresses?.[0] ?? msg.fromAddress

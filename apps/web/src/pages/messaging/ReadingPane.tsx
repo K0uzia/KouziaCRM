@@ -6,15 +6,15 @@ import {
   faReply,
   faStar,
   faTrash,
-  faUserPlus,
 } from "@fortawesome/free-solid-svg-icons";
 import { api } from "@/lib/api";
 import { toast } from "sonner";
-import { Button, ButtonLink } from "@/components/ui/Button";
+import { Button } from "@/components/ui/Button";
 import type { ClientPrefill } from "@/components/clients/ClientForm";
 import { MessageBody } from "@/pages/messaging/MessageBody";
 import { AttachmentList } from "@/pages/messaging/AttachmentList";
 import { QuoteValidationBlock } from "@/pages/messaging/QuoteValidationBlock";
+import { FormSubmissionPanel, type FormSubmission } from "@/pages/messaging/FormSubmissionPanel";
 import { formatMailDateTime } from "@/lib/format";
 import { Link } from "react-router-dom";
 import { senderLabel } from "@kouzia-erp/email-sender";
@@ -84,7 +84,11 @@ type ThreadDetail = {
   }>;
   quoteConfirmationHint?: boolean;
   client?: { id: string; displayName: string } | null;
+  formSubmission?: FormSubmission | null;
 };
+
+/** Expéditeur technique du formulaire du site (Web3Forms) : on ne lui répond jamais. */
+const FORM_SENDER = /@(?:[a-z0-9-]+\.)*web3forms\.com$/i;
 
 function bodyFromMessage(msg: ThreadMessage): MessageBodyPayload | null {
   if (msg.bodyHtml || msg.bodyText) {
@@ -256,6 +260,23 @@ export function ReadingPane({
   }
 
   const latest = thread.messages[thread.messages.length - 1];
+  const form = thread.formSubmission ?? null;
+  // Message du formulaire : réponse à l'adresse du client (ou saisie dans le formulaire), jamais à Web3Forms.
+  const replyAddress = (msg: ThreadMessage) =>
+    form?.replyTo && FORM_SENDER.test(msg.fromAddress) ? form.replyTo : msg.replyToAddress;
+  const replyToForm = (to: string) => {
+    const msg = thread.messages.find((m) => m.id === form?.messageId) ?? latest;
+    if (!msg) return;
+    onReply({
+      threadId: thread.id,
+      messageId: msg.messageId,
+      subject: thread.subject.startsWith("Re:") ? thread.subject : `Re: ${thread.subject}`,
+      fromAddress: to,
+      replyToAddress: to,
+      receivedAt: msg.receivedAt,
+      snippet: msg.snippet ?? "",
+    });
+  };
 
   return (
     <div className="flex h-full flex-col">
@@ -273,7 +294,7 @@ export function ReadingPane({
                   messageId: latest.messageId,
                   subject: thread.subject.startsWith("Re:") ? thread.subject : `Re: ${thread.subject}`,
                   fromAddress: latest.fromAddress,
-                  replyToAddress: latest.replyToAddress,
+                  replyToAddress: replyAddress(latest),
                   receivedAt: latest.receivedAt,
                   snippet: latest.snippet ?? "",
                 })}
@@ -337,7 +358,9 @@ export function ReadingPane({
 
       <div className="custom-scrollbar flex-1 overflow-y-auto p-4 md:px-8">
         <h2 className="text-lg font-semibold leading-snug break-words">{thread.subject}</h2>
-        {thread.client ? (
+        {form ? (
+          <FormSubmissionPanel form={form} onReply={replyToForm} />
+        ) : thread.client ? (
           <Link to={`/clients/${thread.client.id}`} className="link mt-1 inline-flex min-h-11 items-center text-sm">
             Client : {thread.client.displayName}
           </Link>
@@ -360,10 +383,12 @@ export function ReadingPane({
             const open = expandedId === msg.id;
             const body = bodies[msg.id] ?? (open ? bodyFromMessage(msg) : null);
             // Formulaire du site : le prospect (Reply-To, nom dans le corps) est l'expéditeur réel.
-            const viaForm = msg.direction !== "OUTBOUND" && Boolean(msg.replyToAddress);
-            const senderAddress = viaForm ? msg.replyToAddress! : msg.fromAddress;
+            const fromForm = msg.direction !== "OUTBOUND" && FORM_SENDER.test(msg.fromAddress);
+            const viaForm = msg.direction !== "OUTBOUND" && (Boolean(msg.replyToAddress) || fromForm);
+            // Jamais l'adresse technique Web3Forms : Reply-To, sinon l'adresse du client ou saisie (encart du haut).
+            const senderAddress = viaForm ? (msg.replyToAddress ?? (fromForm ? form?.replyTo : null) ?? msg.fromAddress) : msg.fromAddress;
             const sender = viaForm
-              ? (formProspectName(msg.bodyText ?? msg.snippet) ?? senderLabel(null, senderAddress))
+              ? ((fromForm ? form?.client?.displayName : null) ?? formProspectName(msg.bodyText ?? msg.snippet) ?? senderLabel(null, senderAddress))
               : senderLabel(msg.fromName, msg.fromAddress);
             return (
               <li key={msg.id} className="rounded-lg border border-[var(--border)]">
@@ -409,19 +434,17 @@ export function ReadingPane({
                     {msg.attachments.length > 0 ? (
                       <AttachmentList attachments={msg.attachments} />
                     ) : null}
-                    <MessageBody
-                      bodyText={body.bodyText}
-                      bodyHtml={body.bodyHtml}
-                    />
-                    {body.formLead ? (
-                      <div className="mt-3 flex flex-wrap items-center gap-2 rounded-lg border border-[var(--border)] px-3 py-2 text-sm">
-                        <span className="min-w-0 flex-1 text-[var(--muted)]">Aucun client ne correspond à ce message du formulaire.</span>
-                        <ButtonLink to="/clients?new=1" state={{ prefill: body.formLead }} variant="secondary">
-                          <FontAwesomeIcon icon={faUserPlus} className="h-4 w-4" aria-hidden />
-                          Créer le client
-                        </ButtonLink>
-                      </div>
-                    ) : null}
+                    {form?.messageId === msg.id ? (
+                      // Champs déjà présentés en liste dans l'encart du haut : le texte reçu reste consultable.
+                      <details>
+                        <summary className="inline-flex min-h-11 cursor-pointer items-center text-sm text-[var(--muted)] hover:text-[var(--text)]">
+                          Voir le message reçu tel quel
+                        </summary>
+                        <MessageBody bodyText={body.bodyText} bodyHtml={body.bodyHtml} />
+                      </details>
+                    ) : (
+                      <MessageBody bodyText={body.bodyText} bodyHtml={body.bodyHtml} />
+                    )}
                   </div>
                 ) : null}
                 {open && !body && loadingBody ? (
@@ -446,7 +469,7 @@ export function ReadingPane({
                   messageId: latest.messageId,
                   subject: thread.subject.startsWith("Re:") ? thread.subject : `Re: ${thread.subject}`,
                   fromAddress: latest.fromAddress,
-                  replyToAddress: latest.replyToAddress,
+                  replyToAddress: replyAddress(latest),
                   receivedAt: latest.receivedAt,
                   snippet: latest.snippet ?? "",
                 })}>
