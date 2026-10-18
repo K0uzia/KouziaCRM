@@ -677,14 +677,25 @@ export async function moveMessageToFolder(
   }
   const target = await prisma.mailFolder.findUniqueOrThrow({ where: { id: targetFolderId } });
 
+  const oldUid = toImapInt(message.imapUid);
+  let newUid: number | undefined;
   await withImapClient(async ({ client }) => {
     await client.mailboxOpen(message.folder!.imapPath);
-    await client.messageMove(String(message.imapUid), target.imapPath, { uid: true });
+    // L'uid connu peut dater d'avant un déplacement pas encore relevé : on vérifie que c'est bien ce message,
+    // sinon on déplacerait un autre message du dossier (ex. « Annuler » juste après une mise à la corbeille).
+    const found = await client.fetchOne(String(oldUid), { envelope: true }, { uid: true });
+    const serverMid = found ? found.envelope?.messageId?.trim() : undefined;
+    if (!found || (serverMid && serverMid !== message.messageId)) {
+      throw new Error("Message pas encore resynchronisé : réessayez dans un instant.");
+    }
+    const moved = await client.messageMove(String(oldUid), target.imapPath, { uid: true });
+    newUid = moved ? moved.uidMap?.get(oldUid) : undefined;
   });
 
   await prisma.emailMessage.update({
     where: { id: message.id },
-    data: { folderId: target.id },
+    // Nouvel uid connu (UIDPLUS) : un déplacement suivant vise le bon message sans attendre le relevé.
+    data: { folderId: target.id, ...(newUid ? { imapUid: newUid } : {}) },
   });
   await refreshFolderUnread([message.folderId, target.id]);
 }
