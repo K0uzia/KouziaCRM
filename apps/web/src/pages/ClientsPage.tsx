@@ -116,7 +116,7 @@ export function ClientsPage() {
             {isLocalClientId(c.id) ? (
               <Badge tone="amber">À envoyer</Badge>
             ) : (
-              <p className="font-mono text-xs text-[var(--muted)]">{c.clientNumber ?? "-"}</p>
+              <p className="font-mono text-[length:var(--text-ref)] text-[var(--muted)]">{c.clientNumber ?? "-"}</p>
             )}
           </div>
         </div>
@@ -182,7 +182,7 @@ export function ClientsPage() {
           {c.email ? (
             <Button
               variant="ghost"
-              className="min-h-9 min-w-9 px-0"
+              className="px-0"
               aria-label={`Écrire à ${c.displayName}`}
               title="Écrire"
               onClick={() =>
@@ -194,7 +194,7 @@ export function ClientsPage() {
           ) : null}
           <Button
             variant="ghost"
-            className="min-h-9 min-w-9 px-0"
+            className="px-0"
             disabled={isLocalClientId(c.id)}
             aria-label={`Modifier ${c.displayName}`}
             title="Modifier"

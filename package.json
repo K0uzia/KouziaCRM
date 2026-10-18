@@ -14,6 +14,7 @@
     "dev": "node scripts/dev.mjs",
     "check:lockfile": "node scripts/check-lockfile.mjs",
     "check:mobile": "tsx scripts/check-mobile.ts",
+    "check:desktop": "tsx scripts/check-desktop.ts",
     "qa:mesure": "tsx scripts/qa/mesure-pages.ts",
     "check:wide": "tsx scripts/check-mobile.ts --widths=768,1024,1280",
     "check:offline": "tsx scripts/check-offline.ts",

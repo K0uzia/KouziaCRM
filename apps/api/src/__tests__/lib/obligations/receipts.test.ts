@@ -93,8 +93,30 @@ describe("receiptsToCsv", () => {
     ]);
     const lines = csv.trim().split("\r\n");
     expect(lines).toHaveLength(3);
-    expect(lines[0].split(";")).toHaveLength(8);
-    expect(lines[2].split(";")).toHaveLength(8);
+    expect(lines[0].split(";")).toHaveLength(9);
+    expect(lines[2].split(";")).toHaveLength(9);
     expect(lines[2]).toContain(UNLINKED_RECEIPT_CLIENT);
+  });
+});
+
+describe("type de la pièce (colonne dédiée, nature légale inchangée)", () => {
+  const inv = payment().invoice!;
+  it("Facture, Acompte, Solde, Abonnement, Avoir, Sans facture", () => {
+    expect(buildReceiptRow(payment()).typeLabel).toBe("Facture");
+    expect(buildReceiptRow(payment({ invoice: { ...inv, invoiceType: "ACOMPTE" } })).typeLabel).toBe("Acompte");
+    expect(buildReceiptRow(payment({ invoice: { ...inv, invoiceType: "SOLDE" } })).typeLabel).toBe("Solde");
+    expect(buildReceiptRow(payment({ invoice: { ...inv, subscriptionId: "sub_1" } })).typeLabel).toBe("Abonnement");
+    expect(buildReceiptRow(payment({ invoice: { ...inv, documentType: "CREDIT_NOTE" } })).typeLabel).toBe("Avoir");
+    expect(buildReceiptRow(payment({ amountCents: -5000 })).typeLabel).toBe("Avoir");
+    expect(buildReceiptRow(payment({ invoice: null })).typeLabel).toBe("Sans facture");
+  });
+
+  it("CSV : colonne Type après Facture ; nature identique à celle de la ligne", () => {
+    const row = buildReceiptRow(payment({ invoice: { ...inv, invoiceType: "ACOMPTE", lines: [{ description: "Acompte de 30% : Acompte - À la validation du devis" }] } }));
+    const [header, line] = receiptsToCsv([row]).replace("﻿", "").split("\r\n");
+    expect(header!.split(";").slice(0, 4)).toEqual(['"Date"', '"Facture"', '"Type"', '"Code client"']);
+    const cells = line!.split(";");
+    expect(cells[2]).toBe('"Acompte"');
+    expect(cells[5]).toBe('"Acompte de 30% : Acompte - À la validation du devis"');
   });
 });

@@ -53,7 +53,7 @@ const customStyles: TableProps<never>["customStyles"] = {
       borderBottomColor: "var(--border)",
       borderBottomStyle: "solid",
       borderBottomWidth: "1px",
-      minHeight: "2.5rem",
+      minHeight: "var(--table-head-min)",
     },
   },
   headCells: {
@@ -72,7 +72,7 @@ const customStyles: TableProps<never>["customStyles"] = {
       borderBottomColor: "var(--border)",
       borderBottomStyle: "solid",
       borderBottomWidth: "1px",
-      minHeight: "3.25rem",
+      minHeight: "var(--table-row-min)",
       backgroundColor: "var(--surface)",
     },
     stripedStyle: { backgroundColor: "var(--bg-subtle)" },
@@ -81,7 +81,7 @@ const customStyles: TableProps<never>["customStyles"] = {
   cells: {
     style: {
       padding: "0.625rem 1rem",
-      fontSize: "0.875rem",
+      fontSize: "var(--text-table)",
       color: "var(--text)",
       lineHeight: 1.5,
       overflow: "hidden",

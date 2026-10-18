@@ -86,6 +86,21 @@
   --text-meta: 0.8125rem;
   /* Libellés des onglets du bas : « Messages » entier sur 5 onglets à 320 px. */
   --text-tab: clamp(0.75rem, 0.45rem + 1.1vw, 0.8125rem);
+  /* Largeur du contenu des pages, centré : pleine largeur utile jusqu'à 2 560 px (27 pouces), plafonnée à
+     120rem (environ 2 160 px à 2 560 px, soit la place à côté de la barre latérale) pour qu'au-delà l'oeil
+     aille encore de la 1re colonne aux actions d'une ligne (NN/g, tâches d'un tableau de données). Les textes
+     d'explication gardent leur propre mesure de lecture (max-w-xl, max-w-prose dans les composants). */
+  --content-max: 120rem;
+  /* Tableaux de données (Carbon, Data table : texte de 14 px, 16 px entre colonnes, ligne de 48 px,
+     64 px quand la cellule tient sur deux lignes). Ligne de 56 px au moins (deux lignes : nom et numéro),
+     texte de 14 px qui monte à 15 px sur les écrans de bureau. */
+  --table-row-min: 3.5rem;
+  --table-head-min: 3rem;
+  --text-table: clamp(0.875rem, 0.7rem + 0.2vw, 0.9375rem);
+  /* Références (numéro client, de pièce) en police à chasse fixe : 13 px, la police technique est
+     petite à corps égal. Badges de statut et de type : 12 px, 13 px au bureau. */
+  --text-ref: 0.8125rem;
+  --text-badge: 0.75rem;
   /* Mouvement */
   --duration-fast: 150ms;
   --duration-base: 300ms;
@@ -265,7 +280,7 @@ h3 {
   width: 100%;
   table-layout: auto;
   border-collapse: collapse;
-  font-size: 0.875rem;
+  font-size: var(--text-table);
   text-align: left;
 }
 
@@ -276,6 +291,7 @@ h3 {
 }
 
 .ui-table th {
+  height: var(--table-head-min);
   padding: 0.625rem 1rem;
   font-weight: 600;
   font-size: 0.75rem;
@@ -287,6 +303,7 @@ h3 {
 }
 
 .ui-table td {
+  height: var(--table-row-min);
   padding: 0.75rem 1rem;
   border-top: 1px solid var(--border);
   vertical-align: middle;
@@ -339,6 +356,7 @@ h3 {
   }
   .ui-table-stack tbody td {
     display: flex;
+    height: auto;
     justify-content: space-between;
     align-items: flex-start;
     gap: 0.75rem;
@@ -503,5 +521,15 @@ option:hover {
 @media (min-width: 64rem) {
   :root {
     --gutter: 2rem;
+    --text-badge: 0.8125rem;
+  }
+}
+
+/* Grand écran de bureau (Material 3, classe de fenêtre « Extra-large » à partir de 1600) : tout le gabarit
+   en rem grandit avec l'écran, de 16 px à 1600 px jusqu'à 18 px à 2560 px, au lieu de rester à la taille
+   d'un portable au milieu de marges vides. Relatif à la taille choisie par l'utilisateur (zoom respecté). */
+@media (min-width: 100rem) {
+  html {
+    font-size: clamp(100%, 0.7917rem + 0.2083vw, 112.5%);
   }
 }

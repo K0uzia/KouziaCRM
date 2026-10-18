@@ -31,10 +31,25 @@ export type ReceiptSourcePayment = {
     invoiceType: string;
     documentType: string;
     totalCents: number;
+    subscriptionId?: string | null;
     client: { displayName: string; clientNumber: string | null };
     lines: Array<{ description: string }>;
   } | null;
 };
+
+/**
+ * Type de la pièce encaissée, colonne dédiée de l'écran, du CSV et du PDF : Facture, Acompte, Solde, Avoir,
+ * Abonnement. Information de lecture : la nature légale (texte des lignes) ne change pas.
+ */
+export function receiptTypeLabel(payment: Pick<ReceiptSourcePayment, "amountCents" | "invoice">): string {
+  const invoice = payment.invoice;
+  if (invoice?.documentType === "CREDIT_NOTE" || payment.amountCents < 0) return "Avoir";
+  if (!invoice) return "Sans facture";
+  if (invoice.invoiceType === "ACOMPTE") return "Acompte";
+  if (invoice.invoiceType === "SOLDE") return "Solde";
+  if (invoice.subscriptionId) return "Abonnement";
+  return "Facture";
+}
 
 export type ReceiptRow = {
   id: string;
@@ -43,6 +58,8 @@ export type ReceiptRow = {
   invoiceId: string | null;
   invoiceType: string | null;
   documentType: string | null;
+  /** Facture, Acompte, Solde, Avoir, Abonnement (ou Sans facture). */
+  typeLabel: string;
   amountCents: number;
   /** Total HT de la facture liée (si disponible). */
   invoiceTotalCents: number | null;
@@ -81,6 +98,7 @@ export function buildReceiptRow(payment: ReceiptSourcePayment): ReceiptRow {
     invoiceId: invoice?.id ?? null,
     invoiceType: invoice?.invoiceType ?? null,
     documentType: invoice?.documentType ?? null,
+    typeLabel: receiptTypeLabel(payment),
     amountCents: payment.amountCents,
     invoiceTotalCents: invoice?.totalCents ?? null,
     clientName: invoice?.client.displayName ?? UNLINKED_RECEIPT_CLIENT,
@@ -141,12 +159,13 @@ export function csvEscape(value: string | number | null | undefined): string {
 
 /**
  * Colonnes alignées sur le PDF / écran :
- * Date | Facture | Code client | Client | Nature | Règlement | Encaissé | Total facture
+ * Date | Facture | Type | Code client | Client | Nature | Règlement | Encaissé | Total facture
  */
 export function receiptsToCsv(
   rows: Array<{
     paidAt: string;
     invoiceNumber: string | null;
+    typeLabel: string;
     amountCents: number;
     invoiceTotalCents?: number | null;
     clientName: string;
@@ -158,6 +177,7 @@ export function receiptsToCsv(
   const header = [
     "Date",
     "Facture",
+    "Type",
     "Code client",
     "Client",
     "Nature",
@@ -178,6 +198,7 @@ export function receiptsToCsv(
     return [
       date,
       r.invoiceNumber ?? "",
+      r.typeLabel,
       r.clientNumber ?? "",
       r.clientName,
       r.nature,
