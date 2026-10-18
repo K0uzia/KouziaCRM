@@ -15,7 +15,9 @@ import type { ClientNeed } from "@/components/clients/NeedsEditor";
 import { Segmented } from "@/components/ui/Segmented";
 import { billedWithDocument, FREE_MONTHS_MAX, startFromLine, startOptions, startPayload, startPhrase, type StartFields, type SubscriptionStart } from "@/lib/subscription-start";
 import {
+  eurosInputToCents,
   INTERVAL_OPTIONS,
+  monthlyEquivalentText,
   normalizeInterval,
   periodSuffix,
   suggestedAmountCents,
@@ -730,6 +732,11 @@ export function DocumentFormEditor({
                     </>
                   )}
                 </p>
+                {line.isSubscription && monthlyEquivalentText(eurosInputToCents(line.unitPriceEuros), line.billingInterval) ? (
+                  <p className="text-right text-xs text-[var(--muted)]">
+                    {monthlyEquivalentText(eurosInputToCents(line.unitPriceEuros), line.billingInterval)}
+                  </p>
+                ) : null}
               </li>
             );
           })}

@@ -26,8 +26,10 @@ import { Tabs, useTabParam } from "@/components/ui/Tabs";
 import { Segmented } from "@/components/ui/Segmented";
 import { DataTable, type DataColumn } from "@/components/ui/DataTable";
 import {
+  eurosInputToCents,
   INTERVAL_OPTIONS,
   monthlyEquivalentCents,
+  monthlyEquivalentText,
   normalizeInterval,
   periodAdjective,
   periodSuffix,
@@ -548,9 +550,14 @@ export function SubscriptionsPage() {
       selector: (s) => monthlyEquivalentCents(s.amountCents, s.billingInterval),
       sortable: true,
       cell: (s) => (
-        <span className="whitespace-nowrap tabular-nums">
-          <span className="font-medium">{formatEUR(s.amountCents)}</span>{" "}
-          <span className="text-[var(--muted)]">{periodSuffix(s.billingInterval)}</span>
+        <span className="flex flex-col items-end py-1">
+          <span className="whitespace-nowrap tabular-nums">
+            <span className="font-medium">{formatEUR(s.amountCents)}</span>{" "}
+            <span className="text-[var(--muted)]">{periodSuffix(s.billingInterval)}</span>
+          </span>
+          {monthlyEquivalentText(s.amountCents, s.billingInterval) ? (
+            <span className="whitespace-nowrap text-xs tabular-nums text-[var(--muted)]">{monthlyEquivalentText(s.amountCents, s.billingInterval)}</span>
+          ) : null}
         </span>
       ),
     },
@@ -666,6 +673,9 @@ export function SubscriptionsPage() {
                     <span className="shrink-0 whitespace-nowrap text-right tabular-nums">
                       <span className="block font-medium">{formatEUR(s.amountCents)}</span>
                       <span className="block text-xs text-[var(--muted)]">{periodSuffix(s.billingInterval)}</span>
+                      {monthlyEquivalentText(s.amountCents, s.billingInterval) ? (
+                        <span className="block text-xs text-[var(--muted)]">{monthlyEquivalentText(s.amountCents, s.billingInterval)}</span>
+                      ) : null}
                     </span>
                   </span>
                   <span className="flex w-full flex-wrap items-center justify-between gap-2 text-sm text-[var(--muted)]">
@@ -710,6 +720,9 @@ export function SubscriptionsPage() {
                           <div className="sm:text-right">
                             <p className="font-display text-lg font-semibold tabular-nums">{formatEUR(o.unitPriceCents)}</p>
                             <p className="text-xs text-[var(--muted)]">{periodSuffix(o.billingInterval)}</p>
+                            {monthlyEquivalentText(o.unitPriceCents, o.billingInterval) ? (
+                              <p className="text-xs text-[var(--muted)]">{monthlyEquivalentText(o.unitPriceCents, o.billingInterval)}</p>
+                            ) : null}
                           </div>
                           <div className="flex gap-1">
                             {moduleStripeEnabled && o.stripeProductId ? (
@@ -781,6 +794,9 @@ export function SubscriptionsPage() {
                 <dt className="text-xs text-[var(--muted)]">Montant</dt>
                 <dd className="mt-0.5 font-medium tabular-nums">
                   {formatEUR(selected.amountCents)} {periodSuffix(selected.billingInterval)}
+                  {monthlyEquivalentText(selected.amountCents, selected.billingInterval) ? (
+                    <span className="block text-xs font-normal text-[var(--muted)]">{monthlyEquivalentText(selected.amountCents, selected.billingInterval)}</span>
+                  ) : null}
                 </dd>
               </div>
               <div className="min-w-0">
@@ -1023,6 +1039,9 @@ export function SubscriptionsPage() {
                 onChange={(e) => setForm({ ...form, amountEuros: e.target.value })}
                 disabled={!!editingId && !editing?.draftLike}
               />
+              {monthlyEquivalentText(eurosInputToCents(form.amountEuros), form.billingInterval) ? (
+                <p className="mt-1 text-xs text-[var(--muted)]">{monthlyEquivalentText(eurosInputToCents(form.amountEuros), form.billingInterval)}</p>
+              ) : null}
             </Field>
             <Field label="Jour de prélèvement">
               <Select
@@ -1121,6 +1140,9 @@ export function SubscriptionsPage() {
               value={reviseAmount}
               onChange={(e) => setReviseAmount(e.target.value)}
             />
+            {monthlyEquivalentText(eurosInputToCents(reviseAmount), reviseInterval) ? (
+              <p className="mt-1 text-xs text-[var(--muted)]">{monthlyEquivalentText(eurosInputToCents(reviseAmount), reviseInterval)}</p>
+            ) : null}
           </Field>
           <Field label="Libellé">
             <Input
@@ -1180,6 +1202,11 @@ export function SubscriptionsPage() {
                   setOfferForm({ ...offerForm, unitPriceEuros: e.target.value })
                 }
               />
+              {monthlyEquivalentText(eurosInputToCents(offerForm.unitPriceEuros), editingOffer ? editingOffer.billingInterval : "YEAR") ? (
+                <p className="mt-1 text-xs text-[var(--muted)]">
+                  {monthlyEquivalentText(eurosInputToCents(offerForm.unitPriceEuros), editingOffer ? editingOffer.billingInterval : "YEAR")}
+                </p>
+              ) : null}
             </Field>
             <Field label="Jour de facturation">
               <Select
