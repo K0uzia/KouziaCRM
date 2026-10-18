@@ -212,9 +212,22 @@ export function buildPaymentHistory(opts: {
     .filter((d) => d.documentType === InvoiceDocumentType.QUOTE && d.paymentPlanOffer !== "NONE")
     .reduce((max, d) => Math.max(max, d.depositBaseCents ?? d.totalCents), 0);
   const totalDueCents = Math.max(0, marketTotal - totalPaidCents + totalCreditCents);
+  // Ajout du 19/10/2026 (contrat /suivi) : avoirs et encaissé net, sans changer les totaux ci-dessus (totalPaidCents
+  // compte un avoir comme un règlement). Remboursements : paiements négatifs portés par les avoirs.
+  const creditNoteDocs = opts.docs.filter((d) => d.documentType === InvoiceDocumentType.CREDIT_NOTE);
+  const totalCreditedCents = creditNoteDocs.reduce((s, d) => s + Math.abs(d.totalCents), 0);
+  // Encaissé net d'après les règlements réels (jamais le montant théorique d'un jalon) : paiements reçus sur les
+  // factures moins remboursements (lignes négatives des avoirs ou d'un trop-perçu).
+  const allPayments = opts.docs.flatMap((d) => d.payments);
+  const totalRefundedCents = allPayments.reduce((s, p) => s + (p.amountCents < 0 ? -p.amountCents : 0), 0);
+  const totalReceivedCents = opts.docs
+    .filter((d) => d.documentType !== InvoiceDocumentType.CREDIT_NOTE)
+    .flatMap((d) => d.payments)
+    .reduce((s, p) => s + (p.amountCents > 0 ? p.amountCents : 0), 0);
+  const totalCashInCents = totalReceivedCents - totalRefundedCents;
 
   return {
     items: mapped,
-    ...(opts.showAmounts ? { totalPaidCents, totalDueCents } : {}),
+    ...(opts.showAmounts ? { totalPaidCents, totalDueCents, totalCreditedCents, totalRefundedCents, totalCashInCents } : {}),
   };
 }

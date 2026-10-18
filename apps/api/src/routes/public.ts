@@ -1,3 +1,4 @@
+import { balanceFields } from "@/lib/invoices/balance.js";
 import type { FastifyPluginAsync } from "fastify";
 import { z } from "zod";
 import { InvoiceDocumentType, InvoiceStatus } from "@prisma/client";
@@ -333,6 +334,8 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
           project: { select: { steps: true } },
           // Avoir : devis de la facture créditée (documents[].projectId).
           creditedInvoice: { select: { quoteId: true } },
+          // Facture : ses avoirs et leurs remboursements (solde, reste dû).
+          creditNotes: { select: { totalCents: true, payments: { select: { amountCents: true } } } },
           lines: {
             where: { isSubscription: true },
             orderBy: { position: "asc" },
@@ -393,12 +396,22 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
       const portalProjects = await listPortalProjects(client.id);
       const projectByQuote: ProjectByQuote = new Map(portalProjects.flatMap((p) => (p.quoteId ? [[p.quoteId, p.id] as const] : [])));
 
-      const paymentHistory = buildPaymentHistory({
+      const history = buildPaymentHistory({
         docs: documents,
         milestones: allMilestones,
         showAmounts,
         projectByQuote,
       });
+      // Ajout du 19/10/2026 (contrat /suivi) : « Reste à régler » avoirs compris, somme des dueCents des factures
+      // émises. totalDueCents (au niveau du marché, sans les avoirs) reste inchangé.
+      const paymentHistory = showAmounts
+        ? {
+            ...history,
+            totalNetDueCents: documents
+              .filter((d) => d.documentType === InvoiceDocumentType.INVOICE && d.status === InvoiceStatus.ISSUED)
+              .reduce((sum, d) => sum + (balanceFields(d)?.dueCents ?? 0), 0),
+          }
+        : history;
 
       const testimonials = await portalTestimonials(client.id);
       // Projet terminé : état de son témoignage (« none » tant qu'aucun n'a été déposé).
@@ -490,6 +503,9 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
                   paidCents: paid,
                   remainingCents: d.totalCents - paid,
                   ...(oneOffDiscountOf(d) > 0 ? { oneOffDiscountCents: oneOffDiscountOf(d) } : {}),
+                  // Ajout du 19/10/2026 (contrat /suivi) : solde avoirs compris, factures seulement. Les champs
+                  // ci-dessus ne changent pas ; dueCents est le reste à payer à afficher.
+                  ...(balanceFields(d) ?? {}),
                 }
               : {}),
             payments: d.payments.map((p) => ({

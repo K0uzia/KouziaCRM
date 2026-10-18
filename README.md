@@ -142,6 +142,25 @@ pièce d'un projet masqué porte `null`, jamais l'identifiant de ce projet.
 | `projects[].startedAt` | Date de démarrage (ISO), `null` tant que le projet n'a pas démarré. |
 | `projects[].kind` | `SITE`, `LOGICIEL`, `MAINTENANCE` ou `AUTRE` ; `null` si non renseigné (fiche projet de l'ERP, « Type de projet »). |
 
+#### Solde avoirs compris (ajout du 19/10/2026)
+
+Un avoir peut corriger une facture impayée ou partiellement payée. Le reste dû d'une facture se
+calcule ainsi : net = total - avoirs ; encaissé net = règlements - remboursements des avoirs ;
+reste dû = max(0, net - encaissé net). Champs ajoutés à `GET /api/public/tracking`, seulement si
+les montants sont affichés (`publicTrackingShowAmounts`). Aucun champ existant ne change.
+
+| Champ | Contenu |
+|-------|---------|
+| `documents[].creditedCents` | Facture : somme des avoirs émis sur elle (positive). Absent pour un devis ou un avoir. |
+| `documents[].netCents` | Facture : total moins avoirs. |
+| `documents[].refundedCents` | Facture : sommes remboursées au client par ses avoirs. |
+| `documents[].cashInCents` | Facture : règlements moins remboursements. |
+| `documents[].dueCents` | Facture : reste à payer à afficher. `remainingCents` (total - règlements) reste inchangé et ignore les avoirs. |
+| `paymentHistory.totalCreditedCents` | Somme des avoirs du client. |
+| `paymentHistory.totalRefundedCents` | Sommes remboursées par les avoirs. |
+| `paymentHistory.totalCashInCents` | Règlements reçus moins remboursements. `totalPaidCents` reste inchangé et compte un avoir comme un règlement. |
+| `paymentHistory.totalNetDueCents` | Reste à régler, avoirs compris : somme des `dueCents` des factures émises. `totalDueCents` (au niveau du marché, sans les avoirs) reste inchangé. |
+
 ### Espace « Site » (contenu de kouzia.com)
 
 Le contenu modifiable du site (coordonnées, accroche, offres, réalisations, FAQ, avis, références) se saisit dans l'ERP, puis se publie dans le dépôt KouziaWebsite (`src/content/site/*.json`, contrat `contenu.schema.json`).
