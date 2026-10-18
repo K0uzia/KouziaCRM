@@ -363,10 +363,19 @@ Puis :
 | `kouziactl update` | Update incrémental, puis nouveautés de config si encore vides |
 | `kouziactl new-config` | Proposer les sections nouvelles (ex. Tailscale) sans update |
 | `kouziactl update --git` | `git pull` + update |
+| `kouziactl rollback` | Code et données d'avant la dernière mise à jour (backup pré-update) |
 | `./scripts/alpine/deploy-rsync.sh user@ct` | Depuis le PC : rsync code + update distant |
-| `kouziactl backup` / `restore` | Backup GPG + rsync / restore |
+| `kouziactl backup` / `restore` | Backup GPG + rsync / restore (`restore --check` : contrôle sans rien modifier) |
 
 Détails : `scripts/alpine/` (install, update, backup, restore, OpenRC, conf rsync).
+
+**Droits et mise à jour.** Le code et `.git` appartiennent à root (root les exécute : cron de backup,
+`kouziactl`) ; le compte `kouzia` ne possède que `data/`, `node_modules`, `apps/web/dist` et ses dossiers npm,
+et lit `.env` (root:kouzia 640). État et journaux des opérations : `/var/lib/kouzia-ops` et
+`/var/log/kouzia-ops` (root). `kouziactl update` arrête l'app, fait le backup (son échec annule la mise à
+jour), pose un verrou commun avec backup et restore (`/run/kouzia-ops.lock`) et un marqueur de mise à jour
+en cours ; si l'API ne répond pas ensuite, il propose le retour arrière (`kouziactl rollback`). Relancer
+`kouziactl update` après une interruption la reprend en gardant le point de retour d'origine.
 
 **Services OpenRC (`kouziacrm`, `kouziacrm-worker`).** Lancés par `supervise-daemon` : un
 processus qui s'arrête (crash, exception non gérée) est relancé après 5 s, 10 fois au plus par
@@ -486,7 +495,7 @@ Le script Alpine (`kouziactl backup`) :
 - copie dans `/var/backup/kouzia/kouziacrm-….db.gpg`
 - rotation automatique 30 jours
 - rsync optionnel vers cible distant
-- log dans `/var/log/kouzia/backup.log`
+- log dans `/var/log/kouzia-ops/backup.log` (`kouziactl logs backup`)
 
 Le script Docker (`scripts/backup.sh`) fait de même pour la DB (chemin
 `/backup/kouzia` par défaut) + rsync si `/etc/kouzia/rsync.env` est renseigné.
@@ -506,7 +515,12 @@ Alpine :
 kouziactl restore /var/backup/kouzia/kouziacrm-2026-08-27.db.gpg
 # avec pièces jointes :
 kouziactl restore /var/backup/kouzia/….db.gpg --uploads /var/backup/kouzia/….uploads.tar.gz.gpg
+# contrôle seul (déchiffrement, intégrité, archive lisible), rien n'est modifié :
+kouziactl restore --check /var/backup/kouzia/….db.gpg
 ```
+
+La base remplacée est gardée à côté, avec ses fichiers `-wal` et `-shm`
+(`data/kouziacrm.db.avant-restauration-<date>`).
 
 Docker :
 

@@ -13,6 +13,8 @@ command="${KOUZIA_APP_DIR}/node_modules/.bin/tsx"
 command_args="--env-file=${KOUZIA_APP_DIR}/.env --tsconfig apps/api/tsconfig.json apps/api/src/index.ts"
 command_user="${KOUZIA_USER}:${KOUZIA_GROUP}"
 directory="${KOUZIA_APP_DIR}"
+# Fichiers créés par le service (base, pièces jointes) : lisibles par lui seul.
+umask=077
 # supervise-daemon relance le processus s'il s'arrête (crash, exception non gérée) :
 # 10 relances au plus par fenêtre de 60 s, au-delà le service reste arrêté (visible dans status).
 supervisor=supervise-daemon
@@ -29,7 +31,9 @@ depend() {
 }
 
 start_pre() {
-  checkpath -d -o "${KOUZIA_USER}:${KOUZIA_GROUP}" -m 0750 /var/log/kouzia
+  # Dossier à root (logrotate et root y écrivent sans piège de lien), fichiers au compte du service.
+  checkpath -d -o root:root -m 0755 /var/log/kouzia
+  checkpath -f -o "${KOUZIA_USER}:${KOUZIA_GROUP}" -m 0640 "$output_log" "$error_log"
   checkpath -d -o "${KOUZIA_USER}:${KOUZIA_GROUP}" -m 0750 "${KOUZIA_APP_DIR}/data"
   if [ ! -x "$command" ]; then
     eerror "tsx introuvable: $command (npm ci requis dans $KOUZIA_APP_DIR)"

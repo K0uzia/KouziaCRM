@@ -9,6 +9,9 @@ data/
 *.db-*
 *.db-journal
 .deploy-state/
+.npm/
+.cache/
+.config/
 .tools/
 .cursor/
 coverage/
