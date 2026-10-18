@@ -5,6 +5,8 @@ import cors from "@fastify/cors";
 import cookie from "@fastify/cookie";
 import helmet from "@fastify/helmet";
 import rateLimit from "@fastify/rate-limit";
+import compress from "@fastify/compress";
+import { constants as zlibConstants } from "node:zlib";
 import fastifyStatic from "@fastify/static";
 import multipart from "@fastify/multipart";
 import { getAllowedOrigins, getCookieSecure, getTrustedProxies } from "@/lib/env.js";
@@ -100,6 +102,14 @@ export async function buildApp(opts: BuildAppOptions = {}): Promise<FastifyInsta
 
   setJsonSerializer(app);
   registerErrorHandler(app);
+
+  // Compression Brotli ou gzip (JSON et statique), utile par Tailscale et par le tunnel au téléphone. Qualité Brotli
+  // modérée : le CT a peu de processeur et les réponses sont recompressées à chaque envoi.
+  await app.register(compress, {
+    encodings: ["br", "gzip"],
+    threshold: 1024,
+    brotliOptions: { params: { [zlibConstants.BROTLI_PARAM_QUALITY]: 4 } },
+  });
 
   // Headers « HTTPS only » (COOP, OAC, HSTS) : ne jamais les envoyer en HTTP LAN.
   // Sinon Chrome ignore COOP et spam la console (origine IP non « trustworthy »).
