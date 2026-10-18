@@ -18,14 +18,19 @@ const createStyles = (primary: string, secondary: string) => StyleSheet.create({
     borderBottomColor: primary,
   },
   logo: { width: 48, height: 48, objectFit: "contain", marginBottom: 6 },
-  brand: { fontSize: 15, fontFamily: "Helvetica-Bold", color: secondary },
+  // Interligne propre à chaque grand texte : celui de la page (1,4) est calculé sur 9,5 pt et hérité tel quel,
+  // si bien qu'un texte de 15 ou 18 pt débordait sur la ligne suivante (titre, nom, montant).
+  brand: { fontSize: 15, lineHeight: 1.25, fontFamily: "Helvetica-Bold", color: secondary, marginBottom: 2 },
   muted: { color: "#5b6478" },
-  title: { fontSize: 15, fontFamily: "Helvetica-Bold", textAlign: "right" },
+  title: { fontSize: 15, lineHeight: 1.25, fontFamily: "Helvetica-Bold", textAlign: "right", marginBottom: 2 },
   section: { marginBottom: 14 },
   label: { fontSize: 7.5, textTransform: "uppercase", color: "#5b6478", marginBottom: 3 },
   strong: { fontFamily: "Helvetica-Bold" },
-  row: { flexDirection: "row", justifyContent: "space-between", paddingVertical: 4, borderBottomWidth: 1, borderBottomColor: "#e3e6ee" },
-  amount: { fontSize: 18, fontFamily: "Helvetica-Bold", marginTop: 2 },
+  // Grille libellé / montant : libellé sur la place restante, montant dans une colonne fixe alignée à droite.
+  row: { flexDirection: "row", alignItems: "flex-start", gap: 12, paddingVertical: 4, borderBottomWidth: 1, borderBottomColor: "#e3e6ee" },
+  rowLabel: { flex: 1 },
+  rowValue: { width: 110, textAlign: "right" },
+  amount: { fontSize: 18, lineHeight: 1.2, fontFamily: "Helvetica-Bold", marginTop: 2, marginBottom: 3 },
   settled: {
     marginTop: 10,
     padding: 8,
@@ -98,18 +103,14 @@ export function PaymentReceiptDocument(data: PaymentReceiptPdfData) {
             {company.brandLogoDataUrl ? <Image src={company.brandLogoDataUrl} style={styles.logo} /> : null}
             <Text style={styles.brand}>{brand}</Text>
             <Text style={styles.muted}>{company.legalName}</Text>
-            <Text style={styles.muted}>
-              {company.addressLine1}, {company.postalCode} {company.city}
-            </Text>
-            <Text style={styles.muted}>SIRET {company.siret}</Text>
+            <Text style={styles.muted}>{`${company.addressLine1}, ${company.postalCode} ${company.city}`}</Text>
+            <Text style={styles.muted}>{`SIRET ${company.siret}`}</Text>
             {company.email ? <Text style={styles.muted}>{company.email}</Text> : null}
           </View>
           <View>
             <Text style={styles.title}>Reçu de paiement</Text>
-            <Text style={[styles.muted, { textAlign: "right" }]}>
-              Règlement du {fmtDate(payment.paidAt)} sur {invoice.number}
-            </Text>
-            <Text style={[styles.muted, { textAlign: "right" }]}>Émis le {fmtDate(data.issuedAt)}</Text>
+            <Text style={[styles.muted, { textAlign: "right" }]}>{`Règlement du ${fmtDate(payment.paidAt)} sur ${invoice.number}`}</Text>
+            <Text style={[styles.muted, { textAlign: "right" }]}>{`Émis le ${fmtDate(data.issuedAt)}`}</Text>
           </View>
         </View>
 
@@ -126,40 +127,37 @@ export function PaymentReceiptDocument(data: PaymentReceiptPdfData) {
           <Text style={styles.label}>Montant reçu</Text>
           <Text style={styles.amount}>{formatEUR(payment.amountCents)}</Text>
           <Text>
-            le {fmtDate(payment.paidAt)}, par {payment.methodLabel}
-            {payment.reference ? ` (réf. ${payment.reference})` : ""}
+            {`le ${fmtDate(payment.paidAt)}, par ${payment.methodLabel}${payment.reference ? ` (réf. ${payment.reference})` : ""}`}
           </Text>
         </View>
 
         <View style={styles.section}>
           <Text style={styles.label}>Facture concernée</Text>
           <View style={styles.row}>
-            <Text>
-              {invoice.label} {invoice.number}
-              {invoice.issueDate ? ` du ${fmtDate(invoice.issueDate)}` : ""}
+            <Text style={styles.rowLabel}>
+              {`${invoice.label} ${invoice.number}${invoice.issueDate ? ` du ${fmtDate(invoice.issueDate)}` : ""}`}
             </Text>
-            <Text style={styles.strong}>{formatEUR(invoice.totalCents)}</Text>
+            <Text style={[styles.rowValue, styles.strong]}>{formatEUR(invoice.totalCents)}</Text>
           </View>
           {data.creditedCents ? (
             <View style={styles.row}>
-              <Text>Avoirs émis sur cette facture</Text>
-              <Text>- {formatEUR(data.creditedCents)}</Text>
+              <Text style={styles.rowLabel}>Avoirs émis sur cette facture</Text>
+              <Text style={styles.rowValue}>{formatEUR(-data.creditedCents)}</Text>
             </View>
           ) : null}
           <View style={styles.row}>
-            <Text>Réglé à ce jour (ce paiement compris)</Text>
-            <Text>{formatEUR(data.paidToDateCents)}</Text>
+            <Text style={styles.rowLabel}>Réglé à ce jour (ce paiement compris)</Text>
+            <Text style={styles.rowValue}>{formatEUR(data.paidToDateCents)}</Text>
           </View>
           <View style={styles.row}>
-            <Text style={styles.strong}>Reste dû</Text>
-            <Text style={styles.strong}>{formatEUR(data.remainingCents)}</Text>
+            <Text style={[styles.rowLabel, styles.strong]}>Reste dû</Text>
+            <Text style={[styles.rowValue, styles.strong]}>{formatEUR(data.remainingCents)}</Text>
           </View>
           {data.remainingCents === 0 ? <Text style={styles.settled}>FACTURE ACQUITTÉE</Text> : null}
         </View>
 
         <Text style={styles.legal}>
-          Ce reçu atteste du paiement indiqué ci-dessus. Il ne remplace pas la facture, qui reste la pièce de référence.
-          {company.vatMention ? ` ${company.vatMention}.` : ""}
+          {`Ce reçu atteste du paiement indiqué ci-dessus. Il ne remplace pas la facture, qui reste la pièce de référence.${company.vatMention ? ` ${company.vatMention}.` : ""}`}
         </Text>
         {company.pdfFooterText ? <Text style={[styles.legal, { marginTop: 6 }]}>{company.pdfFooterText}</Text> : null}
       </Page>
