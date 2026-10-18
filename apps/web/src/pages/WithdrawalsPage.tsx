@@ -5,6 +5,7 @@ import { formatDate } from "@/lib/format";
 import { PageHeader } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { StatStrip } from "@/components/ui/StatStrip";
+import { Banner } from "@/components/ui/Banner";
 import { DataTable, type DataColumn } from "@/components/ui/DataTable";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { WithdrawalDialog, type Withdrawal } from "@/components/finance/WithdrawalDialog";
@@ -13,6 +14,9 @@ type OwnerPay = {
   availableCents: number;
   paidThisMonthCents: number;
   withdrawals: Withdrawal[];
+  /** Nombre total (serveur) ; liste tronquée au-delà du plafond de sécurité (5 000). */
+  withdrawalsTotal?: number;
+  withdrawalsTruncated?: boolean;
 };
 
 /** Retraits de l'entrepreneur : virements du compte pro vers le compte perso, déduits du salaire disponible. */
@@ -115,6 +119,11 @@ export function WithdrawalsPage() {
         ]}
       />
 
+      {data?.withdrawalsTruncated ? (
+        <Banner level="warning" className="mb-4">
+          Liste limitée aux {data.withdrawals.length.toLocaleString("fr-FR")} retraits les plus récents sur {(data.withdrawalsTotal ?? 0).toLocaleString("fr-FR")} ; le salaire disponible tient compte de tous.
+        </Banner>
+      ) : null}
       <DataTable
         columns={columns}
         data={data?.withdrawals ?? []}

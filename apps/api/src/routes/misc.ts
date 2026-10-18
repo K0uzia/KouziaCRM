@@ -1,3 +1,4 @@
+import { LIST_CAP } from "@/lib/list-cap.js";
 import type { FastifyPluginAsync } from "fastify";
 import { z } from "zod";
 import { EmailDirection, InvoiceDocumentType, QuoteStatus } from "@prisma/client";
@@ -176,10 +177,13 @@ export const miscRoutes: FastifyPluginAsync = async (app) => {
   app.get("/api/urssaf/declarations", async (request, reply) => {
     await requireAuth(request, reply);
     if (reply.sent) return;
-    return prisma.urssafDeclaration.findMany({
-      orderBy: { periodStart: "desc" },
-      take: 50,
-    });
+    // Liste complète (plus de limite silencieuse à 50) ; au-delà du plafond de sécurité, X-Total-Count le signale.
+    const [rows, total] = await Promise.all([
+      prisma.urssafDeclaration.findMany({ orderBy: [{ periodStart: "desc" }, { id: "desc" }], take: LIST_CAP }),
+      prisma.urssafDeclaration.count(),
+    ]);
+    if (total > rows.length) reply.header("X-Liste-Tronquee", String(LIST_CAP)).header("X-Total-Count", String(total));
+    return rows;
   });
 
   app.post("/api/urssaf/mark-paid", async (request, reply) => {

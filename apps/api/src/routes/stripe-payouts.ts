@@ -1,3 +1,4 @@
+import { LIST_CAP } from "@/lib/list-cap.js";
 import type { FastifyPluginAsync } from "fastify";
 import { requireAuth } from "@/lib/auth.js";
 import { z } from "zod";
@@ -72,9 +73,11 @@ export const stripePayoutsRoutes: FastifyPluginAsync = async (app) => {
     await requireAuth(request, reply);
     if (reply.sent) return;
 
+    // Listes complètes (plus de limite silencieuse à 100) ; les sommes en attente sont agrégées sur tout le reste.
+    const payoutsTotal = await prisma.stripePayout.count();
     const payouts = await prisma.stripePayout.findMany({
-      orderBy: [{ arrivalDate: "desc" }, { createdAt: "desc" }],
-      take: 100,
+      orderBy: [{ arrivalDate: "desc" }, { createdAt: "desc" }, { id: "desc" }],
+      take: LIST_CAP,
       include: {
         payments: {
           orderBy: { paidAt: "asc" },
@@ -91,10 +94,12 @@ export const stripePayoutsRoutes: FastifyPluginAsync = async (app) => {
     });
 
     // Encaissements Stripe pas encore versés sur le compte (en attente du prochain versement).
+    const pendingWhere = { stripePaymentIntentId: { not: null }, stripePayoutId: null, amountCents: { gt: 0 } };
+    const pendingSum = await prisma.payment.aggregate({ where: pendingWhere, _sum: { amountCents: true, feeCents: true }, _count: { _all: true } });
     const pending = await prisma.payment.findMany({
-      where: { stripePaymentIntentId: { not: null }, stripePayoutId: null, amountCents: { gt: 0 } },
+      where: pendingWhere,
       orderBy: { paidAt: "desc" },
-      take: 100,
+      take: LIST_CAP,
       select: {
         id: true,
         amountCents: true,
@@ -120,9 +125,12 @@ export const stripePayoutsRoutes: FastifyPluginAsync = async (app) => {
           payments: p.payments,
         };
       }),
+      payoutsTotal,
+      payoutsTruncated: payoutsTotal > payouts.length,
       pending: {
-        grossCents: pending.reduce((s, x) => s + x.amountCents, 0),
-        feeCents: pending.reduce((s, x) => s + (x.feeCents ?? 0), 0),
+        grossCents: pendingSum._sum.amountCents ?? 0,
+        feeCents: pendingSum._sum.feeCents ?? 0,
+        count: pendingSum._count._all,
         payments: pending,
       },
     };
