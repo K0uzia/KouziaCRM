@@ -7,7 +7,9 @@ import { Badge, Card, PageHeader } from "@/components/ui/Card";
 import { Button, ButtonLink } from "@/components/ui/Button";
 import { DataTable, type DataColumn } from "@/components/ui/DataTable";
 import { Field, Input, Select, Textarea } from "@/components/ui/Field";
-import { FilterChips } from "@/components/ui/FilterChips";
+import { Banner } from "@/components/ui/Banner";
+import { FilterSegment } from "@/components/ui/ListFilters";
+import { useUrlFilters } from "@/lib/use-url-filters";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { slugify } from "./SiteProjectsPage";
 import { EditorFooter, EditorLayout, useItemEditor } from "./editor";
@@ -59,7 +61,10 @@ const emptyForm = {
 
 const PLACEMENT_LABEL = { onHome: "Bandeau de l'accueil", onProjects: "Sous les réalisations" } as const;
 
-type Filter = "all" | SiteReferenceType;
+const TYPE_SLUG = { toutes: "all", clients: "CLIENT", partenaires: "PARTNER", utilisateurs: "USER" } as const;
+const SLUG_OF: Record<"all" | SiteReferenceType, string | null> = { all: null, CLIENT: "clients", PARTNER: "partenaires", USER: "utilisateurs" };
+/** Référence en ligne que l'autorisation enregistrée ne couvre pas (nom, logo ou témoignage affiché sans accord). */
+const unauthorizedOnline = (r: SiteReference) => r.status === "PUBLISHED" && authorizationGap(r) !== null;
 
 /** Ce que l'autorisation enregistrée ne couvre pas (même règle que l'API, affichée avant l'envoi). */
 export function authorizationGap(r: {
@@ -77,11 +82,14 @@ export function authorizationGap(r: {
 export function SiteReferencesPage() {
   const { rows, setRows, loading, error, reload } = useSiteCollection<SiteReference>(BASE);
   const projects = useSiteCollection<SiteProject>("/api/site/projects");
-  const [filter, setFilter] = useState<Filter>("all");
+  const filters = useUrlFilters();
+  const filter = TYPE_SLUG[filters.pick("type", ["toutes", "clients", "partenaires", "utilisateurs"] as const, "toutes")];
+  const gaps = rows.filter(unauthorizedOnline).length;
+  const gapsOnly = gaps > 0 && filters.params.get("autorisation") === "manquante";
   const navigate = useNavigate();
   useCreateParam(() => navigate("/site/references/nouvelle", { replace: true }));
 
-  const visible = filter === "all" ? rows : rows.filter((r) => r.type === filter);
+  const visible = rows.filter((r) => (filter === "all" || r.type === filter) && (!gapsOnly || unauthorizedOnline(r)));
   const move = (id: string, dir: -1 | 1) => void saveOrder(BASE, rows, visible, id, dir, setRows, (r) => r.name);
   const [reordering, setReordering] = useState(false);
   const reorder = (ids: string[]) => void saveIds(BASE, rows, reorderVisible(rows, visible, ids), setRows);
@@ -152,6 +160,19 @@ export function SiteReferencesPage() {
         }
       />
       <LoadState loading={loading} error={error} onRetry={() => void reload()}>
+        {gaps ? (
+          <Banner
+            level="error"
+            className="mb-4"
+            action={
+              <Link to={gapsOnly ? "?" : "?autorisation=manquante"} replace className="link inline-flex min-h-11 items-center text-sm font-medium">
+                {gapsOnly ? "Afficher toutes les références" : gaps > 1 ? "Afficher ces références" : "Afficher cette référence"}
+              </Link>
+            }
+          >
+            {gaps > 1 ? `${gaps} références en ligne ne sont pas couvertes` : "1 référence en ligne n'est pas couverte"} par l'autorisation enregistrée (nom, logo ou témoignage).
+          </Banner>
+        ) : null}
         {reordering ? (
           <Card className="p-2 sm:p-3">
             <p className="px-2 pb-2 text-sm text-[var(--muted)]">
@@ -187,11 +208,10 @@ export function SiteReferencesPage() {
             }
             emptyHint="Ajoutez une structure qui vous a fait confiance, avec son logo et son accord écrit."
             toolbar={
-              <FilterChips
-                label="Filtrer les références"
+              <FilterSegment
+                label="Type"
                 value={filter}
-                onChange={setFilter}
-                wrap
+                onChange={(t) => filters.set({ type: SLUG_OF[t] })}
                 options={[
                   { id: "all", label: "Toutes", count: rows.length },
                   { id: "CLIENT", label: "Clients", count: count("CLIENT") },

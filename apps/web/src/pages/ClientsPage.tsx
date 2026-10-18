@@ -1,4 +1,4 @@
-import { CLIENT_TYPE_LABEL, CLIENT_TYPE_SHORT, CLIENT_TYPE_TONE, isOrganization } from "@/lib/client-type";
+import { CLIENT_TYPE_LABEL, CLIENT_TYPE_SHORT, CLIENT_TYPE_TONE, isOrganization, type ClientType } from "@/lib/client-type";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, Navigate, useLocation, useNavigate, useParams } from "react-router-dom";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
@@ -17,7 +17,8 @@ import { ClientNotesCard } from "@/components/clients/ClientNotesCard";
 import { isLocalClientId, resolvedClientId, useOfflineQueue } from "@/lib/offline/queue";
 import { Modal, ModalActions } from "@/components/ui/Modal";
 import { Field, Input } from "@/components/ui/Field";
-import { FilterChips } from "@/components/ui/FilterChips";
+import { FilterBar, FilterSegment } from "@/components/ui/ListFilters";
+import { useUrlFilters } from "@/lib/use-url-filters";
 import { DataTable, type DataColumn } from "@/components/ui/DataTable";
 import { Avatar } from "@/components/ui/Avatar";
 import {
@@ -38,6 +39,9 @@ import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { useCreateParam } from "@/lib/use-create-param";
 
 
+const TYPE_IDS = ["tous", "particulier", "pro", "association"] as const;
+const TYPE_OF: Record<Exclude<(typeof TYPE_IDS)[number], "tous">, ClientType> = { particulier: "B2C", pro: "B2B", association: "ASSOCIATION" };
+
 export function ClientsPage() {
   const navigate = useNavigate();
   const [clients, setClients] = useState<Client[]>([]);
@@ -48,7 +52,10 @@ export function ClientsPage() {
   const [inviteOpen, setInviteOpen] = useState(false);
   const [inviteEmail, setInviteEmail] = useState("");
   const [inviteBusy, setInviteBusy] = useState(false);
-  const [correspondenceFilter, setCorrespondenceFilter] = useState<"all" | "with" | "without">("all");
+  // Filtres dans l'URL : type (particulier, pro, association), échanges (avec, sans) et recherche.
+  const filters = useUrlFilters();
+  const typeFilter = filters.pick("type", TYPE_IDS, "tous");
+  const correspondenceFilter = filters.pick("echanges", ["tous", "avec", "sans"] as const, "tous");
   // Création depuis un message du formulaire du site : fiche préremplie (état de navigation, pas l'URL).
   const location = useLocation();
   const [createInitial, setCreateInitial] = useState<ClientFormData | undefined>(undefined);
@@ -63,8 +70,8 @@ export function ClientsPage() {
 
   async function load() {
     const params = new URLSearchParams();
-    if (correspondenceFilter === "with") params.set("hasCorrespondence", "true");
-    if (correspondenceFilter === "without") params.set("hasCorrespondence", "false");
+    if (correspondenceFilter === "avec") params.set("hasCorrespondence", "true");
+    if (correspondenceFilter === "sans") params.set("hasCorrespondence", "false");
     const qs = params.toString();
     const rows = await api<Client[]>(`/api/clients${qs ? `?${qs}` : ""}`);
     setClients(rows);
@@ -84,10 +91,13 @@ export function ClientsPage() {
   }, [correspondenceFilter]);
 
   const { items: queued } = useOfflineQueue();
-  const rows = useMemo(
+  const allRows = useMemo(
     () => [...queued.filter((i) => i.kind === "client").map(pendingClient), ...clients],
     [queued, clients],
   );
+  // Type filtré sur place : il marche aussi sur la copie hors ligne de la liste.
+  const rows = typeFilter === "tous" ? allRows : allRows.filter((c) => c.type === TYPE_OF[typeFilter]);
+  const filtering = typeFilter !== "tous" || correspondenceFilter !== "tous" || filters.text("q").trim() !== "";
 
   const columns: DataColumn<Client>[] = [
     {
@@ -231,16 +241,31 @@ export function ClientsPage() {
           onRowClick={(c) => navigate(`/clients/${c.id}`)}
           countLabel={rows.length > 1 ? "clients" : "client"}
           toolbar={
-            <FilterChips
-              label="Filtrer les clients"
-              value={correspondenceFilter}
-              onChange={setCorrespondenceFilter}
-              options={[
-                { id: "all", label: "Tous" },
-                { id: "with", label: "Avec échanges" },
-                { id: "without", label: "Sans échange" },
-              ]}
-            />
+            <FilterBar>
+              <FilterSegment
+                label="Type"
+                compact
+                value={typeFilter}
+                onChange={(v) => filters.set({ type: v === "tous" ? null : v })}
+                wrap
+                options={[
+                  { id: "tous", label: "Tous" },
+                  { id: "particulier", label: "Particuliers" },
+                  { id: "pro", label: "Pros" },
+                  { id: "association", label: "Associations" },
+                ]}
+              />
+              <FilterSegment
+                label="Échanges"
+                value={correspondenceFilter}
+                onChange={(v) => filters.set({ echanges: v === "tous" ? null : v })}
+                options={[
+                  { id: "tous", label: "Tous" },
+                  { id: "avec", label: "Avec" },
+                  { id: "sans", label: "Sans" },
+                ]}
+              />
+            </FilterBar>
           }
           renderMobileCard={(c) => (
             <Link
@@ -259,8 +284,11 @@ export function ClientsPage() {
           )}
           searchable={["displayName", "clientNumber", "email", "city", "phone"]}
           searchPlaceholder="Rechercher un nom, un email, une ville"
-          emptyTitle="Aucun client"
-          emptyHint="Créez votre premier client avec le bouton Nouveau client."
+          searchLabel="Rechercher"
+          search={filters.text("q")}
+          onSearchChange={(q) => filters.set({ q })}
+          emptyTitle={filtering ? "Aucun client ne correspond" : "Aucun client"}
+          emptyHint={filtering ? "Changez la recherche ou les filtres." : "Créez votre premier client avec le bouton Nouveau client."}
         />
 
       <Modal

@@ -6,6 +6,7 @@ import DataTableBase, {
 } from "react-data-table-component";
 import { EmptyState } from "./Card";
 import { Button } from "./Button";
+import { matchesSearch } from "@/lib/list-search";
 
 // Thème de la bibliothèque branché sur nos tokens : elle injecte ces couleurs en variables
 // CSS en ligne (son thème par défaut met #EEEEEE au survol, illisible sur fond sombre).
@@ -141,6 +142,11 @@ export type DataTableProps<T> = {
   sortable?: boolean;
   searchable?: boolean | string[];
   searchPlaceholder?: string;
+  /** Libellé visible au-dessus de la recherche, aligné avec ceux des filtres de la barre d'outils. */
+  searchLabel?: string;
+  /** Recherche contrôlée (gardée dans l'URL par la page) ; sinon état interne. */
+  search?: string;
+  onSearchChange?: (query: string) => void;
   emptyTitle?: string;
   emptyHint?: string;
   striped?: boolean;
@@ -306,6 +312,9 @@ export function DataTable<T>({
   perPage = 10,
   searchable = false,
   searchPlaceholder = "Rechercher…",
+  searchLabel,
+  search,
+  onSearchChange,
   emptyTitle = "Aucune donnée",
   emptyHint,
   striped = false,
@@ -318,7 +327,9 @@ export function DataTable<T>({
   error = null,
   onRetry,
 }: DataTableProps<T>) {
-  const [query, setQuery] = useState("");
+  const [ownQuery, setOwnQuery] = useState("");
+  const query = search ?? ownQuery;
+  const setQuery = onSearchChange ?? setOwnQuery;
   const [mobilePage, setMobilePage] = useState(1);
   // Une colonne à largeur fixe ne prend pas de part de l'espace libre (grow vaut 1 par défaut
   // dans la bibliothèque, ce qui faisait déborder le tableau).
@@ -333,30 +344,7 @@ export function DataTable<T>({
 
   const filtered = useMemo(() => {
     if (!searchable) return data;
-    const q = query.trim().toLowerCase();
-    if (!q) return data;
-
-    function readPath(row: unknown, path: string): unknown {
-      return path.split(".").reduce<unknown>((acc, key) => {
-        if (acc == null || typeof acc !== "object") return undefined;
-        return (acc as Record<string, unknown>)[key];
-      }, row);
-    }
-
-    const fields = Array.isArray(searchable) ? searchable : null;
-    return data.filter((row) => {
-      if (fields) {
-        return fields.some((f) => String(readPath(row, f) ?? "").toLowerCase().includes(q));
-      }
-      return Object.values(row as Record<string, unknown>).some((v) => {
-        if (v != null && typeof v === "object") {
-          return Object.values(v as Record<string, unknown>).some((nested) =>
-            String(nested ?? "").toLowerCase().includes(q),
-          );
-        }
-        return String(v ?? "").toLowerCase().includes(q);
-      });
-    });
+    return data.filter((row) => matchesSearch(row, searchable, query));
   }, [data, query, searchable]);
 
   const pageCount = Math.max(1, Math.ceil(filtered.length / perPage));
@@ -384,9 +372,15 @@ export function DataTable<T>({
   return (
     <section className="ui-card min-w-0 overflow-hidden">
       {hasToolbar ? (
-        <div className="flex flex-col gap-3 border-b border-[var(--border)] p-3 sm:p-4 lg:flex-row lg:items-center">
+        <div className={`flex flex-col gap-3 border-b border-[var(--border)] p-3 sm:p-4 lg:flex-row ${searchLabel ? "lg:items-end" : "lg:items-center"}`}>
           {searchable ? (
-            <label className="flex min-h-11 min-w-0 items-center gap-2 rounded-[var(--radius-sm)] border border-[var(--border-input)] bg-[var(--bg-subtle)] px-3 focus-within:border-[var(--primary)] lg:w-80">
+            <div className="min-w-0 space-y-1.5 lg:w-80 lg:shrink-0">
+            {searchLabel ? (
+              <span className="block text-sm font-medium text-[var(--text)]" aria-hidden>
+                {searchLabel}
+              </span>
+            ) : null}
+            <label className="flex min-h-11 min-w-0 items-center gap-2 rounded-[var(--radius-sm)] border border-[var(--border-input)] bg-[var(--bg-subtle)] px-3 focus-within:border-[var(--primary)]">
               <svg viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4 shrink-0 text-[var(--muted)]" aria-hidden>
                 <path
                   fillRule="evenodd"
@@ -406,9 +400,10 @@ export function DataTable<T>({
                 className="min-h-11 w-full min-w-0 border-0 bg-transparent text-sm outline-none placeholder:text-[var(--muted)]"
               />
             </label>
+            </div>
           ) : null}
           {toolbar ? <div className="min-w-0 flex-1">{toolbar}</div> : <div className="hidden flex-1 lg:block" />}
-          <p className="shrink-0 text-xs tabular-nums text-[var(--muted)]" aria-live="polite">
+          <p className={`shrink-0 text-xs tabular-nums text-[var(--muted)] ${searchLabel ? "lg:pb-3.5" : ""}`} aria-live="polite">
             {filtered.length} {countLabel ?? (filtered.length > 1 ? "résultats" : "résultat")}
           </p>
         </div>
