@@ -4,6 +4,7 @@ import {
   faBars,
   faEnvelope,
   faEnvelopeOpen,
+  faGlobe,
   faMagnifyingGlass,
   faPaperclip,
   faReply,
@@ -16,7 +17,7 @@ import { FilterSegment, FilterSelect } from "@/components/ui/ListFilters";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Field";
 import { senderLabel } from "@kouzia-erp/email-sender";
-import { formProspectName } from "@/pages/messaging/sender";
+import { formProspectName, isFormSender } from "@/pages/messaging/sender";
 
 type Props = {
   messages: MailMessageItem[];
@@ -70,6 +71,11 @@ function personLabel(msg: MailMessageItem): string {
   if (msg.direction === "OUTBOUND") {
     const to = msg.toAddresses?.[0] ?? "";
     return to ? named(null, to) : "Destinataire inconnu";
+  }
+  // Formulaire du site : le client rattaché, sinon le nom saisi ; jamais l'expéditeur technique (Web3Forms).
+  if (msg.direction !== "OUTBOUND" && isFormSender(msg.fromAddress)) {
+    if (clientName) return clientName;
+    return formProspectName(msg.snippet) ?? (msg.replyToAddress ? senderLabel(null, msg.replyToAddress) : "Formulaire du site");
   }
   if (msg.replyToAddress) return formProspectName(msg.snippet) ?? named(null, msg.replyToAddress);
   return named(msg.fromName, msg.fromAddress);
@@ -404,6 +410,12 @@ export function MessageList({
                     ) : null}
                   </span>
                   <span className="mt-0.5 flex items-center gap-1.5 pl-4">
+                    {msg.direction !== "OUTBOUND" && isFormSender(msg.fromAddress) ? (
+                      <span className="inline-flex shrink-0 items-center gap-1 text-xs text-[var(--muted)]">
+                        <FontAwesomeIcon icon={faGlobe} className="h-3 w-3" aria-hidden />
+                        via formulaire
+                      </span>
+                    ) : null}
                     {tag ? <ClientTag label={tag} /> : null}
                     <span className="min-w-0 flex-1 truncate text-xs text-[var(--muted)]">{msg.snippet}</span>
                   </span>

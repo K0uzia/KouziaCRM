@@ -78,13 +78,22 @@ export function formatDate(value: string | Date | null | undefined): string {
   });
 }
 
-/** Heure locale HH:MM */
+/** Fuseau de l'entreprise : heures des messages lues à Paris, quel que soit le fuseau du poste. */
+export const BUSINESS_TZ = "Europe/Paris";
+
+/** Heure HH:MM à Paris. */
 export function formatTime(value: string | Date | null | undefined): string {
   if (!value) return "";
   return new Date(value).toLocaleTimeString("fr-FR", {
     hour: "2-digit",
     minute: "2-digit",
+    timeZone: BUSINESS_TZ,
   });
+}
+
+/** Jour calendaire à Paris (AAAA-MM-JJ) : « aujourd'hui » et « hier » se décident dans ce fuseau. */
+function parisDay(d: Date): string {
+  return d.toLocaleDateString("en-CA", { timeZone: BUSINESS_TZ });
 }
 
 /** Date courte d'une liste de messages : 14:02 aujourd'hui, « 12 oct. » cette année, 12/10/25 sinon. */
@@ -99,25 +108,33 @@ export function formatShortDate(value: string | Date | null | undefined, now = n
 }
 
 /**
- * Date d'un message dans une liste (comme Gmail ou Outlook) : l'heure aujourd'hui, « hier », la date courte cette
- * année (« 17 oct. »), la date complète avant (« 3 nov. 2025 »).
+ * Date et heure d'un message dans une liste, à Paris : « Aujourd'hui 14:32 », « Hier 09:05 », « 12 oct. 16:40 »
+ * cette année, « 3 nov. 2025 11:20 » avant. L'heure est toujours là (réception comme réponse envoyée).
  */
 export function formatMailDate(value: string | Date | null | undefined, now = new Date()): string {
   if (!value) return "";
   const d = new Date(value);
-  if (d.toDateString() === now.toDateString()) return formatTime(d);
-  const yesterday = new Date(now);
-  yesterday.setDate(now.getDate() - 1);
-  if (d.toDateString() === yesterday.toDateString()) return "hier";
-  if (d.getFullYear() === now.getFullYear()) return d.toLocaleDateString("fr-FR", { day: "numeric", month: "short" });
-  return d.toLocaleDateString("fr-FR", { day: "numeric", month: "short", year: "numeric" });
+  const time = formatTime(d);
+  const day = parisDay(d);
+  const today = parisDay(now);
+  if (day === today) return `Aujourd'hui ${time}`;
+  // Veille à Paris : midi UTC du jour moins 24 h tombe toujours la veille, changement d'heure compris.
+  if (day === parisDay(new Date(Date.parse(`${today}T12:00:00Z`) - 86_400_000))) return `Hier ${time}`;
+  const sameYear = day.slice(0, 4) === today.slice(0, 4);
+  const date = d.toLocaleDateString("fr-FR", {
+    day: "numeric",
+    month: "short",
+    ...(sameYear ? {} : { year: "numeric" }),
+    timeZone: BUSINESS_TZ,
+  });
+  return `${date} ${time}`;
 }
 
-/** Date et heure exactes d'un message dans le fil : « 18 oct. 2026 à 09:42 ». */
+/** Date et heure exactes d'un message dans le fil, à Paris : « 18 oct. 2026 à 09:42 ». */
 export function formatMailDateTime(value: string | Date | null | undefined): string {
   if (!value) return "";
   const d = new Date(value);
-  return `${d.toLocaleDateString("fr-FR", { day: "numeric", month: "short", year: "numeric" })} à ${formatTime(d)}`;
+  return `${d.toLocaleDateString("fr-FR", { day: "numeric", month: "short", year: "numeric", timeZone: BUSINESS_TZ })} à ${formatTime(d)}`;
 }
 
 export const statusLabel: Record<string, string> = {

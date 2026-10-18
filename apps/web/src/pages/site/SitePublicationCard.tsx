@@ -1,13 +1,11 @@
 import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { faArrowUpRightFromSquare, faCloudArrowUp } from "@fortawesome/free-solid-svg-icons";
+import { faArrowUpRightFromSquare } from "@fortawesome/free-solid-svg-icons";
 import { api, SITE_CHANGED_EVENT } from "@/lib/api";
 import { isOnline, onReconnect } from "@/lib/network";
-import { SITE_PUBLISH_OPEN_EVENT } from "@/components/site/SitePublishBar";
 import { formatDate, formatTime } from "@/lib/format";
 import { Badge } from "@/components/ui/Card";
-import { Button } from "@/components/ui/Button";
 import type { SiteState } from "./shared";
 
 export type FileChange = { path: string; change: "added" | "modified" | "deleted"; label?: string };
@@ -101,7 +99,7 @@ export function SitePublicationCard({ state, onPublished }: { state: SiteState; 
 
   return (
     <section aria-labelledby="site-publication" className="ui-card p-4 sm:p-5">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+      <div>
         <div className="min-w-0">
           <h2 id="site-publication" className="text-base font-semibold">
             Publication
@@ -116,11 +114,7 @@ export function SitePublicationCard({ state, onPublished }: { state: SiteState; 
                 : "Publier enregistre le contenu dans le dépôt du site, qui se reconstruit puis se déploie."}
           </p>
         </div>
-        {/* Même panneau que le bouton Publier de la barre du haut : changements, anomalies, mise en ligne. */}
-        <Button type="button" className="min-h-11 shrink-0" aria-haspopup="dialog" onClick={() => window.dispatchEvent(new CustomEvent(SITE_PUBLISH_OPEN_EVENT))}>
-          <FontAwesomeIcon icon={faCloudArrowUp} className="h-4 w-4" aria-hidden />
-          Publier…
-        </Button>
+        {/* Pas de bouton ici : la mise en ligne passe par « Publier » de la barre du haut, présent sur tout le module. */}
       </div>
       {blocked && !running ? <p className="mt-2 text-sm text-[var(--warning)]">{blocked}</p> : null}
 

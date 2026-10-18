@@ -26,7 +26,7 @@ import {
   runMailSync,
 } from "@/lib/email/sync/index.js";
 import { fetchMessageBody } from "@/lib/email/sync/body-fetch.js";
-import { formLeadForMessage } from "@/lib/email/web3forms.js";
+import { formLeadForMessage, formSubmissionForThread } from "@/lib/email/web3forms.js";
 import { setBulkMessageFlags, setMessageFlags } from "@/lib/email/sync/flag-sync.js";
 import { withImapClient } from "@/lib/email/sync/imap-connection.js";
 import { toImapInt } from "@/lib/email/sync/imap-int.js";
@@ -755,12 +755,18 @@ export const miscRoutes: FastifyPluginAsync = async (app) => {
             ),
         );
 
+      // Formulaire du site : client rattaché (ou fiche à créer), champs lisibles et adresse de réponse du client.
+      const formSubmission = await formSubmissionForThread(thread.id, (id) => fetchMessageBody(id)).catch(() => null);
+
       return {
         ...thread,
+        // Rattachement fait à l'instant par le formulaire : le fil affiché porte déjà le client.
+        client: formSubmission?.client ?? thread.client,
         participants: JSON.parse(thread.participants || "[]"),
         pendingQuotes,
         acceptanceAudits,
         quoteConfirmationHint,
+        formSubmission,
         messages: thread.messages.map((m) => ({
           ...m,
           toAddresses: JSON.parse(m.toAddresses || "[]"),

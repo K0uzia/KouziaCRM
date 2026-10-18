@@ -898,8 +898,9 @@ export function DashboardPage() {
                           aria-label={unread ? "non lu" : undefined}
                         />
                         <span className="min-w-0 flex-1">
-                          <span className="flex items-baseline justify-between gap-2">
-                            <span className={`truncate text-sm ${unread ? "font-semibold" : ""}`}>
+                          {/* Nom lisible d'abord (10rem au moins) : sur un écran étroit, la date passe à la ligne. */}
+                          <span className="flex flex-wrap items-baseline justify-between gap-x-2">
+                            <span className={`min-w-[min(100%,10rem)] flex-1 truncate text-sm ${unread ? "font-semibold" : ""}`}>
                               {m.client?.displayName ?? m.fromName ?? m.fromAddress}
                             </span>
                             <span className="shrink-0 text-xs tabular-nums text-[var(--muted)]">{formatMailDate(m.receivedAt)}</span>
