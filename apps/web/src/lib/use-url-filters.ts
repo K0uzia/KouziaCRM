@@ -29,3 +29,15 @@ export function useUrlFilters() {
 
   return { params, pick, set, text: (key: string) => params.get(key) ?? "" };
 }
+
+/**
+ * Chaîne de requête avec une seule clé changée (null : retirée), les autres filtres gardés tels quels.
+ * Rend « ?… », ou « » s'il ne reste rien. Sert aux liens des bandeaux et au changement de dossier.
+ */
+export function withParam(search: string | URLSearchParams, key: string, value: string | null): string {
+  const next = new URLSearchParams(search);
+  if (value) next.set(key, value);
+  else next.delete(key);
+  const qs = next.toString();
+  return qs ? `?${qs}` : "";
+}

@@ -23,7 +23,7 @@ import { Banner } from "@/components/ui/Banner";
 import { FilterBar, FilterSegment, FilterSelect } from "@/components/ui/ListFilters";
 import { matchesSearch } from "@/lib/list-search";
 import { CREDIT_ISSUED, INVOICE_STATUS_SLUG, isOverdue, listStatus, QUOTE_STATUS_SLUG, type ListSummary } from "@/lib/document-list";
-import { useUrlFilters } from "@/lib/use-url-filters";
+import { useUrlFilters, withParam } from "@/lib/use-url-filters";
 import { StatStrip, type StatItem } from "@/components/ui/StatStrip";
 import { DataTable, type DataColumn } from "@/components/ui/DataTable";
 import { DocumentFormEditor } from "@/components/documents/DocumentForm";
@@ -214,6 +214,8 @@ function DocumentsListPage({
   const overdue = summary ? summary.overdue : isQuote ? 0 : rows.filter((d) => isOverdue(d)).length;
   const reviewOnly = isQuote && toReview > 0 && filters.params.get("relire") === "1";
   const overdueOnly = !isQuote && overdue > 0 && filters.params.get("retard") === "1";
+  // Lien d'un bandeau : les filtres en cours (type, statut, recherche) restent, seul relire ou retard change.
+  const toggledParam = (key: "relire" | "retard", on: boolean) => withParam(filters.params, key, on ? "1" : null) || "?";
   const kept = (d: Doc) =>
     (reviewOnly ? Boolean(d.offlineReviewReason) : overdueOnly ? isOverdue(d) : true) &&
     (kind === "toutes" || (kind === "avoirs") === (d.documentType === "CREDIT_NOTE"));
@@ -415,12 +417,19 @@ function DocumentsListPage({
       ) : (
         <div className="space-y-5">
           {rows.length > 0 ? <StatStrip items={stats} /> : null}
+          {summary && summary.total > rows.length ? (
+            // Plafond de sécurité de l'API (5 000 pièces) atteint : la liste montre les plus récentes, les nombres
+            // des filtres et des bandeaux restent ceux de toute la base.
+            <Banner level="warning">
+              Liste limitée aux {rows.length.toLocaleString("fr-FR")} pièces les plus récentes sur {summary.total.toLocaleString("fr-FR")} : les nombres restent ceux de toute la base.
+            </Banner>
+          ) : null}
           {toReview ? (
             <Banner
               level="warning"
               action={
-                <Link to={reviewOnly ? "?" : "?relire=1"} replace className="link inline-flex min-h-11 items-center text-sm font-medium">
-                  {reviewOnly ? "Afficher tous les devis" : toReview > 1 ? "Afficher ces devis" : "Afficher ce devis"}
+                <Link to={toggledParam("relire", !reviewOnly)} replace className="link inline-flex min-h-11 items-center text-sm font-medium">
+                  {reviewOnly ? "Retirer ce filtre" : toReview > 1 ? "Afficher ces devis" : "Afficher ce devis"}
                 </Link>
               }
             >
@@ -431,8 +440,8 @@ function DocumentsListPage({
             <Banner
               level="warning"
               action={
-                <Link to={overdueOnly ? "?" : "?retard=1"} replace className="link inline-flex min-h-11 items-center text-sm font-medium">
-                  {overdueOnly ? "Afficher toutes les factures" : overdue > 1 ? "Afficher ces factures" : "Afficher cette facture"}
+                <Link to={toggledParam("retard", !overdueOnly)} replace className="link inline-flex min-h-11 items-center text-sm font-medium">
+                  {overdueOnly ? "Retirer ce filtre" : overdue > 1 ? "Afficher ces factures" : "Afficher cette facture"}
                 </Link>
               }
             >
