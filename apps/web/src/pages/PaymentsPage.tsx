@@ -43,6 +43,8 @@ type InvoiceOpt = {
   status: string;
   client: { displayName: string };
   payments: Array<{ amountCents: number }>;
+  /** Solde avoirs compris servi par l'API. */
+  balance?: { dueCents: number } | null;
 };
 
 export function PaymentsPage() {
@@ -80,8 +82,9 @@ export function PaymentsPage() {
     () =>
       invoices.map((i) => {
         const paid = i.payments.reduce((s, p) => s + p.amountCents, 0);
-        return { ...i, remaining: Math.max(0, i.totalCents - paid) };
-      }).filter((i) => i.remaining > 0 || i.status === "ISSUED"),
+        // Reste dû avoirs compris (API) ; une facture soldée par avoir n'est plus proposée.
+        return { ...i, remaining: i.balance?.dueCents ?? Math.max(0, i.totalCents - paid) };
+      }).filter((i) => i.status === "ISSUED" && i.remaining > 0),
     [invoices],
   );
 

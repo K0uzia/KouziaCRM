@@ -482,6 +482,8 @@ function ClientDetail({ id }: { id: string | undefined }) {
       documentType: string;
       totalCents: number;
       client: { id: string };
+      /** Facture : solde avoirs compris (API). */
+      balance?: { netCents: number; cashInCents: number; dueCents: number } | null;
     }>
   >([]);
 
@@ -527,8 +529,11 @@ function ClientDetail({ id }: { id: string | undefined }) {
 
   const invoices = docs.filter((d) => d.documentType !== "QUOTE");
   const quotes = docs.filter((d) => d.documentType === "QUOTE");
-  const sumBy = (rows: typeof docs, statuses: string[]) =>
-    rows.filter((d) => statuses.includes(d.status)).reduce((acc, d) => acc + d.totalCents, 0);
+  // Synthèse de la fiche avoirs compris (soldes servis par l'API) : facturé net, encaissé net, reste dû.
+  const sumBalance = (statuses: string[], key: "netCents" | "cashInCents" | "dueCents") =>
+    invoices
+      .filter((d) => d.documentType === "INVOICE" && statuses.includes(d.status))
+      .reduce((acc, d) => acc + (d.balance ? d.balance[key] : key === "cashInCents" ? 0 : d.totalCents), 0);
   const docPath = (d: (typeof docs)[number]) => (d.documentType === "QUOTE" ? `/quotes/${d.id}` : `/invoices/${d.id}`);
 
   const docList = (rows: typeof docs, limit?: number) =>
@@ -635,9 +640,9 @@ function ClientDetail({ id }: { id: string | undefined }) {
                     { label: "À encaisser", value: "-" },
                     { label: "Devis", value: "-" },
                   ] : [
-                    { label: "Facturé", value: formatEUR(sumBy(invoices, ["ISSUED", "PAID"])), hint: `${invoices.length} facture${invoices.length > 1 ? "s" : ""}` },
-                    { label: "Encaissé", value: formatEUR(sumBy(invoices, ["PAID"])), tone: "success" },
-                    { label: "À encaisser", value: formatEUR(sumBy(invoices, ["ISSUED"])), tone: "primary" },
+                    { label: "Facturé", value: formatEUR(sumBalance(["ISSUED", "PAID"], "netCents")), hint: `${invoices.length} facture${invoices.length > 1 ? "s" : ""}, net des avoirs` },
+                    { label: "Encaissé", value: formatEUR(sumBalance(["ISSUED", "PAID", "CANCELLED"], "cashInCents")), tone: "success" },
+                    { label: "À encaisser", value: formatEUR(sumBalance(["ISSUED"], "dueCents")), tone: "primary" },
                     { label: "Devis", value: String(quotes.length), hint: quotes.length ? formatEUR(quotes.reduce((a, d) => a + d.totalCents, 0)) : "aucun" },
                   ]}
                 />

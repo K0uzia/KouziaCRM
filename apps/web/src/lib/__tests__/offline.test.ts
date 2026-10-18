@@ -163,6 +163,22 @@ describe("liste fermée des lectures copiées", () => {
     ).toEqual({ total: 3, byStatus: { ISSUED: 2 }, byKind: { factures: { ISSUED: 2 }, avoirs: {} }, overdue: 1, toReview: 0 });
   });
 
+  it("solde d'une facture et montants de la synthèse : des nombres seulement", () => {
+    const list = offlineRule("/api/invoices?type=INVOICE")!;
+    const [row] = list.sanitize([
+      { id: "f1", number: "F-1", totalCents: 100_000, balance: { creditedCents: 30_000, netCents: 70_000, refundedCents: 0, cashInCents: 0, dueCents: 70_000, secret: "x", note: "texte" } },
+    ]) as Array<{ balance: unknown }>;
+    expect(row!.balance).toEqual({ creditedCents: 30_000, netCents: 70_000, refundedCents: 0, cashInCents: 0, dueCents: 70_000 });
+    const summary = offlineRule("/api/invoices/summary?type=INVOICE")!.sanitize({
+      total: 1,
+      byStatus: {},
+      overdue: 0,
+      toReview: 0,
+      amounts: { toCollectCents: 70_000, cashInCents: 0, invoicedNetCents: 70_000, openCount: 1, paidCount: 0, fuite: "non" },
+    }) as { amounts: unknown };
+    expect(summary.amounts).toEqual({ toCollectCents: 70_000, cashInCents: 0, invoicedNetCents: 70_000, openCount: 1, paidCount: 0 });
+  });
+
   it("jamais copiées : authentification, secrets, banque, paiements, messagerie, PDF, preuves, codes et jetons", () => {
     for (const path of [
       "/api/auth/me",
