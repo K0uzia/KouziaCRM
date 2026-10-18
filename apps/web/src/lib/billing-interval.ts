@@ -1,3 +1,5 @@
+import { formatEUR } from "@/lib/format";
+
 /** Périodicité d'un abonnement (null en base = MONTH). */
 export type BillingInterval = "MONTH" | "YEAR";
 
@@ -23,6 +25,23 @@ export function periodAdjective(value: string | null | undefined): string {
 /** Équivalent mensuel d'une échéance : un montant annuel compte pour 1/12. */
 export function monthlyEquivalentCents(amountCents: number, value: string | null | undefined): number {
   return normalizeInterval(value) === "YEAR" ? Math.round(amountCents / 12) : amountCents;
+}
+
+/**
+ * « soit 29,17 € par mois » sous un prix annuel (centimes entiers, arrondi au centime le plus proche) ; null pour
+ * un prix mensuel ou nul. Information de lecture : le prix dû reste l'annuel.
+ */
+export function monthlyEquivalentText(amountCents: number, value: string | null | undefined): string | null {
+  if (normalizeInterval(value) !== "YEAR" || !Number.isFinite(amountCents) || amountCents <= 0) return null;
+  return `soit ${formatEUR(monthlyEquivalentCents(amountCents, "YEAR"))} par mois`;
+}
+
+/** Prix saisi en euros (« 350 », « 350,5 », « 349.99 ») en centimes entiers, sans calcul en virgule flottante. */
+export function eurosInputToCents(raw: string | number | null | undefined): number {
+  const m = /^\s*(-)?(\d+)(?:[.,](\d{0,2}))?/.exec(String(raw ?? ""));
+  if (!m) return 0;
+  const cents = Number(m[2]) * 100 + Number((m[3] ?? "").padEnd(2, "0"));
+  return m[1] ? -cents : cents;
 }
 
 /**

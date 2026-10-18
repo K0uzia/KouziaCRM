@@ -599,6 +599,11 @@ export function InvoiceDocument({ company, client, invoice, specimen, draft }: I
                           : "Ce document inclut la 1re échéance."}
                   </Text>
                 ) : null}
+                {/* Devis seulement : équivalent mensuel d'un prix annuel, en information. Le prix dû reste l'annuel
+                    (colonnes et total) ; jamais sur la facture, dont le montant dû est l'annuel. */}
+                {isQuote && line.isSubscription && line.billingInterval === "YEAR" && line.unitPriceCents > 0 ? (
+                  <Text style={styles.lineNote}>{`Soit ${fmtMoney(Math.round(line.unitPriceCents / 12))} par mois, à titre indicatif.`}</Text>
+                ) : null}
               </View>
               <Text style={styles.colQty}>{fmtQty(line.quantity)}</Text>
               <Text style={styles.colPrice}>{fmtMoney(line.unitPriceCents)}</Text>

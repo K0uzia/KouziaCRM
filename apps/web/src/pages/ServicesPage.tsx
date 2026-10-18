@@ -14,7 +14,7 @@ import { useUrlFilters } from "@/lib/use-url-filters";
 import { Segmented } from "@/components/ui/Segmented";
 import { Tabs, useTabParam } from "@/components/ui/Tabs";
 import { useCreateParam } from "@/lib/use-create-param";
-import { INTERVAL_OPTIONS, type BillingInterval } from "@/lib/billing-interval";
+import { eurosInputToCents, INTERVAL_OPTIONS, monthlyEquivalentText, type BillingInterval } from "@/lib/billing-interval";
 
 type Service = {
   id: string;
@@ -583,6 +583,9 @@ export function ServicesPage() {
               value={form.priceEuros}
               onChange={(e) => setForm({ ...form, priceEuros: e.target.value })}
             />
+            {form.kind === "SUBSCRIPTION" && monthlyEquivalentText(eurosInputToCents(form.priceEuros), form.billingInterval) ? (
+              <p className="mt-1 text-xs text-[var(--muted)]">{monthlyEquivalentText(eurosInputToCents(form.priceEuros), form.billingInterval)}</p>
+            ) : null}
           </Field>
           <label className="flex min-h-11 items-center gap-2 text-sm">
             <input
