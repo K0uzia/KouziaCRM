@@ -28,6 +28,8 @@ import { isOnline, onReconnect } from "@/lib/network";
 import { toast } from "sonner";
 import { NotificationsProvider } from "@/lib/notifications";
 import { VersionNotice } from "@/components/VersionNotice";
+import { OfflineCopyPanel } from "@/components/OfflineCopyPanel";
+import { startAutoOfflineCopy } from "@/lib/offline/sync";
 import { MoreMenu } from "@/components/ui/MoreMenu";
 
 // Publication du site : seulement dans l'espace Site, chargé à la demande.
@@ -235,6 +237,8 @@ export function AppLayout() {
       if (outcome === "kept-pending") toast.warning("Copie hors ligne gardée : des créations préparées hors ligne restent à envoyer.");
     });
   useQueueReplay(refresh);
+  // Copie hors ligne complète puis tenue à jour (origine du hors ligne seulement) : lib/offline/sync.
+  useEffect(() => startAutoOfflineCopy(), []);
   const { items: queuedItems } = useOfflineQueue();
   const navigate = useNavigate();
   const [paletteOpen, setPaletteOpen] = useState(false);
@@ -538,6 +542,7 @@ export function AppLayout() {
           <NetworkStatus />
         </div>
         <VersionNotice />
+        <OfflineCopyPanel />
 
         {/* Région qui défile : atteignable au clavier (axe scrollable-region-focusable),
             contour visible seulement au focus clavier. « relative » : un élément en position absolue

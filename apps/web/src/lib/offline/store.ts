@@ -25,6 +25,13 @@ export type Sealed = { iv: Uint8Array; data: ArrayBuffer };
  * avant ce champ sont du format 1.
  */
 export const COPY_FORMAT = 1;
+/** Résumé de la dernière copie complète (lib/offline/sync) : oublié avec la copie, pour qu'une copie neuve reparte. */
+export const COPY_SUMMARY_KEY = "kouzia:hors-ligne:copie-complete";
+/**
+ * Passage d'un format de copie au suivant, sans perdre la copie : la donnée est convertie à la lecture. Un format
+ * sans migration connue est ignoré, et la copie complète suivante (SYNC_FORMAT changé) la refait aussitôt.
+ */
+const MIGRATIONS: Record<number, (data: unknown) => unknown> = {};
 export type Copy<T = unknown> = { v?: number; savedAt: number; data: T };
 
 let dbPromise: Promise<IDBPDatabase> | null = null;
@@ -137,7 +144,17 @@ export function saveCopy(path: string, data: unknown, savedAt = Date.now()): Pro
 
 export async function readCopy<T>(path: string): Promise<Copy<T> | null> {
   const copy = await get<Copy<T>>(path);
-  return copy && (copy.v ?? 1) === COPY_FORMAT ? copy : null;
+  if (!copy) return null;
+  let v = copy.v ?? 1;
+  if (v > COPY_FORMAT) return null;
+  let data: unknown = copy.data;
+  while (v < COPY_FORMAT) {
+    const step = MIGRATIONS[v];
+    if (!step) return null;
+    data = step(data);
+    v += 1;
+  }
+  return { ...copy, v, data: data as T };
 }
 
 export type OfflineUser = { id: string; email: string; name: string | null };
@@ -164,6 +181,19 @@ export async function deleteCopiesWhere(match: (path: string) => boolean): Promi
   return ids.length;
 }
 
+/** Place occupée par les copies chiffrées de cet appareil (octets), session comprise. */
+export async function copiesSize(): Promise<number> {
+  const database = await db();
+  let total = 0;
+  let cursor = await database.transaction("copies").store.openCursor();
+  while (cursor) {
+    const value = cursor.value as Partial<Sealed> | undefined;
+    total += (value?.data?.byteLength ?? 0) + (value?.iv?.byteLength ?? 0);
+    cursor = await cursor.continue();
+  }
+  return total;
+}
+
 /** Créations préparées hors ligne pas encore envoyées (un effacement automatique ne les perd jamais). */
 export async function pendingCount(): Promise<number> {
   return (await db()).count("file");
@@ -175,6 +205,11 @@ export async function pendingCount(): Promise<number> {
  */
 export async function wipeOfflineData(): Promise<void> {
   const database = await db();
+  try {
+    localStorage.removeItem(COPY_SUMMARY_KEY);
+  } catch {
+    /* stockage indisponible : le résumé sera remplacé à la prochaine copie */
+  }
   await database.clear("cle");
   keyPromise = null;
   const tx = database.transaction(["copies", "file", "relire"], "readwrite");

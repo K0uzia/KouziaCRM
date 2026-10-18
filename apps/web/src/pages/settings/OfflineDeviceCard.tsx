@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { Field, Select } from "@/components/ui/Field";
-import { formatDate } from "@/lib/format";
+import { formatDate, formatMailDateTime } from "@/lib/format";
 import { offlineEnabled } from "@/lib/offline/config";
 import {
   clearCopyFailure,
@@ -16,6 +16,7 @@ import {
   type DeviceOptions,
 } from "@/lib/offline/device";
 import { pendingCount, wipeOfflineData } from "@/lib/offline/store";
+import { copyContents, runOfflineCopy, useOfflineCopy } from "@/lib/offline/sync";
 
 const DAY_CHOICES = [null, 7, 14, 30, 90] as const;
 
@@ -37,6 +38,7 @@ export function OfflineDeviceCard() {
   const [pending, setPending] = useState(0);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [busy, setBusy] = useState(false);
+  const copy = useOfflineCopy();
 
   const refresh = () => {
     void storageStatus().then(setStorage).catch(() => setStorage(null));
@@ -76,9 +78,10 @@ export function OfflineDeviceCard() {
           Cet appareil : copie hors ligne
         </h2>
         <p className="mt-1 max-w-xl text-xs text-[var(--muted)]">
-          Clients, devis, factures et prestations consultés sont copiés, chiffrés, dans ce navigateur pour rester
-          lisibles sans réseau. Rien n&apos;est effacé automatiquement, sauf si vous l&apos;activez ici. Ces options
-          ne valent que pour cet appareil.
+          Clients, devis, factures et prestations sont copiés automatiquement, chiffrés, dans ce navigateur pour
+          rester lisibles sans réseau, puis tenus à jour. Ni paiements, ni messagerie, ni PDF, ni preuves de
+          signature. Rien n&apos;est effacé automatiquement, sauf si vous l&apos;activez ici. Ces options ne valent
+          que pour cet appareil.
         </p>
       </div>
 
@@ -117,6 +120,28 @@ export function OfflineDeviceCard() {
                 ))}
               </Select>
             </Field>
+          </div>
+
+          {/* Copie automatique complète : contenu, date, taille, et relance à la demande (fenêtre de progression). */}
+          <div className="space-y-3 rounded-[var(--radius-sm)] bg-[var(--surface-raised)] p-4">
+            <p className="text-sm" role="status" aria-live="polite">
+              {copy.running
+                ? `Copie en cours : ${copy.phase ? `${copy.phase.toLowerCase()} ${copy.done} sur ${copy.total}` : "préparation"}.`
+                : copy.summary
+                  ? `Prêt hors ligne : ${copyContents(copy.summary)}. Copie du ${formatMailDateTime(new Date(copy.summary.at))}.`
+                  : "Pas encore de copie complète sur cet appareil : elle démarre dès que le réseau est là."}
+            </p>
+            {copy.summary?.sizeBytes != null ? (
+              <p className="text-xs text-[var(--muted)]">{`Taille de la copie : ${megabytes(copy.summary.sizeBytes)}`}</p>
+            ) : null}
+            {copy.error && !copy.running ? <p className="text-xs text-[var(--warning)]">{copy.error}</p> : null}
+            <Button
+              variant="secondary"
+              disabled={copy.running}
+              onClick={() => void runOfflineCopy({ full: true, visible: true }).then(() => refresh())}
+            >
+              Mettre à jour la copie maintenant
+            </Button>
           </div>
 
           <dl className="grid grid-cols-1 gap-3 text-sm sm:grid-cols-2">
