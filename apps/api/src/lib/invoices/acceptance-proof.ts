@@ -8,6 +8,7 @@ import { sendDocumentPdf } from "@/lib/email/send-document-pdf.js";
 import { formatPlainTextSignature } from "@/lib/email/signature.js";
 import { brandFromSettings } from "@/lib/email/templates.js";
 import { resolveClientPortalUrl } from "@/lib/email/portal-url.js";
+import { formatDateTimeLongFr, formatLongDateFr } from "@/lib/format-fr.js";
 
 const SIGNED_QUOTES_DIR = "signed-quotes";
 
@@ -55,11 +56,11 @@ export async function archiveOriginalQuote(
 }
 
 function fmtDate(d: Date): string {
-  return d.toLocaleDateString("fr-FR", { timeZone: "Europe/Paris", day: "numeric", month: "long", year: "numeric" });
+  return formatLongDateFr(d);
 }
 
 function fmtDateTime(d: Date): string {
-  return d.toLocaleString("fr-FR", { timeZone: "Europe/Paris", dateStyle: "long", timeStyle: "short" });
+  return formatDateTimeLongFr(d);
 }
 
 /**

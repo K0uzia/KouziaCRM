@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma.js";
 import { decrypt, encrypt } from "@/lib/crypto.js";
 import { isOrganization } from "@/lib/clients/client-type.js";
 import { readSiteRepoFile } from "@/lib/site/github.js";
+import { parisYmd } from "@/lib/format-fr.js";
 
 /**
  * Témoignages déposés par les clients depuis leur espace (/suivi), en fin de projet (statut DONE).
@@ -63,7 +64,7 @@ export function testimonialState(row: Pick<SiteReview, "status" | "rejectedAt"> 
 }
 
 /** Date du jour (AAAA-MM-JJ) en heure de Paris. */
-const parisDate = (d: Date) => new Intl.DateTimeFormat("fr-CA", { timeZone: "Europe/Paris" }).format(d);
+const parisDate = (d: Date) => parisYmd(d);
 
 /** État du témoignage de chaque projet terminé du client, pour /suivi. */
 export async function portalTestimonials(clientId: string) {

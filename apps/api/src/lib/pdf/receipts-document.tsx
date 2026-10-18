@@ -1,6 +1,7 @@
 import React from "react";
 import { Document, Page, Text, View, StyleSheet } from "@react-pdf/renderer";
 import { formatEUR } from "@/lib/money.js";
+import { formatDateFr } from "@/lib/format-fr.js";
 
 const styles = StyleSheet.create({
   page: {
@@ -62,7 +63,7 @@ const styles = StyleSheet.create({
 });
 
 function fmtDate(iso: string) {
-  return new Intl.DateTimeFormat("fr-FR").format(new Date(iso));
+  return formatDateFr(new Date(iso));
 }
 
 function fmtMoney(cents: number) {

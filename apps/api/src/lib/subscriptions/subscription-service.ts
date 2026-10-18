@@ -14,6 +14,7 @@ import { sendDocumentPdf } from "@/lib/email/send-document-pdf.js";
 import { getCompanySettings } from "@/lib/company.js";
 import { applyStripeSubscriptionAction } from "@/lib/stripe/subscription-control.js";
 import { billedSubscriptionIds } from "@/lib/subscriptions/renewal-reminder.js";
+import { formatDateFr } from "@/lib/format-fr.js";
 
 /** Périodicité d'un abonnement ; null en base vaut MONTH. */
 export type BillingInterval = "MONTH" | "YEAR";
@@ -105,7 +106,7 @@ function addDays(d: Date, days: number): Date {
 }
 
 function fmtDay(d: Date): string {
-  return d.toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit", year: "numeric" });
+  return formatDateFr(d);
 }
 
 function addMonths(d: Date, months: number): Date {

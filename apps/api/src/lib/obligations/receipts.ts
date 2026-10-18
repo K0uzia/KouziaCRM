@@ -1,4 +1,5 @@
 import type { PaymentMethod } from "@prisma/client";
+import { formatDateFr } from "@/lib/format-fr.js";
 
 const LABELS: Record<PaymentMethod, string> = {
   BANK_TRANSFER: "Virement",
@@ -189,7 +190,7 @@ export function receiptsToCsv(
     .join(";");
 
   const lines = rows.map((r) => {
-    const date = new Date(r.paidAt).toLocaleDateString("fr-FR");
+    const date = formatDateFr(new Date(r.paidAt));
     const amount = (r.amountCents / 100).toFixed(2).replace(".", ",");
     const invoiceTotal =
       r.invoiceTotalCents != null

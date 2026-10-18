@@ -568,6 +568,17 @@ install_tunnel_openrc() {
 }
 
 # Fichiers système posés par install et update : rotation des journaux et sauvegarde quotidienne.
+# Données de langue ICU complètes : le Node d'Alpine utilise l'ICU du système, livré par défaut avec
+# icu-data-en seul (en_US, en_GB). Sans icu-data-full, Intl en fr-FR retombe sur l'anglais (« €1,190.00 »).
+# Idempotent ; un échec (réseau) prévient sans bloquer : les documents de l'ERP n'en dépendent plus.
+ensure_icu_full() {
+  command -v apk >/dev/null 2>&1 || return 0
+  apk info -e icu-data-full >/dev/null 2>&1 && return 0
+  log "Données de langue complètes (icu-data-full)…"
+  apk add --no-cache icu-data-full >/dev/null 2>&1 \
+    || warn "apk add icu-data-full a échoué : kouziactl status signalera « intl incomplet » ; relancer plus tard."
+}
+
 install_system_conf() {
   install -m 644 "${KOUZIA_APP_DIR}/scripts/alpine/conf/logrotate.kouzia" /etc/logrotate.d/kouzia
   cat > /etc/periodic/daily/kouzia-backup <<EOF

@@ -39,6 +39,7 @@ import { HistoryError, publicationDetail, restoreVersion } from "@/lib/site/hist
 import { adoptMissingMedia, deleteLibraryMedia, LibraryError, libraryPath, listLibrary, recropLibraryMedia } from "@/lib/site/library.js";
 import { issuedPdfAbsolutePath } from "@/lib/pdf/issued-archive.js";
 import { readFile } from "node:fs/promises";
+import { parisYmd } from "@/lib/format-fr.js";
 
 /**
  * Espace « Site » (admin) : contenu de kouzia.com saisi dans l'ERP, puis publié dans le dépôt du site.
@@ -492,7 +493,7 @@ export const siteRoutes: FastifyPluginAsync = async (app) => {
           rejectionReason: null,
           // Témoignage de l'espace client : publieLe = date de validation (heure de Paris).
           ...(current.source === TESTIMONIAL_SOURCE
-            ? { reviewedOn: new Intl.DateTimeFormat("fr-CA", { timeZone: "Europe/Paris" }).format(new Date()) }
+            ? { reviewedOn: parisYmd(new Date()) }
             : {}),
         },
       });

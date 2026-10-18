@@ -8,6 +8,7 @@ import { brandFromSettings } from "@/lib/email/templates.js";
 import { decryptOptional } from "@/lib/crypto.js";
 import { prisma } from "@/lib/prisma.js";
 import { CODE_TTL_MS, maskEmail } from "@/lib/portal/auth.js";
+import { formatDateTimeLongFr } from "@/lib/format-fr.js";
 
 /**
  * E-mails de l'espace client. Connexion par e-mail + code à usage unique :
@@ -22,8 +23,7 @@ export type SendAccessEmailResult = {
 /** Kinds exclus de l'historique « e-mails reçus » du portail (codes éphémères, alertes). */
 export const PORTAL_CODE_KINDS = ["portal_code", "portal_alert"];
 
-const fmtDateTime = (d: Date) =>
-  d.toLocaleString("fr-FR", { timeZone: "Europe/Paris", dateStyle: "long", timeStyle: "short" });
+const fmtDateTime = (d: Date) => formatDateTimeLongFr(d);
 
 function greeting(client: Pick<Client, "firstName" | "displayName">): string {
   const first = client.firstName?.trim() || client.displayName.trim().split(/\s+/)[0];

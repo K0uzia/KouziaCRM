@@ -77,6 +77,8 @@ describe("request.ip derrière le tunnel", () => {
     const a = await appWith("true");
     const lan = await a.inject({ method: "GET", url: "/api/health", remoteAddress: "127.0.0.1", headers: { host: "127.0.0.1:3000" } });
     expect(lan.json()).toHaveProperty("pendingMigrations");
+    // Données de langue de l'hôte (icu-data-full sur Alpine) : « complet » sur un poste à ICU complet.
+    expect(lan.json()).toMatchObject({ intl: "complet" });
     const tunnel = await a.inject({ method: "GET", url: "/api/health", remoteAddress: "127.0.0.1", headers: { host: "erp.kouzia.test", "cf-connecting-ip": "198.51.100.23" } });
     expect(tunnel.json()).toEqual({ ok: true });
   });

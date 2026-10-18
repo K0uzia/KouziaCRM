@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma.js";
 import { getCompanySettings } from "@/lib/company.js";
 import { computeSocialChargesForEncaisse } from "@/lib/publicodes.js";
 import { monthBounds, monthLabelFr } from "@/lib/finance/dates.js";
+import { formatDayMonthShortFr, formatMonthYearShortFr } from "@/lib/format-fr.js";
 import {
   getBusinessStartLocal,
   monthsElapsedSinceActivityStart,
@@ -76,7 +77,7 @@ export function resolveCashflowPeriod(
         start,
         end,
         key,
-        label: `Semaine du ${start.toLocaleDateString("fr-FR", { day: "numeric", month: "short" })}`,
+        label: `Semaine du ${formatDayMonthShortFr(start)}`,
       };
     }
     case "month": {
@@ -422,7 +423,7 @@ function chartWindows(scope: CashflowScope, now: Date): PeriodWindow[] {
       windows.push({
         start,
         end,
-        label: start.toLocaleDateString("fr-FR", { day: "numeric", month: "short" }),
+        label: formatDayMonthShortFr(start),
       });
     }
   } else if (scope === "month") {
@@ -434,7 +435,7 @@ function chartWindows(scope: CashflowScope, now: Date): PeriodWindow[] {
       windows.push({
         start: b.start,
         end: b.end,
-        label: b.start.toLocaleDateString("fr-FR", { month: "short", year: "2-digit" }),
+        label: formatMonthYearShortFr(b.start),
       });
     }
   } else if (scope === "quarter") {
