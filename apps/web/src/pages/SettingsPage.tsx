@@ -12,6 +12,7 @@ import { AddressAutocomplete, type AddressValue } from "@/components/forms/Addre
 import { SettingsTabNav } from "@/pages/settings/TabNav";
 import { SecretField } from "@/pages/settings/SecretField";
 import { SecurityTab } from "@/pages/settings/SecurityTab";
+import { OfflineDeviceCard } from "@/pages/settings/OfflineDeviceCard";
 import { NotificationsTab } from "@/pages/settings/NotificationsTab";
 import { CharteTab, withPrintedBrandColors } from "@/pages/settings/CharteTab";
 import { EmailSignatureCard } from "@/pages/settings/EmailSignatureCard";
@@ -1997,7 +1998,12 @@ export function SettingsPage() {
           ) : null}
 
           {tab === "notifications" ? <NotificationsTab /> : null}
-          {tab === "security" ? <SecurityTab /> : null}
+          {tab === "security" ? (
+            <div className="space-y-6">
+              <SecurityTab />
+              <OfflineDeviceCard />
+            </div>
+          ) : null}
 
           {tab === "legal" ? (
             <section className="space-y-4">

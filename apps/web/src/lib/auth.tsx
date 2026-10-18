@@ -11,6 +11,7 @@ import { api } from "@/lib/api";
 import { isOnline, onReconnect } from "@/lib/network";
 import { offlineEnabled } from "@/lib/offline/config";
 import { forgetUser, readUser, saveUser } from "@/lib/offline/store";
+import { applyRetention, wipeOnLogoutIfWanted, type WipeOutcome } from "@/lib/offline/device";
 
 type User = { id: string; email: string; name: string | null };
 
@@ -28,7 +29,8 @@ type AuthCtx = {
   /** "mfa" : mot de passe accepté, code de la double authentification attendu. */
   login: (email: string, password: string) => Promise<"ok" | "mfa">;
   verifySecondFactor: (input: { code: string } | { recoveryCode: string }) => Promise<void>;
-  logout: () => Promise<void>;
+  /** « kept-pending » : copie gardée malgré l'option, des créations hors ligne restent à envoyer. */
+  logout: () => Promise<WipeOutcome>;
   refresh: () => Promise<void>;
 };
 
@@ -58,6 +60,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         rememberUser(null);
       } else {
         setUnreachable(true);
+        // Option de cet appareil : copie effacée après N jours sans connexion (jamais les créations à envoyer).
+        if (offlineEnabled()) await applyRetention().catch(() => "none");
         const known = offlineEnabled() ? await readUser().catch(() => null) : null;
         if (known) {
           setUser((current) => current ?? known);
@@ -105,10 +109,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     rememberUser(data.user);
   }, []);
 
-  const logout = useCallback(async () => {
+  const logout = useCallback(async (): Promise<WipeOutcome> => {
     await api("/api/auth/logout", { method: "POST" });
     setUser(null);
     rememberUser(null);
+    // Option de cet appareil : copie effacée à la déconnexion (clé supprimée), sauf créations à envoyer.
+    return offlineEnabled() ? wipeOnLogoutIfWanted().catch(() => "none" as const) : "none";
   }, []);
 
   const value = useMemo(

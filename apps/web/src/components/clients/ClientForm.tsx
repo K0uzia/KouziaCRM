@@ -21,7 +21,7 @@ import {
   type CompanyLookupValue,
 } from "@/components/forms/CompanyLookup";
 import { offlineEnabled } from "@/lib/offline/config";
-import { submitCreation, type QueueItem } from "@/lib/offline/queue";
+import { submitCreation, useRequestId, type QueueItem } from "@/lib/offline/queue";
 import { useReadOnly } from "@/lib/offline/read-only";
 
 export type Client = {
@@ -218,6 +218,7 @@ export function ClientFormEditor({
   onSuccess: (client: Client) => void;
   onCancel: () => void;
 }) {
+  const requestId = useRequestId();
   const [form, setForm] = useState<ClientFormData>(initial ?? emptyClientForm());
   // Hors ligne (origine du hors ligne) : fiche minimale mise en file, sans recherche d'adresse ni d'entreprise ;
   // rien ne part (ni e-mail d'accès ni Stripe) avant le retour du réseau.
@@ -314,7 +315,8 @@ export function ClientFormEditor({
       if (!clientId && offlineEnabled()) {
         // Origine du hors ligne : envoi direct avec un clientRequestId, ou mise en file (hors ligne, réseau tombé).
         const name = form.type === "B2C" ? [form.firstName.trim(), form.lastName.trim()].filter(Boolean).join(" ") : form.companyName.trim();
-        const result = await submitCreation<Saved>({ kind: "client", label: name, clientName: name, body: payload });
+        const result = await submitCreation<Saved>({ kind: "client", label: name, clientName: name, body: payload, requestId: requestId.current });
+        requestId.renew();
         if (result.queued) {
           toast.success("Client préparé hors ligne : il sera créé au retour du réseau.");
           onSuccess(pendingClient(result.item));

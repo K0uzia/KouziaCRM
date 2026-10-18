@@ -2,13 +2,20 @@ import { OfflineError } from "./network";
 import { offlineEnabled } from "./offline/config";
 import { copyServes, offlineRule } from "./offline/rules";
 import { markFresh, markServedFromCopy, tagCopy } from "./offline/served";
-import { readCopy, saveCopy } from "./offline/store";
+import { deleteCopiesWhere, readCopy, saveCopy } from "./offline/store";
+import { clearCopyFailure, markOnline, recordCopyFailure } from "./offline/device";
 
 /** Écriture réussie dans l'espace Site : la barre de publication recompte les changements. */
 export const SITE_CHANGED_EVENT = "kouzia:site-changed";
 
 /** Serveur injoignable derrière le tunnel (passerelle Cloudflare, 502 à 530) : la copie locale peut servir. */
-const SERVER_DOWN = new Set([502, 503, 504, 520, 521, 522, 523, 524, 530]);
+const SERVER_DOWN = new Set([502, 503, 504, 520, 521, 522, 523, 524, 525, 526, 527, 530]);
+
+/** Erreur d'une réponse de passerelle (serveur injoignable derrière le tunnel) : la requête n'a pas abouti. */
+export function isServerDown(error: unknown): boolean {
+  const status = (error as { status?: unknown } | null)?.status;
+  return typeof status === "number" && SERVER_DOWN.has(status);
+}
 
 export type ApiInit = RequestInit & {
   /** « blob » : fichier (PDF, CSV) au lieu de JSON. */
@@ -58,6 +65,10 @@ export async function api<T>(path: string, options?: ApiInit): Promise<T> {
     const copy = await fromCopy();
     if (copy) return copy.data;
   }
+  // Le serveur a répondu (quelle que soit la réponse) : date de la dernière connexion, pour l'option d'effacement.
+  if (!SERVER_DOWN.has(res.status) && offlineEnabled()) markOnline();
+  // Fiche disparue du serveur : sa copie et ce qui en dépend sont retirés (cohérence, pas un effacement).
+  if (res.status === 404 && rule) void deleteCopiesWhere(dependsOn(path)).catch(() => undefined);
 
   if (!res.ok) {
     let message = statusMessage(res.status);
@@ -105,11 +116,23 @@ export async function api<T>(path: string, options?: ApiInit): Promise<T> {
     if (rule) {
       markFresh(path);
       // Copie en arrière-plan : un échec d'écriture locale ne bloque jamais l'écran.
-      void saveCopy(path, rule.sanitize(data)).catch(() => undefined);
+      void saveCopy(path, rule.sanitize(data)).then(clearCopyFailure, recordCopyFailure);
     }
     return data;
   }
   return undefined as T;
+}
+
+/**
+ * Copies à retirer quand une lecture répond 404 : la copie elle-même, ses sous-ressources (notes et projets d'une
+ * fiche client) et, pour un client, ses listes de pièces (?clientId=).
+ */
+export function dependsOn(path: string): (copyPath: string) => boolean {
+  const client = /^\/api\/clients\/([A-Za-z0-9_-]+)$/.exec(path)?.[1];
+  return (copyPath) =>
+    copyPath === path ||
+    copyPath.startsWith(`${path}/`) ||
+    (client !== undefined && copyPath.startsWith("/api/invoices?") && new URLSearchParams(copyPath.split("?")[1]).get("clientId") === client);
 }
 
 async function readBody<T>(read: () => Promise<T>): Promise<T> {

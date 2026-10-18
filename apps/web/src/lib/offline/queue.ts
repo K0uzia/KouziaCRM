@@ -1,5 +1,5 @@
-import { useEffect, useSyncExternalStore } from "react";
-import { api } from "../api";
+import { useEffect, useRef, useSyncExternalStore } from "react";
+import { api, isServerDown } from "../api";
 import { isOfflineError, isOnline } from "../network";
 import { offlineEnabled } from "./config";
 import { deleteSealed, putSealed, readAllSealed } from "./store";
@@ -162,6 +162,11 @@ export type PrepareInput = {
   clientId?: string;
   clientName: string;
   body: Record<string, unknown>;
+  /**
+   * clientRequestId gardé par le formulaire tant qu'il n'a pas réussi : un nouvel essai après une réponse perdue
+   * renvoie le même, et le serveur rend l'élément déjà créé au lieu d'un doublon.
+   */
+  requestId?: string;
 };
 
 /** Élément préparé, pas encore envoyé (hors ligne, ou client lui-même encore dans la file). */
@@ -192,7 +197,7 @@ export type Submitted<T> = { queued: true; item: QueueItem } | { queued: false; 
  * file hors ligne (ou serveur injoignable, même UUID : un envoi parti malgré tout ne sera pas doublé).
  */
 export async function submitCreation<T>(input: PrepareInput): Promise<Submitted<T>> {
-  const id = crypto.randomUUID();
+  const id = input.requestId ?? crypto.randomUUID();
   const queue = async (): Promise<Submitted<T>> => ({ queued: true, item: await enqueue(input, id) });
   if (!isOnline() || isLocalClientId(input.clientId)) {
     const result = await queue();
@@ -214,7 +219,8 @@ export async function submitCreation<T>(input: PrepareInput): Promise<Submitted<
   try {
     return { queued: false, data: await send<T>(draft) };
   } catch (error) {
-    if (isOfflineError(error)) return queue();
+    // Réseau coupé ou passerelle en erreur (502, 503, 504, 52x) : l'élément part en file, même identifiant.
+    if (isOfflineError(error) || isServerDown(error)) return queue();
     throw error;
   }
 }
@@ -364,4 +370,20 @@ export function resetQueueForTests(): void {
   resolved.clear();
   seqBase = 0;
   snapshot = { ready: false, items: [], signals: [], sessionExpired: false, sending: false };
+}
+
+/**
+ * clientRequestId d'un formulaire de création, gardé tant que l'envoi n'a pas réussi (un nouvel essai ne crée pas de
+ * doublon) ; renew() après une création réussie ou mise en file.
+ */
+export function useRequestId(): { readonly current: string; renew: () => void } {
+  const ref = useRef<string>(crypto.randomUUID());
+  return {
+    get current() {
+      return ref.current;
+    },
+    renew: () => {
+      ref.current = crypto.randomUUID();
+    },
+  };
 }
