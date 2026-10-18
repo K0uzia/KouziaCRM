@@ -423,10 +423,90 @@ async function creationScenario(width: number) {
   }
 }
 
+const COPY_SUMMARY_KEY = "kouzia:hors-ligne:copie-complete";
+
+/**
+ * Copie automatique complète (décision du 19/10/2026) : sans aucune visite de fiche, la première copie se lance avec
+ * sa fenêtre de progression ; hors ligne, une fiche client et un devis JAMAIS ouverts s'ouvrent ensuite depuis la
+ * liste. Puis la copie survit à un changement de format (version) : la fiche reste lisible hors ligne, et la copie
+ * complète repart d'elle-même au retour du réseau.
+ */
+async function autoCopyScenario(width: number) {
+  const browser = await chromium.launch();
+  const context = await browser.newContext({ viewport: { width, height: 740 }, deviceScaleFactor: 2, hasTouch: width < 1024 });
+  const page = await context.newPage();
+  try {
+    await signIn(context, page);
+    const active = await page.evaluate(() => {
+      const raw = document.querySelector<HTMLMetaElement>('meta[name="kouzia-offline-origin"]')?.content;
+      try {
+        return Boolean(raw) && new URL(raw!).origin === location.origin;
+      } catch {
+        return false;
+      }
+    });
+    if (!active) {
+      console.log(`--  ${width}px  copie hors ligne inactive sur ${BASE} : copie automatique non contrôlée`);
+      return;
+    }
+    const panel = page.getByRole("region", { name: "Copie hors ligne en cours" });
+    check(await panel.waitFor({ timeout: 10_000 }).then(() => true, () => false), `${width}px  première copie : fenêtre de progression affichée`);
+    const done = await page
+      .waitForFunction((key) => localStorage.getItem(key) !== null, COPY_SUMMARY_KEY, { timeout: 180_000 })
+      .then(() => true, () => false);
+    check(done, `${width}px  première copie complète terminée (résumé enregistré)`);
+    check(await page.getByText("Copie hors ligne terminée").first().isVisible().catch(() => false), `${width}px  toast de fin de copie`);
+    await page.waitForFunction(() => navigator.serviceWorker?.controller != null, null, { timeout: 30_000 }).catch(() => undefined);
+
+    // Code navigateur sans fonction nommée : tsx y injecterait __name, absent de la page.
+    type Row = { id: string; displayName?: string; number?: string | null };
+    const clients = (await page.evaluate(() => fetch("/api/clients", { credentials: "include" }).then((r) => r.json()))) as Row[];
+    const quotes = (await page.evaluate(() => fetch("/api/invoices?type=QUOTE", { credentials: "include" }).then((r) => r.json()))) as Row[];
+    const client = clients[0] ?? null;
+    const quote = quotes.find((d) => d.number) ?? null;
+
+    await context.setOffline(true);
+    for (const [label, list, item] of [["fiche client", "/clients", client], ["devis", "/quotes", quote]] as const) {
+      if (!item) {
+        check(false, `${width}px  ${label} à ouvrir dans la base de recette`);
+        continue;
+      }
+      await page.goto(`${BASE}${list}`).catch(() => undefined);
+      await page.waitForTimeout(800);
+      const link = page.locator(`main a[href="${list}/${item.id}"]:visible`).first();
+      const clicked = await link.click({ timeout: 8000 }).then(() => true, () => false);
+      await page.waitForTimeout(1200);
+      const title = await page.locator("main h1").first().innerText().catch(() => "");
+      const missing = await page.getByText(/indisponible hors ligne/i).count();
+      check(clicked && missing === 0 && title.trim().length > 0, `${width}px  ${label} jamais ${label === "devis" ? "ouvert" : "ouverte"}, hors ligne après la copie automatique : « ${title.trim()} »`);
+    }
+
+    // Changement de format : la copie reste lisible hors ligne ; au retour du réseau, recopie complète automatique.
+    await page.evaluate((key) => {
+      const s = JSON.parse(localStorage.getItem(key) ?? "{}");
+      localStorage.setItem(key, JSON.stringify({ ...s, format: (s.format ?? 1) - 1 }));
+    }, COPY_SUMMARY_KEY);
+    await page.reload().catch(() => undefined);
+    if (client) {
+      await page.goto(`${BASE}/clients/${client.id}`).catch(() => undefined);
+      await page.waitForTimeout(1200);
+      const kept = (await page.locator("main h1").first().innerText().catch(() => "")).trim().length > 0 && (await page.getByText(/indisponible hors ligne/i).count()) === 0;
+      check(kept, `${width}px  changement de format : la copie reste lisible hors ligne`);
+    }
+    await context.setOffline(false);
+    await page.reload();
+    check(await panel.waitFor({ timeout: 15_000 }).then(() => true, () => false), `${width}px  changement de format : recopie complète relancée avec sa fenêtre`);
+  } finally {
+    await context.setOffline(false).catch(() => undefined);
+    await browser.close();
+  }
+}
+
 async function main() {
   for (const width of WIDTHS) await scenario(width);
   for (const width of WIDTHS) await copyScenario(width);
   for (const width of WIDTHS) await creationScenario(width);
+  for (const width of [375, 1280]) await autoCopyScenario(width);
   console.log(failures.length ? `\n${failures.length} contrôle(s) en échec.` : "\nContrôle hors ligne vert.");
   if (failures.length) process.exit(1);
 }

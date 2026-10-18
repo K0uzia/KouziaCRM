@@ -1,0 +1,123 @@
+import "fake-indexeddb/auto";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+vi.mock("@/lib/offline/config", () => ({ offlineEnabled: () => true, configuredOfflineOrigin: () => "http://localhost" }));
+
+const { putCopyForTests, readCopy, resetOfflineStoreForTests, COPY_FORMAT } = await import("../offline/store");
+const sync = await import("../offline/sync");
+
+/** localStorage minimal (vitest tourne sous Node). */
+function memoryStorage() {
+  const data = new Map<string, string>();
+  return {
+    getItem: (k: string) => data.get(k) ?? null,
+    setItem: (k: string, v: string) => void data.set(k, v),
+    removeItem: (k: string) => void data.delete(k),
+    clear: () => data.clear(),
+  };
+}
+
+/** Serveur simulé : deux clients, un devis, une facture ; journal des lectures. */
+let server: Record<string, unknown>;
+let reads: string[];
+function resetServer(updatedAt = "2026-10-01T00:00:00Z") {
+  const client = (id: string) => ({ id, displayName: `Client ${id}`, type: "B2C", updatedAt });
+  const doc = (id: string, documentType: string, clientId: string) => ({ id, documentType, clientId, number: id, totalCents: 1000, updatedAt });
+  server = {
+    "/api/clients": [client("c1"), client("c2")],
+    "/api/invoices?type=QUOTE": [doc("q1", "QUOTE", "c1")],
+    "/api/invoices?type=INVOICE": [doc("f1", "INVOICE", "c2")],
+    "/api/invoices/summary?type=QUOTE": { counts: {} },
+    "/api/invoices/summary?type=INVOICE": { counts: {} },
+    "/api/services": [{ id: "s1", name: "Site" }],
+    "/api/services?active=1": [{ id: "s1", name: "Site" }],
+    "/api/settings": { legalName: "Exemple" },
+  };
+  for (const id of ["c1", "c2"]) {
+    server[`/api/clients/${id}`] = client(id);
+    server[`/api/clients/${id}/notes`] = [];
+    server[`/api/clients/${id}/projects`] = [];
+    server[`/api/invoices?clientId=${id}`] = [];
+    server[`/api/invoices?type=QUOTE&clientId=${id}`] = [];
+  }
+  server["/api/invoices/q1"] = doc("q1", "QUOTE", "c1");
+  server["/api/invoices/f1"] = doc("f1", "INVOICE", "c2");
+}
+
+beforeEach(async () => {
+  vi.stubGlobal("localStorage", memoryStorage());
+  vi.stubGlobal("navigator", { onLine: true });
+  await resetOfflineStoreForTests();
+  indexedDB.deleteDatabase("kouzia-hors-ligne");
+  sync.resetOfflineCopyForTests();
+  resetServer();
+  reads = [];
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (url: string) => {
+      const path = String(url);
+      reads.push(path);
+      if (!(path in server)) return new Response(JSON.stringify({ error: "introuvable" }), { status: 404, headers: { "Content-Type": "application/json" } });
+      return new Response(JSON.stringify(server[path]), { status: 200, headers: { "Content-Type": "application/json" } });
+    }),
+  );
+});
+afterEach(() => vi.unstubAllGlobals());
+
+describe("copie automatique complète pour le hors ligne", () => {
+  it("copie complète : chaque fiche, jamais visitée comprise, avec ses notes, projets et pièces ; résumé enregistré", async () => {
+    const summary = await sync.runOfflineCopy({ full: true, visible: true });
+    expect(summary).toMatchObject({ clients: 2, quotes: 1, invoices: 1, services: 1, format: sync.SYNC_FORMAT, full: true });
+    for (const path of ["/api/clients/c2", "/api/clients/c2/notes", "/api/clients/c2/projects", "/api/invoices?clientId=c2", "/api/invoices/q1", "/api/invoices/f1", "/api/settings"]) {
+      expect(await readCopy(path), path).not.toBeNull();
+    }
+    expect(summary!.sizeBytes).toBeGreaterThan(0);
+    expect(sync.needsFullCopy()).toBe(false);
+    expect(sync.copyContents(summary!)).toBe("2 clients, 1 devis, 1 facture, 1 prestation");
+  });
+
+  it("mise à jour incrémentale : seule la fiche modifiée est relue, avec les listes de pièces de son client", async () => {
+    await sync.runOfflineCopy({ full: true, visible: false });
+    const later = new Date(Date.now() + 60_000).toISOString();
+    (server["/api/clients"] as Array<{ id: string; updatedAt: string }>)[1]!.updatedAt = later;
+    reads = [];
+    await sync.runOfflineCopy({ full: false, visible: false });
+    expect(reads).toContain("/api/clients/c2");
+    expect(reads).not.toContain("/api/clients/c1");
+    expect(reads).not.toContain("/api/invoices/q1");
+  });
+
+  it("fiche disparue du serveur : sa copie et ce qui en dépend sont retirés", async () => {
+    await sync.runOfflineCopy({ full: true, visible: false });
+    server["/api/clients"] = (server["/api/clients"] as Array<{ id: string }>).filter((c) => c.id !== "c2");
+    await sync.runOfflineCopy({ full: false, visible: false });
+    expect(await readCopy("/api/clients/c2")).toBeNull();
+    expect(await readCopy("/api/clients/c2/notes")).toBeNull();
+    expect(await readCopy("/api/clients/c1")).not.toBeNull();
+  });
+
+  it("annulation : la copie s'arrête, avec un message, et repartira au prochain passage en ligne", async () => {
+    const run = sync.runOfflineCopy({ full: true, visible: true });
+    sync.cancelOfflineCopy();
+    expect(await run).toBeNull();
+    expect(sync.copyState()).toMatchObject({ running: false, error: expect.stringContaining("annulée") });
+    expect(sync.needsFullCopy()).toBe(true);
+  });
+
+  it("changement de format : copie complète relancée ; copie de format 1 (ou sans champ v) toujours lue", async () => {
+    await sync.runOfflineCopy({ full: true, visible: false });
+    localStorage.setItem("kouzia:hors-ligne:copie-complete", JSON.stringify({ ...sync.copyState().summary, format: sync.SYNC_FORMAT - 1 }));
+    sync.resetOfflineCopyForTests();
+    expect(sync.needsFullCopy()).toBe(true);
+    await putCopyForTests("/api/clients/ancien", { savedAt: 1, data: { id: "ancien" } });
+    expect((await readCopy<{ id: string }>("/api/clients/ancien"))?.data).toEqual({ id: "ancien" });
+    expect(COPY_FORMAT).toBe(1);
+  });
+
+  it("message hors ligne précis : avancement pendant une copie, sinon copie au prochain passage en ligne", () => {
+    expect(sync.missingCopyMessage("Cette fiche", { ...sync.copyState(), running: true, phase: "Clients", done: 32, total: 47 })).toBe(
+      "Cette fiche n'est pas encore sur l'appareil (copie en cours, clients 32 sur 47).",
+    );
+    expect(sync.missingCopyMessage("Ce devis", sync.copyState(), false)).toBe("Ce devis n'est pas sur l'appareil : il sera copié au prochain passage en ligne.");
+  });
+});

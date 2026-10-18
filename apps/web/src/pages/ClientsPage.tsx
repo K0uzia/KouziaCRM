@@ -6,6 +6,7 @@ import { faPlus, faPaperPlane, faEnvelope, faPen } from "@fortawesome/free-solid
 import { toast } from "sonner";
 import { useLiveRefresh } from "@/lib/notifications";
 import { isNetworkFailure } from "@/lib/network";
+import { missingCopyMessage, useOfflineCopy } from "@/lib/offline/sync";
 import { api, formatEUR } from "@/lib/api";
 import { formatDate, formatPhoneFr, invoiceStatusLabel, quoteStatusLabel, statusTone } from "@/lib/format";
 import { Button, ButtonLink } from "@/components/ui/Button";
@@ -485,11 +486,24 @@ function ClientDetail({ id }: { id: string | undefined }) {
   const [docsOffline, setDocsOffline] = useState(false);
   useLiveRefresh(() => refresh(), (i) => i.kind === "quote_accepted" || i.kind === "quote_rejected" || i.kind === "payment");
 
+  // Fiche non chargée : message à la place du squelette (hors ligne, fiche pas encore copiée sur l'appareil).
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const offlineCopy = useOfflineCopy();
+
   function refresh() {
     if (!id) return;
     api<Client>(`/api/clients/${id}`)
-      .then(setClient)
-      .catch((e: Error) => toast.error(e.message));
+      .then((c) => {
+        setClient(c);
+        setLoadError(null);
+      })
+      .catch((e: Error) => {
+        if (isNetworkFailure(e)) setLoadError("offline");
+        else {
+          setLoadError(e.message);
+          toast.error(e.message);
+        }
+      });
   }
 
   useEffect(() => {
@@ -512,6 +526,23 @@ function ClientDetail({ id }: { id: string | undefined }) {
   }, [id]);
 
   const [tab, setTab] = useTabParam(["apercu", "documents", "projets", "messages"] as const, "apercu");
+
+  if (!client && loadError) {
+    return (
+      <div className="space-y-4">
+        <PageHeader title="Fiche client" back={{ to: "/clients", label: "Clients" }} />
+        <EmptyState
+          title={loadError === "offline" ? "Fiche indisponible hors ligne" : "Fiche non chargée"}
+          hint={loadError === "offline" ? missingCopyMessage("Cette fiche", offlineCopy) : loadError}
+          action={
+            <Button variant="secondary" onClick={refresh}>
+              Réessayer
+            </Button>
+          }
+        />
+      </div>
+    );
+  }
 
   if (!client) {
     return (
