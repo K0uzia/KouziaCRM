@@ -34,6 +34,8 @@ import { decryptOptional } from "@/lib/crypto.js";
 import type { ClientSnapshot } from "@/lib/invoices/transitions.js";
 import { serializeInvoice } from "@/lib/invoices/serialize.js";
 import { invoiceListSummary } from "@/lib/invoices/list-summary.js";
+import { adminBalanceFields, BALANCE_INCLUDE, invoiceBalance, overpaidCents } from "@/lib/invoices/balance.js";
+import { applySettledStatus, lockInvoice } from "@/lib/invoices/balance-status.js";
 import { WorkflowError } from "@/lib/invoices/workflow.js";
 import {
   applyPaymentLinkChoice,
@@ -184,10 +186,24 @@ const paySchema = z.object({
   notifyClient: z.boolean().optional(),
 });
 
+const refundSchema = z.object({
+  amountEuros: z.coerce.number().positive(),
+  paidAt: z.iso.date().optional(),
+  method: z.nativeEnum(PaymentMethod).optional(),
+  reference: z.string().max(200).optional().nullable(),
+});
+
 function defaultQuoteValidUntil(): Date {
   const d = new Date();
   d.setDate(d.getDate() + 30);
   return d;
+}
+
+/** Montant d'un paiement au-delà du reste dû relu dans la transaction (avoir ou paiement concurrent). */
+class PaymentAmountError extends Error {
+  constructor(public dueCents: number) {
+    super("Montant supérieur au reste dû");
+  }
 }
 
 export const invoicesRoutes: FastifyPluginAsync = async (app) => {
@@ -232,9 +248,11 @@ export const invoicesRoutes: FastifyPluginAsync = async (app) => {
         client: { select: { id: true, displayName: true, clientNumber: true } },
         payments: { select: { id: true, amountCents: true, paidAt: true, method: true } },
         quote: { select: { id: true, number: true } },
+        creditNotes: { select: { totalCents: true, payments: { select: { amountCents: true } } } },
       },
     });
-    return rows.map(serializeInvoice);
+    // Solde de chaque facture (avoirs compris) : reste dû, net, encaissé net ; les avoirs eux-mêmes ne sont pas renvoyés.
+    return rows.map(({ creditNotes, ...r }) => ({ ...serializeInvoice(r), balance: adminBalanceFields({ ...r, creditNotes }) }));
   });
 
   app.post("/api/invoices", async (request, reply) => {
@@ -510,7 +528,7 @@ export const invoicesRoutes: FastifyPluginAsync = async (app) => {
           },
         },
         creditedInvoice: true,
-        creditNotes: true,
+        creditNotes: { include: { payments: { select: { amountCents: true } } } },
         quote: { select: { id: true, number: true, issueDate: true } },
         milestones: { orderBy: { position: "asc" } },
       },
@@ -519,6 +537,7 @@ export const invoicesRoutes: FastifyPluginAsync = async (app) => {
     const clientType = (invoice.clientSnapshot as ClientSnapshot | null)?.type ?? invoice.client.type;
     return {
       ...serializeInvoice(invoice),
+      balance: adminBalanceFields(invoice),
       client: serializeClient(invoice.client),
       subscriptionDateNotice: await subscriptionDateNoticeOf(invoice, clientType, await getCompanySettings()),
       bankTransactions: invoice.bankTransactions.map((t) => ({
@@ -980,7 +999,7 @@ export const invoicesRoutes: FastifyPluginAsync = async (app) => {
 
     const invoice = await prisma.invoice.findUnique({
       where: { id },
-      include: { payments: true },
+      include: BALANCE_INCLUDE,
     });
     if (!invoice) return reply.code(404).send({ error: "Introuvable" });
     if (invoice.status !== InvoiceStatus.ISSUED && invoice.status !== InvoiceStatus.PAID) {
@@ -991,8 +1010,8 @@ export const invoicesRoutes: FastifyPluginAsync = async (app) => {
     }
 
     const amountCents = eurosToCents(parsed.data.amountEuros);
-    const paidSoFar = invoice.payments.reduce((s, p) => s + p.amountCents, 0);
-    const remainingCents = invoice.totalCents - paidSoFar;
+    // Reste dû avoirs compris : net (total - avoirs) moins encaissé net.
+    const remainingCents = invoiceBalance(invoice).dueCents;
 
     if (remainingCents <= 0) {
       return reply.code(400).send({
@@ -1006,7 +1025,12 @@ export const invoicesRoutes: FastifyPluginAsync = async (app) => {
       });
     }
 
+    // Verrou d'écriture puis reste dû relu : un avoir ou un autre paiement enregistré entre-temps est pris en compte.
+    let transition: { before: InvoiceStatus; after: InvoiceStatus } = { before: invoice.status, after: invoice.status };
     const payment = await prisma.$transaction(async (tx) => {
+      await lockInvoice(tx, id);
+      const due = invoiceBalance(await tx.invoice.findUniqueOrThrow({ where: { id }, include: BALANCE_INCLUDE })).dueCents;
+      if (amountCents > due) throw new PaymentAmountError(due);
       const created = await tx.payment.create({
         data: {
           invoiceId: id,
@@ -1017,14 +1041,17 @@ export const invoicesRoutes: FastifyPluginAsync = async (app) => {
           notes: parsed.data.notes ?? null,
         },
       });
-      if (paidSoFar + amountCents >= invoice.totalCents) {
-        await tx.invoice.update({ where: { id }, data: { status: InvoiceStatus.PAID } });
-        await syncMilestoneOnInvoicePaid(id, tx);
-      }
+      transition = await applySettledStatus(tx, id);
       return created;
+    }).catch((e: unknown) => {
+      if (e instanceof PaymentAmountError) return e;
+      throw e;
     });
+    if (payment instanceof PaymentAmountError) {
+      return reply.code(400).send({ error: `Montant supérieur au reste dû (${formatEUR(payment.dueCents)}).` });
+    }
 
-    if (paidSoFar + amountCents >= invoice.totalCents) {
+    if (transition.after === InvoiceStatus.PAID && transition.before !== InvoiceStatus.PAID) {
       const { onInvoicePaidForProject } = await import("@/lib/projects/lifecycle.js");
       await onInvoicePaidForProject(id);
     }
@@ -1035,6 +1062,42 @@ export const invoicesRoutes: FastifyPluginAsync = async (app) => {
       receipt = { sent: r.sent, reason: r.reason ?? null };
     }
     return reply.code(201).send({ ...payment, receipt });
+  });
+
+  // Remboursement d'un trop-perçu (paiement reçu après un avoir, avoir en mode « Autre » ou sans ligne enregistrée) :
+  // ligne négative au livre des recettes, au plus le trop-perçu relu sous verrou, à la date réelle du virement.
+  app.post<{ Params: { id: string } }>("/api/invoices/:id/refund", async (request, reply) => {
+    await requireAuth(request, reply);
+    if (reply.sent) return;
+    const parsed = refundSchema.safeParse(request.body);
+    if (!parsed.success) return reply.code(400).send({ error: "Données invalides", details: parsed.error.flatten() });
+    const id = request.params.id;
+    const amountCents = eurosToCents(parsed.data.amountEuros);
+    const result = await prisma.$transaction(async (tx) => {
+      const exists = await tx.invoice.findUnique({ where: { id }, select: { documentType: true } });
+      if (!exists || exists.documentType !== InvoiceDocumentType.INVOICE) return { status: 404 as const };
+      await lockInvoice(tx, id);
+      const over = overpaidCents(invoiceBalance(await tx.invoice.findUniqueOrThrow({ where: { id }, include: BALANCE_INCLUDE })));
+      if (amountCents > over) return { status: 400 as const, over };
+      const created = await tx.payment.create({
+        data: {
+          invoiceId: id,
+          amountCents: -amountCents,
+          paidAt: parsed.data.paidAt ? new Date(parsed.data.paidAt) : new Date(),
+          method: parsed.data.method ?? PaymentMethod.BANK_TRANSFER,
+          reference: parsed.data.reference ?? null,
+          notes: "Remboursement du trop-perçu",
+        },
+      });
+      return { status: 201 as const, created };
+    });
+    if (result.status === 404) return reply.code(404).send({ error: "Introuvable" });
+    if (result.status === 400) {
+      return reply.code(400).send({
+        error: result.over > 0 ? `Au plus ${formatEUR(result.over)} à rembourser (trop-perçu).` : "Aucun trop-perçu sur cette facture.",
+      });
+    }
+    return reply.code(201).send(result.created);
   });
 
   app.get<{ Params: { id: string } }>(

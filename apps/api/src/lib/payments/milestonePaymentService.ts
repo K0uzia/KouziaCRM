@@ -1,3 +1,4 @@
+import { BALANCE_INCLUDE, invoiceBalance } from "@/lib/invoices/balance.js";
 import {
   InvoiceDocumentType,
   InvoiceStatus,
@@ -455,11 +456,10 @@ export async function markMilestonePaidManually(opts: {
 
     const invoice = await tx.invoice.findUniqueOrThrow({
       where: { id: invoiceId },
-      include: { payments: true },
+      include: BALANCE_INCLUDE,
     });
 
-    const paidSoFar = invoice.payments.reduce((s, p) => s + p.amountCents, 0);
-    const remaining = invoice.totalCents - paidSoFar;
+    const remaining = invoiceBalance(invoice).dueCents;
     if (remaining > 0) {
       await tx.payment.create({
         data: {

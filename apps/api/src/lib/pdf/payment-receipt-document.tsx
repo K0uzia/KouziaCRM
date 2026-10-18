@@ -70,6 +70,8 @@ export type PaymentReceiptPdfData = {
   /** Réglé à la date de ce reçu (ce règlement compris) et reste dû. */
   paidToDateCents: number;
   remainingCents: number;
+  /** Avoirs émis sur la facture avant ce paiement (positive) ; ligne affichée s'il y en a. */
+  creditedCents?: number;
   issuedAt: Date;
   /** Aperçu de la charte : filigrane « EXEMPLE ». */
   specimen?: boolean;
@@ -137,6 +139,12 @@ export function PaymentReceiptDocument(data: PaymentReceiptPdfData) {
             </Text>
             <Text style={styles.strong}>{formatEUR(invoice.totalCents)}</Text>
           </View>
+          {data.creditedCents ? (
+            <View style={styles.row}>
+              <Text>Avoirs émis sur cette facture</Text>
+              <Text>- {formatEUR(data.creditedCents)}</Text>
+            </View>
+          ) : null}
           <View style={styles.row}>
             <Text>Réglé à ce jour (ce paiement compris)</Text>
             <Text>{formatEUR(data.paidToDateCents)}</Text>

@@ -14,12 +14,12 @@ import {
 import { buildInvoicePdfPayload, type BuildPdfPayloadInput, type ClientSnapshot } from "@/lib/pdf/build-payload.js";
 import { enrichCompanyForPdf } from "@/lib/pdf/brand-assets.js";
 import { renderInvoicePdf } from "@/lib/pdf/render.js";
-import { formatEUR } from "@/lib/money.js";
 import { buildClientSnapshot } from "@/lib/invoices/documentFlowService.js";
 import {
   assessCreditNoteEligibility,
   creditNoteContent,
   CreditNoteError,
+  validateCreditNoteAmount,
   type CreateCreditNoteInput,
 } from "@/lib/invoices/credit-note-service.js";
 
@@ -162,9 +162,7 @@ export async function renderCreditNotePreviewPdf(input: CreditNotePreviewInput):
   if (!eligibility.allowed) {
     throw new CreditNoteError(eligibility.message ?? "Avoir non autorisé", eligibility.code ?? "BAD_STATUS");
   }
-  if (!Number.isInteger(input.amountCents) || input.amountCents <= 0 || input.amountCents > eligibility.maxCreditCents) {
-    throw new CreditNoteError(`Montant invalide (au plus ${formatEUR(eligibility.maxCreditCents)}).`, "AMOUNT");
-  }
+  const split = validateCreditNoteAmount(eligibility, input.amountCents, input.refundMethod);
   const [settings, original, clauses] = await Promise.all([
     getCompanySettings(),
     prisma.invoice.findUniqueOrThrow({
@@ -174,7 +172,7 @@ export async function renderCreditNotePreviewPdf(input: CreditNotePreviewInput):
     prisma.legalClause.findMany({ where: { active: true }, orderBy: [{ position: "asc" }, { createdAt: "asc" }] }),
   ]);
   const snapshot = (original.clientSnapshot as ClientSnapshot | null) ?? (await buildClientSnapshot(original.clientId));
-  const { description, notes } = creditNoteContent(original, input);
+  const { description, notes } = creditNoteContent(original, input, split);
   const amount = input.amountCents;
 
   const creditNote = {

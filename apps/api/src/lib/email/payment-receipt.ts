@@ -1,3 +1,4 @@
+import { invoiceBalance } from "@/lib/invoices/balance.js";
 import { InvoiceDocumentType } from "@prisma/client";
 import { prisma } from "@/lib/prisma.js";
 import { formatEUR } from "@/lib/money.js";
@@ -23,6 +24,7 @@ export async function sendPaymentReceipt(
       include: {
         client: { select: { displayName: true, firstName: true } },
         payments: { select: { id: true, amountCents: true, paidAt: true, createdAt: true } },
+        creditNotes: { select: { totalCents: true, payments: { select: { amountCents: true } } } },
         quote: { select: { number: true } },
       },
     });
@@ -36,8 +38,8 @@ export async function sendPaymentReceipt(
         .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())[0];
     const receipt = payment ? await paymentReceiptPdf(payment.id) : null;
 
-    const paid = invoice.payments.reduce((s, p) => s + p.amountCents, 0);
-    const remaining = Math.max(0, invoice.totalCents - paid);
+    // Reste à régler avoirs compris (net moins encaissé net).
+    const remaining = invoiceBalance(invoice).dueCents;
     const firstName = (invoice.client.firstName || invoice.client.displayName).trim().split(/\s+/)[0];
     const what =
       invoice.invoiceType === "ACOMPTE"

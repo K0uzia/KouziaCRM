@@ -12,6 +12,9 @@ import { archiveIssuedDocument } from "@/lib/pdf/issued-archive.js";
 import { getCompanySettings } from "@/lib/company.js";
 import { allocateCreditNoteNumber } from "@/lib/invoices/numberingService.js";
 import { buildClientSnapshot, type ClientSnapshot } from "@/lib/invoices/documentFlowService.js";
+import { creditNoteCaps, invoiceBalance } from "@/lib/invoices/balance.js";
+import { applySettledStatus, lockInvoice } from "@/lib/invoices/balance-status.js";
+import { formatEUR } from "@/lib/money.js";
 
 export class CreditNoteError extends Error {
   constructor(
@@ -57,7 +60,12 @@ export type CreditNoteEligibility = {
   invoiceTotalCents: number;
   paidCents: number;
   alreadyCreditedCents: number;
+  /** Plafond d'un nouvel avoir : le net de la facture (total moins avoirs déjà émis). */
   maxCreditCents: number;
+  /** Reste dû : la part d'un avoir jusqu'à ce montant est déduite ; au-delà, elle est à rembourser. */
+  dueCents: number;
+  /** Encaissé net (paiements moins remboursements) : ce qui peut être remboursé. */
+  cashInCents: number;
   isAcompte: boolean;
   requiresCgvCheck: boolean;
   nextNumberPreview: string | null;
@@ -85,11 +93,22 @@ function reasonLineDescription(
   return detail?.trim() ? `${base} - ${detail.trim()}` : base;
 }
 
+/**
+ * Part d'un avoir déduite du reste dû et part à rembourser (trop-perçu). Déduction seule quand l'avoir ne dépasse
+ * pas le reste dû ; au-delà, la différence revient au client par le mode de remboursement choisi.
+ */
+export function creditNoteSplit(amountCents: number, dueCents: number): { deductedCents: number; refundCents: number } {
+  const deductedCents = Math.min(amountCents, Math.max(0, dueCents));
+  return { deductedCents, refundCents: amountCents - deductedCents };
+}
+
 /** Ligne et notes de l'avoir : mêmes textes à l'émission et dans l'aperçu avant émission. */
 export function creditNoteContent(
   original: { number: string | null; issueDate: Date | null },
   input: Pick<CreateCreditNoteInput, "reason" | "reasonDetail" | "refundMethod">,
+  split?: { deductedCents: number; refundCents: number },
 ): { description: string; notes: string } {
+  const mixed = split && split.deductedCents > 0 && split.refundCents > 0;
   const notesParts = [
     `Avoir sur facture ${original.number ?? "?"} du ${
       original.issueDate
@@ -98,7 +117,9 @@ export function creditNoteContent(
     }`,
     `Motif : ${REASON_LABEL[input.reason]}`,
     input.reasonDetail?.trim() || null,
-    `Remboursement : ${REFUND_LABEL[input.refundMethod]}`,
+    mixed
+      ? `Déduit du solde restant dû : ${formatEUR(split.deductedCents)}. À rembourser : ${formatEUR(split.refundCents)} (${REFUND_LABEL[input.refundMethod].toLowerCase()}).`
+      : `Remboursement : ${REFUND_LABEL[input.refundMethod]}`,
     input.refundMethod === RefundMethod.BANK_TRANSFER
       ? "Vous n'avez rien à payer."
       : null,
@@ -120,7 +141,7 @@ export async function assessCreditNoteEligibility(
     include: {
       client: { select: { displayName: true, clientNumber: true } },
       payments: { select: { amountCents: true } },
-      creditNotes: { select: { totalCents: true, number: true } },
+      creditNotes: { select: { totalCents: true, number: true, payments: { select: { amountCents: true } } } },
     },
   });
 
@@ -142,15 +163,12 @@ export async function assessCreditNoteEligibility(
     .replace("{year}", String(year))
     .replace("{counter}", String(next).padStart(width, "0"));
 
-  const paidCents = invoice.payments.reduce((s, p) => s + p.amountCents, 0);
-  const alreadyCreditedCents = invoice.creditNotes.reduce(
-    (s, cn) => s + Math.abs(cn.totalCents),
-    0,
-  );
-  const maxCreditCents = Math.max(
-    0,
-    Math.min(paidCents, invoice.totalCents) - alreadyCreditedCents,
-  );
+  // Avoir permis sur une facture impayée ou partiellement payée (décision d'Alexandre du 18/10/2026) : jusqu'au net,
+  // déduit du reste dû puis remboursé au-delà (encaissé net).
+  const balance = invoiceBalance(invoice);
+  const paidCents = balance.paidCents;
+  const alreadyCreditedCents = balance.creditedCents;
+  const maxCreditCents = creditNoteCaps(balance).maxCents;
 
   const base: CreditNoteEligibility = {
     allowed: false,
@@ -165,6 +183,8 @@ export async function assessCreditNoteEligibility(
     paidCents,
     alreadyCreditedCents,
     maxCreditCents,
+    dueCents: balance.dueCents,
+    cashInCents: balance.cashInCents,
     isAcompte: invoice.invoiceType === InvoiceType.ACOMPTE,
     requiresCgvCheck: invoice.invoiceType === InvoiceType.ACOMPTE,
     nextNumberPreview,
@@ -189,14 +209,13 @@ export async function assessCreditNoteEligibility(
     };
   }
 
-  if (paidCents <= 0) {
+  // Échéance prélevée par Stripe (abonnement) et pas encore payée : Stripe prélèverait quand même le montant initial.
+  // L'avoir se fait après le prélèvement, en remboursement.
+  if (invoice.stripeInvoiceId && balance.dueCents > 0) {
     return {
       ...base,
-      code: "UNPAID",
-      message:
-        "Aucun encaissement sur cette facture : un avoir n'est pas nécessaire.",
-      alternative:
-        "Solution : conservez la facture dans la numérotation, émettez une nouvelle facture corrigée si besoin. Ne supprimez jamais une facture émise. Vous ne déclarez à l'URSSAF que ce qui a été réellement encaissé.",
+      code: "BAD_STATUS",
+      message: "Échéance prélevée par Stripe et pas encore payée : émettez l'avoir après le prélèvement (remboursement), ou annulez l'échéance dans Stripe.",
     };
   }
 
@@ -204,11 +223,48 @@ export async function assessCreditNoteEligibility(
     return {
       ...base,
       code: "ALREADY_CREDITED",
-      message: "Le montant encaissé est déjà entièrement couvert par un ou des avoirs.",
+      message: "La facture est déjà entièrement couverte par un ou des avoirs.",
     };
   }
 
   return { ...base, allowed: true };
+}
+
+/**
+ * Montant et mode d'un avoir : entre 0,01 € et le net de la facture ; « déduction » seulement dans la limite du reste
+ * dû, un mode de remboursement seulement s'il y a un trop-perçu. Rend la part déduite et la part à rembourser.
+ * Mêmes contrôles à l'émission et dans l'aperçu.
+ */
+export function validateCreditNoteAmount(
+  eligibility: Pick<CreditNoteEligibility, "maxCreditCents" | "dueCents">,
+  amountCents: number,
+  refundMethod: RefundMethod,
+): { deductedCents: number; refundCents: number } {
+  const input = { amountCents, refundMethod };
+  if (
+    !Number.isInteger(input.amountCents) ||
+    input.amountCents <= 0 ||
+    input.amountCents > eligibility.maxCreditCents
+  ) {
+    throw new CreditNoteError(
+      `Montant invalide : entre 0,01 € et ${formatEUR(eligibility.maxCreditCents)} (net de la facture).`,
+      "AMOUNT",
+    );
+  }
+  const split = creditNoteSplit(input.amountCents, eligibility.dueCents);
+  if (input.refundMethod === RefundMethod.DEDUCT_FROM_BALANCE && split.refundCents > 0) {
+    throw new CreditNoteError(
+      `Au-delà du reste dû (${formatEUR(eligibility.dueCents)}), l'avoir est à rembourser : choisissez un mode de remboursement.`,
+      "AMOUNT",
+    );
+  }
+  if (input.refundMethod !== RefundMethod.DEDUCT_FROM_BALANCE && split.refundCents === 0) {
+    throw new CreditNoteError(
+      `L'avoir ne dépasse pas le reste dû (${formatEUR(eligibility.dueCents)}) : rien à rembourser, choisissez « Déduction sur solde restant dû ».`,
+      "AMOUNT",
+    );
+  }
+  return split;
 }
 
 export async function createCreditNote(
@@ -223,16 +279,7 @@ export async function createCreditNote(
     );
   }
 
-  if (
-    !Number.isInteger(input.amountCents) ||
-    input.amountCents <= 0 ||
-    input.amountCents > eligibility.maxCreditCents
-  ) {
-    throw new CreditNoteError(
-      `Montant invalide (max ${eligibility.maxCreditCents} centimes HT = montant encaissé restant).`,
-      "AMOUNT",
-    );
-  }
+  const split = validateCreditNoteAmount(eligibility, input.amountCents, input.refundMethod);
 
   if (
     eligibility.isAcompte &&
@@ -255,17 +302,26 @@ export async function createCreditNote(
   const issueDate = input.issueDate ?? new Date();
   const registerRefund =
     input.registerRefundPayment !== false &&
-    input.refundMethod === RefundMethod.BANK_TRANSFER;
+    input.refundMethod === RefundMethod.BANK_TRANSFER &&
+    split.refundCents > 0;
 
+  const settledRef: { value: { before: InvoiceStatus; after: InvoiceStatus } | null } = { value: null };
   const creditNote = await prisma.$transaction(async (tx) => {
+    // Verrou d'écriture puis solde relu : un autre avoir ou un paiement enregistré entre-temps est pris en compte.
+    await lockInvoice(tx, invoiceId);
     const original = await tx.invoice.findUniqueOrThrow({
       where: { id: invoiceId },
       include: {
         lines: { orderBy: { position: "asc" } },
-        creditNotes: true,
+        creditNotes: { include: { payments: { select: { amountCents: true } } } },
         payments: true,
       },
     });
+    const fresh = invoiceBalance(original);
+    const locked = validateCreditNoteAmount({ maxCreditCents: creditNoteCaps(fresh).maxCents, dueCents: fresh.dueCents }, input.amountCents, input.refundMethod);
+    if (locked.deductedCents !== split.deductedCents) {
+      throw new CreditNoteError("La facture vient de changer (paiement ou avoir) : rouvrez l'assistant pour revoir le montant.", "AMOUNT");
+    }
 
     const settings = await getCompanySettings();
     const allocated = await allocateCreditNoteNumber(issueDate, tx, settings);
@@ -274,11 +330,7 @@ export async function createCreditNote(
       (await buildClientSnapshot(original.clientId, tx));
 
     const amount = input.amountCents;
-    const fullCancel =
-      amount >= original.totalCents &&
-      original.creditNotes.length === 0;
-
-    const { description, notes } = creditNoteContent(original, input);
+    const { description, notes } = creditNoteContent(original, input, split);
 
     const creditNote = await tx.invoice.create({
       data: {
@@ -333,7 +385,8 @@ export async function createCreditNote(
       await tx.payment.create({
         data: {
           invoiceId: creditNote.id,
-          amountCents: -amount,
+          // Seule la part au-delà du reste dû est rendue au client (livre des recettes : recette négative).
+          amountCents: -split.refundCents,
           paidAt: input.refundPaidAt ?? issueDate,
           method: PaymentMethod.BANK_TRANSFER,
           reference: `Avoir ${allocated.number}`,
@@ -342,16 +395,22 @@ export async function createCreditNote(
       });
     }
 
-    if (fullCancel) {
-      await tx.invoice.update({
-        where: { id: original.id },
-        data: { status: InvoiceStatus.CANCELLED },
-      });
+    // Statut d'après le nouveau solde (Payée, Annulée), jalon d'acompte lié compris.
+    settledRef.value = await applySettledStatus(tx, original.id);
+    // Lien de paiement collé à la main (montant fixe, hors ERP) : faux après une déduction, retiré. Le lien ERP
+    // (/api/public/pay/) recalcule le reste dû à chaque clic.
+    if (split.deductedCents > 0 && original.checkoutUrl && !original.checkoutUrl.includes("/api/public/pay/")) {
+      await tx.invoice.update({ where: { id: original.id }, data: { checkoutUrl: null, revolutOrderId: null } });
     }
 
     return creditNote;
   });
   await archiveIssuedDocument(creditNote.id);
+  const settled = settledRef.value;
+  if (settled && settled.after === InvoiceStatus.PAID && settled.before !== InvoiceStatus.PAID) {
+    const { onInvoicePaidForProject } = await import("@/lib/projects/lifecycle.js");
+    await onInvoicePaidForProject(invoiceId);
+  }
   return creditNote;
 }
 
@@ -374,7 +433,11 @@ export async function cancelInvoiceWithCreditNote(
         ? CreditNoteReason.REFUND_DEPOSIT
         : CreditNoteReason.AMOUNT_CORRECTION,
     reasonDetail: "Annulation totale de la facture",
-    refundMethod: RefundMethod.BANK_TRANSFER,
+    // Facture impayée : tout est déduit ; payée en tout ou partie : le trop-perçu est remboursé par virement.
+    refundMethod:
+      creditNoteSplit(eligibility.maxCreditCents, eligibility.dueCents).refundCents > 0
+        ? RefundMethod.BANK_TRANSFER
+        : RefundMethod.DEDUCT_FROM_BALANCE,
     cgvDepositRefundable: eligibility.isAcompte ? true : null,
     issueDate,
     registerRefundPayment: true,

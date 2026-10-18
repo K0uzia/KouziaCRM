@@ -1,6 +1,7 @@
 import { InvoiceDocumentType, InvoiceStatus } from "@prisma/client";
 import { prisma } from "@/lib/prisma.js";
 import { startOfLocalDay } from "@/lib/finance/dates.js";
+import { BALANCE_INCLUDE, invoiceBalance } from "@/lib/invoices/balance.js";
 
 /**
  * Synthèse de la liste des devis ou des factures : nombres par statut (et par type pour les factures), devis à
@@ -19,6 +20,12 @@ export type ListSummary = {
   overdue: number;
   /** Devis préparés hors ligne et créés avec un écart, à relire. */
   toReview: number;
+  /**
+   * Factures : montants de la synthèse, avoirs compris. toCollect : somme des restes dus (factures émises) ;
+   * cashIn : encaissé net (paiements moins remboursements) ; invoicedNet : total facturé net des avoirs (hors
+   * brouillons et annulées) ; openCount : factures avec un reste dû ; paidCount : factures payées.
+   */
+  amounts?: { toCollectCents: number; cashInCents: number; invoicedNetCents: number; openCount: number; paidCount: number };
 };
 
 const add = (bucket: Record<string, number>, key: string, n: number) => {
@@ -38,12 +45,28 @@ export async function invoiceListSummary(type: "QUOTE" | "INVOICE", now = new Da
   }
 
   const where = { documentType: { in: [InvoiceDocumentType.INVOICE, InvoiceDocumentType.CREDIT_NOTE] } };
-  const [groups, overdue] = await Promise.all([
+  const [groups, overdue, issued] = await Promise.all([
     prisma.invoice.groupBy({ by: ["documentType", "status"], where, _count: { _all: true } }),
     prisma.invoice.count({
       where: { documentType: InvoiceDocumentType.INVOICE, status: InvoiceStatus.ISSUED, dueDate: { lt: startOfLocalDay(now) } },
     }),
+    prisma.invoice.findMany({
+      where: { documentType: InvoiceDocumentType.INVOICE, status: { not: InvoiceStatus.DRAFT } },
+      select: { status: true, totalCents: true, ...BALANCE_INCLUDE },
+    }),
   ]);
+  const amounts = { toCollectCents: 0, cashInCents: 0, invoicedNetCents: 0, openCount: 0, paidCount: 0 };
+  for (const inv of issued) {
+    const b = invoiceBalance(inv);
+    amounts.cashInCents += b.cashInCents;
+    if (inv.status === InvoiceStatus.CANCELLED) continue;
+    amounts.invoicedNetCents += b.netCents;
+    if (inv.status === InvoiceStatus.PAID) amounts.paidCount += 1;
+    if (inv.status === InvoiceStatus.ISSUED && b.dueCents > 0) {
+      amounts.toCollectCents += b.dueCents;
+      amounts.openCount += 1;
+    }
+  }
   const byStatus: Record<string, number> = {};
   const byKind = { factures: {} as Record<string, number>, avoirs: {} as Record<string, number> };
   for (const g of groups) {
@@ -52,5 +75,5 @@ export async function invoiceListSummary(type: "QUOTE" | "INVOICE", now = new Da
     add(byStatus, key, g._count._all);
     add(credit ? byKind.avoirs : byKind.factures, key, g._count._all);
   }
-  return { total: groups.reduce((n, g) => n + g._count._all, 0), byStatus, byKind, overdue, toReview: 0 };
+  return { total: groups.reduce((n, g) => n + g._count._all, 0), byStatus, byKind, overdue, toReview: 0, amounts };
 }

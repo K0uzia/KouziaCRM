@@ -1,3 +1,5 @@
+import { BALANCE_INCLUDE, invoiceBalance } from "@/lib/invoices/balance.js";
+import { applySettledStatus } from "@/lib/invoices/balance-status.js";
 import {
   InvoiceDocumentType,
   InvoiceStatus,
@@ -67,6 +69,7 @@ export async function markPaidFromOnlinePayment(
     }
   }
 
+  let overpaidCents = 0;
   const result = await prisma.$transaction(async (tx) => {
     const again = await tx.payment.findUnique({
       where: { stripePaymentIntentId: input.paymentIntentId },
@@ -93,51 +96,30 @@ export async function markPaidFromOnlinePayment(
 
     const invoice = await tx.invoice.findUniqueOrThrow({
       where: { id: invoiceId },
-      include: { payments: true },
+      include: { ...BALANCE_INCLUDE, payments: true },
     });
     if (invoice.documentType !== InvoiceDocumentType.INVOICE) {
       throw new StripePaymentError("Document invalide", 400);
     }
 
-    const paidSoFar = invoice.payments.reduce((s, p) => s + p.amountCents, 0);
-    const remaining = invoice.totalCents - paidSoFar;
-    const amount = Math.min(input.amountCents, remaining > 0 ? remaining : input.amountCents);
-
-    if (remaining > 0 && amount > 0) {
+    // Montant réellement reçu, toujours enregistré (livre des recettes, URSSAF) : jamais plafonné au reste dû. Un
+    // virement Stripe peut arriver après un avoir émis entre-temps : le trop-perçu est signalé, à rembourser.
+    const before = invoiceBalance(invoice);
+    if (input.amountCents > 0 && !invoice.payments.some((p) => p.stripePaymentIntentId === input.paymentIntentId)) {
       await tx.payment.create({
         data: {
           invoiceId: invoice.id,
-          amountCents: amount,
+          amountCents: input.amountCents,
           paidAt: new Date(),
           method: input.method,
           reference: input.paymentIntentId,
-          notes: input.notes?.trim() || "Paiement Stripe",
+          notes: input.notes?.trim() || (before.dueCents > 0 ? "Paiement Stripe" : "Paiement Stripe (facture déjà soldée)"),
           stripePaymentIntentId: input.paymentIntentId,
           feeCents: input.feeCents ?? null,
         },
       });
-      const newPaid = paidSoFar + amount;
-      if (newPaid >= invoice.totalCents && invoice.status !== InvoiceStatus.PAID) {
-        await tx.invoice.update({
-          where: { id: invoice.id },
-          data: { status: InvoiceStatus.PAID, checkoutUrl: invoice.checkoutUrl },
-        });
-        await syncMilestoneOnInvoicePaid(invoice.id, tx);
-      }
-    } else if (!invoice.payments.some((p) => p.stripePaymentIntentId === input.paymentIntentId)) {
-      // Soldée autrement : on trace quand même le PaymentIntent pour l'idempotence.
-      await tx.payment.create({
-        data: {
-          invoiceId: invoice.id,
-          amountCents: 0,
-          paidAt: new Date(),
-          method: input.method,
-          reference: input.paymentIntentId,
-          notes: "Paiement Stripe (déjà soldée)",
-          stripePaymentIntentId: input.paymentIntentId,
-          feeCents: input.feeCents ?? null,
-        },
-      });
+      if (input.amountCents > before.dueCents) overpaidCents = input.amountCents - before.dueCents;
+      await applySettledStatus(tx, invoice.id);
     }
 
     if (milestone && milestone.status !== MilestoneStatus.PAID) {
@@ -155,6 +137,16 @@ export async function markPaidFromOnlinePayment(
 
     return { duplicate: false as const, invoiceId: invoice.id, milestoneId };
   });
+
+  if (!result.duplicate && overpaidCents > 0 && result.invoiceId) {
+    // Trop-perçu (avoir émis pendant que le virement Stripe était en route) : à rembourser par un avoir.
+    const { alertAdmin } = await import("@/lib/stripe/alert.js");
+    const inv = await prisma.invoice.findUnique({ where: { id: result.invoiceId }, select: { number: true } });
+    await alertAdmin(
+      `Trop-perçu sur la facture ${inv?.number ?? ""}`,
+      `Paiement Stripe de ${(input.amountCents / 100).toFixed(2)} € reçu, dont ${(overpaidCents / 100).toFixed(2)} € au-delà du reste dû (avoir émis entre-temps). Le paiement est enregistré en entier ; remboursez le trop-perçu depuis la fiche de la facture (« Enregistrer un remboursement »).`,
+    ).catch(() => undefined);
+  }
 
   if (!result.duplicate) {
     if (result.milestoneId) {
@@ -214,12 +206,11 @@ export async function markInvoicePaidFromStripeBilling(opts: {
   await prisma.$transaction(async (tx) => {
     const invoice = await tx.invoice.findUniqueOrThrow({
       where: { id: opts.erpInvoiceId },
-      include: { payments: true },
+      include: { ...BALANCE_INCLUDE, payments: true },
     });
     if (invoice.status === InvoiceStatus.PAID) return;
 
-    const paidSoFar = invoice.payments.reduce((s, p) => s + p.amountCents, 0);
-    const remaining = invoice.totalCents - paidSoFar;
+    const remaining = invoiceBalance(invoice).dueCents;
     if (remaining <= 0) {
       await tx.invoice.update({
         where: { id: invoice.id },

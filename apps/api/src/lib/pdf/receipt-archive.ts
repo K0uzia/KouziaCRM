@@ -1,3 +1,4 @@
+import { invoiceBalance } from "@/lib/invoices/balance.js";
 import { createHash, randomBytes } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
@@ -39,7 +40,15 @@ const sha256 = (buf: Buffer) => createHash("sha256").update(buf).digest("hex");
 export async function buildReceiptData(paymentId: string, now = new Date()): Promise<PaymentReceiptPdfData | null> {
   const payment = await prisma.payment.findUnique({
     where: { id: paymentId },
-    include: { invoice: { include: { client: true, payments: true } } },
+    include: {
+      invoice: {
+        include: {
+          client: true,
+          payments: true,
+          creditNotes: { select: { totalCents: true, createdAt: true, payments: { select: { amountCents: true, createdAt: true } } } },
+        },
+      },
+    },
   });
   const invoice = payment?.invoice;
   if (!payment || !invoice?.number) return null;
@@ -48,7 +57,13 @@ export async function buildReceiptData(paymentId: string, now = new Date()): Pro
     (a, b) => a.paidAt.getTime() - b.paidAt.getTime() || a.createdAt.getTime() - b.createdAt.getTime(),
   );
   const upTo = ordered.slice(0, ordered.findIndex((p) => p.id === payment.id) + 1);
-  const paidToDateCents = upTo.reduce((s, p) => s + p.amountCents, 0);
+  // Solde à la date du reçu : avoirs et remboursements enregistrés avant ce paiement (le reçu archivé ne change plus).
+  const at = payment.createdAt.getTime();
+  const before = invoice.creditNotes
+    .filter((cn) => cn.createdAt.getTime() <= at)
+    .map((cn) => ({ totalCents: cn.totalCents, payments: cn.payments.filter((p) => p.createdAt.getTime() <= at) }));
+  const balance = invoiceBalance({ totalCents: invoice.totalCents, payments: upTo, creditNotes: before });
+  const paidToDateCents = balance.cashInCents;
   const snapshot = invoice.clientSnapshot as ClientSnapshot | null;
   const company = await getCompanySettings();
   return {
@@ -85,7 +100,8 @@ export async function buildReceiptData(paymentId: string, now = new Date()): Pro
       label: INVOICE_LABEL[invoice.invoiceType] ?? "Facture",
     },
     paidToDateCents,
-    remainingCents: Math.max(0, invoice.totalCents - paidToDateCents),
+    remainingCents: balance.dueCents,
+    ...(balance.creditedCents > 0 ? { creditedCents: balance.creditedCents } : {}),
     issuedAt: now,
   };
 }

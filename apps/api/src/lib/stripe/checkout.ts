@@ -1,3 +1,4 @@
+import { BALANCE_INCLUDE, invoiceBalance } from "@/lib/invoices/balance.js";
 import {
   InvoiceDocumentType,
   InvoiceStatus,
@@ -29,7 +30,7 @@ export async function createInvoiceCheckoutSession(invoiceId: string): Promise<s
   await assertStripeEnabled();
   const invoice = await prisma.invoice.findUnique({
     where: { id: invoiceId },
-    include: { payments: true, client: true },
+    include: { ...BALANCE_INCLUDE, client: true },
   });
   if (!invoice || invoice.documentType !== InvoiceDocumentType.INVOICE) {
     throw new StripeCheckoutError("Facture introuvable", 404);
@@ -38,8 +39,8 @@ export async function createInvoiceCheckoutSession(invoiceId: string): Promise<s
     throw new StripeCheckoutError("Cette facture est déjà réglée ou annulée", 409);
   }
 
-  const paid = invoice.payments.reduce((s, p) => s + p.amountCents, 0);
-  const remaining = invoice.totalCents - paid;
+  // Montant du lien : le reste dû, avoirs compris.
+  const remaining = invoiceBalance(invoice).dueCents;
   if (remaining <= 0) {
     throw new StripeCheckoutError("Cette facture est déjà soldée", 409);
   }
