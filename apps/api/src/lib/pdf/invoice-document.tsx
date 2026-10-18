@@ -340,6 +340,9 @@ export type InvoicePdfData = {
       reference?: string | null;
       status?: string;
     }>;
+    /** Avoirs émis sur la facture et sommes remboursées par eux (rendu de secours d'une facture sans archive). */
+    creditedCents?: number;
+    refundedCents?: number;
     /**
      * Devis accepté. Signé depuis l'espace client : mode, tracé, adresse ayant reçu
      * le code, n° de preuve et empreinte du devis avant signature. Sinon (validation
@@ -433,10 +436,14 @@ export function InvoiceDocument({ company, client, invoice, specimen, draft }: I
     ]);
   }
 
-  // Règlements : facture acquittée (vaut reçu) ou reste dû.
-  const paidCents = (invoice.payments ?? []).reduce((s, p) => s + p.amountCents, 0);
-  const showSettlement = !isQuote && !isCredit && paidCents > 0;
-  const settled = showSettlement && paidCents >= invoice.totalCents;
+  // Règlements : facture acquittée (vaut reçu) ou reste dû, avoirs compris (net = total - avoirs, encaissé net des
+  // remboursements). Une facture archivée à l'émission n'a ni règlement ni avoir : ce bloc sert au rendu de secours.
+  const creditedCents = invoice.creditedCents ?? 0;
+  const paidCents = (invoice.payments ?? []).reduce((s, p) => s + p.amountCents, 0) - (invoice.refundedCents ?? 0);
+  const netCents = Math.max(0, invoice.totalCents - creditedCents);
+  const dueCents = Math.max(0, netCents - paidCents);
+  const showSettlement = !isQuote && !isCredit && (paidCents > 0 || creditedCents > 0);
+  const settled = showSettlement && dueCents === 0;
   const lastPaidAt = (invoice.payments ?? []).reduce<Date | null>(
     (d, p) => (!d || p.paidAt > d ? p.paidAt : d),
     null,
@@ -689,13 +696,21 @@ export function InvoiceDocument({ company, client, invoice, specimen, draft }: I
           ) : null}
           {showSettlement && !settled ? (
             <>
-              <View style={styles.totalLine}>
-                <Text style={styles.muted}>Déjà réglé</Text>
-                <Text>- {fmtMoney(paidCents)}</Text>
-              </View>
+              {creditedCents > 0 ? (
+                <View style={styles.totalLine}>
+                  <Text style={styles.muted}>Avoirs</Text>
+                  <Text>- {fmtMoney(creditedCents)}</Text>
+                </View>
+              ) : null}
+              {paidCents > 0 ? (
+                <View style={styles.totalLine}>
+                  <Text style={styles.muted}>Déjà réglé</Text>
+                  <Text>- {fmtMoney(paidCents)}</Text>
+                </View>
+              ) : null}
               <View style={[styles.totalLine, { borderTopWidth: 1, borderColor: LINE }]}>
                 <Text style={styles.strong}>Reste dû</Text>
-                <Text style={styles.strong}>{fmtMoney(invoice.totalCents - paidCents)}</Text>
+                <Text style={styles.strong}>{fmtMoney(dueCents)}</Text>
               </View>
             </>
           ) : null}
@@ -873,7 +888,7 @@ export function InvoiceDocument({ company, client, invoice, specimen, draft }: I
           <View style={styles.payBox} wrap={false}>
             <Text style={styles.h2}>Règlement par virement</Text>
             <Text>
-              Merci de régler <Text style={styles.strong}>{fmtMoney(invoice.totalCents - paidCents)}</Text> en indiquant
+              Merci de régler <Text style={styles.strong}>{fmtMoney(showSettlement ? dueCents : invoice.totalCents)}</Text> en indiquant
               la référence <Text style={styles.strong}>{draft ? "(numéro attribué à l'émission)" : invoice.number}</Text>.
             </Text>
             <View style={{ flexDirection: "row", gap: 24, marginTop: 6 }}>

@@ -1,3 +1,4 @@
+import { BALANCE_INCLUDE, invoiceBalance } from "@/lib/invoices/balance.js";
 import { prisma } from "@/lib/prisma.js";
 import { getCompanySettings } from "@/lib/company.js";
 import { computeSocialChargesForEncaisse } from "@/lib/publicodes.js";
@@ -360,14 +361,15 @@ export async function getInvoiceCashflow(
     prisma.invoice.findUnique({
       where: { id: invoiceId },
       include: {
-        payments: { select: { amountCents: true } },
+        ...BALANCE_INCLUDE,
         client: { select: { displayName: true } },
       },
     }),
   ]);
   if (!invoice) return null;
 
-  const paidCents = invoice.payments.reduce((s, p) => s + p.amountCents, 0);
+  // Encaissé net : remboursements portés par les avoirs de la facture déduits.
+  const paidCents = invoiceBalance(invoice).cashInCents;
   const label = invoice.number
     ? `Facture ${invoice.number}`
     : `Facture · ${invoice.client.displayName}`;

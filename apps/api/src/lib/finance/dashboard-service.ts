@@ -1,3 +1,4 @@
+import { BALANCE_INCLUDE, invoiceBalance } from "@/lib/invoices/balance.js";
 import { InvoiceStatus, type UrssafPeriodicity } from "@prisma/client";
 import { prisma } from "@/lib/prisma.js";
 import { getCompanySettings } from "@/lib/company.js";
@@ -78,6 +79,9 @@ export type DashboardSnapshotV2 = {
   drafts: number;
   /** Paiement en 3 fois : étape déclencheuse à choisir, 2e acompte exigible à facturer. */
   deposit2: Awaited<ReturnType<typeof listDeposit2Todos>>;
+  /** Toutes les factures émises avec un reste dû (avoirs compris) : total et nombre ; la liste n'en montre que 8. */
+  pendingTotalCents: number;
+  pendingCount: number;
   pendingWithBalance: Array<{
     id: string;
     number: string | null;
@@ -195,9 +199,8 @@ export async function getDashboardSnapshot(
       : Promise.resolve(null),
     prisma.invoice.findMany({
       where: { status: InvoiceStatus.ISSUED, documentType: "INVOICE" },
-      include: { payments: true, client: { select: { displayName: true } } },
+      include: { ...BALANCE_INCLUDE, client: { select: { displayName: true } } },
       orderBy: { issueDate: "asc" },
-      take: 8,
     }),
     prisma.invoice.count({ where: { status: InvoiceStatus.DRAFT } }),
     clippedUpcoming
@@ -249,17 +252,18 @@ export async function getDashboardSnapshot(
   const cashflow =
     invoiceId && invoiceCashflow ? invoiceCashflow : periodCashflow;
 
-  const pendingWithBalance = issuedPending
-    .map((inv) => {
-      const paid = inv.payments.reduce((s, p) => s + p.amountCents, 0);
-      return {
-        id: inv.id,
-        number: inv.number,
-        displayName: inv.client.displayName,
-        remaining: inv.totalCents - paid,
-      };
-    })
+  // Reste dû avoirs compris, sur toutes les factures émises (plus de total calculé sur les 8 premières).
+  const allPending = issuedPending
+    .map((inv) => ({
+      id: inv.id,
+      number: inv.number,
+      displayName: inv.client.displayName,
+      remaining: invoiceBalance(inv).dueCents,
+    }))
     .filter((inv) => inv.remaining > 0);
+  const pendingWithBalance = allPending.slice(0, 8);
+  const pendingTotalCents = allPending.reduce((s, i) => s + i.remaining, 0);
+  const pendingCount = allPending.length;
 
   return {
     company: { legalName: company.legalName, tradeName: company.tradeName },
@@ -270,6 +274,8 @@ export async function getDashboardSnapshot(
     chart,
     drafts,
     deposit2: await listDeposit2Todos(prisma),
+    pendingTotalCents,
+    pendingCount,
     pendingWithBalance,
   };
 }

@@ -24,6 +24,8 @@ export async function loadDocumentForPdf(documentId: string) {
         sourceMilestone: true,
         milestones: { orderBy: { position: "asc" } },
         payments: { orderBy: { paidAt: "asc" } },
+        // Rendu de secours d'une facture sans archive : avoirs et remboursements pour le reste dû.
+        creditNotes: { select: { totalCents: true, payments: { select: { amountCents: true } } } },
         quoteAcceptanceAudits: { orderBy: { createdAt: "desc" }, take: 1 },
       },
     }),
