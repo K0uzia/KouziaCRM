@@ -47,13 +47,14 @@ EOF
 }
 
 YES=0
+ORIG_ARGS=("$@")
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --yes) YES=1; shift ;;
     --repo) REPO_URL="$2"; shift 2 ;;
     --branch) REPO_BRANCH="$2"; shift 2 ;;
     --from) SEED_FROM_DIR="$2"; shift 2 ;;
-    --app-dir) KOUZIA_APP_DIR="$2"; KOUZIA_DATA_DIR="${KOUZIA_APP_DIR}/data"; KOUZIA_DB_PATH="${KOUZIA_DATA_DIR}/kouziacrm.db"; KOUZIA_STATE_DIR="${KOUZIA_APP_DIR}/.deploy-state"; shift 2 ;;
+    --app-dir) KOUZIA_APP_DIR="$2"; KOUZIA_DATA_DIR="${KOUZIA_APP_DIR}/data"; KOUZIA_DB_PATH="${KOUZIA_DATA_DIR}/kouziacrm.db"; shift 2 ;;
     --skip-seed) SKIP_SEED=1; shift ;;
     --no-start) NO_START=1; shift ;;
     --skip-wizard) SKIP_WIZARD=1; shift ;;
@@ -68,6 +69,9 @@ fi
 
 require_root
 require_alpine
+# Même verrou que update, backup et restore (flock d'util-linux installé au besoin par ensure_flock).
+ops_lock 0 "${SCRIPT_DIR}/install.sh" ${ORIG_ARGS[@]+"${ORIG_ARGS[@]}"}
+trap 'exit 130' INT TERM
 disk_guard / 1024
 
 log "=== Kouzia ERP : installation Alpine CT ==="
@@ -81,7 +85,7 @@ apk add --no-cache \
   nodejs npm \
   python3 make g++ linux-headers \
   ca-certificates tzdata \
-  logrotate shadow iproute2 procps
+  logrotate shadow iproute2 procps flock
 
 # Node 20+ requis
 NODE_MAJOR="$(node -p "process.versions.node.split('.')[0]" 2>/dev/null || echo 0)"
@@ -110,6 +114,8 @@ if [[ -n "$SEED_FROM_DIR" ]]; then
     "${SEED_FROM_DIR}/" "${KOUZIA_APP_DIR}/"
 elif [[ -d "${KOUZIA_APP_DIR}/.git" ]]; then
   log "Dépôt déjà présent, synchronisation git…"
+  # Dépôt peut-être encore au compte du service (installation d'avant) : à root avant tout git en root.
+  secure_app_tree
   git_sync_from_origin "$REPO_BRANCH"
 elif [[ -f "${KOUZIA_APP_DIR}/package.json" ]]; then
   log "Code déjà présent (sans .git), conservation."
@@ -122,9 +128,10 @@ else
   rm -rf "$TMP_CLONE"
 fi
 
-chown -R "${KOUZIA_USER}:${KOUZIA_GROUP}" "$KOUZIA_APP_DIR"
-mkdir -p "$KOUZIA_DATA_DIR/uploads/obligations"
-chown -R "${KOUZIA_USER}:${KOUZIA_GROUP}" "$KOUZIA_DATA_DIR"
+# Code à root (root exécute ces scripts) ; data/, dépendances et SPA au compte du service.
+secure_app_tree
+ensure_app_dirs
+migrate_legacy_state
 
 # --- Secrets / .env ---
 ENV_FILE="${KOUZIA_APP_DIR}/.env"
@@ -134,7 +141,8 @@ if [[ ! -f "$ENV_FILE" ]]; then
   ENCRYPTION_KEY="$(openssl rand -hex 32)"
   ONBOARDING_HMAC="$(openssl rand -hex 32)"
   ADMIN_PASSWORD="$(openssl rand -base64 24)"
-  cat > "$ENV_FILE" <<EOF
+  # Créé sans lecture pour les autres (umask), puis root:kouzia 640 (env_fix_perms).
+  ( umask 077; cat > "$ENV_FILE" ) <<EOF
 # Généré par scripts/alpine/install.sh - $(date '+%Y-%m-%dT%H:%M:%S%z')
 DATABASE_URL="file:../data/kouziacrm.db"
 SESSION_SECRET="${SESSION_SECRET}"
@@ -176,12 +184,12 @@ IMAP_MAILBOX="INBOX"
 # CLOUDFLARE_TUNNEL_TOKEN=""
 # TAILSCALE_ORIGIN=""
 EOF
-  chmod 640 "$ENV_FILE"
-  chown "${KOUZIA_USER}:${KOUZIA_GROUP}" "$ENV_FILE"
+  env_fix_perms
   ok ".env créé (secrets générés)."
-  warn "Noter ADMIN_PASSWORD maintenant (affiché une seule fois) :"
-  echo "    ADMIN_PASSWORD=${ADMIN_PASSWORD}"
-  echo ""
+  # Jamais affiché (historique du terminal, capture d'écran) : fichier lisible par root seul.
+  ADMIN_PASSWORD_FILE="${KOUZIA_ETC_DIR}/admin-password-initial"
+  ( umask 077; printf '%s\n' "$ADMIN_PASSWORD" > "$ADMIN_PASSWORD_FILE" )
+  warn "Mot de passe admin initial : cat ${ADMIN_PASSWORD_FILE} (root seul). Le noter, le changer dans l'ERP, puis supprimer ce fichier."
   warn "L'assistant post-install configurera WEB_ORIGIN / SMTP / Cloudflare / Tailscale / rsync."
 else
   ok ".env existant conservé."
@@ -189,7 +197,7 @@ fi
 
 # --- Passphrase backup ---
 if [[ ! -f "$KOUZIA_PASSPHRASE_FILE" ]]; then
-  openssl rand -base64 32 > "$KOUZIA_PASSPHRASE_FILE"
+  ( umask 077; openssl rand -base64 32 > "$KOUZIA_PASSPHRASE_FILE" )
   chmod 600 "$KOUZIA_PASSPHRASE_FILE"
   ok "Passphrase backup : $KOUZIA_PASSPHRASE_FILE"
 fi
@@ -204,13 +212,13 @@ fi
 # --- Dépendances Node + build ---
 # Réinstall : stopper les services avant migrate (évite "database is locked")
 stop_app_stack
-npm_ci_or_install "$KOUZIA_APP_DIR"
+npm_ci_strict "$KOUZIA_APP_DIR" || die "npm ci a échoué : installation arrêtée."
 log "Prisma generate + migrate deploy…"
 run_as_app "cd '$KOUZIA_APP_DIR' && npx prisma generate"
-prisma_migrate_deploy "$KOUZIA_APP_DIR"
+prisma_migrate_deploy "$KOUZIA_APP_DIR" || die "Installation arrêtée : migrations en échec."
 if [[ "$SKIP_SEED" -eq 0 ]]; then
   if [[ -f "$KOUZIA_DB_PATH" ]] && [[ -s "$KOUZIA_DB_PATH" ]]; then
-    log "Base existante détectée, seed (idempotent)…"
+    log "Base existante détectée, seed (idempotent, mot de passe admin existant conservé)…"
   fi
   run_as_app "cd '$KOUZIA_APP_DIR' && npm run db:seed" || warn "Seed échoué (compte admin déjà présent ?). Continuer."
 fi
@@ -240,14 +248,7 @@ rc-update add kouziacrm-worker default
 install_kouziactl_link "${KOUZIA_APP_DIR}/scripts/alpine/kouziactl" /usr/local/bin/kouziactl
 
 # --- Cron backup + logrotate ---
-install -m 644 "${SCRIPT_DIR}/conf/logrotate.kouzia" /etc/logrotate.d/kouzia
-CRON_FILE="/etc/periodic/daily/kouzia-backup"
-cat > "$CRON_FILE" <<EOF
-#!/bin/sh
-# Backup quotidien Kouzia ERP (Alpine busybox crond : /etc/periodic/daily)
-exec ${KOUZIA_APP_DIR}/scripts/alpine/backup.sh
-EOF
-chmod 755 "$CRON_FILE"
+install_system_conf
 # S'assurer que crond tourne
 rc-update add crond default 2>/dev/null || true
 rc-service crond start 2>/dev/null || true

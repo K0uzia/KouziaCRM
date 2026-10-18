@@ -2,10 +2,17 @@
 # Backup SQLite cohérent (API .backup), intégrité, chiffrement GPG, rotation,
 # et synchronisation rsync optionnelle vers un hôte distant.
 #
-# Config rsync : /etc/kouzia/rsync.env (voir conf/rsync.env.example)
+# .backup passe par l'API de sauvegarde de SQLite : copie cohérente même app lancée (cron de nuit), à
+# la différence d'un cp du fichier pendant une écriture (sqlite.org/howtocorrupt.html). kouziactl update
+# arrête quand même l'app avant : rien n'est écrit entre la copie et la migration.
+# La base et data/uploads sont lus par le compte du service (run_as_app_argv) : root ne fait que chiffrer
+# le flux et écrire dans ses propres dossiers.
 #
-# Cron Alpine : /etc/periodic/daily/kouzia-backup (posé par install.sh)
-# Ou : 0 2 * * * /opt/kouziacrm/scripts/alpine/backup.sh
+# Config rsync : /etc/kouzia/rsync.env (voir conf/rsync.env.example)
+# Sortie standard : chemin du .db.gpg créé (rien d'autre). Messages : écran et backup.log.
+#
+# Cron Alpine : /etc/periodic/daily/kouzia-backup (posé par install.sh et update.sh)
+# Ou : 0 2 * * * /bin/bash /opt/kouziacrm/scripts/alpine/backup.sh
 
 set -euo pipefail
 
@@ -13,13 +20,13 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=lib.sh
 source "${SCRIPT_DIR}/lib.sh"
 
+ORIG_ARGS=("$@")
 TAG=""
 SKIP_RSYNC=0
-LOG_FILE="${KOUZIA_LOG_DIR}/backup.log"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --tag) TAG="$2"; shift 2 ;;
+    --tag) TAG="${2:-}"; shift 2 ;;
     --skip-rsync) SKIP_RSYNC=1; shift ;;
     -h|--help)
       echo "Usage: backup.sh [--tag LABEL] [--skip-rsync]"
@@ -28,14 +35,22 @@ while [[ $# -gt 0 ]]; do
     *) die "Option inconnue: $1" ;;
   esac
 done
+[[ -z "$TAG" || "$TAG" =~ ^[a-z0-9-]+$ ]] || die "Étiquette invalide (minuscules, chiffres, tirets) : $TAG"
 
-mkdir -p "$KOUZIA_LOG_DIR" "$KOUZIA_BACKUP_DIR"
+require_root
+# Cron pendant une mise à jour ou une restauration : attente jusqu'à 30 min, puis échec journalisé.
+ops_lock 1800 "${SCRIPT_DIR}/backup.sh" ${ORIG_ARGS[@]+"${ORIG_ARGS[@]}"}
+umask 077
+trap 'exit 130' INT TERM
+
+ensure_ops_dirs
+LOG_FILE="${KOUZIA_OPS_LOG_DIR}/backup.log"
 
 blog() {
   echo "[$(date '+%Y-%m-%dT%H:%M:%S%z')] $*" | tee -a "$LOG_FILE" >&2
 }
 
-require_cmd sqlite3 gpg
+require_cmd sqlite3 gpg tar
 [[ -f "$KOUZIA_DB_PATH" ]] || die "Base SQLite introuvable: $KOUZIA_DB_PATH"
 [[ -f "$KOUZIA_PASSPHRASE_FILE" ]] || die "Passphrase absente: $KOUZIA_PASSPHRASE_FILE"
 
@@ -47,24 +62,32 @@ if [[ -n "$TAG" ]] || [[ -f "${KOUZIA_BACKUP_DIR}/kouziacrm-${STAMP}.db.gpg" ]];
   STAMP="$(date +%F_%H%M%S)"
 fi
 ENC_FILE="${KOUZIA_BACKUP_DIR}/kouziacrm-${STAMP}${SUFFIX}.db.gpg"
-TMP_DB="$(mktemp)"
-ENV_BUNDLE=""
-BUNDLE_DIR=""
+# Copie de travail : dossier temporaire donné au compte du service, qui y écrit la copie de la base.
+WORK="$(mktemp -d)"
+chown "${KOUZIA_USER}:${KOUZIA_GROUP}" "$WORK"
+META_DIR=""
 cleanup() {
-  rm -f "$TMP_DB" ${ENV_BUNDLE:+"$ENV_BUNDLE"}
-  [[ -n "$BUNDLE_DIR" ]] && rm -rf "$BUNDLE_DIR"
+  rm -rf "$WORK"
+  [[ -z "$META_DIR" ]] || rm -rf "$META_DIR"
 }
 trap cleanup EXIT
 
 disk_guard "$KOUZIA_BACKUP_DIR" 200
 
+gpg_encrypt_to() {
+  gpg --batch --yes --symmetric --cipher-algo AES256 \
+    --passphrase-file "$KOUZIA_PASSPHRASE_FILE" \
+    --output "$1"
+}
+
 blog "Backup SQLite: $KOUZIA_DB_PATH -> tmp"
-if ! sqlite3 "$KOUZIA_DB_PATH" ".backup '$TMP_DB'"; then
+# .timeout : attend jusqu'à 15 s un verrou d'écriture de l'app au lieu d'échouer aussitôt (SQLITE_BUSY).
+if ! run_as_app_argv sqlite3 -cmd ".timeout 15000" "$KOUZIA_DB_PATH" ".backup '${WORK}/db'"; then
   blog "ERREUR: sqlite3 .backup a échoué"
   exit 1
 fi
 
-INTEGRITY="$(sqlite3 "$TMP_DB" "PRAGMA integrity_check;")"
+INTEGRITY="$(run_as_app_argv sqlite3 "${WORK}/db" "PRAGMA integrity_check;" 2>&1 || true)"
 if [[ "$INTEGRITY" != "ok" ]]; then
   blog "ERREUR: integrity_check != ok: $INTEGRITY"
   exit 1
@@ -73,35 +96,21 @@ blog "Intégrité OK"
 
 # Meta chiffrée : .env + liste des migrations (reprise disaster recovery)
 if [[ -f "${KOUZIA_APP_DIR}/.env" ]]; then
-  ENV_BUNDLE="$(mktemp)"
-  BUNDLE_DIR="$(mktemp -d)"
-  cp "${KOUZIA_APP_DIR}/.env" "${BUNDLE_DIR}/dotenv"
-  sqlite3 "$TMP_DB" "SELECT migration_name FROM _prisma_migrations ORDER BY finished_at;" \
-    > "${BUNDLE_DIR}/migrations.txt" 2>/dev/null || true
-  tar -C "$BUNDLE_DIR" -czf "$ENV_BUNDLE" .
-  gpg --batch --yes --symmetric --cipher-algo AES256 \
-    --passphrase-file "$KOUZIA_PASSPHRASE_FILE" \
-    --output "${ENC_FILE%.db.gpg}.meta.tar.gz.gpg" \
-    "$ENV_BUNDLE"
+  META_DIR="$(mktemp -d)"
+  cp "${KOUZIA_APP_DIR}/.env" "${META_DIR}/dotenv"
+  run_as_app_argv sqlite3 "${WORK}/db" "SELECT migration_name FROM _prisma_migrations ORDER BY finished_at;" \
+    > "${META_DIR}/migrations.txt" 2>/dev/null || true
+  tar -C "$META_DIR" -czf - . | gpg_encrypt_to "${ENC_FILE%.db.gpg}.meta.tar.gz.gpg"
   blog "Meta (.env + migrations) chiffrée"
 fi
 
 blog "Chiffrement GPG -> $ENC_FILE"
-gpg --batch --yes --symmetric --cipher-algo AES256 \
-  --passphrase-file "$KOUZIA_PASSPHRASE_FILE" \
-  --output "$ENC_FILE" \
-  "$TMP_DB"
+run_as_app_argv cat "${WORK}/db" | gpg_encrypt_to "$ENC_FILE"
 
 # Uploads (pièces jointes) : snapshot tar.gz chiffré si non vide
 UPLOADS="${KOUZIA_DATA_DIR}/uploads"
-if [[ -d "$UPLOADS" ]] && find "$UPLOADS" -type f 2>/dev/null | grep -q .; then
-  UP_TMP="$(mktemp)"
-  tar -C "$KOUZIA_DATA_DIR" -czf "$UP_TMP" uploads
-  gpg --batch --yes --symmetric --cipher-algo AES256 \
-    --passphrase-file "$KOUZIA_PASSPHRASE_FILE" \
-    --output "${ENC_FILE%.db.gpg}.uploads.tar.gz.gpg" \
-    "$UP_TMP"
-  rm -f "$UP_TMP"
+if [[ -d "$UPLOADS" && -n "$(find "$UPLOADS" -type f 2>/dev/null | head -n 1)" ]]; then
+  run_as_app_argv tar -C "$KOUZIA_DATA_DIR" -czf - uploads | gpg_encrypt_to "${ENC_FILE%.db.gpg}.uploads.tar.gz.gpg"
   blog "Uploads chiffrés"
 fi
 
@@ -113,6 +122,7 @@ find "$KOUZIA_BACKUP_DIR" -name 'kouziacrm-*.uploads.tar.gz.gpg' -mtime "+${KOUZ
 SIZE="$(stat -c %s "$ENC_FILE" 2>/dev/null || stat -f %z "$ENC_FILE")"
 COUNT="$(find "$KOUZIA_BACKUP_DIR" -name 'kouziacrm-*.db.gpg' | wc -l | tr -d ' ')"
 blog "OK local: $ENC_FILE ($(( SIZE / 1024 )) Ko) : $COUNT backup(s)"
+printf '%s\n' "$ENC_FILE"
 
 # --- Rsync offsite ---
 load_rsync_conf
@@ -128,7 +138,7 @@ elif [[ -n "${KOUZIA_RSYNC_TARGET:-}" ]]; then
     RSYNC_OPTS+=(--delete)
   fi
   blog "Rsync -> $KOUZIA_RSYNC_TARGET"
-  if rsync "${RSYNC_OPTS[@]}" "${KOUZIA_BACKUP_DIR}/" "$KOUZIA_RSYNC_TARGET"; then
+  if rsync "${RSYNC_OPTS[@]}" "${KOUZIA_BACKUP_DIR}/" "$KOUZIA_RSYNC_TARGET" >&2; then
     blog "Rsync OK"
   else
     blog "ERREUR: rsync vers $KOUZIA_RSYNC_TARGET a échoué"

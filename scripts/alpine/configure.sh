@@ -122,8 +122,7 @@ if (re.test(text)) {
 }
 fs.writeFileSync(file, text);
 NODE
-  chown "${KOUZIA_USER}:${KOUZIA_GROUP}" "$ENV_FILE" 2>/dev/null || true
-  chmod 640 "$ENV_FILE"
+  env_fix_perms
 }
 
 ask() {
@@ -664,6 +663,12 @@ configure_cloudflare() {
   fi
   ok "cloudflared $(cloudflared --version 2>/dev/null | head -1 || echo OK)"
 
+  # Arrêt par le script en place (son pidfile, son superviseur) avant de le remplacer : sinon l'ancien
+  # processus resterait orphelin à côté du nouveau.
+  if [[ -f /etc/init.d/cloudflared ]] && ! cmp -s "${SCRIPT_DIR}/openrc/cloudflared" /etc/init.d/cloudflared; then
+    rc-service cloudflared stop 2>/dev/null || true
+    rm -f /run/cloudflared.pid
+  fi
   install -m 755 "${SCRIPT_DIR}/openrc/cloudflared" /etc/init.d/cloudflared
   cat > /etc/conf.d/cloudflared <<EOF
 # Token lu depuis fichier (généré par kouziactl cloudflare)
@@ -1125,7 +1130,6 @@ feature_offered_add() {
   if ! grep -qx "$id" "$FEATURES_OFFERED" 2>/dev/null; then
     printf '%s\n' "$id" >> "$FEATURES_OFFERED"
   fi
-  chown "${KOUZIA_USER}:${KOUZIA_GROUP}" "$FEATURES_OFFERED" 2>/dev/null || true
 }
 
 feature_is_configured() {

@@ -1,5 +1,6 @@
 /var/log/kouzia/*.log
 /var/log/kouzia/*.err
+/var/log/kouzia-ops/*.log
 {
   daily
   rotate 14

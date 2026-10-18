@@ -1,6 +1,6 @@
 #!/sbin/openrc-run
 # Cloudflare Tunnel pour Kouzia ERP
-# Token : /etc/kouzia/cloudflare-tunnel.token (posé par kouziactl cloudflare)
+# Jeton : /etc/kouzia/cloudflare-tunnel.token (600, root), posé par kouziactl cloudflare.
 
 description="Cloudflare Tunnel (cloudflared)"
 
@@ -8,8 +8,16 @@ description="Cloudflare Tunnel (cloudflared)"
 
 name="cloudflared"
 command="/usr/local/bin/cloudflared"
-command_background=true
-pidfile="/run/${RC_SVCNAME}.pid"
+command_args="tunnel --no-autoupdate run"
+# Jeton lu ici en root puis passé par l'environnement (TUNNEL_TOKEN, lu par « cloudflared tunnel run ») :
+# jamais sur la ligne de commande visible dans ps. cloudflared tourne ensuite sans droits, supervisé.
+command_user="nobody"
+supervisor=supervise-daemon
+# Coupure réseau : relance sans limite, toutes les 10 s.
+respawn_delay=10
+respawn_max=0
+umask=077
+
 output_log="/var/log/kouzia/cloudflared.log"
 error_log="/var/log/kouzia/cloudflared.err"
 
@@ -19,24 +27,29 @@ depend() {
 }
 
 start_pre() {
-  checkpath -d -o root:root -m 0750 /var/log/kouzia
+  checkpath -d -o root:root -m 0755 /var/log/kouzia
+  checkpath -f -o nobody -m 0640 "$output_log" "$error_log"
 
   if [ ! -x "$command" ]; then
     eerror "cloudflared introuvable: $command"
     return 1
   fi
 
-  if [ ! -f "$CLOUDFLARE_TOKEN_FILE" ] || [ ! -s "$CLOUDFLARE_TOKEN_FILE" ]; then
-    eerror "Token manquant: $CLOUDFLARE_TOKEN_FILE (kouziactl cloudflare)"
+  TUNNEL_TOKEN=""
+  if [ -s "$CLOUDFLARE_TOKEN_FILE" ]; then
+    TUNNEL_TOKEN="$(tr -d '\r\n' < "$CLOUDFLARE_TOKEN_FILE")"
+  elif [ -n "${CLOUDFLARE_TUNNEL_TOKEN:-}" ]; then
+    # Ancien /etc/conf.d/cloudflared (jeton écrit directement dedans) : encore lu, à refaire.
+    ewarn "Jeton lu dans /etc/conf.d/cloudflared (ancien format) : relancer kouziactl cloudflare"
+    TUNNEL_TOKEN="$CLOUDFLARE_TUNNEL_TOKEN"
+  fi
+  if [ -z "$TUNNEL_TOKEN" ]; then
+    eerror "Token manquant ou vide: $CLOUDFLARE_TOKEN_FILE (kouziactl cloudflare)"
     return 1
   fi
+  export TUNNEL_TOKEN
+}
 
-  _tok="$(tr -d '\r\n' < "$CLOUDFLARE_TOKEN_FILE")"
-  if [ -z "$_tok" ]; then
-    eerror "Token vide dans $CLOUDFLARE_TOKEN_FILE"
-    return 1
-  fi
-
-  # Défini ici pour que start() voie le bon argument (après lecture fichier)
-  command_args="tunnel --no-autoupdate run --token ${_tok}"
+start_post() {
+  unset TUNNEL_TOKEN
 }

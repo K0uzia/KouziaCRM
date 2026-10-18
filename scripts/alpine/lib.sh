@@ -10,7 +10,12 @@ KOUZIA_GROUP="${KOUZIA_GROUP:-kouzia}"
 KOUZIA_DATA_DIR="${KOUZIA_DATA_DIR:-${KOUZIA_APP_DIR}/data}"
 KOUZIA_DB_PATH="${KOUZIA_DB_PATH:-${KOUZIA_DATA_DIR}/kouziacrm.db}"
 KOUZIA_BACKUP_DIR="${KOUZIA_BACKUP_DIR:-/var/backup/kouzia}"
-KOUZIA_STATE_DIR="${KOUZIA_STATE_DIR:-${KOUZIA_APP_DIR}/.deploy-state}"
+# Opérations lancées par root (mise à jour, sauvegarde, restauration) : état, journal et verrou dans des
+# dossiers de root, jamais dans un dossier du compte du service (piège par lien symbolique sur > et tee -a).
+KOUZIA_STATE_DIR="${KOUZIA_STATE_DIR:-/var/lib/kouzia-ops}"
+KOUZIA_OPS_LOG_DIR="${KOUZIA_OPS_LOG_DIR:-/var/log/kouzia-ops}"
+KOUZIA_OPS_LOCK="${KOUZIA_OPS_LOCK:-/run/kouzia-ops.lock}"
+# Journaux des services (app, worker, tunnel) : dossier à root, fichiers au compte de chaque service.
 KOUZIA_LOG_DIR="${KOUZIA_LOG_DIR:-/var/log/kouzia}"
 KOUZIA_ETC_DIR="${KOUZIA_ETC_DIR:-/etc/kouzia}"
 KOUZIA_PASSPHRASE_FILE="${KOUZIA_PASSPHRASE_FILE:-${KOUZIA_ETC_DIR}/backup-pass}"
@@ -92,9 +97,54 @@ run_as_app() {
   fi
 }
 
-# git dans le dépôt app : OK en root (safe.directory) sans toucher git config.
+# Commande sous le compte du service, arguments transmis tels quels (jamais réinterprétés par un shell).
+# Toute lecture ou écriture dans data/ passe par là : root n'y ouvre aucun chemin que ce compte contrôle.
+run_as_app_argv() {
+  local cmd
+  printf -v cmd '%q ' "$@"
+  if [[ "$(id -u)" -eq 0 ]]; then
+    su -s /bin/bash "$KOUZIA_USER" -c "$cmd"
+  else
+    bash -c "$cmd"
+  fi
+}
+
+# git en root, sur un dépôt possédé par root (secure_app_tree) : ni safe.directory, ni hooks, ni fsmonitor.
+# git-scm.com/docs/git, section SECURITY : la config et les hooks d'un dépôt peuvent lancer des commandes.
 git_in_app() {
-  git -c "safe.directory=${KOUZIA_APP_DIR}" -C "$KOUZIA_APP_DIR" "$@"
+  git -c core.hooksPath=/dev/null -c core.fsmonitor=false -C "$KOUZIA_APP_DIR" "$@"
+}
+
+# Clés admises dans .git/config : celles qu'écrivent git clone, git fetch et un réglage courant. Toute autre
+# clé (alias, filtre, pager, sshCommand, include, diff externe...) peut lancer une commande en root : refusée.
+git_config_key_allowed() {
+  [[ "$1" =~ ^(core\.(repositoryformatversion|filemode|bare|logallrefupdates|symlinks|ignorecase|precomposeunicode)|remote\.origin\.(url|fetch|tagopt|prune)|branch\.[A-Za-z0-9._/-]+\.(remote|merge|rebase)|pull\.(rebase|ff)|fetch\.prune|gc\.auto|user\.(name|email)|extensions\.objectformat)$ ]]
+}
+
+git_remote_url_allowed() {
+  [[ "$1" =~ ^(https://|ssh://|git@)[A-Za-z0-9._~:/@%+-]+$ ]]
+}
+
+# Contrôle de .git/config avant tout git lancé par root (lecture seule, sans include).
+git_config_audit() {
+  local dir="${KOUZIA_APP_DIR}/.git" keys urls key url bad=()
+  [[ -d "$dir" && ! -L "$dir" ]] || die "Dépôt git absent ou lien symbolique : $dir"
+  [[ -f "${dir}/config" && ! -L "${dir}/config" ]] || die "Fichier ${dir}/config absent ou lien symbolique."
+  [[ ! -e "${dir}/config.worktree" ]] || bad+=("config.worktree")
+  keys="$(git config --file "${dir}/config" --no-includes --name-only --list)" \
+    || die "Lecture de ${dir}/config impossible."
+  while IFS= read -r key; do
+    [[ -z "$key" ]] || git_config_key_allowed "$key" || bad+=("$key")
+  done <<< "$keys"
+  urls="$(git config --file "${dir}/config" --no-includes --get-all remote.origin.url || true)"
+  while IFS= read -r url; do
+    [[ -z "$url" ]] || git_remote_url_allowed "$url" || bad+=("remote.origin.url=${url}")
+  done <<< "$urls"
+  [[ ${#bad[@]} -eq 0 ]] && return 0
+  echo "${C_RED}ERREUR${C_RESET} Réglages inattendus dans ${dir}/config : git n'est pas lancé en root." >&2
+  printf '  %s\n' "${bad[@]}" >&2
+  echo "  Les retirer (git config --file ${dir}/config --unset <clé>) puis relancer." >&2
+  exit 1
 }
 
 # Aligne le code du CT sur GitHub (source de vérité).
@@ -103,6 +153,7 @@ git_in_app() {
 git_sync_from_origin() {
   local branch="${1:-main}"
   [[ -d "${KOUZIA_APP_DIR}/.git" ]] || die "Pas de dépôt git dans $KOUZIA_APP_DIR"
+  git_config_audit
 
   log "Synchronisation git → origin/${branch} (reset, GitHub fait foi)…"
   git_in_app fetch --depth 1 origin "+${branch}:refs/remotes/origin/${branch}" \
@@ -114,15 +165,8 @@ git_sync_from_origin() {
     || git_in_app checkout -f -B "$branch" FETCH_HEAD \
     || die "Impossible de placer ${branch} sur origin/${branch}."
 
-  chown -R "${KOUZIA_USER}:${KOUZIA_GROUP}" \
-    "${KOUZIA_APP_DIR}/.git" \
-    "${KOUZIA_APP_DIR}/apps" \
-    "${KOUZIA_APP_DIR}/packages" \
-    "${KOUZIA_APP_DIR}/prisma" \
-    "${KOUZIA_APP_DIR}/scripts" \
-    "${KOUZIA_APP_DIR}/package.json" \
-    "${KOUZIA_APP_DIR}/package-lock.json" \
-    2>/dev/null || true
+  # Code tiré en root : il reste à root (jamais rendu au compte du service, root l'exécute).
+  secure_app_tree
 
   ok "HEAD = $(git_in_app rev-parse --short HEAD) (origin/${branch})"
 }
@@ -134,21 +178,130 @@ build_spa() {
   run_as_app "cd '$dir' && npm run build:spa -w @kouzia-erp/web"
 }
 
+# Dossiers de root des opérations. Les journaux des services gardent leur dossier (à root, voir openrc/).
+ensure_ops_dirs() {
+  mkdir -p "$KOUZIA_BACKUP_DIR" "$KOUZIA_ETC_DIR" "$KOUZIA_STATE_DIR" "$KOUZIA_OPS_LOG_DIR" "$KOUZIA_LOG_DIR"
+  chown root:root "$KOUZIA_BACKUP_DIR" "$KOUZIA_ETC_DIR" "$KOUZIA_STATE_DIR" "$KOUZIA_OPS_LOG_DIR" "$KOUZIA_LOG_DIR"
+  chmod 750 "$KOUZIA_ETC_DIR" "$KOUZIA_BACKUP_DIR" "$KOUZIA_OPS_LOG_DIR"
+  chmod 700 "$KOUZIA_STATE_DIR"
+  chmod 755 "$KOUZIA_LOG_DIR"
+}
+
 ensure_dirs() {
-  mkdir -p \
-    "$KOUZIA_APP_DIR" \
-    "$KOUZIA_DATA_DIR" \
-    "$KOUZIA_BACKUP_DIR" \
-    "$KOUZIA_STATE_DIR" \
-    "$KOUZIA_LOG_DIR" \
-    "$KOUZIA_ETC_DIR" \
-    "${KOUZIA_DATA_DIR}/uploads/obligations"
-  chown -R "${KOUZIA_USER}:${KOUZIA_GROUP}" \
-    "$KOUZIA_APP_DIR" \
-    "$KOUZIA_DATA_DIR" \
-    "$KOUZIA_STATE_DIR" \
-    "$KOUZIA_LOG_DIR" 2>/dev/null || true
-  chmod 750 "$KOUZIA_ETC_DIR" "$KOUZIA_BACKUP_DIR"
+  mkdir -p "$KOUZIA_APP_DIR"
+  chown root:root "$KOUZIA_APP_DIR"
+  chmod 755 "$KOUZIA_APP_DIR"
+  ensure_ops_dirs
+}
+
+# Chemins (relatifs au dossier de l'app) possédés par le compte du service : données, dépendances et SPA,
+# écrites par npm, prisma generate et vite lancés sous ce compte, et dossiers de npm (son HOME est le
+# dossier de l'app). Root n'exécute rien de ces dossiers et n'y écrit pas.
+ops_app_paths() {
+  local app="${1:-$KOUZIA_APP_DIR}" d
+  printf '%s\n' data node_modules apps/web/dist .npm .cache .config
+  for d in "$app"/apps/*/ "$app"/packages/*/; do
+    d="${d%/}"
+    [[ -d "$d" && ! -L "$d" ]] || continue
+    printf '%s\n' "${d#"${app}"/}/node_modules"
+  done
+}
+
+# Entrées de premier niveau rendues à root : tout sauf .env (traité à part) et les chemins ci-dessus.
+ops_code_entries() {
+  local app="${1:-$KOUZIA_APP_DIR}" e
+  for e in "$app"/* "$app"/.[!.]* "$app"/..?*; do
+    [[ -e "$e" || -L "$e" ]] || continue
+    case "${e##*/}" in
+      .env|data|node_modules|.npm|.cache|.config) continue ;;
+    esac
+    printf '%s\n' "$e"
+  done
+}
+
+# Code et dépôt git à root:root (dossiers 755, fichiers 644, exécutables 755) : root exécute ces scripts
+# (cron de sauvegarde, kouziactl, update.sh). Sans effet sur les chemins de ops_app_paths.
+# KOUZIA_OPS_DRY_RUN=1 : affiche les commandes au lieu de les lancer (tests sans root).
+secure_app_tree() {
+  local app="$KOUZIA_APP_DIR" e pre=()
+  [[ "${KOUZIA_OPS_DRY_RUN:-0}" == "1" ]] && pre=(echo)
+  [[ -d "$app" && ! -L "$app" ]] || die "Dossier de l'app introuvable ou lien symbolique : $app"
+  local prune=( \( -path "${app}/apps/*/node_modules" -o -path "${app}/packages/*/node_modules" -o -path "${app}/apps/web/dist" \) -prune -o )
+  "${pre[@]}" chown root:root "$app"
+  "${pre[@]}" chmod 755 "$app"
+  while IFS= read -r e; do
+    [[ ! -L "$e" ]] || die "Lien symbolique inattendu dans le dossier de l'app : $e (le retirer puis relancer)."
+    # Dossiers un par un, parent avant enfants : un dossier déjà à root ne peut plus voir une entrée
+    # remplacée par un lien symbolique pendant la suite. Ensuite seulement, fichiers et droits en lot.
+    find "$e" "${prune[@]}" -type d -exec "${pre[@]}" chown -h root:root {} \;
+    find "$e" "${prune[@]}" -exec "${pre[@]}" chown -h root:root {} +
+    find "$e" "${prune[@]}" ! -type l -exec "${pre[@]}" chmod u=rwX,go=rX {} +
+  done < <(ops_code_entries "$app")
+  env_fix_perms
+}
+
+# .env : écrit par root seulement, lu par le service, les scripts npm et prisma (compte du service).
+env_fix_perms() {
+  local env="${KOUZIA_APP_DIR}/.env" pre=()
+  [[ "${KOUZIA_OPS_DRY_RUN:-0}" == "1" ]] && pre=(echo)
+  [[ -e "$env" || -L "$env" ]] || return 0
+  [[ ! -L "$env" ]] || die "$env est un lien symbolique : le remplacer par le fichier lui-même puis relancer."
+  "${pre[@]}" chown "root:${KOUZIA_GROUP}" "$env"
+  "${pre[@]}" chmod 640 "$env"
+}
+
+# Crée les chemins du compte du service (sous des parents à root) et les lui donne, sans récursion.
+ensure_app_dirs() {
+  local app="$KOUZIA_APP_DIR" rel p pre=()
+  [[ "${KOUZIA_OPS_DRY_RUN:-0}" == "1" ]] && pre=(echo)
+  while IFS= read -r rel; do
+    p="${app}/${rel}"
+    if [[ -L "$p" ]]; then
+      # Lien posé par l'administrateur (à root) : cible laissée telle quelle. Sinon, posé par le compte du service.
+      [[ "$(stat -c %u "$p")" == "0" ]] || die "Lien symbolique inattendu : $p (le retirer puis relancer)."
+      continue
+    fi
+    "${pre[@]}" mkdir -p "$p"
+    "${pre[@]}" chown "${KOUZIA_USER}:${KOUZIA_GROUP}" "$p"
+  done < <(ops_app_paths "$app")
+  [[ -L "${app}/data" ]] || "${pre[@]}" chmod 750 "${app}/data"
+  "${pre[@]}" chmod 700 "${app}/.npm" "${app}/.cache" "${app}/.config"
+  "${pre[@]}" run_as_app_argv mkdir -p "${app}/data/uploads/obligations"
+  # Fichiers laissés à root dans data/ par les anciennes versions (sqlite3 et restauration lancés en root).
+  if [[ -d "${app}/data" && ! -L "${app}/data" ]]; then
+    find "${app}/data" -user 0 -exec "${pre[@]}" chown -h "${KOUZIA_USER}:${KOUZIA_GROUP}" {} +
+  fi
+}
+
+# Valeur d'état reprise de l'ancien dossier .deploy-state : format attendu seulement.
+legacy_state_value_ok() {
+  case "$1" in
+    package-lock.sha|prisma-schema.sha|web.sha) [[ "$2" =~ ^([0-9a-f]{64}|missing|empty|error)$ ]] ;;
+    last-update) [[ "$2" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}[+-][0-9]{4}$ ]] ;;
+    features-offered) [[ -n "$2" ]] && ! grep -qvE '^[a-z0-9_-]+$' <<< "$2" ;;
+    *) return 1 ;;
+  esac
+}
+
+# Ancien état (dossier de l'app, au compte du service) vers KOUZIA_STATE_DIR (root). Appelé après
+# secure_app_tree, qui a rendu l'ancien dossier à root : son contenu ne peut plus changer pendant la copie.
+migrate_legacy_state() {
+  local old="${KOUZIA_APP_DIR}/.deploy-state" name val
+  [[ -d "$old" && ! -L "$old" ]] || return 0
+  [[ "$(stat -c %u "$old")" == "0" ]] || die "$old n'appartient pas encore à root (secure_app_tree d'abord)."
+  mkdir -p "$KOUZIA_STATE_DIR"
+  chmod 700 "$KOUZIA_STATE_DIR"
+  for name in package-lock.sha prisma-schema.sha web.sha last-update features-offered; do
+    [[ -f "${old}/${name}" && ! -L "${old}/${name}" && ! -e "${KOUZIA_STATE_DIR}/${name}" ]] || continue
+    val="$(head -c 4096 "${old}/${name}")"
+    if legacy_state_value_ok "$name" "$val"; then
+      printf '%s\n' "$val" > "${KOUZIA_STATE_DIR}/${name}"
+    else
+      warn "État ignoré (contenu inattendu) : ${old}/${name}"
+    fi
+  done
+  rm -rf "$old"
+  ok "État des opérations déplacé : ${old} → ${KOUZIA_STATE_DIR}"
 }
 
 file_sha256() {
@@ -184,17 +337,57 @@ tree_sha256() {
   ) || echo "error"
 }
 
+# État des opérations (dossier de root) : empreintes, dernière mise à jour, point de retour arrière.
+ops_state_get() {
+  local f="${KOUZIA_STATE_DIR}/$1"
+  if [[ -f "$f" ]]; then cat "$f"; fi
+}
+
+ops_state_set() {
+  mkdir -p "$KOUZIA_STATE_DIR"
+  chmod 700 "$KOUZIA_STATE_DIR"
+  printf '%s\n' "$2" > "${KOUZIA_STATE_DIR}/$1"
+}
+
+ops_state_clear() {
+  local name
+  for name in "$@"; do
+    rm -f "${KOUZIA_STATE_DIR}/${name}"
+  done
+}
+
 state_get() {
-  local key="$1"
-  local f="${KOUZIA_STATE_DIR}/${key}.sha"
-  [[ -f "$f" ]] && cat "$f" || echo ""
+  ops_state_get "$1.sha"
 }
 
 state_set() {
-  local key="$1" value="$2"
-  mkdir -p "$KOUZIA_STATE_DIR"
-  printf '%s\n' "$value" > "${KOUZIA_STATE_DIR}/${key}.sha"
-  chown "${KOUZIA_USER}:${KOUZIA_GROUP}" "${KOUZIA_STATE_DIR}/${key}.sha" 2>/dev/null || true
+  ops_state_set "$1.sha" "$2"
+}
+
+# Verrou commun à update, backup et restore (man7.org flock(1)). Le script se relance sous
+# « flock -o » : le verrou reste tenu par flock, jamais transmis aux processus lancés (services,
+# gpg-agent), qui le garderaient après la fin du script. Les scripts appelés dessous en héritent.
+# ops_lock <attente en s, 0 = aucune> <script> [arguments...]
+ops_lock() {
+  local wait="$1" rc=0 mode=(-n)
+  shift
+  [[ "${KOUZIA_OPS_LOCK_HELD:-0}" == "1" ]] && return 0
+  ensure_flock
+  [[ "$wait" -gt 0 ]] && mode=(-w "$wait")
+  KOUZIA_OPS_LOCK_HELD=1 flock "${mode[@]}" -o -E 75 "$KOUZIA_OPS_LOCK" bash "$@" || rc=$?
+  [[ "$rc" -ne 75 ]] || die "Une autre opération (mise à jour, sauvegarde ou restauration) est en cours : attendre sa fin puis relancer."
+  exit "$rc"
+}
+
+# flock d'util-linux (options -o et -E) : celui de BusyBox ne les a pas.
+ensure_flock() {
+  [[ "$(flock --version 2>&1 || true)" == *util-linux* ]] && return 0
+  if [[ -f /etc/alpine-release ]]; then
+    log "Installation de flock (util-linux)…" >&2
+    apk add --no-cache flock >/dev/null 2>&1 || apk add --no-cache util-linux >/dev/null 2>&1 || true
+    hash -r
+  fi
+  [[ "$(flock --version 2>&1 || true)" == *util-linux* ]] || die "flock d'util-linux requis : apk add flock"
 }
 
 wait_health() {
@@ -258,6 +451,80 @@ stop_app_stack() {
   fi
 }
 
+# Avant de remplacer la base : plus aucun superviseur ni processus de l'app (sqlite.org/howtocorrupt.html).
+assert_app_stopped() {
+  local svc pids
+  for svc in kouziacrm kouziacrm-worker; do
+    [[ -z "$(supervisor_pid "$svc")" ]] || die "Superviseur de ${svc} encore actif : base non remplacée (kouziactl stop, puis relancer)."
+  done
+  pids="$(app_process_pids "tsx.*(apps/api/src/index\\.ts|scripts/worker\\.ts)")"
+  [[ -z "$pids" ]] || die "Processus de l'app encore actifs ($(echo "$pids" | tr '\n' ' ')) : base non remplacée."
+}
+
+# Déchiffre une sauvegarde vers un fichier écrit par le compte du service (dossier à lui ou data/).
+decrypt_to_app() {
+  local src="$1" dest="$2"
+  gpg --batch --yes --decrypt --passphrase-file "$KOUZIA_PASSPHRASE_FILE" --output - "$src" \
+    | run_as_app_argv sh -c 'umask 077; cat > "$1"' sh "$dest"
+}
+
+# PRAGMA integrity_check lancé par le compte du service (root n'ouvre pas une base venue de data/).
+check_db_as_app() {
+  local out
+  out="$(run_as_app_argv sqlite3 "$1" "PRAGMA integrity_check;" 2>&1 || true)"
+  [[ "$out" == "ok" ]] && return 0
+  warn "integrity_check : ${out}"
+  return 1
+}
+
+# Remet une sauvegarde chiffrée (base, et pièces jointes si fournies), puis démarre l'app et contrôle sa
+# santé (retour 1 si elle ne répond pas). Base contrôlée avant l'arrêt ; base actuelle déplacée avec ses
+# fichiers -wal et -shm, jamais supprimée ; écritures dans data/ faites par le compte du service.
+restore_backup() {
+  local db_gpg="$1" up_gpg="${2:-}" stamp stage keep rc=0
+  stamp="$(date +%Y%m%d%H%M%S)"
+  stage="${KOUZIA_DATA_DIR}/.restauration-${stamp}.db"
+  keep="${KOUZIA_DB_PATH}.avant-restauration-${stamp}"
+  run_as_app_argv mkdir -p "$KOUZIA_DATA_DIR"
+  log "Déchiffrement et contrôle de la base…"
+  decrypt_to_app "$db_gpg" "$stage" || { run_as_app_argv rm -f "$stage"; die "Déchiffrement impossible : $db_gpg"; }
+  check_db_as_app "$stage" || { run_as_app_argv rm -f "$stage"; die "Base de la sauvegarde abîmée : rien n'a été remplacé."; }
+  ok "Intégrité OK"
+
+  stop_app_stack
+  assert_app_stopped
+  # Base, -wal, -shm et -journal déplacés ensemble : séparés, SQLite rejouerait un journal sur la mauvaise base.
+  run_as_app_argv sh -c '
+    set -eu
+    for s in "" -wal -shm -journal; do
+      if [ -e "$1$s" ] || [ -L "$1$s" ]; then mv -f "$1$s" "$3$s"; fi
+    done
+    mv -f "$2" "$1"
+    chmod 600 "$1"
+  ' sh "$KOUZIA_DB_PATH" "$stage" "$keep"
+  ok "Base restaurée : $KOUZIA_DB_PATH (base d'avant, s'il y en avait une : ${keep}, avec ses -wal et -shm)"
+
+  if [[ -n "$up_gpg" ]]; then
+    log "Pièces jointes…"
+    gpg --batch --yes --decrypt --passphrase-file "$KOUZIA_PASSPHRASE_FILE" --output - "$up_gpg" \
+      | run_as_app_argv tar -C "$KOUZIA_DATA_DIR" -xzf - \
+      && ok "Uploads restaurés" \
+      || { warn "Restauration des pièces jointes échouée ($up_gpg) : la base est remise, relancer avec --uploads."; rc=1; }
+  fi
+
+  # Sauvegarde plus ancienne que le code : ses migrations manquantes sont appliquées.
+  prisma_migrate_deploy "$KOUZIA_APP_DIR" || rc=1
+  log "Redémarrage…"
+  service_safe kouziacrm start
+  sleep 2
+  if ! wait_health; then
+    warn "API unhealthy après restauration : kouziactl logs app"
+    return 1
+  fi
+  service_safe kouziacrm-worker start
+  return "$rc"
+}
+
 # Scripts OpenRC de l'app (API, worker) : (ré)installés quand ils diffèrent de ceux du dépôt.
 # Transition : la pile est arrêtée par les scripts EN PLACE (leur pidfile, leur superviseur)
 # avant la copie, sinon un processus lancé par l'ancien script resterait orphelin.
@@ -279,6 +546,36 @@ install_app_openrc() {
     rm -f "/run/${svc}.pid"
     ok "Script OpenRC installé : /etc/init.d/${svc}"
   done
+}
+
+# Tunnel : script réinstallé s'il a changé, seulement s'il est déjà posé (kouziactl cloudflare le pose).
+# Arrêt par le script en place (pidfile de start-stop-daemon), relance par le nouveau s'il tournait.
+# /etc/conf.d/cloudflared n'a pas à changer : même variable CLOUDFLARE_TOKEN_FILE, et l'ancien format
+# (CLOUDFLARE_TUNNEL_TOKEN dans conf.d) reste lu par le nouveau script.
+install_tunnel_openrc() {
+  local src="$1/cloudflared" dst=/etc/init.d/cloudflared was_running=0
+  [[ -f "$src" && -f "$dst" ]] || return 0
+  cmp -s "$src" "$dst" && return 0
+  rc-service cloudflared status >/dev/null 2>&1 && was_running=1
+  rc-service cloudflared stop >/dev/null 2>&1 || true
+  install -m 755 "$src" "$dst"
+  rm -f /run/cloudflared.pid
+  ok "Script OpenRC installé : $dst (jeton par l'environnement, compte nobody, supervise-daemon)"
+  if [[ "$was_running" -eq 1 ]]; then
+    rc-service cloudflared start \
+      || warn "cloudflared ne démarre pas : tail ${KOUZIA_LOG_DIR}/cloudflared.err, puis kouziactl cloudflare"
+  fi
+}
+
+# Fichiers système posés par install et update : rotation des journaux et sauvegarde quotidienne.
+install_system_conf() {
+  install -m 644 "${KOUZIA_APP_DIR}/scripts/alpine/conf/logrotate.kouzia" /etc/logrotate.d/kouzia
+  cat > /etc/periodic/daily/kouzia-backup <<EOF
+#!/bin/sh
+# Backup quotidien Kouzia ERP (Alpine busybox crond : /etc/periodic/daily). Journal : ${KOUZIA_OPS_LOG_DIR}/backup.log
+exec /bin/bash ${KOUZIA_APP_DIR}/scripts/alpine/backup.sh
+EOF
+  chmod 755 /etc/periodic/daily/kouzia-backup
 }
 
 # Service OpenRC et script lancé, pour app | worker.
@@ -387,7 +684,8 @@ prisma_migrate_deploy() {
     stop_app_stack
     sleep 2
   done
-  die "prisma migrate deploy a échoué (SQLite locked ou erreur migration)."
+  warn "prisma migrate deploy a échoué (SQLite locked ou erreur migration)."
+  return 1
 }
 
 disk_guard() {
@@ -410,9 +708,9 @@ install_kouziactl_link() {
   ok "Commande kouziactl → $target"
 }
 
-# npm ci strict ; fallback propre si lockfile / plateforme (ex. Alpine musl + npm 11).
+# npm ci strict, sans repli npm install : celui-ci réécrirait package-lock.json, que GitHub fixe.
 # --include=dev : vite/typescript indispensables au build SPA, même si NODE_ENV=production.
-npm_ci_or_install() {
+npm_ci_strict() {
   local dir="${1:-$KOUZIA_APP_DIR}"
   log "npm ci dans $dir…"
   local libc_args=()
@@ -424,7 +722,15 @@ npm_ci_or_install() {
     ok "npm ci terminé"
     return 0
   fi
-  warn "npm ci a échoué : fallback npm install propre (lockfile / plateforme)."
-  run_as_app "cd '$dir' && rm -rf node_modules apps/*/node_modules packages/*/node_modules && npm install --include=dev ${libc_args[*]}"
-  ok "npm install terminé"
+  warn "npm ci a échoué (lockfile ou plateforme) : corriger package-lock.json dans le dépôt, sans npm install sur le CT."
+  return 1
+}
+
+# Lignes que kouziactl push-keys peut ajouter au .env (le reste est refusé) : vides, commentaires, clés VAPID.
+push_keys_lines_ok() {
+  local line
+  while IFS= read -r line; do
+    [[ -z "$line" || "$line" == \#* ]] && continue
+    [[ "$line" =~ ^VAPID_(PUBLIC_KEY|PRIVATE_KEY|SUBJECT)=\"[A-Za-z0-9_:@./+%-]*\"$ ]] || return 1
+  done <<< "$1"
 }

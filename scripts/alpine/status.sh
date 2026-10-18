@@ -76,9 +76,10 @@ if [[ -f "$KOUZIA_DB_PATH" ]]; then
   SIZE="$(du -h "$KOUZIA_DB_PATH" | awk '{print $1}')"
   echo "  Path : $KOUZIA_DB_PATH ($SIZE)"
   if command -v sqlite3 >/dev/null; then
-    INT="$(sqlite3 "$KOUZIA_DB_PATH" "PRAGMA integrity_check;" 2>/dev/null || echo fail)"
+    # Lu par le compte du service : sqlite3 en root créerait des fichiers -shm à root, que l'app ne pourrait plus écrire.
+    INT="$(run_as_app_argv sqlite3 "$KOUZIA_DB_PATH" "PRAGMA integrity_check;" 2>/dev/null || echo fail)"
     echo "  Integrity : $INT"
-    MIG="$(sqlite3 "$KOUZIA_DB_PATH" "SELECT migration_name FROM _prisma_migrations ORDER BY finished_at DESC LIMIT 1;" 2>/dev/null || echo "?")"
+    MIG="$(run_as_app_argv sqlite3 "$KOUZIA_DB_PATH" "SELECT migration_name FROM _prisma_migrations ORDER BY finished_at DESC LIMIT 1;" 2>/dev/null || echo "?")"
     echo "  Dernière migration : $MIG"
   fi
 else
@@ -105,4 +106,10 @@ if [[ -f "${KOUZIA_STATE_DIR}/last-update" ]]; then
   cat "${KOUZIA_STATE_DIR}/last-update"
 else
   echo "  (jamais)"
+fi
+if [[ -f "${KOUZIA_STATE_DIR}/update-in-progress" ]]; then
+  warn "Mise à jour inachevée ($(cat "${KOUZIA_STATE_DIR}/update-in-progress")) : kouziactl update la reprend, kouziactl rollback l'annule."
+fi
+if [[ -s "${KOUZIA_STATE_DIR}/pre-update-backup" ]]; then
+  echo "  Retour arrière possible (kouziactl rollback) : $(cat "${KOUZIA_STATE_DIR}/pre-update-backup")"
 fi

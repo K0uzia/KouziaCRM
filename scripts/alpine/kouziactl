@@ -98,6 +98,7 @@ Mise à jour :
   update --no-git   sans git pull (code déjà sur le CT)
   update --force    force npm ci + rebuild SPA
   update --skip-config  sans assistant post-update
+  rollback [--yes]  code et données d'avant la dernière mise à jour (backup pré-update)
   new-config        proposer les nouveautés (Tailscale, Google Agenda, etc.) sans update
 
 Config (rejouable) :
@@ -107,7 +108,7 @@ Services / data :
   start | stop | restart | logs [app|worker|backup|tailscale]
   selftest-respawn [worker|app]   tue le processus node et vérifie la relance par supervise-daemon
   repair-service app|worker       service « unsupervised » : zap, arrêt des orphelins, démarrage
-  backup | restore | migrate
+  backup | restore <f.db.gpg> [--uploads <f>] | restore --check <f.db.gpg> | migrate
   catalog [--dry-run] [--update] [--stripe]   importe le catalogue des prestations (sans doublon) ; --stripe : aussi les prestations liées à Stripe
   archive-pdfs   archive le PDF des factures et avoirs émis qui n'en ont pas (rendu du moment)
   2fa-reset <email>   désactive la double authentification admin et ferme ses sessions (secours)
@@ -144,6 +145,9 @@ run_cmd() {
     update|deploy)
       bash "${SCRIPT_DIR}/update.sh" "$@"
       ;;
+    rollback)
+      bash "${SCRIPT_DIR}/update.sh" --rollback "$@"
+      ;;
     new-config|post-update|whatsnew)
       bash "${SCRIPT_DIR}/configure.sh" --post-update "$@"
       ;;
@@ -161,7 +165,7 @@ run_cmd() {
       case "$which" in
         app)    tail -n "${2:-80}" "${KOUZIA_LOG_DIR}/app.log" ;;
         worker) tail -n "${2:-80}" "${KOUZIA_LOG_DIR}/worker.log" ;;
-        backup) tail -n "${2:-80}" "${KOUZIA_LOG_DIR}/backup.log" ;;
+        backup) tail -n "${2:-80}" "${KOUZIA_OPS_LOG_DIR}/backup.log" ;;
         tailscale|ts) tail -n "${2:-80}" /var/log/tailscaled.log ;;
         *) die "logs: app|worker|backup|tailscale" ;;
       esac
@@ -224,8 +228,10 @@ run_cmd() {
     push-keys)
       require_root
       subject="${1:-mailto:contact@kouzia.com}"
-      [[ "$subject" =~ ^(mailto:|https://) ]] || die "Usage : kouziactl push-keys [mailto:adresse]"
-      run_as_app "cd '$KOUZIA_APP_DIR' && npm run --silent push:keys -- --env-file='$KOUZIA_APP_DIR/.env' --subject='$subject'"
+      # Adresse ou URL entière, sans guillemet ni espace (la valeur finit dans le .env).
+      [[ "$subject" =~ ^(mailto:[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+|https://[A-Za-z0-9.-]+(/[A-Za-z0-9._~/%-]*)?)$ ]] \
+        || die "Usage : kouziactl push-keys [mailto:adresse]"
+      push_keys "$subject"
       ;;
     2fa-reset)
       require_root
@@ -239,16 +245,51 @@ run_cmd() {
   esac
 }
 
+# Le .env appartient à root (lecture seule pour le compte du service) : le script des clés, lancé sous ce
+# compte, écrit dans une copie ; root n'en reprend que les lignes VAPID ajoutées à la fin.
+push_keys() {
+  local subject="$1" env="${KOUZIA_APP_DIR}/.env" tmp size added
+  [[ -f "$env" && ! -L "$env" ]] || die ".env introuvable : $env"
+  tmp="$(mktemp -d)"
+  chown "${KOUZIA_USER}:${KOUZIA_GROUP}" "$tmp"
+  run_as_app_argv sh -c 'umask 077; cat > "$1"' sh "${tmp}/env" < "$env"
+  if ! run_as_app_argv sh -c 'cd "$1" && npm run --silent push:keys -- --env-file="$2" --subject="$3"' \
+    sh "$KOUZIA_APP_DIR" "${tmp}/env" "$subject"; then
+    rm -rf "$tmp"
+    die "push:keys a échoué."
+  fi
+  # Dossier repris par root : le compte du service ne peut plus changer la copie pendant le contrôle.
+  chown root:root "$tmp"
+  chmod 700 "$tmp"
+  [[ -f "${tmp}/env" && ! -L "${tmp}/env" ]] || { rm -rf "$tmp"; die "Copie du .env introuvable."; }
+  size="$(stat -c %s "$env")"
+  if ! head -c "$size" "${tmp}/env" | cmp -s - "$env"; then
+    rm -rf "$tmp"
+    die "La copie du .env a changé ailleurs qu'à la fin : rien n'est écrit."
+  fi
+  added="$(tail -c +"$((size + 1))" "${tmp}/env")"
+  rm -rf "$tmp"
+  if [[ -z "${added//[[:space:]]/}" ]]; then
+    ok "Rien à ajouter au .env."
+    return 0
+  fi
+  push_keys_lines_ok "$added" || die "Lignes inattendues dans la sortie de push:keys : rien n'est écrit."
+  [[ -z "$(tail -c 1 "$env")" ]] || printf '\n' >> "$env"
+  printf '%s\n' "$added" >> "$env"
+  env_fix_perms
+  ok "Clés VAPID ajoutées au .env. Redémarrer : kouziactl restart"
+}
+
 prompt_restore() {
   echo ""
   echo "  Backups dans $KOUZIA_BACKUP_DIR :"
   ls -1t "$KOUZIA_BACKUP_DIR"/kouziacrm-*.db.gpg 2>/dev/null | head -10 | sed 's/^/    /' \
     || echo "    (aucun)"
-  echo -n "  Chemin du .db.gpg à restaurer: "
+  echo -n "  Chemin du .db.gpg : "
   local f
   read -r f
   [[ -n "$f" ]] || { warn "Annulé."; return; }
-  run_cmd restore "$f"
+  run_cmd restore "$@" "$f"
 }
 
 # --- Sous-menus ---
@@ -305,6 +346,7 @@ show_update_menu() {
     menu_item "2" "Local seulement" "sans git pull (rsync / édition manuelle)"
     menu_item "3" "Forcer tout" "npm ci + rebuild SPA même sans diff"
     menu_item "4" "Nouveautés config" "sections encore vides (Tailscale, Google…)"
+    menu_item "5" "Revenir en arrière" "code et données d'avant la dernière mise à jour"
     menu_back
     menu_prompt
     local c
@@ -319,6 +361,7 @@ show_update_menu() {
         fi
         ;;
       4) run_cmd new-config; pause_enter ;;
+      5) run_cmd rollback; pause_enter ;;
       b|B|q|Q) return ;;
       *) warn "Choix invalide" ;;
     esac
@@ -332,6 +375,7 @@ show_backup_menu() {
     menu_item "1" "Backup maintenant" "SQLite .backup + GPG (+ rsync si cible)"
     menu_item "2" "Restaurer un backup" "arrêt services → restore → restart"
     menu_item "3" "Configurer rsync" "cible offsite"
+    menu_item "4" "Vérifier un backup" "déchiffrement + intégrité, rien n'est modifié"
     menu_back
     menu_prompt
     local c
@@ -340,6 +384,7 @@ show_backup_menu() {
       1) run_cmd backup; pause_enter ;;
       2) prompt_restore; pause_enter ;;
       3) run_cmd rsync; pause_enter ;;
+      4) prompt_restore --check; pause_enter ;;
       b|B|q|Q) return ;;
       *) warn "Choix invalide" ;;
     esac
