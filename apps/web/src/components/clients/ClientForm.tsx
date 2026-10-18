@@ -23,6 +23,7 @@ import {
 import { offlineEnabled } from "@/lib/offline/config";
 import { submitCreation, useRequestId, type QueueItem } from "@/lib/offline/queue";
 import { useReadOnly } from "@/lib/offline/read-only";
+import { addressChanged } from "@/lib/address-compare";
 
 export type Client = {
   id: string;
@@ -252,7 +253,8 @@ export function ClientFormEditor({
     setAddressError(null);
     try {
       // Hors ligne : ni vérification d'adresse (service en ligne) ni adresse, SIRET ou accès à l'espace client.
-      if (!minimal) {
+      // « Modifier » : une adresse que la personne n'a pas touchée n'est pas revérifiée, donc jamais réécrite.
+      if (!minimal && (!clientId || addressChanged(form, initial))) {
         const addrErr = await revalidateAddressBeforeSubmit(toAddressValue(form), (addr) => {
           setForm((f) => ({
             ...f,
