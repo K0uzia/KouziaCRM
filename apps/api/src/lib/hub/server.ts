@@ -1,4 +1,4 @@
-import { isIP, type BlockList } from "node:net";
+import { BlockList, isIP } from "node:net";
 import Fastify, { LogController, type FastifyError, type FastifyInstance } from "fastify";
 import rateLimit from "@fastify/rate-limit";
 import { parseIpList, registerClientIpHook } from "@/lib/client-ip.js";
@@ -12,7 +12,38 @@ import { hubRoutes, NOT_FOUND } from "@/routes/hub.js";
  */
 export type HubConfig = { secret: string; allowedIps: BlockList; host: string; port: number };
 
-/** HUB_LISTEN : "IP:port" ou "[IPv6]:port", IP explicite (jamais toutes les interfaces). */
+/**
+ * Adresses d'écoute admises : réseau local privé (RFC 1918, IPv6 ULA fc00::/7) ou boucle locale. Liste d'autorisation
+ * plutôt que refus de 0.0.0.0 : les écritures de l'adresse non spécifiée (::, [::0.0.0.0], [::ffff:0:0]…) et toute
+ * adresse publique sont refusées d'office.
+ */
+const LISTEN_ALLOWED = (() => {
+  const list = new BlockList();
+  list.addSubnet("10.0.0.0", 8, "ipv4");
+  list.addSubnet("172.16.0.0", 12, "ipv4");
+  list.addSubnet("192.168.0.0", 16, "ipv4");
+  list.addSubnet("127.0.0.0", 8, "ipv4");
+  list.addSubnet("fc00::", 7, "ipv6");
+  list.addAddress("::1", "ipv6");
+  return list;
+})();
+
+/** IPv4 écrite en IPv6 (::ffff:a.b.c.d, ::ffff:hhhh:hhhh, ::a.b.c.d) ramenée à sa forme IPv4. */
+function normalizeHost(host: string): { addr: string; type: "ipv4" | "ipv6" } {
+  if (isIP(host) === 4) return { addr: host, type: "ipv4" };
+  const lower = host.toLowerCase();
+  const dotted = /^(?:0{0,4}:){0,5}(?:ffff:)?(d{1,3}(?:.d{1,3}){3})$/.exec(lower.replace(/^::/, "0:"));
+  if (dotted && isIP(dotted[1]!) === 4) return { addr: dotted[1]!, type: "ipv4" };
+  const hex = /^::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/.exec(lower);
+  if (hex) {
+    const a = parseInt(hex[1]!, 16);
+    const b = parseInt(hex[2]!, 16);
+    return { addr: [a >> 8, a & 255, b >> 8, b & 255].join("."), type: "ipv4" };
+  }
+  return { addr: host, type: "ipv6" };
+}
+
+/** HUB_LISTEN : "IP:port" ou "[IPv6]:port", IP privée explicite (jamais toutes les interfaces ni une adresse publique). */
 export function parseHubListen(raw: string): { host: string; port: number } {
   const m = /^(?:\[([0-9a-fA-F:.]+)\]|([0-9.]+)):(\d{1,5})$/.exec(raw.trim());
   const host = m?.[1] ?? m?.[2] ?? "";
@@ -20,17 +51,24 @@ export function parseHubListen(raw: string): { host: string; port: number } {
   if (!m || isIP(host) === 0 || !Number.isInteger(port) || port < 1 || port > 65535) {
     throw new Error(`HUB_LISTEN : valeur invalide « ${raw} » (attendu : IP du CT sur le réseau local et port, ex. 192.168.1.20:3100)`);
   }
-  if (host === "0.0.0.0" || /^[0:]+$/.test(host)) {
-    throw new Error("HUB_LISTEN : toutes les interfaces refusées, donner l'IP du CT sur le réseau local");
+  const { addr, type } = normalizeHost(host);
+  if (!LISTEN_ALLOWED.check(addr, type)) {
+    throw new Error(`HUB_LISTEN : « ${host} » refusée, donner l'IP privée du CT sur le réseau local (ex. 192.168.1.20 ; jamais 0.0.0.0, :: ni une adresse publique)`);
   }
   return { host, port };
 }
+
+/** Longueur minimale du secret partagé avec le hub (openssl rand -hex 32 en donne 64). */
+export const HUB_SECRET_MIN = 32;
 
 /** Configuration lue dans l'environnement, ou null (aucun écouteur) si une des deux variables manque. */
 export function getHubConfig(env: NodeJS.ProcessEnv = process.env): HubConfig | null {
   const secret = env.HUB_READ_SECRET?.trim();
   const listen = env.HUB_LISTEN?.trim();
   if (!secret || !listen) return null;
+  if (secret.length < HUB_SECRET_MIN) {
+    throw new Error(`HUB_READ_SECRET trop court (${secret.length} caractères, ${HUB_SECRET_MIN} au moins) : générer « openssl rand -hex 32 »`);
+  }
   const allowedIps = parseIpList((env.HUB_ALLOWED_IPS ?? "").trim().toLowerCase().split(/[,\s]+/), "HUB_ALLOWED_IPS");
   return { secret, allowedIps, ...parseHubListen(listen) };
 }

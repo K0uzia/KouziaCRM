@@ -18,7 +18,7 @@ export function Segmented<T extends string>({
   className?: string;
   /** Plus de trois choix : grille de deux colonnes au téléphone, en ligne à partir de 640 px. */
   wrap?: boolean;
-  /** Dès 768 px, même hauteur hors tout qu'un champ (44 px) quand il est aligné avec des champs : boutons de 42 px, sans marge. */
+  /** Dès 768 px, même hauteur hors tout qu'un champ (44 px) : boutons de 44 px, bordure tracée à l'intérieur, sans marge. */
   fieldHeight?: boolean;
   /** Choix indisponible pour l'instant ; describedBy : id du texte qui dit pourquoi. */
   disabled?: boolean;
@@ -29,7 +29,7 @@ export function Segmented<T extends string>({
       role="group"
       aria-label={label}
       aria-describedby={describedBy}
-      className={`${wrap ? "grid grid-cols-2 sm:inline-flex" : "inline-flex"} rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--surface)] p-1 ${fieldHeight ? "md:p-0" : ""} ${className}`}
+      className={`${wrap ? "grid grid-cols-2 sm:inline-flex" : "inline-flex"} rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--surface)] p-1 ${fieldHeight ? "md:border-0 md:p-0 md:ring-1 md:ring-inset md:ring-[var(--border)]" : ""} ${className}`}
     >
       {options.map((o) => {
         const active = o.id === value;
@@ -40,7 +40,7 @@ export function Segmented<T extends string>({
             aria-pressed={active}
             disabled={disabled}
             onClick={() => onChange(o.id)}
-            className={`inline-flex min-h-11 ${fieldHeight ? "md:min-h-[2.625rem]" : ""} flex-1 items-center justify-center gap-1.5 whitespace-nowrap rounded-[calc(var(--radius-sm)-0.125rem)] px-3 text-sm transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
+            className={`inline-flex min-h-11 flex-1 items-center justify-center gap-1.5 whitespace-nowrap rounded-[calc(var(--radius-sm)-0.125rem)] px-3 text-sm transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
               active
                 ? "bg-[var(--surface-hover)] font-medium text-[var(--text)] shadow-[inset_0_0_0_1px_var(--primary)]"
                 : "text-[var(--muted)] hover:text-[var(--text)]"

@@ -1,7 +1,8 @@
 // Contrôle mobile de l'admin (Playwright, Chromium) : `npm run check:mobile`.
 // Échoue sur : scroll horizontal, élément sorti de son conteneur coupé (ou de l'écran),
 // cible d'action de moins de 44 px, texte tronqué illisible (case de moins de 80 px, 120 px en
-// liste) ; à partir de 768 px, tableau qui défile horizontalement. Écrans : navigation.ts, onglets des réglages, fiches, modales de création. Lecture seule : rien n'est enregistré (modales ouvertes puis fermées).
+// liste) ; à partir de 768 px, tableau qui défile horizontalement ; à 800 px (tablette), contrôle de filtre de moins de
+// 44 px. Écrans : navigation.ts, onglets des réglages, fiches, modales de création. Lecture seule : rien n'est enregistré (modales ouvertes puis fermées).
 //
 // Prérequis : l'admin tourne (npm run dev) sur une base de recette, et un compte admin de test :
 //   CHECK_MOBILE_EMAIL, CHECK_MOBILE_PASSWORD, CHECK_MOBILE_TOTP (secret base32, si 2FA activée)
@@ -132,13 +133,37 @@ async function main() {
       }
       await context.close();
     }
+
+    // Tablette tactile (800 px) : contrôles de filtre des listes (boutons segmentés, listes, recherche) de 44 px au
+    // moins, là où les champs s'alignent sur une même ligne.
+    const tablet = await browser.newContext({ viewport: { width: 800, height: 1000 }, deviceScaleFactor: 2, hasTouch: true, storageState: session });
+    const tab = await tablet.newPage();
+    for (const list of ["/clients", "/quotes", "/invoices", "/services", "/inbox", "/site/faq", "/site/images", "/site/references", "/site/avis"]) {
+      await tab.goto(`${BASE}${list}`);
+      await settle(tab);
+      const small = await tab.$$eval(
+        "main [role=group] > button, main select, main input[type=search]",
+        (els, min) =>
+          els
+            .filter((el) => (el as HTMLElement).offsetParent !== null)
+            .map((el) => ({ h: Math.round(el.getBoundingClientRect().height * 10) / 10, name: el.getAttribute("aria-label") || el.textContent?.trim().slice(0, 30) || el.tagName }))
+            .filter((t) => t.h < min),
+        // Seuil strict (44 px, demi-pixel d'arrondi) : la tolérance générale laisserait passer des boutons de 42 px.
+        TAP - 0.5,
+      );
+      const issues: Issue[] = small.map((t) => ({ kind: "target", detail: `contrôle de filtre de ${t.h} px`, selector: t.name }));
+      results.push({ screen: `Filtres (${list})`, width: 800, issues });
+      console.log(`${issues.length ? "KO  " : "OK  "}800px  Filtres ${list}${issues.length ? `  (${issues.length})` : ""}`);
+      for (const i of issues.slice(0, 8)) console.log(`        ${i.kind.padEnd(6)} ${i.detail}  ${i.selector}`);
+    }
+    await tablet.close();
   } finally {
     await browser.close();
   }
 
   if (process.env.CHECK_MOBILE_REPORT) writeFileSync(process.env.CHECK_MOBILE_REPORT, JSON.stringify(results, null, 2));
   const failed = results.filter((r) => r.issues.length > 0);
-  console.log(`\n${results.length - failed.length}/${results.length} écrans sans défaut (${WIDTHS.join(", ")} px).`);
+  console.log(`\n${results.length - failed.length}/${results.length} écrans sans défaut (${WIDTHS.join(", ")} px, filtres à 800 px).`);
   if (failed.length > 0) process.exit(1);
 }
 

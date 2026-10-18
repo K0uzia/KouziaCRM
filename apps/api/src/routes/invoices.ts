@@ -190,17 +190,26 @@ function defaultQuoteValidUntil(): Date {
   return d;
 }
 
+/** Paramètres de la liste ; un paramètre répété (?clientId=a&clientId=b) arrive en tableau et répond 400. */
+const LIST_ID = z.string().regex(/^[A-Za-z0-9_-]{1,64}$/);
+const LIST_INT = z.string().regex(/^\d{1,6}$/).transform(Number);
+const listQuerySchema = z.strictObject({
+  type: z.enum(["QUOTE", "INVOICE", "ALL"]).optional(),
+  market: LIST_ID.optional(),
+  clientId: LIST_ID.optional(),
+  page: LIST_INT.optional(),
+  pageSize: LIST_INT.optional(),
+});
+/** Plafond de sécurité d'une liste complète ; au-delà, la réponse le signale (X-Liste-Tronquee, X-Total-Count). */
+export const INVOICE_LIST_CAP = 5_000;
+
 export const invoicesRoutes: FastifyPluginAsync = async (app) => {
   app.get("/api/invoices", async (request, reply) => {
     await requireAuth(request, reply);
     if (reply.sent) return;
-    const q = request.query as {
-      type?: string;
-      market?: string;
-      clientId?: string;
-      page?: string;
-      pageSize?: string;
-    };
+    const parsedQuery = listQuerySchema.safeParse(request.query ?? {});
+    if (!parsedQuery.success) return reply.code(400).send({ error: "Paramètres de liste invalides" });
+    const q = parsedQuery.data;
     const where: Record<string, unknown> =
       q.type === "QUOTE"
         ? { documentType: InvoiceDocumentType.QUOTE }
@@ -221,19 +230,25 @@ export const invoicesRoutes: FastifyPluginAsync = async (app) => {
     // Liste complète par défaut : les listes, leurs filtres et la copie hors ligne portent sur toutes les pièces.
     // Pagination seulement sur demande (page ou pageSize), 100 au plus par page.
     const paged = q.page !== undefined || q.pageSize !== undefined;
-    const page = Math.max(1, Number(q.page) || 1);
-    const pageSize = Math.min(100, Math.max(1, Number(q.pageSize) || 50));
+    const page = Math.max(1, q.page || 1);
+    const pageSize = Math.min(100, Math.max(1, q.pageSize || 50));
 
     const rows = await prisma.invoice.findMany({
       where,
       orderBy: [{ issueDate: "desc" }, { createdAt: "desc" }, { id: "desc" }],
-      ...(paged ? { skip: (page - 1) * pageSize, take: pageSize } : {}),
+      ...(paged ? { skip: (page - 1) * pageSize, take: pageSize } : { take: INVOICE_LIST_CAP + 1 }),
       include: {
         client: { select: { id: true, displayName: true, clientNumber: true } },
         payments: { select: { id: true, amountCents: true, paidAt: true, method: true } },
         quote: { select: { id: true, number: true } },
       },
     });
+    if (!paged && rows.length > INVOICE_LIST_CAP) {
+      const total = await prisma.invoice.count({ where });
+      request.log.warn({ event: "invoice_list_capped", total, cap: INVOICE_LIST_CAP }, "liste des pièces tronquée");
+      reply.header("X-Liste-Tronquee", String(INVOICE_LIST_CAP)).header("X-Total-Count", String(total));
+      return rows.slice(0, INVOICE_LIST_CAP).map(serializeInvoice);
+    }
     return rows.map(serializeInvoice);
   });
 

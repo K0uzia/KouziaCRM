@@ -62,6 +62,40 @@ describe("listes complètes au-delà de 50 pièces", () => {
   });
 });
 
+describe("paramètres de la liste validés", () => {
+  it("paramètre répété, type inconnu, identifiant hors format ou clé inconnue : 400, jamais 500", async () => {
+    for (const url of [
+      "/api/invoices?clientId=a&clientId=b",
+      "/api/invoices?type=AUTRE",
+      "/api/invoices?clientId=a.b",
+      "/api/invoices?page=-1",
+      "/api/invoices?pageSize=abc",
+      "/api/invoices?inconnu=1",
+    ]) {
+      const res = await get(url);
+      expect(res.statusCode, url).toBe(400);
+      // Paramètre répété : refusé dès la garde d'entrée commune (« Paramètres de requête invalides »).
+      expect((res.json() as { error: string }).error, url).toMatch(/^Paramètres de (liste|requête) invalides$/);
+    }
+    expect((await get(`/api/invoices?type=QUOTE&clientId=${clientId}`)).statusCode).toBe(200);
+  });
+});
+
+describe("plafond de sécurité de la liste complète", () => {
+  it("au-delà de 5 000 pièces : les 5 000 plus récentes, plafond et total signalés", async () => {
+    const base = { clientId, subtotalCents: 100, totalCents: 100, documentType: "QUOTE" as const, status: "DRAFT" as const, quoteStatus: "DRAFT" as const };
+    await prisma.invoice.createMany({ data: Array.from({ length: 4_931 }, () => base) });
+    const res = await get("/api/invoices?type=QUOTE");
+    expect(res.json()).toHaveLength(5_000);
+    expect(res.headers["x-liste-tronquee"]).toBe("5000");
+    expect(res.headers["x-total-count"]).toBe("5001");
+    expect((await get("/api/invoices/summary?type=QUOTE")).json().total).toBe(5_001);
+    const small = await get("/api/invoices?type=INVOICE");
+    expect(small.headers["x-liste-tronquee"]).toBeUndefined();
+    await prisma.invoice.deleteMany({ where: { documentType: "QUOTE", totalCents: 100 } });
+  }, 30_000);
+});
+
 describe("synthèse des listes comptée par le serveur", () => {
   it("devis : nombres par statut et devis à relire, sur toute la base", async () => {
     const res = await get("/api/invoices/summary?type=QUOTE");
