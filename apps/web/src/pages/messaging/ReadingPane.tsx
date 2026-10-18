@@ -15,7 +15,7 @@ import type { ClientPrefill } from "@/components/clients/ClientForm";
 import { MessageBody } from "@/pages/messaging/MessageBody";
 import { AttachmentList } from "@/pages/messaging/AttachmentList";
 import { QuoteValidationBlock } from "@/pages/messaging/QuoteValidationBlock";
-import { formatDate, formatShortDate, formatTime } from "@/lib/format";
+import { formatMailDateTime } from "@/lib/format";
 import { Link } from "react-router-dom";
 import { senderLabel } from "@kouzia-erp/email-sender";
 import { formProspectName } from "@/pages/messaging/sender";
@@ -358,7 +358,7 @@ export function ReadingPane({
                   <span className="flex min-w-0 items-baseline gap-2">
                     <span className="min-w-0 flex-1 truncate text-sm font-semibold">{sender}</span>
                     <time dateTime={msg.receivedAt} className="shrink-0 whitespace-nowrap text-xs text-[var(--muted)]">
-                      {formatShortDate(msg.receivedAt)}
+                      {formatMailDateTime(msg.receivedAt)}
                     </time>
                   </span>
                   {sender !== senderAddress ? (
@@ -373,7 +373,7 @@ export function ReadingPane({
                   <span className="text-xs text-[var(--muted)]">
                     {msg.direction === "OUTBOUND" ? "Envoyé" : "Reçu"}
                     {" · "}
-                    {formatDate(msg.receivedAt)} {formatTime(msg.receivedAt)}
+                    {formatMailDateTime(msg.receivedAt)}
                     {!msg.isRead ? " · Non lu" : ""}
                     {msg.attachments.length > 0 || msg.hasAttachments ? (
                       <>

@@ -21,6 +21,7 @@ import { FilterBar, FilterSegment } from "@/components/ui/ListFilters";
 import { useUrlFilters } from "@/lib/use-url-filters";
 import { DataTable, type DataColumn } from "@/components/ui/DataTable";
 import { Avatar } from "@/components/ui/Avatar";
+import { ListRow } from "@/components/ui/ListRow";
 import {
   ClientFormEditor,
   clientToForm,
@@ -109,7 +110,7 @@ export function ClientsPage() {
         <div className="flex min-w-0 items-center gap-3 py-1">
           <Avatar name={c.displayName} size="sm" />
           <div className="min-w-0">
-            <Link to={`/clients/${c.id}`} className="block truncate font-medium hover:text-[var(--primary)]">
+            <Link to={`/clients/${c.id}`} className="line-clamp-2 break-words font-medium hover:text-[var(--primary)]">
               {c.displayName}
             </Link>
             {isLocalClientId(c.id) ? (
@@ -163,7 +164,7 @@ export function ClientsPage() {
             onClick={(e) => e.stopPropagation()}
           >
             <span className="text-[var(--text)]">{formatDate(c.lastExchange.lastMessageAt)}</span>
-            <span className="mt-0.5 line-clamp-2 break-words text-xs text-[var(--muted)]">{c.lastExchange.subject}</span>
+            <span className="mt-0.5 block truncate text-xs text-[var(--muted)]">{c.lastExchange.subject}</span>
           </Link>
         ) : (
           <span className="text-sm text-[var(--muted)]">Aucun</span>
@@ -268,19 +269,13 @@ export function ClientsPage() {
             </FilterBar>
           }
           renderMobileCard={(c) => (
-            <Link
+            <ListRow
               to={`/clients/${c.id}`}
-              className="flex min-w-0 items-center gap-3 rounded-[var(--radius)] border border-[var(--border)] bg-[var(--surface)] p-3.5 hover:bg-[var(--surface-raised)]"
-            >
-              <Avatar name={c.displayName} />
-              <div className="min-w-0 flex-1">
-                <p className="line-clamp-2 break-words font-medium">{c.displayName}</p>
-                <p className="truncate text-xs text-[var(--muted)]">
-                  {[c.clientNumber, c.city].filter(Boolean).join(" · ")}
-                </p>
-              </div>
-              {isLocalClientId(c.id) ? <Badge tone="amber">À envoyer</Badge> : <Badge tone={CLIENT_TYPE_TONE[c.type]}>{CLIENT_TYPE_SHORT[c.type]}</Badge>}
-            </Link>
+              leading={<Avatar name={c.displayName} />}
+              title={c.displayName}
+              meta={[c.clientNumber, c.city].filter(Boolean).join(" · ")}
+              badges={isLocalClientId(c.id) ? <Badge tone="amber">À envoyer</Badge> : <Badge tone={CLIENT_TYPE_TONE[c.type]}>{CLIENT_TYPE_SHORT[c.type]}</Badge>}
+            />
           )}
           searchable={["displayName", "clientNumber", "email", "city", "phone"]}
           searchPlaceholder="Rechercher un nom, un email, une ville"

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { useLiveRefresh } from "@/lib/notifications";
 import { api, formatEUR } from "@/lib/api";
 import { formatDate, paymentMethodLabel } from "@/lib/format";
@@ -8,6 +8,8 @@ import { Modal } from "@/components/ui/Modal";
 import { Button } from "@/components/ui/Button";
 import { StatStrip } from "@/components/ui/StatStrip";
 import { DataTable, type DataColumn } from "@/components/ui/DataTable";
+import { ListRow } from "@/components/ui/ListRow";
+import { DocumentNumberBadge } from "@/components/documents/DocumentNumberBadge";
 import { PaymentForm } from "@/components/payments/PaymentForm";
 import { Field, Select } from "@/components/ui/Field";
 import { useCreateParam } from "@/lib/use-create-param";
@@ -46,6 +48,7 @@ type InvoiceOpt = {
 };
 
 export function PaymentsPage() {
+  const navigate = useNavigate();
   const [payments, setPayments] = useState<Payment[]>([]);
   const [invoices, setInvoices] = useState<InvoiceOpt[]>([]);
   // Premier chargement et échec : tableau en squelette, puis erreur avec « Réessayer » (jamais un faux « aucun »).
@@ -108,11 +111,8 @@ export function PaymentsPage() {
       width: "150px",
       cell: (p) =>
         p.invoice ? (
-          <Link
-            to={`/invoices/${p.invoice.id}`}
-            className="font-medium text-[var(--primary)] hover:underline"
-          >
-            {p.invoice.number ?? "-"}
+          <Link to={`/invoices/${p.invoice.id}`} className="rounded-[var(--radius-sm)] hover:opacity-80">
+            <DocumentNumberBadge number={p.invoice.number} documentType="INVOICE" />
           </Link>
         ) : (
           <span className="text-[var(--muted)]">Sans facture</span>
@@ -147,7 +147,7 @@ export function PaymentsPage() {
       width: "140px",
       right: true,
       cell: (p) => (
-        <span className="tabular-nums font-medium">{formatEUR(p.amountCents)}</span>
+        <span className="font-semibold tabular-nums">{formatEUR(p.amountCents)}</span>
       ),
     },
     {
@@ -235,6 +235,23 @@ export function PaymentsPage() {
         pagination
         perPage={25}
         searchable={["invoice.number", "invoice.client.displayName", "method", "reference"]}
+        // Ligne entière cliquable (vers la facture), comme les autres listes ; même carte au téléphone.
+        onRowClick={(p) => (p.invoice ? navigate(`/invoices/${p.invoice.id}`) : undefined)}
+        countLabel={payments.length > 1 ? "paiements" : "paiement"}
+        renderMobileCard={(p) => (
+          <ListRow
+            to={p.invoice ? `/invoices/${p.invoice.id}` : "/payments"}
+            title={p.invoice?.client.displayName ?? "Client non identifié"}
+            amount={formatEUR(p.amountCents)}
+            meta={
+              <>
+                {p.invoice ? <DocumentNumberBadge number={p.invoice.number} documentType="INVOICE" /> : "Sans facture"}
+                {` · ${formatDate(p.paidAt)}`}
+              </>
+            }
+            badges={<Badge>{paymentMethodLabel[p.method] ?? p.method}</Badge>}
+          />
+        )}
         searchPlaceholder="Rechercher un paiement…"
         emptyTitle="Aucun paiement"
         emptyHint="Enregistrez un encaissement depuis une facture émise."
