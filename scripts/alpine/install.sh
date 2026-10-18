@@ -82,7 +82,7 @@ log "Installation des paquets apk…"
 apk update
 apk add --no-cache \
   bash curl git rsync gnupg openssl sqlite \
-  nodejs npm \
+  nodejs npm icu-data-full \
   python3 make g++ linux-headers \
   ca-certificates tzdata \
   logrotate shadow iproute2 procps flock

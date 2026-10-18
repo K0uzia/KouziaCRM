@@ -55,6 +55,12 @@ echo "${C_BOLD}Health${C_RESET}"
 HEALTH_URL="http://127.0.0.1:${PORT}/api/health"
 if out="$(curl -4 -fsS --connect-timeout 2 --max-time 5 "$HEALTH_URL" 2>&1)"; then
   ok "API $HEALTH_URL → $out"
+  # Données de langue de l'hôte (ICU) : sans icu-data-full, Intl ne sait pas le français.
+  if [[ "$out" == *'"intl":"incomplet"'* ]]; then
+    warn "Données de langue incomplètes (intl incomplet) : apk add icu-data-full, puis rc-service kouziacrm restart"
+  elif [[ "$out" == *'"intl":"complet"'* ]]; then
+    ok "Données de langue : complètes (icu-data-full)"
+  fi
 else
   warn "API ne répond pas ($HEALTH_URL)"
   [[ -n "$out" ]] && warn "curl: $out"

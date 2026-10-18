@@ -355,6 +355,8 @@ install_kouziactl_link "${KOUZIA_APP_DIR}/scripts/alpine/kouziactl" /usr/local/b
 install_app_openrc "${KOUZIA_APP_DIR}/scripts/alpine/openrc"
 install_tunnel_openrc "${KOUZIA_APP_DIR}/scripts/alpine/openrc"
 install_system_conf
+# Avant le démarrage : Node lit les données ICU à son lancement.
+ensure_icu_full
 
 log "Redémarrage services…"
 # Worker après health : évite le lock SQLite pendant le boot API (tsx + migrations soft).
