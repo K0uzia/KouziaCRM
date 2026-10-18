@@ -27,6 +27,7 @@ import { getQueueSnapshot, itemsLabel, replayQueue, useOfflineQueue } from "@/li
 import { isOnline, onReconnect } from "@/lib/network";
 import { toast } from "sonner";
 import { NotificationsProvider } from "@/lib/notifications";
+import { VersionNotice } from "@/components/VersionNotice";
 import { MoreMenu } from "@/components/ui/MoreMenu";
 
 // Publication du site : seulement dans l'espace Site, chargé à la demande.
@@ -228,6 +229,11 @@ function Sidebar({
 
 export function AppLayout() {
   const { logout, user, refresh } = useAuth();
+  // Option « effacer à la déconnexion » : copie gardée tant que des créations hors ligne restent à envoyer.
+  const onLogout = () =>
+    void logout().then((outcome) => {
+      if (outcome === "kept-pending") toast.warning("Copie hors ligne gardée : des créations préparées hors ligne restent à envoyer.");
+    });
   useQueueReplay(refresh);
   const { items: queuedItems } = useOfflineQueue();
   const navigate = useNavigate();
@@ -381,7 +387,7 @@ export function AppLayout() {
       <aside
         inert={drawerOpen || undefined}
         className="hidden w-[var(--sidebar-w)] shrink-0 border-r border-[var(--border)] bg-[var(--bg-subtle)] lg:block">
-        <Sidebar pathname={pathname} unread={unreadCount} onLogout={() => void logout()} userLabel={userLabel} />
+        <Sidebar pathname={pathname} unread={unreadCount} onLogout={onLogout} userLabel={userLabel} />
       </aside>
 
       {/* Tiroir (mobile et tablette) */}
@@ -416,7 +422,7 @@ export function AppLayout() {
             >
               <FontAwesomeIcon icon={faXmark} className="h-4 w-4" />
             </button>
-            <Sidebar pathname={pathname} unread={unreadCount} onLogout={() => void logout()} userLabel={userLabel} />
+            <Sidebar pathname={pathname} unread={unreadCount} onLogout={onLogout} userLabel={userLabel} />
           </div>
         </div>
       ) : null}
@@ -531,6 +537,7 @@ export function AppLayout() {
         <div className="relative z-40 h-0">
           <NetworkStatus />
         </div>
+        <VersionNotice />
 
         {/* Région qui défile : atteignable au clavier (axe scrollable-region-focusable),
             contour visible seulement au focus clavier. « relative » : un élément en position absolue

@@ -21,9 +21,26 @@ function offlineOrigin(mode: string): Plugin {
   };
 }
 
+/**
+ * Identifiant de ce build : compilé dans l'interface (__KOUZIA_BUILD__) et écrit dans dist/version.json, que l'API
+ * lit au démarrage et renvoie dans X-Kouzia-Build. Un écart signale une interface plus ancienne que le serveur.
+ */
+const BUILD_ID = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+function buildVersion(): Plugin {
+  return {
+    name: "kouzia-build-version",
+    apply: "build",
+    generateBundle() {
+      this.emitFile({ type: "asset", fileName: "version.json", source: JSON.stringify({ build: BUILD_ID }) });
+    },
+  };
+}
+
 export default defineConfig(({ mode }) => ({
   envDir,
+  define: { __KOUZIA_BUILD__: JSON.stringify(mode === "production" ? BUILD_ID : "dev") },
   plugins: [
+    buildVersion(),
     react(),
     tailwindcss(),
     offlineOrigin(mode),
@@ -52,6 +69,7 @@ export default defineConfig(({ mode }) => ({
         __dirname,
         "../api/src/lib/email/sanitize-html.ts",
       ),
+      "@kouzia-erp/api-contract": path.resolve(__dirname, "../api/src/lib/api-contract.ts"),
       "@kouzia-erp/email-sender": path.resolve(
         __dirname,
         "../api/src/lib/email/sender-label.ts",

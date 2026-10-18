@@ -310,4 +310,19 @@ describe("file des créations hors ligne", () => {
     expect(getQueueSnapshot().items).toHaveLength(1);
     expect(server.created.size).toBe(1);
   });
+
+  it("passerelle en erreur (503, 524) : mis en file avec l'identifiant du formulaire ; le même au nouvel essai", async () => {
+    fakeServer();
+    online = true;
+    for (const status of [503, 524]) {
+      vi.stubGlobal("fetch", vi.fn(async () => json({ error: "Passerelle" }, status)));
+      const requestId = `formulaire-${status}`;
+      const result = await submitCreation({ kind: "note", label: "Note", clientId: "srv-client-1", clientName: "Lou", body: { body: "x" }, requestId });
+      expect(result).toMatchObject({ queued: true, item: { id: requestId } });
+    }
+    expect(getQueueSnapshot().items.map((i) => i.id)).toEqual(["formulaire-503", "formulaire-524"]);
+    // Erreur métier (400) : jamais mise en file, renvoyée au formulaire.
+    vi.stubGlobal("fetch", vi.fn(async () => json({ error: "Données invalides" }, 400)));
+    await expect(submitCreation({ kind: "note", label: "Note", clientId: "srv-client-1", clientName: "Lou", body: { body: "" }, requestId: "f-400" })).rejects.toThrow("Données invalides");
+  });
 });

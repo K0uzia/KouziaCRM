@@ -3,7 +3,7 @@ import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { errorMessage, isNetworkFailure, useOnline } from "@/lib/network";
 import { offlineEnabled } from "@/lib/offline/config";
-import { isLocalClientId, submitCreation, useOfflineQueue } from "@/lib/offline/queue";
+import { isLocalClientId, submitCreation, useOfflineQueue, useRequestId } from "@/lib/offline/queue";
 import { useReadOnly } from "@/lib/offline/read-only";
 import { Badge, Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
@@ -19,6 +19,7 @@ const when = (iso: string) =>
  * la note est mise en file, chiffrée, et partira au retour du réseau ; les notes déjà lues restent consultables.
  */
 export function ClientNotesCard({ clientId, clientName }: { clientId: string; clientName: string }) {
+  const requestId = useRequestId();
   const local = isLocalClientId(clientId);
   const online = useOnline();
   const { readOnly, canPrepare } = useReadOnly();
@@ -55,7 +56,7 @@ export function ClientNotesCard({ clientId, clientName }: { clientId: string; cl
     setBusy(true);
     try {
       if (offlineEnabled()) {
-        const result = await submitCreation<Note>({ kind: "note", label: `Note pour ${clientName}`, clientId, clientName, body: { body } });
+        const result = await submitCreation<Note>({ kind: "note", label: `Note pour ${clientName}`, clientId, clientName, body: { body }, requestId: requestId.current });
         if (result.queued) toast.success("Note préparée hors ligne : elle partira au retour du réseau.");
         else {
           setNotes((list) => [result.data, ...(list ?? []).filter((n) => n.id !== result.data.id)]);
@@ -64,12 +65,14 @@ export function ClientNotesCard({ clientId, clientName }: { clientId: string; cl
       } else {
         const note = await api<Note>(`/api/clients/${encodeURIComponent(clientId)}/notes`, {
           method: "POST",
-          body: JSON.stringify({ body, clientRequestId: crypto.randomUUID() }),
+          body: JSON.stringify({ body, clientRequestId: requestId.current }),
         });
         setNotes((list) => [note, ...(list ?? [])]);
         toast.success("Note ajoutée.");
       }
       setText("");
+      // Note créée ou mise en file : la suivante aura son propre identifiant.
+      requestId.renew();
     } catch (err) {
       toast.error(errorMessage(err, "Note non enregistrée."));
     } finally {

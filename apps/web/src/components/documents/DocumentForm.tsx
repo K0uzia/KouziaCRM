@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { toast } from "sonner";
 import { api, formatEUR } from "@/lib/api";
 import { offlineEnabled } from "@/lib/offline/config";
-import { isLocalClientId, submitCreation } from "@/lib/offline/queue";
+import { isLocalClientId, submitCreation, useRequestId } from "@/lib/offline/queue";
 import { subscriptionsTotalText } from "@/lib/quote-totals";
 import { euros } from "@/lib/format";
 import { Button } from "@/components/ui/Button";
@@ -124,6 +124,7 @@ export function DocumentFormEditor({
   onSuccess: (doc: { id: string; queued?: boolean; clientId?: string }) => void;
   onCancel: () => void;
 }) {
+  const requestId = useRequestId();
   const [showDoneNeeds, setShowDoneNeeds] = useState(false);
   const [form, setForm] = useState<DocumentFormValues>({
     clientId: initial?.clientId ?? clients[0]?.id ?? "",
@@ -446,7 +447,9 @@ export function DocumentFormEditor({
           clientId,
           clientName: name,
           body: { ...rest, clientSeenUpdatedAt: isLocalClientId(clientId) ? null : (client?.updatedAt ?? null), servicePricesSeen },
+          requestId: requestId.current,
         });
+        requestId.renew();
         if (result.queued) {
           toast.success("Devis brouillon préparé hors ligne : il partira au retour du réseau.");
           onSuccess({ id: result.item.id, queued: true, clientId });

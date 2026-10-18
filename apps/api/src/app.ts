@@ -5,6 +5,8 @@ import cors from "@fastify/cors";
 import cookie from "@fastify/cookie";
 import helmet from "@fastify/helmet";
 import rateLimit from "@fastify/rate-limit";
+import compress from "@fastify/compress";
+import { constants as zlibConstants } from "node:zlib";
 import fastifyStatic from "@fastify/static";
 import multipart from "@fastify/multipart";
 import { getAllowedOrigins, getCookieSecure, getTrustedProxies } from "@/lib/env.js";
@@ -39,8 +41,21 @@ import { logSerializers } from "@/lib/log-redact.js";
 import { registerInputGuards } from "@/lib/http-input.js";
 import { ensureDefaultLegalClauses } from "@/lib/company/legal-clauses.js";
 import { withOfflineOrigin } from "@/lib/spa-index.js";
+import { API_CONTRACT, BUILD_HEADER, CONTRACT_HEADER } from "@/lib/api-contract.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+/** Identifiant du build de l'interface (dist/version.json), null si absent (dev, build ancien). */
+async function readWebBuildId(): Promise<string | null> {
+  const webDist = process.env.WEB_DIST ? path.resolve(process.env.WEB_DIST) : path.resolve(__dirname, "../../../web/dist");
+  try {
+    const { readFile } = await import("node:fs/promises");
+    const parsed = JSON.parse(await readFile(path.join(webDist, "version.json"), "utf8")) as { build?: unknown };
+    return typeof parsed.build === "string" && /^[a-z0-9-]{1,40}$/.test(parsed.build) ? parsed.build : null;
+  } catch {
+    return null;
+  }
+}
 
 /** Fichier produit par Vite dans /assets, au nom hashé : son contenu ne change jamais. */
 const isHashedAsset = (filePath: string) => /[\\/]assets[\\/][^\\/]+$/.test(filePath);
@@ -87,6 +102,14 @@ export async function buildApp(opts: BuildAppOptions = {}): Promise<FastifyInsta
 
   setJsonSerializer(app);
   registerErrorHandler(app);
+
+  // Compression Brotli ou gzip (JSON et statique), utile par Tailscale et par le tunnel au téléphone. Qualité Brotli
+  // modérée : le CT a peu de processeur et les réponses sont recompressées à chaque envoi.
+  await app.register(compress, {
+    encodings: ["br", "gzip"],
+    threshold: 1024,
+    brotliOptions: { params: { [zlibConstants.BROTLI_PARAM_QUALITY]: 4 } },
+  });
 
   // Headers « HTTPS only » (COOP, OAC, HSTS) : ne jamais les envoyer en HTTP LAN.
   // Sinon Chrome ignore COOP et spam la console (origine IP non « trustworthy »).
@@ -162,7 +185,14 @@ export async function buildApp(opts: BuildAppOptions = {}): Promise<FastifyInsta
 
   // Réponses de l'API jamais mises en cache, sauf en-tête posé par la route (médias du site).
   // Toutes les réponses : fonctions sensibles du navigateur coupées, rien d'indexable (admin et API).
+  // Version de l'interface servie (dist/version.json écrit au build) et numéro du contrat : une interface plus
+  // ancienne que le serveur le voit à la première réponse et propose (ou impose) le rechargement.
+  const buildId = opts.serveStatic === false ? null : await readWebBuildId();
   app.addHook("onSend", async (request, reply, payload) => {
+    if (request.url.startsWith("/api/")) {
+      reply.header(CONTRACT_HEADER, String(API_CONTRACT));
+      if (buildId) reply.header(BUILD_HEADER, buildId);
+    }
     if (request.url.startsWith("/api/") && !reply.hasHeader("cache-control")) reply.header("Cache-Control", "no-store");
     reply.header("Permissions-Policy", "camera=(), microphone=(), geolocation=(), payment=()");
     reply.header("X-Robots-Tag", "noindex, nofollow");

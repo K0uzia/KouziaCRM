@@ -774,13 +774,13 @@ export function TagInput({
       {values.length ? (
         <ul className="flex flex-wrap gap-2" aria-label={`${label} : ${values.length} sur ${max}`}>
           {values.map((v, i) => (
-            <li key={v} className="inline-flex min-h-11 items-center gap-1 rounded-full border border-[var(--border-strong)] py-1 pl-3 pr-1 font-mono text-sm">
+            <li key={v} className="inline-flex min-h-11 items-center gap-1 rounded-full border border-[var(--border-strong)] pl-3 font-mono text-sm">
               {v}
               <button
                 type="button"
                 onClick={() => remove(i)}
                 aria-label={`Retirer ${v}`}
-                className="inline-flex h-9 w-9 items-center justify-center rounded-full text-[var(--muted)] hover:bg-[var(--surface-hover)] hover:text-[var(--text)]"
+                className="inline-flex min-h-11 min-w-11 items-center justify-center rounded-full text-[var(--muted)] hover:bg-[var(--surface-hover)] hover:text-[var(--text)]"
               >
                 <FontAwesomeIcon icon={faXmark} className="h-3.5 w-3.5" aria-hidden />
               </button>

@@ -303,10 +303,28 @@ export function ReadingPane({
               variant="ghost"
               aria-label="Supprimer le message"
               onClick={() =>
-                void api(`/api/emails/messages/${latest.id}`, { method: "DELETE" })
-                  .then(() => {
+                void api<{ restoreFolderId: string | null }>(`/api/emails/messages/${latest.id}`, { method: "DELETE" })
+                  .then((res) => {
                     onRefresh();
                     onBack();
+                    const folderId = res?.restoreFolderId;
+                    toast.success(folderId ? "Message mis à la corbeille" : "Message supprimé", {
+                      action: folderId
+                        ? {
+                            label: "Annuler",
+                            onClick: () =>
+                              void api(`/api/emails/messages/${latest.id}/move`, {
+                                method: "POST",
+                                body: JSON.stringify({ folderId }),
+                              })
+                                .then(() => {
+                                  onRefresh();
+                                  toast.success("Message remis dans son dossier");
+                                })
+                                .catch((e: Error) => toast.error(e.message)),
+                          }
+                        : undefined,
+                    });
                   })
                   .catch((e: Error) => toast.error(e.message))
               }

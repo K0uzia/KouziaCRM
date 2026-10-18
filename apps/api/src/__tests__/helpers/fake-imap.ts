@@ -16,7 +16,11 @@ export type FakeImapMessage = {
 
 type Box = { uidValidity: number; uidNext: number; messages: FakeImapMessage[] };
 
-export function createFakeImap(paths: Record<string, string | null> = { INBOX: "\\Inbox", Trash: "\\Trash" }) {
+export function createFakeImap(
+  paths: Record<string, string | null> = { INBOX: "\\Inbox", Trash: "\\Trash" },
+  /** uidplus: false simule un serveur sans UIDPLUS (déplacement sans correspondance des uid). */
+  opts: { uidplus?: boolean } = {},
+) {
   const boxes = new Map<string, Box>();
   for (const p of Object.keys(paths)) boxes.set(p, { uidValidity: 1, uidNext: 1, messages: [] });
   let current = "INBOX";
@@ -84,6 +88,11 @@ export function createFakeImap(paths: Record<string, string | null> = { INBOX: "
         };
       }
     },
+    async fetchOne(range: string) {
+      const match = matcher(range);
+      const m = box().messages.find((x) => match(x.uid));
+      return m ? { uid: m.uid, envelope: { messageId: m.messageId } } : false;
+    },
     async messageFlagsAdd(range: string, flags: string[]) {
       const match = matcher(range);
       for (const m of box().messages) if (match(m.uid)) flags.forEach((f) => m.flags.add(f));
@@ -100,8 +109,12 @@ export function createFakeImap(paths: Record<string, string | null> = { INBOX: "
       const moving = from.messages.filter((m) => match(m.uid));
       from.messages = from.messages.filter((m) => !match(m.uid));
       const to = box(dest);
-      for (const m of moving) to.messages.push({ ...m, uid: to.uidNext++ });
-      return true;
+      const uidMap = new Map<number, number>();
+      for (const m of moving) {
+        uidMap.set(m.uid, to.uidNext);
+        to.messages.push({ ...m, uid: to.uidNext++ });
+      }
+      return { path: current, destination: dest, ...(opts.uidplus === false ? {} : { uidMap }) };
     },
     async messageDelete(range: string) {
       const match = matcher(range);

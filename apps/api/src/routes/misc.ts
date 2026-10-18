@@ -608,9 +608,16 @@ export const miscRoutes: FastifyPluginAsync = async (app) => {
       await requireAuth(request, reply);
       if (reply.sent) return;
       const q = request.query as { permanent?: string };
+      const permanent = q.permanent === "true";
       try {
-        const result = await deleteMessage(request.params.messageId, q.permanent === "true");
-        return { ok: true, deleted: result.deleted };
+        const before = await prisma.emailMessage.findUnique({
+          where: { id: request.params.messageId },
+          select: { folderId: true, imapUid: true, folder: { select: { role: true } } },
+        });
+        const result = await deleteMessage(request.params.messageId, permanent);
+        // Mis à la corbeille (pas détruit) : dossier d'origine, pour « Annuler » dans l'interface.
+        const trashed = !permanent && result.deleted > 0 && before?.imapUid && before.folder && before.folder.role !== "TRASH";
+        return { ok: true, deleted: result.deleted, restoreFolderId: trashed ? before.folderId : null };
       } catch (e) {
         return reply.code(400).send({
           error: e instanceof Error ? e.message : "Suppression impossible",
