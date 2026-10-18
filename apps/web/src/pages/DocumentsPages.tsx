@@ -28,6 +28,7 @@ import { StatStrip, type StatItem } from "@/components/ui/StatStrip";
 import { DataTable, type DataColumn } from "@/components/ui/DataTable";
 import { DocumentFormEditor } from "@/components/documents/DocumentForm";
 import { DocumentNumberBadge } from "@/components/documents/DocumentNumberBadge";
+import { ListRow } from "@/components/ui/ListRow";
 import { InvoiceTypeBadge } from "@/components/documents/InvoiceTypeBadge";
 import { MarketTimeline, type MarketMilestone, type MarketView } from "@/components/documents/MarketTimeline";
 import { AcceptanceProofs } from "@/components/documents/AcceptanceProofs";
@@ -239,35 +240,30 @@ function DocumentsListPage({
   ];
   const filtering = statusFilter !== "ALL" || kind !== "toutes" || reviewOnly || overdueOnly || query.trim() !== "";
 
+  // Téléphone : même gabarit que les autres listes (qui et combien, puis numéro, date et statuts).
   const renderDocCard = (d: Doc) => {
     const st = displayStatus(d, isQuote);
     return (
-      <Link
+      <ListRow
         to={isQuote ? `/quotes/${d.id}` : `/invoices/${d.id}`}
-        className="block min-w-0 rounded-[var(--radius)] border border-[var(--border)] bg-[var(--surface)] p-3.5 transition-colors hover:border-[var(--border-strong)] hover:bg-[var(--surface-raised)]"
-      >
-        <div className="flex items-center justify-between gap-3">
-          <span className="flex min-w-0 items-center gap-1.5">
-            <DocumentNumberBadge
-              number={d.number}
-              documentType={d.documentType}
-              invoiceType={d.invoiceType}
-            />
+        title={d.client.displayName}
+        amount={formatEUR(d.totalCents)}
+        meta={
+          <>
+            <DocumentNumberBadge number={d.number} documentType={d.documentType} invoiceType={d.invoiceType} />
+            {d.issueDate ? ` · ${formatDate(d.issueDate)}` : null}
+          </>
+        }
+        badges={
+          <>
             <InvoiceTypeBadge type={d.documentType === "CREDIT_NOTE" ? "CREDIT_NOTE" : d.invoiceType} compact />
-          </span>
-          <span className="font-semibold tabular-nums">{formatEUR(d.totalCents)}</span>
-        </div>
-        <div className="mt-2 flex items-center justify-between gap-3">
-          <span className="line-clamp-2 min-w-0 break-words text-sm">{d.client.displayName}</span>
-          <span className="flex flex-wrap justify-end gap-1">
             <Badge tone={statusTone(st)}>{listStatus(d, isQuote) === CREDIT_ISSUED ? "Émis" : (labels[st] ?? st)}</Badge>
             {isOverdue(d) ? <Badge tone="red">En retard</Badge> : null}
             {d.stripeUncollectibleAt ? <Badge tone="red">Non recouvrable</Badge> : null}
-            {d.offlineReviewReason ? <Badge tone="amber">Préparé hors ligne, à relire</Badge> : null}
-          </span>
-        </div>
-        <p className="mt-1 text-xs text-[var(--muted)]">{formatDate(d.issueDate)}</p>
-      </Link>
+            {d.offlineReviewReason ? <Badge tone="amber">À relire</Badge> : null}
+          </>
+        }
+      />
     );
   };
 
