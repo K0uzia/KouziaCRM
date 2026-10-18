@@ -155,6 +155,32 @@ describe("configuration de l'écouteur du hub", () => {
     }
   });
 
+  it("HUB_LISTEN : adresse privée seulement, toute écriture de l'adresse non spécifiée refusée", () => {
+    for (const ok of ["10.0.0.4:3100", "172.20.1.2:3100", "127.0.0.1:3100", "[::ffff:192.168.1.20]:3100", "[::ffff:c0a8:114]:3100", "[fd12:3456::1]:3100"]) {
+      expect(() => parseHubListen(ok), ok).not.toThrow();
+    }
+    for (const raw of [
+      "[::0.0.0.0]:3100",
+      "[::ffff:0.0.0.0]:3100",
+      "[::ffff:0:0]:3100",
+      "[0:0:0:0:0:ffff:0.0.0.0]:3100",
+      "[0:0:0:0:0:0:0:0]:3100",
+      "8.8.8.8:3100",
+      "172.32.0.1:3100",
+      "[2001:db8::1]:3100",
+      "[::ffff:8.8.8.8]:3100",
+    ]) {
+      expect(() => parseHubListen(raw), raw).toThrow(/HUB_LISTEN/);
+    }
+  });
+
+  it("HUB_READ_SECRET : 32 caractères au moins, message clair au démarrage", () => {
+    expect(() => getHubConfig({ HUB_READ_SECRET: "trop-court", HUB_LISTEN: "192.168.1.20:3100", HUB_ALLOWED_IPS: HUB_IP })).toThrow(
+      /HUB_READ_SECRET trop court \(10 caractères, 32 au moins\)/,
+    );
+    expect(getHubConfig({ HUB_READ_SECRET: "x".repeat(32), HUB_LISTEN: "192.168.1.20:3100", HUB_ALLOWED_IPS: HUB_IP })).not.toBeNull();
+  });
+
   it("aucun écouteur sans HUB_READ_SECRET ou sans HUB_LISTEN", () => {
     expect(getHubConfig({ HUB_LISTEN: "192.168.1.20:3100", HUB_ALLOWED_IPS: HUB_IP })).toBeNull();
     expect(getHubConfig({ HUB_READ_SECRET: SECRET, HUB_ALLOWED_IPS: HUB_IP })).toBeNull();
