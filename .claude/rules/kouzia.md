@@ -55,6 +55,6 @@ Interdits partout (code, interface, PDF, e-mails, commentaires, doc, migrations)
 
 - Tests API : `cd apps/api && DATABASE_URL=file:./test.db npx prisma db push --skip-generate --accept-data-loss --schema=../../prisma/schema.prisma && DATABASE_URL=file:./test.db npx vitest run`. Sous Windows, `npm test` ne fonctionne pas (variable d'environnement en syntaxe Unix).
 - Front : `npm run build` (`check:lockfile`, `tsc -b` puis `vite build`) vert.
-- UI : `npm run check:mobile` vert (320 et 375 px : aucun scroll horizontal, aucun élément coupé, cibles de 44 px), puis contrôle à 768 et 1280 px, au clavier, et skill `web-a11y-audit` sur les écrans touchés.
+- UI : `npm run check:mobile` vert (320 et 375 px : aucun scroll horizontal, aucun élément coupé, cibles de 44 px), puis `npm run check:desktop` vert (1280, 1920 et 2560 px : contenu centré à 1 px près, conteneur à la largeur utile jusqu'à 120rem, pas de colonne étroite, taille de base qui suit l'écran), contrôle visuel à 800 px, au clavier, et skill `web-a11y-audit` sur les écrans touchés.
 - Aucun U+2014 ni U+2013 introduit (`rg "[\x{2013}\x{2014}]" apps packages prisma scripts docs`).
 - Ne jamais contourner un contrôle sans validation explicite. En fin de tâche, lister ce qui est vérifié, ce qui ne l'est pas, et la dette relevée (P0, P1, P2).

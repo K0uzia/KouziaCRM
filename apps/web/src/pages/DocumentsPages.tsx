@@ -316,7 +316,7 @@ function DocumentsListPage({
             {d.client.displayName}
           </p>
           {d.client.clientNumber ? (
-            <p className="font-mono text-xs text-[var(--muted)]">{d.client.clientNumber}</p>
+            <p className="font-mono text-[length:var(--text-ref)] text-[var(--muted)]">{d.client.clientNumber}</p>
           ) : null}
         </div>
       ),

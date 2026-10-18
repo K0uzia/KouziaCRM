@@ -555,7 +555,7 @@ export function AppLayout() {
             className={
               isMailWorkspace
                 ? "flex h-full min-h-0 min-w-0 flex-col"
-                : "mx-auto w-full max-w-[90rem] min-w-0 px-[var(--gutter)] py-5 lg:py-7"
+                : "mx-auto w-full max-w-[var(--content-max)] min-w-0 px-[var(--gutter)] py-5 lg:py-7"
             }
           >
             <PageErrorBoundary resetKey={pathname}>
