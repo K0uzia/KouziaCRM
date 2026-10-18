@@ -17,7 +17,9 @@ import {
 } from "@/lib/format";
 import { Button, buttonClass } from "@/components/ui/Button";
 import { MoreMenu } from "@/components/ui/MoreMenu";
-import { Badge, Card, PageHeader } from "@/components/ui/Card";
+import { Badge, Card, EmptyState, PageHeader } from "@/components/ui/Card";
+import { missingCopyMessage, useOfflineCopy } from "@/lib/offline/sync";
+import { isNetworkFailure } from "@/lib/network";
 import { Modal, ModalActions } from "@/components/ui/Modal";
 import { Banner } from "@/components/ui/Banner";
 import { FilterBar, FilterSegment, FilterSelect } from "@/components/ui/ListFilters";
@@ -579,6 +581,8 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
   const navigate = useNavigate();
   const isQuote = kind === "QUOTE";
   const [doc, setDoc] = useState<Doc | null>(null);
+  const [docLoadError, setDocLoadError] = useState<string | null>(null);
+  const offlineCopy = useOfflineCopy();
   const [reviewBusy, setReviewBusy] = useState(false);
   // Étiquette « Préparé hors ligne, à relire » retirée (elle l'est aussi d'office à l'émission).
   async function markReviewed() {
@@ -708,7 +712,15 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
   }, [editOpen, clients.length]);
 
   useEffect(() => {
-    load().catch((e: Error) => toast.error(e.message));
+    setDocLoadError(null);
+    load().catch((e: Error) => {
+      // Pièce non chargée : message à la place de « Chargement… » (hors ligne, pièce pas encore copiée).
+      if (isNetworkFailure(e)) setDocLoadError("offline");
+      else {
+        setDocLoadError(e.message);
+        toast.error(e.message);
+      }
+    });
     api<{ legalName?: string; tradeName?: string | null }>("/api/settings")
       .then((s) => setCompanyName(s.tradeName || s.legalName || "Alexandre Kouziaeff"))
       .catch(() => undefined);
@@ -719,6 +731,30 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
     () => void load().catch(() => undefined),
     (i) => Boolean(id) && i.href.endsWith(`/${id}`),
   );
+
+  if (!doc && docLoadError) {
+    const what = isQuote ? "Ce devis" : "Cette facture";
+    return (
+      <div className="space-y-4">
+        <PageHeader title={isQuote ? "Devis" : "Facture"} back={{ to: isQuote ? "/quotes" : "/invoices", label: isQuote ? "Devis" : "Factures" }} />
+        <EmptyState
+          title={docLoadError === "offline" ? "Pièce indisponible hors ligne" : "Pièce non chargée"}
+          hint={docLoadError === "offline" ? missingCopyMessage(what, offlineCopy, !isQuote) : docLoadError}
+          action={
+            <Button
+              variant="secondary"
+              onClick={() => {
+                setDocLoadError(null);
+                load().catch((e: Error) => setDocLoadError(isNetworkFailure(e) ? "offline" : e.message));
+              }}
+            >
+              Réessayer
+            </Button>
+          }
+        />
+      </div>
+    );
+  }
 
   if (!doc) return <p className="text-sm text-[var(--muted)]">Chargement…</p>;
 

@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
+import { isNetworkFailure } from "@/lib/network";
 import { formatDate } from "@/lib/format";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
@@ -22,6 +23,7 @@ type TimelineItem = {
 export function ClientMessagesTab({ clientId }: { clientId: string }) {
   const [items, setItems] = useState<TimelineItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [offlineBlock, setOfflineBlock] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
 
   async function load() {
@@ -30,7 +32,9 @@ export function ClientMessagesTab({ clientId }: { clientId: string }) {
       const res = await api<{ items: TimelineItem[] }>(`/api/clients/${clientId}/emails`);
       setItems(res.items);
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Erreur");
+      // Messagerie jamais copiée sur l'appareil (liste fermée) : état du bloc, pas une erreur.
+      if (isNetworkFailure(e)) setOfflineBlock(true);
+      else toast.error(e instanceof Error ? e.message : "Erreur");
     } finally {
       setLoading(false);
     }
@@ -54,6 +58,13 @@ export function ClientMessagesTab({ clientId }: { clientId: string }) {
   }
 
   if (loading) return <p className="text-sm text-[var(--muted)]">Chargement…</p>;
+  if (offlineBlock) {
+    return (
+      <Card className="p-5">
+        <p className="text-sm text-[var(--muted)]">Non disponible hors ligne : les échanges ne sont pas copiés sur l&apos;appareil.</p>
+      </Card>
+    );
+  }
 
   return (
     <Card className="space-y-3 p-5">

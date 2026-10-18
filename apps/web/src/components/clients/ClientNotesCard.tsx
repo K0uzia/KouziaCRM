@@ -42,7 +42,7 @@ export function ClientNotesCard({ clientId, clientName }: { clientId: string; cl
       })
       .catch((e: unknown) => {
         if (!alive) return;
-        setLoadError(isNetworkFailure(e) ? "Notes consultables avec le réseau." : errorMessage(e, "Notes non chargées."));
+        setLoadError(isNetworkFailure(e) ? "Non disponible hors ligne : ces notes ne sont pas encore sur l'appareil." : errorMessage(e, "Notes non chargées."));
       });
     return () => {
       alive = false;

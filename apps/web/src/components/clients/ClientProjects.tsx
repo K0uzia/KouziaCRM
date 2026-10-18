@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState, type FormEvent, type ReactNode } from "react";
+import { isNetworkFailure } from "@/lib/network";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faPlus, faTrash } from "@fortawesome/free-solid-svg-icons";
 import { toast } from "sonner";
@@ -97,12 +98,21 @@ export function ClientProjects({ clientId }: { clientId: string }) {
   const [deleting, setDeleting] = useState<Project | null>(null);
   const [busy, setBusy] = useState(false);
 
+  // Bloc non chargé : son propre état (hors ligne sans copie), sans faire tomber la fiche ni afficher « Aucun projet ».
+  const [loadError, setLoadError] = useState<string | null>(null);
   const load = useCallback(async () => {
     setProjects(await api<Project[]>(`/api/clients/${clientId}/projects`));
+    setLoadError(null);
   }, [clientId]);
 
   useEffect(() => {
-    load().catch((e: Error) => toast.error(e.message));
+    load().catch((e: Error) => {
+      if (isNetworkFailure(e)) setLoadError("Non disponible hors ligne : ces projets ne sont pas encore sur l'appareil.");
+      else {
+        setLoadError(e.message);
+        toast.error(e.message);
+      }
+    });
   }, [load]);
 
   // Arrivée depuis le paiement de l'acompte (?projet=id) : la fiche du projet créé s'ouvre à compléter.
@@ -182,7 +192,9 @@ export function ClientProjects({ clientId }: { clientId: string }) {
         </Button>
       </div>
 
-      {projects.length === 0 ? (
+      {loadError ? (
+        <p className="text-[var(--muted)]">{loadError}</p>
+      ) : projects.length === 0 ? (
         <p className="text-[var(--muted)]">
           Aucun projet. Un projet visible apparaît dans l&apos;espace client, bloc « Avancement ».
         </p>

@@ -3,6 +3,7 @@ import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faPen, faPlus, faTrash } from "@fortawesome/free-solid-svg-icons";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
+import { isOnline } from "@/lib/network";
 import { formatDate } from "@/lib/format";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
@@ -121,7 +122,10 @@ export function ClientRenewalsCard({ clientId }: { clientId: string }) {
           Ajouter
         </Button>
       </div>
-      {failed ? (
+      {failed && !isOnline() ? (
+        // Renouvellements hors de la liste fermée : jamais copiés, état du bloc sans faire tomber la fiche.
+        <p className="px-5 py-4 text-sm text-[var(--muted)]">Non disponible hors ligne : les renouvellements ne sont pas copiés sur l&apos;appareil.</p>
+      ) : failed ? (
         <p className="px-5 py-4 text-sm text-[var(--danger)]">
           Renouvellements indisponibles.{" "}
           <button type="button" className="link min-h-11" onClick={load}>
