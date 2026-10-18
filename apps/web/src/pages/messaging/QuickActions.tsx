@@ -34,8 +34,8 @@ export function QuickActions({ threadId, clientId, clientName, subject, onRefres
   useEffect(() => {
     if (!clientId) return;
     void Promise.all([
-      api<Doc[]>(`/api/invoices?clientId=${clientId}&pageSize=50`),
-      api<Doc[]>(`/api/invoices?type=QUOTE&clientId=${clientId}&pageSize=50`),
+      api<Doc[]>(`/api/invoices?clientId=${clientId}`),
+      api<Doc[]>(`/api/invoices?type=QUOTE&clientId=${clientId}`),
     ]).then(([inv, quotes]) => setDocs([...inv, ...quotes].filter((d) => d.number)));
   }, [clientId]);
 

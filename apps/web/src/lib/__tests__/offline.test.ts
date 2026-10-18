@@ -141,13 +141,26 @@ describe("liste fermée des lectures copiées", () => {
       "/api/invoices?type=INVOICE",
       "/api/invoices?clientId=cmabc123&pageSize=100",
       "/api/invoices?type=QUOTE&clientId=cmabc123&pageSize=100",
+      "/api/invoices?clientId=cmabc123",
+      "/api/invoices?type=QUOTE&clientId=cmabc123",
+      "/api/invoices/summary?type=QUOTE",
+      "/api/invoices/summary?type=INVOICE",
       "/api/invoices?type=INVOICE&market=cmq1",
       "/api/invoices/cminv1",
       "/api/settings",
     ]) {
       expect(offlineRule(path), path).not.toBeNull();
     }
-    expect(OFFLINE_RULES).toHaveLength(8);
+    expect(OFFLINE_RULES).toHaveLength(9);
+  });
+
+  it("synthèse des listes : des nombres seulement, rien d'autre ne passe", () => {
+    const rule = offlineRule("/api/invoices/summary?type=INVOICE")!;
+    expect(rule.name).toBe("synthèse des devis ou des factures");
+    expect(offlineRule("/api/invoices/summary?type=ALL")).toBeNull();
+    expect(
+      rule.sanitize({ total: 3, byStatus: { ISSUED: 2, x: 1, PAID: "2" }, byKind: { factures: { ISSUED: 2 }, avoirs: {}, autre: 1 }, overdue: 1, toReview: 0, secret: "non" }),
+    ).toEqual({ total: 3, byStatus: { ISSUED: 2 }, byKind: { factures: { ISSUED: 2 }, avoirs: {} }, overdue: 1, toReview: 0 });
   });
 
   it("jamais copiées : authentification, secrets, banque, paiements, messagerie, PDF, preuves, codes et jetons", () => {

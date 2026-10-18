@@ -1,5 +1,6 @@
 // Liste FERMÉE des lectures copiées pour le hors ligne : clients (coordonnées comprises), notes de rendez-vous et
-// projets des fiches clients, prestations, devis, factures (sans PDF) et le petit sous-ensemble des réglages utile
+// projets des fiches clients, prestations, devis, factures (sans PDF), synthèse de leurs listes (des nombres
+// seulement) et le petit sous-ensemble des réglages utile
 // aux devis. Toute autre requête n'est jamais
 // copiée. Chaque réponse passe par une liste blanche de champs : un champ ajouté plus tard côté API n'entre pas
 // dans la copie sans être ajouté ici. Exclus : authentification, 2FA, codes de secours, abonnements push,
@@ -148,6 +149,26 @@ export function sanitizeSettings(data: unknown): Json | null {
   return pick(data, SETTINGS_KEYS);
 }
 
+/** Synthèse d'une liste : des nombres seulement (par statut, par type, à relire, en retard). */
+function counts(source: unknown): Record<string, number> {
+  const out: Record<string, number> = {};
+  if (source && typeof source === "object" && !Array.isArray(source)) {
+    for (const [k, v] of Object.entries(source as Json)) if (typeof v === "number" && /^[A-Z_]{1,32}$/.test(k)) out[k] = v;
+  }
+  return out;
+}
+function sanitizeSummary(data: unknown): unknown {
+  const s = pick(data, ["total", "byStatus", "byKind", "overdue", "toReview"]) ?? {};
+  const kind = pick(s.byKind, ["factures", "avoirs"]);
+  return {
+    total: typeof s.total === "number" ? s.total : 0,
+    byStatus: counts(s.byStatus),
+    ...(kind ? { byKind: { factures: counts(kind.factures), avoirs: counts(kind.avoirs) } } : {}),
+    overdue: typeof s.overdue === "number" ? s.overdue : 0,
+    toReview: typeof s.toReview === "number" ? s.toReview : 0,
+  };
+}
+
 export const OFFLINE_RULES: readonly OfflineRule[] = [
   { name: "clients", pattern: /^\/api\/clients(\?hasCorrespondence=(true|false))?$/, sanitize: listOf(sanitizeClient) },
   { name: "fiche client", pattern: new RegExp(`^/api/clients/${ID}$`), sanitize: sanitizeClient },
@@ -157,11 +178,12 @@ export const OFFLINE_RULES: readonly OfflineRule[] = [
   {
     name: "listes de devis et de factures",
     pattern: new RegExp(
-      `^/api/invoices\\?(type=(QUOTE|INVOICE)|clientId=${ID}&pageSize=100|type=QUOTE&clientId=${ID}(&pageSize=100)?|type=INVOICE&market=${ID})$`,
+      `^/api/invoices\\?(type=(QUOTE|INVOICE)|clientId=${ID}(&pageSize=100)?|type=QUOTE&clientId=${ID}(&pageSize=100)?|type=INVOICE&market=${ID})$`,
     ),
     sanitize: listOf(sanitizeInvoice),
   },
-  { name: "devis ou facture", pattern: new RegExp(`^/api/invoices/(?!search$)${ID}$`), sanitize: sanitizeInvoice },
+  { name: "synthèse des devis ou des factures", pattern: /^\/api\/invoices\/summary\?type=(QUOTE|INVOICE)$/, sanitize: sanitizeSummary },
+  { name: "devis ou facture", pattern: new RegExp(`^/api/invoices/(?!search$|summary$)${ID}$`), sanitize: sanitizeInvoice },
   { name: "réglages des devis", pattern: /^\/api\/settings$/, sanitize: sanitizeSettings, support: true },
 ];
 

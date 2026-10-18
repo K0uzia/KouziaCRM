@@ -303,11 +303,11 @@ export const clientsRoutes: FastifyPluginAsync = async (app) => {
     const client = await prisma.client.findUnique({ where: { id: request.params.id } });
     if (!client) return reply.code(404).send({ error: "Introuvable" });
 
+    // Historique complet du client (borné par ses propres échanges) : pas de limite silencieuse à 50.
     const [threads, events] = await Promise.all([
       prisma.emailThread.findMany({
         where: { clientId: client.id },
         orderBy: { lastMessageAt: "desc" },
-        take: 50,
         include: {
           messages: {
             orderBy: { receivedAt: "desc" },
@@ -319,7 +319,6 @@ export const clientsRoutes: FastifyPluginAsync = async (app) => {
       prisma.clientEmailEvent.findMany({
         where: { clientId: client.id },
         orderBy: { sentAt: "desc" },
-        take: 50,
       }),
     ]);
 

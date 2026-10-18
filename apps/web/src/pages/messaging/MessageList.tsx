@@ -21,6 +21,9 @@ import { formProspectName } from "@/pages/messaging/sender";
 type Props = {
   messages: MailMessageItem[];
   total: number;
+  /** Messages suivants (chargement progressif) ; loadingMore : chargement en cours. */
+  onLoadMore: () => void;
+  loadingMore: boolean;
   search: string;
   onSearchChange: (v: string) => void;
   audience: "all" | "clients" | "external";
@@ -112,6 +115,8 @@ function ClientTag({ label }: { label: string }) {
 export function MessageList({
   messages,
   total,
+  onLoadMore,
+  loadingMore,
   search,
   onSearchChange,
   audience,
@@ -298,7 +303,9 @@ export function MessageList({
             />
             Tout sélectionner
           </label>
-          <p className="text-xs text-[var(--muted)]">{total} message(s)</p>
+          <p className="text-xs text-[var(--muted)]">
+            {messages.length < total ? `${messages.length} sur ${total} messages` : `${total} message(s)`}
+          </p>
           {isTrashFolder && onEmptyTrash ? (
             <Button variant="danger" className="ml-auto text-xs" onClick={onEmptyTrash}>
               Vider la corbeille
@@ -420,6 +427,13 @@ export function MessageList({
             </li>
           );
         })}
+        {messages.length < total ? (
+          <li className="p-3">
+            <Button variant="secondary" className="w-full" disabled={loadingMore} onClick={onLoadMore}>
+              {loadingMore ? "Chargement…" : `Afficher les messages suivants (${Math.min(50, total - messages.length)} sur ${total - messages.length} restants)`}
+            </Button>
+          </li>
+        ) : null}
       </ul>
 
       {ctx ? (

@@ -375,7 +375,7 @@ export function SiteReviewPage() {
       setDocs([]);
       return;
     }
-    api<DocOption[]>(`/api/invoices?type=ALL&pageSize=100&clientId=${encodeURIComponent(form.clientId)}`)
+    api<DocOption[]>(`/api/invoices?type=ALL&clientId=${encodeURIComponent(form.clientId)}`)
       .then((list) => setDocs(list.filter((d) => d.number)))
       .catch(() => setDocs([]));
   }, [form.clientId]);

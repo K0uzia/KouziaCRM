@@ -114,8 +114,8 @@ export function ComposePage() {
       return;
     }
     void Promise.all([
-      api<DocOpt[]>(`/api/invoices?clientId=${clientId}&pageSize=50`),
-      api<DocOpt[]>(`/api/invoices?type=QUOTE&clientId=${clientId}&pageSize=50`),
+      api<DocOpt[]>(`/api/invoices?clientId=${clientId}`),
+      api<DocOpt[]>(`/api/invoices?type=QUOTE&clientId=${clientId}`),
     ])
       .then(([inv, quotes]) => setClientDocs([...inv, ...quotes].filter((d) => d.number)))
       .catch(() => setClientDocs([]));
