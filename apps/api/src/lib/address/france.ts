@@ -28,8 +28,23 @@ export type NormalizedAddress = {
  * Revalide une adresse française côté serveur.
  * Ne bloque jamais si l'API est down ; bloque not_found sauf confirmation manuelle.
  */
+/** Même texte à la casse, aux accents, à la ponctuation et aux espaces près. */
+function sameText(a: string | null | undefined, b: string | null | undefined): boolean {
+  const norm = (s: string | null | undefined) =>
+    (s ?? "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+  return norm(a) === norm(b);
+}
+
 export async function normalizeFrenchAddress(
   input: AddressInput,
+  opts: {
+    /**
+     * Fiches de l'ERP : la base nationale ne remplace jamais une voie ou une commune par une autre (elle
+     * proposait « 3 Chemin de Caucetey » pour « 3 chemin de Recette ») ; seules la casse et les accents sont
+     * corrigés, sinon la proposition est renvoyée en erreur pour que la personne choisisse.
+     */
+    rejectOtherStreet?: boolean;
+  } = {},
 ): Promise<{ ok: true; address: NormalizedAddress } | { ok: false; error: string }> {
   const country = (input.country ?? "FRANCE").trim().toUpperCase();
   const line1 = input.addressLine1?.trim() || null;
@@ -69,6 +84,12 @@ export async function normalizeFrenchAddress(
     return { ok: true, address: { ...base, unavailable: true } };
   }
   if (result.status === "ok") {
+    if (opts.rejectOtherStreet && (!sameText(result.address.addressLine1, line1) || !sameText(result.address.city, city))) {
+      return {
+        ok: false,
+        error: `La base nationale propose « ${result.address.addressLine1}, ${result.address.postalCode} ${result.address.city} ». Choisissez une suggestion ou confirmez votre saisie.`,
+      };
+    }
     return {
       ok: true,
       address: {

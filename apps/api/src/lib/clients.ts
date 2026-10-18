@@ -9,6 +9,7 @@ import { computeEmailHash } from "@/lib/clients/email-hash.js";
 import { needsInputSchema, normalizeNeeds, parseNeeds } from "@/lib/clients/needs.js";
 import {
   normalizeFrenchAddress,
+  type NormalizedAddress,
   verifyCompanyIdentifiers,
 } from "@/lib/address/france.js";
 
@@ -140,8 +141,34 @@ export function serializeClient(client: {
   };
 }
 
-export async function toPrismaClientData(data: ClientInput) {
-  const addr = await normalizeFrenchAddress({
+/**
+ * addressUnchanged : « Modifier » où l'adresse envoyée est celle déjà enregistrée ; elle est reprise telle quelle,
+ * sans nouvelle vérification (un autre champ modifié ne doit jamais réécrire l'adresse).
+ */
+export async function toPrismaClientData(data: ClientInput, opts: { addressUnchanged?: boolean } = {}) {
+  const addr = opts.addressUnchanged
+    ? {
+        ok: true as const,
+        address: {
+          addressLine1: data.addressLine1?.trim() || null,
+          postalCode: data.postalCode?.trim() || null,
+          city: data.city?.trim() || null,
+          addressCityCode: data.addressCityCode?.trim() || null,
+          addressLat: data.addressLat ?? null,
+          addressLon: data.addressLon ?? null,
+          manual: Boolean(data.addressManualConfirmed),
+          unavailable: false,
+        },
+      }
+    : await normalizeFrenchAddressForClient(data);
+  if (!addr.ok) {
+    throw new AddressValidationError(addr.error);
+  }
+  return toPrismaClientFields(data, addr.address);
+}
+
+function normalizeFrenchAddressForClient(data: ClientInput) {
+  return normalizeFrenchAddress({
     addressLine1: data.addressLine1,
     postalCode: data.postalCode,
     city: data.city,
@@ -150,11 +177,11 @@ export async function toPrismaClientData(data: ClientInput) {
     addressLat: data.addressLat,
     addressLon: data.addressLon,
     addressManualConfirmed: data.addressManualConfirmed,
-  });
-  if (!addr.ok) {
-    throw new AddressValidationError(addr.error);
-  }
+  }, { rejectOtherStreet: true });
+}
 
+async function toPrismaClientFields(data: ClientInput, address: NormalizedAddress) {
+  const addr = { address };
   let siren = data.siren?.replace(/\s/g, "") || null;
   let siret = data.siret?.replace(/\s/g, "") || null;
   let apeCode = data.apeCode?.trim() || null;

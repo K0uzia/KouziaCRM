@@ -7,6 +7,7 @@ import {
   type Commune,
 } from "@kouzia/forms";
 import { Field, Input, Select } from "@/components/ui/Field";
+import { matchCommune, sameAddressText } from "@/lib/address-compare";
 
 export type AddressValue = {
   addressLine1: string;
@@ -196,7 +197,10 @@ export function AddressAutocomplete({
     }
   }
 
-  const cityAsSelect = isFrance(value.country) && communes.length > 1;
+  // Ville enregistrée retrouvée parmi les communes du code postal (à la casse et aux accents près). Une ville
+  // absente de la liste reste un champ texte avec sa valeur : jamais une liste affichée vide (« Modifier »).
+  const matchedCommune = matchCommune(value.city, communes);
+  const cityAsSelect = isFrance(value.country) && communes.length > 1 && (!value.city.trim() || matchedCommune !== null);
 
   return (
     <div className="space-y-4 rounded-[var(--radius)] border border-[var(--border)] p-4">
@@ -305,7 +309,7 @@ export function AddressAutocomplete({
         <Field label="Ville" className="sm:col-span-2" error={errors?.city}>
           {cityAsSelect ? (
             <Select
-              value={value.city}
+              value={matchedCommune?.nom ?? value.city}
               onChange={(e) => {
                 const c = communes.find((x) => x.nom === e.target.value);
                 patch({
@@ -387,6 +391,12 @@ export async function revalidateAddressBeforeSubmit(
   const result = await validateAdresse(value.addressLine1, value.postalCode, value.city);
   if (result.status === "unavailable") return null;
   if (result.status === "ok") {
+    // Correction silencieuse seulement à la casse ou aux accents près : une autre voie ou une autre commune
+    // proposée par la base nationale n'est jamais substituée à la saisie (« 3 chemin de Recette » devenait
+    // « 3 Chemin de Caucetey »). La personne choisit une suggestion ou confirme sa saisie.
+    if (!sameAddressText(result.address.addressLine1, value.addressLine1) || !sameAddressText(result.address.city, value.city)) {
+      return `La base nationale propose « ${result.address.addressLine1}, ${result.address.postalCode} ${result.address.city} ». Choisissez une suggestion ou confirmez votre saisie (« Je confirme que l'adresse est correcte »).`;
+    }
     onChange({
       ...value,
       addressLine1: result.address.addressLine1,

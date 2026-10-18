@@ -190,9 +190,23 @@ export const clientsRoutes: FastifyPluginAsync = async (app) => {
       return reply.code(400).send({ error: parsed.error.flatten() });
     }
     try {
+      // Adresse identique à celle enregistrée : reprise telle quelle, sans revérification qui pourrait la réécrire.
+      const stored = await prisma.client.findUnique({
+        where: { id: request.params.id },
+        select: { addressLine1: true, addressLine2: true, postalCode: true, city: true, country: true },
+      });
+      const same = (a: string | null | undefined, b: string | null | undefined) => (a ?? "").trim() === (b ?? "").trim();
+      const addressUnchanged = Boolean(
+        stored &&
+          same(stored.addressLine1, parsed.data.addressLine1) &&
+          same(stored.addressLine2, parsed.data.addressLine2) &&
+          same(stored.postalCode, parsed.data.postalCode) &&
+          same(stored.city, parsed.data.city) &&
+          same(stored.country ?? "FRANCE", parsed.data.country ?? "FRANCE"),
+      );
       const client = await prisma.client.update({
         where: { id: request.params.id },
-        data: await toPrismaClientData(parsed.data),
+        data: await toPrismaClientData(parsed.data, { addressUnchanged }),
       });
       return serializeClient(client);
     } catch (e) {
