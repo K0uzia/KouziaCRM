@@ -33,6 +33,7 @@ import { enrichCompanyForPdf } from "@/lib/pdf/brand-assets.js";
 import { decryptOptional } from "@/lib/crypto.js";
 import type { ClientSnapshot } from "@/lib/invoices/transitions.js";
 import { serializeInvoice } from "@/lib/invoices/serialize.js";
+import { invoiceListSummary } from "@/lib/invoices/list-summary.js";
 import { WorkflowError } from "@/lib/invoices/workflow.js";
 import {
   applyPaymentLinkChoice,
@@ -217,15 +218,16 @@ export const invoicesRoutes: FastifyPluginAsync = async (app) => {
       where.clientId = q.clientId;
     }
 
+    // Liste complète par défaut : les listes, leurs filtres et la copie hors ligne portent sur toutes les pièces.
+    // Pagination seulement sur demande (page ou pageSize), 100 au plus par page.
+    const paged = q.page !== undefined || q.pageSize !== undefined;
     const page = Math.max(1, Number(q.page) || 1);
     const pageSize = Math.min(100, Math.max(1, Number(q.pageSize) || 50));
-    const skip = (page - 1) * pageSize;
 
     const rows = await prisma.invoice.findMany({
       where,
-      orderBy: [{ issueDate: "desc" }, { createdAt: "desc" }],
-      skip,
-      take: pageSize,
+      orderBy: [{ issueDate: "desc" }, { createdAt: "desc" }, { id: "desc" }],
+      ...(paged ? { skip: (page - 1) * pageSize, take: pageSize } : {}),
       include: {
         client: { select: { id: true, displayName: true, clientNumber: true } },
         payments: { select: { id: true, amountCents: true, paidAt: true, method: true } },
@@ -405,6 +407,15 @@ export const invoicesRoutes: FastifyPluginAsync = async (app) => {
     });
     if (!pdf) return reply.code(404).send({ error: "Client introuvable" });
     return pdfReply(reply, pdf);
+  });
+
+  // Nombres de la liste des devis ou des factures (statuts, types, à relire, échéance dépassée), sur toute la base.
+  app.get("/api/invoices/summary", async (request, reply) => {
+    await requireAuth(request, reply);
+    if (reply.sent) return;
+    const parsed = z.object({ type: z.enum(["QUOTE", "INVOICE"]) }).safeParse(request.query);
+    if (!parsed.success) return reply.code(400).send({ error: "Type de document attendu : QUOTE ou INVOICE" });
+    return invoiceListSummary(parsed.data.type);
   });
 
   app.get("/api/invoices/search", async (request, reply) => {

@@ -499,8 +499,8 @@ function ClientDetail({ id }: { id: string | undefined }) {
     if (!id) return;
     refresh();
     Promise.all([
-      api<typeof docs>(`/api/invoices?clientId=${id}&pageSize=100`),
-      api<typeof docs>(`/api/invoices?type=QUOTE&clientId=${id}&pageSize=100`),
+      api<typeof docs>(`/api/invoices?clientId=${id}`),
+      api<typeof docs>(`/api/invoices?type=QUOTE&clientId=${id}`),
     ])
       .then(([invoices, quotes]) => {
         setDocs([...invoices, ...quotes].filter((d) => d.client.id === id));

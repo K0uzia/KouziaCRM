@@ -33,7 +33,7 @@ const ENGLISH = /Failed to fetch|dynamically imported module|NetworkError|Load f
 const COPY_DATE = /Données du \d{2}\/\d{2} à \d{2} h \d{2}/;
 /** Liste fermée des lectures copiées (apps/web/src/lib/offline/rules.ts), plus l'utilisateur courant. */
 const COPY_KEYS =
-  /^(session:utilisateur|\/api\/clients(\/[A-Za-z0-9_-]+(\/(notes|projects))?)?(\?hasCorrespondence=(true|false))?|\/api\/services(\?active=1)?|\/api\/invoices(\/[A-Za-z0-9_-]+|\?[A-Za-z0-9=&_-]+)|\/api\/settings)$/;
+  /^(session:utilisateur|\/api\/clients(\/[A-Za-z0-9_-]+(\/(notes|projects))?)?(\?hasCorrespondence=(true|false))?|\/api\/services(\?active=1)?|\/api\/invoices(\/[A-Za-z0-9_-]+|\/summary\?type=(QUOTE|INVOICE)|\?[A-Za-z0-9=&_-]+)|\/api\/settings)$/;
 const OFFLINE_DB = "kouzia-hors-ligne";
 const STORES = "cle,copies,file,relire";
 

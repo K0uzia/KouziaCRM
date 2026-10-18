@@ -62,6 +62,7 @@ export type SyncStatus = {
   lastSyncAt?: string | null;
 };
 
+const MESSAGES_PAGE = 50;
 type Audience = "all" | "clients" | "external";
 type ViewFilter = "all" | "unread" | "starred" | "attachments";
 const AUDIENCE = { tous: "all", clients: "clients", externes: "external" } as const satisfies Record<string, Audience>;
@@ -131,6 +132,11 @@ export function MailLayout() {
     }
   }, []);
 
+  // Chargement progressif : 50 messages, puis 50 de plus à la demande. Une actualisation (synchro, action)
+  // recharge autant de messages qu'affichés, pas seulement les 50 premiers ; un autre filtre repart de 50.
+  const wantedRef = useRef(MESSAGES_PAGE);
+  const listKeyRef = useRef("");
+  const [loadingMore, setLoadingMore] = useState(false);
   const loadMessages = useCallback(async () => {
     const folderId = selectedFolderIdRef.current;
     if (!folderId || folderId.startsWith("virtual:")) return;
@@ -142,17 +148,38 @@ export function MailLayout() {
     if (viewFilter === "unread") params.set("unread", "true");
     if (viewFilter === "starred") params.set("starred", "true");
     if (viewFilter === "attachments") params.set("hasAttachments", "true");
-    params.set("take", "50");
-    const data = await api<{
-      messages: MailMessageItem[];
-      total: number;
-      audienceCounts: { all: number; clients: number; external: number };
-    }>(`/api/emails/messages?${params}`);
-    if (gen !== messagesLoadGen.current) return;
-    setMessages(data.messages);
-    setTotal(data.total);
-    setAudienceCounts(data.audienceCounts);
+    const key = params.toString();
+    if (key !== listKeyRef.current) {
+      listKeyRef.current = key;
+      wantedRef.current = MESSAGES_PAGE;
+    }
+    type Page = { messages: MailMessageItem[]; total: number; audienceCounts: { all: number; clients: number; external: number } };
+    const loaded: MailMessageItem[] = [];
+    let page: Page;
+    // Pages de 100 au plus (limite de l'API) jusqu'au nombre voulu ou à la fin du dossier.
+    do {
+      params.set("skip", String(loaded.length));
+      params.set("take", String(Math.min(100, wantedRef.current - loaded.length)));
+      page = await api<Page>(`/api/emails/messages?${params}`);
+      if (gen !== messagesLoadGen.current) return;
+      loaded.push(...page.messages);
+    } while (page.messages.length > 0 && loaded.length < Math.min(wantedRef.current, page.total));
+    setMessages(loaded);
+    setTotal(page.total);
+    setAudienceCounts(page.audienceCounts);
   }, [selectedFolderId, search, audience, viewFilter]);
+
+  async function loadMore() {
+    wantedRef.current += MESSAGES_PAGE;
+    setLoadingMore(true);
+    try {
+      await loadMessages();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Messages suivants non chargés.");
+    } finally {
+      setLoadingMore(false);
+    }
+  }
 
   /** Même erreur venant des dossiers et des messages : un seul toast (id stable). */
   const [notConfigured, setNotConfigured] = useState(false);
@@ -450,6 +477,8 @@ export function MailLayout() {
             <MessageList
               messages={messages}
               total={total}
+              onLoadMore={() => void loadMore()}
+              loadingMore={loadingMore}
               search={search}
               onSearchChange={setSearch}
               selectedId={selectedMessageId}

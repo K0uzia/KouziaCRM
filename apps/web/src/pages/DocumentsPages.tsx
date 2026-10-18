@@ -22,7 +22,7 @@ import { Modal, ModalActions } from "@/components/ui/Modal";
 import { Banner } from "@/components/ui/Banner";
 import { FilterBar, FilterSegment, FilterSelect } from "@/components/ui/ListFilters";
 import { matchesSearch } from "@/lib/list-search";
-import { CREDIT_ISSUED, INVOICE_STATUS_SLUG, isOverdue, listStatus, QUOTE_STATUS_SLUG } from "@/lib/document-list";
+import { CREDIT_ISSUED, INVOICE_STATUS_SLUG, isOverdue, listStatus, QUOTE_STATUS_SLUG, type ListSummary } from "@/lib/document-list";
 import { useUrlFilters } from "@/lib/use-url-filters";
 import { StatStrip, type StatItem } from "@/components/ui/StatStrip";
 import { DataTable, type DataColumn } from "@/components/ui/DataTable";
@@ -155,6 +155,7 @@ function DocumentsListPage({
   const navigate = useNavigate();
   const isQuote = documentType === "QUOTE";
   const [rows, setRows] = useState<Doc[]>([]);
+  const [summary, setSummary] = useState<ListSummary | null>(null);
   const [clients, setClients] = useState<ClientOpt[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -180,12 +181,16 @@ function DocumentsListPage({
     .map((i) => ({ id: i.clientId, displayName: `${i.clientName} (à envoyer)`, clientNumber: null }));
 
   async function load() {
-    const [docs, cls] = await Promise.all([
+    // Liste complète (l'API ne pagine plus par défaut) et nombres comptés par le serveur sur toute la base.
+    const [docs, cls, sum] = await Promise.all([
       api<Doc[]>(`/api/invoices?type=${documentType}`),
       api<ClientOpt[]>("/api/clients"),
+      // Synthèse indisponible (hors ligne sans copie) : nombres tirés de la liste, complète elle aussi.
+      api<ListSummary>(`/api/invoices/summary?type=${documentType}`).catch(() => null),
     ]);
     setRows(docs);
     setClients(cls);
+    setSummary(sum);
   }
 
   // Chargement de la liste : état d'erreur avec « Réessayer » (dans le tableau), pas un simple toast.
@@ -205,8 +210,8 @@ function DocumentsListPage({
 
   // Ce qui demande une action : devis préparés hors ligne à relire, factures à l'échéance dépassée. Un bandeau
   // en tête les signale, avec un lien qui filtre la liste (?relire=1, ?retard=1).
-  const toReview = isQuote ? rows.filter((r) => r.offlineReviewReason).length : 0;
-  const overdue = isQuote ? 0 : rows.filter((d) => isOverdue(d)).length;
+  const toReview = summary ? summary.toReview : isQuote ? rows.filter((r) => r.offlineReviewReason).length : 0;
+  const overdue = summary ? summary.overdue : isQuote ? 0 : rows.filter((d) => isOverdue(d)).length;
   const reviewOnly = isQuote && toReview > 0 && filters.params.get("relire") === "1";
   const overdueOnly = !isQuote && overdue > 0 && filters.params.get("retard") === "1";
   const kept = (d: Doc) =>
@@ -225,9 +230,12 @@ function DocumentsListPage({
       : kind === "avoirs"
         ? [CREDIT_ISSUED]
         : ["DRAFT", "ISSUED", "PAID", "CANCELLED", CREDIT_ISSUED];
+  // Nombres : ceux du serveur (toute la base) ; avec une recherche ou un bandeau actif, ceux de la liste complète.
+  const bucket = summary && !query.trim() && !reviewOnly && !overdueOnly ? (kind === "toutes" ? summary.byStatus : summary.byKind?.[kind]) : null;
+  const countOf = (st: string) => (bucket ? (bucket[st] ?? 0) : scoped.filter((d) => listStatus(d, isQuote) === st).length);
   const statusOptions = [
-    { id: "tous", label: "Tous les statuts", count: scoped.length },
-    ...statusIds.map((st) => ({ id: slugs[st]!, label: statusLabelOf(st), count: scoped.filter((d) => listStatus(d, isQuote) === st).length })),
+    { id: "tous", label: "Tous les statuts", count: bucket ? statusIds.reduce((n, st) => n + (bucket[st] ?? 0), 0) : scoped.length },
+    ...statusIds.map((st) => ({ id: slugs[st]!, label: statusLabelOf(st), count: countOf(st) })),
   ];
   const filtering = statusFilter !== "ALL" || kind !== "toutes" || reviewOnly || overdueOnly || query.trim() !== "";
 

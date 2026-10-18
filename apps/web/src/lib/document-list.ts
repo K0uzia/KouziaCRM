@@ -32,3 +32,12 @@ export const INVOICE_STATUS_SLUG: Record<string, string> = {
   CANCELLED: "annulee",
   [CREDIT_ISSUED]: "avoir-emis",
 };
+
+/** Synthèse servie par GET /api/invoices/summary : nombres sur toute la base, jamais sur une page. */
+export type ListSummary = {
+  total: number;
+  byStatus: Record<string, number>;
+  byKind?: { factures: Record<string, number>; avoirs: Record<string, number> };
+  overdue: number;
+  toReview: number;
+};
