@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
-import { useUrlFilters } from "@/lib/use-url-filters";
+import { useUrlFilters, withParam } from "@/lib/use-url-filters";
 import { toast } from "sonner";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faEnvelope } from "@fortawesome/free-solid-svg-icons";
@@ -461,9 +461,11 @@ export function MailLayout() {
             onSelect={(id) => {
               setSelectedFolderId(id);
               setSelectedMessageId(null);
-              setViewFilter("all");
               setMobileFoldersOpen(false);
-              if (threadId) navigate(`/inbox${location.search}`);
+              // Une seule navigation : « Afficher » revient à « Tous les messages », les autres filtres restent.
+              if (threadId) {
+                navigate(`/inbox${withParam(location.search, "afficher", null)}`);
+              } else setViewFilter("all");
             }}
             onSync={() => void syncNow()}
             onCompose={() => openCompose()}
