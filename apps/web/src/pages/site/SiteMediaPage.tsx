@@ -8,13 +8,17 @@ import { Badge, Card, PageHeader } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { Field, Input } from "@/components/ui/Field";
 import { Modal } from "@/components/ui/Modal";
-import { FilterChips } from "@/components/ui/FilterChips";
+import { FilterBar, FilterSelect } from "@/components/ui/ListFilters";
+import { useUrlFilters } from "@/lib/use-url-filters";
 import { Segmented } from "@/components/ui/Segmented";
 import { StatStrip } from "@/components/ui/StatStrip";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { KIND_HINT, LoadState, MEDIA_KIND_LABEL, mediaName, SiteImage, useSiteCollection, type LibraryMedia, type MediaKind } from "./shared";
 
-type Filter = "all" | MediaKind | "unused" | "previous";
+const KIND_OF_SLUG = { toutes: "all", captures: "CAPTURE", telephone: "MOBILE", logos: "LOGO", partage: "PARTAGE" } as const;
+const SLUG_OF_KIND: Record<"all" | MediaKind, string | null> = { all: null, CAPTURE: "captures", MOBILE: "telephone", LOGO: "logos", PARTAGE: "partage" };
+const KIND_FILTER_LABEL: Record<MediaKind, string> = { CAPTURE: "Captures", MOBILE: "Téléphone", LOGO: "Logos", PARTAGE: "Partage" };
+type Usage = "toutes" | "utilisees" | "non-utilisees" | "anciennes";
 type Upload = { key: string; name: string; state: "pending" | "done" | "error"; message?: string };
 
 const KIND_OPTIONS: ReadonlyArray<{ id: MediaKind; label: string }> = [
@@ -59,8 +63,10 @@ function deletionBlocker(m: LibraryMedia): string | null {
  */
 export function SiteMediaPage() {
   const { rows, loading, error, reload } = useSiteCollection<LibraryMedia>("/api/site/media");
-  const [filter, setFilter] = useState<Filter>("all");
-  const [query, setQuery] = useState("");
+  const filters = useUrlFilters();
+  const kindFilter = KIND_OF_SLUG[filters.pick("type", Object.keys(KIND_OF_SLUG) as Array<keyof typeof KIND_OF_SLUG>, "toutes")];
+  const usage = filters.pick<Usage>("usage", ["toutes", "utilisees", "non-utilisees", "anciennes"], "toutes");
+  const query = filters.text("q");
   const [kind, setKind] = useState<MediaKind>("CAPTURE");
   const [uploads, setUploads] = useState<Upload[]>([]);
   const [dragging, setDragging] = useState(false);
@@ -73,17 +79,35 @@ export function SiteMediaPage() {
   const current = rows.filter((m) => !m.previousVersion);
   const previous = rows.filter((m) => m.previousVersion);
   const q = query.trim().toLowerCase();
-  const visible = (filter === "previous" ? previous : current).filter(
-    (m) =>
-      (filter === "all" || filter === "previous" || (filter === "unused" ? !m.usages.length : m.kind === filter)) &&
-      (!q || mediaName(m).toLowerCase().includes(q) || (m.originalName ?? "").toLowerCase().includes(q) || m.usages.some((u) => u.label.toLowerCase().includes(q))),
-  );
   const unused = current.filter((m) => !m.usages.length).length;
+  const matchesQuery = (m: LibraryMedia) =>
+    !q || mediaName(m).toLowerCase().includes(q) || (m.originalName ?? "").toLowerCase().includes(q) || m.usages.some((u) => u.label.toLowerCase().includes(q));
+  const ofUsage = (m: LibraryMedia) =>
+    usage === "anciennes" ? Boolean(m.previousVersion) : !m.previousVersion && (usage === "utilisees" ? m.usages.length > 0 : usage === "non-utilisees" ? !m.usages.length : true);
+  // Nombres de chaque liste : sur les images retenues par l'autre filtre et la recherche.
+  const kindScope = rows.filter((m) => matchesQuery(m) && ofUsage(m));
+  const kindOptions = [
+    { id: "all" as const, label: "Toutes", count: kindScope.length },
+    ...KIND_OPTIONS.map((k) => ({ id: k.id, label: KIND_FILTER_LABEL[k.id], count: kindScope.filter((m) => m.kind === k.id).length })),
+  ];
+  const ofKind = (m: LibraryMedia) => kindFilter === "all" || m.kind === kindFilter;
+  const scopedCurrent = current.filter((m) => matchesQuery(m) && ofKind(m));
+  const scopedPrevious = previous.filter((m) => matchesQuery(m) && ofKind(m));
+  const usageOptions = [
+    { id: "toutes" as const, label: "Toutes", count: scopedCurrent.length },
+    { id: "utilisees" as const, label: "Utilisées", count: scopedCurrent.filter((m) => m.usages.length).length },
+    { id: "non-utilisees" as const, label: "Non utilisées", count: scopedCurrent.filter((m) => !m.usages.length).length },
+    ...(previous.length ? [{ id: "anciennes" as const, label: "Anciennes versions", count: scopedPrevious.length }] : []),
+  ];
+  const visible =
+    usage === "anciennes"
+      ? scopedPrevious
+      : scopedCurrent.filter((m) => (usage === "utilisees" ? m.usages.length > 0 : usage === "non-utilisees" ? !m.usages.length : true));
   const unknownOnline = rows.some((m) => m.online === null);
   // Filtre « Anciennes versions » vidé (publication passée) : retour à toutes les images.
   useEffect(() => {
-    if (filter === "previous" && !previous.length) setFilter("all");
-  }, [filter, previous.length]);
+    if (!loading && usage === "anciennes" && !previous.length) filters.set({ usage: null });
+  }, [loading, usage, previous.length]);
   const opened = rows.find((m) => m.id === openId) ?? null;
   const busy = uploads.some((u) => u.state === "pending");
 
@@ -203,25 +227,15 @@ export function SiteMediaPage() {
         </Card>
 
         <Card className="p-4">
-          <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
-            <label className="block min-w-0 space-y-1.5 md:w-72">
-              <span className="block text-sm font-medium">Rechercher</span>
-              <Input type="search" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Nom, fichier ou fiche" autoComplete="off" />
-            </label>
-            <FilterChips
-              label="Filtrer les images"
-              value={filter}
-              onChange={setFilter}
-              wrap
-              options={[
-                { id: "all", label: "Toutes", count: current.length },
-                { id: "CAPTURE", label: "Captures", count: current.filter((m) => m.kind === "CAPTURE").length },
-                { id: "MOBILE", label: "Téléphone", count: current.filter((m) => m.kind === "MOBILE").length },
-                { id: "LOGO", label: "Logos", count: current.filter((m) => m.kind === "LOGO").length },
-                { id: "unused", label: "Non utilisées", count: unused },
-                ...(previous.length ? [{ id: "previous" as const, label: "Anciennes versions", count: previous.length }] : []),
-              ]}
-            />
+          <div className="mb-4">
+            <FilterBar>
+              <label className="block min-w-0 space-y-1.5 max-sm:w-full sm:w-72">
+                <span className="block text-sm font-medium">Rechercher</span>
+                <Input type="search" value={query} onChange={(e) => filters.set({ q: e.target.value })} placeholder="Nom, fichier ou fiche" autoComplete="off" />
+              </label>
+              <FilterSelect label="Type" value={kindFilter} onChange={(k) => filters.set({ type: SLUG_OF_KIND[k] })} options={kindOptions} />
+              <FilterSelect label="Utilisation" value={usage} onChange={(u) => filters.set({ usage: u === "toutes" ? null : u })} options={usageOptions} />
+            </FilterBar>
           </div>
           {visible.length ? (
             <ul className="grid grid-cols-[repeat(auto-fill,minmax(8rem,1fr))] gap-3 sm:grid-cols-[repeat(auto-fill,minmax(10rem,1fr))]">

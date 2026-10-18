@@ -11,7 +11,9 @@ import { EditorFooter, EditorLayout, useItemEditor } from "./editor";
 import { ReviewCardPreview } from "./preview";
 import { DataTable, type DataColumn } from "@/components/ui/DataTable";
 import { Field, Input, Select, Textarea } from "@/components/ui/Field";
-import { FilterChips } from "@/components/ui/FilterChips";
+import { Banner } from "@/components/ui/Banner";
+import { FilterSelect } from "@/components/ui/ListFilters";
+import { useUrlFilters } from "@/lib/use-url-filters";
 import { Modal, ModalActions } from "@/components/ui/Modal";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import {
@@ -49,6 +51,8 @@ const fromClientSpace = (r: Testimonial) => r.source === "CLIENT_SPACE";
 export const withdrawalPending = (r: SiteReview) => Boolean(r.withdrawalRequestedAt) && r.status !== "WITHDRAWN";
 
 type Filter = "pending" | "published" | "rejected" | "withdrawn" | "all";
+const STATE_OF_SLUG = { tous: "all", "a-valider": "pending", "sur-le-site": "published", ecartes: "rejected", retires: "withdrawn" } as const satisfies Record<string, Filter>;
+const SLUG_OF_STATE: Record<Filter, string | null> = { all: null, pending: "a-valider", published: "sur-le-site", rejected: "ecartes", withdrawn: "retires" };
 function stateOf(r: Testimonial): Exclude<Filter, "all"> | "draft" {
   if (r.rejectedAt) return "rejected";
   if (r.status === "WITHDRAWN") return "withdrawn";
@@ -104,9 +108,12 @@ export function SiteReviewsPage() {
   // Classement annoncé sur le site (D111-17) : du plus récent au plus ancien, pas d'ordre manuel.
   const rows = [...raw].sort((a, b) => b.reviewedOn.localeCompare(a.reviewedOn));
   const pendingCount = rows.filter((r) => stateOf(r) === "pending").length;
-  const [filter, setFilter] = useState<Filter | null>(null);
-  const activeFilter: Filter = filter ?? (pendingCount ? "pending" : "all");
-  const visible = activeFilter === "all" ? rows : rows.filter((r) => stateOf(r) === activeFilter || (activeFilter === "pending" && stateOf(r) === "draft"));
+  const filters = useUrlFilters();
+  const activeFilter: Filter = STATE_OF_SLUG[filters.pick("statut", Object.keys(STATE_OF_SLUG) as Array<keyof typeof STATE_OF_SLUG>, "tous")];
+  const withdrawals = rows.filter(withdrawalPending).length;
+  const withdrawalsOnly = withdrawals > 0 && filters.params.get("retrait") === "1";
+  const inState = (r: Testimonial) => activeFilter === "all" || stateOf(r) === activeFilter || (activeFilter === "pending" && stateOf(r) === "draft");
+  const visible = rows.filter((r) => inState(r) && (!withdrawalsOnly || withdrawalPending(r)));
 
   const navigate = useNavigate();
   useCreateParam(() => navigate("/site/avis/nouveau", { replace: true }));
@@ -150,6 +157,34 @@ export function SiteReviewsPage() {
       />
       <LoadState loading={loading} error={error} onRetry={() => void reload()}>
         <MethodCard />
+        {pendingCount ? (
+          <Banner
+            level="info"
+            className="mb-4"
+            action={
+              activeFilter === "pending" ? undefined : (
+                <Link to="?statut=a-valider" replace className="link inline-flex min-h-11 items-center text-sm font-medium">
+                  {pendingCount > 1 ? "Afficher ces témoignages" : "Afficher ce témoignage"}
+                </Link>
+              )
+            }
+          >
+            {pendingCount > 1 ? `${pendingCount} témoignages attendent votre validation.` : "1 témoignage attend votre validation."}
+          </Banner>
+        ) : null}
+        {withdrawals ? (
+          <Banner
+            level="warning"
+            className="mb-4"
+            action={
+              <Link to={withdrawalsOnly ? "?" : "?retrait=1"} replace className="link inline-flex min-h-11 items-center text-sm font-medium">
+                {withdrawalsOnly ? "Afficher tous les témoignages" : withdrawals > 1 ? "Afficher ces témoignages" : "Afficher ce témoignage"}
+              </Link>
+            }
+          >
+            {withdrawals > 1 ? `${withdrawals} retraits demandés sont à appliquer.` : "1 retrait demandé est à appliquer."}
+          </Banner>
+        ) : null}
         <Card className="overflow-hidden">
           <DataTable
             columns={columns}
@@ -159,17 +194,16 @@ export function SiteReviewsPage() {
             emptyTitle={activeFilter === "pending" ? "Aucun témoignage à valider" : "Aucun témoignage"}
             emptyHint="Les témoignages arrivent ici quand un client en dépose un depuis son espace, à la fin de son projet."
             toolbar={
-              <FilterChips
-                label="Filtrer les témoignages"
+              <FilterSelect
+                label="État"
                 value={activeFilter}
-                onChange={setFilter}
-                wrap
+                onChange={(f) => filters.set({ statut: SLUG_OF_STATE[f], retrait: null })}
                 options={[
+                  { id: "all", label: "Tous les états", count: rows.length },
                   { id: "pending", label: "À valider", count: count("pending") },
                   { id: "published", label: "Sur le site", count: count("published") },
                   { id: "rejected", label: "Écartés", count: count("rejected") },
                   { id: "withdrawn", label: "Retirés", count: count("withdrawn") },
-                  { id: "all", label: "Tous", count: rows.length },
                 ]}
               />
             }

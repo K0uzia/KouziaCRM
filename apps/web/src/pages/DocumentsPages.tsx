@@ -1,4 +1,4 @@
-import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
+import { Fragment, useCallback, useEffect, useState } from "react";
 import { mixedQuoteTotals, subscriptionsTotalText } from "@/lib/quote-totals";
 import type { ClientNeed } from "@/components/clients/NeedsEditor";
 import { Link, useNavigate, useParams } from "react-router-dom";
@@ -19,7 +19,11 @@ import { Button, buttonClass } from "@/components/ui/Button";
 import { MoreMenu } from "@/components/ui/MoreMenu";
 import { Badge, Card, PageHeader } from "@/components/ui/Card";
 import { Modal, ModalActions } from "@/components/ui/Modal";
-import { FilterChips } from "@/components/ui/FilterChips";
+import { Banner } from "@/components/ui/Banner";
+import { FilterBar, FilterSegment, FilterSelect } from "@/components/ui/ListFilters";
+import { matchesSearch } from "@/lib/list-search";
+import { CREDIT_ISSUED, INVOICE_STATUS_SLUG, isOverdue, listStatus, QUOTE_STATUS_SLUG } from "@/lib/document-list";
+import { useUrlFilters } from "@/lib/use-url-filters";
 import { StatStrip, type StatItem } from "@/components/ui/StatStrip";
 import { DataTable, type DataColumn } from "@/components/ui/DataTable";
 import { DocumentFormEditor } from "@/components/documents/DocumentForm";
@@ -86,6 +90,7 @@ type Doc = {
   discountType?: string;
   discountValue?: number;
   issueDate: string | null;
+  dueDate?: string | null;
   serviceDate?: string | null;
   purchaseOrderRef?: string | null;
   validUntil: string | null;
@@ -139,6 +144,9 @@ function displayStatus(d: Doc, isQuote: boolean): string {
   return d.status;
 }
 
+const INVOICE_KIND_IDS = ["toutes", "factures", "avoirs"] as const;
+const SEARCH_FIELDS = ["number", "client.displayName", "client.clientNumber"];
+
 function DocumentsListPage({
   documentType,
 }: {
@@ -153,7 +161,12 @@ function DocumentsListPage({
   const [createOpen, setCreateOpen] = useState(false);
   // Client présélectionné (lien « Nouveau devis » d'une fiche client), sinon le formulaire choisit.
   const [createClientId, setCreateClientId] = useState<string | undefined>(undefined);
-  const [statusFilter, setStatusFilter] = useState("ALL");
+  const filters = useUrlFilters();
+  const slugs = isQuote ? QUOTE_STATUS_SLUG : INVOICE_STATUS_SLUG;
+  const kind = isQuote ? "toutes" : filters.pick("type", INVOICE_KIND_IDS, "toutes");
+  const statusSlug = filters.pick("statut", ["tous", ...Object.values(slugs)], "tous");
+  const statusFilter = Object.keys(slugs).find((k) => slugs[k] === statusSlug) ?? "ALL";
+  const query = filters.text("q");
   const openCreate = useCallback((params?: { clientId?: string }) => {
     setCreateClientId(params?.clientId);
     setCreateOpen(true);
@@ -190,15 +203,33 @@ function DocumentsListPage({
 
   useLiveRefresh(() => void load().catch(() => undefined), (i) => i.kind === "quote_accepted" || i.kind === "quote_rejected" || i.kind === "payment");
 
-  const filtered = useMemo(() => {
-    if (statusFilter === "ALL") return rows;
-    return rows.filter((r) => displayStatus(r, isQuote) === statusFilter);
-  }, [rows, statusFilter, isQuote]);
+  // Ce qui demande une action : devis préparés hors ligne à relire, factures à l'échéance dépassée. Un bandeau
+  // en tête les signale, avec un lien qui filtre la liste (?relire=1, ?retard=1).
+  const toReview = isQuote ? rows.filter((r) => r.offlineReviewReason).length : 0;
+  const overdue = isQuote ? 0 : rows.filter((d) => isOverdue(d)).length;
+  const reviewOnly = isQuote && toReview > 0 && filters.params.get("relire") === "1";
+  const overdueOnly = !isQuote && overdue > 0 && filters.params.get("retard") === "1";
+  const kept = (d: Doc) =>
+    (reviewOnly ? Boolean(d.offlineReviewReason) : overdueOnly ? isOverdue(d) : true) &&
+    (kind === "toutes" || (kind === "avoirs") === (d.documentType === "CREDIT_NOTE"));
+  // Nombres de la liste des statuts : sur les documents retenus par les autres filtres et la recherche.
+  const scoped = rows.filter((d) => kept(d) && matchesSearch(d, SEARCH_FIELDS, query));
+  const filtered = rows.filter((d) => kept(d) && (statusFilter === "ALL" || listStatus(d, isQuote) === statusFilter));
 
   const labels = isQuote ? quoteStatusLabel : invoiceStatusLabel;
-  const filters = isQuote
-    ? ["ALL", "DRAFT", "SENT", "ACCEPTED", "REJECTED", "EXPIRED"]
-    : ["ALL", "DRAFT", "ISSUED", "PAID", "CANCELLED"];
+  const statusLabelOf = (st: string) => (st === CREDIT_ISSUED ? (kind === "avoirs" ? "Émis" : "Avoir émis") : (labels[st] ?? st));
+  const statusIds = isQuote
+    ? ["DRAFT", "SENT", "ACCEPTED", "REJECTED", "EXPIRED"]
+    : kind === "factures"
+      ? ["DRAFT", "ISSUED", "PAID", "CANCELLED"]
+      : kind === "avoirs"
+        ? [CREDIT_ISSUED]
+        : ["DRAFT", "ISSUED", "PAID", "CANCELLED", CREDIT_ISSUED];
+  const statusOptions = [
+    { id: "tous", label: "Tous les statuts", count: scoped.length },
+    ...statusIds.map((st) => ({ id: slugs[st]!, label: statusLabelOf(st), count: scoped.filter((d) => listStatus(d, isQuote) === st).length })),
+  ];
+  const filtering = statusFilter !== "ALL" || kind !== "toutes" || reviewOnly || overdueOnly || query.trim() !== "";
 
   const renderDocCard = (d: Doc) => {
     const st = displayStatus(d, isQuote);
@@ -221,7 +252,8 @@ function DocumentsListPage({
         <div className="mt-2 flex items-center justify-between gap-3">
           <span className="line-clamp-2 min-w-0 break-words text-sm">{d.client.displayName}</span>
           <span className="flex flex-wrap justify-end gap-1">
-            <Badge tone={statusTone(st)}>{labels[st] ?? st}</Badge>
+            <Badge tone={statusTone(st)}>{listStatus(d, isQuote) === CREDIT_ISSUED ? "Émis" : (labels[st] ?? st)}</Badge>
+            {isOverdue(d) ? <Badge tone="red">En retard</Badge> : null}
             {d.stripeUncollectibleAt ? <Badge tone="red">Non recouvrable</Badge> : null}
             {d.offlineReviewReason ? <Badge tone="amber">Préparé hors ligne, à relire</Badge> : null}
           </span>
@@ -283,14 +315,15 @@ function DocumentsListPage({
     },
     {
       name: "Statut",
-      selector: (d) => displayStatus(d, isQuote),
+      selector: (d) => listStatus(d, isQuote),
       sortable: true,
       width: "9rem",
       cell: (d) => {
         const st = displayStatus(d, isQuote);
         return (
           <span className="flex flex-col items-start gap-1 py-1">
-            <Badge tone={statusTone(st)}>{labels[st] ?? st}</Badge>
+            <Badge tone={statusTone(st)}>{listStatus(d, isQuote) === CREDIT_ISSUED ? "Émis" : (labels[st] ?? st)}</Badge>
+            {isOverdue(d) ? <Badge tone="red">En retard</Badge> : null}
             {d.stripeUncollectibleAt ? <Badge tone="red">Non recouvrable</Badge> : null}
           </span>
         );
@@ -374,6 +407,30 @@ function DocumentsListPage({
       ) : (
         <div className="space-y-5">
           {rows.length > 0 ? <StatStrip items={stats} /> : null}
+          {toReview ? (
+            <Banner
+              level="warning"
+              action={
+                <Link to={reviewOnly ? "?" : "?relire=1"} replace className="link inline-flex min-h-11 items-center text-sm font-medium">
+                  {reviewOnly ? "Afficher tous les devis" : toReview > 1 ? "Afficher ces devis" : "Afficher ce devis"}
+                </Link>
+              }
+            >
+              {toReview > 1 ? `${toReview} devis préparés hors ligne sont à relire` : "1 devis préparé hors ligne est à relire"} : un écart a été relevé à leur création.
+            </Banner>
+          ) : null}
+          {overdue ? (
+            <Banner
+              level="warning"
+              action={
+                <Link to={overdueOnly ? "?" : "?retard=1"} replace className="link inline-flex min-h-11 items-center text-sm font-medium">
+                  {overdueOnly ? "Afficher toutes les factures" : overdue > 1 ? "Afficher ces factures" : "Afficher cette facture"}
+                </Link>
+              }
+            >
+              {overdue > 1 ? `${overdue} factures à encaisser ont dépassé leur échéance.` : "1 facture à encaisser a dépassé son échéance."}
+            </Banner>
+          ) : null}
           <DataTable
             columns={docColumns}
             renderMobileCard={renderDocCard}
@@ -385,26 +442,36 @@ function DocumentsListPage({
             onRowClick={(d) => navigate(detailPath(d))}
             countLabel={isQuote ? "devis" : filtered.length > 1 ? "factures" : "facture"}
             toolbar={
-              <FilterChips
-                label={isQuote ? "Filtrer les devis par statut" : "Filtrer les factures par statut"}
-                value={statusFilter}
-                onChange={setStatusFilter}
-                options={filters.map((st) => ({
-                  id: st,
-                  label: st === "ALL" ? "Tous" : labels[st] ?? st,
-                  count: st === "ALL" ? rows.length : count(st),
-                }))}
-              />
+              <FilterBar>
+                {isQuote ? null : (
+                  <FilterSegment
+                    label="Type"
+                    value={kind}
+                    onChange={(v) => filters.set({ type: v === "toutes" ? null : v, statut: null })}
+                    options={[
+                      { id: "toutes", label: "Toutes" },
+                      { id: "factures", label: "Factures" },
+                      { id: "avoirs", label: "Avoirs" },
+                    ]}
+                  />
+                )}
+                <FilterSelect label="Statut" value={statusSlug} onChange={(v) => filters.set({ statut: v === "tous" ? null : v })} options={statusOptions} />
+              </FilterBar>
             }
-            searchable={["number", "client.displayName", "client.clientNumber"]}
+            searchable={SEARCH_FIELDS}
             searchPlaceholder={isQuote ? "Rechercher un devis ou un client" : "Rechercher une facture ou un client"}
+            searchLabel="Rechercher"
+            search={query}
+            onSearchChange={(q) => filters.set({ q })}
             emptyTitle={isQuote ? "Aucun devis" : "Aucune facture"}
             emptyHint={
               rows.length === 0
                 ? isQuote
                   ? "Créez votre premier devis avec le bouton Nouveau devis."
                   : "Créez votre première facture avec le bouton Nouvelle facture."
-                : "Aucun document ne correspond à ces filtres."
+                : filtering
+                  ? "Aucun document ne correspond à ces filtres."
+                  : undefined
             }
           />
         </div>

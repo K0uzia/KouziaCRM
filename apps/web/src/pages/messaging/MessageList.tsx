@@ -12,9 +12,9 @@ import {
 } from "@fortawesome/free-solid-svg-icons";
 import type { MailMessageItem } from "@/pages/messaging/MailLayout";
 import { formatShortDate } from "@/lib/format";
-import { FilterChips } from "@/components/ui/FilterChips";
+import { FilterSegment, FilterSelect } from "@/components/ui/ListFilters";
 import { Button } from "@/components/ui/Button";
-import { Input, Select } from "@/components/ui/Field";
+import { Input } from "@/components/ui/Field";
 import { senderLabel } from "@kouzia-erp/email-sender";
 import { formProspectName } from "@/pages/messaging/sender";
 
@@ -145,10 +145,10 @@ export function MessageList({
     id: "all" | "unread" | "starred" | "attachments";
     label: string;
   }> = [
-    { id: "all", label: "Tout" },
+    { id: "all", label: "Tous les messages" },
     { id: "unread", label: "Non lus" },
     { id: "starred", label: "Favoris" },
-    { id: "attachments", label: "Pièces jointes" },
+    { id: "attachments", label: "Avec pièces jointes" },
   ];
   const [ctx, setCtx] = useState<CtxMenu | null>(null);
   const pointerType = useRef("mouse");
@@ -238,53 +238,20 @@ export function MessageList({
             />
           </div>
         </div>
-        {/* Téléphone : deux listes sur une ligne ; écran large : puces. */}
-        <div className="grid grid-cols-2 gap-2 md:hidden">
-          <Select
-            aria-label="Expéditeurs"
-            value={audience}
-            onChange={(e) => onAudienceChange(e.target.value as typeof audience)}
-          >
-            {filters.map((f) => {
-              const n = f.id === "all" ? audienceCounts?.all : f.id === "clients" ? audienceCounts?.clients : audienceCounts?.external;
-              return (
-                <option key={f.id} value={f.id}>
-                  {f.label}
-                  {n != null ? ` (${n})` : ""}
-                </option>
-              );
-            })}
-          </Select>
-          <Select
-            aria-label="Filtres du dossier"
-            value={viewFilter}
-            onChange={(e) => onViewFilterChange(e.target.value as typeof viewFilter)}
-          >
-            {viewFilters.map((f) => (
-              <option key={f.id} value={f.id}>
-                {f.label}
-              </option>
-            ))}
-          </Select>
-        </div>
-        <div className="hidden space-y-2 md:block">
-          <FilterChips
-            wrap
+        {/* Deux dimensions : expéditeurs (contrôle segmenté, avec le nombre) et affichage (liste native). */}
+        <div className="flex min-w-0 flex-wrap items-end gap-2 sm:gap-3">
+          <FilterSegment
             label="Expéditeurs"
+            compact
             value={audience}
             onChange={onAudienceChange}
             options={filters.map((f) => ({
               id: f.id,
               label: f.label,
-              count:
-                f.id === "all"
-                  ? audienceCounts?.all
-                  : f.id === "clients"
-                    ? audienceCounts?.clients
-                    : audienceCounts?.external,
+              count: f.id === "all" ? audienceCounts?.all : f.id === "clients" ? audienceCounts?.clients : audienceCounts?.external,
             }))}
           />
-          <FilterChips wrap label="Filtres du dossier" value={viewFilter} onChange={onViewFilterChange} options={viewFilters} />
+          <FilterSelect label="Afficher" compact value={viewFilter} onChange={onViewFilterChange} options={viewFilters} className="sm:w-48" />
         </div>
         {selecting ? (
           // Téléphone : barre en surimpression au-dessus des onglets du bas, hors du flux, pour que la

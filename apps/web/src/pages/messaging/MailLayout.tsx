@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
+import { useUrlFilters } from "@/lib/use-url-filters";
 import { toast } from "sonner";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faEnvelope } from "@fortawesome/free-solid-svg-icons";
@@ -61,6 +62,13 @@ export type SyncStatus = {
   lastSyncAt?: string | null;
 };
 
+type Audience = "all" | "clients" | "external";
+type ViewFilter = "all" | "unread" | "starred" | "attachments";
+const AUDIENCE = { tous: "all", clients: "clients", externes: "external" } as const satisfies Record<string, Audience>;
+const AUDIENCE_SLUG: Record<Audience, string> = { all: "tous", clients: "clients", external: "externes" };
+const VIEW = { tout: "all", "non-lus": "unread", favoris: "starred", "pieces-jointes": "attachments" } as const satisfies Record<string, ViewFilter>;
+const VIEW_SLUG: Record<ViewFilter, string> = { all: "tout", unread: "non-lus", starred: "favoris", attachments: "pieces-jointes" };
+
 export function MailLayout() {
   const navigate = useNavigate();
   const location = useLocation();
@@ -73,9 +81,16 @@ export function MailLayout() {
   const [selectedMessageId, setSelectedMessageId] = useState<string | null>(null);
   const [messages, setMessages] = useState<MailMessageItem[]>([]);
   const [total, setTotal] = useState(0);
-  const [search, setSearch] = useState("");
-  const [audience, setAudience] = useState<"all" | "clients" | "external">("all");
-  const [viewFilter, setViewFilter] = useState<"all" | "unread" | "starred" | "attachments">("all");
+  // Filtres dans l'URL (?q=, ?expediteurs=, ?afficher=) : gardés à l'ouverture d'un fil et au retour.
+  const filters = useUrlFilters();
+  const search = filters.text("q");
+  const audience = AUDIENCE[filters.pick("expediteurs", ["tous", "clients", "externes"] as const, "tous")];
+  const viewFilter = VIEW[filters.pick("afficher", ["tout", "non-lus", "favoris", "pieces-jointes"] as const, "tout")];
+  const setSearch = (q: string) => filters.set({ q });
+  const setAudience = (a: Audience) => filters.set({ expediteurs: a === "all" ? null : AUDIENCE_SLUG[a] });
+  const setViewFilter = (v: ViewFilter) => filters.set({ afficher: v === "all" ? null : VIEW_SLUG[v] });
+  const setViewFilterRef = useRef(setViewFilter);
+  setViewFilterRef.current = setViewFilter;
   const [audienceCounts, setAudienceCounts] = useState<{ all: number; clients: number; external: number } | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [composeOpen, setComposeOpen] = useState(false);
@@ -110,7 +125,7 @@ export function MailLayout() {
       if (current?.startsWith("virtual:")) {
         const v = current.replace("virtual:", "");
         if (v === "unread" || v === "starred" || v === "attachments") {
-          setViewFilter(v);
+          setViewFilterRef.current(v);
         }
       }
     }
@@ -209,7 +224,7 @@ export function MailLayout() {
     setMessages((prev) =>
       prev.map((m) => (m.threadId === msg.threadId ? { ...m, isRead: true } : m)),
     );
-    navigate(`/inbox/${msg.threadId}`, { state: { fromList: true } });
+    navigate(`/inbox/${msg.threadId}${location.search}`, { state: { fromList: true } });
   }
 
   // Ouvert depuis la liste : on dépile l'historique, le retour du navigateur (geste Android) mène
@@ -421,7 +436,7 @@ export function MailLayout() {
               setSelectedMessageId(null);
               setViewFilter("all");
               setMobileFoldersOpen(false);
-              if (threadId) navigate("/inbox");
+              if (threadId) navigate(`/inbox${location.search}`);
             }}
             onSync={() => void syncNow()}
             onCompose={() => openCompose()}

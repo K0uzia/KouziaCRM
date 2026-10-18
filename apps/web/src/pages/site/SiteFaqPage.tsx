@@ -7,7 +7,8 @@ import { Card, PageHeader } from "@/components/ui/Card";
 import { Button, ButtonLink } from "@/components/ui/Button";
 import { DataTable, type DataColumn } from "@/components/ui/DataTable";
 import { Field, Input, Select, Textarea } from "@/components/ui/Field";
-import { FilterChips } from "@/components/ui/FilterChips";
+import { FilterSegment } from "@/components/ui/ListFilters";
+import { useUrlFilters } from "@/lib/use-url-filters";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { EditorFooter, EditorLayout, useItemEditor } from "./editor";
 import { QuestionPreview } from "./preview";
@@ -33,8 +34,9 @@ const isPage = (p: string | null): p is FaqPage => (PAGES as string[]).includes(
 export function SiteFaqPage() {
   const navigate = useNavigate();
   const { rows, setRows, loading, error, reload } = useSiteCollection<SiteFaq>(BASE);
-  const [params] = useSearchParams();
-  const [page, setPage] = useState<FaqPage>(isPage(params.get("page")) ? (params.get("page") as FaqPage) : "HOME");
+  const filters = useUrlFilters();
+  const page = filters.pick("page", PAGES, "HOME");
+  const setPage = (p: FaqPage) => filters.set({ page: p === "HOME" ? null : p });
   const newPath = `/site/faq/nouvelle?page=${page}`;
   useCreateParam(() => navigate(newPath, { replace: true }));
 
@@ -43,11 +45,10 @@ export function SiteFaqPage() {
   const [reordering, setReordering] = useState(false);
   const reorder = (ids: string[]) => void saveIds(BASE, rows, reorderVisible(rows, visible, ids), setRows);
   const pageChips = (
-    <FilterChips
+    <FilterSegment
       label="Page du site"
       value={page}
       onChange={setPage}
-      wrap
       options={PAGES.map((p) => ({ id: p, label: FAQ_PAGE_LABEL[p], count: rows.filter((q) => q.page === p).length }))}
     />
   );

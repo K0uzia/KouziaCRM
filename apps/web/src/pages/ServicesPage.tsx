@@ -9,7 +9,8 @@ import { Badge, Card, EmptyState, PageHeader } from "@/components/ui/Card";
 import { Modal, ModalActions } from "@/components/ui/Modal";
 import { Field, Input, Select, Textarea } from "@/components/ui/Field";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
-import { FilterChips } from "@/components/ui/FilterChips";
+import { FilterBar, FilterSegment } from "@/components/ui/ListFilters";
+import { useUrlFilters } from "@/lib/use-url-filters";
 import { Segmented } from "@/components/ui/Segmented";
 import { Tabs, useTabParam } from "@/components/ui/Tabs";
 import { useCreateParam } from "@/lib/use-create-param";
@@ -87,6 +88,8 @@ function stripeProductUrl(productId: string): string {
   return `https://dashboard.stripe.com/products/${productId}`;
 }
 
+const GENRE = { tous: "all", sites: "SITE", logiciels: "LOGICIEL" } as const;
+
 export function ServicesPage() {
   const { moduleStripeEnabled, moduleSubscriptionsEnabled } = useFeatures();
   const [rows, setRows] = useState<Service[]>([]);
@@ -97,10 +100,14 @@ export function ServicesPage() {
   const [busy, setBusy] = useState(false);
   const [form, setForm] = useState(emptyForm);
   const [catalog, setCatalog] = useState<Service[]>([]);
-  const [view, setView] = useState<"active" | "archived">("active");
-  const [onglet, setOnglet] = useTabParam(ONGLETS, "services");
+  // Filtres dans l'URL, à côté de l'onglet (?tab=) : type des services (?type=) et prestations archivées (?archivees=1).
+  const filters = useUrlFilters();
+  const view = filters.params.get("archivees") === "1" ? "archived" : "active";
+  const setView = (v: "active" | "archived") => filters.set({ archivees: v === "archived" ? "1" : null });
+  const [onglet] = useTabParam(ONGLETS, "services");
   /** Onglet Services : filtre secondaire par classement (site, logiciel). */
-  const [genre, setGenre] = useState<"all" | "SITE" | "LOGICIEL">("all");
+  const genre = GENRE[filters.pick("type", ["tous", "sites", "logiciels"] as const, "tous")];
+  const setGenre = (g: "all" | "SITE" | "LOGICIEL") => filters.set({ type: g === "SITE" ? "sites" : g === "LOGICIEL" ? "logiciels" : null });
   const [choosing, setChoosing] = useState(false);
   const [creating, setCreating] = useState<CreateType | null>(null);
   // Clé d'idempotence Stripe : une par ouverture du formulaire (un double envoi ne crée rien de plus).
@@ -289,8 +296,8 @@ export function ServicesPage() {
         label="Prestations"
         value={onglet}
         onChange={(o) => {
-          setOnglet(o);
-          setGenre("all");
+          // Un seul changement d'URL : changer d'onglet remet le type à « Tous ».
+          filters.set({ type: null, tab: o === "services" ? null : o });
         }}
         tabs={[
           { id: "services", label: "Services", count: countIn("services") },
@@ -300,13 +307,12 @@ export function ServicesPage() {
       >
       <Card className="overflow-hidden">
         <div className="flex flex-col gap-3 border-b border-[var(--border)] p-3 sm:flex-row sm:items-center sm:justify-between sm:p-4">
-          <div className="flex min-w-0 flex-col gap-2">
+          <FilterBar>
             {onglet === "services" && classified ? (
-              <FilterChips
-                label="Type de service"
+              <FilterSegment
+                label="Type"
                 value={genre}
                 onChange={setGenre}
-                wrap
                 options={[
                   { id: "all", label: "Tous" },
                   { id: "SITE", label: "Sites" },
@@ -314,8 +320,8 @@ export function ServicesPage() {
                 ]}
               />
             ) : null}
-            <FilterChips
-              label="Afficher"
+            <FilterSegment
+              label="État"
               value={view}
               onChange={setView}
               options={[
@@ -323,7 +329,7 @@ export function ServicesPage() {
                 { id: "archived", label: "Archivées", count: archived.length },
               ]}
             />
-          </div>
+          </FilterBar>
           <p className="text-xs text-[var(--muted)]">Franchise de TVA : aucun montant de TVA n&apos;est facturé.</p>
         </div>
 
