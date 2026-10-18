@@ -111,6 +111,8 @@ describe("synthèse des listes comptée par le serveur", () => {
       byKind: { factures: { ISSUED: 30, PAID: 25 }, avoirs: { CREDIT_ISSUED: 5 } },
       overdue: 12,
       toReview: 0,
+      // Montants avoirs compris : 30 émises sans paiement (reste dû 100 € chacune), 25 payées (sans ligne de paiement).
+      amounts: { toCollectCents: 300_000, cashInCents: 0, invoicedNetCents: 550_000, openCount: 30, paidCount: 25 },
     });
   });
 

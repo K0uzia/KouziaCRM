@@ -33,6 +33,17 @@ export const INVOICE_STATUS_SLUG: Record<string, string> = {
   [CREDIT_ISSUED]: "avoir-emis",
 };
 
+/** Solde d'une facture servi par l'API (avoirs compris) : null pour un devis ou un avoir. */
+export type InvoiceBalance = {
+  creditedCents: number;
+  netCents: number;
+  refundedCents: number;
+  cashInCents: number;
+  dueCents: number;
+  /** Administration : encaissé au-delà du net, à rembourser. */
+  overpaidCents?: number;
+};
+
 /** Synthèse servie par GET /api/invoices/summary : nombres sur toute la base, jamais sur une page. */
 export type ListSummary = {
   total: number;
@@ -40,4 +51,6 @@ export type ListSummary = {
   byKind?: { factures: Record<string, number>; avoirs: Record<string, number> };
   overdue: number;
   toReview: number;
+  /** Factures : montants avoirs compris (reste dû, encaissé net, facturé net). */
+  amounts?: { toCollectCents: number; cashInCents: number; invoicedNetCents: number; openCount: number; paidCount: number };
 };

@@ -1,3 +1,4 @@
+import { BALANCE_INCLUDE, invoiceBalance } from "@/lib/invoices/balance.js";
 import {
   InvoiceDocumentType,
   InvoiceStatus,
@@ -195,7 +196,7 @@ export async function getMarketView(quoteId: string) {
     orderBy: { position: "asc" },
     include: {
       generatedInvoice: {
-        include: { payments: true },
+        include: BALANCE_INCLUDE,
       },
     },
   });
@@ -207,15 +208,14 @@ export async function getMarketView(quoteId: string) {
       status: { not: InvoiceStatus.CANCELLED },
     },
     orderBy: [{ issueDate: "asc" }, { createdAt: "asc" }],
-    include: { payments: true },
+    include: BALANCE_INCLUDE,
   });
 
   const summary = await computeBalanceSummary(quoteId);
   const paidMilestones = milestones.filter((m) => m.status === MilestoneStatus.PAID).length;
   const totalMilestones = milestones.length || 1;
-  const encaisseCents = marketInvoices
-    .flatMap((i) => i.payments)
-    .reduce((s, p) => s + p.amountCents, 0);
+  // Encaissé net des remboursements portés par les avoirs (ou d'un trop-perçu remboursé).
+  const encaisseCents = marketInvoices.reduce((s, i) => s + invoiceBalance(i).cashInCents, 0);
 
   return {
     quote: {
@@ -251,7 +251,7 @@ export async function getMarketView(quoteId: string) {
             status: m.generatedInvoice.status,
             invoiceType: m.generatedInvoice.invoiceType,
             totalCents: m.generatedInvoice.totalCents,
-            paidCents: m.generatedInvoice.payments.reduce((s, p) => s + p.amountCents, 0),
+            paidCents: invoiceBalance(m.generatedInvoice).cashInCents,
           }
         : null,
     })),
@@ -261,7 +261,7 @@ export async function getMarketView(quoteId: string) {
       invoiceType: i.invoiceType,
       status: i.status,
       totalCents: i.totalCents,
-      paidCents: i.payments.reduce((s, p) => s + p.amountCents, 0),
+      paidCents: invoiceBalance(i).cashInCents,
       issueDate: i.issueDate,
     })),
     progress: {

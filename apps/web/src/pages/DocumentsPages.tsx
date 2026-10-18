@@ -22,7 +22,7 @@ import { Modal, ModalActions } from "@/components/ui/Modal";
 import { Banner } from "@/components/ui/Banner";
 import { FilterBar, FilterSegment, FilterSelect } from "@/components/ui/ListFilters";
 import { matchesSearch } from "@/lib/list-search";
-import { CREDIT_ISSUED, INVOICE_STATUS_SLUG, isOverdue, listStatus, QUOTE_STATUS_SLUG, type ListSummary } from "@/lib/document-list";
+import { CREDIT_ISSUED, INVOICE_STATUS_SLUG, isOverdue, listStatus, QUOTE_STATUS_SLUG, type InvoiceBalance, type ListSummary } from "@/lib/document-list";
 import { useUrlFilters, withParam } from "@/lib/use-url-filters";
 import { StatStrip, type StatItem } from "@/components/ui/StatStrip";
 import { DataTable, type DataColumn } from "@/components/ui/DataTable";
@@ -92,6 +92,8 @@ type Doc = {
   discountValue?: number;
   issueDate: string | null;
   dueDate?: string | null;
+  /** Facture : solde avoirs compris (reste dû, net, encaissé net). */
+  balance?: InvoiceBalance | null;
   serviceDate?: string | null;
   purchaseOrderRef?: string | null;
   validUntil: string | null;
@@ -370,6 +372,7 @@ function DocumentsListPage({
   const sum = (st: string) =>
     rows.filter((r) => displayStatus(r, isQuote) === st).reduce((acc, r) => acc + r.totalCents, 0);
   const decided = count("ACCEPTED") + count("REJECTED");
+  const amounts = isQuote ? undefined : summary?.amounts;
   const stats: StatItem[] = isQuote
     ? [
         { label: "En attente de réponse", value: formatEUR(sum("SENT")), hint: `${count("SENT")} devis envoyé${count("SENT") > 1 ? "s" : ""}`, tone: "primary" },
@@ -377,7 +380,16 @@ function DocumentsListPage({
         { label: "Taux d'acceptation", value: decided ? `${Math.round((count("ACCEPTED") / decided) * 100)} %` : "-", hint: decided ? `sur ${decided} décidé${decided > 1 ? "s" : ""}` : "aucune décision" },
         { label: "Brouillons", value: String(count("DRAFT")), hint: "à émettre" },
       ]
-    : [
+    : amounts
+      ? [
+          // Synthèse du serveur, avoirs compris : reste dû des factures émises, encaissé net des remboursements,
+          // facturé net des avoirs. Un avoir n'est jamais compté comme une facture à encaisser.
+          { label: "À encaisser", value: formatEUR(amounts.toCollectCents), hint: `${amounts.openCount} facture${amounts.openCount > 1 ? "s" : ""} avec un reste dû`, tone: "primary" },
+          { label: "Encaissé", value: formatEUR(amounts.cashInCents), hint: "net des remboursements", tone: "success" },
+          { label: "Total facturé", value: formatEUR(amounts.invoicedNetCents), hint: "net des avoirs, hors brouillons et annulées" },
+          { label: "Brouillons", value: String(count("DRAFT")), hint: "à émettre" },
+        ]
+      : [
         { label: "À encaisser", value: formatEUR(sum("ISSUED")), hint: `${count("ISSUED")} facture${count("ISSUED") > 1 ? "s" : ""} émise${count("ISSUED") > 1 ? "s" : ""}`, tone: "primary" },
         { label: "Encaissé", value: formatEUR(sum("PAID")), hint: `${count("PAID")} payée${count("PAID") > 1 ? "s" : ""}`, tone: "success" },
         { label: "Total facturé", value: formatEUR(sum("ISSUED") + sum("PAID")), hint: "hors brouillons et annulées" },
@@ -585,6 +597,12 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
   const [editOpen, setEditOpen] = useState(false);
   const [payOpen, setPayOpen] = useState(false);
   const [avoirOpen, setAvoirOpen] = useState(false);
+  // Remboursement d'un trop-perçu (paiement reçu après un avoir, avoir sans ligne de remboursement).
+  const [refundOpen, setRefundOpen] = useState(false);
+  const [refundEuros, setRefundEuros] = useState("");
+  const [refundDate, setRefundDate] = useState("");
+  const [refundRef, setRefundRef] = useState("");
+  const [refundBusy, setRefundBusy] = useState(false);
   const [market, setMarket] = useState<MarketView | null>(null);
   const [linked, setLinked] = useState<Doc[]>([]);
   const [busyId, setBusyId] = useState<string | null>(null);
@@ -709,8 +727,13 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
 
   const st = displayStatus(doc, isQuote);
   const labels = isQuote ? quoteStatusLabel : invoiceStatusLabel;
-  const paid = (doc.payments ?? []).reduce((s, p) => s + p.amountCents, 0);
-  const remaining = Math.max(0, doc.totalCents - paid);
+  // Solde avoirs compris, servi par l'API ; à défaut (ancienne copie hors ligne), paiements contre total.
+  const grossPaid = (doc.payments ?? []).reduce((s, p) => s + p.amountCents, 0);
+  const paid = doc.balance?.cashInCents ?? grossPaid;
+  const remaining = doc.balance?.dueCents ?? Math.max(0, doc.totalCents - grossPaid);
+  const netTotal = doc.balance?.netCents ?? doc.totalCents;
+  const credited = doc.balance?.creditedCents ?? 0;
+  const overpaid = doc.balance?.overpaidCents ?? 0;
   const hasMarket = Boolean(market?.milestones.length);
   const hasSimpleInvoice = linked.some((i) => i.invoiceType === "SIMPLE" || !i.invoiceType);
   const hasDepositInvoices = linked.some(
@@ -1402,11 +1425,11 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
                   aria-label="Part encaissée"
                   aria-valuemin={0}
                   aria-valuemax={100}
-                  aria-valuenow={doc.totalCents > 0 ? Math.round(Math.min(100, (paid / doc.totalCents) * 100)) : 0}
+                  aria-valuenow={netTotal > 0 ? Math.round(Math.min(100, (paid / netTotal) * 100)) : 0}
                 >
                   <div
                     className="h-full rounded-full bg-[var(--success)]"
-                    style={{ width: `${doc.totalCents > 0 ? Math.min(100, (paid / doc.totalCents) * 100) : 0}%` }}
+                    style={{ width: `${netTotal > 0 ? Math.min(100, (paid / netTotal) * 100) : 0}%` }}
                   />
                 </div>
                 <dl className="mt-3 grid grid-cols-2 gap-2">
@@ -1418,8 +1441,36 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
                     <dt className="text-xs text-[var(--muted)]">Reste dû</dt>
                     <dd className="font-semibold tabular-nums">{formatEUR(remaining)}</dd>
                   </div>
+                  {credited > 0 ? (
+                    <div className="col-span-2 flex items-baseline justify-between gap-3 border-t border-[var(--border)] pt-2">
+                      <dt className="text-xs text-[var(--muted)]">Avoirs émis (net facturé {formatEUR(netTotal)})</dt>
+                      <dd className="font-semibold tabular-nums">- {formatEUR(credited)}</dd>
+                    </div>
+                  ) : null}
                 </dl>
               </div>
+            ) : null}
+            {!isQuote && overpaid > 0 ? (
+              <Banner
+                level="warning"
+                className="mt-4"
+                action={
+                  <Button
+                    variant="secondary"
+                    onClick={() => {
+                      setRefundEuros((overpaid / 100).toFixed(2));
+                      setRefundDate(new Date().toISOString().slice(0, 10));
+                      setRefundRef("");
+                      setRefundOpen(true);
+                    }}
+                  >
+                    Enregistrer un remboursement
+                  </Button>
+                }
+              >
+                Trop-perçu de {formatEUR(overpaid)} : le client a payé plus que le net de la facture. Remboursez-le, puis
+                enregistrez le virement (ligne négative au livre des recettes).
+              </Banner>
             ) : null}
             {isQuote && doc.quoteDecidedAt ? (
               <div className="mt-4 border-t border-[var(--border)] pt-4">
@@ -1925,6 +1976,50 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
             await load();
           }}
         />
+      </Modal>
+
+      <Modal
+        open={refundOpen}
+        onClose={() => setRefundOpen(false)}
+        title="Enregistrer un remboursement"
+        description={`Facture ${doc.number ?? ""} · trop-perçu ${formatEUR(overpaid)}`}
+      >
+        <form
+          className="space-y-4"
+          onSubmit={(e) => {
+            e.preventDefault();
+            setRefundBusy(true);
+            api(`/api/invoices/${doc.id}/refund`, {
+              method: "POST",
+              body: JSON.stringify({ amountEuros: Number(refundEuros), paidAt: refundDate || undefined, reference: refundRef || null }),
+            })
+              .then(async () => {
+                toast.success("Remboursement enregistré");
+                setRefundOpen(false);
+                await load();
+              })
+              .catch((err: Error) => toast.error(err.message))
+              .finally(() => setRefundBusy(false));
+          }}
+        >
+          <Field label="Montant remboursé (€)" hint={`Au plus ${formatEUR(overpaid)}`}>
+            <Input type="number" step="0.01" min="0.01" max={(overpaid / 100).toFixed(2)} value={refundEuros} onChange={(e) => setRefundEuros(e.target.value)} required />
+          </Field>
+          <Field label="Date du virement">
+            <Input type="date" value={refundDate} onChange={(e) => setRefundDate(e.target.value)} required />
+          </Field>
+          <Field label="Référence (facultatif)">
+            <Input value={refundRef} onChange={(e) => setRefundRef(e.target.value)} autoComplete="off" />
+          </Field>
+          <ModalActions>
+            <Button type="button" variant="secondary" onClick={() => setRefundOpen(false)}>
+              Annuler
+            </Button>
+            <Button type="submit" disabled={refundBusy}>
+              {refundBusy ? "Enregistrement…" : "Enregistrer"}
+            </Button>
+          </ModalActions>
+        </form>
       </Modal>
 
       <CreditNoteWizard

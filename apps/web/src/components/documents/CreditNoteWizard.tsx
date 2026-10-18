@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { fetchSettings } from "@/lib/settings-request";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
@@ -25,6 +25,10 @@ type Eligibility = {
   paidCents: number;
   alreadyCreditedCents: number;
   maxCreditCents: number;
+  /** Reste dû (avoirs compris) : la part de l'avoir jusqu'à ce montant est déduite, le reste est remboursé. */
+  dueCents: number;
+  /** Encaissé net (paiements moins remboursements). */
+  cashInCents: number;
   isAcompte: boolean;
   requiresCgvCheck: boolean;
   nextNumberPreview: string | null;
@@ -53,6 +57,8 @@ const REFUNDS = [
   { value: "DEDUCT_FROM_BALANCE", label: "Déduction sur solde restant dû" },
   { value: "OTHER", label: "Autre" },
 ] as const;
+/** Modes possibles quand une part de l'avoir est à rembourser (au-delà du reste dû). */
+const REFUND_CHOICES = REFUNDS.filter((r) => r.value !== "DEDUCT_FROM_BALANCE");
 
 type Step = 1 | 2 | 3 | 4 | 5 | 6 | 7;
 
@@ -102,6 +108,10 @@ export function CreditNoteWizard({
       .catch(() => setVatMention(null));
   }, []);
 
+  // onClose change d'identité à chaque rendu de la fiche (rechargée après l'émission) : lu par une référence, pour que
+  // l'assistant ne revienne pas au diagnostic au lieu d'afficher le livre des recettes et l'URSSAF.
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
   useEffect(() => {
     if (!open) return;
     setStep(1);
@@ -112,21 +122,26 @@ export function CreditNoteWizard({
     api<Eligibility>(`/api/invoices/${invoiceId}/credit-note/eligibility`)
       .then((e) => {
         setElig(e);
-        setAmountEuros((e.maxCreditCents / 100).toFixed(2));
+        // Par défaut, le reste dû (correction de ce que le client doit) ; facture déjà réglée : le net, à rembourser.
+        setAmountEuros(((e.dueCents > 0 ? e.dueCents : e.maxCreditCents) / 100).toFixed(2));
         setReason(
           e.isAcompte ? "REFUND_DEPOSIT" : "AMOUNT_CORRECTION",
         );
       })
       .catch((err: Error) => {
         toast.error(err.message);
-        onClose();
+        onCloseRef.current();
       })
       .finally(() => setLoading(false));
-  }, [open, invoiceId, onClose]);
+  }, [open, invoiceId]);
 
   const amountCents = Math.round(Number(amountEuros || 0) * 100);
+  // Part déduite du reste dû et part à rembourser (trop-perçu) : même règle que l'API (creditNoteSplit).
+  const deductedCents = elig ? Math.min(amountCents, Math.max(0, elig.dueCents)) : 0;
+  const refundCents = Math.max(0, amountCents - deductedCents);
+  const effectiveRefund = refundCents === 0 ? "DEDUCT_FROM_BALANCE" : refundMethod === "DEDUCT_FROM_BALANCE" ? "BANK_TRANSFER" : refundMethod;
   const monthReceiptsCents = Math.round(Number(monthReceiptsEuros || 0) * 100);
-  const declaredCents = monthReceiptsCents - Math.abs(created?.totalCents ?? amountCents);
+  const declaredCents = monthReceiptsCents - refundCents;
   const needsCgv =
     !!elig?.requiresCgvCheck && reason === "REFUND_DEPOSIT";
 
@@ -144,11 +159,11 @@ export function CreditNoteWizard({
             amountEuros: Number(amountEuros),
             reason,
             reasonDetail: reasonDetail || null,
-            refundMethod,
+            refundMethod: effectiveRefund,
             issueDate: issueDate || undefined,
           })
         : null,
-    [previewStep, amountValid, invoiceId, amountEuros, reason, reasonDetail, refundMethod, issueDate],
+    [previewStep, amountValid, invoiceId, amountEuros, reason, reasonDetail, effectiveRefund, issueDate],
   );
   const previewPaused = elig
     ? `Aperçu en pause : montant entre 0,01 € et ${formatEUR(elig.maxCreditCents)}.`
@@ -199,11 +214,11 @@ export function CreditNoteWizard({
             amountEuros: Number(amountEuros),
             reason,
             reasonDetail: reasonDetail || null,
-            refundMethod,
+            refundMethod: effectiveRefund,
             cgvDepositRefundable: needsCgv ? true : null,
             issueDate,
             registerRefundPayment:
-              refundMethod === "BANK_TRANSFER" ? registerRefund : false,
+              effectiveRefund === "BANK_TRANSFER" ? registerRefund : false,
             refundPaidAt: issueDate,
           }),
         },
@@ -213,7 +228,7 @@ export function CreditNoteWizard({
         ...c,
         sentToClient: Boolean(cn.emailed),
         receiptsLineAdded:
-          refundMethod === "BANK_TRANSFER" ? registerRefund : false,
+          effectiveRefund === "BANK_TRANSFER" ? registerRefund : false,
       }));
       toast.success(
         cn.emailed
@@ -268,8 +283,11 @@ export function CreditNoteWizard({
               </p>
               <ul className="space-y-2 rounded-[var(--radius)] border border-[var(--border)] bg-[var(--bg)] p-4">
                 <li>
-                  Encaissé : <strong>{formatEUR(elig.paidCents)}</strong> /{" "}
+                  Encaissé : <strong>{formatEUR(elig.cashInCents)}</strong> /{" "}
                   {formatEUR(elig.invoiceTotalCents)}
+                </li>
+                <li>
+                  Reste dû : <strong>{formatEUR(elig.dueCents)}</strong>
                 </li>
                 <li>
                   Déjà avoirisé : {formatEUR(elig.alreadyCreditedCents)}
@@ -290,19 +308,11 @@ export function CreditNoteWizard({
                   {elig.alternative ? (
                     <p className="text-[var(--text)]">{elig.alternative}</p>
                   ) : null}
-                  {elig.code === "UNPAID" ? (
-                    <p className="text-[var(--text)]">
-                      Règle : si le client n&apos;a rien payé, un avoir n&apos;est
-                      pas nécessaire. Conservez la facture dans la numérotation
-                      (jamais de suppression) et ne déclarez que les
-                      encaissements réels.
-                    </p>
-                  ) : null}
                 </div>
               ) : (
                 <p className="text-[var(--muted)]">
-                  Un avoir est justifié uniquement pour rembourser / corriger un
-                  montant déjà encaissé. Montants en euros.
+                  Un avoir corrige la facture émise, qui reste dans la numérotation. Jusqu&apos;au reste dû, il
+                  est déduit de ce que le client doit ; au-delà, la différence lui est remboursée. Montants en euros.
                 </p>
               )}
 
@@ -409,19 +419,29 @@ export function CreditNoteWizard({
                   />
                 </Field>
               </div>
-              <Field label="Mode de remboursement">
-                <Select
-                  value={refundMethod}
-                  onChange={(e) => setRefundMethod(e.target.value)}
-                >
-                  {REFUNDS.map((r) => (
-                    <option key={r.value} value={r.value}>
-                      {r.label}
-                    </option>
-                  ))}
-                </Select>
-              </Field>
-              {refundMethod === "BANK_TRANSFER" ? (
+              {refundCents === 0 ? (
+                <p className="rounded-[var(--radius)] border border-[var(--border)] bg-[var(--bg)] p-3 text-sm">
+                  Déduction sur le solde restant dû : le client doit {formatEUR(Math.max(0, elig.dueCents - amountCents))} après
+                  cet avoir. Rien à rembourser.
+                </p>
+              ) : (
+                <>
+                  <p className="text-sm">
+                    {deductedCents > 0 ? <>Déduit du reste dû : <strong>{formatEUR(deductedCents)}</strong>. </> : null}
+                    À rembourser au client : <strong>{formatEUR(refundCents)}</strong>.
+                  </p>
+                  <Field label="Mode de remboursement">
+                    <Select value={effectiveRefund} onChange={(e) => setRefundMethod(e.target.value)}>
+                      {REFUND_CHOICES.map((r) => (
+                        <option key={r.value} value={r.value}>
+                          {r.label}
+                        </option>
+                      ))}
+                    </Select>
+                  </Field>
+                </>
+              )}
+              {effectiveRefund === "BANK_TRANSFER" ? (
                 <label className="flex items-start gap-2 text-sm">
                   <input
                     type="checkbox"
@@ -473,10 +493,11 @@ export function CreditNoteWizard({
                 </p>
                 <p>
                   Remboursement :{" "}
-                  {REFUNDS.find((r) => r.value === refundMethod)?.label}
+                  {REFUNDS.find((r) => r.value === effectiveRefund)?.label}
+                  {refundCents > 0 && deductedCents > 0 ? ` (${formatEUR(deductedCents)} déduits, ${formatEUR(refundCents)} remboursés)` : ""}
                 </p>
                 {vatMention ? <p className="text-[var(--muted)]">{vatMention}</p> : null}
-                {refundMethod === "BANK_TRANSFER" ? (
+                {effectiveRefund === "BANK_TRANSFER" ? (
                   <p className="font-medium">Vous n&apos;avez rien à payer.</p>
                 ) : null}
               </div>
@@ -494,24 +515,30 @@ export function CreditNoteWizard({
 
           {step === 5 && created ? (
             <div className="space-y-4 text-sm">
-              <p>Ligne à retrouver dans le livre des recettes :</p>
-              <ul className="rounded-[var(--radius)] border border-[var(--border)] bg-[var(--bg)] p-4 space-y-1 font-mono text-xs">
-                <li>Date : {issueDate}</li>
-                <li>N° : {created.number}</li>
-                <li>Réf. facture : {elig.invoiceNumber}</li>
-                <li>
-                  Montant :{" "}
-                  <strong className="text-[var(--danger)]">
-                    {formatEUR(created.totalCents)}
-                  </strong>{" "}
-                  (négatif)
-                </li>
-                <li>Nature : avoir</li>
-              </ul>
-              {refundMethod !== "BANK_TRANSFER" || !registerRefund ? (
+              {refundCents === 0 ? (
+                <p>
+                  Aucune ligne au livre des recettes : rien n&apos;a été encaissé ni remboursé, l&apos;avoir réduit
+                  ce que le client doit.
+                </p>
+              ) : (
+                <>
+                  <p>Ligne à retrouver dans le livre des recettes :</p>
+                  <ul className="rounded-[var(--radius)] border border-[var(--border)] bg-[var(--bg)] p-4 space-y-1 font-mono text-xs">
+                    <li>Date : {issueDate}</li>
+                    <li>N° : {created.number}</li>
+                    <li>Réf. facture : {elig.invoiceNumber}</li>
+                    <li>
+                      Montant :{" "}
+                      <strong className="text-[var(--danger)]">-{formatEUR(refundCents)}</strong> (remboursement)
+                    </li>
+                    <li>Nature : avoir</li>
+                  </ul>
+                </>
+              )}
+              {refundCents === 0 ? null : effectiveRefund !== "BANK_TRANSFER" || !registerRefund ? (
                 <p className="text-[var(--muted)]">
-                  Aucune ligne négative auto : enregistrez le remboursement quand
-                  le virement part réellement.
+                  Aucune ligne négative automatique : quand le virement part réellement, enregistrez-le depuis la fiche
+                  de la facture (« Enregistrer un remboursement »).
                 </p>
               ) : (
                 <p className="text-[var(--muted)]">
@@ -526,10 +553,18 @@ export function CreditNoteWizard({
 
           {step === 6 && created ? (
             <div className="space-y-4 text-sm">
+              {refundCents === 0 ? (
+                <p>
+                  Aucun impact URSSAF : vous déclarez ce que vous encaissez, et cet avoir ne rembourse rien. Le
+                  reste dû diminue, la recette sera déclarée quand le client paiera.
+                </p>
+              ) : (
               <p>
-                Le mois du remboursement, déduisez l&apos;avoir des recettes
+                Le mois du remboursement, déduisez la part remboursée ({formatEUR(refundCents)}) des recettes
                 encaissées :
               </p>
+              )}
+              {refundCents === 0 ? null : (
               <Field label="Recettes encaissées du mois (hors cet avoir) (€)">
                 <Input
                   type="number"
@@ -540,11 +575,12 @@ export function CreditNoteWizard({
                   placeholder="ex. 2500"
                 />
               </Field>
-              {monthReceiptsEuros !== "" ? (
+              )}
+              {refundCents > 0 && monthReceiptsEuros !== "" ? (
                 <div className="rounded-[var(--radius)] border border-[var(--border)] p-4 space-y-2">
                   <p>
-                    {formatEUR(monthReceiptsCents)} −{" "}
-                    {formatEUR(Math.abs(created.totalCents))} ={" "}
+                    {formatEUR(monthReceiptsCents)} -{" "}
+                    {formatEUR(refundCents)} ={" "}
                     <strong>
                       {formatEUR(declaredCents)}
                     </strong>{" "}

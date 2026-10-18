@@ -1,3 +1,4 @@
+import { BALANCE_INCLUDE, invoiceBalance } from "@/lib/invoices/balance.js";
 import { prisma } from "@/lib/prisma.js";
 import { formatEUR } from "@/lib/money.js";
 import type { PayTokenKind } from "@/lib/stripe/pay-token.js";
@@ -32,9 +33,10 @@ async function withMinimum(info: NonNullable<PayPageInfo>, amountCents: number):
 /** Libellé et montant affichés avant le paiement ; null si le document n'est plus payable. */
 export async function payPageInfo(kind: PayTokenKind, id: string): Promise<PayPageInfo> {
   if (kind === "invoice") {
-    const inv = await prisma.invoice.findUnique({ where: { id }, include: { payments: true } });
+    const inv = await prisma.invoice.findUnique({ where: { id }, include: BALANCE_INCLUDE });
     if (!inv || inv.status === "PAID" || inv.status === "CANCELLED") return null;
-    const remaining = inv.totalCents - inv.payments.reduce((s, p) => s + p.amountCents, 0);
+    // Reste dû avoirs compris : le montant que Checkout prélèvera.
+    const remaining = invoiceBalance(inv).dueCents;
     if (remaining <= 0) return null;
     return withMinimum(
       { title: `Facture ${inv.number ?? ""}`.trim(), detail: `Montant à régler : ${formatEUR(remaining)}`, button: "Payer" },
@@ -44,13 +46,17 @@ export async function payPageInfo(kind: PayTokenKind, id: string): Promise<PayPa
   if (kind === "milestone") {
     const m = await prisma.paymentMilestone.findUnique({ where: { id }, include: { quote: true } });
     if (!m || m.status === "PAID" || m.status === "CANCELLED") return null;
+    // Jalon déjà facturé : le reste dû de sa facture (un avoir a pu le réduire).
+    const billed = m.invoiceId ? await prisma.invoice.findUnique({ where: { id: m.invoiceId }, include: BALANCE_INCLUDE }) : null;
+    const amount = billed ? invoiceBalance(billed).dueCents : m.amountCents;
+    if (amount <= 0) return null;
     return withMinimum(
       {
         title: `${m.label}, devis ${m.quote.number ?? ""}`.trim(),
-        detail: `Montant à régler : ${formatEUR(m.amountCents)}`,
+        detail: `Montant à régler : ${formatEUR(amount)}`,
         button: "Payer",
       },
-      m.amountCents,
+      amount,
     );
   }
   const sub = await prisma.subscription.findUnique({ where: { id } });

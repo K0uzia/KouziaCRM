@@ -1,3 +1,4 @@
+import { BALANCE_INCLUDE, invoiceBalance } from "@/lib/invoices/balance.js";
 import {
   InvoiceDocumentType,
   InvoiceStatus,
@@ -65,12 +66,12 @@ export async function scheduleReminders(now = new Date()): Promise<number> {
       stripeInvoiceId: null,
       OR: [{ nextReminderAt: null }, { nextReminderAt: { lte: now } }],
     },
-    include: { payments: true },
+    include: BALANCE_INCLUDE,
   });
 
   for (const inv of invoices) {
-    const paid = inv.payments.reduce((s, p) => s + p.amountCents, 0);
-    if (paid >= inv.totalCents) continue;
+    // Plus rien à payer (paiements et avoirs) : pas de relance.
+    if (invoiceBalance(inv).dueCents <= 0) continue;
     const base =
       inv.lastReminderAt ?? inv.dueDate ?? inv.issuedAt ?? inv.issueDate ?? inv.createdAt;
     const next = addDays(base, settings.reminderInvoiceDays);

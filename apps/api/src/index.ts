@@ -107,6 +107,9 @@ async function main() {
     const { backfillStripeModes } = await import("@/lib/stripe/mode.js");
     const modes = await backfillStripeModes();
     if (modes > 0) app.log.info(`[boot] mode Stripe complété : ${modes} identifiant(s)`);
+    const { reconcileCreditedInvoiceStatuses } = await import("@/lib/invoices/reconcile-status.js");
+    const reconciled = await reconcileCreditedInvoiceStatuses();
+    if (reconciled.length > 0) app.log.info(`[boot] statut recalculé (avoirs compris) : ${reconciled.join(", ")}`);
   } catch (err) {
     app.log.warn({ err }, "[boot] hydrateSettingsFromEnv / backfill");
   }

@@ -1,3 +1,4 @@
+import { invoiceBalance } from "@/lib/invoices/balance.js";
 import type {
   Invoice,
   InvoiceLine,
@@ -22,6 +23,8 @@ import { billedWithDocument } from "@/lib/invoices/totals.js";
 type InvoiceWithRelations = Invoice & {
   lines: InvoiceLine[];
   payments?: Payment[];
+  /** Avoirs émis sur la facture (et leurs remboursements) : reste dû du rendu de secours. */
+  creditNotes?: Array<{ totalCents: number; payments?: Array<{ amountCents: number }> }>;
   creditedInvoice?: { number: string | null; issueDate: Date | null } | null;
   quote?: { number: string | null; issueDate: Date | null } | null;
   sourceMilestone?: {
@@ -177,6 +180,12 @@ export function buildInvoicePdfPayload({
       status: MILESTONE_STATUS_LABEL[m.status] ?? m.status,
       dueDate: m.dueDate,
     })),
+    ...(invoice.creditNotes?.length
+      ? (() => {
+          const b = invoiceBalance({ totalCents: invoice.totalCents, payments: invoice.payments ?? [], creditNotes: invoice.creditNotes });
+          return { creditedCents: b.creditedCents, refundedCents: b.refundedCents };
+        })()
+      : {}),
     payments: (invoice.payments ?? []).map((p) => ({
       paidAt: p.paidAt,
       amountCents: p.amountCents,

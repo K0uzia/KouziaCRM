@@ -105,6 +105,8 @@ type DashboardData = {
     missingStep: Array<{ quoteId: string; number: string | null; displayName: string; amountCents: number }>;
     toInvoice: Array<{ quoteId: string; number: string | null; displayName: string; amountCents: number }>;
   };
+  pendingTotalCents?: number;
+  pendingCount?: number;
   pendingWithBalance: Array<{
     id: string;
     number: string | null;
@@ -470,7 +472,9 @@ export function DashboardPage() {
     data?.echeance && (data.echeance.status === "due" || data.echeance.status === "late") && data.echeance.amountDueCents > 0,
   );
   const pending = data?.pendingWithBalance ?? [];
-  const pendingTotal = pending.reduce((s, i) => s + i.remaining, 0);
+  // Total et nombre sur toutes les factures émises (serveur, avoirs compris) ; la liste n'en montre que 8.
+  const pendingTotal = data?.pendingTotalCents ?? pending.reduce((s, i) => s + i.remaining, 0);
+  const pendingCount = data?.pendingCount ?? pending.length;
   const os = obligations?.summary;
   const obligationAlerts = os ? os.late + os.urgent + os.open : 0;
 
@@ -502,7 +506,7 @@ export function DashboardPage() {
           {
             label: "À encaisser",
             value: money(pendingTotal),
-            hint: hintOr(`${pending.length} facture${pending.length > 1 ? "s" : ""} ouverte${pending.length > 1 ? "s" : ""}`),
+            hint: hintOr(`${pendingCount} facture${pendingCount > 1 ? "s" : ""} ouverte${pendingCount > 1 ? "s" : ""}`),
             to: ready ? "/invoices" : undefined,
           },
           {

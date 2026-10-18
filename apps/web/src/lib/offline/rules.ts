@@ -109,6 +109,17 @@ export function sanitizeService(data: unknown): Json | null {
   return service;
 }
 
+const BALANCE_KEYS = ["creditedCents", "netCents", "refundedCents", "cashInCents", "dueCents", "overpaidCents"] as const;
+const AMOUNT_KEYS = ["toCollectCents", "cashInCents", "invoicedNetCents", "openCount", "paidCount"] as const;
+
+/** Champs numériques seulement, parmi une liste fermée. */
+function numbers(source: unknown, keys: readonly string[]): Json | null {
+  const picked = pick(source, keys);
+  if (!picked) return null;
+  for (const k of Object.keys(picked)) if (typeof picked[k] !== "number") delete picked[k];
+  return picked;
+}
+
 function invoiceCore(data: unknown): Json | null {
   const invoice = pick(data, INVOICE_KEYS);
   if (!invoice) return null;
@@ -117,6 +128,8 @@ function invoiceCore(data: unknown): Json | null {
   if (source.clientSnapshot !== undefined) invoice.clientSnapshot = source.clientSnapshot === null ? null : pick(source.clientSnapshot, SNAPSHOT_KEYS);
   if (source.quote !== undefined) invoice.quote = source.quote === null ? null : pick(source.quote, ["id", "number", "issueDate"]);
   if (Array.isArray(source.lines)) invoice.lines = source.lines.map((l) => pick(l, LINE_KEYS));
+  // Solde de la facture (avoirs compris) : des montants seulement.
+  if (source.balance !== undefined) invoice.balance = source.balance === null ? null : numbers(source.balance, BALANCE_KEYS);
   return invoice;
 }
 
@@ -158,7 +171,8 @@ function counts(source: unknown): Record<string, number> {
   return out;
 }
 function sanitizeSummary(data: unknown): unknown {
-  const s = pick(data, ["total", "byStatus", "byKind", "overdue", "toReview"]) ?? {};
+  const s = pick(data, ["total", "byStatus", "byKind", "overdue", "toReview", "amounts"]) ?? {};
+  const amounts = numbers(s.amounts, AMOUNT_KEYS);
   const kind = pick(s.byKind, ["factures", "avoirs"]);
   return {
     total: typeof s.total === "number" ? s.total : 0,
@@ -166,6 +180,7 @@ function sanitizeSummary(data: unknown): unknown {
     ...(kind ? { byKind: { factures: counts(kind.factures), avoirs: counts(kind.avoirs) } } : {}),
     overdue: typeof s.overdue === "number" ? s.overdue : 0,
     toReview: typeof s.toReview === "number" ? s.toReview : 0,
+    ...(amounts ? { amounts } : {}),
   };
 }
 

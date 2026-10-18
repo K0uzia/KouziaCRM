@@ -7,6 +7,7 @@ import {
 import { prisma } from "@/lib/prisma.js";
 import { activateMilestoneCheckout } from "@/lib/payments/milestonePaymentService.js";
 import { buildPayUrl } from "@/lib/stripe/pay-urls.js";
+import { BALANCE_INCLUDE, invoiceBalance } from "@/lib/invoices/balance.js";
 
 type InvoiceWithRelations = {
   id: string;
@@ -29,8 +30,10 @@ type InvoiceWithRelations = {
   payments: Array<{ amountCents: number }>;
 };
 
-function paidCents(invoice: InvoiceWithRelations): number {
-  return invoice.payments.reduce((s, p) => s + p.amountCents, 0);
+/** Reste dû avoirs compris, relu en base (les avoirs ne sont pas chargés avec le document). */
+async function dueCents(invoiceId: string): Promise<number> {
+  const full = await prisma.invoice.findUnique({ where: { id: invoiceId }, include: BALANCE_INCLUDE });
+  return full ? invoiceBalance(full).dueCents : 0;
 }
 
 /** Résout ou crée un lien de paiement ERP (Stripe) pour une facture impayée. */
@@ -41,7 +44,7 @@ export async function resolveInvoicePaymentUrl(
   if (invoice.status === InvoiceStatus.PAID || invoice.status === InvoiceStatus.CANCELLED) {
     return null;
   }
-  if (paidCents(invoice) >= invoice.totalCents) return null;
+  if ((await dueCents(invoice.id)) <= 0) return null;
 
   if (invoice.checkoutUrl) return invoice.checkoutUrl;
 
