@@ -2,9 +2,9 @@ import type { ReactNode } from "react";
 import { Link } from "react-router-dom";
 
 /**
- * Ligne d'une liste au téléphone (clients, devis, factures, encaissements) : un seul gabarit pour toutes.
+ * Ligne d'une liste au téléphone (clients, devis, factures, encaissements, livre de recettes) : un seul gabarit.
  * Ligne 1 : le titre (qui) et le montant à droite en chiffres tabulaires ; ligne 2 : le détail (numéro, date,
- * ville) et les statuts à droite. Toute la carte est le lien (cible de 44 px au moins).
+ * ville) et les statuts à droite. Toute la carte est le lien (cible de 44 px au moins) ; sans `to`, simple bloc.
  */
 export function ListRow({
   to,
@@ -14,7 +14,8 @@ export function ListRow({
   badges,
   leading,
 }: {
-  to: string;
+  /** Fiche à ouvrir ; sans lien (encaissement sans facture), la ligne est un simple bloc. */
+  to?: string;
   title: ReactNode;
   /** Montant déjà formaté (formatEUR). */
   amount?: string | null;
@@ -23,11 +24,10 @@ export function ListRow({
   /** Avatar ou icône à gauche. */
   leading?: ReactNode;
 }) {
-  return (
-    <Link
-      to={to}
-      className="flex min-h-11 min-w-0 items-center gap-3 rounded-[var(--radius)] border border-[var(--border)] bg-[var(--surface)] p-3.5 transition-colors hover:border-[var(--border-strong)] hover:bg-[var(--surface-raised)]"
-    >
+  const box =
+    "flex min-h-11 min-w-0 items-center gap-3 rounded-[var(--radius)] border border-[var(--border)] bg-[var(--surface)] p-3.5";
+  const content = (
+    <>
       {leading}
       <span className="min-w-0 flex-1 space-y-1">
         <span className="flex items-baseline justify-between gap-3">
@@ -42,6 +42,12 @@ export function ListRow({
           </span>
         ) : null}
       </span>
+    </>
+  );
+  if (!to) return <div className={box}>{content}</div>;
+  return (
+    <Link to={to} className={`${box} transition-colors hover:border-[var(--border-strong)] hover:bg-[var(--surface-raised)]`}>
+      {content}
     </Link>
   );
 }

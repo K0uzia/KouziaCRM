@@ -11,12 +11,30 @@ import {
 import { toast } from "sonner";
 import { api, formatEUR, formatDate } from "@/lib/api";
 import { Button } from "@/components/ui/Button";
-import { Card, EmptyState, PageHeader } from "@/components/ui/Card";
+import { Badge, Card, EmptyState, PageHeader } from "@/components/ui/Card";
 import { StatStrip } from "@/components/ui/StatStrip";
 import { Select } from "@/components/ui/Field";
 import { Modal } from "@/components/ui/Modal";
+import { ListRow } from "@/components/ui/ListRow";
 import { DocumentNumberBadge } from "@/components/documents/DocumentNumberBadge";
-import { InvoiceTypeBadge } from "@/components/documents/InvoiceTypeBadge";
+import { shortNature } from "@/lib/receipt-nature";
+
+const TYPE_TONE: Record<string, "teal" | "blue" | "violet" | "red" | "green" | "neutral"> = {
+  Facture: "neutral",
+  Acompte: "blue",
+  Solde: "violet",
+  Avoir: "red",
+  Abonnement: "green",
+};
+
+/** Type de la pièce (colonne Type) : badges de même largeur, sur une ligne, alignés d'une ligne à l'autre. */
+function ReceiptTypeBadge({ label, fixed = false }: { label: string; fixed?: boolean }) {
+  return (
+    <Badge tone={TYPE_TONE[label] ?? "neutral"} className={`whitespace-nowrap ${fixed ? "w-[6.75rem] justify-center" : ""}`}>
+      {label}
+    </Badge>
+  );
+}
 
 type ReceiptRow = {
   id: string;
@@ -25,6 +43,8 @@ type ReceiptRow = {
   invoiceId: string | null;
   invoiceType?: string | null;
   documentType?: string | null;
+  /** Facture, Acompte, Solde, Avoir, Abonnement (calculé par l'API, comme dans le CSV et le PDF). */
+  typeLabel: string;
   amountCents: number;
   invoiceTotalCents?: number | null;
   clientName: string;
@@ -244,28 +264,43 @@ export function ReceiptsBookPage() {
           />
         ) : (
           <>
-            <div className="ui-table-wrap max-md:overflow-visible">
-              <table className="ui-table ui-table-stack">
+            {/* Téléphone : une ligne par encaissement (gabarit des listes), le type en badge dans la ligne de méta. */}
+            <ul className="space-y-2 p-3 md:hidden" aria-label="Encaissements">
+              {data.rows.map((r) => (
+                <li key={r.id}>
+                  <ListRow
+                    to={r.invoiceId ? `/invoices/${r.invoiceId}` : undefined}
+                    title={r.clientName}
+                    amount={formatEUR(r.amountCents)}
+                    meta={[formatDate(r.paidAt), r.invoiceNumber ?? "Sans facture", r.paymentMethodLabel].join(" · ")}
+                    badges={<ReceiptTypeBadge label={r.typeLabel} />}
+                  />
+                </li>
+              ))}
+            </ul>
+            <div className="ui-table-wrap max-md:hidden">
+              <table className="ui-table">
+                <caption className="sr-only">Livre des recettes : encaissements de la période, par date</caption>
                 <thead>
                   <tr>
-                    <th className="nowrap">Date</th>
-                    <th>Facture</th>
-                    <th>Client</th>
-                    <th className="md:max-xl:hidden">Nature</th>
-                    <th className="nowrap md:max-xl:whitespace-normal!">Règlement</th>
-                    <th className="nowrap text-right">Encaissé</th>
-                    <th className="nowrap text-right md:max-xl:whitespace-normal!">Total facture</th>
+                    <th scope="col" className="nowrap">Date</th>
+                    <th scope="col" className="nowrap">Facture</th>
+                    <th scope="col" className="nowrap">Type</th>
+                    <th scope="col">Client</th>
+                    <th scope="col" className="w-full md:max-xl:hidden">Nature</th>
+                    <th scope="col" className="nowrap">Règlement</th>
+                    <th scope="col" className="nowrap text-right">Encaissé</th>
+                    <th scope="col" className="nowrap text-right">Total facture</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {data.rows.map((r) => (
-                    <tr key={r.id}>
-                      <td className="nowrap text-[var(--muted)]" data-label="Date">
-                        {formatDate(r.paidAt)}
-                      </td>
-                      <td className="nowrap" data-label="Facture">
-                        {r.invoiceId ? (
-                          <div className="flex flex-wrap items-center gap-1.5">
+                  {data.rows.map((r) => {
+                    const nature = shortNature(r.nature, r.typeLabel);
+                    return (
+                      <tr key={r.id}>
+                        <td className="nowrap tabular-nums text-[var(--muted)]">{formatDate(r.paidAt)}</td>
+                        <td className="nowrap">
+                          {r.invoiceId ? (
                             <Link to={`/invoices/${r.invoiceId}`} className="inline-flex min-h-11 items-center">
                               <DocumentNumberBadge
                                 number={r.invoiceNumber}
@@ -273,45 +308,55 @@ export function ReceiptsBookPage() {
                                 invoiceType={r.invoiceType ?? undefined}
                               />
                             </Link>
-                            <InvoiceTypeBadge
-                              type={r.documentType === "CREDIT_NOTE" ? "CREDIT_NOTE" : (r.invoiceType ?? undefined)}
-                              compact
-                            />
-                          </div>
-                        ) : (
-                          <span className="text-xs text-[var(--muted)]">Sans facture</span>
-                        )}
-                      </td>
-                      <td className="wrap" data-label="Client">
-                        {/* Un seul bloc : en mode cartes, la cellule est en flex et séparait nom et numéro. */}
-                        <div className="min-w-0 max-md:text-right">
-                          <span className="block font-medium">{r.clientName}</span>
+                          ) : (
+                            <span className="text-[var(--muted)]">-</span>
+                          )}
+                        </td>
+                        <td className="nowrap">
+                          <ReceiptTypeBadge label={r.typeLabel} fixed />
+                        </td>
+                        <td className="nowrap">
+                          <span className="block max-w-[16rem] truncate font-medium" title={r.clientName}>
+                            {r.clientName}
+                          </span>
                           {r.clientNumber ? (
-                            <span className="whitespace-nowrap font-mono text-xs text-[var(--muted)]">{r.clientNumber}</span>
+                            <span className="block font-mono text-[length:var(--text-ref)] text-[var(--muted)]">{r.clientNumber}</span>
                           ) : null}
-                        </div>
-                      </td>
-                      <td className="wrap text-[var(--muted)] md:max-xl:hidden" title={r.nature} data-label="Nature">
-                        {r.nature}
-                      </td>
-                      <td className="nowrap" data-label="Règlement">{r.paymentMethodLabel}</td>
-                      <td className="nowrap text-right tabular-nums font-medium" data-label="Encaissé">
-                        {formatEUR(r.amountCents)}
-                      </td>
-                      <td className="nowrap text-right tabular-nums text-[var(--muted)]" data-label="Total facture">
-                        {r.invoiceTotalCents != null ? formatEUR(r.invoiceTotalCents) : "-"}
-                      </td>
-                    </tr>
-                  ))}
+                        </td>
+                        {/* Une seule ligne, une ellipse : le texte légal complet est dans title et reste lu en entier. */}
+                        <td className="max-w-0 text-[var(--muted)] md:max-xl:hidden" title={r.nature}>
+                          <span className="block truncate">{nature}</span>
+                        </td>
+                        <td className="nowrap">{r.paymentMethodLabel}</td>
+                        <td className="nowrap text-right font-semibold tabular-nums">{formatEUR(r.amountCents)}</td>
+                        <td className="nowrap text-right tabular-nums text-[var(--muted)]">
+                          {r.invoiceTotalCents != null ? formatEUR(r.invoiceTotalCents) : "-"}
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
+                <tfoot>
+                  <tr className="border-t border-[var(--border-strong)] bg-[var(--bg-subtle)]">
+                    <th scope="row" colSpan={4} className="text-left text-[length:var(--text-table)] font-normal normal-case tracking-normal text-[var(--muted)]">
+                      {data.rows.length} encaissement{data.rows.length > 1 ? "s" : ""}
+                    </th>
+                    <td className="md:max-xl:hidden" />
+                    <th scope="row" className="text-right text-[length:var(--text-table)] normal-case tracking-normal text-[var(--text)]">
+                      Total
+                    </th>
+                    <td className="nowrap text-right font-semibold tabular-nums">{formatEUR(data.totalCents)}</td>
+                    <td />
+                  </tr>
+                </tfoot>
               </table>
             </div>
-            <div className="flex items-center justify-between border-t border-[var(--border)] px-4 py-3 text-sm">
-              <span className="text-[var(--muted)]">{data.rows.length} encaissement(s)</span>
-              <span className="font-semibold tabular-nums">
-                Total {formatEUR(data.totalCents)}
+            <p className="flex items-center justify-between border-t border-[var(--border)] px-4 py-3 text-sm md:hidden">
+              <span className="text-[var(--muted)]">
+                {data.rows.length} encaissement{data.rows.length > 1 ? "s" : ""}
               </span>
-            </div>
+              <span className="font-semibold tabular-nums">Total {formatEUR(data.totalCents)}</span>
+            </p>
           </>
         )}
       </Card>

@@ -40,9 +40,10 @@ const styles = StyleSheet.create({
   },
   colDate: { width: "9%" },
   colInvoice: { width: "12%" },
-  colCode: { width: "10%" },
-  colClient: { width: "16%" },
-  colNature: { width: "28%" },
+  colType: { width: "9%" },
+  colCode: { width: "9%" },
+  colClient: { width: "15%" },
+  colNature: { width: "21%" },
   colMethod: { width: "12%" },
   colAmount: { width: "13%", textAlign: "right" },
   foot: {
@@ -71,6 +72,7 @@ function fmtMoney(cents: number) {
 export type ReceiptsPdfRow = {
   paidAt: string;
   invoiceNumber: string | null;
+  typeLabel: string;
   clientNumber: string | null;
   clientName: string;
   nature: string;
@@ -123,6 +125,7 @@ export function ReceiptsDocument(data: ReceiptsPdfData) {
           <View style={[styles.tr, styles.th]}>
             <Text style={styles.colDate}>Date</Text>
             <Text style={styles.colInvoice}>Facture</Text>
+            <Text style={styles.colType}>Type</Text>
             <Text style={styles.colCode}>Code client</Text>
             <Text style={styles.colClient}>Client</Text>
             <Text style={styles.colNature}>Nature</Text>
@@ -133,6 +136,7 @@ export function ReceiptsDocument(data: ReceiptsPdfData) {
             <View key={`${r.invoiceNumber ?? "x"}-${i}`} style={styles.tr} wrap={false}>
               <Text style={styles.colDate}>{fmtDate(r.paidAt)}</Text>
               <Text style={styles.colInvoice}>{r.invoiceNumber ?? ""}</Text>
+              <Text style={styles.colType}>{r.typeLabel}</Text>
               <Text style={styles.colCode}>{r.clientNumber ?? ""}</Text>
               <Text style={styles.colClient}>{r.clientName}</Text>
               <Text style={styles.colNature}>{r.nature}</Text>
