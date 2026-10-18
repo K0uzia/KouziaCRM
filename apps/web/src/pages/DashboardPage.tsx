@@ -3,6 +3,8 @@ import { Link } from "react-router-dom";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import {
   faArrowRight,
+  faBuildingColumns,
+  faHandHoldingDollar,
   faClipboardCheck,
   faEnvelope,
   faFileInvoice,
@@ -22,7 +24,7 @@ import { type NotificationKind, useLiveRefresh } from "@/lib/notifications";
 import { MAIL_SYNC_STATUS_EVENT } from "@/hooks/useNewMailAlert";
 import { onMailChanged } from "@/lib/mailEvents";
 import { api, formatEUR } from "@/lib/api";
-import { formatAgoMinutes, formatDate, MAIL_SYNC_STALE_MIN, minutesSince } from "@/lib/format";
+import { formatAgoMinutes, formatDate, formatMailDate, MAIL_SYNC_STALE_MIN, minutesSince } from "@/lib/format";
 import { useAuth } from "@/lib/auth";
 import { useFeatures } from "@/lib/features";
 import { PayoutDialog } from "@/components/payouts/PayoutDialog";
@@ -234,7 +236,7 @@ function TodoRow({
 
 function SectionTitle({ children, action }: { children: ReactNode; action?: ReactNode }) {
   return (
-    <div className="flex min-h-11 items-center justify-between gap-3 border-b border-[var(--border)] px-5">
+    <div className="flex min-h-11 flex-wrap items-center justify-between gap-x-3 gap-y-2 border-b border-[var(--border)] px-5 py-1.5">
       <h2 className="text-sm font-semibold">{children}</h2>
       {action}
     </div>
@@ -534,13 +536,19 @@ export function DashboardPage() {
           },
         ]}
       />
-      <div className="mt-3 flex flex-wrap justify-end gap-2">
+      {/* Mouvements du salaire, sous la synthèse qui les chiffre : actions secondaires (la page n'a qu'une action
+          principale, « Encaisser »), pleine largeur au téléphone, groupées à droite ensuite. */}
+      <div role="group" aria-label="Salaire" className="mt-3 grid grid-cols-1 gap-2 sm:flex sm:justify-end">
         {moduleStripeEnabled ? (
           <Button variant="secondary" onClick={() => setPayoutOpen(true)}>
+            <FontAwesomeIcon icon={faBuildingColumns} className="h-3.5 w-3.5" aria-hidden />
             Verser sur mon compte
           </Button>
         ) : null}
-        <Button onClick={() => setWithdrawalOpen(true)}>Enregistrer un retrait</Button>
+        <Button variant="secondary" onClick={() => setWithdrawalOpen(true)}>
+          <FontAwesomeIcon icon={faHandHoldingDollar} className="h-3.5 w-3.5" aria-hidden />
+          Enregistrer un retrait
+        </Button>
       </div>
       <WithdrawalDialog
         open={withdrawalOpen}
@@ -559,21 +567,26 @@ export function DashboardPage() {
         <div className="min-w-0 space-y-6">
           {!ready || (ownerPay && ownerPay.flows.length > 0) ? (
             <Card className="min-w-0 overflow-hidden">
-              <SectionTitle>Flux par mois</SectionTitle>
-              {showFlowSwitch ? (
-                <div className="px-5 pb-2 sm:px-6">
-                  <Segmented
-                    label="Vue du graphique des flux"
-                    options={[
-                      { id: "salary", label: "Salaire et provisions" },
-                      { id: "stripe", label: "Chemin Stripe" },
-                    ]}
-                    value={flowView}
-                    onChange={setFlowView}
-                  />
-                </div>
-              ) : null}
-              <p className="px-5 text-sm text-[var(--muted)] sm:px-6">
+              <SectionTitle
+                action={
+                  showFlowSwitch ? (
+                    <Segmented
+                      label="Vue du graphique des flux"
+                      options={[
+                        { id: "salary", label: "Salaire" },
+                        { id: "stripe", label: "Chemin Stripe" },
+                      ]}
+                      value={flowView}
+                      onChange={setFlowView}
+                      fieldHeight
+                      className="max-sm:w-full"
+                    />
+                  ) : undefined
+                }
+              >
+                Flux par mois
+              </SectionTitle>
+              <p className="px-5 pt-3 text-sm text-[var(--muted)] sm:px-6">
                 {flowView === "stripe" ? (
                   <>
                     Encaissé par Stripe et en direct au-dessus ; frais, retenues et argent encore chez Stripe en
@@ -885,7 +898,7 @@ export function DashboardPage() {
                             <span className={`truncate text-sm ${unread ? "font-semibold" : ""}`}>
                               {m.client?.displayName ?? m.fromName ?? m.fromAddress}
                             </span>
-                            <span className="shrink-0 text-xs text-[var(--muted)]">{formatDate(m.receivedAt)}</span>
+                            <span className="shrink-0 text-xs tabular-nums text-[var(--muted)]">{formatMailDate(m.receivedAt)}</span>
                           </span>
                           <span className="block truncate text-xs text-[var(--muted)]">{m.subject}</span>
                         </span>
