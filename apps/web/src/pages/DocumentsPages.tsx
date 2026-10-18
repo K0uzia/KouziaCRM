@@ -651,41 +651,38 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
     }
   }
 
+  // Fiche, marché et factures liées en parallèle ; la liste des clients n'est lue qu'à l'ouverture de la modification.
   async function load() {
     if (!id) return;
-    const [d, cls] = await Promise.all([
+    const quoteSide = kind === "QUOTE";
+    const [d, quoteMarket, quoteLinked] = await Promise.all([
       api<Doc>(`/api/invoices/${id}`),
-      api<ClientOpt[]>("/api/clients"),
+      quoteSide ? api<MarketView>(`/api/quotes/${id}/market`).catch(() => null) : Promise.resolve(null),
+      quoteSide ? api<Doc[]>(`/api/invoices?type=INVOICE&market=${id}`).catch(() => [] as Doc[]) : Promise.resolve([] as Doc[]),
     ]);
     setDoc(d);
-    setClients(cls);
-
-    if (kind === "QUOTE") {
-      try {
-        setMarket(await api<MarketView>(`/api/quotes/${id}/market`));
-      } catch {
-        setMarket(null);
-      }
-      try {
-        const siblings = await api<Doc[]>(`/api/invoices?type=INVOICE&market=${id}`);
-        setLinked(siblings);
-      } catch {
-        setLinked([]);
-      }
+    if (quoteSide) {
+      setMarket(quoteMarket);
+      setLinked(quoteLinked);
     } else if (d.quoteId) {
-      try {
-        const siblings = await api<Doc[]>(`/api/invoices?type=INVOICE&market=${d.quoteId}`);
-        setLinked(siblings.filter((s) => s.id !== d.id));
-        const m = await api<MarketView>(`/api/quotes/${d.quoteId}/market`);
-        setMarket(m);
-      } catch {
-        setLinked([]);
-      }
+      const [siblings, m] = await Promise.all([
+        api<Doc[]>(`/api/invoices?type=INVOICE&market=${d.quoteId}`).catch(() => [] as Doc[]),
+        api<MarketView>(`/api/quotes/${d.quoteId}/market`).catch(() => null),
+      ]);
+      setLinked(siblings.filter((x) => x.id !== d.id));
+      setMarket(m);
     } else {
       setLinked([]);
       setMarket(null);
     }
   }
+
+  useEffect(() => {
+    if (!editOpen || clients.length > 0) return;
+    api<ClientOpt[]>("/api/clients")
+      .then(setClients)
+      .catch((e: Error) => toast.error(e.message));
+  }, [editOpen, clients.length]);
 
   useEffect(() => {
     load().catch((e: Error) => toast.error(e.message));
