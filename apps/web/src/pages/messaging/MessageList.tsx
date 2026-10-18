@@ -11,7 +11,7 @@ import {
   faTrash,
 } from "@fortawesome/free-solid-svg-icons";
 import type { MailMessageItem } from "@/pages/messaging/MailLayout";
-import { formatShortDate } from "@/lib/format";
+import { formatMailDate, formatMailDateTime } from "@/lib/format";
 import { FilterSegment, FilterSelect } from "@/components/ui/ListFilters";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Field";
@@ -379,9 +379,10 @@ export function MessageList({
                     </span>
                     <time
                       dateTime={msg.receivedAt}
+                      title={formatMailDateTime(msg.receivedAt)}
                       className={`shrink-0 whitespace-nowrap text-xs tabular-nums ${unread ? "font-semibold text-[var(--primary)]" : "text-[var(--muted)]"}`}
                     >
-                      {formatShortDate(msg.receivedAt)}
+                      {formatMailDate(msg.receivedAt)}
                     </time>
                   </span>
                   <span className="mt-0.5 flex items-center gap-1.5 pl-4">
@@ -408,7 +409,7 @@ export function MessageList({
                   </span>
                   {unread ? <span className="sr-only">, non lu</span> : null}
                 </button>
-                <div className="hidden shrink-0 items-center gap-0.5 pr-1 opacity-0 transition group-hover:opacity-100 focus-within:opacity-100 lg:flex">
+                <div className="pointer-events-none absolute inset-y-0 right-0 hidden items-center gap-0.5 bg-[var(--surface-raised)] pl-2 pr-1 opacity-0 transition group-hover:pointer-events-auto group-hover:opacity-100 focus-within:pointer-events-auto focus-within:opacity-100 lg:flex">
                   {actionBtn(
                     msg.isStarred ? "Retirer des favoris" : "Ajouter aux favoris",
                     faStar,

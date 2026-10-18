@@ -1,8 +1,15 @@
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import {
-  faEnvelope,
+  faBan,
+  faBoxArchive,
+  faFileLines,
+  faFolder,
+  faInbox,
+  faPaperPlane,
   faPenToSquare,
   faRotate,
+  faTrashCan,
+  type IconDefinition,
 } from "@fortawesome/free-solid-svg-icons";
 import type { MailFolderItem } from "@/pages/messaging/MailLayout";
 import { Button } from "@/components/ui/Button";
@@ -38,6 +45,34 @@ const NAME_LABELS: Record<string, string> = {
   archive: "Archives",
   archives: "Archives",
 };
+
+const NAME_ROLES: Record<string, string> = {
+  inbox: "INBOX",
+  sent: "SENT",
+  drafts: "DRAFTS",
+  draft: "DRAFTS",
+  junk: "JUNK",
+  spam: "JUNK",
+  trash: "TRASH",
+  deleted: "TRASH",
+  archive: "ARCHIVE",
+  archives: "ARCHIVE",
+};
+
+/** Icônes conventionnelles des clients de messagerie (Gmail, Outlook, Apple Mail). */
+const ROLE_ICONS: Record<string, IconDefinition> = {
+  INBOX: faInbox,
+  SENT: faPaperPlane,
+  DRAFTS: faFileLines,
+  JUNK: faBan,
+  TRASH: faTrashCan,
+  ARCHIVE: faBoxArchive,
+};
+
+function folderIcon(folder: MailFolderItem): IconDefinition {
+  const role = folder.role && folder.role !== "CUSTOM" ? folder.role : NAME_ROLES[folder.displayName.trim().toLowerCase()];
+  return (role && ROLE_ICONS[role]) || faFolder;
+}
 
 function folderLabel(folder: MailFolderItem): string {
   if (folder.role && folder.role !== "CUSTOM" && ROLE_LABELS[folder.role]) {
@@ -75,7 +110,7 @@ export function FolderSidebar({ folders, selectedId, onSelect, onSync, onCompose
             }`}
           >
             <span className="flex items-center gap-2 truncate">
-              <FontAwesomeIcon icon={faEnvelope} className="h-4 w-4 shrink-0 opacity-60" aria-hidden />
+              <FontAwesomeIcon icon={folderIcon(folder)} className="h-4 w-4 shrink-0 opacity-60" aria-hidden />
               {folderLabel(folder)}
             </span>
             {(folder.unreadCount ?? 0) > 0 ? (

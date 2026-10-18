@@ -98,6 +98,28 @@ export function formatShortDate(value: string | Date | null | undefined, now = n
   return d.toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit", year: "2-digit" });
 }
 
+/**
+ * Date d'un message dans une liste (comme Gmail ou Outlook) : l'heure aujourd'hui, « hier », la date courte cette
+ * année (« 17 oct. »), la date complète avant (« 3 nov. 2025 »).
+ */
+export function formatMailDate(value: string | Date | null | undefined, now = new Date()): string {
+  if (!value) return "";
+  const d = new Date(value);
+  if (d.toDateString() === now.toDateString()) return formatTime(d);
+  const yesterday = new Date(now);
+  yesterday.setDate(now.getDate() - 1);
+  if (d.toDateString() === yesterday.toDateString()) return "hier";
+  if (d.getFullYear() === now.getFullYear()) return d.toLocaleDateString("fr-FR", { day: "numeric", month: "short" });
+  return d.toLocaleDateString("fr-FR", { day: "numeric", month: "short", year: "numeric" });
+}
+
+/** Date et heure exactes d'un message dans le fil : « 18 oct. 2026 à 09:42 ». */
+export function formatMailDateTime(value: string | Date | null | undefined): string {
+  if (!value) return "";
+  const d = new Date(value);
+  return `${d.toLocaleDateString("fr-FR", { day: "numeric", month: "short", year: "numeric" })} à ${formatTime(d)}`;
+}
+
 export const statusLabel: Record<string, string> = {
   DRAFT: "Brouillon",
   ISSUED: "Émis",
