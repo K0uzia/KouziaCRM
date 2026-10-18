@@ -3,7 +3,9 @@ import { Link, NavLink, Outlet, useLocation, useNavigate } from "react-router-do
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import {
   faBars,
+  faBriefcase,
   faCloudArrowUp,
+  faGlobe,
   faEllipsis,
   faMagnifyingGlass,
   faPlus,
@@ -68,11 +70,17 @@ function UnreadBadge({ count }: { count: number }) {
   );
 }
 
-/** Bascule entre les espaces Gestion et Site : des liens (l'URL porte l'espace), état actif non porté par la seule couleur. */
+const SPACE_ICONS = { gestion: faBriefcase, site: faGlobe } as const;
+
+/**
+ * Bascule entre les espaces Gestion et Site : une navigation (des liens, l'URL porte l'espace), pas deux boutons.
+ * Piste en creux et espace actif en relief, teinté ambre, en gras et avec un trait : l'état ne tient pas à la seule
+ * couleur ; l'autre espace reste un lien discret.
+ */
 function SpaceSwitch({ current }: { current: NavSpaceId }) {
   return (
     <nav aria-label="Espace" className="shrink-0 px-3 pb-2">
-      <ul className="grid grid-cols-2 gap-1 rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--surface)] p-1">
+      <ul className="grid grid-cols-2 gap-1 rounded-[var(--radius)] bg-[var(--bg-subtle)] p-1">
         {NAV_SPACES.map((space) => {
           const active = space.id === current;
           return (
@@ -80,12 +88,13 @@ function SpaceSwitch({ current }: { current: NavSpaceId }) {
               <Link
                 to={space.home}
                 aria-current={active ? "true" : undefined}
-                className={`flex min-h-11 items-center justify-center rounded-[calc(var(--radius-sm)-0.125rem)] px-3 text-sm transition-colors ${
+                className={`relative flex min-h-11 items-center justify-center gap-2 rounded-[var(--radius-sm)] px-3 text-sm transition-colors ${
                   active
-                    ? "bg-[var(--surface-hover)] font-semibold text-[var(--text)] shadow-[inset_0_0_0_1px_var(--primary)]"
+                    ? "bg-[var(--primary-soft)] font-semibold text-[var(--primary)] after:absolute after:inset-x-4 after:bottom-1 after:h-0.5 after:rounded-full after:bg-[var(--primary)]"
                     : "text-[var(--muted)] hover:bg-[var(--surface-hover)] hover:text-[var(--text)]"
                 }`}
               >
+                <FontAwesomeIcon icon={SPACE_ICONS[space.id]} className="h-3.5 w-3.5 shrink-0" aria-hidden />
                 {space.label}
               </Link>
             </li>
