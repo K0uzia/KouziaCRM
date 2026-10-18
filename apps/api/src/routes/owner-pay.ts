@@ -1,3 +1,4 @@
+import { LIST_CAP } from "@/lib/list-cap.js";
 import type { FastifyPluginAsync } from "fastify";
 import { z } from "zod";
 import { requireAuth } from "@/lib/auth.js";
@@ -33,8 +34,12 @@ export const ownerPayRoutes: FastifyPluginAsync = async (app) => {
     if (reply.sent) return;
     // Appels l'un après l'autre : une erreur dans le second ne laisse pas le premier rejeté sans gestionnaire.
     const summary = await getOwnerPaySummary();
-    const withdrawals = await prisma.ownerWithdrawal.findMany({ orderBy: [{ date: "desc" }, { createdAt: "desc" }], take: 50 });
-    return { ...summary, withdrawals };
+    // Liste complète (plus de limite silencieuse à 50) ; le nombre total vient du serveur, la troncature est signalée.
+    const [withdrawals, withdrawalsTotal] = await Promise.all([
+      prisma.ownerWithdrawal.findMany({ orderBy: [{ date: "desc" }, { createdAt: "desc" }, { id: "desc" }], take: LIST_CAP }),
+      prisma.ownerWithdrawal.count(),
+    ]);
+    return { ...summary, withdrawals, withdrawalsTotal, withdrawalsTruncated: withdrawalsTotal > withdrawals.length };
   });
 
   app.post("/api/owner-withdrawals", async (request, reply) => {
