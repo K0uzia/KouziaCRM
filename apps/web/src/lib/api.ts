@@ -4,6 +4,7 @@ import { copyServes, offlineRule } from "./offline/rules";
 import { markFresh, markServedFromCopy, tagCopy } from "./offline/served";
 import { deleteCopiesWhere, readCopy, saveCopy } from "./offline/store";
 import { clearCopyFailure, markOnline, recordCopyFailure } from "./offline/device";
+import { checkVersionHeaders } from "./version";
 
 /** Écriture réussie dans l'espace Site : la barre de publication recompte les changements. */
 export const SITE_CHANGED_EVENT = "kouzia:site-changed";
@@ -65,6 +66,8 @@ export async function api<T>(path: string, options?: ApiInit): Promise<T> {
     const copy = await fromCopy();
     if (copy) return copy.data;
   }
+  // Interface plus ancienne que le serveur (nouveau build, ou contrat de l'API changé) : signalé à l'écran.
+  if (res.headers) checkVersionHeaders(res.headers);
   // Le serveur a répondu (quelle que soit la réponse) : date de la dernière connexion, pour l'option d'effacement.
   if (!SERVER_DOWN.has(res.status) && offlineEnabled()) markOnline();
   // Fiche disparue du serveur : sa copie et ce qui en dépend sont retirés (cohérence, pas un effacement).

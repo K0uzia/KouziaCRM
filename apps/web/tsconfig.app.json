@@ -33,6 +33,9 @@
       ],
       "@kouzia-erp/email-sender": [
         "../api/src/lib/email/sender-label.ts"
+      ],
+      "@kouzia-erp/api-contract": [
+        "../api/src/lib/api-contract.ts"
       ]
     }
   },

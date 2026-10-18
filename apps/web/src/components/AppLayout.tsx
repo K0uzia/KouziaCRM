@@ -25,6 +25,7 @@ import { getQueueSnapshot, itemsLabel, replayQueue, useOfflineQueue } from "@/li
 import { isOnline, onReconnect } from "@/lib/network";
 import { toast } from "sonner";
 import { NotificationsProvider } from "@/lib/notifications";
+import { VersionNotice } from "@/components/VersionNotice";
 import { MoreMenu } from "@/components/ui/MoreMenu";
 
 // Publication du site : seulement dans l'espace Site, chargé à la demande.
@@ -527,6 +528,7 @@ export function AppLayout() {
         <div className="relative z-40 h-0">
           <NetworkStatus />
         </div>
+        <VersionNotice />
 
         {/* Région qui défile : atteignable au clavier (axe scrollable-region-focusable),
             contour visible seulement au focus clavier. « relative » : un élément en position absolue
