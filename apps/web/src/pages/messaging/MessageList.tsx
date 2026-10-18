@@ -17,7 +17,7 @@ import { FilterSegment, FilterSelect } from "@/components/ui/ListFilters";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Field";
 import { senderLabel } from "@kouzia-erp/email-sender";
-import { formProspectName, isFormSender } from "@/pages/messaging/sender";
+import { formMessageName, formProspectName, isFormSender } from "@/pages/messaging/sender";
 
 type Props = {
   messages: MailMessageItem[];
@@ -73,10 +73,8 @@ function personLabel(msg: MailMessageItem): string {
     return to ? named(null, to) : "Destinataire inconnu";
   }
   // Formulaire du site : le client rattaché, sinon le nom saisi ; jamais l'expéditeur technique (Web3Forms).
-  if (msg.direction !== "OUTBOUND" && isFormSender(msg.fromAddress)) {
-    if (clientName) return clientName;
-    return formProspectName(msg.snippet) ?? (msg.replyToAddress ? senderLabel(null, msg.replyToAddress) : "Formulaire du site");
-  }
+  const formName = formMessageName(msg, clientName);
+  if (formName) return formName;
   if (msg.replyToAddress) return formProspectName(msg.snippet) ?? named(null, msg.replyToAddress);
   return named(msg.fromName, msg.fromAddress);
 }

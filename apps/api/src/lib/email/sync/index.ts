@@ -220,6 +220,10 @@ export async function getInboxSummary(take = 5) {
         subject: true,
         fromAddress: true,
         fromName: true,
+        // Formulaire du site : nom saisi (aperçu) et adresse du prospect, comme dans la liste de la Messagerie.
+        replyToAddress: true,
+        snippet: true,
+        direction: true,
         receivedAt: true,
         isRead: true,
         thread: { select: { client: { select: { id: true, displayName: true } } } },

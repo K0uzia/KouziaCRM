@@ -16,3 +16,16 @@ describe("message du formulaire du site", () => {
     expect(isFormSender(null)).toBe(false);
   });
 });
+
+describe("nom d'un message du formulaire (liste et tableau de bord)", () => {
+  const form = { fromAddress: "notify+x@web3forms.com", snippet: "nom : Camille Martin email : c@ex.fr" };
+  it("client rattaché, sinon nom saisi, sinon adresse du prospect ; jamais l'expéditeur technique", async () => {
+    const { formMessageName } = await import("@/pages/messaging/sender");
+    expect(formMessageName(form, "Atelier Martin")).toBe("Atelier Martin");
+    expect(formMessageName(form)).toBe("Camille Martin");
+    expect(formMessageName({ fromAddress: form.fromAddress, replyToAddress: "c@ex.fr" })).toBe("c@ex.fr");
+    expect(formMessageName({ fromAddress: form.fromAddress })).toBe("Formulaire du site");
+    expect(formMessageName({ fromAddress: "quelqu.un@exemple.fr", snippet: "nom : X" })).toBeNull();
+    expect(formMessageName({ ...form, direction: "OUTBOUND" })).toBeNull();
+  });
+});
