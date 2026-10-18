@@ -2,9 +2,10 @@ import type { FastifyRequest } from "fastify";
 import { isSmtpConfigured } from "@/lib/email/smtp.js";
 import { mailEnqueue } from "@/lib/email/mailer/index.js";
 import { describeDevice } from "@/lib/portal/auth.js";
+import { formatDateTimeLongFr } from "@/lib/format-fr.js";
 
 function fmtDateTime(d: Date): string {
-  return d.toLocaleString("fr-FR", { timeZone: "Europe/Paris", dateStyle: "long", timeStyle: "short" });
+  return formatDateTimeLongFr(d);
 }
 
 /** Connexion admin réussie depuis un appareil inconnu : email au titulaire du compte. */

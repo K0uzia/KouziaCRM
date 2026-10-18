@@ -5,6 +5,7 @@ import { mailEnqueue } from "@/lib/email/mailer/index.js";
 import { brandFromSettings, buildEmailContent } from "@/lib/email/templates.js";
 import { getCompanySettings } from "@/lib/company.js";
 import { prisma } from "@/lib/prisma.js";
+import { formatDateFr } from "@/lib/format-fr.js";
 
 type DepositStage = "minus7" | "minus1" | "plus3" | "plus10";
 
@@ -130,7 +131,7 @@ export async function sendDueDepositReminders(now: Date = new Date()): Promise<n
             `Jalon : ${milestone.label}`,
             cfg.label,
             milestone.dueDate
-              ? `Échéance : ${milestone.dueDate.toLocaleDateString("fr-FR")}`
+              ? `Échéance : ${formatDateFr(milestone.dueDate)}`
               : "",
           ].filter(Boolean),
           paymentUrl: milestone.checkoutUrl,

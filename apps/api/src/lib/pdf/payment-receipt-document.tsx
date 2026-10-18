@@ -2,6 +2,7 @@ import React from "react";
 import { Document, Image, Page, Text, View, StyleSheet } from "@react-pdf/renderer";
 import { formatEUR } from "@/lib/money.js";
 import { resolveBrandColors } from "@/lib/brand.js";
+import { formatDateFr } from "@/lib/format-fr.js";
 
 /** Reçu d'un règlement : pièce remise au client, distincte de la facture (qui reste telle qu'émise). */
 
@@ -77,7 +78,7 @@ export type PaymentReceiptPdfData = {
   specimen?: boolean;
 };
 
-const fmtDate = (d: Date) => new Intl.DateTimeFormat("fr-FR", { timeZone: "Europe/Paris" }).format(d);
+const fmtDate = (d: Date) => formatDateFr(d);
 
 export function PaymentReceiptDocument(data: PaymentReceiptPdfData) {
   const { company, client, payment, invoice } = data;

@@ -13,6 +13,7 @@ import { fillClauseVariables } from "@/lib/company/legal-clauses.js";
 import type { ClientSnapshot } from "@/lib/invoices/transitions.js";
 import { formatEUR } from "@/lib/money.js";
 import { readableOn, resolveBrandColors } from "@/lib/brand.js";
+import { formatDateFr, formatDateTimeShortFr } from "@/lib/format-fr.js";
 
 /**
  * Charte Kouzia adaptée à l'impression : fond blanc, encre nuit, ambre en aplats
@@ -205,15 +206,11 @@ function formatIban(iban: string): string {
 }
 
 function fmtDate(d: Date) {
-  return new Intl.DateTimeFormat("fr-FR").format(d);
+  return formatDateFr(d);
 }
 
 function fmtDateTime(d: Date) {
-  return new Intl.DateTimeFormat("fr-FR", {
-    timeZone: "Europe/Paris",
-    dateStyle: "short",
-    timeStyle: "short",
-  }).format(d).replace(" ", " à ");
+  return formatDateTimeShortFr(d);
 }
 
 /** 3f9a1c2e…7b40c21e : assez pour comparer à l'empreinte complète archivée. */

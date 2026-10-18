@@ -42,6 +42,7 @@ import { registerInputGuards } from "@/lib/http-input.js";
 import { ensureDefaultLegalClauses } from "@/lib/company/legal-clauses.js";
 import { withOfflineOrigin } from "@/lib/spa-index.js";
 import { API_CONTRACT, BUILD_HEADER, CONTRACT_HEADER } from "@/lib/api-contract.js";
+import { intlDataStatus } from "@/lib/format-fr.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -226,7 +227,11 @@ export async function buildApp(opts: BuildAppOptions = {}): Promise<FastifyInsta
 
   // pendingMigrations > 0 : base en retard sur le code (contrôle d'après déploiement).
   // Par le tunnel : état seulement (l'avance des migrations ne regarde que le LAN, kouziactl compris).
-  app.get("/api/health", async (request) => (request.viaTunnel ? { ok: true } : { ok: true, pendingMigrations: pendingMigrationCount() }));
+  // intl : « incomplet » si l'hôte n'a pas les données de langue françaises (Alpine sans icu-data-full).
+  const intl = intlDataStatus().status;
+  app.get("/api/health", async (request) =>
+    request.viaTunnel ? { ok: true } : { ok: true, pendingMigrations: pendingMigrationCount(), intl },
+  );
 
   let spaServed = false;
   if (opts.serveStatic !== false) {

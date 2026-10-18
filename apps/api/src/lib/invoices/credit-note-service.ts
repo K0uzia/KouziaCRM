@@ -15,6 +15,7 @@ import { buildClientSnapshot, type ClientSnapshot } from "@/lib/invoices/documen
 import { creditNoteCaps, invoiceBalance } from "@/lib/invoices/balance.js";
 import { applySettledStatus, lockInvoice } from "@/lib/invoices/balance-status.js";
 import { formatEUR } from "@/lib/money.js";
+import { formatDateFr } from "@/lib/format-fr.js";
 
 export class CreditNoteError extends Error {
   constructor(
@@ -112,7 +113,7 @@ export function creditNoteContent(
   const notesParts = [
     `Avoir sur facture ${original.number ?? "?"} du ${
       original.issueDate
-        ? original.issueDate.toLocaleDateString("fr-FR")
+        ? formatDateFr(original.issueDate)
         : "?"
     }`,
     `Motif : ${REASON_LABEL[input.reason]}`,

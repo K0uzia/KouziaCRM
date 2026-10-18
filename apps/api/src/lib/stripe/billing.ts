@@ -20,6 +20,7 @@ import { decryptOptional } from "@/lib/crypto.js";
 import { buildEmailBrand } from "@/lib/email/deposit-templates.js";
 import { formatPlainTextSignature } from "@/lib/email/signature.js";
 import { renderEmailHtml } from "@/lib/email/layout.js";
+import { formatDateFr } from "@/lib/format-fr.js";
 
 /** Relie l'abonnement ERP à Stripe après Checkout mode=subscription. */
 export async function linkSubscriptionFromCheckout(opts: {
@@ -123,7 +124,7 @@ export async function issueErpInvoiceFromStripeInvoice(
   const periodStart = startSec ? new Date(startSec * 1000) : new Date();
   const periodEnd = endSec && endSec > (startSec ?? 0) ? new Date(endSec * 1000) : null;
   const label = periodEnd
-    ? `${sub.label} (${periodStart.toLocaleDateString("fr-FR")} - ${periodEnd.toLocaleDateString("fr-FR")})`
+    ? `${sub.label} (${formatDateFr(periodStart)} - ${formatDateFr(periodEnd)})`
     : sub.label;
 
   const settings = await getCompanySettings();

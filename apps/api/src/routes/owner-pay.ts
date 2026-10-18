@@ -4,6 +4,7 @@ import { z } from "zod";
 import { requireAuth } from "@/lib/auth.js";
 import { prisma } from "@/lib/prisma.js";
 import { getOwnerPaySummary } from "@/lib/finance/owner-pay.js";
+import { formatEUR } from "@/lib/format-fr.js";
 
 const withdrawalSchema = z.object({
   amountCents: z.number().int().min(1, "Montant supérieur à 0 attendu").max(100_000_000, "Montant trop élevé"),
@@ -17,8 +18,7 @@ function localNoon(date: string): Date {
   return new Date(y, m - 1, d, 12, 0, 0, 0);
 }
 
-const eur = (cents: number) =>
-  new Intl.NumberFormat("fr-FR", { style: "currency", currency: "EUR" }).format(cents / 100).replace(/[  ]/g, " ");
+const eur = (cents: number) => formatEUR(cents);
 
 /** Un retrait ne peut pas dépasser le salaire disponible (le cumul afficherait 0 € et masquerait l'écart). */
 function overAvailable(amountCents: number, availableCents: number) {

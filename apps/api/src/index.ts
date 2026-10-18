@@ -98,6 +98,15 @@ async function main() {
   const push = vapidStatus();
   // Sans clés VAPID, l'ERP fonctionne : seules les notifications push sont désactivées.
   if (!push.config) app.log.warn(`[boot] push désactivé : ${push.reason}`);
+  // Données de langue de l'hôte : sur Alpine sans icu-data-full, Intl ne sait pas le français. Les documents
+  // n'en dépendent plus (lib/format-fr), mais le serveur est signalé : /api/health et kouziactl status.
+  const { intlDataStatus } = await import("@/lib/format-fr.js");
+  const intl = intlDataStatus();
+  if (intl.status !== "complet") {
+    app.log.error(
+      `[boot] données de langue incomplètes : Intl fr-FR donne « ${intl.sample} » au lieu de « 1 190,00 € ». Installer icu-data-full (apk add icu-data-full) puis redémarrer.`,
+    );
+  }
 
   try {
     await hydrateSettingsFromEnv();
