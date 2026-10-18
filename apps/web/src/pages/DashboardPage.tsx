@@ -8,6 +8,7 @@ import {
   faClipboardCheck,
   faEnvelope,
   faFileInvoice,
+  faGlobe,
   faFilePen,
   faFileSignature,
   faHourglassHalf,
@@ -38,6 +39,7 @@ import { Button, ButtonLink } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { Segmented } from "@/components/ui/Segmented";
 import { StatStrip } from "@/components/ui/StatStrip";
+import { formMessageName } from "@/pages/messaging/sender";
 
 /** Notifications qui changent les chiffres ou les listes du tableau de bord (les autres ne le rechargent pas). */
 const DASHBOARD_KINDS = new Set<NotificationKind>(["mail", "payment", "deposit_due", "quote_accepted", "quote_rejected", "subscription_stripe"]);
@@ -136,6 +138,9 @@ type InboxSummary = {
     subject: string;
     fromAddress: string;
     fromName: string | null;
+    replyToAddress?: string | null;
+    snippet?: string | null;
+    direction?: string;
     receivedAt: string;
     isRead: boolean;
     client: { id: string; displayName: string } | null;
@@ -901,11 +906,19 @@ export function DashboardPage() {
                           {/* Nom lisible d'abord (10rem au moins) : sur un écran étroit, la date passe à la ligne. */}
                           <span className="flex flex-wrap items-baseline justify-between gap-x-2">
                             <span className={`min-w-[min(100%,10rem)] flex-1 truncate text-sm ${unread ? "font-semibold" : ""}`}>
-                              {m.client?.displayName ?? m.fromName ?? m.fromAddress}
+                              {formMessageName(m, m.client?.displayName) ?? m.client?.displayName ?? m.fromName ?? m.fromAddress}
                             </span>
                             <span className="shrink-0 text-xs tabular-nums text-[var(--muted)]">{formatMailDate(m.receivedAt)}</span>
                           </span>
-                          <span className="block truncate text-xs text-[var(--muted)]">{m.subject}</span>
+                          <span className="flex min-w-0 items-center gap-1.5 text-xs text-[var(--muted)]">
+                            {formMessageName(m) ? (
+                              <span className="inline-flex shrink-0 items-center gap-1">
+                                <FontAwesomeIcon icon={faGlobe} className="h-3 w-3" aria-hidden />
+                                via formulaire
+                              </span>
+                            ) : null}
+                            <span className="min-w-0 truncate">{m.subject}</span>
+                          </span>
                         </span>
                       </Link>
                     </li>

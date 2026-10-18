@@ -13,3 +13,16 @@ export function formProspectName(text: string | null | undefined): string | null
 export function isFormSender(address: string | null | undefined): boolean {
   return /@(?:[a-z0-9-]+\.)*web3forms\.com$/i.test(address?.trim() ?? "");
 }
+
+/**
+ * Nom à afficher pour un message reçu du formulaire du site (liste de la Messagerie, carte du tableau de bord) :
+ * le client rattaché, sinon le nom saisi, sinon l'adresse du prospect ; jamais l'expéditeur technique.
+ * null si le message ne vient pas du formulaire.
+ */
+export function formMessageName(
+  msg: { fromAddress: string; replyToAddress?: string | null; snippet?: string | null; direction?: string | null },
+  clientName?: string | null,
+): string | null {
+  if (msg.direction === "OUTBOUND" || !isFormSender(msg.fromAddress)) return null;
+  return clientName?.trim() || formProspectName(msg.snippet) || msg.replyToAddress?.trim() || "Formulaire du site";
+}

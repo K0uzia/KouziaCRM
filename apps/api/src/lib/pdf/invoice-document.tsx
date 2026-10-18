@@ -65,9 +65,8 @@ function createStyles(primary: string, secondary: string) {
     party: {
       flex: 1,
       padding: 12,
+      // Fond doux seul : la hiérarchie vient du titre (FACTURÉ À, CONDITIONS), pas d'une bordure d'accent.
       backgroundColor: SOFT,
-      borderLeftWidth: 3,
-      borderLeftColor: primary,
     },
     partyTitle: {
       fontSize: 7.5,
@@ -162,10 +161,9 @@ function createStyles(primary: string, secondary: string) {
     payBox: {
       marginTop: 18,
       padding: 12,
+      // Contour complet de 1 px, titre en gras : pas de bordure gauche d'accent (règle web-design).
       borderWidth: 1,
       borderColor: LINE,
-      borderLeftWidth: 3,
-      borderLeftColor: primary,
     },
     strong: { fontFamily: "Helvetica-Bold", color: INK },
     signRow: { flexDirection: "row", gap: 12, marginTop: 6 },
@@ -526,7 +524,7 @@ export function InvoiceDocument({ company, client, invoice, specimen, draft }: I
             {client.email ? <Text style={styles.muted}>{client.email}</Text> : null}
           </View>
           {(isAcompte && invoice.milestoneTrigger) || invoice.paymentTerms || (isCredit && invoice.nothingToPay) ? (
-            <View style={[styles.party, { borderLeftColor: LINE }]}>
+            <View style={styles.party}>
               <Text style={styles.partyTitle}>CONDITIONS</Text>
               {invoice.paymentTerms ? <Text>{invoice.paymentTerms}</Text> : null}
               {isAcompte && invoice.milestoneTriggerStep ? (
@@ -888,7 +886,8 @@ export function InvoiceDocument({ company, client, invoice, specimen, draft }: I
           <View style={styles.payBox} wrap={false}>
             <Text style={styles.h2}>Règlement par virement</Text>
             <Text>
-              Merci de régler <Text style={styles.strong}>{fmtMoney(showSettlement ? dueCents : invoice.totalCents)}</Text> en indiquant
+              {/* Virgule après le montant : react-pdf efface l'espace qui suit un Text imbriqué (« 1 800,00 €en »). */}
+              Merci de régler <Text style={styles.strong}>{fmtMoney(showSettlement ? dueCents : invoice.totalCents)}</Text>, en indiquant
               la référence <Text style={styles.strong}>{draft ? "(numéro attribué à l'émission)" : invoice.number}</Text>.
             </Text>
             <View style={{ flexDirection: "row", gap: 24, marginTop: 6 }}>
