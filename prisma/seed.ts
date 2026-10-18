@@ -45,9 +45,12 @@ async function main() {
 
   const passwordHash = await argon2.hash(password, { type: argon2.argon2id });
 
+  // Compte existant laissé tel quel : relancer l'installation ne remet jamais le mot de passe à celui
+  // du .env. Seul « kouziactl admin » le remplace, explicitement (SEED_RESET_ADMIN_PASSWORD=1).
+  const resetAdmin = process.env.SEED_RESET_ADMIN_PASSWORD === "1";
   await prisma.user.upsert({
     where: { email },
-    update: { name, passwordHash },
+    update: resetAdmin ? { name, passwordHash } : {},
     create: { email, name, passwordHash },
   });
 

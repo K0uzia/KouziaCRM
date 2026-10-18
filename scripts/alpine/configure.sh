@@ -539,7 +539,8 @@ configure_admin() {
   env_set ADMIN_PASSWORD "$admin_pass"
 
   log "Mise à jour du compte admin en base (db:seed)…"
-  if run_as_app "cd '$KOUZIA_APP_DIR' && npm run db:seed"; then
+  # Seul ce choix explicite remplace le mot de passe en base (un seed d'installation le garde).
+  if run_as_app "cd '$KOUZIA_APP_DIR' && SEED_RESET_ADMIN_PASSWORD=1 npm run db:seed"; then
     ok "Admin prêt : $admin_email"
   else
     warn "Seed échoué. Vérifie les logs ; tu pourras relancer : kouziactl configure"
