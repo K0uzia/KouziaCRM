@@ -13,7 +13,14 @@ import { requireAuth } from "@/lib/auth.js";
 import { revokeAllPortalSessions } from "@/lib/portal/auth.js";
 import { sendOnboardingInvite } from "@/lib/clients/onboarding.js";
 import { sendPortalWelcomeEmail } from "@/lib/clients/access-email.js";
-import { needsInputSchema, normalizeNeeds } from "@/lib/clients/needs.js";
+import {
+  parseNeeds,
+  readServiceNeeds,
+  ServiceNeedError,
+  serviceNeedsInclude,
+  serviceNeedsInputSchema,
+  writeServiceNeeds,
+} from "@/lib/clients/needs.js";
 import { computeEmailHash } from "@/lib/clients/email-hash.js";
 import { createClientNote, listClientNotes, noteInputSchema, serializeNote } from "@/lib/clients/notes.js";
 import { appendToNotepad, notepadInputSchema, readNotepad, saveNotepad, serializeNotepad } from "@/lib/clients/notepad.js";
@@ -79,7 +86,9 @@ export const clientsRoutes: FastifyPluginAsync = async (app) => {
     const { clientRequestId, sendPortalAccess } = options.data;
     // Renvoi d'une fiche préparée hors ligne (réponse perdue, double envoi) : la fiche déjà créée, rien de plus.
     const replay = async () => {
-      const already = clientRequestId ? await prisma.client.findUnique({ where: { clientRequestId } }) : null;
+      const already = clientRequestId
+        ? await prisma.client.findUnique({ where: { clientRequestId }, include: { serviceNeeds: serviceNeedsInclude } })
+        : null;
       return already ? reply.code(200).send({ ...serializeClient(already), portalAccess: null, replayed: true }) : null;
     };
     const sent = await replay();
@@ -169,7 +178,10 @@ export const clientsRoutes: FastifyPluginAsync = async (app) => {
   app.get<{ Params: { id: string } }>("/api/clients/:id", async (request, reply) => {
     await requireAuth(request, reply);
     if (reply.sent) return;
-    const client = await prisma.client.findUnique({ where: { id: request.params.id } });
+    const client = await prisma.client.findUnique({
+      where: { id: request.params.id },
+      include: { serviceNeeds: serviceNeedsInclude },
+    });
     if (!client) return reply.code(404).send({ error: "Introuvable" });
     return serializeClient(client);
   });
@@ -309,6 +321,7 @@ export const clientsRoutes: FastifyPluginAsync = async (app) => {
       const client = await prisma.client.update({
         where: { id: request.params.id },
         data: await toPrismaClientData(parsed.data, { addressUnchanged }),
+        include: { serviceNeeds: serviceNeedsInclude },
       });
       await syncPrimaryContact(client.id);
       return serializeClient(client);
@@ -329,19 +342,23 @@ export const clientsRoutes: FastifyPluginAsync = async (app) => {
     },
   );
 
-  // Besoins notés pour le client : la liste est remplacée en entier (ordre, libellés, « traité »).
+  // Besoins du client : prestations du catalogue (remplacées en entier, case « traité ») et « Précisions ».
   app.put<{ Params: { id: string } }>("/api/clients/:id/needs", async (request, reply) => {
     await requireAuth(request, reply);
     if (reply.sent) return;
-    const parsed = z.object({ needs: needsInputSchema }).safeParse(request.body);
+    const parsed = serviceNeedsInputSchema.safeParse(request.body);
     if (!parsed.success) {
       return reply.code(400).send({ error: parsed.error.issues[0]?.message ?? "Besoins invalides" });
     }
     const existing = await prisma.client.findUnique({ where: { id: request.params.id }, select: { id: true } });
     if (!existing) return reply.code(404).send({ error: "Introuvable" });
-    const needs = normalizeNeeds(parsed.data.needs);
-    await prisma.client.update({ where: { id: existing.id }, data: { needs: JSON.stringify(needs) } });
-    return { needs };
+    try {
+      await prisma.$transaction((tx) => writeServiceNeeds(existing.id, parsed.data, tx));
+    } catch (e) {
+      if (e instanceof ServiceNeedError) return reply.code(400).send({ error: e.message });
+      throw e;
+    }
+    return readServiceNeeds(existing.id);
   });
 
   // Espace client : (r)envoie l'e-mail d'accès (adresse du site, connexion par code).
@@ -502,6 +519,7 @@ export const clientsRoutes: FastifyPluginAsync = async (app) => {
           },
           renewals: { orderBy: { renewsAt: "asc" } },
           appointmentNotes: { orderBy: { preparedAt: "asc" } },
+          serviceNeeds: serviceNeedsInclude,
         },
       });
       if (!client) return reply.code(404).send({ error: "Introuvable" });
@@ -556,6 +574,8 @@ export const clientsRoutes: FastifyPluginAsync = async (app) => {
         })),
         notepad: (await readNotepad(client.id))?.text ?? "",
         contacts: await listContacts(client.id),
+        // Besoins de l'ancien format, gardés en lecture seule depuis leur reprise dans les Précisions.
+        legacyNeeds: parseNeeds(client.needs),
         appointmentNotes: client.appointmentNotes.map((n) => {
           const note = serializeNote(n);
           return { preparedAt: note.preparedAt.toISOString(), body: note.body };

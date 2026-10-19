@@ -11,7 +11,7 @@ import { DocumentPreview } from "@/components/documents/DocumentPreview";
 import { useMediaQuery } from "@/lib/use-media-query";
 import { Field, Input, Select, Textarea } from "@/components/ui/Field";
 import type { Client } from "@/components/clients/ClientForm";
-import type { ClientNeed } from "@/components/clients/NeedsEditor";
+import { pendingNeeds, type ServiceNeed } from "@/components/clients/ServiceNeedsEditor";
 import { Segmented } from "@/components/ui/Segmented";
 import { Combobox } from "@/components/ui/Combobox";
 import { catalogGroups } from "@/lib/catalog-options";
@@ -124,7 +124,7 @@ export function DocumentFormEditor({
   documentType: "INVOICE" | "QUOTE";
   documentId?: string;
   initial?: Partial<DocumentFormValues>;
-  clients: Array<{ id: string; displayName: string; clientNumber?: string | null; needs?: ClientNeed[]; billingDay?: number | null; updatedAt?: string }>;
+  clients: Array<{ id: string; displayName: string; clientNumber?: string | null; serviceNeeds?: ServiceNeed[]; needsDetails?: string; billingDay?: number | null; updatedAt?: string }>;
   /** queued : devis brouillon mis en file hors ligne (id = clientRequestId), pas encore créé. */
   onSuccess: (doc: { id: string; queued?: boolean; clientId?: string }) => void;
   onCancel: () => void;
@@ -318,17 +318,6 @@ export function DocumentFormEditor({
     setForm((f) => ({ ...f, lines: [...f.lines, emptyLine()] }));
   }
 
-  /** Besoin du client repris en ligne : libellé prérempli, prix à saisir (rien d'automatique). */
-  function addNeedLine(label: string) {
-    const line: DocLine = { ...emptyLine(), description: label };
-    setForm((f) => {
-      const emptyIndex = f.lines.findIndex((l) => !l.description.trim() && !l.unitPriceEuros);
-      const lines = emptyIndex >= 0 ? f.lines.map((l, i) => (i === emptyIndex ? line : l)) : [...f.lines, line];
-      return { ...f, lines };
-    });
-    toast.success("Ligne ajoutée : saisissez le prix.");
-  }
-
   function removeLine(index: number) {
     setForm((f) => ({
       ...f,
@@ -495,9 +484,13 @@ export function DocumentFormEditor({
   const catalog = catalogGroups(services);
   const clientGroups = [{ heading: "", options: clients.map((c) => ({ value: c.id, label: c.displayName, meta: c.clientNumber ?? undefined })) }];
   const sectionTitle = "text-xs font-semibold uppercase tracking-[0.08em] text-[var(--muted)]";
-  const clientNeeds = clients.find((c) => c.id === form.clientId)?.needs ?? [];
-  const doneNeeds = clientNeeds.filter((n) => n.done).length;
-  const visibleNeeds = showDoneNeeds ? clientNeeds : clientNeeds.filter((n) => !n.done);
+  const needsClient = clients.find((c) => c.id === form.clientId);
+  const clientNeeds = needsClient?.serviceNeeds ?? [];
+  const openNeeds = pendingNeeds(clientNeeds);
+  const doneNeeds = clientNeeds.length - openNeeds.length;
+  const visibleNeeds = showDoneNeeds ? clientNeeds : openNeeds;
+  const needsDetails = needsClient?.needsDetails?.trim() ?? "";
+  const quoted = new Set(form.lines.map((l) => l.serviceId).filter(Boolean));
 
   return (
     <>
@@ -551,29 +544,46 @@ export function DocumentFormEditor({
         ) : null}
       </section>
 
-      {documentType === "QUOTE" && clientNeeds.length > 0 ? (
-        <details className="rounded-[var(--radius)] border border-[var(--border)] p-3">
+      {documentType === "QUOTE" && (clientNeeds.length > 0 || needsDetails) ? (
+        <details className="rounded-[var(--radius)] border border-[var(--border)] p-3" data-quote-needs>
           <summary className="min-h-11 cursor-pointer py-2 text-sm font-semibold">
-            Besoins du client ({clientNeeds.filter((n) => !n.done).length} à traiter)
+            Besoins du client ({openNeeds.length} à traiter)
           </summary>
-          <ul className="mt-2 space-y-1" aria-label="Besoins du client">
-            {visibleNeeds.map((need) => (
-              <li key={need.id} className="flex min-w-0 items-center justify-between gap-2">
-                <span className={`min-w-0 break-words text-sm ${need.done ? "text-[var(--muted)] line-through" : ""}`}>
-                  {need.label}
-                  {need.done ? <span className="sr-only"> (traité)</span> : null}
-                </span>
-                <Button
-                  variant="ghost"
-                  className="shrink-0 text-sm"
-                  aria-label={`Ajouter comme ligne : ${need.label}`}
-                  onClick={() => addNeedLine(need.label)}
-                >
-                  Ajouter comme ligne
-                </Button>
-              </li>
-            ))}
-          </ul>
+          {visibleNeeds.length > 0 ? (
+            <ul className="mt-2 space-y-1" aria-label="Besoins du client">
+              {visibleNeeds.map((need) => {
+                const inCatalog = services.some((s) => s.id === need.serviceId);
+                return (
+                  <li key={need.serviceId} className="flex min-w-0 items-center justify-between gap-2">
+                    <span className={`min-w-0 break-words text-sm ${need.doneAt ? "text-[var(--muted)] line-through" : ""}`}>
+                      {need.name}
+                      {need.doneAt ? <span className="sr-only"> (traité)</span> : null}
+                    </span>
+                    {quoted.has(need.serviceId) ? (
+                      <span className="shrink-0 text-xs text-[var(--muted)]">Dans le devis</span>
+                    ) : inCatalog ? (
+                      <Button
+                        variant="ghost"
+                        className="shrink-0 text-sm"
+                        aria-label={`Ajouter au devis : ${need.name}`}
+                        onClick={() => addFromCatalog(need.serviceId)}
+                      >
+                        Ajouter au devis
+                      </Button>
+                    ) : (
+                      <span className="shrink-0 text-xs text-[var(--muted)]">Prestation archivée</span>
+                    )}
+                  </li>
+                );
+              })}
+            </ul>
+          ) : null}
+          {needsDetails ? (
+            <div className="mt-2 space-y-1 text-sm">
+              <p className="font-medium">Précisions</p>
+              <p className="whitespace-pre-line break-words text-[var(--muted)]">{needsDetails}</p>
+            </div>
+          ) : null}
           {doneNeeds > 0 ? (
             <button
               type="button"

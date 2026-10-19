@@ -37,7 +37,7 @@ const CLIENT_KEYS = [
   "id", "clientNumber", "type", "displayName", "firstName", "lastName", "companyName",
   "email", "phone", "siret", "siren", "apeCode", "companyVerifiedAt",
   "addressLine1", "addressLine2", "postalCode", "city", "country", "addressCityCode", "addressLat", "addressLon",
-  "notes", "notepadUpdatedAt", "billingDay", "needs", "emailVerifiedAt", "onboardingCompletedAt", "createdAt", "updatedAt",
+  "notes", "notepadUpdatedAt", "billingDay", "needsDetails", "emailVerifiedAt", "onboardingCompletedAt", "createdAt", "updatedAt",
 ] as const;
 
 const SNAPSHOT_KEYS = [
@@ -93,8 +93,13 @@ export const SETTINGS_KEYS = [
   "annualFreeMonths", "moduleBankEnabled", "moduleSubscriptionsEnabled", "moduleStripeEnabled",
 ] as const;
 
+const SERVICE_NEED_KEYS = ["serviceId", "name", "active", "doneAt", "createdAt"] as const;
+
 export function sanitizeClient(data: unknown): Json | null {
-  return pick(data, CLIENT_KEYS);
+  const client = pick(data, CLIENT_KEYS);
+  const needs = client && (data as Json).serviceNeeds;
+  if (client && Array.isArray(needs)) client.serviceNeeds = needs.map((n) => pick(n, SERVICE_NEED_KEYS));
+  return client;
 }
 
 export function sanitizeService(data: unknown): Json | null {

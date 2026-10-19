@@ -85,11 +85,13 @@ export const servicesRoutes: FastifyPluginAsync = async (app) => {
     if (q.active === "1") where.active = true;
     if (q.subscription === "0") where.isSubscription = false;
     if (q.subscription === "1") where.isSubscription = true;
-    return prisma.service.findMany({
+    const rows = await prisma.service.findMany({
       where: Object.keys(where).length > 0 ? where : undefined,
       orderBy: { name: "asc" },
-      include: PACK_INCLUDE,
+      include: { ...PACK_INCLUDE, _count: { select: { clientNeeds: true } } },
     });
+    // Clients qui l'ont notée comme besoin : la suppression l'archive à la place (dit à l'écran avant de confirmer).
+    return rows.map(({ _count, ...service }) => ({ ...service, clientNeedsCount: _count.clientNeeds }));
   });
 
   app.get<{ Params: { id: string } }>("/api/services/:id/pack-lines", async (request, reply) => {

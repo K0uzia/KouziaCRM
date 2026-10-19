@@ -1,6 +1,6 @@
 import { Fragment, useCallback, useEffect, useState } from "react";
 import { mixedQuoteTotals, subscriptionsTotalText } from "@/lib/quote-totals";
-import type { ClientNeed } from "@/components/clients/NeedsEditor";
+import type { ServiceNeed } from "@/components/clients/ServiceNeedsEditor";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faPlus } from "@fortawesome/free-solid-svg-icons";
@@ -141,8 +141,8 @@ type Doc = {
   milestones?: Milestone[];
 };
 
-// needs : rappel des besoins du client dans le formulaire de devis.
-type ClientOpt = { id: string; displayName: string; clientNumber?: string | null; needs?: ClientNeed[] };
+// serviceNeeds et needsDetails : rappel des besoins du client dans le formulaire de devis.
+type ClientOpt = { id: string; displayName: string; clientNumber?: string | null; serviceNeeds?: ServiceNeed[]; needsDetails?: string };
 
 function displayStatus(d: Doc, isQuote: boolean): string {
   if (isQuote && d.quoteStatus) return d.quoteStatus;

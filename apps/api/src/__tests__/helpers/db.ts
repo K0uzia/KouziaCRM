@@ -22,6 +22,7 @@ const TABLES = [
   "Invoice",
   "Subscription",
   "ServicePackItem",
+  "ClientServiceNeed",
   "Service",
   "OnboardingInvitation",
   "ClientEmailEvent",

@@ -76,21 +76,22 @@ export async function updateLinkedService(existing: Service, input: LinkedServic
 }
 
 /**
- * Supprime une prestation jamais utilisée ; si elle figure sur un document, un abonnement ou un pack, elle est
- * archivée (désactivée) pour ne pas altérer l'historique. Liée à Stripe : archivée aussi dans Stripe d'abord
- * (les abonnements Stripe en cours continuent).
+ * Supprime une prestation jamais utilisée ; si elle figure sur un document, un abonnement, un pack ou les besoins d'un
+ * client, elle est archivée (désactivée) pour ne pas altérer l'historique. Liée à Stripe : archivée aussi dans Stripe
+ * d'abord (les abonnements Stripe en cours continuent).
  */
 export async function removeService(id: string): Promise<{ archived: boolean } | null> {
   const service = await prisma.service.findUnique({
     where: { id },
-    include: { _count: { select: { invoiceLines: true, subscriptions: true, inPacks: true } } },
+    include: { _count: { select: { invoiceLines: true, subscriptions: true, inPacks: true, clientNeeds: true } } },
   });
   if (!service) return null;
   if (service.stripeProductId) {
     await assertSameMode(service.stripeLivemode, "Cette prestation");
     await archiveLinkedService(service);
   }
-  if (service._count.invoiceLines > 0 || service._count.subscriptions > 0 || service._count.inPacks > 0) {
+  const c = service._count;
+  if (c.invoiceLines > 0 || c.subscriptions > 0 || c.inPacks > 0 || c.clientNeeds > 0) {
     await prisma.service.update({ where: { id }, data: { active: false } });
     return { archived: true };
   }

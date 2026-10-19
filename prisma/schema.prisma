@@ -700,8 +700,10 @@ model Client {
   notepadUpdatedAt      DateTime?
   /// Enregistrement concurrent (autre appareil) : les deux textes gardés, bandeau « à relire » jusqu'au suivant
   notepadConflictAt     DateTime?
-  /// JSON [{ id, label, done }] : besoins notés en rendez-vous (ordre du tableau = ordre affiché)
+  /// Ancien format, en lecture seule depuis la reprise (repris dans needsDetails) : JSON [{ id, label, done }]
   needs                 String                 @default("[]")
+  /// « Précisions » des besoins, texte libre ; null = jamais écrit ni repris
+  needsDetails          String?
   /// Date à laquelle le client a complété son onboarding (via invitation)
   onboardingCompletedAt DateTime?
   /// Date du dernier envoi de l'e-mail d'accès à l'espace client
@@ -724,6 +726,7 @@ model Client {
   projects               ClientProject[]
   appointmentNotes       ClientNote[]
   contacts               ClientContact[]
+  serviceNeeds           ClientServiceNeed[]
   /// Fiche préparée hors ligne : UUID de l'appareil ; un renvoi rend la même fiche (idempotence)
   clientRequestId        String?             @unique
   /// Identifiant Customer Stripe (cus_…)
@@ -839,6 +842,20 @@ model ClientContact {
   @@index([emailHash])
 }
 
+/// Besoin d'un client : une prestation du catalogue. Une prestation liée ne se supprime pas (elle s'archive).
+model ClientServiceNeed {
+  clientId  String
+  client    Client    @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  serviceId String
+  service   Service   @relation(fields: [serviceId], references: [id], onDelete: Restrict)
+  /// Case « traité » cochée à cette date ; null = en attente
+  doneAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@id([clientId, serviceId])
+  @@index([serviceId])
+}
+
 /// Note de rendez-vous (journal de la fiche client), saisie en ligne ou préparée hors ligne.
 model ClientNote {
   id              String   @id @default(cuid())
@@ -939,6 +956,8 @@ model Service {
   packItems         ServicePackItem[] @relation("PackItems")
   /// Packs qui contiennent cette prestation (elle s'archive au lieu d'être supprimée)
   inPacks           ServicePackItem[] @relation("PackComponent")
+  /// Clients qui ont noté cette prestation comme besoin (elle s'archive au lieu d'être supprimée)
+  clientNeeds       ClientServiceNeed[]
 
   @@index([active])
   @@index([name])
