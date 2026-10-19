@@ -50,12 +50,20 @@ export function usePageMissing(route: string): boolean {
   return pageMissingFor(route);
 }
 
-/** Écran rechargé (retour du réseau) : ses lectures absentes sont oubliées. */
+/** Écran rechargé (retour du réseau) : ses lectures absentes et servies depuis la copie sont oubliées. */
 export function forgetMissing(route: string): void {
   let changed = false;
   for (const [path, r] of missing) {
     if (r === route) {
       missing.delete(path);
+      changed = true;
+    }
+  }
+  // L'écran rechargé part de zéro, sans la mention « Données du … » laissée par l'ancien (qui, lui, la garde
+  // jusqu'à l'échange, figé par useReadOnly).
+  for (const [path, entry] of entries) {
+    if (entry.route === route) {
+      entries.delete(path);
       changed = true;
     }
   }

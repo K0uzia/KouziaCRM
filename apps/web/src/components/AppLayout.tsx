@@ -25,6 +25,7 @@ import { useReadOnly } from "@/lib/offline/read-only";
 import { offlineEnabled } from "@/lib/offline/config";
 import { getQueueSnapshot, itemsLabel, replayQueue, useOfflineQueue } from "@/lib/offline/queue";
 import { isOnline } from "@/lib/network";
+import { apiInflight } from "@/lib/api";
 import { startReconnectRefresh } from "@/lib/reconnect";
 import { toast } from "sonner";
 import { NotificationsProvider } from "@/lib/notifications";
@@ -243,22 +244,44 @@ export function AppLayout() {
   // Copie hors ligne complète puis tenue à jour (origine du hors ligne seulement) : lib/offline/sync.
   useEffect(() => startAutoOfflineCopy(), []);
   // Retour du réseau : file envoyée, écran affiché remonté (ses données relues, défilement gardé), copie mise à jour.
+  // Double tampon : le nouvel écran se monte caché et relit ses données ; il remplace l'ancien d'un coup quand ses
+  // requêtes sont finies (300 ms sans requête, 8 s au plus). Pas de squelette ni de décalage de mise en page (CLS).
   const [pageEpoch, setPageEpoch] = useState(0);
+  const [nextEpoch, setNextEpoch] = useState<number | null>(null);
+  const swapped = useRef<(() => void) | null>(null);
   const mainRef = useRef<HTMLElement>(null);
   useEffect(
     () =>
       startReconnectRefresh({
         replay,
-        remountPage: () => {
-          const top = mainRef.current?.scrollTop ?? 0;
-          forgetMissing(window.location.pathname);
-          setPageEpoch((n) => n + 1);
-          for (const delay of [50, 400, 1200]) window.setTimeout(() => mainRef.current?.scrollTo({ top }), delay);
-        },
+        remountPage: () =>
+          new Promise<void>((resolve) => {
+            forgetMissing(window.location.pathname);
+            swapped.current = resolve;
+            setNextEpoch(Date.now());
+          }),
         copy: () => (offlineEnabled() ? copyNow() : Promise.resolve(null)),
       }),
     [replay],
   );
+  useEffect(() => {
+    if (nextEpoch === null) return;
+    const started = Date.now();
+    let quietSince = 0;
+    const timer = window.setInterval(() => {
+      quietSince = apiInflight() === 0 ? quietSince || Date.now() : 0;
+      if ((quietSince && Date.now() - quietSince >= 300) || Date.now() - started > 8000) {
+        window.clearInterval(timer);
+        const top = mainRef.current?.scrollTop ?? 0;
+        setPageEpoch(nextEpoch);
+        setNextEpoch(null);
+        requestAnimationFrame(() => mainRef.current?.scrollTo({ top }));
+        swapped.current?.();
+        swapped.current = null;
+      }
+    }, 100);
+    return () => window.clearInterval(timer);
+  }, [nextEpoch]);
   const { items: queuedItems } = useOfflineQueue();
   const navigate = useNavigate();
   const [paletteOpen, setPaletteOpen] = useState(false);
@@ -588,9 +611,16 @@ export function AppLayout() {
           >
             {pageMissing ? <OfflinePageMissing /> : null}
             <div hidden={pageMissing} className={pageMissing ? "hidden" : "contents"}>
-              <PageErrorBoundary key={pageEpoch} resetKey={pathname}>
-                <Outlet />
-              </PageErrorBoundary>
+              {[pageEpoch, ...(nextEpoch === null ? [] : [nextEpoch])].map((epoch) => {
+                const shown = epoch === pageEpoch;
+                return (
+                  <div key={epoch} hidden={!shown} inert={!shown} aria-hidden={shown ? undefined : true} className={shown ? "contents" : "hidden"}>
+                    <PageErrorBoundary resetKey={pathname}>
+                      <Outlet />
+                    </PageErrorBoundary>
+                  </div>
+                );
+              })}
             </div>
           </div>
         </main>

@@ -1,5 +1,7 @@
+import { useRef } from "react";
 import { useLocation } from "react-router-dom";
 import { useOnline } from "../network";
+import { useReconnectPhase } from "../reconnect";
 import { offlineEnabled } from "./config";
 import { formatCopyDate, useCopyDate } from "./served";
 
@@ -12,14 +14,26 @@ export const READ_ONLY_HINT = "Modifications et envois disponibles au retour du 
  * - reason : explication liée aux actions désactivées ;
  * - canPrepare : client, devis brouillon ou note préparables malgré tout (mis en file, envoyés au retour du réseau).
  */
-export function useReadOnly(): { readOnly: boolean; copyNotice: string | null; reason: string | null; canPrepare: boolean } {
+type ReadOnlyState = { readOnly: boolean; copyNotice: string | null; reason: string | null; canPrepare: boolean };
+
+export function useReadOnly(): ReadOnlyState {
   const online = useOnline();
   const { pathname } = useLocation();
   const copyDate = useCopyDate(pathname);
+  const refreshing = useReconnectPhase() === "refreshing";
+  const last = useRef<ReadOnlyState | null>(null);
+  let state: ReadOnlyState;
   if (copyDate !== null) {
     const copyNotice = `${formatCopyDate(copyDate)}. ${READ_ONLY_HINT}`;
-    return { readOnly: true, copyNotice, reason: copyNotice, canPrepare: offlineEnabled() };
+    state = { readOnly: true, copyNotice, reason: copyNotice, canPrepare: offlineEnabled() };
+  } else if (!online) {
+    state = { readOnly: true, copyNotice: null, reason: `Hors ligne. ${READ_ONLY_HINT}`, canPrepare: offlineEnabled() };
+  } else {
+    state = { readOnly: false, copyNotice: null, reason: null, canPrepare: true };
   }
-  if (!online) return { readOnly: true, copyNotice: null, reason: `Hors ligne. ${READ_ONLY_HINT}`, canPrepare: offlineEnabled() };
-  return { readOnly: false, copyNotice: null, reason: null, canPrepare: true };
+  // Retour du réseau en cours : l'écran affiché garde son état (mention de date, actions coupées) jusqu'à ce que
+  // l'écran rechargé le remplace d'un coup ; sinon la mention disparaîtrait d'abord et le contenu remonterait (CLS).
+  if (refreshing && last.current) return last.current;
+  last.current = state;
+  return state;
 }

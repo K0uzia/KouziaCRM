@@ -414,10 +414,16 @@ export function DashboardPage() {
           {greeting()}
           {firstName ? ` ${firstName}` : ""}
         </h1>
-        {readOnly ? (
+        {/* Mention visible seulement pour des données de la copie (présente dès l'affichage, sans décalage) ; la
+            simple coupure reste dite aux actions désactivées (texte lié et info-bulle) et par le bandeau réseau. */}
+        {copyNotice ? (
           <p id={readOnlyId} data-offline-notice className="mt-2 max-w-xl text-sm text-[var(--warning)]">
-            {copyNotice ?? reason}
+            {copyNotice}
           </p>
+        ) : readOnly ? (
+          <span id={readOnlyId} className="sr-only">
+            {reason}
+          </span>
         ) : null}
       </div>
       <div className="flex flex-wrap items-center gap-2">

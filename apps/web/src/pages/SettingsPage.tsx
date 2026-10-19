@@ -856,6 +856,8 @@ export function SettingsPage() {
                   SIREN, adresse, contacts. Utilisé sur les PDF et le portail client.
                 </p>
               </div>
+              {/* Hors ligne : sous-sections toutes affichées l'une après l'autre (en lecture), sans onglets désactivés. */}
+              {readOnly ? null : (
               <div role="group" aria-label="Sous-sections" className="-mx-5 flex gap-1 overflow-x-auto border-b border-[var(--border)] px-5 no-scrollbar">
                 {identitySections.map((s) => (
                   <button
@@ -873,8 +875,9 @@ export function SettingsPage() {
                   </button>
                 ))}
               </div>
+              )}
 
-              {identitySection === "legal" ? (
+              {readOnly || identitySection === "legal" ? (
                 <div className="space-y-4">
                   <div className="flex flex-wrap gap-2">
                     <Input
@@ -934,7 +937,7 @@ export function SettingsPage() {
                 </div>
               ) : null}
 
-              {identitySection === "contact" ? (
+              {readOnly || identitySection === "contact" ? (
                 <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                   <Field label="Email de contact" error={fieldError("email")}>
                     <Input
@@ -992,7 +995,7 @@ export function SettingsPage() {
                 </div>
               ) : null}
 
-              {identitySection === "address" ? (
+              {readOnly || identitySection === "address" ? (
                 addressValue ? (
                   <AddressAutocomplete
                     value={addressValue}
@@ -1019,7 +1022,7 @@ export function SettingsPage() {
                     ))
                 : null}
 
-              {identitySection === "extra" ? (
+              {readOnly || identitySection === "extra" ? (
                 <div className="space-y-4">
                   <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
                     <Field label="Décennale : assureur" error={fieldError("decennaleInsurer")}>

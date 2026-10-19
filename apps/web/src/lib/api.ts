@@ -24,7 +24,31 @@ export type ApiInit = RequestInit & {
   responseType?: "json" | "blob";
 };
 
+/** Requêtes en cours : l'écran rechargé au retour du réseau n'est montré qu'une fois ses lectures terminées. */
+let inflight = 0;
+const idleListeners = new Set<() => void>();
+
+export function apiInflight(): number {
+  return inflight;
+}
+
+/** Appelé à chaque fin de requête (rien en cours ou non). */
+export function onApiSettled(listener: () => void): () => void {
+  idleListeners.add(listener);
+  return () => idleListeners.delete(listener);
+}
+
 export async function api<T>(path: string, options?: ApiInit): Promise<T> {
+  inflight++;
+  try {
+    return await request<T>(path, options);
+  } finally {
+    inflight--;
+    for (const l of idleListeners) l();
+  }
+}
+
+async function request<T>(path: string, options?: ApiInit): Promise<T> {
   const { responseType = "json", ...init } = options ?? {};
   const method = (init.method ?? "GET").toUpperCase();
   // Lecture de la liste fermée (lib/offline/rules), sur l'origine autorisée : réseau d'abord, copie ensuite. La clé

@@ -12,7 +12,8 @@ import { onReconnect, serverReachable } from "./network";
 export type ReconnectPhase = "idle" | "refreshing";
 export type ReconnectSteps = {
   replay: () => Promise<unknown>;
-  remountPage: () => void;
+  /** Rend la main une fois le nouvel écran affiché (ses lectures faites). */
+  remountPage: () => void | Promise<void>;
   copy: () => Promise<unknown>;
 };
 
@@ -72,7 +73,7 @@ export async function refreshAfterReconnect(
     if (!ok) return "unreachable";
     await steps.replay();
     if (!(await whenIdle(busy, online))) return "offline";
-    steps.remountPage();
+    await steps.remountPage();
     await steps.copy();
     toast.success("De nouveau en ligne, données à jour", { id: "de-nouveau-en-ligne", duration: 3000 });
     return "done";
