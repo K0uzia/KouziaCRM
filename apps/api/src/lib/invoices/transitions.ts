@@ -337,6 +337,7 @@ async function logQuoteAcceptance(
       signerCompany: opts.signature?.company ?? null,
       verifiedEmailMasked: opts.signature?.emailMasked ?? null,
       codeVerifiedAt: opts.signature?.codeVerifiedAt ?? null,
+      authMethod: opts.signature?.authMethod ?? null,
       originalPdfSha256: opts.originalPdfSha256 ?? null,
       paymentPlan: opts.paymentPlan ?? null,
       cgvAccepted: opts.terms?.cgvAccepted ?? null,

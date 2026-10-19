@@ -124,7 +124,7 @@ describe("signature dans /suivi sans second code", () => {
     expect(res.statusCode).toBe(200);
     expect(res.json().quoteStatus).toBe("ACCEPTED");
     const proof = await prisma.quoteAcceptanceAudit.findFirstOrThrow({ where: { quoteId } });
-    expect(proof).toMatchObject({ source: "PORTAL", signerName: "Lou CLIENTE", verifiedEmailMasked: "l***@exemple.fr" });
+    expect(proof).toMatchObject({ source: "PORTAL", authMethod: "PORTAL_SESSION", signerName: "Lou CLIENTE", verifiedEmailMasked: "l***@exemple.fr" });
     expect(proof.codeVerifiedAt?.toISOString()).toBe(loginAt.toISOString());
     expect(proof.ipAddress).toBeTruthy();
     expect(proof.pdfSha256).toMatch(/^[0-9a-f]{64}$/);
@@ -150,9 +150,15 @@ describe("signature dans /suivi sans second code", () => {
 
   it("code envoyé quand même (ancien site) : vérifié, un mauvais code est refusé même avec une connexion récente", async () => {
     const { quoteId, kz_portal } = await setup();
-    const wrong = await decide(quoteId, kz_portal, { code: "000000" });
+    await prisma.emailOutbox.deleteMany();
+    await app.inject({ method: "POST", url: `/api/public/quotes/${quoteId}/sign-code`, cookies: { kz_portal } });
+    const good = await lastCode();
+    const wrong = await decide(quoteId, kz_portal, { code: good === "000000" ? "111111" : "000000" });
     expect(wrong.statusCode).toBe(401);
     expect((await prisma.invoice.findUniqueOrThrow({ where: { id: quoteId } })).quoteStatus).toBe("SENT");
+    const signed = await decide(quoteId, kz_portal, { code: good });
+    expect(signed.statusCode).toBe(200);
+    expect((await prisma.quoteAcceptanceAudit.findFirstOrThrow({ where: { quoteId } })).authMethod).toBe("SIGN_CODE");
   });
 
   it("devis déjà signé : plus de champ de signature dans le suivi ; sans session : 401", async () => {
