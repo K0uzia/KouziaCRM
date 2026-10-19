@@ -124,6 +124,35 @@ describe("/suivi : payer une facture (ajout du 19/10/2026)", () => {
     expect(docs.find((d) => d.id === small.id)!.paymentMethodHint).toBe("card");
   });
 
+  it("échéance de devis prélevée avant facturation : paymentProcessing et plus de lien (ajout du 20/10/2026)", async () => {
+    const c = await createClient({ displayName: "Lou Martin" });
+    await prisma.client.update({ where: { id: c.id }, data: { emailEncrypted: encrypt(EMAIL), emailHash: computeEmailHash(EMAIL) } });
+    const since = new Date("2026-10-20T09:00:00Z");
+    const quote = await prisma.invoice.create({
+      data: {
+        clientId: c.id,
+        documentType: InvoiceDocumentType.QUOTE,
+        invoiceType: InvoiceType.SIMPLE,
+        status: InvoiceStatus.ISSUED,
+        quoteStatus: "ACCEPTED",
+        number: "D-2026-0099",
+        issueDate: new Date(),
+        subtotalCents: 100_000,
+        totalCents: 100_000,
+        milestones: {
+          create: [
+            { position: 1, label: "Acompte", percentBps: 3000, amountCents: 30_000, triggerText: "À la signature", status: "DUE", checkoutUrl: "https://pay.example.test/acompte", paymentProcessingAt: since, paymentProcessingMethod: "sepa_debit" },
+            { position: 2, label: "Solde", percentBps: 7000, amountCents: 70_000, triggerText: "À la livraison", status: "DUE", checkoutUrl: "https://pay.example.test/solde" },
+          ],
+        },
+      },
+    });
+    const milestones = (await documents()).find((d) => d.id === quote.id)!.milestones as Array<Record<string, unknown>>;
+    expect(milestones[0]).toMatchObject({ checkoutUrl: null, paymentProcessing: { since: since.toISOString(), method: "sepa_debit" } });
+    expect(milestones[1]).toMatchObject({ checkoutUrl: "https://pay.example.test/solde" });
+    expect("paymentProcessing" in milestones[1]!).toBe(false);
+  });
+
   it("sans lien : virement seulement ; payée, annulée ou soldée : ni lien ni virement ; lien non https : ignoré", async () => {
     const c = await createClient({ displayName: "Lou Martin" });
     await prisma.client.update({ where: { id: c.id }, data: { emailEncrypted: encrypt(EMAIL), emailHash: computeEmailHash(EMAIL) } });

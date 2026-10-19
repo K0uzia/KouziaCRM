@@ -26,21 +26,69 @@ function methodOf(pi: Stripe.PaymentIntent): string {
   return pi.payment_method_types.includes("sepa_debit") ? "sepa_debit" : (pi.payment_method_types[0] ?? "sepa_debit");
 }
 
-/** payment_intent.processing : prélèvement lancé, résultat attendu dans quelques jours. */
+/**
+ * payment_intent.processing : prélèvement lancé, résultat attendu dans quelques jours. La facture et l'échéance
+ * de devis (même encore sans facture) sont « en cours » : /suivi retire leur lien de paiement.
+ */
 export async function markInvoiceProcessing(pi: Stripe.PaymentIntent, at = new Date()): Promise<string> {
+  const data = { paymentProcessingAt: at, paymentProcessingMethod: methodOf(pi) };
+  const milestoneId = pi.metadata?.erpMilestoneId;
+  if (milestoneId) {
+    await prisma.paymentMilestone.updateMany({ where: { id: milestoneId, status: { notIn: ["PAID", "CANCELLED"] } }, data });
+  }
   const invoiceId = await invoiceIdOf(pi);
-  if (!invoiceId) return "ignoré (pas de facture ERP : échéance sans facture)";
-  await prisma.invoice.updateMany({
-    where: { id: invoiceId, status: "ISSUED" },
-    data: { paymentProcessingAt: at, paymentProcessingMethod: methodOf(pi) },
-  });
-  return "facture en cours de paiement";
+  if (invoiceId) await prisma.invoice.updateMany({ where: { id: invoiceId, status: "ISSUED" }, data });
+  if (invoiceId) return "facture en cours de paiement";
+  return milestoneId ? "échéance en cours de paiement" : "ignoré (sans document ERP)";
 }
 
-/** Issue connue (réussite ou échec) : la facture n'est plus « en cours ». */
+/** Issue connue (réussite ou échec) : ni la facture ni l'échéance ne sont plus « en cours ». */
 export async function clearInvoiceProcessing(pi: Stripe.PaymentIntent): Promise<void> {
+  const data = { paymentProcessingAt: null, paymentProcessingMethod: null };
+  const milestoneId = pi.metadata?.erpMilestoneId;
+  if (milestoneId) await prisma.paymentMilestone.updateMany({ where: { id: milestoneId }, data });
   const invoiceId = await invoiceIdOf(pi);
-  if (invoiceId) await prisma.invoice.updateMany({ where: { id: invoiceId }, data: { paymentProcessingAt: null, paymentProcessingMethod: null } });
+  if (invoiceId) await prisma.invoice.updateMany({ where: { id: invoiceId }, data });
+}
+
+/**
+ * Prélèvement d'une échéance sans facture refusé après coup (il était « en cours ») : e-mail au client avec le lien
+ * de paiement et le rappel du virement. L'alerte admin part déjà de markMilestoneFailedFromStripe. Un refus de carte
+ * pendant le paiement (jamais « en cours ») n'envoie rien : le client l'a vu à l'écran.
+ */
+export async function notifyMilestonePaymentFailed(pi: Stripe.PaymentIntent, wasProcessing: boolean): Promise<string> {
+  const milestoneId = pi.metadata?.erpMilestoneId;
+  if (!milestoneId) return "ignoré (pas d'échéance)";
+  await clearInvoiceProcessing(pi);
+  if (!wasProcessing) return "échec immédiat (pas d'e-mail client)";
+  const milestone = await prisma.paymentMilestone.findUnique({
+    where: { id: milestoneId },
+    include: { quote: { include: { client: true } } },
+  });
+  if (!milestone || milestone.status === "PAID" || milestone.status === "CANCELLED") return "ignoré (échéance réglée ou annulée)";
+  const to = decryptOptional(milestone.quote.client.emailEncrypted);
+  if (!to) return "échec signalé (client sans e-mail)";
+  const settings = await getCompanySettings();
+  const client = milestone.quote.client;
+  const name = (client.firstName ?? client.displayName)?.trim();
+  const label = `${milestone.label} du devis ${milestone.quote.number ?? ""}`.trim();
+  const lines = [
+    name ? `Bonjour ${name},` : "Bonjour,",
+    "",
+    `Le prélèvement pour ${label} (${formatEUR(milestone.amountCents)}) n'a pas abouti.`,
+    ...(milestone.checkoutUrl ? ["", `Vous pouvez le régler à nouveau en ligne : ${milestone.checkoutUrl}`] : []),
+    ...(settings.bankIban ? ["", `Ou par virement sur l'IBAN ${settings.bankIban}, en indiquant la référence ${milestone.quote.number ?? ""}.`] : []),
+    "",
+    "Une question ? Répondez simplement à cet e-mail.",
+  ];
+  await mailEnqueue({
+    to,
+    subject: `Paiement non abouti : devis ${milestone.quote.number ?? ""}`.trim(),
+    text: lines.join("\n"),
+    clientId: client.id,
+    kind: "payment_failed",
+  });
+  return "échec signalé";
 }
 
 /**

@@ -22,6 +22,8 @@ export type MarketMilestone = {
   status: string;
   dueDate?: string | null;
   checkoutUrl?: string | null;
+  /** Prélèvement SEPA lancé, issue attendue (environ 6 jours ouvrés). */
+  paymentProcessingAt?: string | null;
   paidAt?: string | null;
   paymentMethod?: string | null;
   manualReference?: string | null;
@@ -202,6 +204,11 @@ export function MarketTimeline({
                       </span>
                     </p>
                     <Badge tone={statusTone(m.status)}>{statusLabel(m.status)}</Badge>
+                    {m.paymentProcessingAt && m.status !== "PAID" && m.status !== "CANCELLED" ? (
+                      <Badge tone="blue">
+                        Prélèvement en cours depuis le {new Date(m.paymentProcessingAt).toLocaleDateString("fr-FR")}
+                      </Badge>
+                    ) : null}
                   </div>
                   <p className="mt-0.5 text-xs text-[var(--muted)]">
                     {formatEUR(m.amountCents)}

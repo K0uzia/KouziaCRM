@@ -11,6 +11,7 @@ import {
   clearInvoiceProcessing,
   markInvoiceProcessing,
   notifyInvoicePaymentFailed,
+  notifyMilestonePaymentFailed,
   notifyMandateUpdated,
   recordSubscriptionPaymentMethod,
 } from "@/lib/stripe/payment-processing.js";
@@ -153,6 +154,10 @@ async function handleEvent(event: Stripe.Event): Promise<string> {
     case "payment_intent.payment_failed": {
       const pi = event.data.object as Stripe.PaymentIntent;
       const milestoneId = pi.metadata?.erpMilestoneId;
+      // Lu avant la mise en échec : seul un prélèvement « en cours » refusé après coup prévient le client.
+      const wasProcessing = milestoneId
+        ? Boolean((await prisma.paymentMilestone.findUnique({ where: { id: milestoneId }, select: { paymentProcessingAt: true } }))?.paymentProcessingAt)
+        : false;
       if (milestoneId) {
         await markMilestoneFailedFromStripe({
           milestoneId,
@@ -161,6 +166,7 @@ async function handleEvent(event: Stripe.Event): Promise<string> {
       }
       // Facture (lien de facture, ou échéance déjà facturée) : redevient à régler, admin et client prévenus.
       if (pi.metadata?.erpInvoiceId) return `${event.type}:${await notifyInvoicePaymentFailed(pi)}`;
+      if (milestoneId) return `${event.type}:${await notifyMilestonePaymentFailed(pi, wasProcessing)}`;
       await clearInvoiceProcessing(pi);
       break;
     }

@@ -69,6 +69,36 @@ async function issuedInvoice() {
   });
 }
 
+async function dueMilestone() {
+  const client = await createClient({ displayName: "Lou Martin" });
+  await prisma.client.update({ where: { id: client.id }, data: { firstName: "Lou", emailEncrypted: encrypt(EMAIL), emailHash: computeEmailHash(EMAIL) } });
+  const quote = await prisma.invoice.create({
+    data: {
+      clientId: client.id,
+      documentType: InvoiceDocumentType.QUOTE,
+      invoiceType: InvoiceType.SIMPLE,
+      status: InvoiceStatus.ISSUED,
+      quoteStatus: "ACCEPTED",
+      number: "D-2026-0101",
+      issueDate: new Date(),
+      subtotalCents: 100_000,
+      totalCents: 100_000,
+    },
+  });
+  return prisma.paymentMilestone.create({
+    data: {
+      quoteId: quote.id,
+      position: 1,
+      label: "Acompte",
+      percentBps: 3000,
+      amountCents: 30_000,
+      triggerText: "À la signature",
+      status: "DUE",
+      checkoutUrl: "https://api.kouzia.test/api/public/pay/acompte",
+    },
+  });
+}
+
 let n = 0;
 const event = (type: string, object: unknown) => ({ id: `evt_sepa_${++n}`, type, livemode: false, data: { object } }) as unknown as Stripe.Event;
 const intent = (invoiceId: string, extra: Record<string, unknown> = {}) => ({
@@ -115,6 +145,40 @@ describe("prélèvement SEPA : en cours, échec, mandat, moyen d'un abonnement",
     expect(client.subject).toBe("Paiement non abouti : F-2026-0101");
     expect(client.text).toContain("https://api.kouzia.test/api/public/pay/jeton");
     expect(client.text).toContain("FR7630006000011234567890189");
+  });
+
+  it("échéance de devis sans facture : « en cours » pendant le prélèvement, puis refus : échec, admin et client prévenus", async () => {
+    const ms = await dueMilestone();
+    const pi = (extra: Record<string, unknown> = {}) => ({ ...intent("", extra), amount: 30_000, metadata: { erpMilestoneId: ms.id } });
+    await processStripeEvent(event("payment_intent.processing", pi()));
+    expect(await prisma.paymentMilestone.findUniqueOrThrow({ where: { id: ms.id } })).toMatchObject({ paymentProcessingMethod: "sepa_debit" });
+    expect((await prisma.paymentMilestone.findUniqueOrThrow({ where: { id: ms.id } })).paymentProcessingAt).not.toBeNull();
+
+    await processStripeEvent(event("payment_intent.payment_failed", pi({ last_payment_error: { message: "Fonds insuffisants" } })));
+    expect(await prisma.paymentMilestone.findUniqueOrThrow({ where: { id: ms.id } })).toMatchObject({
+      status: "FAILED",
+      paymentProcessingAt: null,
+      paymentProcessingMethod: null,
+    });
+    const mails = await outbox();
+    expect(mails.some((m) => m.to === ADMIN)).toBe(true);
+    const client = mails.find((m) => m.to === EMAIL)!;
+    expect(client.subject).toBe("Paiement non abouti : devis D-2026-0101");
+    expect(client.text).toContain("https://api.kouzia.test/api/public/pay/acompte");
+    expect(client.text).toContain("FR7630006000011234567890189");
+  });
+
+  it("échéance : carte refusée pendant le paiement (jamais en cours) : pas d'e-mail au client ; réussite : en cours effacé", async () => {
+    const ms = await dueMilestone();
+    const pi = (extra: Record<string, unknown> = {}) => ({ ...intent("", extra), amount: 30_000, metadata: { erpMilestoneId: ms.id } });
+    await processStripeEvent(event("payment_intent.payment_failed", pi({ last_payment_error: { message: "Carte refusée" } })));
+    expect((await outbox()).some((m) => m.to === EMAIL)).toBe(false);
+
+    await processStripeEvent(event("payment_intent.processing", pi()));
+    await processStripeEvent(event("payment_intent.succeeded", pi({ id: "pi_acompte_ok", amount_received: 30_000 })));
+    const after = await prisma.paymentMilestone.findUniqueOrThrow({ where: { id: ms.id } });
+    expect(after.status).toBe("PAID");
+    expect(after.paymentProcessingAt).toBeNull();
   });
 
   it("mandate.updated inactif : alerte admin ; actif : rien", async () => {
