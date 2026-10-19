@@ -1,0 +1,134 @@
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { outboxPayloadRaw } from "@/lib/privacy/at-rest.js";
+import type { FastifyInstance } from "fastify";
+import { InvoiceDocumentType, InvoiceStatus, InvoiceType } from "@prisma/client";
+import { prisma } from "@/lib/prisma.js";
+import { encrypt } from "@/lib/crypto.js";
+import { computeEmailHash } from "@/lib/clients/email-hash.js";
+import { invalidateCompanySettingsCache } from "@/lib/company.js";
+import { parsePayload } from "@/lib/email/mailer/outbox.js";
+import { buildPayUrl } from "@/lib/stripe/pay-urls.js";
+import { resetDb } from "../helpers/db.js";
+import { createClient, seedCompanySettings } from "../helpers/factories.js";
+
+vi.mock("@/lib/email/smtp.js", async (orig) => ({
+  ...(await orig<typeof import("@/lib/email/smtp.js")>()),
+  isSmtpConfigured: async () => true,
+}));
+vi.mock("@/lib/email/mailer/index.js", async (orig) => ({
+  ...(await orig<typeof import("@/lib/email/mailer/index.js")>()),
+  sendOutboxImmediately: async () => true,
+}));
+
+const { buildApp } = await import("@/app.js");
+
+const EMAIL = "lou@exemple.fr";
+let app: FastifyInstance;
+
+beforeAll(async () => {
+  app = await buildApp({ silent: true, serveStatic: false });
+});
+afterAll(async () => {
+  await app.close();
+});
+beforeEach(async () => {
+  await resetDb();
+  await seedCompanySettings();
+  await prisma.companySettings.updateMany({
+    data: { bankIban: "FR7630006000011234567890189", bankBic: "AGRIFRPP", bankAccountHolder: "Kouzia EI" },
+  });
+  invalidateCompanySettingsCache();
+});
+afterEach(async () => {
+  await resetDb();
+});
+
+async function login() {
+  await prisma.emailOutbox.deleteMany();
+  await app.inject({ method: "POST", url: "/api/public/auth/code", payload: { email: EMAIL } });
+  let code: string | undefined;
+  for (let i = 0; i < 50 && !code; i++) {
+    const rows = await prisma.emailOutbox.findMany();
+    code = rows.map((r) => parsePayload(outboxPayloadRaw(r)).subject.match(/^(\d{6}) /)?.[1]).find(Boolean);
+    if (!code) await new Promise((ok) => setTimeout(ok, 20));
+  }
+  const verify = await app.inject({ method: "POST", url: "/api/public/auth/verify", payload: { email: EMAIL, code } });
+  return verify.cookies.find((c) => c.name === "kz_portal")!.value;
+}
+
+let seq = 0;
+async function invoice(clientId: string, data: { status?: InvoiceStatus; checkoutUrl?: string | null; paidCents?: number } = {}) {
+  seq++;
+  const inv = await prisma.invoice.create({
+    data: {
+      clientId,
+      documentType: InvoiceDocumentType.INVOICE,
+      invoiceType: InvoiceType.SIMPLE,
+      status: data.status ?? InvoiceStatus.ISSUED,
+      number: `F-2026-00${seq}`,
+      issueDate: new Date(),
+      subtotalCents: 50_000,
+      totalCents: 50_000,
+      checkoutUrl: data.checkoutUrl ?? null,
+      lines: { create: [{ position: 1, description: "Site", quantity: 1, unitPriceCents: 50_000, lineTotalCents: 50_000 }] },
+    },
+  });
+  if (data.paidCents) await prisma.payment.create({ data: { invoiceId: inv.id, amountCents: data.paidCents, paidAt: new Date() } });
+  return inv;
+}
+
+async function documents() {
+  const kz_portal = await login();
+  return ((await app.inject({ method: "GET", url: "/api/public/tracking", cookies: { kz_portal } })).json().documents) as Array<Record<string, unknown>>;
+}
+
+describe("/suivi : payer une facture (ajout du 19/10/2026)", () => {
+  it("facture émise avec lien : checkoutUrl, milestoneId, virement en secours ; lien de l'ERP : moyen « card »", async () => {
+    const c = await createClient({ displayName: "Lou Martin" });
+    await prisma.client.update({ where: { id: c.id }, data: { emailEncrypted: encrypt(EMAIL), emailHash: computeEmailHash(EMAIL) } });
+    const pasted = await invoice(c.id, { checkoutUrl: "https://pay.example.test/lien-colle" });
+    const erp = await invoice(c.id);
+    await prisma.invoice.update({ where: { id: erp.id }, data: { checkoutUrl: buildPayUrl("invoice", erp.id) } });
+
+    const docs = await documents();
+    const a = docs.find((d) => d.id === pasted.id)!;
+    expect(a).toMatchObject({
+      checkoutUrl: "https://pay.example.test/lien-colle",
+      milestoneId: null,
+      bankTransfer: { reference: pasted.number, iban: "FR76 3000 6000 0112 3456 7890 189", bic: "AGRIFRPP", accountHolder: "Kouzia EI" },
+    });
+    expect("paymentMethodHint" in a).toBe(false);
+    const b = docs.find((d) => d.id === erp.id)!;
+    expect(b.checkoutUrl).toBe(buildPayUrl("invoice", erp.id));
+    expect(b.paymentMethodHint).toBe("card");
+  });
+
+  it("sans lien : virement seulement ; payée, annulée ou soldée : ni lien ni virement ; lien non https : ignoré", async () => {
+    const c = await createClient({ displayName: "Lou Martin" });
+    await prisma.client.update({ where: { id: c.id }, data: { emailEncrypted: encrypt(EMAIL), emailHash: computeEmailHash(EMAIL) } });
+    const plain = await invoice(c.id);
+    const paid = await invoice(c.id, { status: InvoiceStatus.PAID, checkoutUrl: "https://pay.example.test/x" });
+    const settled = await invoice(c.id, { checkoutUrl: "https://pay.example.test/y", paidCents: 50_000 });
+    const unsafe = await invoice(c.id, { checkoutUrl: "javascript:alert(1)" });
+
+    const docs = await documents();
+    const byId = (id: string) => docs.find((d) => d.id === id)!;
+    expect(byId(plain.id).checkoutUrl).toBeUndefined();
+    expect(byId(plain.id).bankTransfer).toMatchObject({ reference: plain.number });
+    for (const d of [byId(paid.id), byId(settled.id)]) {
+      expect(d.checkoutUrl).toBeUndefined();
+      expect(d.bankTransfer).toBeUndefined();
+    }
+    expect(byId(unsafe.id).checkoutUrl).toBeUndefined();
+    expect(byId(unsafe.id).bankTransfer).toBeDefined();
+  });
+
+  it("IBAN absent des réglages : pas de bloc virement", async () => {
+    await prisma.companySettings.updateMany({ data: { bankIban: null } });
+    invalidateCompanySettingsCache();
+    const c = await createClient({ displayName: "Lou Martin" });
+    await prisma.client.update({ where: { id: c.id }, data: { emailEncrypted: encrypt(EMAIL), emailHash: computeEmailHash(EMAIL) } });
+    const inv = await invoice(c.id);
+    expect((await documents()).find((d) => d.id === inv.id)!.bankTransfer).toBeUndefined();
+  });
+});
