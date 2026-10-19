@@ -229,6 +229,7 @@ export async function runOfflineCopy(opts: { full: boolean; visible: boolean; tr
         await read(`/api/clients/${c.id}/projects`, signal);
         await read(`/api/clients/${c.id}/renewals`, signal);
         await read(`/api/clients/${c.id}/emails`, signal);
+        await read(`/api/clients/${c.id}/contacts`, signal);
         await read(`/api/invoices?type=INVOICE&clientId=${c.id}`, signal);
         await read(`/api/invoices?clientId=${c.id}`, signal);
         await read(`/api/invoices?type=QUOTE&clientId=${c.id}`, signal);
