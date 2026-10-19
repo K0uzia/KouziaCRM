@@ -578,8 +578,13 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
                       ? { awaitingStepLabel: awaitedStep }
                       : {}),
                     dueDate: m.dueDate,
+                    // Prélèvement en cours (ajout du 20/10/2026) : pas de lien, pour éviter un second paiement.
+                    ...(m.paymentProcessingAt && m.status !== "PAID" && m.status !== "CANCELLED"
+                      ? { paymentProcessing: { since: m.paymentProcessingAt.toISOString(), method: m.paymentProcessingMethod ?? "sepa_debit" } }
+                      : {}),
                     checkoutUrl:
                       m.checkoutUrl &&
+                      !m.paymentProcessingAt &&
                       m.status !== "PAID" &&
                       m.status !== "CANCELLED" &&
                       (m.status === "DUE" ||

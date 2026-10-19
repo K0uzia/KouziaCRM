@@ -1198,6 +1198,9 @@ model PaymentMilestone {
   triggerStepLabel String?
   triggeredAt      DateTime?
   checkoutUrl      String?
+  /// Prélèvement lancé (SEPA, environ 6 jours ouvrés) : plus de lien de paiement jusqu'à l'issue.
+  paymentProcessingAt     DateTime?
+  paymentProcessingMethod String?
   paidAt           DateTime?
   paymentMethod    PaymentMethod?
   manualReference  String?

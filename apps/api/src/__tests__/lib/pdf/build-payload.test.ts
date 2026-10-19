@@ -118,6 +118,8 @@ describe("buildInvoicePdfPayload charte dynamique", () => {
             triggerStepLabel: null,
             triggeredAt: null,
             checkoutUrl: null,
+            paymentProcessingAt: null,
+            paymentProcessingMethod: null,
             paidAt,
             paymentMethod: PaymentMethod.CARD,
             manualReference: null,

@@ -239,6 +239,7 @@ export async function getMarketView(quoteId: string) {
       status: m.status,
       dueDate: m.dueDate,
       checkoutUrl: m.checkoutUrl,
+      paymentProcessingAt: m.paymentProcessingAt,
       revolutOrderId: m.revolutOrderId,
       paidAt: m.paidAt,
       paymentMethod: m.paymentMethod,
