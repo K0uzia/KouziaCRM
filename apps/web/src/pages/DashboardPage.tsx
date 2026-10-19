@@ -390,7 +390,7 @@ export function DashboardPage() {
       if (res.emailed) toast.success("Relance envoyée");
       else if (res.mailto) {
         window.location.href = res.mailto;
-        toast.message("Client mail ouvert");
+        toast.info("Client mail ouvert");
       } else toast.success("Relance enregistrée");
       reload();
     } catch (e) {
