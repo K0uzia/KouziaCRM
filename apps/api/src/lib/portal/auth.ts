@@ -137,12 +137,29 @@ export async function openPortalSession(opts: {
 }
 
 /** Client de la session portail de la requête, ou null (absente, expirée, révoquée). */
+/**
+ * Signature sans second code (décision du 19/10/2026) : la connexion à /suivi par code e-mail date de moins de
+ * 30 minutes. Contrôlé ici, côté serveur, depuis la date d'ouverture de la session en base.
+ */
+export const SIGN_SESSION_FRESH_MS = 30 * 60_000;
+
+/** Fin de la fenêtre de signature sans code ; null si elle est passée. */
+export function signSessionFreshUntil(authenticatedAt: Date, now = new Date()): Date | null {
+  const until = new Date(authenticatedAt.getTime() + SIGN_SESSION_FRESH_MS);
+  return until.getTime() > now.getTime() ? until : null;
+}
+
 export async function resolvePortalClient(request: FastifyRequest): Promise<Client | null> {
   return (await resolvePortalSession(request))?.client ?? null;
 }
 
-/** Session du portail et son client (l'identifiant de session sert de preuve, ex. accord d'un témoignage). */
-export async function resolvePortalSession(request: FastifyRequest): Promise<{ client: Client; sessionId: string } | null> {
+/**
+ * Session du portail et son client (l'identifiant de session sert de preuve, ex. accord d'un témoignage).
+ * authenticatedAt : ouverture de la session, c'est-à-dire la vérification du code de connexion.
+ */
+export async function resolvePortalSession(
+  request: FastifyRequest,
+): Promise<{ client: Client; sessionId: string; authenticatedAt: Date } | null> {
   const token = request.cookies[PORTAL_COOKIE];
   if (!token) return null;
   const session = await prisma.portalSession.findUnique({
@@ -151,7 +168,7 @@ export async function resolvePortalSession(request: FastifyRequest): Promise<{ c
   });
   if (!session || session.revokedAt || session.expiresAt.getTime() < Date.now()) return null;
   await prisma.portalSession.update({ where: { id: session.id }, data: { lastSeenAt: new Date() } });
-  return { client: session.client, sessionId: session.id };
+  return { client: session.client, sessionId: session.id, authenticatedAt: session.createdAt };
 }
 
 export async function closePortalSession(request: FastifyRequest): Promise<void> {

@@ -39,7 +39,9 @@ import {
   maskEmail,
   openPortalSession,
   resolvePortalClient,
+  resolvePortalSession,
   setPortalCookies,
+  signSessionFreshUntil,
   type CodeCheck,
 } from "@/lib/portal/auth.js";
 import {
@@ -158,7 +160,8 @@ const quoteDecisionSchema = z.discriminatedUnion("decision", [
     lastName: nameSchema,
     signatureMode: z.enum(["TYPED", "DRAWN"]),
     signatureImage: signatureImageSchema.optional(),
-    code: codeSchema,
+    /** Facultatif si la connexion à /suivi date de moins de 30 minutes ; envoyé quand même, il est vérifié. */
+    code: codeSchema.optional(),
     /** Formule de paiement : obligatoire quand le devis propose le choix. */
     paymentPlan: z.enum(["TWO", "THREE"]).optional(),
     /** CGV publiées : case cochée (true) et version lue, égale à la version en vigueur. */
@@ -184,6 +187,8 @@ function flaggedStepLabel(steps: string | null | undefined): string | null {
 }
 
 const SESSION_EXPIRED = { error: "Session expirée : reconnectez-vous." };
+/** Signature sans code refusée : connexion à /suivi de plus de 30 minutes. Rien n'est enregistré, le site demande le code. */
+const SIGN_CODE_REQUIRED = { code: "sign_code_required", error: "Pour signer, confirmez avec un code envoyé par e-mail." };
 const CODE_ERRORS: Record<Exclude<CodeCheck, "ok">, string> = {
   invalid: "Code incorrect ou expiré.",
   locked: "Trop d'essais : demandez un nouveau code.",
@@ -315,8 +320,11 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
     "/api/public/tracking",
     { config: { rateLimit: { max: 120, timeWindow: "15 minutes" } } },
     async (request, reply) => {
-      const client = await resolvePortalClient(request);
-      if (!client) return reply.code(401).send(SESSION_EXPIRED);
+      const session = await resolvePortalSession(request);
+      if (!session) return reply.code(401).send(SESSION_EXPIRED);
+      const client = session.client;
+      // Devis à signer : sans second code tant que la connexion par code date de moins de 30 minutes.
+      const freshUntil = signSessionFreshUntil(session.authenticatedAt);
 
       const settings = await getCompanySettings();
       const showAmounts = settings.publicTrackingShowAmounts;
@@ -489,6 +497,9 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
             projectId: projectOfDocument(projectByQuote, d),
             linkedDocuments: linkSets[index],
             quoteStatus: d.quoteStatus,
+            ...(d.documentType === InvoiceDocumentType.QUOTE && quotePending
+              ? { signCodeRequired: freshUntil === null, sessionFreshUntil: freshUntil?.toISOString() ?? null }
+              : {}),
             quoteDecidedAt: d.quoteDecidedAt,
             quoteSignerName: d.quoteSignerName,
             quoteRejectReason: d.quoteRejectReason,
@@ -744,8 +755,9 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
       if (!parsed.success) {
         return reply.code(400).send({ error: "Données invalides" });
       }
-      const client = await resolvePortalClient(request);
-      if (!client) return reply.code(401).send(SESSION_EXPIRED);
+      const session = await resolvePortalSession(request);
+      if (!session) return reply.code(401).send(SESSION_EXPIRED);
+      const client = session.client;
 
       const quote = await prisma.invoice.findUnique({
         where: { id: request.params.id },
@@ -783,8 +795,16 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
         if (data.expressExecution && client.type !== "B2C") {
           return reply.code(400).send({ error: "Demande réservée aux particuliers.", code: "EXPRESS_EXECUTION_CONSUMER_ONLY" });
         }
-        const check = await checkPortalCode(client.id, "SIGN", data.code, quote.id);
-        if (check !== "ok") return reply.code(401).send({ error: CODE_ERRORS[check] });
+        // Code envoyé (ancien site, ou connexion trop ancienne) : vérifié comme avant. Sans code : connexion récente exigée.
+        let auth: { method: "SIGN_CODE" | "PORTAL_SESSION"; verifiedAt: Date };
+        if (data.code) {
+          const check = await checkPortalCode(client.id, "SIGN", data.code, quote.id);
+          if (check !== "ok") return reply.code(401).send({ error: CODE_ERRORS[check] });
+          auth = { method: "SIGN_CODE", verifiedAt: new Date() };
+        } else {
+          if (!signSessionFreshUntil(session.authenticatedAt)) return reply.code(403).send(SIGN_CODE_REQUIRED);
+          auth = { method: "PORTAL_SESSION", verifiedAt: session.authenticatedAt };
+        }
 
         const email = decryptOptional(client.emailEncrypted);
         const updated = await acceptQuoteByClient(
@@ -801,7 +821,8 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
               company:
                 isOrganization(client.type) ? (client.companyName ?? client.displayName) : null,
               emailMasked: email ? maskEmail(email) : null,
-              codeVerifiedAt: new Date(),
+              authMethod: auth.method,
+              codeVerifiedAt: auth.verifiedAt,
             },
             paymentPlan: data.paymentPlan,
             cgvAccepted: settings.cgvPublished && data.acceptCgv === true,
