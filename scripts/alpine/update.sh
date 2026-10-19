@@ -330,6 +330,17 @@ fi
 log "prisma migrate deploy…"
 prisma_migrate_deploy "$KOUZIA_APP_DIR" || fail_update "Les migrations de la base ont échoué."
 
+# Reprise des anciennes données : comptes à blanc d'abord, puis exécution réelle seulement si cette mise à jour a
+# sa sauvegarde (retour arrière possible). Idempotente : rien à reprendre, comptes à zéro.
+log "Reprise des données…"
+run_reprise --dry-run || fail_update "Comptes à blanc de la reprise impossibles."
+if [[ -n "$(ops_state_get pre-update-backup)" ]]; then
+  run_reprise || fail_update "La reprise des données a échoué."
+else
+  warn "Aucune sauvegarde pour cette mise à jour : reprise réelle non lancée."
+  warn "Après une sauvegarde : kouziactl backup, puis kouziactl reprise."
+fi
+
 if [[ "$NEED_WEB" -eq 1 ]]; then
   build_spa "$KOUZIA_APP_DIR" || fail_update "Le build SPA a échoué."
 else

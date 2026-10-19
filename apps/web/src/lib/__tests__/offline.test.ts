@@ -128,11 +128,12 @@ describe("chiffrement de la copie (AES-GCM 256)", () => {
 });
 
 describe("liste fermée des lectures copiées", () => {
-  it("copiées : clients, fiche client (notes de rendez-vous, projets), prestations, devis, factures, réglages des devis", () => {
+  it("copiées : clients, fiche client (bloc-notes, notes de rendez-vous, projets), prestations, devis, factures, réglages des devis", () => {
     for (const path of [
       "/api/clients",
       "/api/clients?hasCorrespondence=true",
       "/api/clients/cmabc123",
+      "/api/clients/cmabc123/notepad",
       "/api/clients/cmabc123/notes",
       "/api/clients/cmabc123/projects",
       "/api/services",
@@ -151,7 +152,19 @@ describe("liste fermée des lectures copiées", () => {
     ]) {
       expect(offlineRule(path), path).not.toBeNull();
     }
-    expect(OFFLINE_RULES).toHaveLength(9);
+    expect(OFFLINE_RULES).toHaveLength(10);
+  });
+
+  it("bloc-notes : texte, version et dates seulement", () => {
+    const rule = offlineRule("/api/clients/cmabc123/notepad")!;
+    expect(rule.name).toBe("bloc-notes");
+    expect(rule.sanitize({ text: "Rappeler", version: 3, updatedAt: "2026-10-19T08:00:00.000Z", conflictAt: null, conflict: true, clientId: "cmabc123", secret: "x" })).toEqual({
+      text: "Rappeler",
+      version: 3,
+      updatedAt: "2026-10-19T08:00:00.000Z",
+      conflictAt: null,
+    });
+    expect(offlineRule("/api/clients/cmabc123/notepad?x=1")).toBeNull();
   });
 
   it("synthèse des listes : des nombres seulement, rien d'autre ne passe", () => {

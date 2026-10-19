@@ -119,7 +119,7 @@ async function pool<T>(items: T[], signal: AbortSignal, work: (item: T) => Promi
   await Promise.all(Array.from({ length: Math.min(CONCURRENCY, items.length) }, runner));
 }
 
-type Listed = { id: string; updatedAt?: string | null; clientId?: string | null };
+type Listed = { id: string; updatedAt?: string | null; clientId?: string | null; notepadUpdatedAt?: string | null };
 
 /** Copie de ce chemin à jour par rapport à la date de modification donnée par la liste ? */
 async function upToDate(path: string, updatedAt: string | null | undefined): Promise<boolean> {
@@ -149,7 +149,8 @@ export async function runOfflineCopy(opts: { full: boolean; visible: boolean }):
   const { signal } = controller;
   set({ running: true, visible: opts.visible, mode: opts.full ? "full" : "incremental", phase: "Clients", done: 0, total: 0, error: null });
   try {
-    // Clients : liste, puis fiche, notes, projets et pièces de chaque client à copier.
+    // Clients : liste, puis fiche, bloc-notes, projets et pièces de chaque client à copier. Le bloc-notes a sa propre
+    // date : l'enregistrer ne change pas celle de la fiche.
     const clients = ((await read("/api/clients", signal)) as Listed[] | null) ?? [];
     const changedClients = new Set<string>();
     set({ phase: "Clients", done: 0, total: clients.length });
@@ -158,10 +159,12 @@ export async function runOfflineCopy(opts: { full: boolean; visible: boolean }):
       if (opts.full || !(await upToDate(`/api/clients/${c.id}`, c.updatedAt))) {
         changedClients.add(c.id);
         await read(`/api/clients/${c.id}`, signal);
-        await read(`/api/clients/${c.id}/notes`, signal);
         await read(`/api/clients/${c.id}/projects`, signal);
         await read(`/api/invoices?clientId=${c.id}`, signal);
         await read(`/api/invoices?type=QUOTE&clientId=${c.id}`, signal);
+      }
+      if (opts.full || !(await upToDate(`/api/clients/${c.id}/notepad`, c.notepadUpdatedAt))) {
+        await read(`/api/clients/${c.id}/notepad`, signal);
       }
       set({ done: ++done });
     });

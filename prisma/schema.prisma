@@ -691,7 +691,15 @@ model Client {
   addressCityCode       String?
   addressLat            Float?
   addressLon            Float?
+  /// Ancien champ « Notes internes », en clair : lecture seule, repris en tête du bloc-notes (reprise bloc-notes)
   notes                 String?
+  /// Bloc-notes unique de la fiche, chiffré au repos ; null = jamais écrit
+  notepadEncrypted      String?
+  /// Version du bloc-notes : +1 à chaque enregistrement ; 0 = jamais écrit ni repris
+  notepadVersion        Int                    @default(0)
+  notepadUpdatedAt      DateTime?
+  /// Enregistrement concurrent (autre appareil) : les deux textes gardés, bandeau « à relire » jusqu'au suivant
+  notepadConflictAt     DateTime?
   /// JSON [{ id, label, done }] : besoins notés en rendez-vous (ordre du tableau = ordre affiché)
   needs                 String                 @default("[]")
   /// Date à laquelle le client a complété son onboarding (via invitation)
@@ -810,6 +818,7 @@ model ClientNote {
   id              String   @id @default(cuid())
   clientId        String
   client          Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  /// Ancienne note de rendez-vous : reprise dans le bloc-notes ; celle envoyée par un ancien appareil y est ajoutée
   /// Texte de la note, chiffré au repos comme les autres données personnelles
   bodyEncrypted   String
   /// UUID de l'appareil : un renvoi rend la même note (idempotence)

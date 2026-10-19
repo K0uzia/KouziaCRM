@@ -3,7 +3,7 @@ import { ClientType } from "@prisma/client";
 import { CLIENT_TYPES, isOrganization } from "@/lib/clients/client-type.js";
 import { isValidSiren, isValidSiret } from "@kouzia/forms";
 import { prisma } from "@/lib/prisma.js";
-import { decryptOptional, encryptOptional } from "@/lib/crypto.js";
+import { decryptOptional, encrypt, encryptOptional } from "@/lib/crypto.js";
 import { allocateClientNumber } from "@/lib/clients/numbering.js";
 import { computeEmailHash } from "@/lib/clients/email-hash.js";
 import { needsInputSchema, normalizeNeeds, parseNeeds } from "@/lib/clients/needs.js";
@@ -100,6 +100,7 @@ export function serializeClient(client: {
   addressLat: number | null;
   addressLon: number | null;
   notes: string | null;
+  notepadUpdatedAt?: Date | null;
   billingDay: number | null;
   needs?: string;
   onboardingCompletedAt: Date | null;
@@ -131,6 +132,8 @@ export function serializeClient(client: {
     addressLat: client.addressLat,
     addressLon: client.addressLon,
     notes: client.notes,
+    /** Dernier enregistrement du bloc-notes : la copie hors ligne le compare, la date de la fiche n'en dépend pas. */
+    notepadUpdatedAt: client.notepadUpdatedAt ?? null,
     billingDay: client.billingDay ?? null,
     needs: parseNeeds(client.needs),
     emailVerifiedAt: client.emailVerifiedAt ?? null,
@@ -228,7 +231,6 @@ async function toPrismaClientFields(data: ClientInput, address: NormalizedAddres
     addressCityCode: addr.address.addressCityCode,
     addressLat: addr.address.addressLat,
     addressLon: addr.address.addressLon,
-    notes: data.notes?.trim() || null,
     ...(data.billingDay !== undefined ? { billingDay: data.billingDay } : {}),
     // Absent (édition de la fiche sans la liste) : besoins inchangés.
     ...(data.needs ? { needs: JSON.stringify(normalizeNeeds(data.needs)) } : {}),
@@ -248,11 +250,16 @@ export class AddressValidationError extends Error {
  */
 export async function createClientRecord(data: ClientInput, clientRequestId: string | null = null) {
   const prepared = await toPrismaClientData(data);
+  // Ancien champ « Notes internes » (client préparé hors ligne par un appareil pas encore mis à jour) : il ouvre le
+  // bloc-notes. En modification, il est ignoré : le bloc-notes s'écrit par sa propre route.
+  const notes = data.notes?.trim();
+  const notepad = notes ? { notepadEncrypted: encrypt(notes), notepadVersion: 1, notepadUpdatedAt: new Date() } : {};
   // Numéro et fiche dans la même transaction : un doublon refusé (P2002) ne consomme pas de numéro.
   const client = await prisma.$transaction(async (tx) =>
     tx.client.create({
       data: {
         ...prepared,
+        ...notepad,
         clientNumber: await allocateClientNumber(tx),
         ...(clientRequestId ? { clientRequestId } : {}),
       },

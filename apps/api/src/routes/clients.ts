@@ -16,6 +16,8 @@ import { sendPortalWelcomeEmail } from "@/lib/clients/access-email.js";
 import { needsInputSchema, normalizeNeeds } from "@/lib/clients/needs.js";
 import { computeEmailHash } from "@/lib/clients/email-hash.js";
 import { createClientNote, listClientNotes, noteInputSchema, serializeNote } from "@/lib/clients/notes.js";
+import { appendToNotepad, notepadInputSchema, readNotepad, saveNotepad, serializeNotepad } from "@/lib/clients/notepad.js";
+import { formatDateTimeShortFr } from "@/lib/format-fr.js";
 
 const createOptionsSchema = z.object({
   /** Case du formulaire (cochée par défaut côté interface) : envoie l'accès si une adresse existe. */
@@ -162,7 +164,27 @@ export const clientsRoutes: FastifyPluginAsync = async (app) => {
     return serializeClient(client);
   });
 
-  // Notes de rendez-vous : journal de la fiche, en lecture et en ajout (idempotent par clientRequestId).
+  // Bloc-notes unique de la fiche (chiffré, versionné).
+  app.get<{ Params: { id: string } }>("/api/clients/:id/notepad", async (request, reply) => {
+    await requireAuth(request, reply);
+    if (reply.sent) return;
+    const notepad = await readNotepad(request.params.id);
+    if (!notepad) return reply.code(404).send({ error: "Introuvable" });
+    return serializeNotepad(notepad);
+  });
+
+  app.put<{ Params: { id: string } }>("/api/clients/:id/notepad", async (request, reply) => {
+    await requireAuth(request, reply);
+    if (reply.sent) return;
+    const parsed = notepadInputSchema.safeParse(request.body);
+    if (!parsed.success) return reply.code(400).send({ error: parsed.error.flatten() });
+    const saved = await saveNotepad(request.params.id, parsed.data);
+    if (!saved) return reply.code(404).send({ error: "Client introuvable", code: "client_not_found" });
+    return { ...serializeNotepad(saved.notepad), conflict: saved.conflict };
+  });
+
+  // Anciennes notes de rendez-vous : lecture, et ajout encore accepté d'un appareil pas mis à jour (la note est
+  // aussi ajoutée en fin de bloc-notes, une seule fois par clientRequestId).
   app.get<{ Params: { id: string } }>("/api/clients/:id/notes", async (request, reply) => {
     await requireAuth(request, reply);
     if (reply.sent) return;
@@ -179,6 +201,7 @@ export const clientsRoutes: FastifyPluginAsync = async (app) => {
     const client = await prisma.client.findUnique({ where: { id: request.params.id }, select: { id: true } });
     if (!client) return reply.code(404).send({ error: "Client introuvable", code: "client_not_found" });
     const { note, replayed } = await createClientNote(client.id, parsed.data);
+    if (!replayed) await appendToNotepad(client.id, `${formatDateTimeShortFr(note.preparedAt)} : ${note.body}`);
     return reply.code(replayed ? 200 : 201).send({ ...note, replayed });
   });
 
@@ -451,6 +474,7 @@ export const clientsRoutes: FastifyPluginAsync = async (app) => {
           interval: r.interval,
           notifyClient: r.notifyClient,
         })),
+        notepad: (await readNotepad(client.id))?.text ?? "",
         appointmentNotes: client.appointmentNotes.map((n) => {
           const note = serializeNote(n);
           return { preparedAt: note.preparedAt.toISOString(), body: note.body };

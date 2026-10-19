@@ -23,7 +23,7 @@ import { StatStrip } from "@/components/ui/StatStrip";
 import { DataTable, type DataColumn } from "@/components/ui/DataTable";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 
-const KIND_LABEL: Record<QueueItem["kind"], string> = { client: "Client", quote: "Devis brouillon", note: "Note de rendez-vous" };
+const KIND_LABEL: Record<QueueItem["kind"], string> = { client: "Client", quote: "Devis brouillon", note: "Note de rendez-vous", notepad: "Bloc-notes" };
 
 const dateTime = (iso: string) =>
   new Date(iso).toLocaleString("fr-FR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }).replace(":", " h ");

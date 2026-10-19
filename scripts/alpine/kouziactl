@@ -105,12 +105,14 @@ Config (rejouable) :
   access | admin | site | mail | cloudflare | google | tailscale | rsync
 
 Services / data :
-  start | stop | restart | logs [app|worker|backup|tailscale]
+  start | stop | restart | logs [app|worker|backup|reprise|tailscale]
   selftest-respawn [worker|app]   tue le processus node et vérifie la relance par supervise-daemon
   repair-service app|worker       service « unsupervised » : zap, arrêt des orphelins, démarrage
   backup | restore <f.db.gpg> [--uploads <f>] | restore --check <f.db.gpg> | migrate
   catalog [--dry-run] [--update] [--stripe]   importe le catalogue des prestations (sans doublon) ; --stripe : aussi les prestations liées à Stripe
   archive-pdfs   archive le PDF des factures et avoirs émis qui n'en ont pas (rendu du moment)
+  reprise [--dry-run]   reprend les anciennes données (bloc-notes) ; --dry-run : comptes à blanc, rien n'est écrit
+                        (lancée par update après sa sauvegarde ; comptes réels : kouziactl logs reprise)
   2fa-reset <email>   désactive la double authentification admin et ferme ses sessions (secours)
   push-keys [mailto:…]   clés des notifications push, écrites dans .env si absentes (jamais remplacées)
 
@@ -166,8 +168,9 @@ run_cmd() {
         app)    tail -n "${2:-80}" "${KOUZIA_LOG_DIR}/app.log" ;;
         worker) tail -n "${2:-80}" "${KOUZIA_LOG_DIR}/worker.log" ;;
         backup) tail -n "${2:-80}" "${KOUZIA_OPS_LOG_DIR}/backup.log" ;;
+        reprise) tail -n "${2:-80}" "${KOUZIA_OPS_LOG_DIR}/reprise.log" ;;
         tailscale|ts) tail -n "${2:-80}" /var/log/tailscaled.log ;;
-        *) die "logs: app|worker|backup|tailscale" ;;
+        *) die "logs: app|worker|backup|reprise|tailscale" ;;
       esac
       ;;
     restart)
@@ -232,6 +235,11 @@ run_cmd() {
       [[ "$subject" =~ ^(mailto:[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+|https://[A-Za-z0-9.-]+(/[A-Za-z0-9._~/%-]*)?)$ ]] \
         || die "Usage : kouziactl push-keys [mailto:adresse]"
       push_keys "$subject"
+      ;;
+    reprise)
+      require_root
+      [[ $# -eq 0 || ( $# -eq 1 && "$1" == "--dry-run" ) ]] || die "Usage : kouziactl reprise [--dry-run]"
+      run_reprise "$@" || die "Reprise interrompue (kouziactl logs app)."
       ;;
     2fa-reset)
       require_root

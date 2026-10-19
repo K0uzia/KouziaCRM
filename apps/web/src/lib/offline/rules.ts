@@ -1,4 +1,4 @@
-// Liste FERMÉE des lectures copiées pour le hors ligne : clients (coordonnées comprises), notes de rendez-vous et
+// Liste FERMÉE des lectures copiées pour le hors ligne : clients (coordonnées comprises), bloc-notes, notes de rendez-vous et
 // projets des fiches clients, prestations, devis, factures (sans PDF), synthèse de leurs listes (des nombres
 // seulement) et le petit sous-ensemble des réglages utile
 // aux devis. Toute autre requête n'est jamais
@@ -36,7 +36,7 @@ const CLIENT_KEYS = [
   "id", "clientNumber", "type", "displayName", "firstName", "lastName", "companyName",
   "email", "phone", "siret", "siren", "apeCode", "companyVerifiedAt",
   "addressLine1", "addressLine2", "postalCode", "city", "country", "addressCityCode", "addressLat", "addressLon",
-  "notes", "billingDay", "needs", "emailVerifiedAt", "onboardingCompletedAt", "createdAt", "updatedAt",
+  "notes", "notepadUpdatedAt", "billingDay", "needs", "emailVerifiedAt", "onboardingCompletedAt", "createdAt", "updatedAt",
 ] as const;
 
 const SNAPSHOT_KEYS = [
@@ -74,6 +74,7 @@ const INVOICE_KEYS = [
 ] as const;
 
 const NOTE_KEYS = ["id", "clientId", "body", "preparedAt", "createdAt"] as const;
+const NOTEPAD_KEYS = ["text", "version", "updatedAt", "conflictAt"] as const;
 
 // Projet de la fiche client : avancement, étapes, liens et liste de contrôle, tels que la fiche les affiche.
 const PROJECT_KEYS = [
@@ -147,6 +148,10 @@ export function sanitizeNote(data: unknown): Json | null {
   return pick(data, NOTE_KEYS);
 }
 
+export function sanitizeNotepad(data: unknown): Json | null {
+  return pick(data, NOTEPAD_KEYS);
+}
+
 export function sanitizeProject(data: unknown): Json | null {
   const project = pick(data, PROJECT_KEYS);
   if (!project) return null;
@@ -187,6 +192,7 @@ function sanitizeSummary(data: unknown): unknown {
 export const OFFLINE_RULES: readonly OfflineRule[] = [
   { name: "clients", pattern: /^\/api\/clients(\?hasCorrespondence=(true|false))?$/, sanitize: listOf(sanitizeClient) },
   { name: "fiche client", pattern: new RegExp(`^/api/clients/${ID}$`), sanitize: sanitizeClient },
+  { name: "bloc-notes", pattern: new RegExp(`^/api/clients/${ID}/notepad$`), sanitize: sanitizeNotepad },
   { name: "notes de rendez-vous", pattern: new RegExp(`^/api/clients/${ID}/notes$`), sanitize: listOf(sanitizeNote) },
   { name: "projets du client", pattern: new RegExp(`^/api/clients/${ID}/projects$`), sanitize: listOf(sanitizeProject) },
   { name: "prestations", pattern: /^\/api\/services(\?active=1)?$/, sanitize: listOf(sanitizeService) },
