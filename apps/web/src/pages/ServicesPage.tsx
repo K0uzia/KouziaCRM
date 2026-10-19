@@ -28,6 +28,8 @@ type Service = {
   isSubscription: boolean;
   defaultBillingDay: number;
   stripeProductId?: string | null;
+  /** Clients qui l'ont notée comme besoin : la suppression devient un archivage. */
+  clientNeedsCount?: number;
   stripePriceId?: string | null;
   billingInterval?: string | null;
   isPack?: boolean;
@@ -212,6 +214,8 @@ export function ServicesPage() {
     }
   }
 
+  const neededBy = deleting?.clientNeedsCount ?? 0;
+
   async function remove() {
     if (!deleting) return;
     setBusy(true);
@@ -219,7 +223,7 @@ export function ServicesPage() {
       const res = await api<{ archived: boolean }>(`/api/services/${deleting.id}`, { method: "DELETE" });
       toast.success(
         res.archived
-          ? "Prestation archivée : elle figure sur des documents, elle reste visible dans les archives."
+          ? "Prestation archivée : elle figure sur des documents ou dans les besoins de clients, elle reste visible dans les archives."
           : "Prestation supprimée",
       );
       setDeleting(null);
@@ -612,10 +616,15 @@ export function ServicesPage() {
 
       <ConfirmDialog
         open={Boolean(deleting)}
-        title="Supprimer la prestation"
-        message={`« ${deleting?.name ?? ""} » sera supprimée. Si elle figure déjà sur un devis, une facture ou un abonnement, elle sera archivée à la place pour garder l'historique intact.${deleting?.stripeProductId ? " Elle est aussi archivée dans Stripe : les abonnements Stripe en cours continuent." : ""}`}
-        confirmLabel="Supprimer"
-        danger
+        title={neededBy > 0 ? "Archiver la prestation" : "Supprimer la prestation"}
+        message={
+          (neededBy > 0
+            ? `« ${deleting?.name ?? ""} » est notée comme besoin chez ${neededBy} client${neededBy > 1 ? "s" : ""} : elle sera archivée, pas supprimée. Ces fiches la gardent, marquée « archivée », et elle ne sera plus proposée.`
+            : `« ${deleting?.name ?? ""} » sera supprimée. Si elle figure déjà sur un devis, une facture ou un abonnement, elle sera archivée à la place pour garder l'historique intact.`) +
+          (deleting?.stripeProductId ? " Elle est aussi archivée dans Stripe : les abonnements Stripe en cours continuent." : "")
+        }
+        confirmLabel={neededBy > 0 ? "Archiver" : "Supprimer"}
+        danger={neededBy === 0}
         busy={busy}
         onConfirm={() => void remove()}
         onClose={() => setDeleting(null)}

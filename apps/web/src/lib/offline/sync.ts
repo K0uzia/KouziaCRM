@@ -43,7 +43,7 @@ export type CopyState = {
 };
 
 /** À augmenter quand la liste des lectures copiées change : la copie suivante est complète. */
-export const SYNC_FORMAT = COPY_FORMAT * 100 + 2;
+export const SYNC_FORMAT = COPY_FORMAT * 100 + 3;
 const SUMMARY_KEY = COPY_SUMMARY_KEY;
 const CONCURRENCY = 2;
 const PAUSE_MS = 120;

@@ -7,7 +7,16 @@ import { decryptOptional, encrypt, encryptOptional } from "@/lib/crypto.js";
 import { allocateClientNumber } from "@/lib/clients/numbering.js";
 import { computeEmailHash } from "@/lib/clients/email-hash.js";
 import { syncPrimaryContact } from "@/lib/clients/contacts.js";
-import { needsInputSchema, normalizeNeeds, parseNeeds } from "@/lib/clients/needs.js";
+import {
+  legacyNeedsToDetails,
+  MAX_NEEDS,
+  needsDetailsSchema,
+  needsInputSchema,
+  normalizeNeeds,
+  serializeServiceNeeds,
+  serviceNeedsInclude,
+  writeServiceNeeds,
+} from "@/lib/clients/needs.js";
 import {
   normalizeFrenchAddress,
   type NormalizedAddress,
@@ -50,6 +59,10 @@ export const clientInputSchema = z
     notes: z.string().optional().nullable(),
     /** Jour de prélèvement par défaut de ses abonnements (1 à 28) ; null = le 1er. Absent : inchangé. */
     billingDay: z.coerce.number().int().min(1).max(28).optional().nullable(),
+    /** Création seulement : prestations du catalogue notées comme besoins, et leurs « Précisions ». */
+    serviceNeeds: z.array(z.string().trim().min(1).max(64)).max(MAX_NEEDS).optional(),
+    needsDetails: needsDetailsSchema.optional(),
+    /** Ancien format (fiche préparée hors ligne avant la mise à jour) : repris dans les Précisions. */
     needs: needsInputSchema.optional(),
   })
   .superRefine((data, ctx) => {
@@ -103,7 +116,8 @@ export function serializeClient(client: {
   notes: string | null;
   notepadUpdatedAt?: Date | null;
   billingDay: number | null;
-  needs?: string;
+  needsDetails?: string | null;
+  serviceNeeds?: Parameters<typeof serializeServiceNeeds>[0];
   onboardingCompletedAt: Date | null;
   accessEmailSentAt: Date | null;
   emailVerifiedAt?: Date | null;
@@ -136,7 +150,8 @@ export function serializeClient(client: {
     /** Dernier enregistrement du bloc-notes : la copie hors ligne le compare, la date de la fiche n'en dépend pas. */
     notepadUpdatedAt: client.notepadUpdatedAt ?? null,
     billingDay: client.billingDay ?? null,
-    needs: parseNeeds(client.needs),
+    needsDetails: client.needsDetails ?? "",
+    ...(client.serviceNeeds ? { serviceNeeds: serializeServiceNeeds(client.serviceNeeds) } : {}),
     emailVerifiedAt: client.emailVerifiedAt ?? null,
     onboardingCompletedAt: client.onboardingCompletedAt,
     accessEmailSentAt: client.accessEmailSentAt,
@@ -233,8 +248,6 @@ async function toPrismaClientFields(data: ClientInput, address: NormalizedAddres
     addressLat: addr.address.addressLat,
     addressLon: addr.address.addressLon,
     ...(data.billingDay !== undefined ? { billingDay: data.billingDay } : {}),
-    // Absent (édition de la fiche sans la liste) : besoins inchangés.
-    ...(data.needs ? { needs: JSON.stringify(normalizeNeeds(data.needs)) } : {}),
   };
 }
 
@@ -266,13 +279,26 @@ export async function createClientRecord(data: ClientInput, clientRequestId: str
       },
     });
     await syncPrimaryContact(created.id, tx);
-    return created;
+    const legacy = data.needs?.length ? legacyNeedsToDetails(normalizeNeeds(data.needs)) : "";
+    const details = [data.needsDetails ?? "", legacy].filter(Boolean).join("\n");
+    if (data.serviceNeeds?.length || details) {
+      await writeServiceNeeds(
+        created.id,
+        { services: [...new Set(data.serviceNeeds ?? [])].map((serviceId) => ({ serviceId, done: false })), details },
+        tx,
+        { skipUnavailable: true },
+      );
+    }
+    return tx.client.findUniqueOrThrow({ where: { id: created.id }, include: { serviceNeeds: serviceNeedsInclude } });
   });
   return { client: serializeClient(client) };
 }
 
 export async function listClients(opts: { hasCorrespondence?: boolean } = {}) {
-  const clients = await prisma.client.findMany({ orderBy: { displayName: "asc" } });
+  const clients = await prisma.client.findMany({
+    orderBy: { displayName: "asc" },
+    include: { serviceNeeds: serviceNeedsInclude },
+  });
 
   const threadAgg = await prisma.emailThread.groupBy({
     by: ["clientId"],

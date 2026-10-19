@@ -129,6 +129,19 @@ describe("chiffrement de la copie (AES-GCM 256)", () => {
 });
 
 describe("liste fermée des lectures copiées", () => {
+  it("fiche client : besoins et Précisions gardés, champs de chaque besoin limités à la liste", () => {
+    const sanitize = offlineRule("/api/clients/cmabc123")!.sanitize;
+    const copy = sanitize({
+      id: "cmabc123",
+      needsDetails: "5 pages",
+      needs: [{ id: "1", label: "ancien", done: false }],
+      serviceNeeds: [{ serviceId: "s1", name: "Site vitrine", active: true, doneAt: null, createdAt: "2026-10-19", secret: "x" }],
+    }) as Record<string, unknown>;
+    expect(copy.needsDetails).toBe("5 pages");
+    expect(copy.needs).toBeUndefined();
+    expect(copy.serviceNeeds).toEqual([{ serviceId: "s1", name: "Site vitrine", active: true, doneAt: null, createdAt: "2026-10-19" }]);
+  });
+
   it("copiées : clients, fiche client (bloc-notes, notes de rendez-vous, projets), prestations, devis, factures, réglages des devis", () => {
     for (const path of [
       "/api/clients",

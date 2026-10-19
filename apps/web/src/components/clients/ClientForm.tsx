@@ -10,7 +10,7 @@ import { formatPhoneFr } from "@/lib/format";
 import { Button } from "@/components/ui/Button";
 import { ModalActions } from "@/components/ui/Modal";
 import { Field, Input, Select } from "@/components/ui/Field";
-import { NeedsEditor, type ClientNeed } from "@/components/clients/NeedsEditor";
+import { ServiceNeedsEditor, useNeedsCatalog, type ClientNeeds, type ServiceNeed } from "@/components/clients/ServiceNeedsEditor";
 import {
   AddressAutocomplete,
   revalidateAddressBeforeSubmit,
@@ -50,7 +50,9 @@ export type Client = {
   notes: string | null;
   /** Jour de prélèvement par défaut de ses abonnements (1 à 28) ; null = le 1er. */
   billingDay?: number | null;
-  needs?: ClientNeed[];
+  /** Prestations souhaitées (liste et fiche) et leurs Précisions. */
+  serviceNeeds?: ServiceNeed[];
+  needsDetails?: string;
   emailVerifiedAt?: string | null;
   onboardingCompletedAt?: string | null;
   accessEmailSentAt?: string | null;
@@ -234,7 +236,8 @@ export function ClientFormEditor({
   // Création seulement : envoi de l'accès à l'espace client, coché par défaut.
   const [sendPortalAccess, setSendPortalAccess] = useState(true);
   // Création seulement : besoins notés en rendez-vous (sur la fiche, bloc « Besoins » dédié).
-  const [needs, setNeeds] = useState<ClientNeed[]>([]);
+  const [needs, setNeeds] = useState<ClientNeeds>({ services: [], details: "" });
+  const needsPayload = { serviceNeeds: needs.services.map((n) => n.serviceId), needsDetails: needs.details };
 
   useEffect(() => {
     if (initial) setForm(initial);
@@ -281,7 +284,7 @@ export function ClientFormEditor({
             companyName: form.companyName,
             email: form.email || null,
             phone: form.phone || null,
-            needs,
+            ...needsPayload,
             sendPortalAccess: false,
           }
         : {
@@ -305,7 +308,7 @@ export function ClientFormEditor({
             addressLon: form.addressLon,
             addressManualConfirmed: form.addressManualConfirmed,
             billingDay: form.billingDay ? Number(form.billingDay) : null,
-            ...(clientId ? {} : { sendPortalAccess: sendPortalAccess && Boolean(form.email), needs }),
+            ...(clientId ? {} : { sendPortalAccess: sendPortalAccess && Boolean(form.email), ...needsPayload }),
           };
       type Saved = Client & { portalAccess?: { sent: boolean; reason?: string } | null };
       let client: Saved;
@@ -477,8 +480,8 @@ export function ClientFormEditor({
       {clientId ? null : (
         <FormSection title="Besoins" defaultOpen>
           <div className="space-y-1.5">
-            <p className="text-xs text-[var(--muted)]">Pour préparer le devis et le projet. Entrée ajoute le besoin.</p>
-            <NeedsEditor needs={needs} onChange={setNeeds} />
+            <p className="text-xs text-[var(--muted)]">Pour préparer le devis et le projet.</p>
+            <CreationNeeds value={needs} onChange={setNeeds} />
           </div>
         </FormSection>
       )}
@@ -556,4 +559,10 @@ function FormSection({
       <div className="space-y-4 border-t border-[var(--border)] p-3">{children}</div>
     </details>
   );
+}
+
+/** Besoins à la création : le catalogue n'est lu que si le formulaire crée une fiche. */
+function CreationNeeds({ value, onChange }: { value: ClientNeeds; onChange: (next: ClientNeeds) => void }) {
+  const { catalog, error } = useNeedsCatalog();
+  return <ServiceNeedsEditor value={value} onChange={onChange} catalog={catalog} catalogError={error} />;
 }

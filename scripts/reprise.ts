@@ -1,4 +1,4 @@
-// Reprise des anciennes données (bloc-notes, contacts) après les migrations du 19/10/2026. Idempotente : relancée, elle ne
+// Reprise des anciennes données (bloc-notes, contacts, besoins) après les migrations du 19/10/2026. Idempotente : relancée, elle ne
 // reprend que ce qui ne l'a pas encore été. Sortie : des nombres seulement, aucune donnée personnelle.
 // Usage : kouziactl reprise [--dry-run]   (ou npm run reprise -- [--dry-run])
 //   --dry-run : comptes à blanc, rien n'est écrit (lisible avant la mise à jour réelle).

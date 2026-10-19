@@ -18,7 +18,7 @@ import { ClientNotepadCard } from "@/components/clients/ClientNotepadCard";
 import { isLocalClientId, resolvedClientId, useOfflineQueue } from "@/lib/offline/queue";
 import { Modal, ModalActions } from "@/components/ui/Modal";
 import { Field, Input } from "@/components/ui/Field";
-import { FilterBar, FilterSegment } from "@/components/ui/ListFilters";
+import { FilterBar, FilterSegment, FilterSelect } from "@/components/ui/ListFilters";
 import { useUrlFilters } from "@/lib/use-url-filters";
 import { DataTable, type DataColumn } from "@/components/ui/DataTable";
 import { Avatar } from "@/components/ui/Avatar";
@@ -43,6 +43,7 @@ import { useCreateParam } from "@/lib/use-create-param";
 
 
 const TYPE_IDS = ["tous", "particulier", "pro", "association"] as const;
+const NEED_STATES = ["tous", "attente", "traite"] as const;
 const TYPE_OF: Record<Exclude<(typeof TYPE_IDS)[number], "tous">, ClientType> = { particulier: "B2C", pro: "B2B", association: "ASSOCIATION" };
 
 export function ClientsPage() {
@@ -98,9 +99,33 @@ export function ClientsPage() {
     () => [...queued.filter((i) => i.kind === "client").map(pendingClient), ...clients],
     [queued, clients],
   );
-  // Type filtré sur place : il marche aussi sur la copie hors ligne de la liste.
-  const rows = typeFilter === "tous" ? allRows : allRows.filter((c) => c.type === TYPE_OF[typeFilter]);
-  const filtering = typeFilter !== "tous" || correspondenceFilter !== "tous" || filters.text("q").trim() !== "";
+  // Prestations notées comme besoin chez au moins un client, avec le nombre de clients : options du filtre « Besoin ».
+  const needOptions = useMemo(() => {
+    const byId = new Map<string, { id: string; label: string; count: number }>();
+    for (const c of clients) {
+      for (const n of c.serviceNeeds ?? []) {
+        const o = byId.get(n.serviceId) ?? { id: n.serviceId, label: n.name, count: 0 };
+        o.count++;
+        byId.set(n.serviceId, o);
+      }
+    }
+    return [...byId.values()].sort((a, b) => a.label.localeCompare(b.label, "fr"));
+  }, [clients]);
+  const withNeeds = clients.filter((c) => (c.serviceNeeds ?? []).length > 0).length;
+  const needFilter = filters.pick("besoin", ["tous", "un", ...needOptions.map((o) => o.id)], "tous");
+  const needStateFilter = filters.pick("etat", NEED_STATES, "tous");
+  const matchesNeed = (c: Client) => {
+    if (needFilter === "tous") return true;
+    return (c.serviceNeeds ?? []).some(
+      (n) =>
+        (needFilter === "un" || n.serviceId === needFilter) &&
+        (needStateFilter === "tous" || (needStateFilter === "attente" ? !n.doneAt : Boolean(n.doneAt))),
+    );
+  };
+  // Type et besoin filtrés sur place : ils marchent aussi sur la copie hors ligne de la liste.
+  const rows = allRows.filter((c) => (typeFilter === "tous" || c.type === TYPE_OF[typeFilter]) && matchesNeed(c));
+  const filtering =
+    typeFilter !== "tous" || correspondenceFilter !== "tous" || needFilter !== "tous" || filters.text("q").trim() !== "";
 
   const columns: DataColumn<Client>[] = [
     {
@@ -268,6 +293,31 @@ export function ClientsPage() {
                   { id: "sans", label: "Sans" },
                 ]}
               />
+              {needOptions.length > 0 ? (
+                <FilterSelect
+                  label="Besoin"
+                  compact
+                  value={needFilter}
+                  onChange={(v) => filters.set({ besoin: v === "tous" ? null : v, ...(v === "tous" ? { etat: null } : {}) })}
+                  options={[
+                    { id: "tous", label: "Tous les clients" },
+                    { id: "un", label: "Au moins un besoin", count: withNeeds },
+                    ...needOptions,
+                  ]}
+                />
+              ) : null}
+              {needFilter !== "tous" ? (
+                <FilterSegment
+                  label="État du besoin"
+                  value={needStateFilter}
+                  onChange={(v) => filters.set({ etat: v === "tous" ? null : v })}
+                  options={[
+                    { id: "tous", label: "Tous" },
+                    { id: "attente", label: "En attente" },
+                    { id: "traite", label: "Traité" },
+                  ]}
+                />
+              ) : null}
             </FilterBar>
           }
           renderMobileCard={(c) => (
@@ -686,7 +736,11 @@ function ClientDetail({ id }: { id: string | undefined }) {
                 </Card>
                 <ClientNotepadCard clientId={client.id} clientName={client.displayName} />
                 <OfflineGuard className="space-y-6">
-                  <ClientNeedsCard key={client.id} clientId={client.id} initial={client.needs ?? []} />
+                  <ClientNeedsCard
+                    key={client.id}
+                    clientId={client.id}
+                    initial={{ services: client.serviceNeeds ?? [], details: client.needsDetails ?? "" }}
+                  />
                   <ClientRenewalsCard clientId={client.id} />
                 </OfflineGuard>
               </div>

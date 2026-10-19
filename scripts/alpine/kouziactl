@@ -111,7 +111,7 @@ Services / data :
   backup | restore <f.db.gpg> [--uploads <f>] | restore --check <f.db.gpg> | migrate
   catalog [--dry-run] [--update] [--stripe]   importe le catalogue des prestations (sans doublon) ; --stripe : aussi les prestations liées à Stripe
   archive-pdfs   archive le PDF des factures et avoirs émis qui n'en ont pas (rendu du moment)
-  reprise [--dry-run]   reprend les anciennes données (bloc-notes, contacts) ; --dry-run : comptes à blanc, rien n'est écrit
+  reprise [--dry-run]   reprend les anciennes données (bloc-notes, contacts, besoins) ; --dry-run : comptes à blanc, rien n'est écrit
                         (lancée par update après sa sauvegarde ; comptes réels : kouziactl logs reprise)
   2fa-reset <email>   désactive la double authentification admin et ferme ses sessions (secours)
   push-keys [mailto:…]   clés des notifications push, écrites dans .env si absentes (jamais remplacées)
