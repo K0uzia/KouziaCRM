@@ -2,7 +2,8 @@ import "fake-indexeddb/auto";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { api } from "../api";
 import { OfflineError } from "../network";
-import { offlineRule, OFFLINE_RULES, sanitizeInvoice, sanitizeSettings, SETTINGS_KEYS } from "../offline/rules";
+import { offlineRule, OFFLINE_RULES, sanitizeInvoice, sanitizeSettings } from "../offline/rules";
+import { SETTINGS_READ_KEYS } from "../offline/rules-erp";
 import { copiedAt, copyDateFor, formatCopyDate, resetServedForTests } from "../offline/served";
 import {
   OFFLINE_DB,
@@ -149,10 +150,43 @@ describe("liste fermée des lectures copiées", () => {
       "/api/invoices?type=INVOICE&market=cmq1",
       "/api/invoices/cminv1",
       "/api/settings",
+      // Reste de l'ERP (décision du 19/10/2026) : pilotage, comptabilité, abonnements, messagerie, réglages en lecture.
+      "/api/invoices",
+      "/api/invoices?type=INVOICE&clientId=cmabc123",
+      "/api/services?subscription=1",
+      "/api/services?active=1&subscription=1",
+      "/api/services/cms1/pack-lines",
+      "/api/clients/cmabc123/renewals",
+      "/api/clients/cmabc123/emails",
+      "/api/subscriptions",
+      "/api/subscriptions/revisions-to-attach",
+      "/api/quotes/cmq1/market",
+      "/api/dashboard/overview?scope=month",
+      "/api/dashboard",
+      "/api/emails/inbox-summary",
+      "/api/payments",
+      "/api/receipts?year=2026",
+      "/api/receipts?year=2026&quarter=3",
+      "/api/receipts?year=2026&month=10",
+      "/api/obligations",
+      "/api/urssaf/declarations",
+      "/api/owner-pay",
+      "/api/stripe/flux",
+      "/api/stripe/flux?month=2026-10",
+      "/api/notifications/feed",
+      "/api/emails/sync-status",
+      "/api/emails/folders",
+      "/api/emails/messages?folderId=cmf1&skip=0&take=50",
+      "/api/emails/cmt1",
+      "/api/emails/messages/cmm1/body?allowRemoteImages=true",
+      "/api/checklist",
+      "/api/legal-clauses",
+      "/api/numbering/preview",
+      "/api/google/calendar/status",
     ]) {
       expect(offlineRule(path), path).not.toBeNull();
     }
-    expect(OFFLINE_RULES).toHaveLength(10);
+    expect(OFFLINE_RULES).toHaveLength(36);
   });
 
   it("bloc-notes : texte, version et dates seulement", () => {
@@ -192,7 +226,7 @@ describe("liste fermée des lectures copiées", () => {
     expect(summary.amounts).toEqual({ toCollectCents: 70_000, cashInCents: 0, invoicedNetCents: 70_000, openCount: 1, paidCount: 0 });
   });
 
-  it("jamais copiées : authentification, secrets, banque, paiements, messagerie, PDF, preuves, codes et jetons", () => {
+  it("jamais copiées : authentification, secrets, banque, pièces jointes, PDF, preuves, codes et jetons, module Site", () => {
     for (const path of [
       "/api/auth/me",
       "/api/auth/2fa/status",
@@ -206,25 +240,28 @@ describe("liste fermée des lectures copiées", () => {
       "/api/withdrawals/beneficiaries",
       "/api/bank/transactions",
       "/api/banque",
-      "/api/payments",
-      "/api/receipts?year=2026",
       "/api/stripe/payouts",
-      "/api/stripe/flux",
+      "/api/stripe/payouts/preview",
+      "/api/receipts/pdf?year=2026",
+      "/api/receipts/csv?year=2026",
       "/api/inbox/threads",
       "/api/emails/threads/t1",
-      "/api/clients/cmabc123/emails",
       "/api/emails/attachments/a1",
+      "/api/emails/messages?folderId=cmf1&q=dupont&skip=0&take=50",
+      "/api/emails/messages?folderId=cmf1&skip=50&take=50",
+      "/api/settings/identity/logo?v=3",
+      "/api/obligations/cmo1/attachment",
+      "/api/site/reviews",
+      "/api/notifications/feed?since=2026-10-19T08%3A00%3A00.000Z",
       "/api/invoices/cminv1/pdf",
       "/api/quotes/cmq1/acceptances",
       "/api/quotes/cmq1/acceptances/a1/pdf",
-      "/api/quotes/cmq1/market",
       "/api/clients/cmabc123/portal/codes",
       "/api/onboarding/invitations",
       "/api/public/onboarding/jeton",
       "/api/invoices/search?q=dupont",
       "/api/clients?q=dupont",
       "/api/invoices?type=ALL",
-      "/api/dashboard/overview?scope=month",
     ]) {
       expect(offlineRule(path), path).toBeNull();
     }
@@ -248,7 +285,7 @@ describe("liste fermée des lectures copiées", () => {
     expect(JSON.stringify(project)).not.toMatch(/internalSecret|secretStep|token|milestoneRef/);
   });
 
-  it("réglages : seulement le sous-ensemble des devis, aucun secret (Stripe, SMTP, IMAP, Revolut, IBAN)", () => {
+  it("réglages en lecture : identité et paramètres, aucun secret ni indice, ni banque, ni serveur de messagerie", () => {
     const settings = sanitizeSettings({
       legalName: "EI Kouzia",
       vatMention: "TVA non applicable, art. 293 B du CGI",
@@ -266,9 +303,21 @@ describe("liste fermée des lectures copiées", () => {
       bankBic: "REVOFRP2",
       siret: "00000000000000",
       emailSignatureHtml: "<p>x</p>",
+      bankName: "Banque Exemple",
+      bankAccountHolder: "EI Kouzia",
+      googleReviewUrl: "https://g.page/exemple",
+      googleCalendarConnectedEmail: "agenda@example.test",
+      githubTokenHint: "ghp_x",
+      depositPercentQuoteBps: 3000,
+      split3FirstBps: 4000,
+      brandLogoPath: "/data/logo.png",
+      secrets: { stripeSecretKey: { set: true, hint: "abcd" } },
     });
-    expect(Object.keys(settings!).every((k) => (SETTINGS_KEYS as readonly string[]).includes(k))).toBe(true);
-    expect(JSON.stringify(settings)).not.toMatch(/sk_live|whsec|smtp|imap|revolut|FR76|REVOFRP2/i);
+    expect(settings).toMatchObject({ legalName: "EI Kouzia", siret: "00000000000000", googleReviewUrl: "https://g.page/exemple", depositPercentQuoteBps: 3000, split3FirstBps: 4000 });
+    expect(Object.keys(settings!).every((k) => (SETTINGS_READ_KEYS as readonly string[]).includes(k) || k === "secrets" || /^(depositPercent\w*Bps|split3\w*)$/.test(k))).toBe(true);
+    // Secrets : seulement « configuré ou non », jamais la valeur ni son indice.
+    expect(settings!.secrets).toEqual({ stripeSecretKey: { set: true, hint: null } });
+    expect(JSON.stringify(settings)).not.toMatch(/sk_live|whsec|smtp\.|contact@|revolut|FR76|REVOFRP2|Banque Exemple|agenda@|ghp_|logo\.png|abcd/i);
   });
 
   it("devis et factures : sans paiements, banque, liens de paiement, PDF, signataire ni identifiants Stripe ou Revolut", () => {
@@ -330,8 +379,8 @@ describe("api() : réseau d'abord, copie chiffrée ensuite", () => {
     expect(await api("/api/services")).toEqual([{ id: "s1", name: "Site vitrine" }]);
   });
 
-  it("écran non consultable hors ligne : pas de copie ; réglages d'appoint servis sans mention de date", async () => {
-    browserAt(ORIGIN, ORIGIN, "/payments");
+  it("module Site hors ligne : pas de copie ; réglages d'appoint servis sans mention de date", async () => {
+    browserAt(ORIGIN, ORIGIN, "/site/avis");
     await saveCopy("/api/clients", [{ id: "c1" }], 1000);
     await saveCopy("/api/settings", { legalName: "EI Kouzia" }, 1000);
     vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new TypeError("Failed to fetch")));
@@ -339,7 +388,7 @@ describe("api() : réseau d'abord, copie chiffrée ensuite", () => {
     const settings = await api<{ legalName: string }>("/api/settings");
     expect(settings.legalName).toBe("EI Kouzia");
     expect(copiedAt(settings)).toBe(1000);
-    expect(copyDateFor("/payments")).toBeNull();
+    expect(copyDateFor("/site/avis")).toBeNull();
   });
 
   it("session refusée (401) : jamais la copie", async () => {

@@ -1,3 +1,5 @@
+import { isNetworkFailure } from "@/lib/network";
+import { OfflineGuard } from "@/components/ui/OfflineGuard";
 import { useEffect, useState } from "react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import {
@@ -139,21 +141,26 @@ export function ReadingPane({
         setBodies(seeded);
 
         const unreadIds = detail.messages.filter((m) => !m.isRead).map((m) => m.id);
+        // Marquer comme lu ne bloque jamais la lecture : hors ligne, ce sera fait à la prochaine ouverture en ligne.
         if (unreadIds.length > 0) {
-          await api("/api/emails/messages/bulk-flags", {
-            method: "POST",
-            body: JSON.stringify({ messageIds: unreadIds, read: true }),
-          });
-          onRead?.(unreadIds);
-          setThread((t) =>
-            t
-              ? {
-                  ...t,
-                  unreadCount: 0,
-                  messages: t.messages.map((m) => ({ ...m, isRead: true })),
-                }
-              : t,
-          );
+          try {
+            await api("/api/emails/messages/bulk-flags", {
+              method: "POST",
+              body: JSON.stringify({ messageIds: unreadIds, read: true }),
+            });
+            onRead?.(unreadIds);
+            setThread((t) =>
+              t
+                ? {
+                    ...t,
+                    unreadCount: 0,
+                    messages: t.messages.map((m) => ({ ...m, isRead: true })),
+                  }
+                : t,
+            );
+          } catch {
+            /* hors ligne ou refus : le fil reste affiché, non lu */
+          }
         }
 
         if (focus) {
@@ -184,10 +191,14 @@ export function ReadingPane({
             setLoadingBody(false);
           }
         }
-      } catch {
+      } catch (e) {
         setThread(null);
         // Le message brut de l'API peut être technique (« Not found ») : libellé français constant.
-        setLoadError("Impossible d'ouvrir cette conversation : elle a peut-être été supprimée.");
+        setLoadError(
+          isNetworkFailure(e)
+            ? "Cette conversation n'est pas sur l'appareil : seuls les messages des 90 derniers jours sont copiés. Elle s'ouvrira au retour du réseau."
+            : "Impossible d'ouvrir cette conversation : elle a peut-être été supprimée.",
+        );
       } finally {
         setLoading(false);
       }
@@ -284,7 +295,7 @@ export function ReadingPane({
       <div className="sticky top-0 z-10 flex min-w-0 items-center gap-2 border-b border-[var(--border)] bg-[var(--bg)] p-2 md:p-3">
         {backButton}
         {latest ? (
-          <>
+          <OfflineGuard className="contents">
             <span className="flex-1" />
             <span className="hidden md:block">
             <Button
@@ -352,7 +363,7 @@ export function ReadingPane({
             >
               <FontAwesomeIcon icon={faTrash} className="h-4 w-4" aria-hidden />
             </Button>
-          </>
+          </OfflineGuard>
         ) : null}
       </div>
 
@@ -463,7 +474,7 @@ export function ReadingPane({
         </ol>
       </div>
       {latest ? (
-        <div className="border-t border-[var(--border)] bg-[var(--bg)] p-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] md:hidden">
+        <OfflineGuard className="border-t border-[var(--border)] bg-[var(--bg)] p-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] md:hidden">
           <Button className="w-full" onClick={() => onReply({
                   threadId: thread.id,
                   messageId: latest.messageId,
@@ -476,7 +487,7 @@ export function ReadingPane({
             <FontAwesomeIcon icon={faReply} className="h-4 w-4" aria-hidden />
             Répondre
           </Button>
-        </div>
+        </OfflineGuard>
       ) : null}
     </div>
   );

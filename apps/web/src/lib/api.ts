@@ -1,7 +1,8 @@
 import { OfflineError } from "./network";
 import { offlineEnabled } from "./offline/config";
 import { copyServes, offlineRule } from "./offline/rules";
-import { markFresh, markServedFromCopy, tagCopy } from "./offline/served";
+import { copyPathOf } from "./offline/rules-erp";
+import { markFresh, markMissing, markServedFromCopy, tagCopy } from "./offline/served";
 import { deleteCopiesWhere, readCopy, saveCopy } from "./offline/store";
 import { clearCopyFailure, markOnline, recordCopyFailure } from "./offline/device";
 import { checkVersionHeaders } from "./version";
@@ -23,19 +24,49 @@ export type ApiInit = RequestInit & {
   responseType?: "json" | "blob";
 };
 
+/** Requêtes en cours : l'écran rechargé au retour du réseau n'est montré qu'une fois ses lectures terminées. */
+let inflight = 0;
+const idleListeners = new Set<() => void>();
+
+export function apiInflight(): number {
+  return inflight;
+}
+
+/** Appelé à chaque fin de requête (rien en cours ou non). */
+export function onApiSettled(listener: () => void): () => void {
+  idleListeners.add(listener);
+  return () => idleListeners.delete(listener);
+}
+
 export async function api<T>(path: string, options?: ApiInit): Promise<T> {
+  inflight++;
+  try {
+    return await request<T>(path, options);
+  } finally {
+    inflight--;
+    for (const l of idleListeners) l();
+  }
+}
+
+async function request<T>(path: string, options?: ApiInit): Promise<T> {
   const { responseType = "json", ...init } = options ?? {};
   const method = (init.method ?? "GET").toUpperCase();
-  // Lecture de la liste fermée (lib/offline/rules), sur l'origine autorisée : réseau d'abord, copie ensuite.
-  const rule = method === "GET" && responseType === "json" && offlineEnabled() ? offlineRule(path) : null;
+  // Lecture de la liste fermée (lib/offline/rules), sur l'origine autorisée : réseau d'abord, copie ensuite. La clé
+  // de copie ignore le paramètre anti-cache « t » (tableau de bord).
+  const key = copyPathOf(path);
+  const rule = method === "GET" && responseType === "json" && offlineEnabled() ? offlineRule(key) : null;
   const route = typeof window === "undefined" ? "" : window.location.pathname;
   const fromCopy = async (): Promise<{ data: T } | null> => {
     if (!rule || !copyServes(rule, route)) return null;
-    const copy = await readCopy<T>(path).catch(() => null);
+    const copy = await readCopy<T>(key).catch(() => null);
     if (!copy) return null;
     // Donnée d'appoint (réglages) : pas de mention « Données du … » pour elle seule.
-    if (!rule.support) markServedFromCopy(path, copy.savedAt, route);
+    if (!rule.support) markServedFromCopy(key, copy.savedAt, route);
     return { data: tagCopy(copy.data, copy.savedAt) };
+  };
+  // Lecture propre à l'écran, ni en ligne ni sur l'appareil : notée pour l'état « pas encore sur l'appareil ».
+  const missing = () => {
+    if (method === "GET" && responseType === "json" && !rule?.support) markMissing(key, route);
   };
 
   const headers = new Headers(init.headers);
@@ -59,19 +90,21 @@ export async function api<T>(path: string, options?: ApiInit): Promise<T> {
     if (isAbort(error)) throw error;
     const copy = await fromCopy();
     if (copy) return copy.data;
+    missing();
     throw new OfflineError();
   }
 
   if (!res.ok && SERVER_DOWN.has(res.status)) {
     const copy = await fromCopy();
     if (copy) return copy.data;
+    missing();
   }
   // Interface plus ancienne que le serveur (nouveau build, ou contrat de l'API changé) : signalé à l'écran.
   if (res.headers) checkVersionHeaders(res.headers);
   // Le serveur a répondu (quelle que soit la réponse) : date de la dernière connexion, pour l'option d'effacement.
   if (!SERVER_DOWN.has(res.status) && offlineEnabled()) markOnline();
   // Fiche disparue du serveur : sa copie et ce qui en dépend sont retirés (cohérence, pas un effacement).
-  if (res.status === 404 && rule) void deleteCopiesWhere(dependsOn(path)).catch(() => undefined);
+  if (res.status === 404 && rule) void deleteCopiesWhere(dependsOn(key)).catch(() => undefined);
 
   if (!res.ok) {
     let message = statusMessage(res.status);
@@ -116,10 +149,10 @@ export async function api<T>(path: string, options?: ApiInit): Promise<T> {
   const ct = res.headers.get("content-type") ?? "";
   if (ct.includes("application/json")) {
     const data = (await readBody(() => res.json())) as T;
+    markFresh(key);
     if (rule) {
-      markFresh(path);
       // Copie en arrière-plan : un échec d'écriture locale ne bloque jamais l'écran.
-      void saveCopy(path, rule.sanitize(data)).then(clearCopyFailure, recordCopyFailure);
+      void saveCopy(key, rule.sanitize(data)).then(clearCopyFailure, recordCopyFailure);
     }
     return data;
   }
@@ -132,9 +165,12 @@ export async function api<T>(path: string, options?: ApiInit): Promise<T> {
  */
 export function dependsOn(path: string): (copyPath: string) => boolean {
   const client = /^\/api\/clients\/([A-Za-z0-9_-]+)$/.exec(path)?.[1];
+  // Sous-ressources d'une fiche seulement (/api/<collection>/<id>) : une liste en 404 (« /api/invoices », module
+  // coupé, route inconnue) n'emporte jamais les fiches copiées qui commencent par son chemin.
+  const isRecord = /^\/api\/[a-z-]+\/[A-Za-z0-9_-]+$/.test(path);
   return (copyPath) =>
     copyPath === path ||
-    copyPath.startsWith(`${path}/`) ||
+    (isRecord && copyPath.startsWith(`${path}/`)) ||
     (client !== undefined && copyPath.startsWith("/api/invoices?") && new URLSearchParams(copyPath.split("?")[1]).get("clientId") === client);
 }
 
