@@ -32,11 +32,41 @@ function resetServer(updatedAt = "2026-10-01T00:00:00Z") {
     "/api/services": [{ id: "s1", name: "Site" }],
     "/api/services?active=1": [{ id: "s1", name: "Site" }],
     "/api/settings": { legalName: "Exemple" },
+    // Reste de l'ERP : réponses vides, chaque lecture existe.
+    "/api/dashboard/overview?scope=month": {},
+    "/api/dashboard/overview?scope=quarter": {},
+    "/api/dashboard/overview?scope=year": {},
+    "/api/dashboard": {},
+    "/api/emails/inbox-summary": { messages: [] },
+    "/api/notifications/feed": { items: [] },
+    "/api/emails/sync-status": {},
+    "/api/payments": [],
+    "/api/invoices": [],
+    [`/api/receipts?year=${new Date().getFullYear()}`]: { rows: [], totalCents: 0 },
+    "/api/obligations": { items: [], history: [] },
+    "/api/urssaf/declarations": [],
+    "/api/owner-pay": { flows: [], withdrawals: [] },
+    "/api/stripe/flux": { payouts: [] },
+    "/api/subscriptions": [],
+    "/api/services?subscription=1": [],
+    "/api/services?active=1&subscription=1": [],
+    "/api/subscriptions/revisions-to-attach": [],
+    "/api/checklist": {},
+    "/api/legal-clauses": [],
+    "/api/numbering/preview": {},
+    "/api/google/calendar/status": {},
+    "/api/emails/folders": { folders: [{ id: "f1" }] },
+    "/api/emails/messages?folderId=f1&skip=0&take=50": { messages: [{ threadId: "t1", receivedAt: new Date().toISOString() }] },
+    "/api/emails/t1": { id: "t1", messages: [] },
+    "/api/quotes/q1/market": { milestones: [] },
   };
   for (const id of ["c1", "c2"]) {
     server[`/api/clients/${id}`] = client(id);
     server[`/api/clients/${id}/notepad`] = { text: `Bloc-notes ${id}`, version: 1, updatedAt, conflictAt: null };
     server[`/api/clients/${id}/projects`] = [];
+    server[`/api/clients/${id}/renewals`] = [];
+    server[`/api/clients/${id}/emails`] = { items: [] };
+    server[`/api/invoices?type=INVOICE&clientId=${id}`] = [];
     server[`/api/invoices?clientId=${id}`] = [];
     server[`/api/invoices?type=QUOTE&clientId=${id}`] = [];
   }
@@ -73,7 +103,7 @@ describe("copie automatique complète pour le hors ligne", () => {
     }
     expect(summary!.sizeBytes).toBeGreaterThan(0);
     expect(sync.needsFullCopy()).toBe(false);
-    expect(sync.copyContents(summary!)).toBe("2 clients, 1 devis, 1 facture, 1 prestation");
+    expect(sync.copyContents(summary!)).toBe("2 clients, 1 devis, 1 facture, 1 prestation, 1 fil de messages");
   });
 
   it("mise à jour incrémentale : seule la fiche modifiée est relue, avec les listes de pièces de son client", async () => {
@@ -132,5 +162,38 @@ describe("copie automatique complète pour le hors ligne", () => {
       "Cette fiche n'est pas encore sur l'appareil (copie en cours, clients 32 sur 47).",
     );
     expect(sync.missingCopyMessage("Ce devis", sync.copyState(), false)).toBe("Ce devis n'est pas sur l'appareil : il sera copié au prochain passage en ligne.");
+  });
+});
+
+describe("journal de diagnostic de la copie", () => {
+  it("copie terminée avec une lecture refusée : refus compté par statut, éléments copiés, aucune donnée de client", async () => {
+    const journal = await import("../offline/journal");
+    journal.resetJournalForTests();
+    delete server["/api/clients/c2/projects"];
+    await sync.runOfflineCopy({ full: true, visible: false, trigger: "manuel" });
+    const [entry] = journal.readJournal();
+    expect(entry).toMatchObject({ trigger: "manuel", mode: "full", outcome: "terminée", refused: { "404": 1 } });
+    expect(entry!.copied).toBeGreaterThan(10);
+    expect(JSON.stringify(journal.readJournal())).not.toMatch(/\/api\/|c1|c2|Exemple/);
+  });
+
+  it("demandée à la main sans réseau : « non lancée », avec la raison ; automatique sans réseau : rien de noté", async () => {
+    const journal = await import("../offline/journal");
+    journal.resetJournalForTests();
+    vi.stubGlobal("navigator", { onLine: false });
+    await sync.runOfflineCopy({ full: false, visible: false });
+    expect(journal.readJournal()).toHaveLength(0);
+    await sync.runOfflineCopy({ full: true, visible: true, trigger: "manuel" });
+    expect(journal.readJournal()).toMatchObject([{ outcome: "non lancée", detail: "Pas de réseau.", copied: 0 }]);
+  });
+
+  it("refus lus pour Alexandre : session expirée, limite de débit, erreur serveur", async () => {
+    const journal = await import("../offline/journal");
+    expect(journal.refusalHint({ "401": 3 })).toMatch(/Session expirée/);
+    expect(journal.refusalHint({ "429": 1 })).toMatch(/limite de débit/);
+    expect(journal.refusalHint({ "502": 1 })).toMatch(/serveur a répondu en erreur/);
+    expect(journal.refusalHint({ "404": 1 })).toBeNull();
+    expect(journal.refusedText({ "401": 2, "404": 1 })).toBe("3 refus (401 : 2, 404 : 1)");
+    expect(journal.refusedText({})).toBe("");
   });
 });

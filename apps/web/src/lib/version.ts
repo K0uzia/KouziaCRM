@@ -3,7 +3,7 @@ import { API_CONTRACT, BUILD_HEADER, CONTRACT_HEADER } from "@kouzia-erp/api-con
 
 /** Identifiant du build de cette interface (vite.config.ts) ; « dev » hors build de production. */
 declare const __KOUZIA_BUILD__: string;
-const OWN_BUILD = typeof __KOUZIA_BUILD__ === "string" ? __KOUZIA_BUILD__ : "dev";
+export const OWN_BUILD = typeof __KOUZIA_BUILD__ === "string" ? __KOUZIA_BUILD__ : "dev";
 
 /**
  * Interface plus ancienne que le serveur : « build » (nouvelle version, recharger quand on veut) ou « contract » (le
@@ -40,6 +40,12 @@ export function checkVersionHeaders(headers: Headers): void {
   ensureChannel();
   if (contract !== null && Number(contract) !== API_CONTRACT) setState("contract", true);
   else if (build && OWN_BUILD !== "dev" && build !== OWN_BUILD) setState("build", true);
+}
+
+/** Nouvelle version installée par le service worker et en attente : même bandeau qu'un nouveau build côté serveur. */
+export function markUpdateWaiting(): void {
+  ensureChannel();
+  setState("build", true);
 }
 
 export function useVersionState(): VersionState {

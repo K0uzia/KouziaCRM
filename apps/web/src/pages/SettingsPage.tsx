@@ -1,3 +1,6 @@
+import { OfflineGuard } from "@/components/ui/OfflineGuard";
+import { Banner } from "@/components/ui/Banner";
+import { useReadOnly } from "@/lib/offline/read-only";
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
@@ -166,6 +169,7 @@ export function SettingsPage() {
   const [previews, setPreviews] = useState<NumberingPreview[]>([]);
   const [audit, setAudit] = useState<NumberingAudit | null>(null);
   const [busy, setBusy] = useState(false);
+  const { readOnly } = useReadOnly();
   const [inpiQuery, setInpiQuery] = useState("");
   const [clauseModal, setClauseModal] = useState<LegalClause | "new" | null>(null);
   const [clauseToDelete, setClauseToDelete] = useState<LegalClause | null>(null);
@@ -301,7 +305,7 @@ export function SettingsPage() {
         { method: "POST" },
       );
       if (res.skipped) {
-        toast.message("Google Agenda non connecté");
+        toast.info("Google Agenda non connecté");
       } else {
         toast.success(
           `Agenda synchronisé : ${res.upserted} événement(s), ${res.deleted} supprimé(s)`,
@@ -488,14 +492,14 @@ export function SettingsPage() {
       setSmtpPass("");
       setImapPass("");
       setRequireSmtpPass(false);
-      toast.message(
+      toast.info(
         "Preset Mailpit (dev) appliqué : port 1025, sans authentification. Cliquez Enregistrer puis Testez.",
       );
     } else {
       setSmtpPass("");
       setImapPass("");
       setRequireSmtpPass(true);
-      toast.message(
+      toast.info(
         "Preset Hostinger appliqué. Collez le mot de passe de la boîte mail (pas hPanel), Enregistrer, puis Testez.",
       );
     }
@@ -622,7 +626,7 @@ export function SettingsPage() {
       );
       setSettings(res.settings);
       setForm(res.settings);
-      for (const w of res.import.warnings) toast.message(w);
+      for (const w of res.import.warnings) toast.info(w);
       toast.success("Identité mise à jour depuis l'open data / INPI");
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Import impossible");
@@ -837,7 +841,13 @@ export function SettingsPage() {
       <div className="flex flex-col gap-6 md:flex-row md:items-start">
         <SettingsTabNav active={tab} onChange={setTab} />
 
-        <div className="min-w-0 flex-1 space-y-4">
+        {/* Hors ligne : réglages en lecture, depuis la copie (sans secret ni banque) ; rien ne s'enregistre. */}
+        <OfflineGuard className="min-w-0 flex-1 space-y-4">
+          {readOnly ? (
+            <Banner level="info">
+              Réglages en lecture : hors ligne, rien ne s'enregistre. Coordonnées bancaires, clés et serveurs de messagerie ne sont pas copiés sur l'appareil.
+            </Banner>
+          ) : null}
           {tab === "general" ? (
             <Card className="space-y-5 border border-[var(--border)] p-5">
               <div>
@@ -846,6 +856,8 @@ export function SettingsPage() {
                   SIREN, adresse, contacts. Utilisé sur les PDF et le portail client.
                 </p>
               </div>
+              {/* Hors ligne : sous-sections toutes affichées l'une après l'autre (en lecture), sans onglets désactivés. */}
+              {readOnly ? null : (
               <div role="group" aria-label="Sous-sections" className="-mx-5 flex gap-1 overflow-x-auto border-b border-[var(--border)] px-5 no-scrollbar">
                 {identitySections.map((s) => (
                   <button
@@ -863,8 +875,9 @@ export function SettingsPage() {
                   </button>
                 ))}
               </div>
+              )}
 
-              {identitySection === "legal" ? (
+              {readOnly || identitySection === "legal" ? (
                 <div className="space-y-4">
                   <div className="flex flex-wrap gap-2">
                     <Input
@@ -924,7 +937,7 @@ export function SettingsPage() {
                 </div>
               ) : null}
 
-              {identitySection === "contact" ? (
+              {readOnly || identitySection === "contact" ? (
                 <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                   <Field label="Email de contact" error={fieldError("email")}>
                     <Input
@@ -982,7 +995,7 @@ export function SettingsPage() {
                 </div>
               ) : null}
 
-              {identitySection === "address" ? (
+              {readOnly || identitySection === "address" ? (
                 addressValue ? (
                   <AddressAutocomplete
                     value={addressValue}
@@ -1009,7 +1022,7 @@ export function SettingsPage() {
                     ))
                 : null}
 
-              {identitySection === "extra" ? (
+              {readOnly || identitySection === "extra" ? (
                 <div className="space-y-4">
                   <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
                     <Field label="Décennale : assureur" error={fieldError("decennaleInsurer")}>
@@ -2143,7 +2156,7 @@ export function SettingsPage() {
               </Card>
             </section>
           ) : null}
-        </div>
+        </OfflineGuard>
       </div>
 
       <Modal

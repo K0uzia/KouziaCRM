@@ -13,6 +13,7 @@ import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { isOnline, onReconnect } from "@/lib/network";
 import { NotificationToast } from "@/components/NotificationToast";
+import { shouldNotifySystem } from "@/lib/system-notify";
 
 export type NotificationKind =
   | "mail"
@@ -162,7 +163,8 @@ export function NotificationsProvider({ children }: { children: ReactNode }) {
         );
       });
       if (soundRef.current) chime(fresh[0].kind);
-      if (typeof Notification !== "undefined" && Notification.permission === "granted") {
+      // Notification de l'appareil seulement ERP hors de l'écran : à l'écran, le toast suffit (pas de doublon).
+      if (shouldNotifySystem()) {
         fresh.slice(0, 3).forEach((item) => {
           // Android Chrome interdit new Notification() dans une page (service worker requis) :
           // l'exception ne doit pas interrompre les toasts ni le rechargement des écrans.

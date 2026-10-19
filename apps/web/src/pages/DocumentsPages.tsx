@@ -1034,8 +1034,8 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
       if (res.emailed) toast.success("Relance envoyée");
       else if (res.mailto) {
         window.location.href = res.mailto;
-        toast.message("Client mail ouvert");
-      } else toast.message("Relance enregistrée (pas d'email client)");
+        toast.info("Client mail ouvert");
+      } else toast.info("Relance enregistrée (pas d'email client)");
       await load();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Erreur");

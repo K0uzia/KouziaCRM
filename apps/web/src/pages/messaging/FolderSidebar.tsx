@@ -1,3 +1,5 @@
+import { OfflineGuard } from "@/components/ui/OfflineGuard";
+import { useReadOnly } from "@/lib/offline/read-only";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import {
   faBan,
@@ -83,9 +85,11 @@ function folderLabel(folder: MailFolderItem): string {
 }
 
 export function FolderSidebar({ folders, selectedId, onSelect, onSync, onCompose, lastSync }: Props) {
+  // Hors ligne : messages des 90 derniers jours en lecture ; synchroniser et écrire attendent le réseau.
+  const { readOnly, reason } = useReadOnly();
   return (
     <div className="flex h-full flex-col p-3">
-      <div className="mb-3 flex gap-2">
+      <OfflineGuard className="mb-3 flex gap-2">
         <Button variant="secondary" className="flex-1" onClick={onSync} aria-label="Synchroniser">
           <FontAwesomeIcon icon={faRotate} className="h-4 w-4" aria-hidden />
         </Button>
@@ -93,7 +97,8 @@ export function FolderSidebar({ folders, selectedId, onSelect, onSync, onCompose
           <FontAwesomeIcon icon={faPenToSquare} className="h-4 w-4" aria-hidden />
           Écrire
         </Button>
-      </div>
+      </OfflineGuard>
+      {readOnly && reason ? <p className="mb-2 px-1 text-xs text-[var(--warning)]">{reason}</p> : null}
       {lastSync ? (
         <p className="mb-2 px-1 text-xs text-[var(--muted)]">Dernière synchro {lastSync}</p>
       ) : null}

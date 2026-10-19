@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { Link, NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import {
@@ -24,12 +24,16 @@ import { optionalLazy } from "@/components/OptionalLazy";
 import { useReadOnly } from "@/lib/offline/read-only";
 import { offlineEnabled } from "@/lib/offline/config";
 import { getQueueSnapshot, itemsLabel, replayQueue, useOfflineQueue } from "@/lib/offline/queue";
-import { isOnline, onReconnect } from "@/lib/network";
+import { isOnline } from "@/lib/network";
+import { apiInflight } from "@/lib/api";
+import { startReconnectRefresh } from "@/lib/reconnect";
 import { toast } from "sonner";
 import { NotificationsProvider } from "@/lib/notifications";
 import { VersionNotice } from "@/components/VersionNotice";
-import { OfflineCopyPanel } from "@/components/OfflineCopyPanel";
-import { startAutoOfflineCopy } from "@/lib/offline/sync";
+import { OfflineCopyIndicator } from "@/components/OfflineCopyIndicator";
+import { OfflinePageMissing } from "@/components/OfflinePageMissing";
+import { forgetMissing, usePageMissing } from "@/lib/offline/served";
+import { copyNow, startAutoOfflineCopy } from "@/lib/offline/sync";
 import { MoreMenu } from "@/components/ui/MoreMenu";
 
 // Publication du site : seulement dans l'espace Site, chargé à la demande.
@@ -113,7 +117,9 @@ function SpaceSwitch({ current }: { current: NavSpaceId }) {
  * toutes les 30 s tant qu'il reste à envoyer (serveur injoignable sans coupure du réseau, donc sans événement
  * online). Jamais par Background Sync. Session refusée : l'ERP repasse par la connexion, la file attend.
  */
-function useQueueReplay(onSessionExpired: () => void) {
+/** Envoi de la file : à l'ouverture, toutes les 30 s s'il reste à envoyer ; au retour du réseau par lib/reconnect. */
+function useQueueReplay(onSessionExpired: () => void): () => Promise<void> {
+  const runRef = useRef<() => Promise<void>>(async () => undefined);
   useEffect(() => {
     if (!offlineEnabled()) return;
     const run = async () => {
@@ -127,16 +133,14 @@ function useQueueReplay(onSessionExpired: () => void) {
       if (after.signals.length > signals) toast.warning("Créé avec un écart à relire : voir « À envoyer ».");
       if (status === "done" && after.items.some((i) => i.state === "review")) toast.warning("Des éléments sont à revoir : voir « À envoyer ».");
     };
+    runRef.current = run;
     void run();
-    const stop = onReconnect(() => void run());
     const timer = window.setInterval(() => {
       if (getQueueSnapshot().items.some((i) => i.state !== "review")) void run();
     }, 30_000);
-    return () => {
-      stop();
-      window.clearInterval(timer);
-    };
+    return () => window.clearInterval(timer);
   }, [onSessionExpired]);
+  return useCallback(() => runRef.current(), []);
 }
 
 /** Lien de la barre latérale : icône, libellé, compteur, état actif (barre d'accent + fond). */
@@ -236,9 +240,48 @@ export function AppLayout() {
     void logout().then((outcome) => {
       if (outcome === "kept-pending") toast.warning("Copie hors ligne gardée : des créations préparées hors ligne restent à envoyer.");
     });
-  useQueueReplay(refresh);
+  const replay = useQueueReplay(refresh);
   // Copie hors ligne complète puis tenue à jour (origine du hors ligne seulement) : lib/offline/sync.
   useEffect(() => startAutoOfflineCopy(), []);
+  // Retour du réseau : file envoyée, écran affiché remonté (ses données relues, défilement gardé), copie mise à jour.
+  // Double tampon : le nouvel écran se monte caché et relit ses données ; il remplace l'ancien d'un coup quand ses
+  // requêtes sont finies (300 ms sans requête, 8 s au plus). Pas de squelette ni de décalage de mise en page (CLS).
+  const [pageEpoch, setPageEpoch] = useState(0);
+  const [nextEpoch, setNextEpoch] = useState<number | null>(null);
+  const swapped = useRef<(() => void) | null>(null);
+  const mainRef = useRef<HTMLElement>(null);
+  useEffect(
+    () =>
+      startReconnectRefresh({
+        replay,
+        remountPage: () =>
+          new Promise<void>((resolve) => {
+            forgetMissing(window.location.pathname);
+            swapped.current = resolve;
+            setNextEpoch(Date.now());
+          }),
+        copy: () => (offlineEnabled() ? copyNow() : Promise.resolve(null)),
+      }),
+    [replay],
+  );
+  useEffect(() => {
+    if (nextEpoch === null) return;
+    const started = Date.now();
+    let quietSince = 0;
+    const timer = window.setInterval(() => {
+      quietSince = apiInflight() === 0 ? quietSince || Date.now() : 0;
+      if ((quietSince && Date.now() - quietSince >= 300) || Date.now() - started > 8000) {
+        window.clearInterval(timer);
+        const top = mainRef.current?.scrollTop ?? 0;
+        setPageEpoch(nextEpoch);
+        setNextEpoch(null);
+        requestAnimationFrame(() => mainRef.current?.scrollTo({ top }));
+        swapped.current?.();
+        swapped.current = null;
+      }
+    }, 100);
+    return () => window.clearInterval(timer);
+  }, [nextEpoch]);
   const { items: queuedItems } = useOfflineQueue();
   const navigate = useNavigate();
   const [paletteOpen, setPaletteOpen] = useState(false);
@@ -265,6 +308,8 @@ export function AppLayout() {
     requestAnimationFrame(() => (drawerOpener.current ?? drawerTrigger.current)?.focus());
   const drawerRef = useRef<HTMLDivElement>(null);
   const { pathname } = useLocation();
+  // Hors ligne, écran sans aucune donnée sur l'appareil : état propre ; l'écran reste monté (caché) pour réessayer.
+  const pageMissing = usePageMissing(pathname) && readOnly;
   const features = useFeatures();
   const space = spaceOf(pathname);
   const { item: current, section: currentSection } = locate(pathname);
@@ -516,6 +561,7 @@ export function AppLayout() {
                 </span>
               </Link>
             ) : null}
+            <OfflineCopyIndicator />
             <NotificationBell />
             {space.id === "site" ? (
               <SitePublishBar />
@@ -542,13 +588,13 @@ export function AppLayout() {
           <NetworkStatus />
         </div>
         <VersionNotice />
-        <OfflineCopyPanel />
 
         {/* Région qui défile : atteignable au clavier (axe scrollable-region-focusable),
             contour visible seulement au focus clavier. « relative » : un élément en position absolue
             (sr-only d'un champ fichier) se place et se coupe dans cette région, sinon il allongeait
             la page entière, qui défilait alors sous la coquille (fiche Réalisation en grand écran). */}
         <main
+          ref={mainRef}
           id="contenu"
           tabIndex={isMailWorkspace ? -1 : 0}
           aria-label="Contenu"
@@ -563,9 +609,19 @@ export function AppLayout() {
                 : "mx-auto w-full max-w-[var(--content-max)] min-w-0 px-[var(--gutter)] py-5 lg:py-7"
             }
           >
-            <PageErrorBoundary resetKey={pathname}>
-              <Outlet />
-            </PageErrorBoundary>
+            {pageMissing ? <OfflinePageMissing /> : null}
+            <div hidden={pageMissing} className={pageMissing ? "hidden" : "contents"}>
+              {[pageEpoch, ...(nextEpoch === null ? [] : [nextEpoch])].map((epoch) => {
+                const shown = epoch === pageEpoch;
+                return (
+                  <div key={epoch} hidden={!shown} inert={!shown} aria-hidden={shown ? undefined : true} className={shown ? "contents" : "hidden"}>
+                    <PageErrorBoundary resetKey={pathname}>
+                      <Outlet />
+                    </PageErrorBoundary>
+                  </div>
+                );
+              })}
+            </div>
           </div>
         </main>
 

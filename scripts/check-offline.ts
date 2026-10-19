@@ -1,7 +1,7 @@
 // Contrôle hors ligne de l'admin (Playwright, Chromium) : `npm run check:offline`.
 // Réseau coupé (context.setOffline) : changer d'écran ne recharge pas la page et ne renvoie pas vers /login,
 // le bandeau « Hors ligne » apparaît sans décaler la mise en page, un seul toast hors ligne, aucun message
-// technique en anglais. Au retour : « De nouveau en ligne » disparaît après 3 s, et un écran resté
+// technique en anglais. Au retour : « Reconnexion » puis « De nouveau en ligne, données à jour », et un écran resté
 // indisponible s'ouvre tout seul. Lecture seule.
 //
 // Copie hors ligne (lot 2), sur l'origine configurée seulement (balise kouzia-offline-origin = origine testée ;
@@ -24,6 +24,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { chromium, type BrowserContext, type Page } from "playwright";
 import { login } from "./check-login";
+import { offlineRule } from "../apps/web/src/lib/offline/rules";
 
 const BASE = (process.env.CHECK_OFFLINE_URL ?? process.env.CHECK_MOBILE_URL ?? "http://localhost:5173").replace(/\/$/, "");
 const WIDTHS = (process.env.CHECK_OFFLINE_WIDTHS ?? "320,375,1280").split(",").map(Number).filter(Boolean);
@@ -31,9 +32,11 @@ const OFFLINE_MESSAGE = "Pas de connexion. Réessayez dès le retour du réseau.
 const UNAVAILABLE = "Cet écran n'est pas encore disponible hors ligne. Il s'ouvrira dès le retour du réseau.";
 const ENGLISH = /Failed to fetch|dynamically imported module|NetworkError|Load failed|Unauthorized|Bad Gateway/i;
 const COPY_DATE = /Données du \d{2}\/\d{2} à \d{2} h \d{2}/;
-/** Liste fermée des lectures copiées (apps/web/src/lib/offline/rules.ts), plus l'utilisateur courant. */
-const COPY_KEYS =
-  /^(session:utilisateur|\/api\/clients(\/[A-Za-z0-9_-]+(\/(notepad|notes|projects))?)?(\?hasCorrespondence=(true|false))?|\/api\/services(\?active=1)?|\/api\/invoices(\/[A-Za-z0-9_-]+|\/summary\?type=(QUOTE|INVOICE)|\?[A-Za-z0-9=&_-]+)|\/api\/settings)$/;
+/**
+ * Liste fermée des lectures copiées : la règle de l'interface elle-même (apps/web/src/lib/offline/rules.ts, une seule
+ * source, verrouillée par son test), plus l'utilisateur courant. Une clé hors liste fait échouer le contrôle.
+ */
+const COPY_KEYS = { test: (key: string) => key === "session:utilisateur" || offlineRule(key) !== null };
 const OFFLINE_DB = "kouzia-hors-ligne";
 const STORES = "cle,copies,file,relire";
 
@@ -127,10 +130,13 @@ async function scenario(width: number) {
     await follow(page, "/");
     await page.waitForTimeout(500);
     await context.setOffline(false);
-    await status(page).filter({ hasText: "De nouveau en ligne" }).waitFor({ timeout: 5000 });
-    check(true, `${width}px  « De nouveau en ligne » affiché`);
+    await status(page).filter({ hasText: "Reconnexion : mise à jour des données" }).waitFor({ timeout: 5000 });
+    check(true, `${width}px  « Reconnexion : mise à jour des données… » affiché`);
+    const backToast = page.locator("[data-sonner-toast]", { hasText: "De nouveau en ligne, données à jour" });
+    check(await backToast.waitFor({ timeout: 30_000 }).then(() => true, () => false), `${width}px  fin du rechargement : « De nouveau en ligne, données à jour »`);
+    check((await page.locator("[data-sonner-toast]").count()) === 1, `${width}px  retour du réseau : un seul message`);
     await page.waitForTimeout(3500);
-    check((await status(page).count()) === 0, `${width}px  bandeau masqué après 3 s`);
+    check((await status(page).count()) === 0, `${width}px  bandeau masqué une fois les données à jour`);
     check(await notReloaded(), `${width}px  retour du réseau : pas de rechargement`);
     check(new URL(page.url()).pathname === "/", `${width}px  retour du réseau : toujours connecté`);
     const cls = await page.evaluate(() => (window as unknown as { __kouziaCls: number }).__kouziaCls);
@@ -412,8 +418,8 @@ async function creationScenario(width: number) {
 
     // 5) Retour du réseau : envoi depuis la page, puis « À envoyer » vide.
     await context.setOffline(false);
-    await waitCheck(page.locator('[data-queue-count="0"]').waitFor({ timeout: 45_000 }), `${width}px  retour du réseau : « À envoyer » vide`);
-    check(await page.getByText("Rien à envoyer").isVisible(), `${width}px  « À envoyer » : état vide affiché`);
+    await waitCheck(page.locator('[data-queue-count="0"]:visible').first().waitFor({ timeout: 45_000 }), `${width}px  retour du réseau : « À envoyer » vide`);
+    check(await page.getByText("Rien à envoyer").locator("visible=true").first().isVisible(), `${width}px  « À envoyer » : état vide affiché`);
     const clients = (await (await page.request.get(`${BASE}/api/clients`)).json()) as Array<{ id: string; displayName: string }>;
     const created = clients.filter((c) => c.displayName === name);
     check(created.length === 1, `${width}px  client créé une seule fois (${created.length})`);
@@ -457,13 +463,19 @@ async function autoCopyScenario(width: number) {
       console.log(`--  ${width}px  copie hors ligne inactive sur ${BASE} : copie automatique non contrôlée`);
       return;
     }
-    const panel = page.getByRole("region", { name: "Copie hors ligne en cours" });
-    check(await panel.waitFor({ timeout: 10_000 }).then(() => true, () => false), `${width}px  première copie : fenêtre de progression affichée`);
+    // Indicateur discret dans la barre du haut (plus de fenêtre) : anneau de progression annoncé, détail au clic.
+    const indicator = page.locator("[data-offline-copy-indicator]").getByRole("button", { name: /^Copie hors ligne en cours/ });
+    check(await indicator.waitFor({ timeout: 10_000 }).then(() => true, () => false), `${width}px  première copie : indicateur de progression en haut`);
+    const ring = page.locator("[data-offline-copy-indicator] [role=progressbar]").first();
+    check((await ring.getAttribute("aria-valuemax").catch(() => null)) === "100", `${width}px  anneau de progression : role=progressbar, aria-valuenow ${await ring.getAttribute("aria-valuenow").catch(() => "?")}`);
+    check((await page.getByRole("region", { name: "Copie hors ligne en cours" }).count()) === 0, `${width}px  plus de fenêtre de progression`);
     const done = await page
       .waitForFunction((key) => localStorage.getItem(key) !== null, COPY_SUMMARY_KEY, { timeout: 180_000 })
       .then(() => true, () => false);
     check(done, `${width}px  première copie complète terminée (résumé enregistré)`);
     check(await page.getByText("Copie hors ligne terminée").first().isVisible().catch(() => false), `${width}px  toast de fin de copie`);
+    const endMessages = await page.locator("[data-sonner-toast]").count();
+    check(endMessages === 1, `${width}px  fin de copie : un seul message affiché (${endMessages})`);
     await page.waitForFunction(() => navigator.serviceWorker?.controller != null, null, { timeout: 30_000 }).catch(() => undefined);
 
     // Code navigateur sans fonction nommée : tsx y injecterait __name, absent de la page.
@@ -489,6 +501,39 @@ async function autoCopyScenario(width: number) {
       check(clicked && missing === 0 && title.trim().length > 0, `${width}px  ${label} jamais ${label === "devis" ? "ouvert" : "ouverte"}, hors ligne après la copie automatique : « ${title.trim()} »`);
     }
 
+    // Tout l'ERP en lecture (décision du 19/10/2026) : un écran de chaque espace, ouvert hors ligne par un lien.
+    for (const [space, to] of [
+      ["Pilotage", "/"],
+      ["Comptabilité", "/payments"],
+      ["Comptabilité", "/receipts"],
+      ["Offre", "/abonnements"],
+      ["Relation client", "/inbox"],
+      ["Réglages", "/settings"],
+    ] as const) {
+      await follow(page, to).catch(() => undefined);
+      await page.waitForTimeout(3000);
+      const shown = await page.evaluate(() => {
+        const main = document.querySelector("main");
+        return {
+          missing: Boolean(document.querySelector("[data-offline-page-missing]")),
+          skeleton: main ? main.querySelectorAll(".animate-pulse").length : 0,
+          crashed: /Cet écran n'a pas pu s'afficher/.test(main?.innerText ?? ""),
+          errors: Array.from(document.querySelectorAll('[data-sonner-toast][data-type="error"]')).length,
+        };
+      });
+      check(
+        !shown.missing && shown.skeleton === 0 && !shown.crashed && shown.errors === 0,
+        `${width}px  ${space} ${to} hors ligne : affiché depuis la copie (manquant ${shown.missing}, squelettes ${shown.skeleton}, erreurs ${shown.errors})`,
+      );
+    }
+    // Module Site : jamais copié, état dédié (pas de chargement sans fin).
+    await page.evaluate("window.history.pushState({}, '', '/site/avis'); window.dispatchEvent(new PopStateEvent('popstate'))");
+    await page.waitForTimeout(3000);
+    check(
+      (await page.getByText("Le module Site ne s'utilise pas hors ligne").count()) === 1,
+      `${width}px  module Site hors ligne : « Le module Site ne s'utilise pas hors ligne »`,
+    );
+
     // Changement de format : la copie reste lisible hors ligne ; au retour du réseau, recopie complète automatique.
     await page.evaluate((key) => {
       const s = JSON.parse(localStorage.getItem(key) ?? "{}");
@@ -503,7 +548,7 @@ async function autoCopyScenario(width: number) {
     }
     await context.setOffline(false);
     await page.reload();
-    check(await panel.waitFor({ timeout: 15_000 }).then(() => true, () => false), `${width}px  changement de format : recopie complète relancée avec sa fenêtre`);
+    check(await indicator.waitFor({ timeout: 15_000 }).then(() => true, () => false), `${width}px  changement de format : recopie complète relancée avec son indicateur`);
   } finally {
     await context.setOffline(false).catch(() => undefined);
     await browser.close();

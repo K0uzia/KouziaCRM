@@ -2,6 +2,7 @@ import { Banner } from "@/components/ui/Banner";
 import { Button } from "@/components/ui/Button";
 import { Modal, ModalActions } from "@/components/ui/Modal";
 import { useVersionState } from "@/lib/version";
+import { reloadToLatest } from "@/lib/sw-register";
 
 /**
  * Interface plus ancienne que le serveur (en-têtes X-Kouzia-Build et X-Kouzia-Contract) : bandeau persistant pour
@@ -10,7 +11,8 @@ import { useVersionState } from "@/lib/version";
 export function VersionNotice() {
   const state = useVersionState();
   if (state === "ok") return null;
-  const reload = () => window.location.reload();
+  // Pas un simple rechargement : la version en attente dans le service worker doit d'abord prendre la main.
+  const reload = () => void reloadToLatest();
   if (state === "contract") {
     return (
       <Modal open onClose={() => undefined} title="L'ERP a été mis à jour">
