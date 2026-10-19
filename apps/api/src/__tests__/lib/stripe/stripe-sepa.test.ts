@@ -147,6 +147,17 @@ describe("prélèvement SEPA : en cours, échec, mandat, moyen d'un abonnement",
     expect(client.text).toContain("FR7630006000011234567890189");
   });
 
+  it("facture : carte refusée à l'écran (jamais en cours) : admin prévenu, aucun e-mail au client", async () => {
+    const inv = await issuedInvoice();
+    await processStripeEvent(
+      event("payment_intent.payment_failed", intent(inv.id, { payment_method: { type: "card" }, last_payment_error: { message: "Carte refusée" } })),
+    );
+    expect((await prisma.invoice.findUniqueOrThrow({ where: { id: inv.id } })).status).toBe("ISSUED");
+    const mails = await outbox();
+    expect(mails.find((m) => m.to === ADMIN)?.subject).toBe("Paiement en ligne refusé : Lou Martin");
+    expect(mails.some((m) => m.to === EMAIL)).toBe(false);
+  });
+
   it("échéance de devis sans facture : « en cours » pendant le prélèvement, puis refus : échec, admin et client prévenus", async () => {
     const ms = await dueMilestone();
     const pi = (extra: Record<string, unknown> = {}) => ({ ...intent("", extra), amount: 30_000, metadata: { erpMilestoneId: ms.id } });

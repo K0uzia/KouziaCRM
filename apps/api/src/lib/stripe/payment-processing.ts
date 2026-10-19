@@ -92,23 +92,27 @@ export async function notifyMilestonePaymentFailed(pi: Stripe.PaymentIntent, was
 }
 
 /**
- * payment_intent.payment_failed d'une facture : elle redevient à régler, l'admin est alerté avec le motif Stripe, le
- * client reçoit un e-mail avec le lien de paiement et le rappel du virement possible.
+ * payment_intent.payment_failed d'une facture : elle redevient à régler, l'admin est alerté avec le motif Stripe. Après
+ * un prélèvement « en cours », le client reçoit un e-mail avec le lien de paiement et le rappel du virement possible.
  */
 export async function notifyInvoicePaymentFailed(pi: Stripe.PaymentIntent): Promise<string> {
   const invoiceId = await invoiceIdOf(pi);
   if (!invoiceId) return "ignoré (pas de facture ERP)";
-  await clearInvoiceProcessing(pi);
   const invoice = await prisma.invoice.findUnique({ where: { id: invoiceId }, include: { client: true } });
+  await clearInvoiceProcessing(pi);
   if (!invoice || invoice.status !== "ISSUED") return "ignoré (facture réglée ou annulée)";
+  // Comme pour l'échéance : e-mail au client seulement pour un prélèvement refusé après coup, jamais pour une
+  // carte refusée à l'écran (validé le 20/10/2026).
+  const wasProcessing = Boolean(invoice.paymentProcessingAt);
   const reason = pi.last_payment_error?.message ?? pi.last_payment_error?.code ?? "motif non communiqué";
   const label = invoice.number ? `la facture ${invoice.number}` : "une facture";
   const method = methodOf(pi) === "sepa_debit" ? "Prélèvement SEPA" : "Paiement en ligne";
   await alertAdmin(
     `${method} refusé : ${invoice.client.displayName}`,
-    `${method} refusé pour ${label} (${formatEUR(pi.amount)}) : ${reason}. La facture reste à régler ; le client a reçu le lien et le rappel du virement.`,
+    `${method} refusé pour ${label} (${formatEUR(pi.amount)}) : ${reason}. La facture reste à régler` +
+      (wasProcessing ? " ; le client a reçu le lien et le rappel du virement." : " ; refus affiché au client pendant le paiement."),
   );
-  const to = decryptOptional(invoice.client.emailEncrypted);
+  const to = wasProcessing ? decryptOptional(invoice.client.emailEncrypted) : null;
   if (to) {
     const settings = await getCompanySettings();
     const name = (invoice.client.firstName ?? invoice.client.displayName)?.trim();
