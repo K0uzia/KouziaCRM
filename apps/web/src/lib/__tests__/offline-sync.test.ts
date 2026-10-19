@@ -134,3 +134,36 @@ describe("copie automatique complète pour le hors ligne", () => {
     expect(sync.missingCopyMessage("Ce devis", sync.copyState(), false)).toBe("Ce devis n'est pas sur l'appareil : il sera copié au prochain passage en ligne.");
   });
 });
+
+describe("journal de diagnostic de la copie", () => {
+  it("copie terminée avec une lecture refusée : refus compté par statut, éléments copiés, aucune donnée de client", async () => {
+    const journal = await import("../offline/journal");
+    journal.resetJournalForTests();
+    delete server["/api/clients/c2/projects"];
+    await sync.runOfflineCopy({ full: true, visible: false, trigger: "manuel" });
+    const [entry] = journal.readJournal();
+    expect(entry).toMatchObject({ trigger: "manuel", mode: "full", outcome: "terminée", refused: { "404": 1 } });
+    expect(entry!.copied).toBeGreaterThan(10);
+    expect(JSON.stringify(journal.readJournal())).not.toMatch(/\/api\/|c1|c2|Exemple/);
+  });
+
+  it("demandée à la main sans réseau : « non lancée », avec la raison ; automatique sans réseau : rien de noté", async () => {
+    const journal = await import("../offline/journal");
+    journal.resetJournalForTests();
+    vi.stubGlobal("navigator", { onLine: false });
+    await sync.runOfflineCopy({ full: false, visible: false });
+    expect(journal.readJournal()).toHaveLength(0);
+    await sync.runOfflineCopy({ full: true, visible: true, trigger: "manuel" });
+    expect(journal.readJournal()).toMatchObject([{ outcome: "non lancée", detail: "Pas de réseau.", copied: 0 }]);
+  });
+
+  it("refus lus pour Alexandre : session expirée, limite de débit, erreur serveur", async () => {
+    const journal = await import("../offline/journal");
+    expect(journal.refusalHint({ "401": 3 })).toMatch(/Session expirée/);
+    expect(journal.refusalHint({ "429": 1 })).toMatch(/limite de débit/);
+    expect(journal.refusalHint({ "502": 1 })).toMatch(/serveur a répondu en erreur/);
+    expect(journal.refusalHint({ "404": 1 })).toBeNull();
+    expect(journal.refusedText({ "401": 2, "404": 1 })).toBe("3 refus (401 : 2, 404 : 1)");
+    expect(journal.refusedText({})).toBe("");
+  });
+});

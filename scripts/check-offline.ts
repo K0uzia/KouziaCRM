@@ -1,7 +1,7 @@
 // Contrôle hors ligne de l'admin (Playwright, Chromium) : `npm run check:offline`.
 // Réseau coupé (context.setOffline) : changer d'écran ne recharge pas la page et ne renvoie pas vers /login,
 // le bandeau « Hors ligne » apparaît sans décaler la mise en page, un seul toast hors ligne, aucun message
-// technique en anglais. Au retour : « De nouveau en ligne » disparaît après 3 s, et un écran resté
+// technique en anglais. Au retour : « Reconnexion » puis « De nouveau en ligne, données à jour », et un écran resté
 // indisponible s'ouvre tout seul. Lecture seule.
 //
 // Copie hors ligne (lot 2), sur l'origine configurée seulement (balise kouzia-offline-origin = origine testée ;
@@ -127,10 +127,13 @@ async function scenario(width: number) {
     await follow(page, "/");
     await page.waitForTimeout(500);
     await context.setOffline(false);
-    await status(page).filter({ hasText: "De nouveau en ligne" }).waitFor({ timeout: 5000 });
-    check(true, `${width}px  « De nouveau en ligne » affiché`);
+    await status(page).filter({ hasText: "Reconnexion : mise à jour des données" }).waitFor({ timeout: 5000 });
+    check(true, `${width}px  « Reconnexion : mise à jour des données… » affiché`);
+    const backToast = page.locator("[data-sonner-toast]", { hasText: "De nouveau en ligne, données à jour" });
+    check(await backToast.waitFor({ timeout: 30_000 }).then(() => true, () => false), `${width}px  fin du rechargement : « De nouveau en ligne, données à jour »`);
+    check((await page.locator("[data-sonner-toast]").count()) === 1, `${width}px  retour du réseau : un seul message`);
     await page.waitForTimeout(3500);
-    check((await status(page).count()) === 0, `${width}px  bandeau masqué après 3 s`);
+    check((await status(page).count()) === 0, `${width}px  bandeau masqué une fois les données à jour`);
     check(await notReloaded(), `${width}px  retour du réseau : pas de rechargement`);
     check(new URL(page.url()).pathname === "/", `${width}px  retour du réseau : toujours connecté`);
     const cls = await page.evaluate(() => (window as unknown as { __kouziaCls: number }).__kouziaCls);
@@ -457,13 +460,19 @@ async function autoCopyScenario(width: number) {
       console.log(`--  ${width}px  copie hors ligne inactive sur ${BASE} : copie automatique non contrôlée`);
       return;
     }
-    const panel = page.getByRole("region", { name: "Copie hors ligne en cours" });
-    check(await panel.waitFor({ timeout: 10_000 }).then(() => true, () => false), `${width}px  première copie : fenêtre de progression affichée`);
+    // Indicateur discret dans la barre du haut (plus de fenêtre) : anneau de progression annoncé, détail au clic.
+    const indicator = page.locator("[data-offline-copy-indicator]").getByRole("button", { name: /^Copie hors ligne en cours/ });
+    check(await indicator.waitFor({ timeout: 10_000 }).then(() => true, () => false), `${width}px  première copie : indicateur de progression en haut`);
+    const ring = page.locator("[data-offline-copy-indicator] [role=progressbar]").first();
+    check((await ring.getAttribute("aria-valuemax").catch(() => null)) === "100", `${width}px  anneau de progression : role=progressbar, aria-valuenow ${await ring.getAttribute("aria-valuenow").catch(() => "?")}`);
+    check((await page.getByRole("region", { name: "Copie hors ligne en cours" }).count()) === 0, `${width}px  plus de fenêtre de progression`);
     const done = await page
       .waitForFunction((key) => localStorage.getItem(key) !== null, COPY_SUMMARY_KEY, { timeout: 180_000 })
       .then(() => true, () => false);
     check(done, `${width}px  première copie complète terminée (résumé enregistré)`);
     check(await page.getByText("Copie hors ligne terminée").first().isVisible().catch(() => false), `${width}px  toast de fin de copie`);
+    const endMessages = await page.locator("[data-sonner-toast]").count();
+    check(endMessages === 1, `${width}px  fin de copie : un seul message affiché (${endMessages})`);
     await page.waitForFunction(() => navigator.serviceWorker?.controller != null, null, { timeout: 30_000 }).catch(() => undefined);
 
     // Code navigateur sans fonction nommée : tsx y injecterait __name, absent de la page.

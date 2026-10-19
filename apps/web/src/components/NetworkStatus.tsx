@@ -5,13 +5,15 @@ import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faPlugCircleXmark, faWifi } from "@fortawesome/free-solid-svg-icons";
 import { OFFLINE_TOAST_ID, useOnline } from "@/lib/network";
 import { offlineEnabled } from "@/lib/offline/config";
+import { useReconnectPhase } from "@/lib/reconnect";
 import { useOfflineQueue } from "@/lib/offline/queue";
 
 const BACK_ONLINE_MS = 3000;
 
 /**
  * Bandeau réseau de la barre du haut : « Hors ligne · N à envoyer » pendant la coupure (créations mises en file,
- * origine du hors ligne ; ailleurs « Hors ligne · consultation seule »), « De nouveau en ligne » 3 s au retour.
+ * origine du hors ligne ; ailleurs « Hors ligne · consultation seule »), puis « Reconnexion : mise à jour des données… »
+ * pendant le rechargement (lib/reconnect), qui se termine par le seul message « De nouveau en ligne, données à jour ».
  * À placer juste sous la barre, dans un conteneur relatif de hauteur nulle : à cheval sur le filet, hors du flux,
  * aucun décalage de la mise en page.
  * La région role=status reste montée, vide en ligne, pour que le changement soit annoncé.
@@ -52,7 +54,8 @@ export function NetworkStatus() {
     return () => window.clearTimeout(timer);
   }, [online]);
 
-  const visible = !online || backOnline;
+  const reconnecting = useReconnectPhase() === "refreshing";
+  const visible = !online || backOnline || reconnecting;
   return (
     <div
       role="status"
@@ -69,7 +72,7 @@ export function NetworkStatus() {
             className={`h-3 w-3 ${online ? "text-[var(--success)]" : "text-[var(--warning)]"}`}
             aria-hidden
           />
-          {online ? "De nouveau en ligne" : offlineLabel}
+          {online ? "Reconnexion : mise à jour des données…" : offlineLabel}
         </span>
       ) : null}
     </div>

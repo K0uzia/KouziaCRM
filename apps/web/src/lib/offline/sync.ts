@@ -1,10 +1,11 @@
 import { useSyncExternalStore } from "react";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
-import { isNetworkFailure, isOnline, onReconnect } from "@/lib/network";
+import { isNetworkFailure, isOnline } from "@/lib/network";
 import { offlineEnabled } from "./config";
 import { shouldNotifySystem } from "../system-notify";
 import { COPY_FORMAT, COPY_SUMMARY_KEY, copiesSize, deleteCopiesWhere, readCopy } from "./store";
+import { addJournalEntry, refusalHint, type JournalEntry } from "./journal";
 
 /**
  * Copie automatique complète pour le hors ligne (décision d'Alexandre du 19/10/2026). Sur l'origine du hors ligne
@@ -130,22 +131,45 @@ async function upToDate(path: string, updatedAt: string | null | undefined): Pro
   return Number.isFinite(changed) ? copy.savedAt >= changed : true;
 }
 
+/** Bilan de la copie en cours, pour le journal de diagnostic : lectures copiées, refus par statut HTTP. */
+let tally: { copied: number; refused: Record<string, number> } = { copied: 0, refused: {} };
+
 async function read(path: string, signal: AbortSignal): Promise<unknown> {
   try {
-    return await api<unknown>(path, { signal });
+    const data = await api<unknown>(path, { signal });
+    tally.copied++;
+    return data;
   } catch (error) {
-    // Réseau tombé ou annulation : la copie s'arrête. Une fiche refusée (404, 403) n'arrête pas le reste.
+    // Réseau tombé ou annulation : la copie s'arrête. Une fiche refusée (404, 403) n'arrête pas le reste, mais le
+    // refus est compté (journal) : une session expirée (401) ne passe plus pour une copie réussie.
     if (isNetworkFailure(error) || (error as { name?: string }).name === "AbortError") throw error;
+    const status = String((error as { status?: unknown }).status ?? "autre");
+    tally.refused[status] = (tally.refused[status] ?? 0) + 1;
     return null;
   }
+}
+
+function journal(entry: Omit<JournalEntry, "at" | "copied" | "refused" | "durationMs">, started: number): void {
+  addJournalEntry({ ...entry, at: started, copied: tally.copied, refused: { ...tally.refused }, durationMs: Date.now() - started });
 }
 
 /**
  * Copie complète (toutes les fiches relues) ou incrémentale (seulement ce qui a changé). `visible` ouvre la fenêtre
  * de progression. Une seule copie à la fois : un second appel pendant une copie est ignoré.
  */
-export async function runOfflineCopy(opts: { full: boolean; visible: boolean }): Promise<CopySummary | null> {
-  if (state.running || !offlineEnabled() || !isOnline()) return null;
+export async function runOfflineCopy(opts: { full: boolean; visible: boolean; trigger?: "auto" | "manuel" }): Promise<CopySummary | null> {
+  const trigger = opts.trigger ?? "auto";
+  const started = Date.now();
+  if (state.running) return null;
+  if (!offlineEnabled() || !isOnline()) {
+    // Copie automatique hors ligne : rien à signaler. Demandée à la main : la raison est notée.
+    if (trigger === "manuel") {
+      tally = { copied: 0, refused: {} };
+      journal({ trigger, mode: null, outcome: "non lancée", detail: offlineEnabled() ? "Pas de réseau." : "Mode hors ligne inactif sur cette adresse." }, started);
+    }
+    return null;
+  }
+  tally = { copied: 0, refused: {} };
   controller = new AbortController();
   const { signal } = controller;
   set({ running: true, visible: opts.visible, mode: opts.full ? "full" : "incremental", phase: "Clients", done: 0, total: 0, error: null });
@@ -226,15 +250,14 @@ export async function runOfflineCopy(opts: { full: boolean; visible: boolean }):
     };
     writeSummary(summary);
     set({ running: false, phase: null, summary });
+    journal({ trigger, mode: opts.full ? "full" : "incremental", outcome: "terminée", detail: refusalHint(tally.refused) }, started);
     if (opts.visible) notifyCopyDone(summary);
     return summary;
   } catch (error) {
     const aborted = (error as { name?: string }).name === "AbortError";
-    set({
-      running: false,
-      phase: null,
-      error: aborted ? "Copie annulée : elle reprendra au prochain passage en ligne." : "Réseau interrompu : la copie reprendra au retour du réseau.",
-    });
+    const message = aborted ? "Copie annulée : elle reprendra au prochain passage en ligne." : "Réseau interrompu : la copie reprendra au retour du réseau.";
+    set({ running: false, phase: null, error: message });
+    journal({ trigger, mode: opts.full ? "full" : "incremental", outcome: aborted ? "annulée" : "interrompue", detail: message }, started);
     return null;
   } finally {
     controller = null;
@@ -265,18 +288,17 @@ const AUTO_EVERY_MS = 15 * 60 * 1000;
  */
 export function startAutoOfflineCopy(): () => void {
   if (!offlineEnabled()) return () => undefined;
-  const tick = () => {
-    if (!isOnline() || state.running) return;
-    const first = needsFullCopy();
-    void runOfflineCopy({ full: first || staleFullCopy(), visible: first });
-  };
-  tick();
-  const stop = onReconnect(tick);
-  const timer = window.setInterval(tick, AUTO_EVERY_MS);
-  return () => {
-    stop();
-    window.clearInterval(timer);
-  };
+  void copyNow();
+  // Retour du réseau : copie lancée par lib/reconnect, après la file et le rechargement de l'écran.
+  const timer = window.setInterval(() => void copyNow(), AUTO_EVERY_MS);
+  return () => window.clearInterval(timer);
+}
+
+/** Copie automatique maintenant : complète (avec l'indicateur) la première fois, sinon mise à jour silencieuse. */
+export function copyNow(): Promise<CopySummary | null> {
+  if (!isOnline() || state.running) return Promise.resolve(null);
+  const first = needsFullCopy();
+  return runOfflineCopy({ full: first || staleFullCopy(), visible: first });
 }
 
 /** Faut-il une copie complète (jamais faite, ou format changé) ? Sinon, une mise à jour incrémentale suffit. */

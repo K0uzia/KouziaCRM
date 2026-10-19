@@ -3,7 +3,7 @@ import { API_CONTRACT, BUILD_HEADER, CONTRACT_HEADER } from "@kouzia-erp/api-con
 
 /** Identifiant du build de cette interface (vite.config.ts) ; « dev » hors build de production. */
 declare const __KOUZIA_BUILD__: string;
-const OWN_BUILD = typeof __KOUZIA_BUILD__ === "string" ? __KOUZIA_BUILD__ : "dev";
+export const OWN_BUILD = typeof __KOUZIA_BUILD__ === "string" ? __KOUZIA_BUILD__ : "dev";
 
 /**
  * Interface plus ancienne que le serveur : « build » (nouvelle version, recharger quand on veut) ou « contract » (le

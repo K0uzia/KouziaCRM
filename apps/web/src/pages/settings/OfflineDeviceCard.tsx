@@ -17,6 +17,7 @@ import {
 } from "@/lib/offline/device";
 import { pendingCount, wipeOfflineData } from "@/lib/offline/store";
 import { copyContents, runOfflineCopy, useOfflineCopy } from "@/lib/offline/sync";
+import { OfflineDiagnostic } from "@/pages/settings/OfflineDiagnostic";
 
 const DAY_CHOICES = [null, 7, 14, 30, 90] as const;
 
@@ -138,7 +139,7 @@ export function OfflineDeviceCard() {
             <Button
               variant="secondary"
               disabled={copy.running}
-              onClick={() => void runOfflineCopy({ full: true, visible: true }).then(() => refresh())}
+              onClick={() => void runOfflineCopy({ full: true, visible: true, trigger: "manuel" }).then(() => refresh())}
             >
               Mettre à jour la copie maintenant
             </Button>
@@ -177,6 +178,8 @@ export function OfflineDeviceCard() {
           </div>
         </>
       )}
+
+      <OfflineDiagnostic />
 
       <ConfirmDialog
         open={confirmOpen}
