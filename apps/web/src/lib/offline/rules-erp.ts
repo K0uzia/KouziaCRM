@@ -352,6 +352,11 @@ export function erpRules(sanitizeInvoice: (v: unknown) => unknown): Rule[] {
     { name: "lignes d'un pack", pattern: new RegExp(`^/api/services/${ID}/pack-lines$`), sanitize: listOf((v) => pick(v, PACK_LINE_KEYS)) },
     { name: "renouvellements du client", pattern: new RegExp(`^/api/clients/${ID}/renewals$`), sanitize: listOf((v) => pick(v, RENEWAL_KEYS)) },
     { name: "échanges du client", pattern: new RegExp(`^/api/clients/${ID}/emails$`), sanitize: sanitizeClientEmails },
+    {
+      name: "contacts du client",
+      pattern: new RegExp(`^/api/clients/${ID}/contacts$`),
+      sanitize: listOf((v) => pick(v, ["id", "firstName", "lastName", "role", "email", "phone", "isPrimary", "position"])),
+    },
     { name: "abonnements", pattern: /^\/api\/subscriptions$/, sanitize: listOf(sanitizeSubscription) },
     { name: "avenants à rattacher", pattern: /^\/api\/subscriptions\/revisions-to-attach$/, sanitize: listOf(sanitizeRevision) },
     { name: "marché d'un devis", pattern: new RegExp(`^/api/quotes/${ID}/market$`), sanitize: sanitizeMarket },

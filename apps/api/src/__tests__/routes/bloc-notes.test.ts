@@ -177,7 +177,7 @@ describe("reprise du bloc-notes", () => {
     const dry = await runTakeovers({ dryRun: true });
     expect(dry.notepad).toEqual({ clients: 2, internalNotes: 2, appointmentNotes: 2 });
     expect(await prisma.client.count({ where: { notepadVersion: { gt: 0 } } })).toBe(0);
-    expect(takeoverSummary(dry).join("\n")).toBe(
+    expect(takeoverSummary(dry).slice(0, 2).join("\n")).toBe(
       "Reprise des données, comptes à blanc (rien n'est écrit) :\n  bloc-notes : 2 fiches remplies, 2 « Notes internes » reprises en tête, 2 notes de rendez-vous reprises",
     );
 

@@ -158,6 +158,7 @@ describe("liste fermée des lectures copiées", () => {
       "/api/services/cms1/pack-lines",
       "/api/clients/cmabc123/renewals",
       "/api/clients/cmabc123/emails",
+      "/api/clients/cmabc123/contacts",
       "/api/subscriptions",
       "/api/subscriptions/revisions-to-attach",
       "/api/quotes/cmq1/market",
@@ -186,7 +187,7 @@ describe("liste fermée des lectures copiées", () => {
     ]) {
       expect(offlineRule(path), path).not.toBeNull();
     }
-    expect(OFFLINE_RULES).toHaveLength(36);
+    expect(OFFLINE_RULES).toHaveLength(37);
   });
 
   it("bloc-notes : texte, version et dates seulement", () => {

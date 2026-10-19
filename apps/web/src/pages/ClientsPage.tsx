@@ -33,6 +33,7 @@ import {
   pendingClient,
 } from "@/components/clients/ClientForm";
 import { ClientEmailLink } from "@/components/clients/ClientEmailLink";
+import { ClientContactsCard } from "@/components/clients/ClientContactsCard";
 import { ClientProjects } from "@/components/clients/ClientProjects";
 import { ClientNeedsCard } from "@/components/clients/ClientNeedsCard";
 import { ClientRenewalsCard } from "@/components/clients/ClientRenewalsCard";
@@ -743,6 +744,7 @@ function ClientDetail({ id }: { id: string | undefined }) {
             </div>
           </dl>
           </Card>
+          <ClientContactsCard clientId={client.id} onPrimaryChanged={refresh} />
           <OfflineGuard>
           <Card className="space-y-4 p-5 text-sm">
             <h2 className="text-sm font-semibold">Espace client</h2>

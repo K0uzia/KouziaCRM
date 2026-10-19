@@ -6,6 +6,7 @@ import { prisma } from "@/lib/prisma.js";
 import { decryptOptional, encrypt, encryptOptional } from "@/lib/crypto.js";
 import { allocateClientNumber } from "@/lib/clients/numbering.js";
 import { computeEmailHash } from "@/lib/clients/email-hash.js";
+import { syncPrimaryContact } from "@/lib/clients/contacts.js";
 import { needsInputSchema, normalizeNeeds, parseNeeds } from "@/lib/clients/needs.js";
 import {
   normalizeFrenchAddress,
@@ -255,16 +256,18 @@ export async function createClientRecord(data: ClientInput, clientRequestId: str
   const notes = data.notes?.trim();
   const notepad = notes ? { notepadEncrypted: encrypt(notes), notepadVersion: 1, notepadUpdatedAt: new Date() } : {};
   // Numéro et fiche dans la même transaction : un doublon refusé (P2002) ne consomme pas de numéro.
-  const client = await prisma.$transaction(async (tx) =>
-    tx.client.create({
+  const client = await prisma.$transaction(async (tx) => {
+    const created = await tx.client.create({
       data: {
         ...prepared,
         ...notepad,
         clientNumber: await allocateClientNumber(tx),
         ...(clientRequestId ? { clientRequestId } : {}),
       },
-    }),
-  );
+    });
+    await syncPrimaryContact(created.id, tx);
+    return created;
+  });
   return { client: serializeClient(client) };
 }
 

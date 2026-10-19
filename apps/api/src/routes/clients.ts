@@ -17,6 +17,16 @@ import { needsInputSchema, normalizeNeeds } from "@/lib/clients/needs.js";
 import { computeEmailHash } from "@/lib/clients/email-hash.js";
 import { createClientNote, listClientNotes, noteInputSchema, serializeNote } from "@/lib/clients/notes.js";
 import { appendToNotepad, notepadInputSchema, readNotepad, saveNotepad, serializeNotepad } from "@/lib/clients/notepad.js";
+import {
+  ContactConflictError,
+  contactInputSchema,
+  createContact,
+  deleteContact,
+  listContacts,
+  makePrimary,
+  syncPrimaryContact,
+  updateContact,
+} from "@/lib/clients/contacts.js";
 import { formatDateTimeShortFr } from "@/lib/format-fr.js";
 
 const createOptionsSchema = z.object({
@@ -183,6 +193,75 @@ export const clientsRoutes: FastifyPluginAsync = async (app) => {
     return { ...serializeNotepad(saved.notepad), conflict: saved.conflict };
   });
 
+  // Contacts du client : le principal reste synchronisé avec les coordonnées de la fiche (espace client, /suivi).
+  type ContactParams = { id: string; contactId: string };
+  const contactConflict = (reply: { code: (n: number) => { send: (b: unknown) => unknown } }, e: unknown) =>
+    e instanceof ContactConflictError ? reply.code(409).send({ error: e.message, code: e.code }) : null;
+
+  app.get<{ Params: { id: string } }>("/api/clients/:id/contacts", async (request, reply) => {
+    await requireAuth(request, reply);
+    if (reply.sent) return;
+    const client = await prisma.client.findUnique({ where: { id: request.params.id }, select: { id: true } });
+    if (!client) return reply.code(404).send({ error: "Introuvable" });
+    return listContacts(client.id);
+  });
+
+  app.post<{ Params: { id: string } }>("/api/clients/:id/contacts", async (request, reply) => {
+    await requireAuth(request, reply);
+    if (reply.sent) return;
+    const parsed = contactInputSchema.safeParse(request.body);
+    if (!parsed.success) return reply.code(400).send({ error: parsed.error.flatten() });
+    const client = await prisma.client.findUnique({ where: { id: request.params.id }, select: { id: true } });
+    if (!client) return reply.code(404).send({ error: "Client introuvable", code: "client_not_found" });
+    const primary = (request.body as { isPrimary?: unknown } | null)?.isPrimary === true;
+    try {
+      return reply.code(201).send(await createContact(client.id, parsed.data, { primary }));
+    } catch (e) {
+      if (contactConflict(reply, e)) return;
+      throw e;
+    }
+  });
+
+  app.put<{ Params: ContactParams }>("/api/clients/:id/contacts/:contactId", async (request, reply) => {
+    await requireAuth(request, reply);
+    if (reply.sent) return;
+    const parsed = contactInputSchema.safeParse(request.body);
+    if (!parsed.success) return reply.code(400).send({ error: parsed.error.flatten() });
+    try {
+      const contact = await updateContact(request.params.id, request.params.contactId, parsed.data);
+      if (!contact) return reply.code(404).send({ error: "Contact introuvable" });
+      return contact;
+    } catch (e) {
+      if (contactConflict(reply, e)) return;
+      throw e;
+    }
+  });
+
+  app.post<{ Params: ContactParams }>("/api/clients/:id/contacts/:contactId/primary", async (request, reply) => {
+    await requireAuth(request, reply);
+    if (reply.sent) return;
+    try {
+      const contact = await makePrimary(request.params.id, request.params.contactId);
+      if (!contact) return reply.code(404).send({ error: "Contact introuvable" });
+      return contact;
+    } catch (e) {
+      if (contactConflict(reply, e)) return;
+      throw e;
+    }
+  });
+
+  app.delete<{ Params: ContactParams }>("/api/clients/:id/contacts/:contactId", async (request, reply) => {
+    await requireAuth(request, reply);
+    if (reply.sent) return;
+    try {
+      if (!(await deleteContact(request.params.id, request.params.contactId))) return reply.code(404).send({ error: "Contact introuvable" });
+      return { ok: true };
+    } catch (e) {
+      if (contactConflict(reply, e)) return;
+      throw e;
+    }
+  });
+
   // Anciennes notes de rendez-vous : lecture, et ajout encore accepté d'un appareil pas mis à jour (la note est
   // aussi ajoutée en fin de bloc-notes, une seule fois par clientRequestId).
   app.get<{ Params: { id: string } }>("/api/clients/:id/notes", async (request, reply) => {
@@ -231,6 +310,7 @@ export const clientsRoutes: FastifyPluginAsync = async (app) => {
         where: { id: request.params.id },
         data: await toPrismaClientData(parsed.data, { addressUnchanged }),
       });
+      await syncPrimaryContact(client.id);
       return serializeClient(client);
     } catch (e) {
       if (e instanceof AddressValidationError) {
@@ -475,6 +555,7 @@ export const clientsRoutes: FastifyPluginAsync = async (app) => {
           notifyClient: r.notifyClient,
         })),
         notepad: (await readNotepad(client.id))?.text ?? "",
+        contacts: await listContacts(client.id),
         appointmentNotes: client.appointmentNotes.map((n) => {
           const note = serializeNote(n);
           return { preparedAt: note.preparedAt.toISOString(), body: note.body };

@@ -66,6 +66,7 @@ function resetServer(updatedAt = "2026-10-01T00:00:00Z") {
     server[`/api/clients/${id}/projects`] = [];
     server[`/api/clients/${id}/renewals`] = [];
     server[`/api/clients/${id}/emails`] = { items: [] };
+    server[`/api/clients/${id}/contacts`] = [];
     server[`/api/invoices?type=INVOICE&clientId=${id}`] = [];
     server[`/api/invoices?clientId=${id}`] = [];
     server[`/api/invoices?type=QUOTE&clientId=${id}`] = [];

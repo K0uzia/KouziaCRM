@@ -30,6 +30,7 @@ const TABLES = [
   "PortalSession",
   "ClientRenewal",
   "ClientNote",
+  "ClientContact",
   "Client",
   "Counter",
   "NamedCounter",

@@ -723,6 +723,7 @@ model Client {
   testimonials           ClientTestimonial[]
   projects               ClientProject[]
   appointmentNotes       ClientNote[]
+  contacts               ClientContact[]
   /// Fiche préparée hors ligne : UUID de l'appareil ; un renvoi rend la même fiche (idempotence)
   clientRequestId        String?             @unique
   /// Identifiant Customer Stripe (cus_…)
@@ -811,6 +812,31 @@ model ClientProject {
   updatedAt          DateTime           @updatedAt
 
   @@index([clientId, position])
+}
+
+/// Contact d'un client (particulier compris). Le contact principal reste synchronisé avec Client.email, phone,
+/// firstName et lastName, qui gardent la référence (espace client, /suivi, API publique) ; un seul principal par
+/// client, garanti par l'API dans une transaction.
+model ClientContact {
+  id             String   @id @default(cuid())
+  clientId       String
+  client         Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  /// Prénom et nom en clair, comme Client.firstName et lastName (recherche)
+  firstName      String?
+  lastName       String?
+  /// Fonction ou libellé (« Gérante », « Contact principal » pour un contact sans nom)
+  role           String?
+  emailEncrypted String?
+  /// Non unique : deux clients peuvent partager une adresse de standard
+  emailHash      String?
+  phoneEncrypted String?
+  isPrimary      Boolean  @default(false)
+  position       Int      @default(0)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([clientId, position])
+  @@index([emailHash])
 }
 
 /// Note de rendez-vous (journal de la fiche client), saisie en ligne ou préparée hors ligne.

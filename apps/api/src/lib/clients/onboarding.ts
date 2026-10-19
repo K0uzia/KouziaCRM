@@ -18,6 +18,7 @@ import {
   verifyCompanyIdentifiers,
 } from "@/lib/address/france.js";
 import { computeEmailHash } from "@/lib/clients/email-hash.js";
+import { syncPrimaryContact } from "@/lib/clients/contacts.js";
 import { AddressValidationError } from "@/lib/clients.js";
 import { maskEmail } from "@/lib/portal/auth.js";
 
@@ -301,6 +302,7 @@ async function applySubmission(
         where: { id: invitation.existingClientId },
         data: { ...(await toPrismaData(locked)), onboardingCompletedAt: now },
       });
+      await syncPrimaryContact(invitation.existingClientId);
       await prisma.onboardingInvitation.update({
         where: { id: invitation.id },
         data: { usedAt: now },
@@ -319,6 +321,7 @@ async function applySubmission(
         onboardingCompletedAt: now,
       },
     });
+    await syncPrimaryContact(created.id);
     await prisma.onboardingInvitation.update({
       where: { id: invitation.id },
       data: { usedAt: now, createdClientId: created.id },
