@@ -10,6 +10,10 @@ export type PaymentChoice = { mode: "none" } | { mode: "manual"; url: string } |
 
 export type PaymentFieldsState = { mode: "none" | "manual" | "auto"; url: string };
 
+/** Choix par défaut (décision du 19/10/2026) : le lien Stripe si le module est actif, sinon un lien collé. */
+export const defaultPaymentState = (moduleStripeEnabled: boolean | undefined): PaymentFieldsState =>
+  moduleStripeEnabled ? { mode: "auto", url: "" } : { mode: "manual", url: "" };
+
 export function paymentChoiceOf(state: PaymentFieldsState): PaymentChoice {
   if (state.mode === "manual") return { mode: "manual", url: state.url.trim() };
   if (state.mode === "auto") return { mode: "auto" };
@@ -31,15 +35,22 @@ export function PaymentLinkFields({
   noneLabel?: string;
 }) {
   const { moduleStripeEnabled } = useFeatures();
+  // Ordre des moyens (décision du 19/10/2026) : lien Stripe d'abord (prélèvement SEPA, virement, carte sous le seuil).
   const options: Array<{ mode: PaymentFieldsState["mode"]; label: string; hint?: string }> = [
+    ...(moduleStripeEnabled
+      ? [
+          {
+            mode: "auto" as const,
+            label: "Lien Stripe : prélèvement SEPA (recommandé), virement, carte pour les petits montants",
+            hint: "Moyens et seuil de la carte dans Réglages > Paiements.",
+          },
+        ]
+      : []),
     {
       mode: "manual",
       label: "Coller un lien de paiement",
       hint: "URL https de paiement (exception).",
     },
-    ...(moduleStripeEnabled
-      ? [{ mode: "auto" as const, label: "Lien Stripe automatique (carte ou virement)" }]
-      : []),
     { mode: "none", label: noneLabel },
   ];
   const invalid = value.mode === "manual" && value.url.trim() !== "" && !paymentFieldsValid(value);
@@ -122,7 +133,8 @@ export function BillingDialog({
   onConfirm: (req: BillingRequest) => void;
   onClose: () => void;
 }) {
-  const [payment, setPayment] = useState<PaymentFieldsState>({ mode: "manual", url: "" });
+  const { moduleStripeEnabled: stripeOn } = useFeatures();
+  const [payment, setPayment] = useState<PaymentFieldsState>(() => defaultPaymentState(stripeOn));
   const [send, setSend] = useState(Boolean(clientEmail));
   const [subject, setSubject] = useState(defaultSubject);
   const [body, setBody] = useState(defaultBody);

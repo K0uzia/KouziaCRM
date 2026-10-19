@@ -65,6 +65,8 @@ describe("buildInvoicePdfPayload charte dynamique", () => {
         issuedAt: issueDate,
         revolutOrderId: null,
         checkoutUrl: null,
+        paymentProcessingAt: null,
+        paymentProcessingMethod: null,
         stripeInvoiceId: null,
         stripeFailureNotifiedAttempt: null,
         stripeRecoveryNotifiedAt: null,

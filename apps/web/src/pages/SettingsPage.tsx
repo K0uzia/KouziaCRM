@@ -526,6 +526,9 @@ export function SettingsPage() {
       split3Step2TriggerText: form.split3Step2TriggerText,
       paymentButtonLeadDays: form.paymentButtonLeadDays,
       annualFreeMonths: form.annualFreeMonths,
+      paymentSepaEnabled: form.paymentSepaEnabled ?? true,
+      paymentCardEnabled: form.paymentCardEnabled ?? true,
+      paymentCardMaxCents: form.paymentCardMaxCents ?? 30000,
       moduleSubscriptionsEnabled: form.moduleSubscriptionsEnabled,
       moduleStripeEnabled: form.moduleStripeEnabled,
     });
@@ -1412,6 +1415,56 @@ export function SettingsPage() {
                     </li>
                     <li>Livraison → facture de solde, même logique.</li>
                   </ol>
+                </Card>
+              ) : null}
+
+              {form.moduleStripeEnabled ? (
+                <Card className="space-y-4 border border-[var(--border)] p-5" data-payment-methods>
+                  <div>
+                    <h3 className="text-sm font-semibold">Moyens de paiement en ligne</h3>
+                    <p className="mt-0.5 text-xs text-[var(--muted)]">
+                      Proposés dans cet ordre sur un lien Stripe. Le virement Stripe (0,5 %, plafonné à 5 €) est toujours
+                      proposé, et le virement sur votre IBAN reste possible.
+                    </p>
+                  </div>
+                  <label className="flex min-h-11 items-start gap-3 text-sm">
+                    <input
+                      type="checkbox"
+                      className="mt-1"
+                      checked={form.paymentSepaEnabled ?? true}
+                      onChange={(e) => setForm({ ...form, paymentSepaEnabled: e.target.checked })}
+                    />
+                    <span>
+                      <span className="font-medium">1. Prélèvement SEPA (recommandé)</span>
+                      <span className="mt-0.5 block text-xs text-[var(--muted)]">
+                        0,35 € par paiement. Moyen par défaut des abonnements. Résultat connu après environ 6 jours ouvrés.
+                      </span>
+                    </span>
+                  </label>
+                  <label className="flex min-h-11 items-start gap-3 text-sm">
+                    <input
+                      type="checkbox"
+                      className="mt-1"
+                      checked={form.paymentCardEnabled ?? true}
+                      onChange={(e) => setForm({ ...form, paymentCardEnabled: e.target.checked })}
+                    />
+                    <span>
+                      <span className="font-medium">2. Carte bancaire, pour les petits montants</span>
+                      <span className="mt-0.5 block text-xs text-[var(--muted)]">1,5 % + 0,25 € pour une carte européenne standard.</span>
+                    </span>
+                  </label>
+                  {form.paymentCardEnabled ?? true ? (
+                    <Field label="Carte proposée jusqu'à (€)" hint="Au-delà : prélèvement SEPA et virement seulement. 300 € par défaut.">
+                      <Input
+                        type="number"
+                        min={0}
+                        inputMode="numeric"
+                        value={String(Math.round((form.paymentCardMaxCents ?? 30000) / 100))}
+                        onChange={(e) => setForm({ ...form, paymentCardMaxCents: Math.max(0, Math.round(Number(e.target.value) * 100)) })}
+                      />
+                    </Field>
+                  ) : null}
+                  <p className="text-xs text-[var(--muted)]">3. Virement sur votre IBAN : toujours possible, coordonnées ci-dessous.</p>
                 </Card>
               ) : null}
 

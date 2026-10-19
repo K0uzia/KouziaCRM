@@ -309,6 +309,7 @@ function sanitizeMessageBody(data: unknown): Json {
  */
 export const SETTINGS_READ_KEYS = [
   "legalName", "tradeName", "vatMention", "mediationClause", "paymentChoiceDefault", "split3MinTotalCents", "annualFreeMonths",
+  "paymentSepaEnabled", "paymentCardEnabled", "paymentCardMaxCents",
   "moduleBankEnabled", "moduleSubscriptionsEnabled", "moduleStripeEnabled",
   "siren", "siret", "apeCode", "legalForm", "rcsMention", "vatIntraNumber", "email", "phone", "addressLine1", "addressLine2",
   "postalCode", "city", "country", "website", "decennaleInsurer", "decennalePolicyNumber", "decennaleCoverageZone",

@@ -165,7 +165,9 @@ export async function issueQuote(
     // Base de l'acompte, du 2 ou 3 fois et du seuil : la partie ponctuelle (l'abonnement est
     // facturé à chaque période, il n'entre pas dans l'échéancier).
     const depositBaseCents = computeDepositBaseCents(quote.lines, quote.subtotalCents, quote.totalCents);
-    const offer = isSubscriptionOnly(quote.lines)
+    // Partie ponctuelle nulle (pack tout en abonnement, remise totale) : comme un abonnement seul, pas d'échéancier à 0 €.
+    const noOneOffPart = quote.lines.some((l) => l.isSubscription) && depositBaseCents <= 0;
+    const offer = isSubscriptionOnly(quote.lines) || noOneOffPart
       ? "NONE"
       : effectiveOffer(parsePaymentPlanOffer(quote.paymentPlanOffer), depositBaseCents, settings);
 

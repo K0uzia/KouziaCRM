@@ -1,3 +1,4 @@
+import { subscriptionMethodTypes } from "@/lib/stripe/payment-methods.js";
 import { BALANCE_INCLUDE, invoiceBalance } from "@/lib/invoices/balance.js";
 import { prisma } from "@/lib/prisma.js";
 import { formatEUR } from "@/lib/money.js";
@@ -74,10 +75,11 @@ export async function payPageInfo(kind: PayTokenKind, id: string): Promise<PayPa
   }
   if (!sub || sub.status === "ENDED" || sub.stripeSubscriptionId) return null;
   const period = sub.billingInterval === "YEAR" ? "par an" : "par mois";
+  const methods = subscriptionMethodTypes(sub.amountCents, await getCompanySettings());
   return withMinimum(
     {
       title: sub.label,
-      detail: `Prélèvement de ${formatEUR(sub.amountCents)} ${period}, par prélèvement SEPA ou carte bancaire.`,
+      detail: `Prélèvement de ${formatEUR(sub.amountCents)} ${period}, ${methods.length > 1 ? "par prélèvement SEPA ou carte bancaire" : methods[0] === "card" ? "par carte bancaire" : "par prélèvement SEPA"}.`,
       button: "Mettre en place le prélèvement",
     },
     sub.amountCents,

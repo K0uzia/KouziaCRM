@@ -643,7 +643,7 @@ export function InvoiceDocument({ company, client, invoice, specimen, draft }: I
                 <Text style={styles.grandLabel}>Total du projet</Text>
                 <Text style={styles.grandValue}>{fmtMoney(invoice.mixedTotals.projectCents)}</Text>
               </View>
-              <Text style={styles.vat}>Acompte et échéancier portent sur ce montant.</Text>
+              <Text style={styles.vat}>Acompte et échéancier portent sur cette partie ponctuelle ; l'abonnement est facturé à part.</Text>
               <View style={[styles.totalLine, { marginTop: 8 }]}>
                 <Text style={{ fontFamily: "Helvetica-Bold" }}>
                   {invoice.mixedTotals.subscriptions.length > 1 ? "Abonnements" : "Abonnement"}
@@ -774,7 +774,7 @@ export function InvoiceDocument({ company, client, invoice, specimen, draft }: I
 
         {isQuote && invoice.paymentPlanChoice && invoice.paymentPlanChoice.length > 0 ? (
           <View style={styles.section} wrap={false}>
-            <Text style={styles.h2}>Échéancier au choix</Text>
+            <Text style={styles.h2}>{invoice.mixedTotals ? "Partie ponctuelle : échéancier au choix" : "Échéancier au choix"}</Text>
             <Text style={styles.muted}>La formule de paiement se choisit à la signature du devis.</Text>
             {invoice.paymentPlanChoice.map((p) => (
               <View key={p.title} style={{ marginTop: 6 }}>
@@ -797,8 +797,10 @@ export function InvoiceDocument({ company, client, invoice, specimen, draft }: I
           <View style={styles.section} wrap={false}>
             <Text style={styles.h2}>
               {invoice.paymentPlanRetained
-                ? `Échéancier retenu par le client : ${invoice.paymentPlanRetained.toLowerCase()}`
-                : "Échéancier de paiement"}
+                ? `${invoice.mixedTotals ? "Partie ponctuelle, échéancier" : "Échéancier"} retenu par le client : ${invoice.paymentPlanRetained.toLowerCase()}`
+                : invoice.mixedTotals
+                  ? "Partie ponctuelle : échéancier de paiement"
+                  : "Échéancier de paiement"}
             </Text>
             {invoice.milestones.map((m, i) => (
               <View key={i} style={styles.milestone}>

@@ -47,14 +47,22 @@ async function unpaidInvoice(totalCents = 12900) {
 }
 
 describe("lien de paiement", () => {
-  it("GET : page avec le bouton Payer, sans créer de session Stripe (préchargement des antivirus)", async () => {
+  it("GET (décision du 19/10/2026) : redirection 303 immédiate vers Stripe Checkout, sans page", async () => {
     const inv = await unpaidInvoice();
     const res = await app.inject({ method: "GET", url: `/api/public/pay/${signPayToken("invoice", inv.id)}` });
-    expect(res.statusCode).toBe(200);
-    expect(res.body).toContain("F-2026-0042");
-    expect(res.body).toContain("129,00");
-    expect(res.headers["content-security-policy"]).toContain("form-action 'self' https://checkout.stripe.com");
+    expect(res.statusCode).toBe(303);
+    expect(res.headers.location).toBe("https://checkout.stripe.com/c/pay/cs_test_123");
+    expect(createInvoiceCheckoutSession).toHaveBeenCalledWith(inv.id);
+  });
+
+  it("GET d'une facture déjà réglée : retour direct vers l'espace client, aucune session", async () => {
+    const inv = await unpaidInvoice();
+    await prisma.invoice.update({ where: { id: inv.id }, data: { status: "PAID" } });
+    const res = await app.inject({ method: "GET", url: `/api/public/pay/${signPayToken("invoice", inv.id)}` });
     expect(createInvoiceCheckoutSession).not.toHaveBeenCalled();
+    // Rien à payer : l'espace client affiche la facture réglée.
+    expect(res.statusCode).toBe(303);
+    expect(res.headers.location).not.toContain("checkout.stripe.com");
   });
 
   it("POST depuis l'hôte de l'API (formulaire de la page) : redirection 303 vers Stripe Checkout", async () => {

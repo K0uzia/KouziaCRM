@@ -483,6 +483,11 @@ model CompanySettings {
 
   /// Stripe : encaissement en ligne, catalogue et abonnements.
   moduleStripeEnabled          Boolean @default(false)
+  /// Moyens proposés sur un lien Stripe, dans cet ordre : prélèvement SEPA, virement Stripe (toujours), carte jusqu'au seuil
+  paymentSepaEnabled           Boolean @default(true)
+  paymentCardEnabled           Boolean @default(true)
+  /// Carte proposée seulement jusqu'à ce montant (centimes) ; au-delà, SEPA et virement
+  paymentCardMaxCents          Int     @default(30000)
   stripeSecretKeyEncrypted     String?
   stripeSecretKeyHint          String?
   stripeWebhookSecretEncrypted String?
@@ -1029,6 +1034,9 @@ model Subscription {
   publicToken             String?                      @unique
   /// Lien de mise en place du prélèvement Stripe envoyé au client (un seul envoi automatique)
   setupLinkSentAt         DateTime?
+  /// Moyen enregistré dans Stripe (sepa_debit | card) et ses 4 derniers chiffres ; jamais l'IBAN ni le numéro complet
+  paymentMethodType       String?
+  paymentMethodLast4      String?
   invoices                Invoice[]
   sourceLines             InvoiceLine[]                @relation("SubscriptionLines")
   /// Lignes de devis d'avenant qui révisent cet abonnement
@@ -1124,6 +1132,9 @@ model Invoice {
   revolutOrderId               String?
   /// Lien ERP permanent /api/public/pay/… (ou URL collée à la main)
   checkoutUrl                  String?
+  /// Prélèvement SEPA (ou virement Stripe) lancé, résultat attendu : posé par payment_intent.processing, effacé à l'issue
+  paymentProcessingAt          DateTime?
+  paymentProcessingMethod      String?
   /// Identifiant Invoice Stripe (in_…) : une échéance Billing = une facture ERP
   stripeInvoiceId              String?                @unique
   /// Facture ou avoir émis : PDF archivé à l'émission (data/uploads), servi tel quel ensuite

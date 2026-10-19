@@ -93,6 +93,10 @@ export type PublicSettings = {
   split3Step2TriggerText: string;
   paymentButtonLeadDays: number;
   annualFreeMonths?: number;
+  /** Moyens d'un lien Stripe : SEPA, virement Stripe, carte jusqu'au seuil (centimes). */
+  paymentSepaEnabled?: boolean;
+  paymentCardEnabled?: boolean;
+  paymentCardMaxCents?: number;
   projectMilestoneMidBps: number;
   moduleBankEnabled: boolean;
   moduleSubscriptionsEnabled: boolean;

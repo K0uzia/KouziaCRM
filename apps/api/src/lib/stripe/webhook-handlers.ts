@@ -7,6 +7,13 @@ import { mailEnqueue } from "@/lib/email/mailer/index.js";
 import { getStripe } from "@/lib/stripe/client.js";
 import { syncCatalogFromStripe } from "@/lib/stripe/catalog.js";
 import { alertAdmin } from "@/lib/stripe/alert.js";
+import {
+  clearInvoiceProcessing,
+  markInvoiceProcessing,
+  notifyInvoicePaymentFailed,
+  notifyMandateUpdated,
+  recordSubscriptionPaymentMethod,
+} from "@/lib/stripe/payment-processing.js";
 import { keyLivemode, modeLabel } from "@/lib/stripe/mode.js";
 import {
   handleStripeInvoicePaid,
@@ -121,7 +128,14 @@ async function handleEvent(event: Stripe.Event): Promise<string> {
         invoiceId: meta.erpInvoiceId || null,
         notes: "Paiement Stripe",
       });
+      await clearInvoiceProcessing(pi);
       break;
+    }
+    case "payment_intent.processing": {
+      return `${event.type}:${await markInvoiceProcessing(event.data.object as Stripe.PaymentIntent)}`;
+    }
+    case "mandate.updated": {
+      return `${event.type}:${await notifyMandateUpdated(event.data.object as Stripe.Mandate)}`;
     }
     case "charge.updated": {
       // Frais Stripe connus après coup : complète le paiement ERP enregistré sans frais.
@@ -145,6 +159,9 @@ async function handleEvent(event: Stripe.Event): Promise<string> {
           reason: pi.last_payment_error?.message ?? "Échec de paiement Stripe",
         });
       }
+      // Facture (lien de facture, ou échéance déjà facturée) : redevient à régler, admin et client prévenus.
+      if (pi.metadata?.erpInvoiceId) return `${event.type}:${await notifyInvoicePaymentFailed(pi)}`;
+      await clearInvoiceProcessing(pi);
       break;
     }
     case "checkout.session.completed": {
@@ -161,6 +178,7 @@ async function handleEvent(event: Stripe.Event): Promise<string> {
             stripeSubscriptionId: stripeSubId,
             livemode: event.livemode,
           });
+          await recordSubscriptionPaymentMethod(erpSubscriptionId, stripeSubId);
         }
       }
       break;
