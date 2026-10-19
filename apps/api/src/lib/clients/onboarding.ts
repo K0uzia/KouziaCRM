@@ -16,6 +16,7 @@ import {
 import {
   type AddressErrorCode,
   type AddressSuggestion,
+  type CompanyErrorCode,
   normalizeFrenchAddress,
   verifyCompanyIdentifiers,
 } from "@/lib/address/france.js";
@@ -223,7 +224,7 @@ export type SubmissionResult = {
   ok: boolean;
   error?: string;
   alreadySubmitted?: boolean;
-  code?: AddressErrorCode;
+  code?: AddressErrorCode | CompanyErrorCode;
   suggestion?: AddressSuggestion;
 };
 
@@ -261,7 +262,7 @@ async function toPrismaData(d: OnboardingSubmission) {
       companyName,
       apeCode,
     });
-    if (!verified.ok) throw new AddressValidationError(verified.error);
+    if (!verified.ok) throw new AddressValidationError(verified.error, { code: verified.code });
     siren = verified.data.siren;
     siret = verified.data.siret;
     apeCode = verified.data.apeCode;

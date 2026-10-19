@@ -1017,7 +1017,8 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
           status: 400,
           ipTrunc: truncateIp(request.ip),
         });
-        return reply.code(400).send({ error: parsed.error.flatten() });
+        // code "validation" (ajout du 19/10/2026) : erreurs rattachées aux champs dans error.fieldErrors.
+        return reply.code(400).send({ error: parsed.error.flatten(), code: "validation" });
       }
       // Honeypot rempli = robot : fausse réussite, rien n'est enregistré.
       if (parsed.data.website?.trim()) {
