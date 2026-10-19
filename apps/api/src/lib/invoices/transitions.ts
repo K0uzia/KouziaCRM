@@ -503,7 +503,7 @@ export async function acceptQuoteByClient(
       },
       include: { lines: true, client: true },
     });
-    if (plan) await applyPlanMilestones(tx, quoteId, depositBaseOf(pending), plan, settings);
+    if (plan) await applyPlanMilestones(tx, quoteId, depositBaseOf(pending), plan, settings, { keepIssued: true });
     // Abonnement seul : la 1re échéance est due tout de suite et facturée par l'abonnement
     // (Stripe après le mandat, sinon facture ERP immédiate), jamais par le devis.
     // Devis mixte : seules les lignes au départ « à la signature » ou « à une date » démarrent maintenant ; les

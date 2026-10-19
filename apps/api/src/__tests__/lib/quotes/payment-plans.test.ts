@@ -89,6 +89,20 @@ describe("formules de paiement", () => {
     expect((await milestonesOf(id)).map((m) => m.percentBps)).toEqual([3000, 7000]);
   });
 
+  it("réglages changés entre l'émission et la signature : l'échéancier du devis émis fait foi", async () => {
+    const id = await draftQuote(105_000, "TWO");
+    await issueQuote(id);
+    await prisma.companySettings.updateMany({ data: { depositPercent1Bps: 5000, depositPercent2Bps: 5000 } });
+    invalidateCompanySettingsCache();
+    await acceptQuoteByClient(id, "Camille Dupont", { source: "ADMIN" });
+    const ms = await milestonesOf(id);
+    expect(ms.map((m) => [m.percentBps, m.amountCents])).toEqual([
+      [3000, 31_500],
+      [7000, 73_500],
+    ]);
+    expect(ms[0]!.status).toBe(MilestoneStatus.DUE);
+  });
+
   it("formule non proposée refusée", async () => {
     const id = await draftQuote(149_000, "TWO");
     await issueQuote(id);
