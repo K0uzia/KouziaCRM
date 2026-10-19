@@ -585,7 +585,12 @@ export function SubscriptionsPage() {
       showFrom: 1200,
       selector: (s) => s.nextInvoiceAt,
       sortable: true,
-      cell: (s) => <span className="whitespace-nowrap text-[var(--muted)]">{formatDate(s.nextInvoiceAt)}</span>,
+      cell: (s) => (
+        <span className="whitespace-nowrap text-[var(--muted)]">
+          {formatDate(s.nextInvoiceAt)}
+          {s.commitmentEndsAt ? <span className="block text-xs">Engagé jusqu'au {formatDate(s.commitmentEndsAt)}</span> : null}
+        </span>
+      ),
     },
     {
       name: "Statut",
