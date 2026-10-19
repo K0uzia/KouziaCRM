@@ -222,8 +222,9 @@ function fmtMoney(cents: number) {
   return formatEUR(cents);
 }
 
-function subscriptionHeading(lines: Array<{ isSubscription?: boolean; billingInterval?: string | null }>) {
+function subscriptionHeading(lines: Array<{ isSubscription?: boolean; billingInterval?: string | null; commitmentMonths?: number | null }>) {
   const subs = lines.filter((l) => l.isSubscription);
+  if (subs.every((l) => l.commitmentMonths)) return "Abonnement avec engagement";
   if (subs.every((l) => l.billingInterval === "YEAR")) return "Engagement d'abonnement annuel";
   if (subs.every((l) => l.billingInterval !== "YEAR")) return "Engagement d'abonnement mensuel";
   return "Engagement d'abonnement";
@@ -361,7 +362,8 @@ export type InvoicePdfData = {
       withdrawalEndsAt?: Date | null;
     } | null;
     /** Clauses de l'encadré d'abonnement par périodicité (Réglages > Clauses). */
-    subscriptionTerms?: { MONTH: string | null; YEAR: string | null };
+    /** COMMITMENT : lignes avec durée d'engagement, à la place de la clause de leur périodicité. */
+    subscriptionTerms?: { MONTH: string | null; YEAR: string | null; COMMITMENT?: string | null };
     /** Droit de rétractation et formulaire type : devis d'un client particulier. */
     withdrawalTerms?: string | null;
     /** Devis avec abonnement : date de prélèvement à changer par un refus motivé (clause dédiée), sous les totaux. */
@@ -380,6 +382,8 @@ export type InvoicePdfData = {
       billingInterval?: string | null;
       /** Départ choisi sur la ligne du devis, en clair : « 12 mois offerts à partir de la livraison du projet, puis 72,00 € par an ». */
       startText?: string | null;
+      /** Ligne d'abonnement : durée d'engagement en mois ; null = sans engagement. */
+      commitmentMonths?: number | null;
       /** Pack : titre sous lequel la ligne est groupée ; ligne de remise du pack. */
       groupTitle?: string | null;
       isPackDiscount?: boolean;
@@ -748,11 +752,13 @@ export function InvoiceDocument({ company, client, invoice, specimen, draft }: I
                       : invoice.subscriptionFromDelivery
                         ? "1re échéance facturée à partir de la livraison, hors acompte et échéancier."
                         : "Le total de ce document inclut la 1re échéance ; les échéances suivantes feront l'objet de factures séparées."
-                  }`}
+                  }${l.commitmentMonths ? ` Engagement de ${l.commitmentMonths} mois à compter de la signature du devis.` : ""}`}
                 </Text>
               ))}
             {(["MONTH", "YEAR"] as const)
-              .filter((iv) => invoice.lines.some((l) => l.isSubscription && (l.billingInterval === "YEAR" ? "YEAR" : "MONTH") === iv))
+              .filter((iv) =>
+                invoice.lines.some((l) => l.isSubscription && !l.commitmentMonths && (l.billingInterval === "YEAR" ? "YEAR" : "MONTH") === iv),
+              )
               .map((iv) =>
                 invoice.subscriptionTerms?.[iv] ? (
                   <Text key={iv} style={[styles.muted, { marginTop: 4 }]}>
@@ -760,6 +766,9 @@ export function InvoiceDocument({ company, client, invoice, specimen, draft }: I
                   </Text>
                 ) : null,
               )}
+            {invoice.subscriptionTerms?.COMMITMENT && invoice.lines.some((l) => l.isSubscription && l.commitmentMonths) ? (
+              <Text style={[styles.muted, { marginTop: 4 }]}>{fillClauseVariables(invoice.subscriptionTerms.COMMITMENT, company)}</Text>
+            ) : null}
           </View>
         ) : null}
 

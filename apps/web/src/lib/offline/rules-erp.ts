@@ -56,7 +56,7 @@ function sanitizeClientEmails(data: unknown): Json {
 const SUBSCRIPTION_KEYS = [
   "id", "clientId", "serviceId", "label", "amountCents", "billingDay", "startDate", "endDate", "status", "collectionMethod",
   "billingInterval", "nextInvoiceAt", "lastInvoiceId", "renewalReminderSentFor", "cancellationRequestedAt", "stripeStatus",
-  "stripeCancelAt", "setupLinkSentAt", "firstInvoicePending", "draftLike", "createdAt", "updatedAt",
+  "stripeCancelAt", "setupLinkSentAt", "firstInvoicePending", "draftLike", "commitmentMonths", "commitmentEndsAt", "createdAt", "updatedAt",
 ] as const;
 
 function sanitizeSubscription(data: unknown): Json | null {

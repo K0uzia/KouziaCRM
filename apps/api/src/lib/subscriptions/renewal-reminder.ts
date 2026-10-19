@@ -146,6 +146,8 @@ export async function sendDueRenewalReminders(now: Date = new Date()): Promise<n
       s.renewalReminderSentFor?.getTime() !== s.nextInvoiceAt.getTime() &&
       isRenewal(s) &&
       billed.has(s.id) &&
+      // Échéance encore couverte par l'engagement : pas une reconduction, rien à refuser.
+      !(s.commitmentEndsAt && s.nextInvoiceAt < s.commitmentEndsAt) &&
       (!s.endDate || s.endDate >= s.nextInvoiceAt),
   );
   if (due.length === 0) return 0;

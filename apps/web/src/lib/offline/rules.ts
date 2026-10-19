@@ -53,7 +53,7 @@ const PACK_SERVICE_KEYS = ["id", "name", "unitPriceCents", "isSubscription", "bi
 
 const LINE_KEYS = [
   "id", "invoiceId", "position", "description", "quantity", "unitPriceCents", "lineTotalCents", "isSubscription",
-  "billingDay", "billingInterval", "subscriptionStart", "subscriptionStartDate", "subscriptionFreeMonths",
+  "billingDay", "billingInterval", "subscriptionStart", "subscriptionStartDate", "subscriptionFreeMonths", "commitmentMonths",
   "serviceId", "groupTitle", "isPackDiscount",
 ] as const;
 

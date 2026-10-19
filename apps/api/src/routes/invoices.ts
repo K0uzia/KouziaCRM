@@ -75,6 +75,8 @@ const lineSchema = z.object({
   subscriptionStart: z.enum(SUBSCRIPTION_STARTS).optional().nullable(),
   subscriptionStartDate: z.iso.date().optional().nullable(),
   subscriptionFreeMonths: z.coerce.number().int().min(1).max(FREE_MONTHS_MAX).optional().nullable(),
+  /** Abonnement : durée d'engagement en mois (offre tout compris) ; absent ou null = sans engagement. */
+  commitmentMonths: z.union([z.literal(12), z.literal(24), z.literal(36)]).optional().nullable(),
   /** Pack : titre sous lequel la ligne est groupée, et ligne de remise du pack (montant négatif ou nul). */
   groupTitle: z.string().trim().max(200).optional().nullable(),
   isPackDiscount: z.boolean().optional().default(false),
@@ -95,6 +97,7 @@ const lineStartFields = (l: z.output<typeof lineSchema>) => ({
   subscriptionStart: l.subscriptionStart ?? null,
   subscriptionStartDate: l.subscriptionStartDate ? new Date(`${l.subscriptionStartDate}T00:00:00`) : null,
   subscriptionFreeMonths: l.subscriptionFreeMonths ?? null,
+  commitmentMonths: l.isSubscription ? (l.commitmentMonths ?? null) : null,
 });
 
 /** Lignes saisies : centimes et champs de départ, telles qu'enregistrées à la création. */
@@ -700,6 +703,7 @@ export const invoicesRoutes: FastifyPluginAsync = async (app) => {
             subscriptionStart: l.subscriptionStart,
             subscriptionStartDate: l.subscriptionStartDate,
             subscriptionFreeMonths: l.subscriptionFreeMonths,
+            commitmentMonths: l.commitmentMonths,
           }));
 
       if (parsed.data.lines) {

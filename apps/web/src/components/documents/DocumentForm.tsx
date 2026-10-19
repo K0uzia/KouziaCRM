@@ -37,6 +37,8 @@ export type DocLine = {
   /** Pack : titre sous lequel la ligne est groupée ; ligne de remise du pack (montant négatif). */
   groupTitle?: string;
   isPackDiscount?: boolean;
+  /** Abonnement de devis : durée d'engagement en mois (« 12 », « 24 », « 36 ») ; vide = sans engagement. */
+  commitmentMonths?: string;
 } & Partial<StartFields>;
 
 const NO_START: StartFields = { subscriptionStart: "", subscriptionStartDate: "", subscriptionFreeMonths: "" };
@@ -216,6 +218,7 @@ export function DocumentFormEditor({
           subscriptionStart?: string | null;
           subscriptionStartDate?: string | null;
           subscriptionFreeMonths?: number | null;
+          commitmentMonths?: number | null;
         }>;
       }>(`/api/invoices/${quoteId}`);
       const lines = (q.lines ?? []).map((l) => ({
@@ -226,6 +229,7 @@ export function DocumentFormEditor({
         billingDay: String(l.billingDay ?? 1),
         billingInterval: normalizeInterval(l.billingInterval),
         serviceId: l.serviceId ?? "",
+        commitmentMonths: l.commitmentMonths ? String(l.commitmentMonths) : "",
         ...startFromLine(l),
       }));
       if (lines.length) setForm((f) => ({ ...f, lines }));
@@ -393,7 +397,9 @@ export function DocumentFormEditor({
         serviceId: l.isSubscription ? l.serviceId : null,
         groupTitle: l.groupTitle?.trim() || null,
         isPackDiscount: Boolean(l.isPackDiscount),
-        ...(documentType === "QUOTE" && l.isSubscription ? startPayload(startOf(l)) : {}),
+        ...(documentType === "QUOTE" && l.isSubscription
+          ? { ...startPayload(startOf(l)), commitmentMonths: l.commitmentMonths ? Number(l.commitmentMonths) : null }
+          : {}),
       })),
     };
   }
@@ -989,6 +995,20 @@ function SubscriptionStartFields({
             ))}
           </select>
           {line.billingInterval === "YEAR" ? "du mois anniversaire" : "de chaque mois"}
+        </label>
+        <label className="flex flex-wrap items-center gap-1.5 text-[var(--muted)]">
+          engagement
+          <select
+            className={control}
+            aria-label={`Ligne ${n} : durée d'engagement`}
+            value={line.commitmentMonths ?? ""}
+            onChange={(e) => onChange({ commitmentMonths: e.target.value })}
+          >
+            <option value="">sans engagement</option>
+            <option value="12">12 mois</option>
+            <option value="24">24 mois</option>
+            <option value="36">36 mois</option>
+          </select>
         </label>
       </div>
       <p className="text-[var(--muted)]" aria-live="polite">

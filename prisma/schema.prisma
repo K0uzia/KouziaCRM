@@ -526,6 +526,8 @@ enum LegalClauseKind {
   WITHDRAWAL
   /// Phrase sous les abonnements d'un devis : date de prélèvement à changer par un refus motivé
   SUBSCRIPTION_BILLING_DATE
+  /// Abonnement avec durée d'engagement (offre tout compris) : imprimée à la place de la clause de périodicité
+  SUBSCRIPTION_COMMITMENT
 }
 
 /// Clients auxquels une clause s'imprime (type du client du document)
@@ -992,6 +994,10 @@ model Subscription {
   startDate               DateTime
   /// null = actif indéfiniment
   endDate                 DateTime?
+  /// Durée d'engagement en mois (offre tout compris : 36) ; null = sans engagement
+  commitmentMonths        Int?
+  /// Fin de l'engagement = départ du contrat + commitmentMonths ; avant cette date, résiliation sur demande traitée par l'admin
+  commitmentEndsAt        DateTime?
   status                  SubscriptionStatus           @default(ACTIVE)
   collectionMethod        SubscriptionCollectionMethod @default(MANUAL_TRANSFER)
   /// Identifiant Subscription Stripe (sub_…)
@@ -1234,6 +1240,8 @@ model InvoiceLine {
   subscriptionStartDate  DateTime?
   /// Mois offerts avant la 1re facture, comptés depuis le départ par défaut (subscriptionStart = FREE_MONTHS)
   subscriptionFreeMonths Int?
+  /// Ligne d'abonnement de devis : durée d'engagement en mois (12, 24 ou 36) ; null = sans engagement
+  commitmentMonths       Int?
   serviceId              String?
   service                Service?      @relation(fields: [serviceId], references: [id])
   /// Rempli quand le Subscription a été créé (idempotence)
