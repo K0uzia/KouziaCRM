@@ -30,6 +30,8 @@ import { toast } from "sonner";
 import { NotificationsProvider } from "@/lib/notifications";
 import { VersionNotice } from "@/components/VersionNotice";
 import { OfflineCopyIndicator } from "@/components/OfflineCopyIndicator";
+import { OfflinePageMissing } from "@/components/OfflinePageMissing";
+import { forgetMissing, usePageMissing } from "@/lib/offline/served";
 import { copyNow, startAutoOfflineCopy } from "@/lib/offline/sync";
 import { MoreMenu } from "@/components/ui/MoreMenu";
 
@@ -249,6 +251,7 @@ export function AppLayout() {
         replay,
         remountPage: () => {
           const top = mainRef.current?.scrollTop ?? 0;
+          forgetMissing(window.location.pathname);
           setPageEpoch((n) => n + 1);
           for (const delay of [50, 400, 1200]) window.setTimeout(() => mainRef.current?.scrollTo({ top }), delay);
         },
@@ -282,6 +285,8 @@ export function AppLayout() {
     requestAnimationFrame(() => (drawerOpener.current ?? drawerTrigger.current)?.focus());
   const drawerRef = useRef<HTMLDivElement>(null);
   const { pathname } = useLocation();
+  // Hors ligne, écran sans aucune donnée sur l'appareil : état propre ; l'écran reste monté (caché) pour réessayer.
+  const pageMissing = usePageMissing(pathname) && readOnly;
   const features = useFeatures();
   const space = spaceOf(pathname);
   const { item: current, section: currentSection } = locate(pathname);
@@ -581,9 +586,12 @@ export function AppLayout() {
                 : "mx-auto w-full max-w-[var(--content-max)] min-w-0 px-[var(--gutter)] py-5 lg:py-7"
             }
           >
-            <PageErrorBoundary key={pageEpoch} resetKey={pathname}>
-              <Outlet />
-            </PageErrorBoundary>
+            {pageMissing ? <OfflinePageMissing /> : null}
+            <div hidden={pageMissing} className={pageMissing ? "hidden" : "contents"}>
+              <PageErrorBoundary key={pageEpoch} resetKey={pathname}>
+                <Outlet />
+              </PageErrorBoundary>
+            </div>
           </div>
         </main>
 

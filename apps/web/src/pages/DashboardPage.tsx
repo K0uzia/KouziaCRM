@@ -1,4 +1,4 @@
-import { lazy, Suspense, useCallback, useEffect, useRef, useState, type ComponentType, type ReactNode } from "react";
+import { lazy, Suspense, useCallback, useEffect, useId, useRef, useState, type ComponentType, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import {
@@ -40,6 +40,7 @@ import { Card } from "@/components/ui/Card";
 import { Segmented } from "@/components/ui/Segmented";
 import { StatStrip } from "@/components/ui/StatStrip";
 import { formMessageName } from "@/pages/messaging/sender";
+import { useReadOnly } from "@/lib/offline/read-only";
 
 /** Notifications qui changent les chiffres ou les listes du tableau de bord (les autres ne le rechargent pas). */
 const DASHBOARD_KINDS = new Set<NotificationKind>(["mail", "payment", "deposit_due", "quote_accepted", "quote_rejected", "subscription_stripe"]);
@@ -251,6 +252,8 @@ function SectionTitle({ children, action }: { children: ReactNode; action?: Reac
 }
 
 export function DashboardPage() {
+  const { readOnly, copyNotice, reason } = useReadOnly();
+  const readOnlyId = useId();
   const { user } = useAuth();
   const [scope, setScope] = useState<Scope>("month");
   const [data, setData] = useState<Overview | null>(null);
@@ -399,6 +402,8 @@ export function DashboardPage() {
   }
 
   const firstName = (user?.name ?? "").split(/\s+/)[0];
+  // Hors ligne : date des données, et actions qui exigent le réseau désactivées (raison liée et écrite).
+  const offline = readOnly ? { disabled: true, "aria-describedby": readOnlyId, title: reason ?? undefined } : null;
   const today = new Date().toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long" });
 
   const header = (
@@ -409,6 +414,11 @@ export function DashboardPage() {
           {greeting()}
           {firstName ? ` ${firstName}` : ""}
         </h1>
+        {readOnly ? (
+          <p id={readOnlyId} data-offline-notice className="mt-2 max-w-xl text-sm text-[var(--warning)]">
+            {copyNotice ?? reason}
+          </p>
+        ) : null}
       </div>
       <div className="flex flex-wrap items-center gap-2">
         <Segmented
@@ -427,31 +437,54 @@ export function DashboardPage() {
 
   const quickActions = (
     <div className="mb-6 grid grid-cols-2 gap-2 sm:flex sm:flex-wrap">
-      <ButtonLink to="/payments?new=1" className="col-span-2 sm:col-span-1">
-        <FontAwesomeIcon icon={faWallet} className="h-3.5 w-3.5" aria-hidden />
-        Encaisser
-      </ButtonLink>
+      {offline ? (
+        <Button className="col-span-2 sm:col-span-1" {...offline}>
+          <FontAwesomeIcon icon={faWallet} className="h-3.5 w-3.5" aria-hidden />
+          Encaisser
+        </Button>
+      ) : (
+        <ButtonLink to="/payments?new=1" className="col-span-2 sm:col-span-1">
+          <FontAwesomeIcon icon={faWallet} className="h-3.5 w-3.5" aria-hidden />
+          Encaisser
+        </ButtonLink>
+      )}
       {/* Sous 640 px : libellé court sur une ligne, nom accessible complet (il contient le libellé visible). */}
       <ButtonLink to="/quotes?new=1" variant="secondary" aria-label="Nouveau devis">
         <FontAwesomeIcon icon={faFileSignature} className="h-3.5 w-3.5" aria-hidden />
         <span className="sm:hidden">Devis</span>
         <span className="hidden sm:inline">Nouveau devis</span>
       </ButtonLink>
-      <ButtonLink to="/invoices?new=1" variant="secondary" aria-label="Nouvelle facture">
-        <FontAwesomeIcon icon={faFileInvoice} className="h-3.5 w-3.5" aria-hidden />
-        <span className="sm:hidden">Facture</span>
-        <span className="hidden sm:inline">Nouvelle facture</span>
-      </ButtonLink>
+      {offline ? (
+        <Button variant="secondary" aria-label="Nouvelle facture" {...offline}>
+          <FontAwesomeIcon icon={faFileInvoice} className="h-3.5 w-3.5" aria-hidden />
+          <span className="sm:hidden">Facture</span>
+          <span className="hidden sm:inline">Nouvelle facture</span>
+        </Button>
+      ) : (
+        <ButtonLink to="/invoices?new=1" variant="secondary" aria-label="Nouvelle facture">
+          <FontAwesomeIcon icon={faFileInvoice} className="h-3.5 w-3.5" aria-hidden />
+          <span className="sm:hidden">Facture</span>
+          <span className="hidden sm:inline">Nouvelle facture</span>
+        </ButtonLink>
+      )}
       <ButtonLink to="/clients?new=1" variant="secondary" aria-label="Nouveau client">
         <FontAwesomeIcon icon={faUserPlus} className="h-3.5 w-3.5" aria-hidden />
         <span className="sm:hidden">Client</span>
         <span className="hidden sm:inline">Nouveau client</span>
       </ButtonLink>
-      <ButtonLink to="/inbox/compose" variant="secondary" aria-label="Écrire un mail">
-        <FontAwesomeIcon icon={faPenToSquare} className="h-3.5 w-3.5" aria-hidden />
-        <span className="sm:hidden">Mail</span>
-        <span className="hidden sm:inline">Écrire un mail</span>
-      </ButtonLink>
+      {offline ? (
+        <Button variant="secondary" aria-label="Écrire un mail" {...offline}>
+          <FontAwesomeIcon icon={faPenToSquare} className="h-3.5 w-3.5" aria-hidden />
+          <span className="sm:hidden">Mail</span>
+          <span className="hidden sm:inline">Écrire un mail</span>
+        </Button>
+      ) : (
+        <ButtonLink to="/inbox/compose" variant="secondary" aria-label="Écrire un mail">
+          <FontAwesomeIcon icon={faPenToSquare} className="h-3.5 w-3.5" aria-hidden />
+          <span className="sm:hidden">Mail</span>
+          <span className="hidden sm:inline">Écrire un mail</span>
+        </ButtonLink>
+      )}
     </div>
   );
 
@@ -549,12 +582,12 @@ export function DashboardPage() {
           principale, « Encaisser »), pleine largeur au téléphone, groupées à droite ensuite. */}
       <div role="group" aria-label="Salaire" className="mt-3 grid grid-cols-1 gap-2 sm:flex sm:justify-end">
         {moduleStripeEnabled ? (
-          <Button variant="secondary" onClick={() => setPayoutOpen(true)}>
+          <Button variant="secondary" onClick={() => setPayoutOpen(true)} {...offline}>
             <FontAwesomeIcon icon={faBuildingColumns} className="h-3.5 w-3.5" aria-hidden />
             Verser sur mon compte
           </Button>
         ) : null}
-        <Button variant="secondary" onClick={() => setWithdrawalOpen(true)}>
+        <Button variant="secondary" onClick={() => setWithdrawalOpen(true)} {...offline}>
           <FontAwesomeIcon icon={faHandHoldingDollar} className="h-3.5 w-3.5" aria-hidden />
           Enregistrer un retrait
         </Button>

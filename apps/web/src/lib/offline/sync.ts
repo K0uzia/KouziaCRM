@@ -16,13 +16,15 @@ import { addJournalEntry, refusalHint, type JournalEntry } from "./journal";
  * la dit modifiée depuis sa copie (updatedAt). Débit limité : deux lectures à la fois, une courte pause entre deux.
  */
 
-export type CopyPhase = "Clients" | "Devis" | "Factures" | "Prestations";
+export type CopyPhase = "Clients" | "Devis" | "Factures" | "Prestations" | "Pilotage" | "Comptabilité" | "Abonnements" | "Messagerie" | "Réglages";
 export type CopySummary = {
   at: number;
   clients: number;
   quotes: number;
   invoices: number;
   services: number;
+  /** Fils de messages des 90 derniers jours copiés (texte seulement). */
+  threads?: number;
   sizeBytes: number | null;
   /** Format des copies et liste des lectures : un changement relance une copie complète. */
   format: number;
@@ -41,10 +43,12 @@ export type CopyState = {
 };
 
 /** À augmenter quand la liste des lectures copiées change : la copie suivante est complète. */
-export const SYNC_FORMAT = COPY_FORMAT * 100 + 1;
+export const SYNC_FORMAT = COPY_FORMAT * 100 + 2;
 const SUMMARY_KEY = COPY_SUMMARY_KEY;
 const CONCURRENCY = 2;
 const PAUSE_MS = 120;
+/** Pause réelle (tests : 0). */
+let pauseMs = PAUSE_MS;
 /** Rafraîchissement complet silencieux au plus tard tous les jours (notes et projets sans date de modification). */
 const FULL_EVERY_MS = 24 * 60 * 60 * 1000;
 
@@ -115,7 +119,7 @@ async function pool<T>(items: T[], signal: AbortSignal, work: (item: T) => Promi
       if (signal.aborted) throw new DOMException("Copie annulée", "AbortError");
       const item = items[next++]!;
       await work(item);
-      await sleep(PAUSE_MS, signal);
+      await sleep(pauseMs, signal);
     }
   };
   await Promise.all(Array.from({ length: Math.min(CONCURRENCY, items.length) }, runner));
@@ -153,6 +157,44 @@ function journal(entry: Omit<JournalEntry, "at" | "copied" | "refused" | "durati
   addJournalEntry({ ...entry, at: started, copied: tally.copied, refused: { ...tally.refused }, durationMs: Date.now() - started });
 }
 
+/** Une étape de lectures fixes, avec son avancement. */
+async function steps(phase: CopyPhase, paths: string[], signal: AbortSignal): Promise<void> {
+  set({ phase, done: 0, total: paths.length });
+  let done = 0;
+  for (const path of paths) {
+    await read(path, signal);
+    set({ done: ++done });
+    await sleep(pauseMs, signal);
+  }
+}
+
+/** Fils copiés au plus (les plus récents d'abord) : borne la copie d'une boîte très chargée. */
+const MAX_THREADS = 200;
+const MAIL_DAYS_MS = 90 * 24 * 3600 * 1000;
+
+async function copyMail(full: boolean, signal: AbortSignal): Promise<number> {
+  type Folder = { id: string; isVirtual?: boolean };
+  type Message = { threadId: string; receivedAt: string };
+  const folders = ((await read("/api/emails/folders", signal)) as { folders?: Folder[] } | null)?.folders ?? [];
+  const latest = new Map<string, string>();
+  for (const folder of folders.filter((f) => !f.isVirtual && !f.id.startsWith("virtual:"))) {
+    const page = (await read(`/api/emails/messages?folderId=${folder.id}&skip=0&take=50`, signal)) as { messages?: Message[] } | null;
+    for (const m of page?.messages ?? []) {
+      if (Date.now() - Date.parse(m.receivedAt) > MAIL_DAYS_MS) continue;
+      const known = latest.get(m.threadId);
+      if (!known || known < m.receivedAt) latest.set(m.threadId, m.receivedAt);
+    }
+  }
+  const threads = [...latest.entries()].sort((a, b) => b[1].localeCompare(a[1])).slice(0, MAX_THREADS);
+  set({ phase: "Messagerie", done: 0, total: threads.length });
+  let done = 0;
+  await pool(threads, signal, async ([id, at]) => {
+    if (full || !(await upToDate(`/api/emails/${id}`, at))) await read(`/api/emails/${id}`, signal);
+    set({ done: ++done });
+  });
+  return threads.length;
+}
+
 /**
  * Copie complète (toutes les fiches relues) ou incrémentale (seulement ce qui a changé). `visible` ouvre la fenêtre
  * de progression. Une seule copie à la fois : un second appel pendant une copie est ignoré.
@@ -185,6 +227,9 @@ export async function runOfflineCopy(opts: { full: boolean; visible: boolean; tr
         changedClients.add(c.id);
         await read(`/api/clients/${c.id}`, signal);
         await read(`/api/clients/${c.id}/projects`, signal);
+        await read(`/api/clients/${c.id}/renewals`, signal);
+        await read(`/api/clients/${c.id}/emails`, signal);
+        await read(`/api/invoices?type=INVOICE&clientId=${c.id}`, signal);
         await read(`/api/invoices?clientId=${c.id}`, signal);
         await read(`/api/invoices?type=QUOTE&clientId=${c.id}`, signal);
       }
@@ -209,6 +254,8 @@ export async function runOfflineCopy(opts: { full: boolean; visible: boolean; tr
         listedDocs.add(d.id);
         if (opts.full || !(await upToDate(`/api/invoices/${d.id}`, d.updatedAt))) {
           await read(`/api/invoices/${d.id}`, signal);
+          // Devis émis : son marché (jalons, acomptes, solde), affiché par la fiche du devis et de ses factures.
+          if (type === "QUOTE" && (d as { number?: string | null }).number) await read(`/api/quotes/${d.id}/market`, signal);
           // Pièce modifiée : les listes de pièces de son client suivent (montants, statuts).
           if (!opts.full && d.clientId && !changedClients.has(d.clientId)) {
             changedClients.add(d.clientId);
@@ -220,14 +267,21 @@ export async function runOfflineCopy(opts: { full: boolean; visible: boolean; tr
       });
     }
 
-    // Prestations et réglages des devis (données d'appoint).
-    set({ phase: "Prestations", done: 0, total: 3 });
-    const services = ((await read("/api/services", signal)) as unknown[] | null) ?? [];
-    set({ done: 1 });
-    await read("/api/services?active=1", signal);
-    set({ done: 2 });
-    await read("/api/settings", signal);
-    set({ done: 3 });
+    // Prestations (lignes des packs comprises) et réglages (données d'appoint).
+    const services = ((await read("/api/services", signal)) as Array<{ id: string; isPack?: boolean }> | null) ?? [];
+    const packs = services.filter((s) => s.isPack);
+    await steps("Prestations", ["/api/services?active=1", "/api/settings", ...packs.map((p) => `/api/services/${p.id}/pack-lines`)], signal);
+
+    // Reste de l'ERP en lecture (décision du 19/10/2026) : pilotage, comptabilité, abonnements, réglages.
+    const year = new Date().getFullYear();
+    await steps("Pilotage", ["/api/dashboard/overview?scope=month", "/api/dashboard/overview?scope=quarter", "/api/dashboard/overview?scope=year", "/api/dashboard", "/api/emails/inbox-summary", "/api/notifications/feed", "/api/emails/sync-status"], signal);
+    await steps("Comptabilité", ["/api/payments", "/api/invoices", `/api/receipts?year=${year}`, "/api/obligations", "/api/urssaf/declarations", "/api/owner-pay", "/api/stripe/flux"], signal);
+    await steps("Abonnements", ["/api/subscriptions", "/api/services?subscription=1", "/api/services?active=1&subscription=1", "/api/subscriptions/revisions-to-attach"], signal);
+    await steps("Réglages", ["/api/checklist", "/api/legal-clauses", "/api/numbering/preview", "/api/google/calendar/status"], signal);
+
+    // Messagerie : dossiers, première page de chaque dossier, puis les fils des 90 derniers jours (texte seulement).
+    // Un fil n'est relu que si un message plus récent que sa copie est arrivé (le serveur va chercher sur IMAP).
+    const threads = await copyMail(opts.full, signal);
 
     // Fiches disparues du serveur : leurs copies (et ce qui en dépend) sont retirées.
     const clientIds = new Set(clients.map((c) => c.id));
@@ -244,6 +298,7 @@ export async function runOfflineCopy(opts: { full: boolean; visible: boolean; tr
       quotes,
       invoices,
       services: services.length,
+      threads,
       sizeBytes: await copiesSize().catch(() => null),
       format: SYNC_FORMAT,
       full: opts.full || Boolean(state.summary?.full),
@@ -267,7 +322,9 @@ export async function runOfflineCopy(opts: { full: boolean; visible: boolean; tr
 /** « 47 clients, 130 devis, 52 factures » : contenu de la copie, pour le toast, la notification et les Réglages. */
 export function copyContents(s: CopySummary): string {
   const n = (count: number, one: string, many: string) => `${count} ${count > 1 ? many : one}`;
-  return [n(s.clients, "client", "clients"), n(s.quotes, "devis", "devis"), n(s.invoices, "facture", "factures"), n(s.services, "prestation", "prestations")].join(", ");
+  const parts = [n(s.clients, "client", "clients"), n(s.quotes, "devis", "devis"), n(s.invoices, "facture", "factures"), n(s.services, "prestation", "prestations")];
+  if (s.threads) parts.push(n(s.threads, "fil de messages", "fils de messages"));
+  return parts.join(", ");
 }
 
 /** Fin d'une copie suivie à l'écran : toast, et notification système si l'onglet est en arrière-plan. */
@@ -320,5 +377,6 @@ export function missingCopyMessage(what = "Cette fiche", s = state, feminine = t
 /** Tests : état remis à zéro. */
 export function resetOfflineCopyForTests(): void {
   controller = null;
+  pauseMs = 0;
   state = { running: false, visible: false, mode: null, phase: null, done: 0, total: 0, error: null, summary: readSummary() };
 }

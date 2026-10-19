@@ -20,7 +20,46 @@ export function markServedFromCopy(apiPath: string, savedAt: number, route: stri
 }
 
 export function markFresh(apiPath: string): void {
-  if (entries.delete(apiPath)) emit();
+  const served = entries.delete(apiPath);
+  const wasMissing = missing.delete(apiPath);
+  if (served || wasMissing) emit();
+}
+
+/**
+ * Lectures d'un écran absentes de l'appareil (hors ligne, pas de copie). Lectures communes à tous les écrans
+ * (session, notifications, état de la messagerie, réglages) exclues : seules comptent celles de l'écran.
+ */
+const missing = new Map<string, string>();
+const SHARED = /^\/api\/(auth\/|notifications\/|emails\/sync-status$|settings$|health$)/;
+
+export function markMissing(apiPath: string, route: string): void {
+  if (SHARED.test(apiPath) || missing.get(apiPath) === route) return;
+  missing.set(apiPath, route);
+  emit();
+}
+
+/** Écran sans aucune donnée sur l'appareil : au moins une lecture absente, et rien servi depuis la copie. */
+export function pageMissingFor(route: string): boolean {
+  if (copyDateFor(route) !== null) return false;
+  for (const r of missing.values()) if (r === route) return true;
+  return false;
+}
+
+export function usePageMissing(route: string): boolean {
+  useSyncExternalStore(subscribe, () => version, () => version);
+  return pageMissingFor(route);
+}
+
+/** Écran rechargé (retour du réseau) : ses lectures absentes sont oubliées. */
+export function forgetMissing(route: string): void {
+  let changed = false;
+  for (const [path, r] of missing) {
+    if (r === route) {
+      missing.delete(path);
+      changed = true;
+    }
+  }
+  if (changed) emit();
 }
 
 /** Date de la plus ancienne donnée affichée sur cet écran depuis la copie, ou null. */
@@ -53,6 +92,7 @@ export function formatCopyDate(savedAt: number): string {
 /** Tests : état vide. */
 export function resetServedForTests(): void {
   entries.clear();
+  missing.clear();
   emit();
 }
 

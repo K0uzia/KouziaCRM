@@ -1,3 +1,6 @@
+import { OfflineGuard } from "@/components/ui/OfflineGuard";
+import { Banner } from "@/components/ui/Banner";
+import { useReadOnly } from "@/lib/offline/read-only";
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
@@ -166,6 +169,7 @@ export function SettingsPage() {
   const [previews, setPreviews] = useState<NumberingPreview[]>([]);
   const [audit, setAudit] = useState<NumberingAudit | null>(null);
   const [busy, setBusy] = useState(false);
+  const { readOnly } = useReadOnly();
   const [inpiQuery, setInpiQuery] = useState("");
   const [clauseModal, setClauseModal] = useState<LegalClause | "new" | null>(null);
   const [clauseToDelete, setClauseToDelete] = useState<LegalClause | null>(null);
@@ -837,7 +841,13 @@ export function SettingsPage() {
       <div className="flex flex-col gap-6 md:flex-row md:items-start">
         <SettingsTabNav active={tab} onChange={setTab} />
 
-        <div className="min-w-0 flex-1 space-y-4">
+        {/* Hors ligne : réglages en lecture, depuis la copie (sans secret ni banque) ; rien ne s'enregistre. */}
+        <OfflineGuard className="min-w-0 flex-1 space-y-4">
+          {readOnly ? (
+            <Banner level="info">
+              Réglages en lecture : hors ligne, rien ne s'enregistre. Coordonnées bancaires, clés et serveurs de messagerie ne sont pas copiés sur l'appareil.
+            </Banner>
+          ) : null}
           {tab === "general" ? (
             <Card className="space-y-5 border border-[var(--border)] p-5">
               <div>
@@ -2143,7 +2153,7 @@ export function SettingsPage() {
               </Card>
             </section>
           ) : null}
-        </div>
+        </OfflineGuard>
       </div>
 
       <Modal

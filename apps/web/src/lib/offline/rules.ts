@@ -1,11 +1,12 @@
-// Liste FERMÉE des lectures copiées pour le hors ligne : clients (coordonnées comprises), bloc-notes, notes de rendez-vous et
-// projets des fiches clients, prestations, devis, factures (sans PDF), synthèse de leurs listes (des nombres
-// seulement) et le petit sous-ensemble des réglages utile
-// aux devis. Toute autre requête n'est jamais
-// copiée. Chaque réponse passe par une liste blanche de champs : un champ ajouté plus tard côté API n'entre pas
-// dans la copie sans être ajouté ici. Exclus : authentification, 2FA, codes de secours, abonnements push,
-// secrets des réglages (Stripe, SMTP, IMAP, Revolut, IBAN), banque, paiements, versements, messagerie,
-// pièces jointes, PDF, preuves de signature, codes de l'espace client, jetons d'invitation.
+// Liste FERMÉE des lectures copiées pour le hors ligne : clients (coordonnées comprises), bloc-notes et projets des
+// fiches, prestations, devis, factures (sans PDF) et synthèses, réglages en lecture ; le reste de l'ERP (pilotage,
+// comptabilité, abonnements, messagerie des 90 derniers jours en texte) est dans lib/offline/rules-erp. Toute autre
+// requête n'est jamais copiée. Chaque réponse passe par une liste blanche de champs : un champ ajouté plus tard côté
+// API n'entre pas dans la copie sans être ajouté ici. Exclus : authentification, 2FA, codes de secours, abonnements
+// push, secrets et clés (Stripe, SMTP, IMAP, Revolut, Google, GitHub) et leurs indices, IBAN et banque, pièces
+// jointes, PDF, preuves de signature, liens de paiement, codes de l'espace client, jetons d'invitation, module Site.
+
+import { erpRules, sanitizeSettingsRead } from "./rules-erp";
 
 type Json = Record<string, unknown>;
 export type OfflineRule = {
@@ -16,8 +17,8 @@ export type OfflineRule = {
   support?: boolean;
 };
 
-/** Écrans consultables hors ligne : listes et fiches des clients, devis, factures, prestations. */
-export const OFFLINE_SCREENS = /^\/(clients|quotes|invoices|services)(\/[A-Za-z0-9_-]+)?\/?$/;
+/** Écrans consultables hors ligne : tout l'ERP (décision du 19/10/2026), sauf le module Site et la connexion. */
+export const OFFLINE_SCREENS = /^\/(?!site(\/|$)|login(\/|$))/;
 
 const ID = "[A-Za-z0-9_-]{1,64}";
 
@@ -163,8 +164,9 @@ export function sanitizeProject(data: unknown): Json | null {
   return project;
 }
 
+/** Réglages en lecture (écran Réglages compris), sans aucun secret ni coordonnée bancaire : lib/offline/rules-erp. */
 export function sanitizeSettings(data: unknown): Json | null {
-  return pick(data, SETTINGS_KEYS);
+  return sanitizeSettingsRead(data);
 }
 
 /** Synthèse d'une liste : des nombres seulement (par statut, par type, à relire, en retard). */
@@ -195,17 +197,18 @@ export const OFFLINE_RULES: readonly OfflineRule[] = [
   { name: "bloc-notes", pattern: new RegExp(`^/api/clients/${ID}/notepad$`), sanitize: sanitizeNotepad },
   { name: "notes de rendez-vous", pattern: new RegExp(`^/api/clients/${ID}/notes$`), sanitize: listOf(sanitizeNote) },
   { name: "projets du client", pattern: new RegExp(`^/api/clients/${ID}/projects$`), sanitize: listOf(sanitizeProject) },
-  { name: "prestations", pattern: /^\/api\/services(\?active=1)?$/, sanitize: listOf(sanitizeService) },
+  { name: "prestations", pattern: /^\/api\/services(\?(active=1|subscription=1|active=1&subscription=1))?$/, sanitize: listOf(sanitizeService) },
   {
     name: "listes de devis et de factures",
     pattern: new RegExp(
-      `^/api/invoices\\?(type=(QUOTE|INVOICE)|clientId=${ID}(&pageSize=100)?|type=QUOTE&clientId=${ID}(&pageSize=100)?|type=INVOICE&market=${ID})$`,
+      `^/api/invoices\\?(type=(QUOTE|INVOICE)|clientId=${ID}(&pageSize=100)?|type=(QUOTE|INVOICE)&clientId=${ID}(&pageSize=100)?|type=INVOICE&market=${ID})$`,
     ),
     sanitize: listOf(sanitizeInvoice),
   },
   { name: "synthèse des devis ou des factures", pattern: /^\/api\/invoices\/summary\?type=(QUOTE|INVOICE)$/, sanitize: sanitizeSummary },
   { name: "devis ou facture", pattern: new RegExp(`^/api/invoices/(?!search$|summary$)${ID}$`), sanitize: sanitizeInvoice },
-  { name: "réglages des devis", pattern: /^\/api\/settings$/, sanitize: sanitizeSettings, support: true },
+  { name: "réglages", pattern: /^\/api\/settings$/, sanitize: sanitizeSettings, support: true },
+  ...erpRules(sanitizeInvoice),
 ];
 
 /** Règle de copie d'une lecture, ou null : la requête n'est jamais copiée. */

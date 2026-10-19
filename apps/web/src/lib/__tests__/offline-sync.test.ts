@@ -32,11 +32,41 @@ function resetServer(updatedAt = "2026-10-01T00:00:00Z") {
     "/api/services": [{ id: "s1", name: "Site" }],
     "/api/services?active=1": [{ id: "s1", name: "Site" }],
     "/api/settings": { legalName: "Exemple" },
+    // Reste de l'ERP : réponses vides, chaque lecture existe.
+    "/api/dashboard/overview?scope=month": {},
+    "/api/dashboard/overview?scope=quarter": {},
+    "/api/dashboard/overview?scope=year": {},
+    "/api/dashboard": {},
+    "/api/emails/inbox-summary": { messages: [] },
+    "/api/notifications/feed": { items: [] },
+    "/api/emails/sync-status": {},
+    "/api/payments": [],
+    "/api/invoices": [],
+    [`/api/receipts?year=${new Date().getFullYear()}`]: { rows: [], totalCents: 0 },
+    "/api/obligations": { items: [], history: [] },
+    "/api/urssaf/declarations": [],
+    "/api/owner-pay": { flows: [], withdrawals: [] },
+    "/api/stripe/flux": { payouts: [] },
+    "/api/subscriptions": [],
+    "/api/services?subscription=1": [],
+    "/api/services?active=1&subscription=1": [],
+    "/api/subscriptions/revisions-to-attach": [],
+    "/api/checklist": {},
+    "/api/legal-clauses": [],
+    "/api/numbering/preview": {},
+    "/api/google/calendar/status": {},
+    "/api/emails/folders": { folders: [{ id: "f1" }] },
+    "/api/emails/messages?folderId=f1&skip=0&take=50": { messages: [{ threadId: "t1", receivedAt: new Date().toISOString() }] },
+    "/api/emails/t1": { id: "t1", messages: [] },
+    "/api/quotes/q1/market": { milestones: [] },
   };
   for (const id of ["c1", "c2"]) {
     server[`/api/clients/${id}`] = client(id);
     server[`/api/clients/${id}/notepad`] = { text: `Bloc-notes ${id}`, version: 1, updatedAt, conflictAt: null };
     server[`/api/clients/${id}/projects`] = [];
+    server[`/api/clients/${id}/renewals`] = [];
+    server[`/api/clients/${id}/emails`] = { items: [] };
+    server[`/api/invoices?type=INVOICE&clientId=${id}`] = [];
     server[`/api/invoices?clientId=${id}`] = [];
     server[`/api/invoices?type=QUOTE&clientId=${id}`] = [];
   }
@@ -73,7 +103,7 @@ describe("copie automatique complète pour le hors ligne", () => {
     }
     expect(summary!.sizeBytes).toBeGreaterThan(0);
     expect(sync.needsFullCopy()).toBe(false);
-    expect(sync.copyContents(summary!)).toBe("2 clients, 1 devis, 1 facture, 1 prestation");
+    expect(sync.copyContents(summary!)).toBe("2 clients, 1 devis, 1 facture, 1 prestation, 1 fil de messages");
   });
 
   it("mise à jour incrémentale : seule la fiche modifiée est relue, avec les listes de pièces de son client", async () => {
