@@ -377,7 +377,11 @@ async function creationScenario(width: number) {
     await page.getByRole("link", { name: "Nouveau devis" }).click();
     await page.getByLabel("Ligne 1 : désignation").fill(`Site vitrine ${name}`);
     await page.getByLabel("Ligne 1 : prix unitaire en euros").fill("1200");
-    check((await page.getByRole("combobox", { name: "Client", exact: true }).inputValue()).startsWith("local-"), `${width}px  devis : client préparé hors ligne présélectionné`);
+    // Liste de choix : le déclencheur porte « Client : <nom> » ; « (à envoyer) » ne marque que les clients préparés hors ligne.
+    check(
+      (await page.getByRole("button", { name: /^Client : / }).getAttribute("aria-label")) === `Client : ${name} (à envoyer)`,
+      `${width}px  devis : client préparé hors ligne présélectionné`,
+    );
     await page.getByRole("button", { name: "Créer le devis" }).click();
     await page.waitForURL(`${BASE}${localPath}`, { timeout: 8000 });
     await waitCheck(status(page).filter({ hasText: "2 à envoyer" }).waitFor({ timeout: 5000 }), `${width}px  devis mis en file (bandeau : 2 à envoyer)`);

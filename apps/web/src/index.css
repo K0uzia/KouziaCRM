@@ -533,3 +533,10 @@ option:hover {
     font-size: clamp(100%, 0.7917rem + 0.2083vw, 112.5%);
   }
 }
+
+/* Titres de groupe des <select> natifs restants : distincts des options. */
+select optgroup {
+  color: var(--muted);
+  font-weight: 600;
+  background-color: var(--surface);
+}

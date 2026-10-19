@@ -11,7 +11,8 @@ import { DataTable, type DataColumn } from "@/components/ui/DataTable";
 import { ListRow } from "@/components/ui/ListRow";
 import { DocumentNumberBadge } from "@/components/documents/DocumentNumberBadge";
 import { PaymentForm } from "@/components/payments/PaymentForm";
-import { Field, Select } from "@/components/ui/Field";
+import { Field } from "@/components/ui/Field";
+import { Combobox } from "@/components/ui/Combobox";
 import { useCreateParam } from "@/lib/use-create-param";
 import { OFFLINE_MESSAGE, useOnline } from "@/lib/network";
 
@@ -267,14 +268,25 @@ export function PaymentsPage() {
         description="Choisissez la facture puis le montant réellement reçu."
       >
         <Field label="Facture" className="mb-4">
-          <Select value={invoiceId} onChange={(e) => setInvoiceId(e.target.value)}>
-            {openInvoices.map((i) => (
-              <option key={i.id} value={i.id}>
-                {i.number ?? "Sans n°"} : {i.client.displayName} (reste{" "}
-                {formatEUR(i.remaining)})
-              </option>
-            ))}
-          </Select>
+          <Combobox
+            label="Facture"
+            groups={[
+              {
+                heading: "",
+                options: openInvoices.map((i) => ({
+                  value: i.id,
+                  label: `${i.number ?? "Sans n°"} : ${i.client.displayName}`,
+                  meta: formatEUR(i.remaining),
+                  metaDetail: "reste dû",
+                })),
+              },
+            ]}
+            value={invoiceId}
+            placeholder="Choisir une facture"
+            searchPlaceholder="Numéro ou client"
+            emptyText="Aucune facture ne correspond."
+            onChange={setInvoiceId}
+          />
         </Field>
         {invoiceId ? (
           <PaymentForm

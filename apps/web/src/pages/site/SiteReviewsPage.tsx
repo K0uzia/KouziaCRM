@@ -11,6 +11,7 @@ import { EditorFooter, EditorLayout, useItemEditor } from "./editor";
 import { ReviewCardPreview } from "./preview";
 import { DataTable, type DataColumn } from "@/components/ui/DataTable";
 import { Field, Input, Select, Textarea } from "@/components/ui/Field";
+import { Combobox } from "@/components/ui/Combobox";
 import { Banner } from "@/components/ui/Banner";
 import { FilterSelect } from "@/components/ui/ListFilters";
 import { useUrlFilters } from "@/lib/use-url-filters";
@@ -476,14 +477,15 @@ export function SiteReviewPage() {
       <fieldset className="space-y-4 rounded-[var(--radius)] border border-[var(--border)] p-4">
         <legend className="px-1 text-sm font-medium">Preuve que c'est un client (jamais publiée)</legend>
         <Field label="Client" error={errors.clientId}>
-          <Select value={form.clientId} onChange={(e) => setForm((f) => ({ ...f, clientId: e.target.value, invoiceId: "" }))}>
-            <option value="">Choisir…</option>
-            {clients.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.displayName}
-              </option>
-            ))}
-          </Select>
+          <Combobox
+            label="Client"
+            groups={[{ heading: "", options: clients.map((c) => ({ value: c.id, label: c.displayName })) }]}
+            value={form.clientId}
+            placeholder="Choisir un client"
+            searchPlaceholder="Nom du client"
+            emptyText="Aucun client ne correspond."
+            onChange={(clientId) => setForm((f) => ({ ...f, clientId, invoiceId: "" }))}
+          />
         </Field>
         <Field label="Devis ou facture (facultatif)" hint="Le document de la prestation dont parle le témoignage." error={errors.invoiceId}>
           <Select value={form.invoiceId} disabled={!form.clientId} onChange={(e) => set("invoiceId", e.target.value)}>

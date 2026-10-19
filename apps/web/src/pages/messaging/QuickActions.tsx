@@ -4,6 +4,7 @@ import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { Button } from "@/components/ui/Button";
 import { Field, Select } from "@/components/ui/Field";
+import { Combobox } from "@/components/ui/Combobox";
 
 type Doc = {
   id: string;
@@ -83,14 +84,15 @@ export function QuickActions({ threadId, clientId, clientName, subject, onRefres
       {!clientId ? (
         <>
           <Field label="Lier au client" className="min-w-0 w-full sm:min-w-[12.5rem] sm:w-auto">
-            <Select value={linkClientId} onChange={(e) => setLinkClientId(e.target.value)}>
-              <option value="">Choisir…</option>
-              {clients.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.displayName}
-                </option>
-              ))}
-            </Select>
+            <Combobox
+              label="Lier au client"
+              groups={[{ heading: "", options: clients.map((c) => ({ value: c.id, label: c.displayName })) }]}
+              value={linkClientId}
+              placeholder="Choisir un client"
+              searchPlaceholder="Nom du client"
+              emptyText="Aucun client ne correspond."
+              onChange={setLinkClientId}
+            />
           </Field>
           <Button type="button" variant="secondary" disabled={busy || !linkClientId} onClick={() => void linkClient()}>
             Lier

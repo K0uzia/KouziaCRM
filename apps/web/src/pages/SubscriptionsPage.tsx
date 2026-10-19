@@ -24,6 +24,8 @@ import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { StatStrip } from "@/components/ui/StatStrip";
 import { Tabs, useTabParam } from "@/components/ui/Tabs";
 import { Segmented } from "@/components/ui/Segmented";
+import { Combobox } from "@/components/ui/Combobox";
+import { catalogOption } from "@/lib/catalog-options";
 import { DataTable, type DataColumn } from "@/components/ui/DataTable";
 import {
   eurosInputToCents,
@@ -178,6 +180,8 @@ export function SubscriptionsPage() {
   const [open, setOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  // Choix obligatoires (client, offre) : la liste de choix n'a pas la validation native d'un <select required>.
+  const [missing, setMissing] = useState<{ clientId?: boolean; serviceId?: boolean }>({});
   const [form, setForm] = useState(emptyForm);
   const [reviseOpen, setReviseOpen] = useState(false);
   const [reviseId, setReviseId] = useState<string | null>(null);
@@ -255,6 +259,7 @@ export function SubscriptionsPage() {
   }
 
   function openCreate() {
+    setMissing({});
     setEditingId(null);
     // Offre présélectionnée : son prix, son libellé et son jour de prélèvement aussi.
     const svc = services[0];
@@ -439,6 +444,12 @@ export function SubscriptionsPage() {
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
+    const absent = { clientId: !form.clientId, serviceId: !form.serviceId };
+    setMissing(absent);
+    if (absent.clientId || absent.serviceId) {
+      document.getElementById(absent.clientId ? "subscription-client" : "subscription-offer")?.focus();
+      return;
+    }
     setBusy(true);
     try {
       const payload = {
@@ -576,6 +587,9 @@ export function SubscriptionsPage() {
       cell: (s) => <SubscriptionBadges s={s} stripeEnabled={moduleStripeEnabled} />,
     },
   ];
+
+  const clientGroups = [{ heading: "", options: clients.map((c) => ({ value: c.id, label: c.displayName })) }];
+  const offerGroups = [{ heading: "", options: services.map((s) => catalogOption({ ...s, isSubscription: true })) }];
 
   if (!featuresLoading && !moduleSubscriptionsEnabled) {
     return <Navigate to="/services" replace />;
@@ -925,38 +939,43 @@ export function SubscriptionsPage() {
         title={editingId ? "Modifier l'abonnement" : "Nouvel abonnement"}
       >
         <form onSubmit={onSubmit} className="space-y-4">
-          <Field label="Client">
-            <Select
-              required
+          <Field label="Client" error={missing.clientId ? "Choisissez le client." : undefined}>
+            <Combobox
+              id="subscription-client"
+              label="Client"
+              groups={clientGroups}
               value={form.clientId}
-              onChange={(e) => {
+              placeholder="Choisir un client"
+              searchPlaceholder="Nom ou numéro de client"
+              emptyText="Aucun client ne correspond."
+              onChange={(clientId) => {
                 // Jour de prélèvement du client par défaut (modifiable pour cet abonnement).
-                const day = clients.find((c) => c.id === e.target.value)?.billingDay;
-                setForm({ ...form, clientId: e.target.value, ...(day ? { billingDay: String(day) } : {}) });
+                const day = clients.find((c) => c.id === clientId)?.billingDay;
+                setForm({ ...form, clientId, ...(day ? { billingDay: String(day) } : {}) });
+                setMissing((m) => ({ ...m, clientId: false }));
               }}
               disabled={!!editingId}
-            >
-              <option value="">-</option>
-              {clients.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.displayName}
-                </option>
-              ))}
-            </Select>
+            />
           </Field>
           <Field
             label="Offre abonnement"
+            error={missing.serviceId ? "Choisissez l'offre." : undefined}
             hint={(() => {
-              // Le select natif tronque son libellé sur mobile : le détail complet est repris dessous.
+              // Le déclencheur tronque le nom sur mobile : le détail complet est repris dessous.
               const svc = services.find((s) => s.id === form.serviceId);
               return svc ? `${svc.name}, ${formatEUR(svc.unitPriceCents)} ${periodSuffix(svc.billingInterval)}` : undefined;
             })()}
           >
-            <Select
-              required
+            <Combobox
+              id="subscription-offer"
+              label="Offre abonnement"
+              groups={offerGroups}
               value={form.serviceId}
-              onChange={(e) => {
-                const id = e.target.value;
+              placeholder="Choisir une offre"
+              searchPlaceholder="Nom de l'offre"
+              emptyText="Aucune offre ne correspond."
+              onChange={(id) => {
+                setMissing((m) => ({ ...m, serviceId: false }));
                 const svc = services.find((s) => s.id === id);
                 // Montant saisi à la main (différent du montant proposé) : conservé.
                 const prev = services.find((s) => s.id === form.serviceId);
@@ -979,14 +998,7 @@ export function SubscriptionsPage() {
                 });
               }}
               disabled={!!editingId}
-            >
-              <option value="">Choisir une offre…</option>
-              {services.map((s) => (
-                <option key={s.id} value={s.id}>
-                  {s.name}, {formatEUR(s.unitPriceCents)} {periodSuffix(s.billingInterval)}
-                </option>
-              ))}
-            </Select>
+            />
           </Field>
           {editingId ? (
             <Field label="Facturation" hint="Pour passer au mensuel ou à l'annuel, utilisez « Réviser (avenant) » dans le contrat.">
