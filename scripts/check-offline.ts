@@ -33,7 +33,7 @@ const ENGLISH = /Failed to fetch|dynamically imported module|NetworkError|Load f
 const COPY_DATE = /Données du \d{2}\/\d{2} à \d{2} h \d{2}/;
 /** Liste fermée des lectures copiées (apps/web/src/lib/offline/rules.ts), plus l'utilisateur courant. */
 const COPY_KEYS =
-  /^(session:utilisateur|\/api\/clients(\/[A-Za-z0-9_-]+(\/(notes|projects))?)?(\?hasCorrespondence=(true|false))?|\/api\/services(\?active=1)?|\/api\/invoices(\/[A-Za-z0-9_-]+|\/summary\?type=(QUOTE|INVOICE)|\?[A-Za-z0-9=&_-]+)|\/api\/settings)$/;
+  /^(session:utilisateur|\/api\/clients(\/[A-Za-z0-9_-]+(\/(notepad|notes|projects))?)?(\?hasCorrespondence=(true|false))?|\/api\/services(\?active=1)?|\/api\/invoices(\/[A-Za-z0-9_-]+|\/summary\?type=(QUOTE|INVOICE)|\?[A-Za-z0-9=&_-]+)|\/api\/settings)$/;
 const OFFLINE_DB = "kouzia-hors-ligne";
 const STORES = "cle,copies,file,relire";
 
@@ -386,10 +386,14 @@ async function creationScenario(width: number) {
     await page.waitForURL(`${BASE}${localPath}`, { timeout: 8000 });
     await waitCheck(status(page).filter({ hasText: "2 à envoyer" }).waitFor({ timeout: 5000 }), `${width}px  devis mis en file (bandeau : 2 à envoyer)`);
 
-    // 3) Note de rendez-vous sur la fiche.
-    await page.getByRole("textbox", { name: "Nouvelle note" }).fill(noteText);
-    await page.getByRole("button", { name: "Ajouter la note" }).click();
-    await waitCheck(page.locator("[data-note-pending]").filter({ hasText: noteText }).waitFor({ timeout: 5000 }), `${width}px  note affichée dans le journal, « À envoyer »`);
+    // 3) Bloc-notes de la fiche, saisi deux fois : une seule entrée de file, la dernière version gagne.
+    const notepad = page.getByRole("textbox", { name: "Bloc-notes" });
+    await notepad.fill(`${noteText} (premier jet)`);
+    await notepad.blur();
+    await waitCheck(page.locator("[data-client-notepad]").getByText("À envoyer").waitFor({ timeout: 5000 }), `${width}px  bloc-notes enregistré sur l'appareil, « À envoyer »`);
+    await notepad.fill(noteText);
+    await notepad.blur();
+    await waitCheck(status(page).filter({ hasText: "3 à envoyer" }).waitFor({ timeout: 5000 }), `${width}px  deux saisies du bloc-notes : une seule entrée de file (bandeau : 3 à envoyer)`);
 
     // 4) Écran « À envoyer » par un lien (barre du haut dès 400 px, barre latérale ou menu).
     await follow(page, "/a-envoyer");
@@ -416,8 +420,8 @@ async function creationScenario(width: number) {
     if (created[0]) {
       const quotes = (await (await page.request.get(`${BASE}/api/invoices?type=QUOTE&clientId=${created[0].id}&pageSize=100`)).json()) as Array<{ number: string | null; status: string }>;
       check(quotes.length === 1 && quotes[0]!.number === null && quotes[0]!.status === "DRAFT", `${width}px  devis créé une seule fois, brouillon sans numéro (${quotes.length})`);
-      const notes = (await (await page.request.get(`${BASE}/api/clients/${created[0].id}/notes`)).json()) as Array<{ body: string }>;
-      check(notes.length === 1 && notes[0]!.body === noteText, `${width}px  note créée une seule fois (${notes.length})`);
+      const pad = (await (await page.request.get(`${BASE}/api/clients/${created[0].id}/notepad`)).json()) as { text: string; version: number; conflictAt: string | null };
+      check(pad.text === noteText && pad.version === 1 && pad.conflictAt === null, `${width}px  bloc-notes envoyé une fois, dernière version (v${pad.version})`);
     }
     await page.reload();
     await waitCheck(page.getByText("Rien à envoyer").waitFor({ timeout: 8000 }), `${width}px  après rechargement : « À envoyer » toujours vide`);

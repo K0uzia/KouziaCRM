@@ -9,7 +9,7 @@ import { Link } from "react-router-dom";
 import { formatPhoneFr } from "@/lib/format";
 import { Button } from "@/components/ui/Button";
 import { ModalActions } from "@/components/ui/Modal";
-import { Field, Input, Select, Textarea } from "@/components/ui/Field";
+import { Field, Input, Select } from "@/components/ui/Field";
 import { NeedsEditor, type ClientNeed } from "@/components/clients/NeedsEditor";
 import {
   AddressAutocomplete,
@@ -83,7 +83,6 @@ export type ClientFormData = {
   addressLat: number | null;
   addressLon: number | null;
   addressManualConfirmed: boolean;
-  notes: string;
   /** "" = le 1er (valeur par défaut). */
   billingDay: string;
   sirenLocked: boolean;
@@ -151,7 +150,6 @@ export const emptyClientForm = (): ClientFormData => ({
   addressLat: null,
   addressLon: null,
   addressManualConfirmed: false,
-  notes: "",
   billingDay: "",
   sirenLocked: false,
 });
@@ -177,7 +175,6 @@ export function clientToForm(c: Client): ClientFormData {
     addressLat: c.addressLat ?? null,
     addressLon: c.addressLon ?? null,
     addressManualConfirmed: false,
-    notes: c.notes ?? "",
     billingDay: c.billingDay ? String(c.billingDay) : "",
     sirenLocked: Boolean(c.companyVerifiedAt),
   };
@@ -284,7 +281,6 @@ export function ClientFormEditor({
             companyName: form.companyName,
             email: form.email || null,
             phone: form.phone || null,
-            notes: form.notes,
             needs,
             sendPortalAccess: false,
           }
@@ -308,7 +304,6 @@ export function ClientFormEditor({
             addressLat: form.addressLat,
             addressLon: form.addressLon,
             addressManualConfirmed: form.addressManualConfirmed,
-            notes: form.notes,
             billingDay: form.billingDay ? Number(form.billingDay) : null,
             ...(clientId ? {} : { sendPortalAccess: sendPortalAccess && Boolean(form.email), needs }),
           };
@@ -478,18 +473,15 @@ export function ClientFormEditor({
       </FormSection>
       )}
 
-      <FormSection title={clientId ? "Notes" : "Besoins et notes"} defaultOpen>
-        {clientId ? null : (
+      {/* « Notes internes » : remplacées par le bloc-notes de la fiche (une seule source, chiffrée). */}
+      {clientId ? null : (
+        <FormSection title="Besoins" defaultOpen>
           <div className="space-y-1.5">
-            <p className="text-sm font-medium">Besoins</p>
             <p className="text-xs text-[var(--muted)]">Pour préparer le devis et le projet. Entrée ajoute le besoin.</p>
             <NeedsEditor needs={needs} onChange={setNeeds} />
           </div>
-        )}
-        <Field label="Notes internes" hint="Non visibles sur les documents PDF">
-          <Textarea value={form.notes} onChange={(e) => set("notes", e.target.value)} rows={3} />
-        </Field>
-      </FormSection>
+        </FormSection>
+      )}
 
       {minimal ? null : (
       <FormSection title="Abonnements" defaultOpen>

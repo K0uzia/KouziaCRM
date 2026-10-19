@@ -35,7 +35,7 @@ function resetServer(updatedAt = "2026-10-01T00:00:00Z") {
   };
   for (const id of ["c1", "c2"]) {
     server[`/api/clients/${id}`] = client(id);
-    server[`/api/clients/${id}/notes`] = [];
+    server[`/api/clients/${id}/notepad`] = { text: `Bloc-notes ${id}`, version: 1, updatedAt, conflictAt: null };
     server[`/api/clients/${id}/projects`] = [];
     server[`/api/invoices?clientId=${id}`] = [];
     server[`/api/invoices?type=QUOTE&clientId=${id}`] = [];
@@ -65,10 +65,10 @@ beforeEach(async () => {
 afterEach(() => vi.unstubAllGlobals());
 
 describe("copie automatique complète pour le hors ligne", () => {
-  it("copie complète : chaque fiche, jamais visitée comprise, avec ses notes, projets et pièces ; résumé enregistré", async () => {
+  it("copie complète : chaque fiche, jamais visitée comprise, avec son bloc-notes, ses projets et pièces ; résumé enregistré", async () => {
     const summary = await sync.runOfflineCopy({ full: true, visible: true });
     expect(summary).toMatchObject({ clients: 2, quotes: 1, invoices: 1, services: 1, format: sync.SYNC_FORMAT, full: true });
-    for (const path of ["/api/clients/c2", "/api/clients/c2/notes", "/api/clients/c2/projects", "/api/invoices?clientId=c2", "/api/invoices/q1", "/api/invoices/f1", "/api/settings"]) {
+    for (const path of ["/api/clients/c2", "/api/clients/c2/notepad", "/api/clients/c2/projects", "/api/invoices?clientId=c2", "/api/invoices/q1", "/api/invoices/f1", "/api/settings"]) {
       expect(await readCopy(path), path).not.toBeNull();
     }
     expect(summary!.sizeBytes).toBeGreaterThan(0);
@@ -87,12 +87,25 @@ describe("copie automatique complète pour le hors ligne", () => {
     expect(reads).not.toContain("/api/invoices/q1");
   });
 
+  it("bloc-notes modifié sans que la fiche change : seul le bloc-notes est relu", async () => {
+    await sync.runOfflineCopy({ full: true, visible: false });
+    const later = new Date(Date.now() + 60_000).toISOString();
+    (server["/api/clients"] as Array<{ id: string; notepadUpdatedAt?: string }>)[0]!.notepadUpdatedAt = later;
+    server["/api/clients/c1/notepad"] = { text: "Nouveau texte", version: 2, updatedAt: later, conflictAt: null };
+    reads = [];
+    await sync.runOfflineCopy({ full: false, visible: false });
+    expect(reads).toContain("/api/clients/c1/notepad");
+    expect(reads).not.toContain("/api/clients/c1");
+    expect(reads).not.toContain("/api/clients/c2/notepad");
+    expect((await readCopy("/api/clients/c1/notepad"))?.data).toMatchObject({ text: "Nouveau texte", version: 2 });
+  });
+
   it("fiche disparue du serveur : sa copie et ce qui en dépend sont retirés", async () => {
     await sync.runOfflineCopy({ full: true, visible: false });
     server["/api/clients"] = (server["/api/clients"] as Array<{ id: string }>).filter((c) => c.id !== "c2");
     await sync.runOfflineCopy({ full: false, visible: false });
     expect(await readCopy("/api/clients/c2")).toBeNull();
-    expect(await readCopy("/api/clients/c2/notes")).toBeNull();
+    expect(await readCopy("/api/clients/c2/notepad")).toBeNull();
     expect(await readCopy("/api/clients/c1")).not.toBeNull();
   });
 

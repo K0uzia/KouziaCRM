@@ -14,7 +14,7 @@ import { StatStrip } from "@/components/ui/StatStrip";
 import { Tabs, useTabParam } from "@/components/ui/Tabs";
 import { Badge, Card, EmptyState, PageHeader } from "@/components/ui/Card";
 import { OfflineGuard } from "@/components/ui/OfflineGuard";
-import { ClientNotesCard } from "@/components/clients/ClientNotesCard";
+import { ClientNotepadCard } from "@/components/clients/ClientNotepadCard";
 import { isLocalClientId, resolvedClientId, useOfflineQueue } from "@/lib/offline/queue";
 import { Modal, ModalActions } from "@/components/ui/Modal";
 import { Field, Input } from "@/components/ui/Field";
@@ -440,7 +440,7 @@ function PendingClientPage({ localId }: { localId: string }) {
               Voir « À envoyer »
             </Link>
           </Card>
-          <ClientNotesCard clientId={localId} clientName={client.displayName} />
+          <ClientNotepadCard clientId={localId} clientName={client.displayName} />
         </div>
         <aside className="space-y-6" aria-label="Informations du client">
           <Card className="p-5 text-sm">
@@ -683,17 +683,11 @@ function ClientDetail({ id }: { id: string | undefined }) {
                   </div>
                   {docList(docs, 5)}
                 </Card>
-                <ClientNotesCard clientId={client.id} clientName={client.displayName} />
+                <ClientNotepadCard clientId={client.id} clientName={client.displayName} />
                 <OfflineGuard className="space-y-6">
                   <ClientNeedsCard key={client.id} clientId={client.id} initial={client.needs ?? []} />
                   <ClientRenewalsCard clientId={client.id} />
                 </OfflineGuard>
-                {client.notes ? (
-                  <Card className="p-5">
-                    <h2 className="mb-2 text-sm font-semibold">Notes internes</h2>
-                    <p className="whitespace-pre-wrap text-sm text-[var(--muted)]">{client.notes}</p>
-                  </Card>
-                ) : null}
               </div>
             ) : null}
             {tab === "documents" ? <Card className="overflow-hidden">{docList(docs)}</Card> : null}

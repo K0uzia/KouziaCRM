@@ -2,6 +2,7 @@ import "fake-indexeddb/auto";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   enqueue,
+  enqueueNotepad,
   getQueueSnapshot,
   isLocalClientId,
   loadQueue,
@@ -48,6 +49,8 @@ function fakeServer(opts: { session?: boolean; deletedClients?: string[]; knownE
     loseResponse: new Set<string>(),
     created: new Map<string, { id: string; kind: string; clientId?: string }>(),
     sent: [] as Sent[],
+    /** Bloc-notes côté serveur, par client : texte et version. */
+    notepads: new Map<string, { text: string; version: number }>(),
   };
   let n = 0;
   const fetchMock = vi.fn(async (input: string, init?: RequestInit) => {
@@ -89,6 +92,16 @@ function fakeServer(opts: { session?: boolean; deletedClients?: string[]; knownE
       const id = `srv-note-${++n}`;
       state.created.set(requestId, { id, kind: "note", clientId: note[1] });
       return respond(201, { id });
+    }
+    const pad = /^\/api\/clients\/([^/]+)\/notepad$/.exec(input);
+    if (pad && method === "PUT") {
+      const current = state.notepads.get(pad[1]!) ?? { text: "", version: 0 };
+      const text = String(body?.text ?? "");
+      if (text === current.text) return json({ ...current, conflict: false });
+      const conflict = Number(body?.baseVersion) !== current.version && current.text !== "";
+      const next = { text: conflict ? `${current.text}\n\nVersion de l'appareil, à relire :\n${text}` : text, version: current.version + 1 };
+      state.notepads.set(pad[1]!, next);
+      return json({ ...next, conflict });
     }
     return json({ error: "Introuvable" }, 404);
   });
@@ -324,5 +337,43 @@ describe("file des créations hors ligne", () => {
     // Erreur métier (400) : jamais mise en file, renvoyée au formulaire.
     vi.stubGlobal("fetch", vi.fn(async () => json({ error: "Données invalides" }, 400)));
     await expect(submitCreation({ kind: "note", label: "Note", clientId: "srv-client-1", clientName: "Lou", body: { body: "" }, requestId: "f-400" })).rejects.toThrow("Données invalides");
+  });
+});
+
+describe("bloc-notes hors ligne", () => {
+  it("une seule entrée par client : la dernière saisie remplace la précédente et garde la version lue", async () => {
+    await enqueueNotepad({ clientId: "srv-client-9", clientName: "Lou", text: "Premier jet", baseVersion: 4 });
+    await enqueueNotepad({ clientId: "srv-client-9", clientName: "Lou", text: "Version finale", baseVersion: 5 });
+    await enqueueNotepad({ clientId: "srv-client-8", clientName: "Sam", text: "Autre fiche", baseVersion: 0 });
+    const items = getQueueSnapshot().items.filter((i) => i.kind === "notepad");
+    expect(items).toHaveLength(2);
+    expect(items.find((i) => i.clientId === "srv-client-9")!.body).toEqual({ text: "Version finale", baseVersion: 4 });
+    // Chiffré comme le reste de la file.
+    const { values } = await rawQueue();
+    for (const value of values) expect(latin1(value.data)).not.toMatch(/Version finale|Lou/);
+  });
+
+  it("client préparé hors ligne : le bloc-notes part après lui, en PUT sur son vrai identifiant, une seule fois", async () => {
+    const client = await enqueue({ kind: "client", label: "Client Lou", clientName: "Lou", body: { type: "B2C", lastName: "Lou" } });
+    await enqueueNotepad({ clientId: client.clientId, clientName: "Lou", text: "Rendez-vous du jour", baseVersion: 0 });
+    const server = fakeServer();
+    online = true;
+    expect(await replayQueue()).toBe("done");
+    const puts = server.sent.filter((x) => x.method === "PUT");
+    expect(puts).toEqual([{ method: "PUT", path: "/api/clients/srv-client-1/notepad", body: { text: "Rendez-vous du jour", baseVersion: 0 } }]);
+    expect(server.notepads.get("srv-client-1")).toEqual({ text: "Rendez-vous du jour", version: 1 });
+    expect(getQueueSnapshot().items).toHaveLength(0);
+    expect(getQueueSnapshot().signals).toHaveLength(0);
+  });
+
+  it("modifié ailleurs entre-temps : envoi accepté, les deux textes gardés et signalés à relire", async () => {
+    await enqueueNotepad({ clientId: "srv-client-9", clientName: "Lou", text: "Saisi hors ligne", baseVersion: 1 });
+    const server = fakeServer();
+    server.notepads.set("srv-client-9", { text: "Saisi sur le PC", version: 2 });
+    online = true;
+    expect(await replayQueue()).toBe("done");
+    expect(server.notepads.get("srv-client-9")!.text).toBe("Saisi sur le PC\n\nVersion de l'appareil, à relire :\nSaisi hors ligne");
+    expect(getQueueSnapshot().items).toHaveLength(0);
+    expect(getQueueSnapshot().signals).toMatchObject([{ kind: "notepad", to: "/clients/srv-client-9" }]);
   });
 });

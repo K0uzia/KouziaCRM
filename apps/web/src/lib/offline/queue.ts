@@ -15,7 +15,7 @@ import { deleteSealed, putSealed, readAllSealed } from "./store";
  * - Écarts : client modifié ou prix changé, le devis est créé avec l'étiquette « Préparé hors ligne, à relire »
  *   posée par le serveur ; adresse déjà connue, rattachement signalé ici (magasin « relire ») ; client supprimé ou donnée refusée : l'élément reste dans la file, « à revoir ».
  */
-export type QueueKind = "client" | "quote" | "note";
+export type QueueKind = "client" | "quote" | "note" | "notepad";
 /** waiting : à envoyer ; error : envoi échoué (serveur), nouvel essai automatique ; review : à revoir. */
 export type QueueState = "waiting" | "error" | "review";
 
@@ -144,16 +144,46 @@ const PATHS: Record<QueueKind, (item: QueueItem) => string> = {
   client: () => "/api/clients",
   quote: () => "/api/invoices",
   note: (item) => `/api/clients/${encodeURIComponent(item.clientId)}/notes`,
+  notepad: (item) => `/api/clients/${encodeURIComponent(item.clientId)}/notepad`,
 };
 
 function requestBody(item: QueueItem): Record<string, unknown> {
   if (item.kind === "client") return { ...item.body, clientRequestId: item.id };
   if (item.kind === "quote") return { ...item.body, clientId: item.clientId, clientRequestId: item.id };
+  // Bloc-notes : texte et version lue ; le serveur tient un renvoi du même texte pour déjà enregistré.
+  if (item.kind === "notepad") return { ...item.body };
   return { ...item.body, clientRequestId: item.id, preparedAt: item.preparedAt };
 }
 
 function send<T>(item: QueueItem): Promise<T> {
-  return api<T>(PATHS[item.kind](item), { method: "POST", body: JSON.stringify(requestBody(item)) });
+  return api<T>(PATHS[item.kind](item), { method: item.kind === "notepad" ? "PUT" : "POST", body: JSON.stringify(requestBody(item)) });
+}
+
+/**
+ * Bloc-notes saisi hors ligne : UNE entrée par client, la dernière version gagne. Une nouvelle saisie remplace le
+ * texte de l'entrée en attente et garde sa version lue (celle du serveur n'a pas bougé pour cet appareil).
+ */
+export async function enqueueNotepad(input: { clientId: string; clientName: string; text: string; baseVersion: number }): Promise<QueueItem> {
+  await loadQueue();
+  const existing = snapshot.items.find((i) => i.kind === "notepad" && i.clientId === input.clientId);
+  if (existing) {
+    const updated: QueueItem = {
+      ...existing,
+      preparedAt: new Date().toISOString(),
+      state: "waiting",
+      message: null,
+      body: { text: input.text, baseVersion: Number(existing.body.baseVersion) || 0 },
+    };
+    await save(updated);
+    return updated;
+  }
+  return enqueue({
+    kind: "notepad",
+    label: `Bloc-notes de ${input.clientName}`,
+    clientId: input.clientId,
+    clientName: input.clientName,
+    body: { text: input.text, baseVersion: input.baseVersion },
+  });
 }
 
 export type PrepareInput = {
@@ -261,6 +291,20 @@ async function sendOne(item: QueueItem): Promise<"sent" | "review" | "session" |
     if (item.kind === "client") {
       const client = await send<{ id: string; displayName: string }>(item);
       await attach(item.clientId, client.id, client.displayName);
+    } else if (item.kind === "notepad") {
+      // Modifié ailleurs entre-temps : le serveur garde les deux textes, à relire ; signalé ici aussi.
+      const saved = await send<{ conflict?: boolean }>(item);
+      if (saved.conflict) {
+        await addSignal({
+          id: item.id,
+          kind: "notepad",
+          label: item.label,
+          to: `/clients/${item.clientId}`,
+          targetId: item.clientId,
+          messages: ["Bloc-notes modifié sur un autre appareil entre-temps : les deux versions sont gardées, à relire."],
+          at: new Date().toISOString(),
+        });
+      }
     } else {
       // Devis : un écart (client modifié, prix changé) est gardé par le serveur (Invoice.offlineReviewReason),
       // visible sur tous les appareils.

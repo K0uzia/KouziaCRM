@@ -682,6 +682,21 @@ selftest_respawn() {
   die "Pas de relance en 30 s : voir kouziactl logs ${target} et /var/log/kouzia/*.err"
 }
 
+# Reprise des anciennes données (scripts/reprise.ts) : sortie en nombres seulement. Exécution réelle : ses comptes
+# sont ajoutés au journal reprise.log (date et nombres, aucune donnée personnelle). Usage : run_reprise [--dry-run]
+run_reprise() {
+  local out
+  if [[ "${1:-}" == "--dry-run" ]]; then
+    out="$(run_as_app "cd '$KOUZIA_APP_DIR' && npm run --silent reprise -- --dry-run")" || { printf '%s\n' "$out"; return 1; }
+    printf '%s\n' "$out"
+    return 0
+  fi
+  out="$(run_as_app "cd '$KOUZIA_APP_DIR' && npm run --silent reprise")" || { printf '%s\n' "$out"; return 1; }
+  printf '%s\n' "$out"
+  mkdir -p "$KOUZIA_OPS_LOG_DIR"
+  { echo "[$(date '+%Y-%m-%dT%H:%M:%S%z')]"; printf '%s\n' "$out"; } >> "${KOUZIA_OPS_LOG_DIR}/reprise.log"
+}
+
 # prisma migrate avec retry si "database is locked"
 prisma_migrate_deploy() {
   local dir="${1:-$KOUZIA_APP_DIR}"
