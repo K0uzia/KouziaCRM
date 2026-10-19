@@ -36,6 +36,8 @@ const createSchema = z.object({
   firstInvoiceAt: z.string().min(1).optional().nullable(),
   /** Virement (facture de l'ERP) ou prélèvement Stripe (carte ou SEPA, lien de mise en place envoyé au client). */
   collectionMethod: z.enum(["MANUAL_TRANSFER", "STRIPE"]).default("MANUAL_TRANSFER"),
+  /** Durée d'engagement en mois (offre tout compris) ; absent ou null = sans engagement. */
+  commitmentMonths: z.union([z.literal(12), z.literal(24), z.literal(36)]).optional().nullable(),
 });
 
 const patchSchema = z.object({
@@ -93,6 +95,7 @@ export const subscriptionsRoutes: FastifyPluginAsync = async (app) => {
         endDate: parseDate(parsed.data.endDate),
         firstInvoiceAt: parseDate(parsed.data.firstInvoiceAt) ?? undefined,
         collectionMethod: parsed.data.collectionMethod,
+        commitmentMonths: parsed.data.commitmentMonths ?? null,
       });
       // Prélèvement Stripe : le client reçoit le lien de mise en place (mandat SEPA ou carte, 1er prélèvement à la 1re échéance).
       if (sub.collectionMethod === "STRIPE") {

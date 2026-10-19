@@ -205,6 +205,7 @@ export function buildInvoicePdfPayload({
       billingInterval: l.billingInterval,
       groupTitle: l.groupTitle,
       isPackDiscount: l.isPackDiscount,
+      commitmentMonths: l.isSubscription ? (l.commitmentMonths ?? null) : null,
       // Départ choisi sur la ligne du devis (date précise, mois offerts…) : phrase à la place du départ par défaut.
       startText:
         isQuote && l.isSubscription && l.subscriptionStart
@@ -212,7 +213,11 @@ export function buildInvoicePdfPayload({
           : null,
     })),
     legalClauses: clauses.filter((c) => !DEDICATED_CLAUSE_KINDS.has(c.kind)).map((c) => ({ title: c.title, body: c.body })),
-    subscriptionTerms: { MONTH: clauseBody("SUBSCRIPTION_MONTHLY"), YEAR: clauseBody("SUBSCRIPTION_ANNUAL") },
+    subscriptionTerms: {
+      MONTH: clauseBody("SUBSCRIPTION_MONTHLY"),
+      YEAR: clauseBody("SUBSCRIPTION_ANNUAL"),
+      COMMITMENT: clauseBody("SUBSCRIPTION_COMMITMENT"),
+    },
     // Information précontractuelle des particuliers (audience B2C) : devis seulement.
     withdrawalTerms: isQuote ? clauseBody("WITHDRAWAL") : null,
     subscriptionDateNotice: isQuote && invoice.lines.some((l) => l.isSubscription) ? clauseBody("SUBSCRIPTION_BILLING_DATE") : null,

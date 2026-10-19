@@ -1,3 +1,5 @@
+import { isUnderCommitment } from "@/lib/subscriptions/commitment.js";
+import { formatLongDate } from "@/lib/money.js";
 import { balanceFields } from "@/lib/invoices/balance.js";
 import type { FastifyPluginAsync } from "fastify";
 import { z } from "zod";
@@ -705,6 +707,12 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
       }
       if (!isStripeManaged(sub)) {
         return reply.code(409).send({ error: "Cet abonnement n'est pas prélevé en ligne : utilisez « Demander la résiliation »." });
+      }
+      // Engagement en cours : pas de gestion (ni résiliation) dans le portail Stripe, la demande passe par l'admin.
+      if (isUnderCommitment(sub)) {
+        return reply.code(409).send({
+          error: `Cet abonnement est engagé jusqu'au ${formatLongDate(sub.commitmentEndsAt!)} : utilisez « Demander la résiliation ».`,
+        });
       }
       try {
         const { createSubscriptionPortalUrl } = await import("@/lib/stripe/portal.js");

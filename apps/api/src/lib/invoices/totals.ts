@@ -1,4 +1,5 @@
 import { lineTotalCents } from "@/lib/money.js";
+import { isCommitmentMonths } from "@/lib/subscriptions/commitment.js";
 
 export type LineInput = {
   description: string;
@@ -17,6 +18,8 @@ export type LineInput = {
   subscriptionStart?: string | null;
   subscriptionStartDate?: Date | string | null;
   subscriptionFreeMonths?: number | null;
+  /** Ligne d'abonnement : durée d'engagement en mois (12, 24, 36) ; null = sans engagement. */
+  commitmentMonths?: number | null;
   /** Titre du pack sous lequel la ligne est groupée. */
   groupTitle?: string | null;
   /** Ligne « Remise pack » (montant négatif, partie ponctuelle). */
@@ -87,6 +90,7 @@ export function computeLineTotals(lines: LineInput[], discount: DiscountInput = 
       revisesSubscriptionId: isSubscription ? (line.revisesSubscriptionId ?? null) : null,
       groupTitle: line.groupTitle?.trim() || null,
       isPackDiscount: !isSubscription && Boolean(line.isPackDiscount),
+      commitmentMonths: isSubscription && isCommitmentMonths(line.commitmentMonths) ? line.commitmentMonths : null,
       ...lineStart(line, isSubscription),
     };
   });

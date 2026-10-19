@@ -49,6 +49,9 @@ type Subscription = {
   billingInterval?: string | null;
   startDate: string;
   endDate: string | null;
+  /** Durée et fin d'engagement (offre tout compris) ; null = sans engagement. */
+  commitmentMonths?: number | null;
+  commitmentEndsAt?: string | null;
   status: SubscriptionStatus;
   nextInvoiceAt: string;
   /** Dernière facture émise par l'abonnement : null tant que la 1re échéance n'est pas passée. */
@@ -107,6 +110,8 @@ const emptyForm = {
   /** Vide : 1re facture au prochain jour de prélèvement. Rempli : 1re échéance différée (ex. une année offerte). */
   firstInvoiceAt: "",
   collectionMethod: "MANUAL_TRANSFER" as "MANUAL_TRANSFER" | "STRIPE",
+  /** Durée d'engagement en mois ; vide = sans engagement (création seulement). */
+  commitmentMonths: "",
 };
 
 /** Avenant envoyé avant les abonnements multiples, accepté, à rattacher à l'un des abonnements du client. */
@@ -385,6 +390,7 @@ export function SubscriptionsPage() {
       startDate: s.startDate.slice(0, 10),
       firstInvoiceAt: s.nextInvoiceAt.slice(0, 10),
       collectionMethod: s.collectionMethod === "STRIPE" ? "STRIPE" : "MANUAL_TRANSFER",
+      commitmentMonths: s.commitmentMonths ? String(s.commitmentMonths) : "",
     });
     setOpen(true);
   }
@@ -462,6 +468,7 @@ export function SubscriptionsPage() {
         startDate: form.startDate,
         firstInvoiceAt: form.firstInvoiceAt || null,
         collectionMethod: form.collectionMethod,
+        commitmentMonths: form.commitmentMonths ? Number(form.commitmentMonths) : null,
       };
       if (editingId) {
         const firstInvoiceChanged =
@@ -578,7 +585,12 @@ export function SubscriptionsPage() {
       showFrom: 1200,
       selector: (s) => s.nextInvoiceAt,
       sortable: true,
-      cell: (s) => <span className="whitespace-nowrap text-[var(--muted)]">{formatDate(s.nextInvoiceAt)}</span>,
+      cell: (s) => (
+        <span className="whitespace-nowrap text-[var(--muted)]">
+          {formatDate(s.nextInvoiceAt)}
+          {s.commitmentEndsAt ? <span className="block text-xs">Engagé jusqu'au {formatDate(s.commitmentEndsAt)}</span> : null}
+        </span>
+      ),
     },
     {
       name: "Statut",
@@ -693,7 +705,10 @@ export function SubscriptionsPage() {
                     </span>
                   </span>
                   <span className="flex w-full flex-wrap items-center justify-between gap-2 text-sm text-[var(--muted)]">
-                    <span>Prochaine facture : {formatDate(s.nextInvoiceAt)}</span>
+                    <span>
+                      Prochaine facture : {formatDate(s.nextInvoiceAt)}
+                      {s.commitmentEndsAt ? <span className="block">Engagé jusqu'au {formatDate(s.commitmentEndsAt)}</span> : null}
+                    </span>
                     <SubscriptionBadges s={s} stripeEnabled={moduleStripeEnabled} />
                   </span>
                 </button>
@@ -821,6 +836,14 @@ export function SubscriptionsPage() {
                 <dt className="text-xs text-[var(--muted)]">Offre</dt>
                 <dd className="mt-0.5">{selected.service.name}</dd>
               </div>
+              {selected.commitmentEndsAt ? (
+                <div className="min-w-0">
+                  <dt className="text-xs text-[var(--muted)]">Engagement</dt>
+                  <dd className="mt-0.5">
+                    {selected.commitmentMonths} mois, jusqu'au {formatDate(selected.commitmentEndsAt)}
+                  </dd>
+                </div>
+              ) : null}
               <div className="min-w-0">
                 <dt className="text-xs text-[var(--muted)]">Jour de prélèvement</dt>
                 <dd className="mt-0.5">Le {selected.billingDay}</dd>
@@ -1088,6 +1111,19 @@ export function SubscriptionsPage() {
                   value={form.firstInvoiceAt}
                   onChange={(e) => setForm({ ...form, firstInvoiceAt: e.target.value })}
                 />
+              </Field>
+            ) : null}
+            {!editingId ? (
+              <Field
+                label="Engagement"
+                hint="Offre tout compris : 36 mois. Pendant l'engagement, le client demande la résiliation depuis son espace, vous la traitez."
+              >
+                <Select value={form.commitmentMonths} onChange={(e) => setForm({ ...form, commitmentMonths: e.target.value })}>
+                  <option value="">Sans engagement</option>
+                  <option value="12">12 mois</option>
+                  <option value="24">24 mois</option>
+                  <option value="36">36 mois</option>
+                </Select>
               </Field>
             ) : null}
             {moduleStripeEnabled && !editingId ? (

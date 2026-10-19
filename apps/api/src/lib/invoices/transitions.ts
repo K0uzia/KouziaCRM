@@ -763,6 +763,7 @@ export async function convertQuoteToInvoice(quoteId: string) {
             subscriptionStart: line.subscriptionStart,
             subscriptionStartDate: line.subscriptionStartDate,
             subscriptionFreeMonths: line.subscriptionFreeMonths,
+            commitmentMonths: line.commitmentMonths,
           })),
         },
       },

@@ -73,6 +73,15 @@ export const DEFAULT_LEGAL_CLAUSES: Array<{
     required: true,
     position: 6,
   },
+  // Abonnement avec durée d'engagement (offre tout compris) : imprimée à la place de la clause de périodicité.
+  // Texte BROUILLON (décisions du 19/10/2026) : la mention de tête s'imprime tant qu'Alexandre ne l'a pas réécrit.
+  {
+    kind: LegalClauseKind.SUBSCRIPTION_COMMITMENT,
+    title: "Abonnement avec engagement",
+    body: "[BROUILLON À RELIRE PAR ALEXANDRE ET UN JURISTE OU LA CCI] Abonnement conclu pour la durée d'engagement indiquée ci-dessus, à compter de la signature du devis, payable d'avance chaque année à la date anniversaire. Pendant l'engagement, le client peut demander la résiliation depuis l'espace client ou par e-mail à {{email}} ; en cas de départ anticipé, les annuités restant à courir jusqu'à la fin de l'engagement restent dues. [À FAIRE VALIDER : une indemnité jugée excessive peut être réduite par le juge (art. 1231-5 du Code civil) ; le droit de rétractation de 14 jours prévaut pour les petits professionnels signés hors établissement (art. L221-3 du Code de la consommation).] À l'issue de l'engagement, l'abonnement se poursuit d'année en année au prix en vigueur : le client peut refuser chaque reconduction, sans frais ni justification, jusqu'à la veille de la date de renouvellement, et {{nom_commercial}} l'en informe par e-mail avant cette date. Après l'engagement, la résiliation est libre et prend effet à l'échéance annuelle. Dans tous les cas, le client conserve ses contenus et son nom de domaine.",
+    required: true,
+    position: 6,
+  },
   // Devis contenant un abonnement : imprimée sous les abonnements et le total du projet (PDF, fiche, e-mail d'envoi).
   {
     kind: LegalClauseKind.SUBSCRIPTION_BILLING_DATE,
@@ -103,6 +112,7 @@ export const DEDICATED_CLAUSE_KINDS: ReadonlySet<LegalClauseKind> = new Set([
   LegalClauseKind.SUBSCRIPTION_ANNUAL,
   LegalClauseKind.WITHDRAWAL,
   LegalClauseKind.SUBSCRIPTION_BILLING_DATE,
+  LegalClauseKind.SUBSCRIPTION_COMMITMENT,
 ]);
 
 /** E-mail de contact absent des réglages : manque visible sur le document, jamais un blanc. */

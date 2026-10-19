@@ -76,6 +76,12 @@ describe("information annuelle de reconduction (L215-1)", () => {
     expect(vi.mocked(mailEnqueue).mock.calls[0]![0].text).toContain("reconduction : 2 décembre 2026");
   });
 
+  it("échéance couverte par un engagement : aucune information de reconduction", async () => {
+    const sub = await subscription();
+    await prisma.subscription.update({ where: { id: sub.id }, data: { commitmentMonths: 36, commitmentEndsAt: new Date(2029, 0, 1) } });
+    expect(await sendDueRenewalReminders(new Date(2026, 10, 20))).toBe(0);
+  });
+
   it("repart à l'échéance de l'année suivante", async () => {
     const sub = await subscription();
     await sendDueRenewalReminders(new Date(2026, 10, 20));

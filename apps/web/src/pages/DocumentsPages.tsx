@@ -137,6 +137,7 @@ type Doc = {
     subscriptionStart?: string | null;
     subscriptionStartDate?: string | null;
     subscriptionFreeMonths?: number | null;
+    commitmentMonths?: number | null;
   }>;
   milestones?: Milestone[];
 };
@@ -1983,6 +1984,7 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
               serviceId: l.serviceId ?? "",
               groupTitle: l.groupTitle ?? "",
               isPackDiscount: Boolean(l.isPackDiscount),
+              commitmentMonths: l.commitmentMonths ? String(l.commitmentMonths) : "",
               ...startFromLine(l),
             })),
           }}
@@ -2157,9 +2159,17 @@ function MixedQuoteTotals({
 }
 
 function quoteStartPhrase(
-  l: { unitPriceCents: number; billingInterval?: string | null; subscriptionStart?: string | null; subscriptionStartDate?: string | null; subscriptionFreeMonths?: number | null },
+  l: {
+    unitPriceCents: number;
+    billingInterval?: string | null;
+    subscriptionStart?: string | null;
+    subscriptionStartDate?: string | null;
+    subscriptionFreeMonths?: number | null;
+    commitmentMonths?: number | null;
+  },
   hasProject: boolean,
 ): string {
   const interval = l.billingInterval === "YEAR" ? "YEAR" : "MONTH";
-  return startPhrase(startFromLine(l), hasProject, l.unitPriceCents, interval) ?? `${formatEUR(l.unitPriceCents)} par ${interval === "YEAR" ? "an" : "mois"}`;
+  const phrase = startPhrase(startFromLine(l), hasProject, l.unitPriceCents, interval) ?? `${formatEUR(l.unitPriceCents)} par ${interval === "YEAR" ? "an" : "mois"}`;
+  return l.commitmentMonths ? `${phrase}, engagement de ${l.commitmentMonths} mois` : phrase;
 }

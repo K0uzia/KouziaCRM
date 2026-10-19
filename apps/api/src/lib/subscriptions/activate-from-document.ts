@@ -220,6 +220,9 @@ export async function activateSubscriptionsFromDocument(
           billingDay: line.billingDay!,
           billingInterval,
           startDate,
+          commitmentMonths: line.commitmentMonths,
+          // L'engagement court depuis la signature du devis, même si la facturation démarre à la livraison.
+          commitmentStart: doc.documentType === "QUOTE" ? (doc.quoteDecidedAt ?? startDate) : startDate,
           ...(firstInvoiceAt
             ? { firstInvoiceAt }
             : { skipCurrentPeriod: !opts.firstPeriodNow, firstPeriodNow: opts.firstPeriodNow }),

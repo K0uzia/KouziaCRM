@@ -212,3 +212,52 @@ describe("/suivi : gestion des abonnements", () => {
     expect(last!.json().error).toBe("Trop de demandes : réessayez dans quelques minutes.");
   });
 });
+
+describe("/suivi : abonnement avec engagement (décision du 19/10/2026)", () => {
+  const engaged = { ...stripe, commitmentMonths: 36, commitmentEndsAt: new Date(2029, 0, 1) };
+
+  it("pendant l'engagement : demande au lieu du portail Stripe, fin d'engagement affichée, aucune reconduction à refuser", async () => {
+    const c = await clientWith(EMAIL, "Lou Martin");
+    const sub = await subscription(c.id, engaged);
+    const kz_portal = await login();
+    const t = (await app.inject({ method: "GET", url: "/api/public/tracking", cookies: { kz_portal } })).json();
+    expect(t.subscriptions[0]).toMatchObject({ id: sub.id, manage: "REQUEST", commitmentEndsAt: new Date(2029, 0, 1).toISOString() });
+    expect(t.subscriptions[0].renewalDeadline).toBeUndefined();
+
+    const portal = await app.inject({ method: "POST", url: `/api/public/subscriptions/${sub.id}/portal`, cookies: { kz_portal } });
+    expect(portal.statusCode).toBe(409);
+    expect(portal.json().error).toBe("Cet abonnement est engagé jusqu'au 1er janvier 2029 : utilisez « Demander la résiliation ».");
+    expect(createSubscriptionPortalUrl).not.toHaveBeenCalled();
+  });
+
+  it("demande de résiliation pendant l'engagement : enregistrée, admin alerté avec la fin d'engagement, rien de coupé", async () => {
+    const c = await clientWith(EMAIL, "Lou Martin");
+    const sub = await subscription(c.id, engaged);
+    const kz_portal = await login();
+    // Adresse propre à ce test : la limite de débit de la route est partagée par tout le fichier.
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/public/subscriptions/${sub.id}/cancel-request`,
+      cookies: { kz_portal },
+      remoteAddress: "203.0.113.29",
+    });
+    expect(res.statusCode).toBe(200);
+    const after = await prisma.subscription.findUniqueOrThrow({ where: { id: sub.id } });
+    expect(after.cancellationRequestedAt).not.toBeNull();
+    expect(after).toMatchObject({ status: "ACTIVE", stripeCancelAt: null, endDate: null, stripeSubscriptionId: "sub_suivi" });
+    const rows = await prisma.emailOutbox.findMany();
+    const payloads = rows.map((r) => parsePayload(outboxPayloadRaw(r)));
+    const alert = payloads.find((p) => p.to === ADMIN);
+    expect(alert?.text).toMatch(/Engagement en cours jusqu'au 1er janvier 2029 : appliquez les conditions du contrat avant de clôturer\. Rien n'a été coupé dans Stripe\./);
+    expect(payloads.some((p) => p.to === EMAIL && /Demande de résiliation reçue/.test(p.subject))).toBe(true);
+  });
+
+  it("engagement terminé : portail Stripe et reconduction refusable comme avant", async () => {
+    const c = await clientWith(EMAIL, "Lou Martin");
+    await subscription(c.id, { ...engaged, commitmentEndsAt: new Date(2026, 5, 1) });
+    const kz_portal = await login();
+    const t = (await app.inject({ method: "GET", url: "/api/public/tracking", cookies: { kz_portal } })).json();
+    expect(t.subscriptions[0].manage).toBe("STRIPE_PORTAL");
+    expect(t.subscriptions[0].renewalDeadline).toBeDefined();
+  });
+});

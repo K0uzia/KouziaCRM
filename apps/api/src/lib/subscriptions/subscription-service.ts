@@ -1,3 +1,4 @@
+import { commitmentEndOf, isCommitmentMonths } from "@/lib/subscriptions/commitment.js";
 import {
   InvoiceDocumentType,
   InvoiceStatus,
@@ -54,6 +55,10 @@ export type CreateSubscriptionInput = {
    * début du contrat. Stripe la reprend en fin d'essai (trial_end = nextInvoiceAt).
    */
   firstInvoiceAt?: Date | null;
+  /** Durée d'engagement en mois (12, 24, 36). Absent : sans engagement. */
+  commitmentMonths?: number | null;
+  /** Début de l'engagement (signature du devis) ; absent : startDate. Fin = début + durée. */
+  commitmentStart?: Date | null;
 };
 
 export class SubscriptionError extends Error {}
@@ -160,6 +165,12 @@ export async function createSubscription(
       billingInterval,
       startDate,
       endDate: data.endDate ?? null,
+      ...(isCommitmentMonths(data.commitmentMonths)
+        ? {
+            commitmentMonths: data.commitmentMonths,
+            commitmentEndsAt: commitmentEndOf(data.commitmentStart ?? startDate, data.commitmentMonths),
+          }
+        : {}),
       status: SubscriptionStatus.ACTIVE,
       nextInvoiceAt,
       ...(data.collectionMethod ? { collectionMethod: data.collectionMethod } : {}),
