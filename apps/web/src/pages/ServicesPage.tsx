@@ -12,6 +12,8 @@ import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { FilterBar, FilterSegment } from "@/components/ui/ListFilters";
 import { useUrlFilters } from "@/lib/use-url-filters";
 import { Segmented } from "@/components/ui/Segmented";
+import { Combobox } from "@/components/ui/Combobox";
+import { catalogGroups } from "@/lib/catalog-options";
 import { Tabs, useTabParam } from "@/components/ui/Tabs";
 import { useCreateParam } from "@/lib/use-create-param";
 import { eurosInputToCents, INTERVAL_OPTIONS, monthlyEquivalentText, type BillingInterval } from "@/lib/billing-interval";
@@ -268,6 +270,7 @@ export function ServicesPage() {
   const linkedPriceChange = Boolean(editing?.stripePriceId) && priceCents !== editing?.unitPriceCents;
   // Pack : prestations proposables (actives, hors packs) et détail de la partie ponctuelle.
   const components = catalog.filter((r) => r.active && !r.isPack && r.id !== editing?.id);
+  const componentGroups = catalogGroups(components);
   const detailCents = form.items.reduce((sum, i) => {
     const svc = catalog.find((r) => r.id === i.serviceId);
     return svc && !svc.isSubscription ? sum + svc.unitPriceCents * (Number(i.quantity) || 1) : sum;
@@ -523,15 +526,15 @@ export function ServicesPage() {
                 <div key={i} className="flex min-w-0 items-end gap-2">
                   <div className="min-w-0 flex-1">
                     <Field label={`Prestation ${i + 1}`}>
-                      <Select value={item.serviceId} onChange={(e) => setItem(i, { serviceId: e.target.value })}>
-                        <option value="">Choisir…</option>
-                        {components.map((c) => (
-                          <option key={c.id} value={c.id}>
-                            {c.name} : {formatEUR(c.unitPriceCents)}
-                            {c.isSubscription ? (c.billingInterval === "YEAR" ? " par an" : " par mois") : ""}
-                          </option>
-                        ))}
-                      </Select>
+                      <Combobox
+                        label={`Prestation ${i + 1}`}
+                        groups={componentGroups}
+                        value={item.serviceId}
+                        placeholder="Choisir une prestation"
+                        searchPlaceholder="Prestation ou abonnement"
+                        emptyText="Aucune prestation ne correspond."
+                        onChange={(serviceId) => setItem(i, { serviceId })}
+                      />
                     </Field>
                   </div>
                   <div className="w-20 shrink-0">

@@ -13,6 +13,8 @@ import { Field, Input, Select, Textarea } from "@/components/ui/Field";
 import type { Client } from "@/components/clients/ClientForm";
 import type { ClientNeed } from "@/components/clients/NeedsEditor";
 import { Segmented } from "@/components/ui/Segmented";
+import { Combobox } from "@/components/ui/Combobox";
+import { catalogGroups } from "@/lib/catalog-options";
 import { billedWithDocument, FREE_MONTHS_MAX, startFromLine, startOptions, startPayload, startPhrase, type StartFields, type SubscriptionStart } from "@/lib/subscription-start";
 import {
   eurosInputToCents,
@@ -80,6 +82,7 @@ type ServiceOpt = {
   defaultBillingDay?: number;
   billingInterval?: string | null;
   isPack?: boolean;
+  category?: string | null;
 };
 
 type PackLine = {
@@ -424,6 +427,10 @@ export function DocumentFormEditor({
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
+    if (!form.clientId) {
+      toast.error("Choisissez le client");
+      return;
+    }
     for (const l of form.lines) {
       if (l.isSubscription && !l.serviceId) {
         toast.error("Chaque ligne abonnement doit être liée à une prestation");
@@ -485,9 +492,8 @@ export function DocumentFormEditor({
 
   const isQuote = documentType === "QUOTE";
   const eur = (n: number) => euros(n);
-  const oneOff = services.filter((sv) => !sv.isSubscription && !sv.isPack);
-  const monthly = services.filter((sv) => sv.isSubscription);
-  const packs = services.filter((sv) => sv.isPack);
+  const catalog = catalogGroups(services);
+  const clientGroups = [{ heading: "", options: clients.map((c) => ({ value: c.id, label: c.displayName, meta: c.clientNumber ?? undefined })) }];
   const sectionTitle = "text-xs font-semibold uppercase tracking-[0.08em] text-[var(--muted)]";
   const clientNeeds = clients.find((c) => c.id === form.clientId)?.needs ?? [];
   const doneNeeds = clientNeeds.filter((n) => n.done).length;
@@ -502,23 +508,16 @@ export function DocumentFormEditor({
         <h3 id="doc-client" className={sectionTitle}>
           1. Client
         </h3>
-        <Select
-          required
-          aria-label="Client"
+        <Combobox
+          label="Client"
+          groups={clientGroups}
           value={form.clientId}
-          onChange={(e) => setForm((f) => ({ ...f, clientId: e.target.value, sourceQuoteId: "" }))}
-        >
-          {clients.length === 0 ? (
-            <option value="">Aucun client : créez-en un d&apos;abord</option>
-          ) : (
-            clients.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.displayName}
-                {c.clientNumber ? ` (${c.clientNumber})` : ""}
-              </option>
-            ))
-          )}
-        </Select>
+          disabled={clients.length === 0}
+          placeholder={clients.length === 0 ? "Aucun client : créez-en un d'abord" : "Choisir un client"}
+          searchPlaceholder="Nom ou numéro de client"
+          emptyText="Aucun client ne correspond."
+          onChange={(clientId) => setForm((f) => ({ ...f, clientId, sourceQuoteId: "" }))}
+        />
         {!isQuote ? (
           <Field
             label="Devis lié (facultatif)"
@@ -596,42 +595,15 @@ export function DocumentFormEditor({
           </h3>
         </div>
         {services.length > 0 ? (
-          <Select
-            aria-label="Ajouter une prestation du catalogue"
-            value=""
-            onChange={(e) => {
-              if (e.target.value) addFromCatalog(e.target.value);
-            }}
-          >
-            <option value="">+ Ajouter depuis le catalogue…</option>
-            {oneOff.length ? (
-              <optgroup label="Prestations (prix fixe)">
-                {oneOff.map((sv) => (
-                  <option key={sv.id} value={sv.id}>
-                    {sv.name} : {eur(sv.unitPriceCents / 100)}
-                  </option>
-                ))}
-              </optgroup>
-            ) : null}
-            {packs.length ? (
-              <optgroup label="Packs (détail et remise ajoutés)">
-                {packs.map((sv) => (
-                  <option key={sv.id} value={sv.id}>
-                    {sv.name} : {eur(sv.unitPriceCents / 100)}
-                  </option>
-                ))}
-              </optgroup>
-            ) : null}
-            {monthly.length ? (
-              <optgroup label="Abonnements">
-                {monthly.map((sv) => (
-                  <option key={sv.id} value={sv.id}>
-                    {sv.name} : {eur(sv.unitPriceCents / 100)} {periodSuffix(sv.billingInterval)}
-                  </option>
-                ))}
-              </optgroup>
-            ) : null}
-          </Select>
+          <Combobox
+            variant="action"
+            label="Catalogue des prestations"
+            placeholder="Ajouter depuis le catalogue"
+            searchPlaceholder="Prestation, pack ou abonnement"
+            emptyText="Aucune prestation ne correspond."
+            groups={catalog}
+            onChange={addFromCatalog}
+          />
         ) : null}
 
         <ul className="space-y-2">

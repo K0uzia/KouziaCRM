@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, type ReactNode } from "react";
+import { useEffect, useId, useLayoutEffect, useRef, type ReactNode } from "react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faXmark } from "@fortawesome/free-solid-svg-icons";
 
@@ -7,8 +7,38 @@ const FOCUSABLE =
 
 /** Barre d'actions collée en bas du corps de la modale (le corps n'a pas de padding bas : rien ne dépasse sous elle). */
 export function ModalActions({ children }: { children: ReactNode }) {
+  const ref = useRef<HTMLDivElement>(null);
+  // Marge basse de défilement égale à la hauteur réelle de la barre : un champ atteint au clavier (ou amené
+  // à l'écran) s'arrête au-dessus d'elle au lieu de rester caché dessous (WCAG 2.4.11, focus non masqué).
+  useLayoutEffect(() => {
+    const bar = ref.current;
+    const body = bar?.closest<HTMLElement>(".modal-body");
+    if (!bar || !body) return;
+    const apply = () => {
+      body.style.scrollPaddingBottom = `${bar.offsetHeight}px`;
+    };
+    apply();
+    const observer = new ResizeObserver(apply);
+    observer.observe(bar);
+    // Chrome n'applique pas scroll-padding au défilement qui suit un focus clavier : correction explicite.
+    const onFocus = (e: FocusEvent) => {
+      const target = e.target as HTMLElement;
+      if (bar.contains(target)) return;
+      // Après le défilement propre au navigateur, qui suit l'évènement focus.
+      requestAnimationFrame(() => {
+        const overlap = target.getBoundingClientRect().bottom - bar.getBoundingClientRect().top;
+        if (overlap > 0) body.scrollTop += overlap;
+      });
+    };
+    body.addEventListener("focusin", onFocus);
+    return () => {
+      observer.disconnect();
+      body.removeEventListener("focusin", onFocus);
+      body.style.scrollPaddingBottom = "";
+    };
+  }, []);
   return (
-    <div className="sticky bottom-0 z-10 -mx-5 mt-4 flex flex-wrap justify-end gap-2 border-t border-[var(--border)] bg-[var(--surface)] px-5 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:-mx-6 sm:px-6 sm:py-4 [&>*]:flex-[1_1_8rem] sm:[&>*]:flex-none">
+    <div ref={ref} className="sticky bottom-0 z-10 -mx-5 mt-4 flex flex-wrap justify-end gap-2 border-t border-[var(--border)] bg-[var(--surface)] px-5 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:-mx-6 sm:px-6 sm:py-4 [&>*]:flex-[1_1_8rem] sm:[&>*]:flex-none">
       {children}
     </div>
   );
