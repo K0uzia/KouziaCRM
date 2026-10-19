@@ -42,6 +42,12 @@ export function checkVersionHeaders(headers: Headers): void {
   else if (build && OWN_BUILD !== "dev" && build !== OWN_BUILD) setState("build", true);
 }
 
+/** Nouvelle version installée par le service worker et en attente : même bandeau qu'un nouveau build côté serveur. */
+export function markUpdateWaiting(): void {
+  ensureChannel();
+  setState("build", true);
+}
+
 export function useVersionState(): VersionState {
   ensureChannel();
   return useSyncExternalStore(

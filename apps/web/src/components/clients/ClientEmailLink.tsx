@@ -55,7 +55,7 @@ export function ClientEmailLink({
     } catch {
       const mailto = `mailto:${encodeURIComponent(email!)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
       window.location.href = mailto;
-      toast.message("Ouverture du client mail (SMTP indisponible)");
+      toast.info("Ouverture du client mail (SMTP indisponible)");
       setOpen(false);
     } finally {
       setBusy(false);

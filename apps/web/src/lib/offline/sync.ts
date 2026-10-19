@@ -3,6 +3,7 @@ import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { isNetworkFailure, isOnline, onReconnect } from "@/lib/network";
 import { offlineEnabled } from "./config";
+import { shouldNotifySystem } from "../system-notify";
 import { COPY_FORMAT, COPY_SUMMARY_KEY, copiesSize, deleteCopiesWhere, readCopy } from "./store";
 
 /**
@@ -250,8 +251,7 @@ export function copyContents(s: CopySummary): string {
 function notifyCopyDone(summary: CopySummary): void {
   const body = `Prêt hors ligne : ${copyContents(summary)}.`;
   toast.success("Copie hors ligne terminée", { description: body });
-  if (typeof document === "undefined" || document.visibilityState !== "hidden") return;
-  if (typeof Notification === "undefined" || Notification.permission !== "granted" || !("serviceWorker" in navigator)) return;
+  if (!shouldNotifySystem() || !("serviceWorker" in navigator)) return;
   void navigator.serviceWorker.ready
     .then((reg) => reg.showNotification("Copie hors ligne terminée", { body, tag: "copie-hors-ligne" }))
     .catch(() => undefined);

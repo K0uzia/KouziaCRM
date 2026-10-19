@@ -301,7 +301,7 @@ export function SettingsPage() {
         { method: "POST" },
       );
       if (res.skipped) {
-        toast.message("Google Agenda non connecté");
+        toast.info("Google Agenda non connecté");
       } else {
         toast.success(
           `Agenda synchronisé : ${res.upserted} événement(s), ${res.deleted} supprimé(s)`,
@@ -488,14 +488,14 @@ export function SettingsPage() {
       setSmtpPass("");
       setImapPass("");
       setRequireSmtpPass(false);
-      toast.message(
+      toast.info(
         "Preset Mailpit (dev) appliqué : port 1025, sans authentification. Cliquez Enregistrer puis Testez.",
       );
     } else {
       setSmtpPass("");
       setImapPass("");
       setRequireSmtpPass(true);
-      toast.message(
+      toast.info(
         "Preset Hostinger appliqué. Collez le mot de passe de la boîte mail (pas hPanel), Enregistrer, puis Testez.",
       );
     }
@@ -622,7 +622,7 @@ export function SettingsPage() {
       );
       setSettings(res.settings);
       setForm(res.settings);
-      for (const w of res.import.warnings) toast.message(w);
+      for (const w of res.import.warnings) toast.info(w);
       toast.success("Identité mise à jour depuis l'open data / INPI");
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Import impossible");
