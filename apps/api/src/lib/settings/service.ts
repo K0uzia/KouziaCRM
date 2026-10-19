@@ -285,6 +285,10 @@ export type PaymentsPatch = {
   paymentButtonLeadDays?: number;
   projectMilestoneMidBps?: number;
   annualFreeMonths?: number;
+  /** Moyens d'un lien Stripe, dans cet ordre : SEPA, virement Stripe (toujours), carte jusqu'au seuil. */
+  paymentSepaEnabled?: boolean;
+  paymentCardEnabled?: boolean;
+  paymentCardMaxCents?: number;
   moduleBankEnabled?: boolean;
   moduleSubscriptionsEnabled?: boolean;
   moduleStripeEnabled?: boolean;
@@ -396,6 +400,9 @@ export async function savePaymentsTab(
         ? { projectMilestoneMidBps: patch.projectMilestoneMidBps }
         : {}),
       ...(patch.annualFreeMonths !== undefined ? { annualFreeMonths: patch.annualFreeMonths } : {}),
+      ...(patch.paymentSepaEnabled !== undefined ? { paymentSepaEnabled: patch.paymentSepaEnabled } : {}),
+      ...(patch.paymentCardEnabled !== undefined ? { paymentCardEnabled: patch.paymentCardEnabled } : {}),
+      ...(patch.paymentCardMaxCents !== undefined ? { paymentCardMaxCents: patch.paymentCardMaxCents } : {}),
       ...(patch.moduleBankEnabled !== undefined
         ? { moduleBankEnabled: patch.moduleBankEnabled }
         : {}),

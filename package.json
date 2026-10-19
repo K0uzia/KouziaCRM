@@ -9,8 +9,8 @@
   ],
   "scripts": {
     "dev:api": "npm run dev -w @kouzia-erp/api",
-    "dev:web": "wait-on -t 60000 http-get://127.0.0.1:3001/api/health && npm run dev -w @kouzia-erp/web",
-    "dev:worker": "wait-on -t 60000 http-get://127.0.0.1:3001/api/health && npm run worker",
+    "dev:web": "wait-on -t 180000 http-get://127.0.0.1:3001/api/health && npm run dev -w @kouzia-erp/web",
+    "dev:worker": "wait-on -t 180000 http-get://127.0.0.1:3001/api/health && npm run worker",
     "dev": "node scripts/dev.mjs",
     "check:lockfile": "node scripts/check-lockfile.mjs",
     "check:mobile": "tsx scripts/check-mobile.ts",

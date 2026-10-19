@@ -250,6 +250,9 @@ describe("/suivi : abonnement avec engagement (décision du 19/10/2026)", () => 
     const alert = payloads.find((p) => p.to === ADMIN);
     expect(alert?.text).toMatch(/Engagement en cours jusqu'au 1er janvier 2029 : appliquez les conditions du contrat avant de clôturer\. Rien n'a été coupé dans Stripe\./);
     expect(payloads.some((p) => p.to === EMAIL && /Demande de résiliation reçue/.test(p.subject))).toBe(true);
+    const ack = payloads.find((p) => p.to === EMAIL)!;
+    expect(ack.text).toContain("Votre abonnement est engagé jusqu'au 1er janvier 2029 : nous reprenons contact avec vous pour en parler. Rien ne change d'ici là.");
+    expect(ack.text).not.toContain("date de fin");
   });
 
   it("engagement terminé : portail Stripe et reconduction refusable comme avant", async () => {

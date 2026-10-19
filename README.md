@@ -233,6 +233,29 @@ Stripe encaisse (carte, virement, prélèvement SEPA) ; l'ERP reste seul émette
 
 Réglages ERP : **Paramètres > Paiements** (interrupteur Stripe, clé secrète, secret webhook, tester, synchroniser le catalogue).
 
+#### Moyens de paiement (décisions du 19/10/2026)
+
+Ordre proposé sur un lien Stripe (`apps/api/src/lib/stripe/payment-methods.ts`), réglable dans **Paramètres > Paiements** :
+
+1. **Prélèvement SEPA** : moyen par défaut des abonnements, proposé en premier sur les factures. Résultat connu après
+   environ 6 jours ouvrés : la facture affiche « prélèvement en cours » (`payment_intent.processing`), puis payée
+   (`payment_intent.succeeded`) ou de nouveau à régler (`payment_intent.payment_failed` : alerte et e-mail au client).
+2. **Virement Stripe** (IBAN virtuel, `customer_balance`) : toujours proposé sur une facture, pour le rapprochement
+   automatique. Pas pour un abonnement.
+3. **Carte** : seulement jusqu'au seuil des réglages (300 € par défaut), facture ou échéance d'abonnement.
+4. **Virement direct** sur l'IBAN imprimé sur la facture : toujours possible, hors Stripe.
+
+Grille Stripe France relevée le 19/10/2026 ([stripe.com/fr/pricing](https://stripe.com/fr/pricing),
+[moyens de paiement locaux](https://stripe.com/fr/pricing/local-payment-methods)) : prélèvement SEPA 0,35 € (échec
+3,50 €, contestation 15 €) ; virement 0,5 % plafonné à 5 € ; carte standard de l'EEE 1,5 % + 0,25 €, premium 2,8 % +
+0,25 €. Délais SEPA ([documentation](https://docs.stripe.com/payments/sepa-debit)) : réussite à T+6 jours ouvrés,
+contestation sans motif sous 8 semaines. La notification de pré-débit est envoyée par Stripe (identifiant de créancier
+Stripe par défaut) : laisser ses e-mails de prélèvement actifs.
+
+Les liens de paiement, de mandat et de gestion (`/api/public/pay|subscribe|manage|card/<jeton>`) redirigent en 303 vers
+Stripe sans page intermédiaire. La session est créée avec une clé d'idempotence du jour : un lien ouvert par une analyse
+de messagerie ne crée pas de session de plus. Une page s'affiche seulement en cas d'erreur.
+
 #### Réglages Stripe en prod
 
 À régler dans le [tableau de bord Stripe](https://dashboard.stripe.com/), en **live** (et en test pour les essais). Ces réglages ne sont pas lisibles par l'API : l'ERP suppose l'état ci-dessous. Un e-mail activé à la fois chez Stripe et dans l'ERP arrive deux fois au client.

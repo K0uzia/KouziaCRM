@@ -83,12 +83,14 @@ async function documents() {
 }
 
 describe("/suivi : payer une facture (ajout du 19/10/2026)", () => {
-  it("facture émise avec lien : checkoutUrl, milestoneId, virement en secours ; lien de l'ERP : moyen « card »", async () => {
+  it("facture émise avec lien : checkoutUrl, milestoneId, virement en secours ; lien de l'ERP : moyen principal « sepa_debit »", async () => {
     const c = await createClient({ displayName: "Lou Martin" });
     await prisma.client.update({ where: { id: c.id }, data: { emailEncrypted: encrypt(EMAIL), emailHash: computeEmailHash(EMAIL) } });
     const pasted = await invoice(c.id, { checkoutUrl: "https://pay.example.test/lien-colle" });
     const erp = await invoice(c.id);
-    await prisma.invoice.update({ where: { id: erp.id }, data: { checkoutUrl: buildPayUrl("invoice", erp.id) } });
+    // Lien signé avec une échéance à la seconde : comparé à la valeur enregistrée, pas recalculé.
+    const erpUrl = buildPayUrl("invoice", erp.id);
+    await prisma.invoice.update({ where: { id: erp.id }, data: { checkoutUrl: erpUrl } });
 
     const docs = await documents();
     const a = docs.find((d) => d.id === pasted.id)!;
@@ -99,8 +101,27 @@ describe("/suivi : payer une facture (ajout du 19/10/2026)", () => {
     });
     expect("paymentMethodHint" in a).toBe(false);
     const b = docs.find((d) => d.id === erp.id)!;
-    expect(b.checkoutUrl).toBe(buildPayUrl("invoice", erp.id));
-    expect(b.paymentMethodHint).toBe("card");
+    expect(b.checkoutUrl).toBe(erpUrl);
+    expect(b.paymentMethodHint).toBe("sepa_debit");
+  });
+
+  it("prélèvement en cours : paymentProcessing, plus de bouton Payer ; SEPA coupé : moyen « card » sous le seuil", async () => {
+    const c = await createClient({ displayName: "Lou Martin" });
+    await prisma.client.update({ where: { id: c.id }, data: { emailEncrypted: encrypt(EMAIL), emailHash: computeEmailHash(EMAIL) } });
+    const pending = await invoice(c.id, { checkoutUrl: "https://pay.example.test/en-cours" });
+    const since = new Date("2026-10-19T09:00:00Z");
+    await prisma.invoice.update({ where: { id: pending.id }, data: { paymentProcessingAt: since, paymentProcessingMethod: "sepa_debit" } });
+    const small = await invoice(c.id);
+    await prisma.invoice.update({ where: { id: small.id }, data: { checkoutUrl: buildPayUrl("invoice", small.id), totalCents: 20_000, subtotalCents: 20_000 } });
+    await prisma.companySettings.updateMany({ data: { paymentSepaEnabled: false } });
+    invalidateCompanySettingsCache();
+
+    const docs = await documents();
+    const p = docs.find((d) => d.id === pending.id)!;
+    expect(p.paymentProcessing).toEqual({ since: since.toISOString(), method: "sepa_debit" });
+    expect(p.checkoutUrl).toBeUndefined();
+    expect(p.bankTransfer).toBeDefined();
+    expect(docs.find((d) => d.id === small.id)!.paymentMethodHint).toBe("card");
   });
 
   it("sans lien : virement seulement ; payée, annulée ou soldée : ni lien ni virement ; lien non https : ignoré", async () => {

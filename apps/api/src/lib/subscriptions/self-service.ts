@@ -123,9 +123,18 @@ export async function requestSubscriptionCancellation(subscriptionId: string, no
     const text = [
       name ? `Bonjour ${name},` : "Bonjour,",
       "",
-      `Nous avons bien reçu, le ${formatLongDate(now)}, votre demande de résiliation de l'abonnement « ${sub.label} ».`,
-      "",
-      "Nous vous confirmerons par e-mail la date de fin de l'abonnement.",
+      // Engagement en cours : rien ne prend fin automatiquement, la demande est traitée avec le client.
+      ...(committed && sub.commitmentEndsAt
+        ? [
+            `Nous avons bien reçu, le ${formatLongDate(now)}, votre demande de résiliation de l'abonnement « ${sub.label} ».`,
+            "",
+            `Votre abonnement est engagé jusqu'au ${formatLongDate(sub.commitmentEndsAt)} : nous reprenons contact avec vous pour en parler. Rien ne change d'ici là.`,
+          ]
+        : [
+            `Nous avons bien reçu, le ${formatLongDate(now)}, votre demande de résiliation de l'abonnement « ${sub.label} ».`,
+            "",
+            "Nous vous confirmerons par e-mail la date de fin de l'abonnement.",
+          ]),
       "",
       "Cet e-mail vaut accusé de réception de votre demande. Conservez-le.",
       "",

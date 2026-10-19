@@ -1,3 +1,4 @@
+import { useFeatures } from "@/lib/features";
 import { Fragment, useCallback, useEffect, useState } from "react";
 import { mixedQuoteTotals, subscriptionsTotalText } from "@/lib/quote-totals";
 import type { ServiceNeed } from "@/components/clients/ServiceNeedsEditor";
@@ -46,6 +47,7 @@ import { CreditNoteWizard } from "@/components/documents/CreditNoteWizard";
 import { buildBillingEmailDraft, buildIssueEmailDraft } from "@/lib/issue-email";
 import {
   BillingDialog,
+  defaultPaymentState,
   PaymentLinkFields,
   paymentChoiceOf,
   paymentFieldsValid,
@@ -657,10 +659,11 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
     | null
   >(null);
   const [billingBusy, setBillingBusy] = useState(false);
-  const [issuePayment, setIssuePayment] = useState<PaymentFieldsState>({ mode: "manual", url: "" });
+  const { moduleStripeEnabled: stripeOn } = useFeatures();
+  const [issuePayment, setIssuePayment] = useState<PaymentFieldsState>(() => defaultPaymentState(stripeOn));
   const [linkOpen, setLinkOpen] = useState(false);
   const [linkBusy, setLinkBusy] = useState(false);
-  const [linkPayment, setLinkPayment] = useState<PaymentFieldsState>({ mode: "manual", url: "" });
+  const [linkPayment, setLinkPayment] = useState<PaymentFieldsState>(() => defaultPaymentState(stripeOn));
   const [linkSendEmail, setLinkSendEmail] = useState(true);
   const [startBusy, setStartBusy] = useState(false);
 

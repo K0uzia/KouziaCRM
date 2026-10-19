@@ -1,3 +1,4 @@
+import { subscriptionMethodTypes, subscriptionMethodsSentence } from "@/lib/stripe/payment-methods.js";
 import {
   InvoiceDocumentType,
   InvoiceStatus,
@@ -370,7 +371,7 @@ export async function sendSubscriptionSetupEmail(subscriptionId: string): Promis
     "",
     url,
     "",
-    "Vous pourrez choisir un prélèvement SEPA ou une carte bancaire.",
+    subscriptionMethodsSentence(subscriptionMethodTypes(sub.amountCents, settings)),
     "",
     formatPlainTextSignature(settings, brand),
   ].join("\n");

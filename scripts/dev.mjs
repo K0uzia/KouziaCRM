@@ -39,10 +39,20 @@ function start(name, args, cwd) {
   });
 }
 
-async function waitForApi(timeoutMs = 60_000) {
-  const deadline = Date.now() + timeoutMs;
+// Démarrage à froid de tsx watch parfois lent (plusieurs sessions sur le poste) : 180 s par défaut, réglable par la
+// variable du shell DEV_API_WAIT_SECONDS (ex. DEV_API_WAIT_SECONDS=300 make dev ; elle n'est pas lue dans .env).
+const apiWaitSeconds = Math.max(10, Number(process.env.DEV_API_WAIT_SECONDS) || 180);
+
+async function waitForApi(timeoutMs = apiWaitSeconds * 1000) {
+  const started = Date.now();
+  const deadline = started + timeoutMs;
+  let nextReport = started + 15_000;
   while (Date.now() < deadline) {
     if (stopping) return false;
+    if (Date.now() >= nextReport) {
+      log("api", `en attente de l'API… ${Math.round((Date.now() - started) / 1000)} s (délai ${apiWaitSeconds} s, DEV_API_WAIT_SECONDS)`);
+      nextReport += 15_000;
+    }
     try {
       const res = await fetch(`http://127.0.0.1:${apiPort}/api/health`);
       if (res.ok) return true;
@@ -131,6 +141,6 @@ if (await waitForApi()) {
   if (lanUrl) log("web", `téléphone (même Wi-Fi) : ${lanUrl}`);
   start("worker", [tsxCli, "watch", "--env-file=.env", "--tsconfig", "apps/api/tsconfig.json", "scripts/worker.ts"], root);
 } else if (!stopping) {
-  log("api", `pas de réponse sur :${apiPort}/api/health après 60 s`);
+  log("api", `pas de réponse sur :${apiPort}/api/health après ${apiWaitSeconds} s (augmentez DEV_API_WAIT_SECONDS si le poste est chargé)`);
   await shutdown(1);
 }

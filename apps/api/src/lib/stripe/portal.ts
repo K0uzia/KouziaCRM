@@ -6,6 +6,7 @@ import { assertStripeEnabled, getStripe } from "@/lib/stripe/client.js";
 import { buildPayUrl } from "@/lib/stripe/pay-urls.js";
 import { publicApiBaseUrl } from "@/lib/settings/public.js";
 import { StripeCheckoutError } from "@/lib/stripe/checkout.js";
+import { dailyIdempotencyKey } from "@/lib/stripe/idempotency.js";
 
 /** Jeton court des liens d'e-mail : 16 octets aléatoires, 22 caractères base64url. */
 export const SHORT_TOKEN = /^[A-Za-z0-9_-]{22}$/;
@@ -75,10 +76,12 @@ export async function createSubscriptionPortalUrl(
   }
 
   const late = opts.updateCard || stripeSub.status === "past_due" || stripeSub.status === "unpaid";
-  const session = await stripe.billingPortal.sessions.create({
+  const params: Stripe.BillingPortal.SessionCreateParams = {
     customer: customerIdOf(stripeSub),
     return_url: await resolveClientPortalUrl(),
     ...(late ? { flow_data: { type: "payment_method_update" as const } } : {}),
-  });
+  };
+  // Lien rouvert le même jour (client ou analyse de messagerie) : même session de portail.
+  const session = await stripe.billingPortal.sessions.create(params, { idempotencyKey: dailyIdempotencyKey("portal", params) });
   return session.url;
 }

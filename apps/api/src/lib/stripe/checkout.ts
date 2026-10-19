@@ -11,6 +11,10 @@ import { resolveClientPortalUrl } from "@/lib/email/portal-url.js";
 import { assertStripeEnabled, getStripe } from "@/lib/stripe/client.js";
 import { ensureStripeCustomer } from "@/lib/stripe/customers.js";
 import { keyLivemode } from "@/lib/stripe/mode.js";
+import { getCompanySettings } from "@/lib/company.js";
+import { paymentMethodTypes, subscriptionMethodTypes } from "@/lib/stripe/payment-methods.js";
+import { dailyIdempotencyKey } from "@/lib/stripe/idempotency.js";
+import type Stripe from "stripe";
 
 export class StripeCheckoutError extends Error {
   statusCode: number;
@@ -20,12 +24,17 @@ export class StripeCheckoutError extends Error {
   }
 }
 
+/** Session Checkout créée de façon idempotente sur la journée : un lien rouvert rend la même session. */
+function createCheckoutSession(stripe: Stripe, params: Stripe.Checkout.SessionCreateParams) {
+  return stripe.checkout.sessions.create(params, { idempotencyKey: dailyIdempotencyKey("checkout", params) });
+}
+
 async function portalRedirect(): Promise<{ success: string; cancel: string }> {
   const portal = await resolveClientPortalUrl();
   return { success: portal, cancel: portal };
 }
 
-/** Session Checkout ponctuelle (carte + virement) pour une facture. */
+/** Session Checkout ponctuelle pour une facture : SEPA, virement Stripe, carte sous le seuil (lib/stripe/payment-methods). */
 export async function createInvoiceCheckoutSession(invoiceId: string): Promise<string> {
   await assertStripeEnabled();
   const invoice = await prisma.invoice.findUnique({
@@ -52,10 +61,10 @@ export async function createInvoiceCheckoutSession(invoiceId: string): Promise<s
     ? `Facture ${invoice.number}`
     : `Facture ${invoice.id.slice(0, 8)}`;
 
-  const session = await stripe.checkout.sessions.create({
+  const session = await createCheckoutSession(stripe, {
     mode: "payment",
     customer: customerId,
-    allowed_payment_method_types: ["card", "customer_balance"],
+    allowed_payment_method_types: paymentMethodTypes(remaining, await getCompanySettings()),
     payment_method_options: {
       customer_balance: {
         funding_type: "bank_transfer",
@@ -141,10 +150,10 @@ export async function createMilestoneCheckoutSession(milestoneId: string): Promi
   const quoteRef = milestone.quote.number ?? "brouillon";
   const label = `${milestone.label} - devis ${quoteRef}`;
 
-  const session = await stripe.checkout.sessions.create({
+  const session = await createCheckoutSession(stripe, {
     mode: "payment",
     customer: customerId,
-    allowed_payment_method_types: ["card", "customer_balance"],
+    allowed_payment_method_types: paymentMethodTypes(milestone.amountCents, await getCompanySettings()),
     payment_method_options: {
       customer_balance: {
         funding_type: "bank_transfer",
@@ -256,10 +265,10 @@ export async function createSubscriptionCheckoutSession(
 
   const timing = firstChargeTiming(sub.nextInvoiceAt);
 
-  const session = await stripe.checkout.sessions.create({
+  const session = await createCheckoutSession(stripe, {
     mode: "subscription",
     customer: customerId,
-    allowed_payment_method_types: ["card", "sepa_debit"],
+    allowed_payment_method_types: subscriptionMethodTypes(sub.amountCents, await getCompanySettings()),
     line_items: [{ price_data: subscriptionPriceData(sub, await keyLivemode()), quantity: 1 }],
     subscription_data: {
       metadata: { erpSubscriptionId: sub.id, erpClientId: sub.clientId },

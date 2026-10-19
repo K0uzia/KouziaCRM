@@ -103,6 +103,35 @@ describe("formules de paiement", () => {
     expect(ms[0]!.status).toBe(MilestoneStatus.DUE);
   });
 
+  it("devis mixte dont la partie ponctuelle vaut 0 € (remise totale) : comme un abonnement seul, aucun échéancier", async () => {
+    const client = await createClient({ displayName: "Atelier Lou" });
+    const service = await prisma.service.create({ data: { name: "Maintenance", unitPriceCents: 5_000, isSubscription: true } });
+    const quote = await prisma.invoice.create({
+      data: {
+        documentType: InvoiceDocumentType.QUOTE,
+        invoiceType: InvoiceType.SIMPLE,
+        status: InvoiceStatus.DRAFT,
+        clientId: client.id,
+        subtotalCents: 15_000,
+        totalCents: 5_000,
+        discountType: "FIXED",
+        discountValue: 10_000,
+        paymentPlanOffer: "TWO",
+        lines: {
+          create: [
+            { position: 1, description: "Création offerte", quantity: 1, unitPriceCents: 10_000, lineTotalCents: 10_000 },
+            { position: 2, description: "Maintenance", quantity: 1, unitPriceCents: 5_000, lineTotalCents: 5_000, isSubscription: true, billingDay: 1, serviceId: service.id },
+          ],
+        },
+      },
+    });
+    await issueQuote(quote.id);
+    const issued = await prisma.invoice.findUniqueOrThrow({ where: { id: quote.id } });
+    expect(issued.depositBaseCents).toBe(0);
+    expect(issued.paymentPlanOffer).toBe("NONE");
+    expect(await milestonesOf(quote.id)).toHaveLength(0);
+  });
+
   it("formule non proposée refusée", async () => {
     const id = await draftQuote(149_000, "TWO");
     await issueQuote(id);

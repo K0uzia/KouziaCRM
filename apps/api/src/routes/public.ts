@@ -1,7 +1,8 @@
+import { primaryMethod } from "@/lib/stripe/payment-methods.js";
 import { isUnderCommitment } from "@/lib/subscriptions/commitment.js";
 import { formatLongDate } from "@/lib/money.js";
 import { balanceFields } from "@/lib/invoices/balance.js";
-import type { FastifyPluginAsync } from "fastify";
+import type { FastifyPluginAsync, FastifyReply, FastifyRequest } from "fastify";
 import { z } from "zod";
 import { InvoiceDocumentType, InvoiceStatus } from "@prisma/client";
 import { prisma } from "@/lib/prisma.js";
@@ -505,7 +506,9 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
           // Facture à régler (ajout du 19/10/2026) : bouton « Payer » si un lien existe, sinon virement, comme le PDF.
           const isInvoice = d.documentType === InvoiceDocumentType.INVOICE;
           const dueNow = isInvoice && d.status === InvoiceStatus.ISSUED ? (balanceFields(d)?.dueCents ?? 0) : 0;
-          const payUrl = dueNow > 0 ? safePayUrl(d.checkoutUrl) : null;
+          // Prélèvement en cours (SEPA, environ 6 jours ouvrés) : pas de bouton « Payer », l'état est affiché à la place.
+          const processing = dueNow > 0 && d.paymentProcessingAt ? { since: d.paymentProcessingAt.toISOString(), method: d.paymentProcessingMethod ?? "sepa_debit" } : null;
+          const payUrl = dueNow > 0 && !processing ? safePayUrl(d.checkoutUrl) : null;
           return {
             id: d.id,
             number: d.number,
@@ -528,8 +531,9 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
             downloadToken: d.number ? signDocumentToken(d.id) : null,
             ...(isInvoice ? { milestoneId: d.milestoneId } : {}),
             ...(payUrl
-              ? { checkoutUrl: payUrl, ...(payUrl.includes("/api/public/pay/") ? { paymentMethodHint: "card" as const } : {}) }
+              ? { checkoutUrl: payUrl, ...(payUrl.includes("/api/public/pay/") ? { paymentMethodHint: primaryMethod(dueNow, settings) } : {}) }
               : {}),
+            ...(processing ? { paymentProcessing: processing } : {}),
             ...(dueNow > 0 && settings.bankIban && d.number
               ? {
                   bankTransfer: {
@@ -652,6 +656,8 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
           billingInterval: s.billingInterval === "YEAR" ? "YEAR" : "MONTH",
           nextInvoiceAt: s.nextInvoiceAt,
           ...(showAmounts ? { amountCents: s.amountCents } : {}),
+          // Moyen enregistré dans Stripe (ajout du 19/10/2026) : type et 4 derniers chiffres seulement.
+          ...(s.paymentMethodType ? { paymentMethod: { type: s.paymentMethodType, last4: s.paymentMethodLast4 ?? null } } : {}),
           // Prélèvement Stripe pas encore en place : lien pour le mettre en place (SEPA ou carte).
           // Pas de mise en place du prélèvement sur un abonnement en cours de résiliation.
           ...(settings.moduleStripeEnabled && !s.stripeSubscriptionId && !s.cancellationRequestedAt && !(s.endDate && s.endDate > new Date())
@@ -1108,65 +1114,60 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
     ["/api/public/manage/:token", ["manage", "card"], "manage"],
     ["/api/public/card/:token", ["card"], "card"],
   ] as const) {
-    app.get<{ Params: { token: string } }>(
-      path,
-      { config: { rateLimit: { max: 60, timeWindow: "15 minutes" } } },
-      async (request, reply) => {
-        const { resolveClientPortalUrl } = await import("@/lib/email/portal-url.js");
-        const { payPageInfo, renderPayPage, PAY_PAGE_CSP } = await import("@/lib/stripe/pay-page.js");
-        const parsed = await resolveLink(request.params.token, kinds, shortKind);
-        const info = parsed ? await payPageInfo(parsed.kind, parsed.id) : null;
-        if (!info) return reply.redirect(await resolveClientPortalUrl());
-        return reply
+    // Lien de paiement, de mandat ou de gestion (décision du 19/10/2026) : redirection 303 immédiate vers Stripe, sans
+    // page. La session est créée de façon idempotente sur la journée (lib/stripe/idempotency.ts) : un lien ouvert par
+    // une analyse de messagerie ne crée pas de session de plus. Page affichée seulement en cas d'erreur ; le POST
+    // (anciens e-mails, page déjà ouverte) fait la même chose.
+    const openLink = async (request: FastifyRequest<{ Params: { token: string } }>, reply: FastifyReply) => {
+      const { resolveClientPortalUrl } = await import("@/lib/email/portal-url.js");
+      const portal = await resolveClientPortalUrl();
+      const parsed = await resolveLink(request.params.token, kinds, shortKind);
+      if (!parsed) return reply.redirect(portal, 303);
+      const { payPageInfo, renderPayPage, PAY_PAGE_CSP } = await import("@/lib/stripe/pay-page.js");
+      const info = await payPageInfo(parsed.kind, parsed.id);
+      if (!info) return reply.redirect(portal, 303);
+      // Page réaffichée avec un message (montant sous le minimum, Checkout indisponible) plutôt
+      // qu'une redirection muette : le client sait quoi faire.
+      const page = (notice: string) =>
+        reply
           .header("Content-Security-Policy", PAY_PAGE_CSP)
           .header("Cache-Control", "no-store")
           .type("text/html; charset=utf-8")
-          .send(renderPayPage(info));
-      },
+          .send(renderPayPage({ ...info, notice }));
+      if (!info.button) return page(info.notice ?? "Paiement en ligne indisponible.");
+      try {
+        const checkout = await import("@/lib/stripe/checkout.js");
+        const url =
+          parsed.kind === "invoice"
+            ? await checkout.createInvoiceCheckoutSession(parsed.id)
+            : parsed.kind === "milestone"
+              ? await checkout.createMilestoneCheckoutSession(parsed.id)
+              : parsed.kind === "manage" || parsed.kind === "card"
+                ? await (await import("@/lib/stripe/portal.js")).createSubscriptionPortalUrl(parsed.id, {
+                    updateCard: parsed.kind === "card",
+                  })
+                : await checkout.createSubscriptionCheckoutSession(parsed.id);
+        return reply.redirect(url, 303);
+      } catch (err) {
+        request.log.warn({ err: err instanceof Error ? err.message : String(err), kind: parsed.kind });
+        const { getCompanySettings } = await import("@/lib/company.js");
+        const email = (await getCompanySettings()).email?.trim();
+        return page(
+          `Le paiement en ligne n'a pas pu démarrer. Réessayez dans quelques minutes, ou réglez par virement${email ? ` et écrivez-nous à ${email}` : ""}.`,
+        );
+      }
+    };
+
+    app.get<{ Params: { token: string } }>(
+      path,
+      { config: { rateLimit: { max: 60, timeWindow: "15 minutes" } } },
+      openLink,
     );
 
     app.post<{ Params: { token: string } }>(
       path,
       { config: { rateLimit: { max: 30, timeWindow: "15 minutes" } } },
-      async (request, reply) => {
-        const { resolveClientPortalUrl } = await import("@/lib/email/portal-url.js");
-        const portal = await resolveClientPortalUrl();
-        const parsed = await resolveLink(request.params.token, kinds, shortKind);
-        if (!parsed) return reply.redirect(portal, 303);
-        const { payPageInfo, renderPayPage, PAY_PAGE_CSP } = await import("@/lib/stripe/pay-page.js");
-        const info = await payPageInfo(parsed.kind, parsed.id);
-        if (!info) return reply.redirect(portal, 303);
-        // Page réaffichée avec un message (montant sous le minimum, Checkout indisponible) plutôt
-        // qu'une redirection muette : le client sait quoi faire.
-        const page = (notice: string) =>
-          reply
-            .header("Content-Security-Policy", PAY_PAGE_CSP)
-            .header("Cache-Control", "no-store")
-            .type("text/html; charset=utf-8")
-            .send(renderPayPage({ ...info, notice }));
-        if (!info.button) return page(info.notice ?? "Paiement en ligne indisponible.");
-        try {
-          const checkout = await import("@/lib/stripe/checkout.js");
-          const url =
-            parsed.kind === "invoice"
-              ? await checkout.createInvoiceCheckoutSession(parsed.id)
-              : parsed.kind === "milestone"
-                ? await checkout.createMilestoneCheckoutSession(parsed.id)
-                : parsed.kind === "manage" || parsed.kind === "card"
-                  ? await (await import("@/lib/stripe/portal.js")).createSubscriptionPortalUrl(parsed.id, {
-                      updateCard: parsed.kind === "card",
-                    })
-                  : await checkout.createSubscriptionCheckoutSession(parsed.id);
-          return reply.redirect(url, 303);
-        } catch (err) {
-          request.log.warn({ err: err instanceof Error ? err.message : String(err), kind: parsed.kind });
-          const { getCompanySettings } = await import("@/lib/company.js");
-          const email = (await getCompanySettings()).email?.trim();
-          return page(
-            `Le paiement en ligne n'a pas pu démarrer. Réessayez dans quelques minutes, ou réglez par virement${email ? ` et écrivez-nous à ${email}` : ""}.`,
-          );
-        }
-      },
+      openLink,
     );
   }
 };
