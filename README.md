@@ -74,6 +74,28 @@ Flux :
    (CORS limité à `PUBLIC_WEB_ORIGIN`). Aucune donnée n'est stockée sur Kouzia.
 4. L'ERP revalide adresse (BAN) et SIREN (recherche-entreprises), crée/met à jour le client.
 
+#### Adresse refusée (contrat avec le site, ajout du 19/10/2026)
+
+La base nationale ne remplace jamais la voie ou la commune saisie par une autre (cas réel : « 3 chemin de Recette »
+enregistré « 3 Chemin de Caucetey »). Seules la casse et les accents sont corrigés d'office (201). Sinon,
+`POST /api/public/clients` répond 400, rien n'est enregistré et l'invitation reste utilisable :
+
+```json
+{
+  "error": "Adresse à vérifier : la base nationale propose « 3 Chemin de Caucetey, 33880 Saint-Caprais-de-Bordeaux ». Choisissez cette adresse ou confirmez votre saisie.",
+  "code": "address_suggestion",
+  "suggestion": { "addressLine1": "3 Chemin de Caucetey", "postalCode": "33880", "city": "Saint-Caprais-de-Bordeaux", "addressCityCode": "33381", "addressLat": 44.76, "addressLon": -0.43 }
+}
+```
+
+- `code` vaut aussi `address_ambiguous` (« Adresse ambiguë : … ») ou `address_not_found` (« Adresse introuvable. … »),
+  sans `suggestion` ; ces deux messages sont inchangés.
+- Le message commence toujours par « Adresse » : un site qui ne lit que `error` le rattache au champ adresse et
+  propose de confirmer la saisie (`addressManualConfirmed: true`, adresse gardée telle quelle).
+- Renvoyer les six champs de `suggestion` avec le reste du formulaire : l'adresse est déjà géocodée, l'ERP l'accepte
+  sans nouvelle vérification (bouton « Utiliser cette adresse » du site).
+- Ordre de déploiement : indifférent, `code` et `suggestion` s'ajoutent sans rien retirer.
+
 ### Portail client (suivi devis / acomptes)
 
 Workflow : le client **valide d'abord le devis** (portail `/suivi` ou réponse email), puis reçoit le lien de paiement de l'acompte. La confirmation de paiement part après encaissement Stripe (webhook).
