@@ -188,6 +188,25 @@ function flaggedStepLabel(steps: string | null | undefined): string | null {
 }
 
 const SESSION_EXPIRED = { error: "Session expirée : reconnectez-vous." };
+
+/**
+ * Lien de paiement d'une facture montré dans /suivi : https seulement (lien collé à la main compris) ; en dev, l'API
+ * locale sert ses liens en http sur localhost, acceptés hors production pour pouvoir tester.
+ */
+function safePayUrl(url: string | null): string | null {
+  if (!url) return null;
+  try {
+    const u = new URL(url);
+    if (u.protocol === "https:") return url;
+    const local = u.hostname === "localhost" || u.hostname === "127.0.0.1";
+    return u.protocol === "http:" && local && process.env.NODE_ENV !== "production" ? url : null;
+  } catch {
+    return null;
+  }
+}
+
+/** IBAN groupé par 4, comme sur le PDF de la facture. */
+const formatIban = (iban: string) => iban.replace(/\s+/g, "").toUpperCase().replace(/(.{4})/g, "$1 ").trim();
 const CODE_ERRORS: Record<Exclude<CodeCheck, "ok">, string> = {
   invalid: "Code incorrect ou expiré.",
   locked: "Trop d'essais : demandez un nouveau code.",
@@ -483,6 +502,10 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
           const offer = parsePaymentPlanOffer(d.paymentPlanOffer);
           const awaitedStep =
             d.paymentPlan === "THREE" ? flaggedStepLabel(d.project?.steps) : null;
+          // Facture à régler (ajout du 19/10/2026) : bouton « Payer » si un lien existe, sinon virement, comme le PDF.
+          const isInvoice = d.documentType === InvoiceDocumentType.INVOICE;
+          const dueNow = isInvoice && d.status === InvoiceStatus.ISSUED ? (balanceFields(d)?.dueCents ?? 0) : 0;
+          const payUrl = dueNow > 0 ? safePayUrl(d.checkoutUrl) : null;
           return {
             id: d.id,
             number: d.number,
@@ -503,6 +526,20 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
             validUntil: d.validUntil,
             dueDate: d.dueDate,
             downloadToken: d.number ? signDocumentToken(d.id) : null,
+            ...(isInvoice ? { milestoneId: d.milestoneId } : {}),
+            ...(payUrl
+              ? { checkoutUrl: payUrl, ...(payUrl.includes("/api/public/pay/") ? { paymentMethodHint: "card" as const } : {}) }
+              : {}),
+            ...(dueNow > 0 && settings.bankIban && d.number
+              ? {
+                  bankTransfer: {
+                    reference: d.number,
+                    iban: formatIban(settings.bankIban),
+                    bic: settings.bankBic ?? null,
+                    accountHolder: settings.bankAccountHolder ?? null,
+                  },
+                }
+              : {}),
             ...(showAmounts
               ? {
                   totalCents: d.totalCents,
@@ -988,7 +1025,8 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
           status: 400,
           ipTrunc: truncateIp(request.ip),
         });
-        return reply.code(400).send({ error: parsed.error.flatten() });
+        // code "validation" (ajout du 19/10/2026) : erreurs rattachées aux champs dans error.fieldErrors.
+        return reply.code(400).send({ error: parsed.error.flatten(), code: "validation" });
       }
       // Honeypot rempli = robot : fausse réussite, rien n'est enregistré.
       if (parsed.data.website?.trim()) {
