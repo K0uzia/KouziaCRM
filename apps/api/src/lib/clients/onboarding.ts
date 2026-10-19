@@ -14,6 +14,8 @@ import {
   verifyOnboardingToken,
 } from "@/lib/clients/onboarding-token.js";
 import {
+  type AddressErrorCode,
+  type AddressSuggestion,
   normalizeFrenchAddress,
   verifyCompanyIdentifiers,
 } from "@/lib/address/france.js";
@@ -216,6 +218,20 @@ function buildDisplayName(d: OnboardingSubmission): string {
   return [d.firstName?.trim(), d.lastName?.trim()].filter(Boolean).join(" ") || "Client";
 }
 
+/** Réponse d'une soumission ; code et suggestion : refus d'adresse (contrat dans le README, section API publique). */
+export type SubmissionResult = {
+  ok: boolean;
+  error?: string;
+  alreadySubmitted?: boolean;
+  code?: AddressErrorCode;
+  suggestion?: AddressSuggestion;
+};
+
+/** Le message commence par « Adresse » : l'ancien site le reconnaît ainsi et propose de confirmer la saisie. */
+export function publicSuggestionMessage(s: AddressSuggestion): string {
+  return `Adresse à vérifier : la base nationale propose « ${s.addressLine1}, ${s.postalCode} ${s.city} ». Choisissez cette adresse ou confirmez votre saisie.`;
+}
+
 async function toPrismaData(d: OnboardingSubmission) {
   const addr = await normalizeFrenchAddress({
     addressLine1: d.addressLine1,
@@ -226,8 +242,11 @@ async function toPrismaData(d: OnboardingSubmission) {
     addressLat: d.addressLat,
     addressLon: d.addressLon,
     addressManualConfirmed: d.addressManualConfirmed,
-  });
-  if (!addr.ok) throw new AddressValidationError(addr.error);
+  }, { rejectOtherStreet: true });
+  if (!addr.ok) {
+    const message = addr.suggestion ? publicSuggestionMessage(addr.suggestion) : addr.error;
+    throw new AddressValidationError(message, { code: addr.code, ...(addr.suggestion ? { suggestion: addr.suggestion } : {}) });
+  }
 
   let siren = d.siren?.replace(/\s/g, "") || null;
   let siret = d.siret?.replace(/\s/g, "") || null;
@@ -282,7 +301,7 @@ async function applySubmission(
     existingClientId: string | null;
   },
   data: OnboardingSubmission,
-): Promise<{ ok: boolean; error?: string; alreadySubmitted?: boolean }> {
+): Promise<SubmissionResult> {
   if (isOrganization(data.type) && !data.companyName?.trim()) {
     return {
       ok: false,
@@ -332,7 +351,7 @@ async function applySubmission(
     return { ok: true };
   } catch (e) {
     if (e instanceof AddressValidationError) {
-      return { ok: false, error: e.message };
+      return { ok: false, error: e.message, ...e.detail };
     }
     throw e;
   }
@@ -345,7 +364,7 @@ async function applySubmission(
 export async function submitPublicClient(
   token: string,
   data: OnboardingSubmission,
-): Promise<{ ok: boolean; error?: string; alreadySubmitted?: boolean }> {
+): Promise<SubmissionResult> {
   const payload = verifyOnboardingToken(token);
   if (!payload) {
     if (isLegacyOnboardingToken(token)) {
@@ -374,7 +393,7 @@ export async function submitPublicClient(
 export async function submitOnboarding(
   token: string,
   data: OnboardingSubmission,
-): Promise<{ ok: boolean; error?: string; alreadySubmitted?: boolean }> {
+): Promise<SubmissionResult> {
   const invitation = await prisma.onboardingInvitation.findUnique({
     where: { token },
   });

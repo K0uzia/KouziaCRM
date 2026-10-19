@@ -24,6 +24,21 @@ export type NormalizedAddress = {
   unavailable: boolean;
 };
 
+/** Refus d'adresse, repris tel quel par l'API publique (/nouveau-client) : voir le README, section API publique. */
+export type AddressErrorCode = "address_suggestion" | "address_ambiguous" | "address_not_found";
+
+/** Adresse proposée par la base nationale, déjà géocodée : renvoyée telle quelle, elle est acceptée sans revérification. */
+export type AddressSuggestion = {
+  addressLine1: string;
+  postalCode: string;
+  city: string;
+  addressCityCode: string;
+  addressLat: number;
+  addressLon: number;
+};
+
+export type AddressRefusal = { ok: false; error: string; code: AddressErrorCode; suggestion?: AddressSuggestion };
+
 /**
  * Revalide une adresse française côté serveur.
  * Ne bloque jamais si l'API est down ; bloque not_found sauf confirmation manuelle.
@@ -45,7 +60,7 @@ export async function normalizeFrenchAddress(
      */
     rejectOtherStreet?: boolean;
   } = {},
-): Promise<{ ok: true; address: NormalizedAddress } | { ok: false; error: string }> {
+): Promise<{ ok: true; address: NormalizedAddress } | AddressRefusal> {
   const country = (input.country ?? "FRANCE").trim().toUpperCase();
   const line1 = input.addressLine1?.trim() || null;
   const postalCode = input.postalCode?.trim() || null;
@@ -88,6 +103,15 @@ export async function normalizeFrenchAddress(
       return {
         ok: false,
         error: `La base nationale propose « ${result.address.addressLine1}, ${result.address.postalCode} ${result.address.city} ». Choisissez une suggestion ou confirmez votre saisie.`,
+        code: "address_suggestion",
+        suggestion: {
+          addressLine1: result.address.addressLine1,
+          postalCode: result.address.postalCode,
+          city: result.address.city,
+          addressCityCode: result.address.citycode,
+          addressLat: result.address.lat,
+          addressLon: result.address.lon,
+        },
       };
     }
     return {
@@ -109,12 +133,14 @@ export async function normalizeFrenchAddress(
       ok: false,
       error:
         "Adresse ambiguë : choisissez une suggestion ou confirmez que l'adresse est correcte.",
+      code: "address_ambiguous",
     };
   }
   return {
     ok: false,
     error:
       "Adresse introuvable. Corrigez-la ou confirmez que l'adresse est correcte.",
+    code: "address_not_found",
   };
 }
 

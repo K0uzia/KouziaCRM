@@ -18,6 +18,8 @@ import {
   writeServiceNeeds,
 } from "@/lib/clients/needs.js";
 import {
+  type AddressErrorCode,
+  type AddressSuggestion,
   normalizeFrenchAddress,
   type NormalizedAddress,
   verifyCompanyIdentifiers,
@@ -252,7 +254,11 @@ async function toPrismaClientFields(data: ClientInput, address: NormalizedAddres
 }
 
 export class AddressValidationError extends Error {
-  constructor(message: string) {
+  constructor(
+    message: string,
+    /** Refus d'adresse détaillé (code, proposition de la base nationale) : renvoyé par l'API publique. */
+    readonly detail: { code?: AddressErrorCode; suggestion?: AddressSuggestion } = {},
+  ) {
     super(message);
     this.name = "AddressValidationError";
   }

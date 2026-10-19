@@ -996,7 +996,11 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
           status: code,
           ipTrunc: truncateIp(request.ip),
         });
-        return reply.code(code).send({ error: result.error ?? "Erreur" });
+        return reply.code(code).send({
+          error: result.error ?? "Erreur",
+          ...(result.code ? { code: result.code } : {}),
+          ...(result.suggestion ? { suggestion: result.suggestion } : {}),
+        });
       }
       request.log.info({
         event: "public_client_submit",
