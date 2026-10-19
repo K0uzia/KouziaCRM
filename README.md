@@ -96,6 +96,20 @@ enregistré « 3 Chemin de Caucetey »). Seules la casse et les accents sont cor
   sans nouvelle vérification (bouton « Utiliser cette adresse » du site).
 - Ordre de déploiement : indifférent, `code` et `suggestion` s'ajoutent sans rien retirer.
 
+#### Codes stables des autres refus (contrat avec le site, ajout du 19/10/2026)
+
+`POST /api/public/clients` ajoute un champ `code` à ses réponses 400, sans changer les messages :
+
+- `validation` : données refusées à la validation, `error` reste `{ formErrors, fieldErrors }` (erreurs rattachées au
+  champ par son nom, ex. `fieldErrors.siret`) ;
+- `siret_invalid` : « SIRET invalide (14 chiffres, contrôle Luhn) » ;
+- `siren_invalid` : « SIREN invalide (9 chiffres, contrôle Luhn) », ou « SIREN invalide » quand la base nationale des
+  entreprises refuse le numéro ;
+- `siret_siren_mismatch` : « Le SIRET ne correspond pas au SIREN : ses 9 premiers chiffres doivent être le SIREN. »
+  Contrôlé seulement si les deux champs sont renseignés ; rien n'est enregistré.
+- Avec les codes d'adresse ci-dessus (`address_suggestion`, `address_ambiguous`, `address_not_found`), le site aiguille
+  sur `code`, plus jamais sur le texte. Ordre de déploiement : indifférent.
+
 ### Portail client (suivi devis / acomptes)
 
 Workflow : le client **valide d'abord le devis** (portail `/suivi` ou réponse email), puis reçoit le lien de paiement de l'acompte. La confirmation de paiement part après encaissement Stripe (webhook).

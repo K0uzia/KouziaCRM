@@ -157,22 +157,33 @@ export type SirenVerifyResult = {
  * Revérifie SIREN/SIRET à l'enregistrement B2B.
  * Si l'API est down, on accepte la saisie (dégradation).
  */
+/** Refus d'identifiants d'entreprise, repris par l'API publique (README, section Formulaire client public). */
+export type CompanyErrorCode = "siret_invalid" | "siren_invalid" | "siret_siren_mismatch";
+
 export async function verifyCompanyIdentifiers(opts: {
   siren?: string | null;
   siret?: string | null;
   companyName?: string | null;
   apeCode?: string | null;
-}): Promise<{ ok: true; data: SirenVerifyResult } | { ok: false; error: string }> {
+}): Promise<{ ok: true; data: SirenVerifyResult } | { ok: false; error: string; code: CompanyErrorCode }> {
   const siretRaw = opts.siret?.replace(/\s/g, "") || null;
   const sirenRaw =
     opts.siren?.replace(/\s/g, "") ||
     (siretRaw && siretRaw.length === 14 ? siretRaw.slice(0, 9) : null);
 
   if (siretRaw && !isValidSiret(siretRaw)) {
-    return { ok: false, error: "SIRET invalide (14 chiffres, contrôle Luhn)" };
+    return { ok: false, error: "SIRET invalide (14 chiffres, contrôle Luhn)", code: "siret_invalid" };
   }
   if (sirenRaw && !isValidSiren(sirenRaw)) {
-    return { ok: false, error: "SIREN invalide (9 chiffres, contrôle Luhn)" };
+    return { ok: false, error: "SIREN invalide (9 chiffres, contrôle Luhn)", code: "siren_invalid" };
+  }
+  // SIRET et SIREN saisis tous les deux : le SIRET commence par le SIREN, sinon la fiche serait fausse.
+  if (opts.siren?.trim() && siretRaw && sirenRaw && siretRaw.slice(0, 9) !== sirenRaw) {
+    return {
+      ok: false,
+      error: "Le SIRET ne correspond pas au SIREN : ses 9 premiers chiffres doivent être le SIREN.",
+      code: "siret_siren_mismatch",
+    };
   }
 
   if (!sirenRaw) {
@@ -192,7 +203,7 @@ export async function verifyCompanyIdentifiers(opts: {
   const lookup = await lookupEntreprise(sirenRaw);
   if (!lookup.ok) {
     if (lookup.reason === "invalid_siren") {
-      return { ok: false, error: "SIREN invalide" };
+      return { ok: false, error: "SIREN invalide", code: "siren_invalid" };
     }
     // not_found ou unavailable : on laisse passer (saisie manuelle)
     return {

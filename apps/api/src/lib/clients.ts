@@ -20,6 +20,7 @@ import {
 import {
   type AddressErrorCode,
   type AddressSuggestion,
+  type CompanyErrorCode,
   normalizeFrenchAddress,
   type NormalizedAddress,
   verifyCompanyIdentifiers,
@@ -219,7 +220,7 @@ async function toPrismaClientFields(data: ClientInput, address: NormalizedAddres
       apeCode,
     });
     if (!verified.ok) {
-      throw new AddressValidationError(verified.error);
+      throw new AddressValidationError(verified.error, { code: verified.code });
     }
     siren = verified.data.siren;
     siret = verified.data.siret;
@@ -257,7 +258,7 @@ export class AddressValidationError extends Error {
   constructor(
     message: string,
     /** Refus d'adresse détaillé (code, proposition de la base nationale) : renvoyé par l'API publique. */
-    readonly detail: { code?: AddressErrorCode; suggestion?: AddressSuggestion } = {},
+    readonly detail: { code?: AddressErrorCode | CompanyErrorCode; suggestion?: AddressSuggestion } = {},
   ) {
     super(message);
     this.name = "AddressValidationError";
