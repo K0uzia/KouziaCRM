@@ -88,7 +88,9 @@ describe("/suivi : payer une facture (ajout du 19/10/2026)", () => {
     await prisma.client.update({ where: { id: c.id }, data: { emailEncrypted: encrypt(EMAIL), emailHash: computeEmailHash(EMAIL) } });
     const pasted = await invoice(c.id, { checkoutUrl: "https://pay.example.test/lien-colle" });
     const erp = await invoice(c.id);
-    await prisma.invoice.update({ where: { id: erp.id }, data: { checkoutUrl: buildPayUrl("invoice", erp.id) } });
+    // Lien signé avec une échéance à la seconde : comparé à la valeur enregistrée, pas recalculé.
+    const erpUrl = buildPayUrl("invoice", erp.id);
+    await prisma.invoice.update({ where: { id: erp.id }, data: { checkoutUrl: erpUrl } });
 
     const docs = await documents();
     const a = docs.find((d) => d.id === pasted.id)!;
@@ -99,7 +101,7 @@ describe("/suivi : payer une facture (ajout du 19/10/2026)", () => {
     });
     expect("paymentMethodHint" in a).toBe(false);
     const b = docs.find((d) => d.id === erp.id)!;
-    expect(b.checkoutUrl).toBe(buildPayUrl("invoice", erp.id));
+    expect(b.checkoutUrl).toBe(erpUrl);
     expect(b.paymentMethodHint).toBe("sepa_debit");
   });
 
