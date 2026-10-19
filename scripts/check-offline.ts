@@ -512,7 +512,7 @@ async function autoCopyScenario(width: number) {
     }
     await context.setOffline(false);
     await page.reload();
-    check(await panel.waitFor({ timeout: 15_000 }).then(() => true, () => false), `${width}px  changement de format : recopie complète relancée avec sa fenêtre`);
+    check(await indicator.waitFor({ timeout: 15_000 }).then(() => true, () => false), `${width}px  changement de format : recopie complète relancée avec son indicateur`);
   } finally {
     await context.setOffline(false).catch(() => undefined);
     await browser.close();
