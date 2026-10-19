@@ -1500,6 +1500,9 @@ model QuoteAcceptanceAudit {
   /// Adresse ayant reçu le code de signature, masquée (j***@exemple.fr)
   verifiedEmailMasked String?
   codeVerifiedAt      DateTime?
+  /// Authentification à la signature : SIGN_CODE (code de signature du devis) | PORTAL_SESSION (session /suivi ouverte
+  /// par le code de connexion, codeVerifiedAt = heure de connexion) ; null = preuve antérieure (code de signature).
+  authMethod          String?
   /// Devis tel que présenté au client juste avant sa signature, archivé, et son empreinte SHA-256
   originalPdfPath     String?
   originalPdfSha256   String?

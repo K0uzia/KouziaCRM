@@ -350,6 +350,8 @@ export type InvoicePdfData = {
       mode?: "TYPED" | "DRAWN";
       image?: string | null;
       emailMasked?: string | null;
+      /** Signature par session /suivi : heure de connexion (code de connexion) ; null : code de signature. */
+      sessionLoginAt?: Date | null;
       proofId?: string | null;
       documentSha256?: string | null;
       /** null : signature antérieure au suivi des CGV et du délai de rétractation. */
@@ -826,7 +828,12 @@ export function InvoiceDocument({ company, client, invoice, specimen, draft }: I
               <View style={styles.proof}>
                 <Text style={styles.proofTitle}>SIGNATURE ÉLECTRONIQUE</Text>
                 <Text style={styles.muted}>Signé dans l'espace client {brandName}.</Text>
-                {invoice.acceptance.emailMasked ? (
+                {invoice.acceptance.emailMasked && invoice.acceptance.sessionLoginAt ? (
+                  <Text style={styles.muted}>
+                    Identité confirmée par la connexion à l'espace client le {fmtDateTime(invoice.acceptance.sessionLoginAt)} par
+                    un code envoyé à {invoice.acceptance.emailMasked}.
+                  </Text>
+                ) : invoice.acceptance.emailMasked ? (
                   <Text style={styles.muted}>
                     Identité confirmée par un code à usage unique envoyé à {invoice.acceptance.emailMasked}.
                   </Text>

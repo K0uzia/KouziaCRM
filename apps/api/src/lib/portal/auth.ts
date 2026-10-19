@@ -141,8 +141,13 @@ export async function resolvePortalClient(request: FastifyRequest): Promise<Clie
   return (await resolvePortalSession(request))?.client ?? null;
 }
 
-/** Session du portail et son client (l'identifiant de session sert de preuve, ex. accord d'un témoignage). */
-export async function resolvePortalSession(request: FastifyRequest): Promise<{ client: Client; sessionId: string } | null> {
+/**
+ * Session du portail et son client (l'identifiant de session sert de preuve, ex. accord d'un témoignage).
+ * authenticatedAt : ouverture de la session, c'est-à-dire la vérification du code de connexion.
+ */
+export async function resolvePortalSession(
+  request: FastifyRequest,
+): Promise<{ client: Client; sessionId: string; authenticatedAt: Date } | null> {
   const token = request.cookies[PORTAL_COOKIE];
   if (!token) return null;
   const session = await prisma.portalSession.findUnique({
@@ -151,7 +156,7 @@ export async function resolvePortalSession(request: FastifyRequest): Promise<{ c
   });
   if (!session || session.revokedAt || session.expiresAt.getTime() < Date.now()) return null;
   await prisma.portalSession.update({ where: { id: session.id }, data: { lastSeenAt: new Date() } });
-  return { client: session.client, sessionId: session.id };
+  return { client: session.client, sessionId: session.id, authenticatedAt: session.createdAt };
 }
 
 export async function closePortalSession(request: FastifyRequest): Promise<void> {

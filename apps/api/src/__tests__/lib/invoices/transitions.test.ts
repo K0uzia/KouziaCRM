@@ -388,6 +388,7 @@ describe("décision du client sur un devis", () => {
         image: trace,
         company: "Atelier Dupont",
         emailMasked: "c***@exemple.fr",
+        authMethod: "SIGN_CODE",
         codeVerifiedAt: new Date(),
       },
     });

@@ -251,6 +251,8 @@ function acceptanceOf(
     mode: audit.signatureMode === "DRAWN" ? "DRAWN" : "TYPED",
     image: audit.signatureImage,
     emailMasked: audit.verifiedEmailMasked,
+    // Session /suivi : identité confirmée à la connexion (heure du code de connexion), pas par un code de signature.
+    sessionLoginAt: audit.authMethod === "PORTAL_SESSION" ? audit.codeVerifiedAt : null,
     proofId: audit.id,
     documentSha256: audit.originalPdfSha256,
   };

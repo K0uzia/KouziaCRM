@@ -302,6 +302,9 @@ export type QuoteSignature = {
   /** Société représentée (client professionnel) */
   company?: string | null;
   emailMasked?: string | null;
+  /** SIGN_CODE : code de signature de ce devis. PORTAL_SESSION : session /suivi ouverte par le code de connexion. */
+  authMethod: "SIGN_CODE" | "PORTAL_SESSION";
+  /** Heure de vérification du code : de signature, ou de connexion à /suivi (ouverture de la session). */
   codeVerifiedAt: Date;
 };
 
@@ -334,6 +337,7 @@ async function logQuoteAcceptance(
       signerCompany: opts.signature?.company ?? null,
       verifiedEmailMasked: opts.signature?.emailMasked ?? null,
       codeVerifiedAt: opts.signature?.codeVerifiedAt ?? null,
+      authMethod: opts.signature?.authMethod ?? null,
       originalPdfSha256: opts.originalPdfSha256 ?? null,
       paymentPlan: opts.paymentPlan ?? null,
       cgvAccepted: opts.terms?.cgvAccepted ?? null,
