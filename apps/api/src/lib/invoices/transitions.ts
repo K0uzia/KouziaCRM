@@ -302,7 +302,7 @@ export type QuoteSignature = {
   /** Société représentée (client professionnel) */
   company?: string | null;
   emailMasked?: string | null;
-  /** SIGN_CODE : code de signature de ce devis. PORTAL_SESSION : connexion à /suivi par code depuis moins de 30 min. */
+  /** SIGN_CODE : code de signature de ce devis. PORTAL_SESSION : session /suivi ouverte par le code de connexion. */
   authMethod: "SIGN_CODE" | "PORTAL_SESSION";
   /** Heure de vérification du code : de signature, ou de connexion à /suivi (ouverture de la session). */
   codeVerifiedAt: Date;

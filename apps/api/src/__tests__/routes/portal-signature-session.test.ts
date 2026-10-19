@@ -75,11 +75,28 @@ async function setup() {
   return { quoteId: quote.id, kz_portal, sessionId: session.id, loginAt: session.createdAt };
 }
 
-/** Connexion faite il y a `minutes` minutes. */
+/** Connexion faite il y a `minutes` minutes (session toujours valide). */
 async function ageSession(sessionId: string, minutes: number) {
   const createdAt = new Date(Date.now() - minutes * 60_000);
   await prisma.portalSession.update({ where: { id: sessionId }, data: { createdAt } });
   return createdAt;
+}
+
+/** Second devis émis pour le même client (session déjà ouverte). */
+async function setup2() {
+  const first = await prisma.invoice.findFirstOrThrow({ where: { documentType: InvoiceDocumentType.QUOTE } });
+  const quote = await prisma.invoice.create({
+    data: {
+      clientId: first.clientId,
+      documentType: InvoiceDocumentType.QUOTE,
+      status: InvoiceStatus.DRAFT,
+      subtotalCents: 50000,
+      totalCents: 50000,
+      lines: { create: [{ position: 1, description: "Logo", quantity: 1, unitPriceCents: 50000, lineTotalCents: 50000 }] },
+    },
+  });
+  await issueQuote(quote.id);
+  return quote.id;
 }
 
 const tracked = async (kz_portal: string, quoteId: string) =>
@@ -97,11 +114,11 @@ function decide(quoteId: string, kz_portal: string, extra: Record<string, unknow
 }
 
 describe("signature dans /suivi sans second code", () => {
-  it("connexion de moins de 30 minutes : signé sans code, preuve complète avec l'heure de connexion", async () => {
+  it("session valide : signé sans code, preuve complète avec l'heure de connexion", async () => {
     const { quoteId, kz_portal, loginAt } = await setup();
     const doc = await tracked(kz_portal, quoteId);
     expect(doc.signCodeRequired).toBe(false);
-    expect(doc.sessionFreshUntil).toBe(new Date(loginAt.getTime() + 30 * 60_000).toISOString());
+    expect("sessionFreshUntil" in doc).toBe(false);
 
     const res = await decide(quoteId, kz_portal);
     expect(res.statusCode).toBe(200);
@@ -114,24 +131,21 @@ describe("signature dans /suivi sans second code", () => {
     expect(proof.originalPdfSha256).toMatch(/^[0-9a-f]{64}$/);
   });
 
-  it("connexion de plus de 30 minutes : 403 sign_code_required, rien d'enregistré ; avec le code, signé", async () => {
+  it("connexion ancienne mais session valide (3 jours) : signé sans code ; session expirée : 401, rien d'enregistré", async () => {
     const { quoteId, kz_portal, sessionId } = await setup();
-    await ageSession(sessionId, 31);
-    const doc = await tracked(kz_portal, quoteId);
-    expect(doc).toMatchObject({ signCodeRequired: true, sessionFreshUntil: null });
-
-    const refused = await decide(quoteId, kz_portal);
-    expect(refused.statusCode).toBe(403);
-    expect(refused.json()).toEqual({ code: "sign_code_required", error: "Pour signer, confirmez avec un code envoyé par e-mail." });
-    expect((await prisma.invoice.findUniqueOrThrow({ where: { id: quoteId } })).quoteStatus).toBe("SENT");
-    expect(await prisma.quoteAcceptanceAudit.count()).toBe(0);
-
-    await prisma.emailOutbox.deleteMany();
-    await app.inject({ method: "POST", url: `/api/public/quotes/${quoteId}/sign-code`, cookies: { kz_portal } });
-    const signed = await decide(quoteId, kz_portal, { code: await lastCode() });
+    const loginAt = await ageSession(sessionId, 3 * 24 * 60);
+    expect((await tracked(kz_portal, quoteId)).signCodeRequired).toBe(false);
+    const signed = await decide(quoteId, kz_portal);
     expect(signed.statusCode).toBe(200);
     const proof = await prisma.quoteAcceptanceAudit.findFirstOrThrow({ where: { quoteId } });
-    expect(Date.now() - proof.codeVerifiedAt!.getTime()).toBeLessThan(60_000);
+    expect(proof.codeVerifiedAt?.toISOString()).toBe(loginAt.toISOString());
+
+    const other = await setup2();
+    await prisma.portalSession.update({ where: { id: sessionId }, data: { expiresAt: new Date(Date.now() - 1000) } });
+    const expired = await decide(other, kz_portal);
+    expect(expired.statusCode).toBe(401);
+    expect((await prisma.invoice.findUniqueOrThrow({ where: { id: other } })).quoteStatus).toBe("SENT");
+    expect(await prisma.quoteAcceptanceAudit.count({ where: { quoteId: other } })).toBe(0);
   });
 
   it("code envoyé quand même (ancien site) : vérifié, un mauvais code est refusé même avec une connexion récente", async () => {
