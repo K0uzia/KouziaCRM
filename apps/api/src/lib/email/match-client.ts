@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/prisma.js";
 import { decryptOptional } from "@/lib/crypto.js";
 import { computeEmailHash } from "@/lib/clients/email-hash.js";
+import { findClientIdByContactEmail } from "@/lib/clients/contacts.js";
 
 export async function findClientIdByEmail(address: string): Promise<string | null> {
   const needle = address.trim().toLowerCase();
@@ -13,6 +14,9 @@ export async function findClientIdByEmail(address: string): Promise<string | nul
       select: { id: true },
     });
     if (byHash) return byHash.id;
+    // Adresse d'un autre contact du client (Client.email reste celle du contact principal).
+    const byContact = await findClientIdByContactEmail(hash);
+    if (byContact) return byContact;
   }
 
   const clients = await prisma.client.findMany({
