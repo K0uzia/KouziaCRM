@@ -139,10 +139,14 @@ export async function applyPlanMilestones(
   totalCents: number,
   plan: PaymentPlan,
   s: PlanSettings,
+  opts: { keepIssued?: boolean } = {},
 ): Promise<void> {
   const template = planTemplate(plan, s);
-  const amounts = computeMilestoneAmounts(totalCents, template);
   const existing = await tx.paymentMilestone.findMany({ where: { quoteId }, orderBy: { position: "asc" } });
+  // Signature : l'échéancier imprimé sur le devis émis fait foi. Des pourcentages changés depuis dans les réglages
+  // ne le modifient pas ; seule une autre formule (choix du 3 fois) le recalcule.
+  if (opts.keepIssued && existing.length === template.length && existing.every((m, i) => m.label === template[i]!.label)) return;
+  const amounts = computeMilestoneAmounts(totalCents, template);
   // Montants compris : des jalons créés pendant le brouillon sur une autre base sont recalculés.
   const same =
     existing.length === template.length &&
