@@ -32,6 +32,7 @@ const TABLES = [
   "ClientRenewal",
   "ClientNote",
   "ClientContact",
+  "ClientPortalSeen",
   "Client",
   "Counter",
   "NamedCounter",
