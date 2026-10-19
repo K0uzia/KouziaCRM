@@ -63,7 +63,7 @@ const post = (url: string) =>
   });
 
 describe("lien de gestion d'un abonnement prélevé (/api/public/manage)", () => {
-  it("jeton court : même page par /manage et /card ; jeton court inconnu : retour à l'espace client", async () => {
+  it("jeton court : même lien par /manage et /card, redirection vers Stripe ; jeton court inconnu : retour à l'espace client", async () => {
     const sub = await stripeSub();
     const { subscriptionPaymentUrl, subscriptionCardUpdateUrl } = await import("@/lib/stripe/portal.js");
     const manageUrl = await subscriptionPaymentUrl(sub);
@@ -73,10 +73,14 @@ describe("lien de gestion d'un abonnement prélevé (/api/public/manage)", () =>
     expect(cardUrl.endsWith(`/api/public/card/${token}`)).toBe(true);
     expect(await subscriptionPaymentUrl(sub)).toBe(manageUrl);
 
+    // GET (décision du 19/10/2026) : redirection 303 vers le portail Stripe, sans page.
+    retrieve.mockResolvedValueOnce({ status: "active", customer: "cus_1", latest_invoice: { status: "paid" } });
     const manage = await app.inject({ method: "GET", url: `/api/public/manage/${token}` });
-    expect(manage.body).toContain("résilier votre abonnement");
+    expect(manage.statusCode).toBe(303);
+    expect(manage.headers.location).toBe("https://billing.stripe.com/p/session/test_123");
+    retrieve.mockResolvedValueOnce({ status: "active", customer: "cus_1", latest_invoice: null });
     const card = await app.inject({ method: "GET", url: `/api/public/card/${token}` });
-    expect(card.body).toContain("Mettre à jour la carte");
+    expect(card.statusCode).toBe(303);
 
     retrieve.mockResolvedValueOnce({ status: "active", customer: "cus_1", latest_invoice: null });
     const post = await app.inject({
@@ -86,23 +90,20 @@ describe("lien de gestion d'un abonnement prélevé (/api/public/manage)", () =>
       payload: "",
     });
     expect(post.statusCode).toBe(303);
-    expect(createSession.mock.calls[0]![0]).toMatchObject({ flow_data: { type: "payment_method_update" } });
+    expect(createSession.mock.calls.at(-1)![0]).toMatchObject({ flow_data: { type: "payment_method_update" } });
 
     const unknown = await app.inject({ method: "GET", url: "/api/public/manage/AAAAAAAAAAAAAAAAAAAAAA" });
-    expect(unknown.statusCode).toBe(302);
+    expect(unknown.statusCode).toBe(303);
     expect(unknown.headers.location).not.toContain("stripe.com");
   });
 
-  it("GET : page sans appel à Stripe, CSP ouverte au portail et aux factures Stripe", async () => {
+  it("GET : redirection 303 vers le portail Stripe, session créée avec une clé d'idempotence du jour", async () => {
     const sub = await stripeSub();
+    retrieve.mockResolvedValueOnce({ status: "active", customer: "cus_1", latest_invoice: { status: "paid" } });
     const res = await app.inject({ method: "GET", url: `/api/public/manage/${signPayToken("manage", sub.id)}` });
-    expect(res.statusCode).toBe(200);
-    expect(res.body).toContain("Continuer vers Stripe");
-    expect(res.body).toContain("<title>Gérer mon abonnement, Kouzia</title>");
-    expect(res.body).toContain("résilier votre abonnement");
-    expect(res.body).toContain("box-sizing:border-box");
-    expect(res.headers["content-security-policy"]).toContain("https://billing.stripe.com https://invoice.stripe.com");
-    expect(retrieve).not.toHaveBeenCalled();
+    expect(res.statusCode).toBe(303);
+    expect(res.headers.location).toBe("https://billing.stripe.com/p/session/test_123");
+    expect((createSession.mock.calls[0] as unknown[])[1]).toMatchObject({ idempotencyKey: expect.stringMatching(/^kouzia:portal:\d{4}-\d{2}-\d{2}:/) });
   });
 
   it("POST, abonnement à jour : accueil du portail client", async () => {
