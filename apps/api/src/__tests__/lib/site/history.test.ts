@@ -117,7 +117,7 @@ describe("historique des publications", () => {
     await prisma.siteFaq.delete({ where: { id: q.id } });
     await publier();
 
-    expect(await restoreVersion(p1, "textes", "accroche", "after")).toMatchObject({ to: "/site/accroche" });
+    expect(await restoreVersion(p1, "textes", "accroche", "after")).toMatchObject({ to: "/site/tous-les-textes?page=accueil" });
     expect((await readSiteText("accroche"))!.titre).toBe(accroche.titre);
     const key = (await publicationDetail(p1)).entries.find((e) => e.file === "faq" && e.label === q.question)!.key;
     expect(await restoreVersion(p1, "faq", key, "after")).toMatchObject({ created: true });
@@ -134,7 +134,7 @@ describe("historique des documents facultatifs (lot 6)", () => {
     const entree = (await publicationDetail(p2)).entries.find((e) => e.file === "pages")!;
     expect(entree).toMatchObject({ kind: "modified", label: "Textes des pages" });
     expect(entree.fields).toEqual([{ name: "Pages › Accueil › Services › Titre", before: "Ce que je fais", after: "Ce que je fais à {ville}" }]);
-    expect(await restoreVersion(p2, "pages", "pages", "before")).toMatchObject({ to: "/site/textes-pages" });
+    expect(await restoreVersion(p2, "pages", "pages", "before")).toMatchObject({ to: "/site/tous-les-textes?page=accueil" });
     expect(await readSiteText("pages")).toEqual({ pages: { accueil: { services: { titre: "Ce que je fais" } } } });
     void p1;
   });
@@ -163,7 +163,7 @@ describe("routes de l'historique", () => {
       expect(bad.statusCode).toBe(400);
       const ok = await app.inject({ method: "POST", url: `/api/site/publications/${p1}/restore`, headers: { cookie }, payload: { file: "textes", key: "offres", side: "after" } });
       expect(ok.statusCode).toBe(200);
-      expect(ok.json()).toMatchObject({ to: "/site/offres", label: "Offres et tarifs" });
+      expect(ok.json()).toMatchObject({ to: "/site/tous-les-textes?page=sitesWeb", label: "Offres et tarifs" });
     } finally {
       await app.close();
     }

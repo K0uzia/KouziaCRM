@@ -256,9 +256,9 @@ function projectErrors(form: ProjectForm): FieldErrors {
 }
 
 const TAB_FIELDS = {
-  contenu: ["name", "subtitle", "mention", "kind", "text", "role", "tech"],
+  // « Carte » : contenu et lien de la carte (un onglet de moins : la barre ne défile plus à 1280 px).
+  contenu: ["name", "subtitle", "mention", "kind", "text", "role", "tech", "url", "linkLabel", "slug"],
   images: ["imagePath", "imageMobilePath", "imageAlt"],
-  lien: ["url", "linkLabel", "slug"],
   page: ["description", "context", "need", "approach", "choices", "result", "captures", "links"],
   client: ["clientId", "clientName", "clientIntro", "consentAt", "consentNote"],
   publication: ["status"],
@@ -695,9 +695,23 @@ export function SiteProjectPage() {
           <EditorLayout
             label="Sections de la réalisation"
             tabs={[
-              { id: "contenu", label: "Contenu", content: contenu, errors: countErrors(TAB_FIELDS.contenu) },
+              {
+                id: "contenu",
+                label: "Carte",
+                content: (
+                  <div className="space-y-8">
+                    {contenu}
+                    <section aria-labelledby="carte-lien" className="space-y-4">
+                      <h3 id="carte-lien" className="font-display text-sm font-semibold">
+                        Lien de la carte
+                      </h3>
+                      {lien}
+                    </section>
+                  </div>
+                ),
+                errors: countErrors(TAB_FIELDS.contenu),
+              },
               { id: "images", label: "Images", content: images, errors: countErrors(TAB_FIELDS.images) },
-              { id: "lien", label: "Lien", content: lien, errors: countErrors(TAB_FIELDS.lien) },
               { id: "page", label: "Page projet", content: pageProjet, errors: countErrors(TAB_FIELDS.page) },
               { id: "client", label: "Client et accord", content: clientAccord, errors: countErrors(TAB_FIELDS.client) },
               { id: "publication", label: "Publication", content: publication, errors: countErrors(TAB_FIELDS.publication) },

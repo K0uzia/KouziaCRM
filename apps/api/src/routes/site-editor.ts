@@ -2,6 +2,7 @@ import type { FastifyPluginAsync } from "fastify";
 import { z } from "zod";
 import { requireAuth } from "@/lib/auth.js";
 import { GithubError } from "@/lib/site/github.js";
+import { sitePublicUrl } from "@/lib/site/publish.js";
 import { EditorValidationError, editorPayload, isEditorDocId, readSiteContract, writeEditorDoc } from "@/lib/site/editor.js";
 
 const body = z.strictObject({ value: z.record(z.string(), z.unknown()) });
@@ -13,8 +14,11 @@ export const siteEditorRoutes: FastifyPluginAsync = async (app) => {
     await requireAuth(request, reply);
     if (reply.sent) return;
     const force = (request.query as { force?: string }).force === "1";
+    // « Où ce texte paraît » : site en ligne, et site local en développement (PUBLIC_WEB_ORIGIN sur localhost).
+    const local = process.env.PUBLIC_WEB_ORIGIN?.trim().replace(/\/$/, "");
+    const siteUrls = { online: sitePublicUrl(), local: local && /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(local) ? local : null };
     try {
-      return { available: true, ...(await editorPayload(await readSiteContract(force))) };
+      return { available: true, siteUrls, ...(await editorPayload(await readSiteContract(force))) };
     } catch (e) {
       return { available: false, error: contractError(e) };
     }

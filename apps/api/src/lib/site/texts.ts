@@ -27,9 +27,16 @@ export async function readSiteText<K extends SiteTextKey>(key: K): Promise<SiteT
   return row ? (JSON.parse(row.valueJson) as SiteTextValue<K>) : null;
 }
 
+/**
+ * Documents décrits par le contrat du site (éditeur généré) : leur forme est celle du site, vérifiée à l'enregistrement
+ * dans l'éditeur et à la publication ; une copie ancienne dans l'ERP refuserait un champ nouveau (version restaurée).
+ */
+const CONTRACT_DOCUMENTS: readonly SiteTextKey[] = ["pages", "seo", "menus", "espace-client"];
+
 /** Valide puis enregistre (valeur nettoyée par zod : espaces de bord retirés). */
 export async function writeSiteText<K extends SiteTextKey>(key: K, value: unknown): Promise<SiteTextValue<K>> {
-  const parsed = SITE_TEXT_SCHEMAS[key].parse(value) as SiteTextValue<K>;
+  const schema = CONTRACT_DOCUMENTS.includes(key) ? z.record(z.string(), z.unknown()) : SITE_TEXT_SCHEMAS[key];
+  const parsed = schema.parse(value) as SiteTextValue<K>;
   const valueJson = JSON.stringify(parsed);
   await prisma.siteText.upsert({ where: { key }, create: { key, valueJson }, update: { valueJson } });
   return parsed;
