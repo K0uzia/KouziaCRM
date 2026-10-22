@@ -1,6 +1,7 @@
 import type { IconDefinition } from "@fortawesome/fontawesome-svg-core";
 import {
   faBars,
+  faKey,
   faBook,
   faBoxOpen,
   faChartPie,
@@ -48,8 +49,8 @@ export type NavItem = {
   icon: IconDefinition;
   match: (pathname: string) => boolean;
   feature?: keyof FeatureFlags;
-  /** Compteur affiché à droite : messages non lus, ou créations hors ligne à envoyer. */
-  badge?: "unread" | "queue";
+  /** Compteur affiché à droite : messages non lus, créations hors ligne à envoyer, demandes de logiciel en attente. */
+  badge?: "unread" | "queue" | "requests";
   /** Écran du hors ligne : affiché seulement sur l'origine du hors ligne (erp.kouzia.com). */
   offlineOnly?: boolean;
 };
@@ -118,6 +119,7 @@ export const NAV_SECTIONS: NavSection[] = [
     label: "Relation client",
     items: [
       { id: "inbox", to: "/inbox", label: "Messagerie", tabLabel: "Messages", icon: faEnvelope, match: starts("/inbox"), badge: "unread" },
+      { id: "software-requests", to: "/demandes-logiciel", label: "Demandes logiciel", icon: faKey, match: starts("/demandes-logiciel"), badge: "requests" },
     ],
   },
 ];

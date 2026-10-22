@@ -63,5 +63,16 @@ export async function purgeRetention(now: Date = new Date()) {
     where: { OR: [{ expiresAt: { lt: now } }, { lastSeenAt: { lt: new Date(now.getTime() - DAY) } }] },
   });
   const prospects = await purgeStaleProspects(now);
-  return { invitations: invitations.count, outbox: outbox.count, emailEvents: emailEvents.count, sessions: sessions.count, prospects };
+  // Demande de logiciel (Tracebay) non convertie : comme un prospect, 3 ans après le dernier échange.
+  const softwareRequests = await prisma.softwareRequest.deleteMany({
+    where: { status: { not: "CONVERTED" }, updatedAt: { lt: before(RETENTION.prospectMs) } },
+  });
+  return {
+    invitations: invitations.count,
+    outbox: outbox.count,
+    emailEvents: emailEvents.count,
+    sessions: sessions.count,
+    prospects,
+    softwareRequests: softwareRequests.count,
+  };
 }

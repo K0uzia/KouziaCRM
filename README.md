@@ -623,6 +623,7 @@ Purge par le worker, chaque heure (`apps/api/src/lib/privacy/retention.ts`). Les
 | Donnée | Durée | Ce qui part |
 |--------|-------|-------------|
 | Prospect sans suite | 3 ans après le dernier contact (référentiel CNIL) | La fiche, seulement sans aucun document (même brouillon), abonnement, projet, avis ni témoignage, et sans e-mail ni fil de messagerie depuis 3 ans |
+| Demande de logiciel (Tracebay) non convertie | 3 ans après le dernier échange | La ligne (une demande convertie suit la fiche client) |
 | Invitation (`/nouveau-client`) | 30 jours après son expiration ou son utilisation | La ligne |
 | File d'envoi des e-mails | 30 jours après l'envoi | Le contenu (destinataire, texte, pièces jointes) ; la ligne reste (date, état) |
 | Journal des e-mails envoyés à un client | 1 an | La ligne |

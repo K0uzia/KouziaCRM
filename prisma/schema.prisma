@@ -735,6 +735,7 @@ model Client {
   contacts               ClientContact[]
   serviceNeeds           ClientServiceNeed[]
   portalSeen             ClientPortalSeen[]
+  softwareRequests       SoftwareRequest[]
   /// Fiche préparée hors ligne : UUID de l'appareil ; un renvoi rend la même fiche (idempotence)
   clientRequestId        String?             @unique
   /// Identifiant Customer Stripe (cus_…)
@@ -848,6 +849,41 @@ model ClientContact {
 
   @@index([clientId, position])
   @@index([emailHash])
+}
+
+/// Demande d'utilisation d'un logiciel (Tracebay) déposée depuis le site. Base légale : mesures précontractuelles
+/// (art. 6.1.b RGPD), mention d'information affichée (noticeVersion). Non convertie : supprimée 3 ans après updatedAt.
+model SoftwareRequest {
+  id                   String    @id @default(cuid())
+  /// TRACEBAY
+  software             String
+  /// PENDING | CONVERTED | DECLINED
+  status               String    @default("PENDING")
+  companyName          String
+  contactNameEncrypted String
+  emailEncrypted       String
+  emailHash            String
+  phoneEncrypted       String?
+  /// Version souhaitée : SERVER | PORTABLE | UNSURE
+  edition              String
+  /// Tranche : 1 | 2_5 | 6_20 | 20_PLUS
+  seats                String
+  need                 String
+  /// 3_MONTHS | 6_MONTHS | 12_MONTHS | UNSURE
+  duration             String
+  /// 12 caractères hexadécimaux du SHA-256 de la mention d'information affichée par le site
+  noticeVersion        String
+  /// Client issu de la demande (conversion) : lien lu plus tard par le hub pour la clé de licence.
+  clientId             String?
+  client               Client?   @relation(fields: [clientId], references: [id], onDelete: SetNull)
+  convertedAt          DateTime?
+  declinedAt           DateTime?
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+
+  @@index([emailHash])
+  @@index([clientId])
+  @@index([software, status, createdAt])
 }
 
 /// Dernière ouverture d'une rubrique de /suivi par le client (pastilles « non vu »). Une ligne par rubrique.
