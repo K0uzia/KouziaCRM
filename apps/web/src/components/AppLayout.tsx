@@ -24,6 +24,7 @@ import { optionalLazy } from "@/components/OptionalLazy";
 import { useReadOnly } from "@/lib/offline/read-only";
 import { offlineEnabled } from "@/lib/offline/config";
 import { getQueueSnapshot, itemsLabel, replayQueue, useOfflineQueue } from "@/lib/offline/queue";
+import { usePendingSoftwareRequests } from "@/lib/software-requests";
 import { isOnline } from "@/lib/network";
 import { apiInflight } from "@/lib/api";
 import { startReconnectRefresh } from "@/lib/reconnect";
@@ -144,7 +145,19 @@ function useQueueReplay(onSessionExpired: () => void): () => Promise<void> {
 }
 
 /** Lien de la barre latérale : icône, libellé, compteur, état actif (barre d'accent + fond). */
-function SideLink({ item, active, unread, queued = 0 }: { item: NavItem; active: boolean; unread: number; queued?: number }) {
+function SideLink({
+  item,
+  active,
+  unread,
+  queued = 0,
+  requests = 0,
+}: {
+  item: NavItem;
+  active: boolean;
+  unread: number;
+  queued?: number;
+  requests?: number;
+}) {
   return (
     <NavLink
       to={item.to}
@@ -167,6 +180,7 @@ function SideLink({ item, active, unread, queued = 0 }: { item: NavItem; active:
       <span className="min-w-0 truncate">{item.label}</span>
       {item.badge === "unread" ? <UnreadBadge count={unread} /> : null}
       {item.badge === "queue" ? <UnreadBadge count={queued} /> : null}
+      {item.badge === "requests" ? <UnreadBadge count={requests} /> : null}
     </NavLink>
   );
 }
@@ -186,6 +200,7 @@ function Sidebar({
   const space = spaceOf(pathname);
   const sections = filterSections(space.sections, features, offlineEnabled());
   const { items: queued } = useOfflineQueue();
+  const requests = usePendingSoftwareRequests();
   return (
     <div className="flex h-full min-h-0 flex-col">
       <Link to="/" className="flex h-[var(--topbar-h)] shrink-0 items-center gap-2.5 px-5" aria-label="Kouzia ERP, tableau de bord">
@@ -206,7 +221,7 @@ function Sidebar({
             <ul className="space-y-0.5">
               {section.items.map((item) => (
                 <li key={item.id}>
-                  <SideLink item={item} active={item.match(pathname)} unread={unread} queued={queued.length} />
+                  <SideLink item={item} active={item.match(pathname)} unread={unread} queued={queued.length} requests={requests} />
                 </li>
               ))}
             </ul>

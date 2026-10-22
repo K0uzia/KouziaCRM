@@ -50,6 +50,12 @@ const ReceiptsBookPage = lazy(() =>
   import("@/pages/ReceiptsBookPage").then((m) => ({ default: m.ReceiptsBookPage })),
 );
 const OutboxPage = lazy(() => import("@/pages/OutboxPage").then((m) => ({ default: m.OutboxPage })));
+const SoftwareRequestsPage = lazy(() =>
+  import("@/pages/SoftwareRequestsPages").then((m) => ({ default: m.SoftwareRequestsPage })),
+);
+const SoftwareRequestPage = lazy(() =>
+  import("@/pages/SoftwareRequestsPages").then((m) => ({ default: m.SoftwareRequestPage })),
+);
 const ObligationsPage = lazy(() =>
   import("@/pages/ObligationsPage").then((m) => ({ default: m.ObligationsPage })),
 );
@@ -179,6 +185,8 @@ export default function App() {
           <Route path="inbox" element={<InboxPage />} />
           <Route path="inbox/compose" element={<ComposePage />} />
           <Route path="inbox/:threadId" element={<InboxPage />} />
+          <Route path="demandes-logiciel" element={<SoftwareRequestsPage />} />
+          <Route path="demandes-logiciel/:id" element={<SoftwareRequestPage />} />
           <Route path="settings" element={<SettingsPage />} />
           <Route path="site" element={<SiteOverviewPage />} />
           <Route path="site/realisations" element={<SiteProjectsPage />} />

@@ -11,7 +11,8 @@ export type NotificationKind =
   | "subscription_stripe"
   | "client_onboarded"
   | "google_reauth"
-  | "testimonial";
+  | "testimonial"
+  | "software_request";
 
 export type NotificationItem = {
   /** Identifiant stable (type + id source) : sert à dédoublonner côté interface. */
@@ -39,7 +40,7 @@ function eur(cents: number): string {
 export async function listNotifications(since: Date): Promise<NotificationItem[]> {
   const recentMail = new Date(Date.now() - MAIL_RECENT_MS);
 
-  const [mails, accepted, rejected, payments, depositsDue, stripeSubs, onboarded, googleReauth, testimonials, withdrawn] = await Promise.all([
+  const [mails, accepted, rejected, payments, depositsDue, stripeSubs, onboarded, googleReauth, testimonials, withdrawn, softwareRequests] = await Promise.all([
     prisma.emailMessage.findMany({
       where: {
         direction: EmailDirection.INBOUND,
@@ -148,6 +149,13 @@ export async function listNotifications(since: Date): Promise<NotificationItem[]
       take: MAX_ITEMS,
       select: { id: true, author: true, withdrawalRequestedAt: true, project: { select: { name: true } } },
     }),
+    // Demande d'utilisation d'un logiciel (Tracebay) déposée depuis le site.
+    prisma.softwareRequest.findMany({
+      where: { status: "PENDING", createdAt: { gt: since } },
+      orderBy: { createdAt: "desc" },
+      take: MAX_ITEMS,
+      select: { id: true, software: true, companyName: true, createdAt: true },
+    }),
   ]);
 
   const items: NotificationItem[] = [
@@ -243,6 +251,14 @@ export async function listNotifications(since: Date): Promise<NotificationItem[]
       body: `${t.author}${t.project ? `, projet « ${t.project.name} »` : ""} : à retirer du site sous 7 jours.`,
       href: "/site",
       at: t.withdrawalRequestedAt!.toISOString(),
+    })),
+    ...softwareRequests.map((r) => ({
+      id: `software_request:${r.id}`,
+      kind: "software_request" as const,
+      title: `Demande ${r.software === "TRACEBAY" ? "Tracebay" : r.software} : ${r.companyName}`,
+      body: "Nouvelle demande d'utilisation depuis le site.",
+      href: `/demandes-logiciel/${r.id}`,
+      at: r.createdAt.toISOString(),
     })),
   ];
 
