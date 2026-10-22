@@ -93,15 +93,27 @@ import { listPortalProjects } from "@/lib/projects/service.js";
 import { reviewInviteEligible } from "@/lib/projects/review-invite.js";
 import { publicStart } from "@/lib/subscriptions/start.js";
 import {
+  PORTAL_SECTIONS,
+  changedAfter,
+  isNewDocument,
+  isNewMilestone,
+  isNewProject,
+  loadPortalSeen,
+  markPortalSeen,
+  newPaymentEntryIds,
+} from "@/lib/portal/unseen.js";
+import {
   CONSENT_TEXT,
   CONSENT_VERSION,
   nameOptions,
   portalTestimonials,
   TESTIMONIAL_MAX_LENGTH,
+  TESTIMONIAL_SOURCE,
 } from "@/lib/site/testimonials.js";
 
 const emailSchema = z.object({ email: z.string().trim().email().max(254) });
 const codeSchema = z.string().trim().regex(/^\d{6}$/);
+const seenSchema = z.object({ section: z.enum(PORTAL_SECTIONS) });
 const verifySchema = emailSchema.extend({ code: codeSchema });
 
 /** Prénom ou nom : lettres, espaces, tiret, apostrophe. */
@@ -345,6 +357,8 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
 
       const settings = await getCompanySettings();
       const showAmounts = settings.publicTrackingShowAmounts;
+      // Pastilles « non vu » (contrat du 19/10/2026) : dernière ouverture de chaque rubrique.
+      const seen = await loadPortalSeen(client.id);
 
       const documents = await prisma.invoice.findMany({
         where: {
@@ -421,12 +435,17 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
       const portalProjects = await listPortalProjects(client.id);
       const projectByQuote: ProjectByQuote = new Map(portalProjects.flatMap((p) => (p.quoteId ? [[p.quoteId, p.id] as const] : [])));
 
-      const history = buildPaymentHistory({
+      const built = buildPaymentHistory({
         docs: documents,
         milestones: allMilestones,
         showAmounts,
         projectByQuote,
       });
+      const newPaymentIds = newPaymentEntryIds(documents, allMilestones, seen.payments);
+      const history = {
+        ...built,
+        items: built.items.map((i) => (newPaymentIds.has(i.id) ? { ...i, isNew: true as const } : i)),
+      };
       // Ajout du 19/10/2026 (contrat /suivi) : « Reste à régler » avoirs compris, somme des dueCents des factures
       // émises. totalDueCents (au niveau du marché, sans les avoirs) reste inchangé.
       const paymentHistory = showAmounts
@@ -439,10 +458,48 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
         : history;
 
       const testimonials = await portalTestimonials(client.id);
+      const [projectDates, testimonialDates] = await Promise.all([
+        prisma.clientProject.findMany({ where: { clientId: client.id, visibleOnPortal: true }, select: { id: true, updatedAt: true } }),
+        prisma.siteReview.findMany({
+          where: { clientId: client.id, source: TESTIMONIAL_SOURCE, projectId: { not: null } },
+          select: { projectId: true, publishedAt: true, rejectedAt: true },
+        }),
+      ]);
+      const updatedAtOf = new Map(projectDates.map((p) => [p.id, p.updatedAt]));
+      const testimonialOf = new Map(testimonialDates.map((t) => [t.projectId!, t]));
       // Projet terminé : état de son témoignage (« none » tant qu'aucun n'a été déposé).
-      const projects = portalProjects.map((p) =>
-        p.status === "DONE" ? { ...p, testimonial: testimonials.get(p.id) ?? { status: "NONE" as const } } : p,
-      );
+      const projects = portalProjects.map((p) => {
+        const updatedAt = updatedAtOf.get(p.id);
+        const isNew = Boolean(updatedAt && isNewProject({ updatedAt }, testimonialOf.get(p.id), seen.projects));
+        const base = p.status === "DONE" ? { ...p, testimonial: testimonials.get(p.id) ?? { status: "NONE" as const } } : p;
+        return isNew ? { ...base, isNew: true as const } : base;
+      });
+
+      // Compteurs des pastilles : toujours présents (0 si rien de nouveau).
+      const quoteMilestones = documents.filter((d) => d.documentType === InvoiceDocumentType.QUOTE).flatMap((d) => d.milestones);
+      const now = new Date();
+      const unseen = {
+        projects: projects.filter((p) => "isNew" in p).length,
+        documents: documents.filter((d) => isNewDocument(d, seen.documents)).length,
+        payments:
+          newPaymentIds.size +
+          quoteMilestones.filter((m) => isNewMilestone(m, seen.payments)).length +
+          documents.filter(
+            (d) =>
+              d.documentType === InvoiceDocumentType.INVOICE &&
+              d.status === InvoiceStatus.ISSUED &&
+              (balanceFields(d)?.dueCents ?? 0) > 0 &&
+              isNewDocument(d, seen.payments),
+          ).length +
+          subscriptions.filter(
+            (s) =>
+              settings.moduleStripeEnabled &&
+              !s.stripeSubscriptionId &&
+              !s.cancellationRequestedAt &&
+              !(s.endDate && s.endDate > now) &&
+              changedAfter(s.setupLinkSentAt, seen.payments),
+          ).length,
+      };
       const reviewEligible = await reviewInviteEligible(client.id);
 
       const email = decryptOptional(client.emailEncrypted);
@@ -511,6 +568,7 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
           const payUrl = dueNow > 0 && !processing ? safePayUrl(d.checkoutUrl) : null;
           return {
             id: d.id,
+            ...(isNewDocument(d, seen.documents) ? { isNew: true as const } : {}),
             number: d.number,
             documentType: d.documentType,
             invoiceType: d.invoiceType,
@@ -567,6 +625,7 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
               d.documentType === InvoiceDocumentType.QUOTE
                 ? d.milestones.map((m) => ({
                     id: m.id,
+                    ...(isNewMilestone(m, seen.payments) ? { isNew: true as const } : {}),
                     position: m.position,
                     label: m.label,
                     percentBps: m.percentBps,
@@ -655,6 +714,7 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
           };
         }),
         paymentHistory,
+        unseen,
         subscriptions: subscriptions.map((s) => ({
           label: s.label,
           billingDay: s.billingDay,
@@ -734,6 +794,20 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
           .code(502)
           .send({ error: "La gestion en ligne est indisponible pour le moment. Réessayez plus tard ou répondez à l'un de nos e-mails." });
       }
+    },
+  );
+
+  // Pastilles « non vu » : rubrique ouverte par le client, ses éléments ne sont plus nouveaux. Idempotent.
+  app.post(
+    "/api/public/seen",
+    { config: { rateLimit: { max: 60, timeWindow: "15 minutes" } } },
+    async (request, reply) => {
+      const client = await resolvePortalClient(request);
+      if (!client) return reply.code(401).send(SESSION_EXPIRED);
+      const parsed = seenSchema.safeParse(request.body);
+      if (!parsed.success) return reply.code(400).send({ code: "unknown_section", error: "Rubrique inconnue." });
+      await markPortalSeen(client.id, parsed.data.section);
+      return reply.code(204).send();
     },
   );
 
