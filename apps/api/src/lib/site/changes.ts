@@ -70,6 +70,7 @@ const TEXT_LABEL: Record<SiteTextKey, { label: string; to: string }> = {
   avisMethode: { label: "Méthode des témoignages", to: "/site/avis" },
   pages: { label: "Textes des pages", to: "/site/textes-pages" },
   seo: { label: "Référencement des pages", to: "/site/referencement" },
+  "espace-client": { label: "Textes de l'espace client", to: "/site/tous-les-textes?doc=espace-client" },
   menus: { label: "Menus", to: "/site/menus" },
 };
 

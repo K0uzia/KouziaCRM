@@ -47,7 +47,7 @@ const ordered = [{ position: "asc" as const }, { createdAt: "asc" as const }];
  * contrat (état de l'espace Site), ils figurent dès que leur document existe.
  */
 export async function buildSiteSnapshot(contract?: unknown): Promise<SiteSnapshot> {
-  const [allProjects, reviews, references, faq, infos, accroche, offres, avisMethode, pages, seo, menus] = await Promise.all([
+  const [allProjects, reviews, references, faq, infos, accroche, offres, avisMethode, pages, seo, menus, espaceClient] = await Promise.all([
     prisma.siteProject.findMany({ where: published, orderBy: ordered }),
     // Classement annoncé dans la méthode (D111-17) : du plus récent au plus ancien.
     // Écartés : jamais publiés, même marqués « Sur le site ».
@@ -61,6 +61,7 @@ export async function buildSiteSnapshot(contract?: unknown): Promise<SiteSnapsho
     readSiteText("pages"),
     readSiteText("seo"),
     readSiteText("menus"),
+    readSiteText("espace-client"),
   ]);
 
   const issues: SiteIssue[] = [];
@@ -109,9 +110,11 @@ export async function buildSiteSnapshot(contract?: unknown): Promise<SiteSnapsho
 
   const allowed: Set<SiteOptionalFileName> = contract === undefined ? new Set(SITE_OPTIONAL_FILES) : contractOptionalFiles(contract);
   const optional: Partial<Record<SiteOptionalFileName, unknown>> = {};
-  if (pages && allowed.has("pages")) optional.pages = { schemaVersion: SITE_SCHEMA_VERSION, pages: pages.pages };
-  if (seo && allowed.has("seo")) optional.seo = { schemaVersion: SITE_SCHEMA_VERSION, pages: seo.pages };
+  // Document entier (sans schemaVersion) : un bloc ajouté par le site (communs, nouvelle page) part aussi.
+  if (pages && allowed.has("pages")) optional.pages = { schemaVersion: SITE_SCHEMA_VERSION, ...pages };
+  if (seo && allowed.has("seo")) optional.seo = { schemaVersion: SITE_SCHEMA_VERSION, ...seo };
   if (menus && allowed.has("menus")) optional.menus = { schemaVersion: SITE_SCHEMA_VERSION, ...menus };
+  if (espaceClient && allowed.has("espace-client")) optional["espace-client"] = { schemaVersion: SITE_SCHEMA_VERSION, ...espaceClient };
   issues.push(...validateOptionalSiteFiles(optional, contract));
   // Contrôles du build du site sur les valeurs finales (variables remplacées, valeurs actuelles comprises), dès que le
   // site les applique : même sans seo.json, un délai de réponse plus long peut faire dépasser une description actuelle.

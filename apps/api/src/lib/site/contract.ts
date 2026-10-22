@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { contractFileIssues, type SiteContract } from "@/lib/site/editeur-rules.js";
 
 /**
  * Contrat du contenu publié dans le dépôt KouziaWebsite (src/content/site/*.json), clés françaises.
@@ -149,7 +150,7 @@ export type SiteFiles = { [K in SiteFileName]: z.output<(typeof siteFileSchemas)
  * Fichiers facultatifs (lot 6), déclarés par le site sous « fichiersFacultatifs » de contenu.schema.json : absents,
  * le site garde ses textes actuels. L'ERP ne les écrit que si le contrat du dépôt les connaît.
  */
-export const SITE_OPTIONAL_FILES = ["pages", "seo", "menus"] as const;
+export const SITE_OPTIONAL_FILES = ["pages", "seo", "menus", "espace-client"] as const;
 export type SiteOptionalFileName = (typeof SITE_OPTIONAL_FILES)[number];
 export type SiteAnyFileName = SiteFileName | SiteOptionalFileName;
 
@@ -238,6 +239,8 @@ export const siteOptionalSchemas = {
   pages: file({ pages: pagesValue.shape.pages }),
   seo: file({ pages: seoValue.shape.pages }),
   menus: file(menusValue.shape),
+  // Forme décrite seulement par le contrat du site (éditeur généré) : l'ERP n'en garde pas de copie.
+  "espace-client": z.looseObject({ schemaVersion: z.literal(SITE_SCHEMA_VERSION) }),
 } satisfies Record<SiteOptionalFileName, z.ZodType>;
 
 /** Fichiers facultatifs que le contrat du dépôt déclare : seuls ceux-là sont publiables. */
@@ -252,11 +255,19 @@ export function validateOptionalSiteFiles(files: Partial<Record<SiteOptionalFile
   const declared = (contract as { fichiersFacultatifs?: Record<string, unknown> } | null)?.fichiersFacultatifs ?? {};
   for (const name of SITE_OPTIONAL_FILES) {
     if (files[name] === undefined) continue;
+    const js = declared[`${name}.json`];
+    // Contrat avec « editeur » (éditeur généré) : il fait foi, JSON Schema et règles des champs ; un champ nouveau du
+    // site n'est pas refusé par la copie ancienne de l'ERP. Contrat plus ancien ou absent : règles locales d'abord.
+    if (js && (contract as SiteContract).editeur) {
+      for (const i of contractFileIssues(contract as SiteContract, `${name}.json`, files[name])) {
+        issues.push({ file: name, path: i.path, message: `Contrat du site : ${i.message}` });
+      }
+      continue;
+    }
     const local = siteOptionalSchemas[name].safeParse(files[name]);
     if (!local.success) {
       for (const i of local.error.issues) issues.push({ file: name, path: i.path.join(".") || "(racine)", message: i.message });
     }
-    const js = declared[`${name}.json`];
     if (js) {
       const r = z.fromJSONSchema(js as Parameters<typeof z.fromJSONSchema>[0]).safeParse(files[name]);
       if (!r.success) {

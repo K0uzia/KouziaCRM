@@ -1,4 +1,4 @@
-import type { z } from "zod";
+import { z } from "zod";
 import { prisma } from "@/lib/prisma.js";
 import { accrocheValue, avisMethodeValue, infosValue, menusValue, offresValue, pagesValue, seoValue } from "@/lib/site/contract.js";
 
@@ -11,6 +11,8 @@ export const SITE_TEXT_SCHEMAS = {
   pages: pagesValue,
   seo: seoValue,
   menus: menusValue,
+  // Document décrit par le contrat du site seulement (éditeur généré, routes /api/site/editor).
+  "espace-client": z.record(z.string(), z.unknown()),
 } as const;
 
 export type SiteTextKey = keyof typeof SITE_TEXT_SCHEMAS;
