@@ -38,6 +38,24 @@ export type SiteProject = SiteItem & {
   imageMobilePath: string | null;
   /** null : texte calculé par le site ; "" : capture décorative. */
   imageAlt: string | null;
+  // Page projet (/realisations/<slug>/) et accord écrit du client.
+  descriptionText: string | null;
+  contextText: string | null;
+  needText: string | null;
+  approachText: string | null;
+  choicesText: string | null;
+  resultText: string | null;
+  clientIntro: string | null;
+  clientName: string | null;
+  captures: { image: string; alt: string; caption?: string | null }[];
+  links: { label: string; url: string }[];
+  clientId: string | null;
+  client: { id: string; displayName: string } | null;
+  publicationConsentAt: string | null;
+  publicationConsentNote: string | null;
+  consentFile: boolean;
+  /** Ce qui manque pour que la page projet parte (null : elle part, ou n'est pas commencée). */
+  detailBlocker: string | null;
 };
 
 export type SiteReview = SiteItem & {
@@ -379,6 +397,7 @@ export function ImageField({
   onChange,
   optional = false,
   error,
+  allowRepoPath = true,
 }: {
   label: string;
   kind: MediaKind;
@@ -386,6 +405,8 @@ export function ImageField({
   onChange: (path: string | null) => void;
   optional?: boolean;
   error?: string;
+  /** Image déjà dans le dépôt du site (/projets/…) ; false : médiathèque seulement (captures de la page projet). */
+  allowRepoPath?: boolean;
 }) {
   const input = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
@@ -477,7 +498,7 @@ export function ImageField({
         {value ? <span className="block font-mono">{value}</span> : null}
       </p>
       {/* Chemin /projets/*.webp : captures reprises du site ; ni un logo ni une image de partage (JPEG de la médiathèque). */}
-      {kind === "CAPTURE" || kind === "MOBILE" ? (
+      {allowRepoPath && (kind === "CAPTURE" || kind === "MOBILE") ? (
         <details className="group text-sm">
           <summary className="inline-flex min-h-11 cursor-pointer list-none items-center gap-2 text-[var(--muted)] hover:text-[var(--text)] [&::-webkit-details-marker]:hidden">
             <FontAwesomeIcon icon={faChevronRight} className="h-3 w-3 transition-transform group-open:rotate-90 motion-reduce:transition-none" aria-hidden />

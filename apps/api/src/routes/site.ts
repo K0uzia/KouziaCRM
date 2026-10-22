@@ -9,6 +9,7 @@ import {
   SiteProjectKind,
   SitePublicationStatus,
   SiteReferenceType,
+  type SiteProject,
   type SiteReference,
   type SiteReview,
 } from "@prisma/client";
@@ -18,7 +19,7 @@ import { decryptOptional, encryptOptional } from "@/lib/crypto.js";
 import { getCompanySettings } from "@/lib/company.js";
 import { secretMeta } from "@/lib/settings/secrets.js";
 import { httpsUrl, imagePath, SITE_FILES, SITE_OPTIONAL_FILES, siteText, slug } from "@/lib/site/contract.js";
-import { parseTech } from "@/lib/site/mapping.js";
+import { detailBlocker, detailStarted, parseJsonList, parseTech, type ProjectCapture, type ProjectLink } from "@/lib/site/mapping.js";
 import { readSiteText, writeSiteText, isSiteTextKey } from "@/lib/site/texts.js";
 import { readSiteDefaults, siteCityOrNull, textVariables } from "@/lib/site/seo-menus.js";
 import { buildSiteSnapshot } from "@/lib/site/snapshot.js";
@@ -38,7 +39,11 @@ import { readPagesDefaults } from "@/lib/site/pages.js";
 import { HistoryError, publicationDetail, restoreVersion } from "@/lib/site/history.js";
 import { adoptMissingMedia, deleteLibraryMedia, LibraryError, libraryPath, listLibrary, recropLibraryMedia } from "@/lib/site/library.js";
 import { issuedPdfAbsolutePath } from "@/lib/pdf/issued-archive.js";
-import { readFile } from "node:fs/promises";
+import { mkdir, readFile, unlink } from "node:fs/promises";
+import { createWriteStream } from "node:fs";
+import { dirname } from "node:path";
+import { pipeline } from "node:stream/promises";
+import { uploadsPath } from "@/lib/uploads.js";
 import { parisYmd } from "@/lib/format-fr.js";
 
 /**
@@ -49,6 +54,9 @@ import { parisYmd } from "@/lib/format-fr.js";
 const CODE_HOSTS = /^https:\/\/(www\.)?(github\.com|gitlab\.com|bitbucket\.org)\//;
 const optionalText = siteText.nullish();
 const status = z.enum(SiteItemStatus).optional();
+
+/** Texte facultatif : vide ou blancs = absent (null). */
+const blankToNull = <T extends z.ZodType>(schema: T) => z.preprocess((v) => (typeof v === "string" && !v.trim() ? null : v), schema.nullish());
 
 const projectInput = z.strictObject({
   slug,
@@ -67,6 +75,26 @@ const projectInput = z.strictObject({
   /** null : le site calcule le texte ; "" : capture décorative ; texte : publié tel quel. */
   imageAlt: z.union([z.literal(""), siteText.max(200)]).nullish(),
   status,
+  // Page projet (contrat du 22/10/2026) : champs vides = absents ; publiée seulement complète (detailBlocker).
+  description: blankToNull(siteText.max(300)),
+  context: blankToNull(siteText.max(1500)),
+  need: blankToNull(siteText.max(1500)),
+  approach: blankToNull(siteText.max(1500)),
+  choices: blankToNull(siteText.max(1500)),
+  result: blankToNull(siteText.max(1500)),
+  clientIntro: blankToNull(siteText.max(800)),
+  clientName: blankToNull(siteText.max(100)),
+  captures: z
+    .array(z.strictObject({ image: z.string().regex(/^\/media\/[a-f0-9]{12}\.webp$/, "Capture : image de la médiathèque"), alt: siteText.max(200), caption: blankToNull(siteText.max(150)) }))
+    .max(6)
+    .default([]),
+  links: z
+    .array(z.strictObject({ label: siteText.max(60), url: httpsUrl.refine((u) => !CODE_HOSTS.test(u), "Lien vers du code source interdit (charte)") }))
+    .max(4)
+    .default([]),
+  clientId: z.string().regex(/^[A-Za-z0-9_-]{1,64}$/).nullish(),
+  consentAt: z.iso.datetime({ offset: true }).nullish(),
+  consentNote: blankToNull(siteText.max(300)),
 });
 
 const reviewInput = z.strictObject({
@@ -135,6 +163,21 @@ const toDate = (v: string | null | undefined) => (v === undefined ? undefined : 
 const isUniqueViolation = (e: unknown) => e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002";
 
 type ReviewRow = SiteReview & { project?: { id: string; name: string } | null; client?: { id: string; displayName: string } | null };
+type ProjectRow = SiteProject & { client?: { id: string; displayName: string } | null };
+
+/** Réalisation pour l'écran : listes décodées, chemin du justificatif jamais exposé (seulement sa présence). */
+function projectOutAdmin(p: ProjectRow) {
+  const { publicationConsentFile, ...rest } = p;
+  return {
+    ...rest,
+    tech: parseTech(p.techJson) ?? [],
+    captures: parseJsonList<ProjectCapture>(p.capturesJson),
+    links: parseJsonList<ProjectLink>(p.linksJson),
+    consentFile: Boolean(publicationConsentFile),
+    // Page projet : ce qui manque pour qu'elle parte (null si elle part ou n'est pas commencée).
+    detailBlocker: detailStarted(p) ? detailBlocker(p) : null,
+  };
+}
 
 /**
  * Témoignage pour l'écran : preuve déchiffrée pour une saisie manuelle (texte libre) ; pour un témoignage
@@ -326,10 +369,12 @@ export const siteRoutes: FastifyPluginAsync = async (app) => {
   );
 
   // --- Réalisations ----------------------------------------------------------------------------
-  registerCollectionBasics(app, "/api/site/projects", "projects", () => prisma.siteProject as unknown as Delegate, (p: never) => {
-    const row = p as { techJson: string | null };
-    return { ...(row as object), tech: parseTech(row.techJson) ?? [] };
+  registerCollectionBasics(app, "/api/site/projects", "projects", () => prisma.siteProject as unknown as Delegate, projectOutAdmin as (p: never) => unknown, {
+    client: { select: { id: true, displayName: true } },
   });
+
+  const projectInclude = { client: { select: { id: true, displayName: true } } } as const;
+  const clientExists = async (id: string | null | undefined) => !id || Boolean(await prisma.client.findUnique({ where: { id }, select: { id: true } }));
 
   const projectData = (d: z.output<typeof projectInput>) => ({
     slug: d.slug,
@@ -346,6 +391,19 @@ export const siteRoutes: FastifyPluginAsync = async (app) => {
     imageMobilePath: d.imageMobilePath ?? null,
     imageAlt: d.imageAlt ?? null,
     ...(d.status ? { status: d.status } : {}),
+    descriptionText: d.description ?? null,
+    contextText: d.context ?? null,
+    needText: d.need ?? null,
+    approachText: d.approach ?? null,
+    choicesText: d.choices ?? null,
+    resultText: d.result ?? null,
+    clientIntro: d.clientIntro ?? null,
+    clientName: d.clientName ?? null,
+    capturesJson: d.captures.length ? JSON.stringify(d.captures.map((c) => ({ image: c.image, alt: c.alt, ...(c.caption ? { caption: c.caption } : {}) }))) : null,
+    linksJson: d.links.length ? JSON.stringify(d.links) : null,
+    clientId: d.clientId ?? null,
+    publicationConsentAt: d.consentAt ? new Date(d.consentAt) : null,
+    publicationConsentNote: d.consentNote ?? null,
   });
 
   app.post(
@@ -353,11 +411,13 @@ export const siteRoutes: FastifyPluginAsync = async (app) => {
     admin(async (request, reply) => {
       const body = projectInput.safeParse(request.body);
       if (!body.success) return invalid(reply, body.error);
+      if (!(await clientExists(body.data.clientId))) return reply.code(400).send({ error: "Client introuvable" });
       try {
         const row = await prisma.siteProject.create({
           data: { ...projectData(body.data), position: nextPosition(await prisma.siteProject.aggregate({ _max: { position: true } })) },
+          include: projectInclude,
         });
-        return reply.code(201).send({ ...row, tech: body.data.tech });
+        return reply.code(201).send(projectOutAdmin(row));
       } catch (e) {
         if (isUniqueViolation(e)) return reply.code(409).send({ error: "Identifiant déjà utilisé" });
         throw e;
@@ -377,13 +437,70 @@ export const siteRoutes: FastifyPluginAsync = async (app) => {
       if (current.publishedAt && current.slug !== body.data.slug) {
         return reply.code(409).send({ error: "Identifiant publié : il ne change plus (le code du site y fait référence)." });
       }
+      if (!(await clientExists(body.data.clientId))) return reply.code(400).send({ error: "Client introuvable" });
       try {
-        const row = await prisma.siteProject.update({ where: { id: current.id }, data: projectData(body.data) });
-        return { ...row, tech: body.data.tech };
+        const row = await prisma.siteProject.update({ where: { id: current.id }, data: projectData(body.data), include: projectInclude });
+        return projectOutAdmin(row);
       } catch (e) {
         if (isUniqueViolation(e)) return reply.code(409).send({ error: "Identifiant déjà utilisé" });
         throw e;
       }
+    }),
+  );
+
+  // Justificatif de l'accord écrit du client (PDF ou capture) : privé sous data/uploads, jamais publié.
+  const CONSENT_TYPES: Record<string, string> = { "application/pdf": "pdf", "image/jpeg": "jpg", "image/png": "png" };
+  app.post(
+    "/api/site/projects/:id/consent-file",
+    admin(async (request, reply) => {
+      const params = idParams.safeParse(request.params);
+      if (!params.success) return invalid(reply, params.error);
+      const project = await prisma.siteProject.findUnique({ where: { id: params.data.id } });
+      if (!project) return reply.code(404).send({ error: "Introuvable" });
+      const file = await request.file({ limits: { fileSize: 10 * 1024 * 1024, files: 1 } });
+      if (!file) return reply.code(400).send({ error: "Fichier manquant" });
+      const ext = CONSENT_TYPES[file.mimetype];
+      if (!ext) return reply.code(400).send({ error: "PDF, JPEG ou PNG seulement" });
+      const relative = `site-consents/${project.id}-${Date.now()}.${ext}`;
+      await mkdir(dirname(uploadsPath(relative)), { recursive: true });
+      await pipeline(file.file, createWriteStream(uploadsPath(relative)));
+      if (file.file.truncated) {
+        await unlink(uploadsPath(relative)).catch(() => undefined);
+        return reply.code(413).send({ error: "Fichier trop lourd (10 Mo au plus)" });
+      }
+      if (project.publicationConsentFile) await unlink(uploadsPath(project.publicationConsentFile)).catch(() => undefined);
+      const row = await prisma.siteProject.update({ where: { id: project.id }, data: { publicationConsentFile: relative }, include: projectInclude });
+      return projectOutAdmin(row);
+    }),
+  );
+
+  app.get(
+    "/api/site/projects/:id/consent-file",
+    admin(async (request, reply) => {
+      const params = idParams.safeParse(request.params);
+      if (!params.success) return invalid(reply, params.error);
+      const project = await prisma.siteProject.findUnique({ where: { id: params.data.id }, select: { slug: true, publicationConsentFile: true } });
+      if (!project?.publicationConsentFile) return reply.code(404).send({ error: "Aucun justificatif" });
+      const ext = project.publicationConsentFile.split(".").pop()!;
+      const type = Object.entries(CONSENT_TYPES).find(([, e]) => e === ext)?.[0] ?? "application/octet-stream";
+      return reply
+        .header("Content-Type", type)
+        .header("Content-Disposition", `attachment; filename="accord-${project.slug}.${ext}"`)
+        .header("Cache-Control", "no-store")
+        .send(await readFile(uploadsPath(project.publicationConsentFile)));
+    }),
+  );
+
+  app.delete(
+    "/api/site/projects/:id/consent-file",
+    admin(async (request, reply) => {
+      const params = idParams.safeParse(request.params);
+      if (!params.success) return invalid(reply, params.error);
+      const project = await prisma.siteProject.findUnique({ where: { id: params.data.id } });
+      if (!project) return reply.code(404).send({ error: "Introuvable" });
+      if (project.publicationConsentFile) await unlink(uploadsPath(project.publicationConsentFile)).catch(() => undefined);
+      const row = await prisma.siteProject.update({ where: { id: project.id }, data: { publicationConsentFile: null }, include: projectInclude });
+      return projectOutAdmin(row);
     }),
   );
 

@@ -46,8 +46,68 @@ export function parseTech(techJson: string | null): string[] | undefined {
   return Array.isArray(list) && list.length ? list.map(String) : undefined;
 }
 
+export type ProjectCapture = { image: string; alt: string; caption?: string | null };
+export type ProjectLink = { label: string; url: string };
+
+export function parseJsonList<T>(json: string | null): T[] {
+  if (!json) return [];
+  const list = JSON.parse(json) as unknown;
+  return Array.isArray(list) ? (list as T[]) : [];
+}
+
+const DETAIL_TEXTS = ["contextText", "needText", "approachText", "choicesText", "resultText"] as const;
+const filled = (v: string | null | undefined) => Boolean(v?.trim());
+
+/** Projet lié à un client (fiche, nom ou présentation) : rien de nouveau n'en part sans son accord écrit. */
+export function concernsClient(p: Pick<SiteProject, "clientId" | "clientName" | "clientIntro">): boolean {
+  return Boolean(p.clientId) || filled(p.clientName) || filled(p.clientIntro);
+}
+
+/** Saisie de la page projet commencée (un champ au moins). */
+export function detailStarted(p: SiteProject): boolean {
+  return filled(p.descriptionText) || DETAIL_TEXTS.some((k) => filled(p[k])) || parseJsonList(p.capturesJson).length > 0;
+}
+
+/**
+ * Pourquoi la page projet ne part pas (null : elle part). Le site ne la crée qu'avec un texte détaillé ; la description
+ * (meta description) est obligatoire ; un projet lié à un client attend son accord écrit (zéro fiction).
+ */
+export function detailBlocker(p: SiteProject): string | null {
+  if (!filled(p.descriptionText)) return "description pour Google manquante";
+  if (!DETAIL_TEXTS.some((k) => filled(p[k]))) return "aucun texte détaillé (contexte, besoin, démarche, choix ou résultat)";
+  if (concernsClient(p) && !p.publicationConsentAt) return "accord écrit du client non renseigné";
+  return null;
+}
+
+type DetailOut = NonNullable<z.input<typeof realisationValue>["detail"]>;
+
+export function detailOut(p: SiteProject): DetailOut | null {
+  if (detailBlocker(p)) return null;
+  const consent = Boolean(p.publicationConsentAt);
+  const text = (v: string | null) => (filled(v) ? v!.trim() : undefined);
+  const captures = parseJsonList<ProjectCapture>(p.capturesJson);
+  const links = parseJsonList<ProjectLink>(p.linksJson);
+  const entries: [keyof DetailOut, unknown][] = [
+    ["description", p.descriptionText!.trim()],
+    ["contexte", text(p.contextText)],
+    // Nom du client et accord : seulement avec l'accord écrit (contrôlé aussi par le build du site).
+    ["clientNom", consent ? text(p.clientName) : undefined],
+    ["accordClient", consent ? true : undefined],
+    ["client", text(p.clientIntro)],
+    ["besoin", text(p.needText)],
+    ["demarche", text(p.approachText)],
+    ["choix", text(p.choicesText)],
+    ["resultat", text(p.resultText)],
+    ["captures", captures.length ? captures.map((c) => ({ image: c.image, alt: c.alt, ...(c.caption ? { legende: c.caption } : {}) })) : undefined],
+    ["liens", links.length ? links.map((l) => ({ libelle: l.label, url: l.url })) : undefined],
+  ];
+  // Clés absentes (jamais undefined) quand la valeur manque : sérialisation identique au dépôt.
+  return Object.fromEntries(entries.filter(([, v]) => v !== undefined)) as DetailOut;
+}
+
 // Clés dans l'ordre du schéma du site : la sérialisation reste identique au dépôt.
 export function projectOut(p: SiteProject): z.input<typeof realisationValue> {
+  const detail = detailOut(p);
   return {
     id: p.slug,
     nom: p.name,
@@ -65,6 +125,7 @@ export function projectOut(p: SiteProject): z.input<typeof realisationValue> {
     ...(p.imageMobilePath ? { imageMobile: p.imageMobilePath } : {}),
     // "" est une valeur (capture décorative) : seule l'absence de saisie (null) laisse le site calculer.
     ...(p.imageAlt !== null ? { imageAlt: p.imageAlt } : {}),
+    ...(detail ? { detail } : {}),
   };
 }
 
