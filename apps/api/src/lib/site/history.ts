@@ -112,6 +112,7 @@ const OPTIONAL_LABEL: Record<Exclude<SiteAnyFileName, SiteFileName>, string> = {
   pages: "Textes des pages",
   seo: "Référencement des pages",
   menus: "Menus",
+  "espace-client": "Textes de l'espace client",
 };
 
 /** Éléments d'un fichier publié, avec une clé stable pour comparer deux publications. */
@@ -121,7 +122,8 @@ function itemsOf(file: SiteAnyFileName, text: string | undefined): Item[] {
   switch (file) {
     case "pages":
     case "seo":
-    case "menus": {
+    case "menus":
+    case "espace-client": {
       const { schemaVersion: _, ...value } = json;
       return [{ key: file, label: OPTIONAL_LABEL[file], value }];
     }

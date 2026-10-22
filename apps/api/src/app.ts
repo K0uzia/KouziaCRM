@@ -33,6 +33,7 @@ import { webhooksStripeRoutes } from "@/routes/webhooks-stripe.js";
 import { webhooksSiteRoutes } from "@/routes/webhooks-site.js";
 import { siteRoutes } from "@/routes/site.js";
 import { softwareRequestsRoutes } from "@/routes/software-requests.js";
+import { siteEditorRoutes } from "@/routes/site-editor.js";
 import { projectsRoutes } from "@/routes/projects.js";
 import { notificationsRoutes } from "@/routes/notifications.js";
 import { pushRoutes } from "@/routes/push.js";
@@ -226,6 +227,7 @@ export async function buildApp(opts: BuildAppOptions = {}): Promise<FastifyInsta
   await app.register(googleCalendarRoutes);
   await app.register(siteRoutes);
   await app.register(softwareRequestsRoutes);
+  await app.register(siteEditorRoutes);
 
   // pendingMigrations > 0 : base en retard sur le code (contrôle d'après déploiement).
   // Par le tunnel : état seulement (l'avance des migrations ne regarde que le LAN, kouziactl compris).
