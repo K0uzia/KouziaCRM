@@ -1,5 +1,5 @@
 import { Children, cloneElement, isValidElement, useId } from "react";
-import type { ComponentPropsWithRef, SelectHTMLAttributes, TextareaHTMLAttributes, ReactNode } from "react";
+import type { ComponentPropsWithRef, SelectHTMLAttributes, ReactNode } from "react";
 
 export function Field({
   label,
@@ -58,7 +58,7 @@ export function Select({ className = "", ...props }: SelectHTMLAttributes<HTMLSe
   return <select className={`${control} ${singleLine} ui-select ${className}`} {...props} />;
 }
 
-export function Textarea({ className = "", ...props }: TextareaHTMLAttributes<HTMLTextAreaElement>) {
+export function Textarea({ className = "", ...props }: ComponentPropsWithRef<"textarea">) {
   return <textarea className={`${control} min-h-24 resize-y py-2.5 ${className}`} {...props} />;
 }
 
