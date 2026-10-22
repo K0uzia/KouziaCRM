@@ -734,6 +734,7 @@ model Client {
   appointmentNotes       ClientNote[]
   contacts               ClientContact[]
   serviceNeeds           ClientServiceNeed[]
+  portalSeen             ClientPortalSeen[]
   /// Fiche préparée hors ligne : UUID de l'appareil ; un renvoi rend la même fiche (idempotence)
   clientRequestId        String?             @unique
   /// Identifiant Customer Stripe (cus_…)
@@ -847,6 +848,17 @@ model ClientContact {
 
   @@index([clientId, position])
   @@index([emailHash])
+}
+
+/// Dernière ouverture d'une rubrique de /suivi par le client (pastilles « non vu »). Une ligne par rubrique.
+model ClientPortalSeen {
+  clientId String
+  client   Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  /// projects | documents | payments
+  section  String
+  seenAt   DateTime
+
+  @@id([clientId, section])
 }
 
 /// Besoin d'un client : une prestation du catalogue. Une prestation liée ne se supprime pas (elle s'archive).
