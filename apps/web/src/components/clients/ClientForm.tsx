@@ -508,7 +508,7 @@ export function ClientFormEditor({
         <label className="flex min-h-11 items-start gap-3 text-sm">
           <input
             type="checkbox"
-            className="mt-0.5 h-5 w-5 shrink-0"
+            className="mt-0.5 shrink-0"
             checked={sendPortalAccess && Boolean(form.email)}
             disabled={!form.email}
             onChange={(e) => setSendPortalAccess(e.target.checked)}

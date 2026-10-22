@@ -45,17 +45,37 @@ export function Field({
 }
 
 const control =
-  "w-full min-h-11 rounded-[var(--radius)] border border-[var(--border-input)] bg-[var(--surface-raised)] px-3 py-2.5 text-sm text-[var(--text)] placeholder:text-[var(--muted)] transition focus:border-[var(--primary)] focus:outline-none focus:ring-2 focus:ring-[var(--primary)]/20 disabled:bg-[var(--bg-subtle)] disabled:opacity-70";
+  "w-full rounded-[var(--radius)] border border-[var(--border-input)] bg-[var(--surface-raised)] px-3 text-sm text-[var(--text)] placeholder:text-[var(--muted)] transition focus:border-[var(--primary)] focus:outline-none focus:ring-2 focus:ring-[var(--primary)]/20 disabled:bg-[var(--bg-subtle)] disabled:opacity-70";
+/** Hauteur fixe (--field-h) : un champ d'une ligne ne s'étire plus dans une grille à côté d'une zone de texte. */
+const singleLine = "h-[var(--field-h)]";
 
 // React 19 : ref est une prop ordinaire, transmise avec le reste (focus programmatique).
 export function Input({ className = "", ...props }: ComponentPropsWithRef<"input">) {
-  return <input className={`${control} ${className}`} {...props} />;
+  return <input className={`${control} ${singleLine} ${className}`} {...props} />;
 }
 
 export function Select({ className = "", ...props }: SelectHTMLAttributes<HTMLSelectElement>) {
-  return <select className={`${control} ${className}`} {...props} />;
+  return <select className={`${control} ${singleLine} ui-select ${className}`} {...props} />;
 }
 
 export function Textarea({ className = "", ...props }: TextareaHTMLAttributes<HTMLTextAreaElement>) {
-  return <textarea className={`${control} min-h-24 resize-y ${className}`} {...props} />;
+  return <textarea className={`${control} min-h-24 resize-y py-2.5 ${className}`} {...props} />;
+}
+
+/** Case à cocher avec son libellé : toute la ligne est cliquable (44 px), la case suit --check-size. */
+export function Checkbox({
+  label,
+  hint,
+  className = "",
+  ...props
+}: Omit<ComponentPropsWithRef<"input">, "type"> & { label: ReactNode; hint?: ReactNode }) {
+  return (
+    <label className={`flex min-h-11 cursor-pointer items-start gap-3 py-2.5 text-sm ${className}`}>
+      <input type="checkbox" className="mt-px" {...props} />
+      <span className="min-w-0">
+        <span className="block text-[var(--text)]">{label}</span>
+        {hint ? <span className="mt-0.5 block text-xs text-[var(--muted)]">{hint}</span> : null}
+      </span>
+    </label>
+  );
 }

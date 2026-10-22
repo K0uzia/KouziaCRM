@@ -666,7 +666,7 @@ export function Checkbox({
         checked={checked}
         onChange={(e) => onChange(e.target.checked)}
         aria-describedby={hint ? `${id}-aide` : undefined}
-        className="mt-3 h-5 w-5 shrink-0 accent-[var(--primary)]"
+        className="mt-3 shrink-0"
       />
       <div className="min-w-0">
         <label htmlFor={id} className="flex min-h-11 cursor-pointer items-center text-sm font-medium">
