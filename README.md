@@ -63,6 +63,10 @@ valeurs par défaut et le type JSON (TEXT au lieu de JSONB), sans effet sur l'ap
 voudrait reconstruire CompanySettings, Invoice, InvoiceLine, Payment et StripeWebhookEvent. Jamais de
 `db push` sur une vraie base.
 
+**Nom d'une migration : la suite, pas la date du jour.** Le préfixe avance d'un jour par migration après la
+dernière existante (`…_090000`), même s'il est déjà « dans le futur » : une date réelle antérieure placerait la
+migration avant d'autres déjà appliquées et Prisma la signalerait hors ordre.
+
 ## Formulaire client public (Kouzia)
 
 Flux :
