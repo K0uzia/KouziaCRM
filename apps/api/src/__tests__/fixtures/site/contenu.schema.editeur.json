@@ -793,6 +793,146 @@
                       "additionalProperties": false
                     }
                   },
+                  "avantApres": {
+                    "editeur": {
+                      "libelle": "Avant / après",
+                      "page": "realisation",
+                      "section": "Page projet",
+                      "type": "listeObjets",
+                      "aide": "1 ou 2 paires (ordinateur, téléphone) ; section masquée sans paire."
+                    },
+                    "minItems": 1,
+                    "maxItems": 2,
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "vue": {
+                          "type": "string",
+                          "enum": [
+                            "bureau",
+                            "mobile"
+                          ],
+                          "editeur": {
+                            "libelle": "Vue",
+                            "page": "realisation",
+                            "section": "Page projet",
+                            "type": "choix",
+                            "aide": "Capture d’ordinateur ou de téléphone ; chaque vue une fois au plus."
+                          }
+                        },
+                        "avant": {
+                          "type": "object",
+                          "properties": {
+                            "image": {
+                              "type": "string",
+                              "pattern": "^\\/media\\/[a-f0-9]{12}\\.webp$",
+                              "editeur": {
+                                "libelle": "Capture d’avant",
+                                "page": "realisation",
+                                "section": "Page projet",
+                                "type": "image",
+                                "aide": "WebP publié par l’ERP, même ratio que la capture d’après."
+                              }
+                            },
+                            "alt": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 200,
+                              "pattern": "^[^\\u2013\\u2014]*$",
+                              "editeur": {
+                                "libelle": "Texte alternatif",
+                                "page": "realisation",
+                                "section": "Page projet",
+                                "type": "court",
+                                "aide": "Ce que montre la capture d’avant."
+                              }
+                            },
+                            "date": {
+                              "type": "string",
+                              "pattern": "^\\d{4}-(0[1-9]|1[0-2])$",
+                              "editeur": {
+                                "libelle": "Date de l’archive",
+                                "page": "realisation",
+                                "section": "Page projet",
+                                "type": "court",
+                                "aide": "Mois de la capture d’avant, au format AAAA-MM (par exemple 2024-03)."
+                              }
+                            },
+                            "source": {
+                              "editeur": {
+                                "libelle": "Source de l’archive",
+                                "page": "realisation",
+                                "section": "Page projet",
+                                "type": "lien",
+                                "aide": "Adresse web.archive.org de la capture, affichée en petit ; facultative."
+                              },
+                              "type": "string",
+                              "pattern": "^https:\\/\\/web\\.archive\\.org\\/\\S+$"
+                            }
+                          },
+                          "required": [
+                            "image",
+                            "alt",
+                            "date"
+                          ],
+                          "additionalProperties": false,
+                          "editeur": {
+                            "libelle": "Avant",
+                            "page": "realisation",
+                            "section": "Page projet",
+                            "type": "objet"
+                          }
+                        },
+                        "apres": {
+                          "type": "object",
+                          "properties": {
+                            "image": {
+                              "type": "string",
+                              "pattern": "^\\/media\\/[a-f0-9]{12}\\.webp$",
+                              "editeur": {
+                                "libelle": "Capture d’après",
+                                "page": "realisation",
+                                "section": "Page projet",
+                                "type": "image",
+                                "aide": "WebP publié par l’ERP, même ratio que la capture d’avant."
+                              }
+                            },
+                            "alt": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 200,
+                              "pattern": "^[^\\u2013\\u2014]*$",
+                              "editeur": {
+                                "libelle": "Texte alternatif",
+                                "page": "realisation",
+                                "section": "Page projet",
+                                "type": "court",
+                                "aide": "Ce que montre la capture d’après."
+                              }
+                            }
+                          },
+                          "required": [
+                            "image",
+                            "alt"
+                          ],
+                          "additionalProperties": false,
+                          "editeur": {
+                            "libelle": "Après",
+                            "page": "realisation",
+                            "section": "Page projet",
+                            "type": "objet"
+                          }
+                        }
+                      },
+                      "required": [
+                        "vue",
+                        "avant",
+                        "apres"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
                   "liens": {
                     "editeur": {
                       "libelle": "Autres liens",
@@ -7032,6 +7172,266 @@
                     }
                   ]
                 },
+                "avantApres": {
+                  "editeur": {
+                    "page": "realisation",
+                    "section": "Avant / après",
+                    "libelle": "Titre : avant / après",
+                    "type": "court",
+                    "variables": [
+                      "ville",
+                      "delaiReponse",
+                      "email",
+                      "telephone"
+                    ]
+                  },
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 60,
+                  "allOf": [
+                    {
+                      "pattern": "^[^\\u2013\\u2014]*$"
+                    },
+                    {
+                      "pattern": "^(?:[^{}]|\\{(?:ville|delaiReponse|email|telephone)\\})*$"
+                    },
+                    {
+                      "pattern": "^[^*]*$"
+                    }
+                  ]
+                },
+                "avantApresAvant": {
+                  "editeur": {
+                    "page": "realisation",
+                    "section": "Avant / après",
+                    "libelle": "Étiquette de la capture d’avant",
+                    "type": "court",
+                    "variables": [
+                      "ville",
+                      "delaiReponse",
+                      "email",
+                      "telephone",
+                      "date"
+                    ],
+                    "aide": "{date} : mois de l’archive, en toutes lettres (« mars 2024 »)."
+                  },
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 80,
+                  "allOf": [
+                    {
+                      "pattern": "^[^\\u2013\\u2014]*$"
+                    },
+                    {
+                      "pattern": "^[^*]*$"
+                    },
+                    {
+                      "pattern": "^(?:[^{}]|\\{(?:ville|delaiReponse|email|telephone|date)\\})*$"
+                    }
+                  ]
+                },
+                "avantApresApres": {
+                  "editeur": {
+                    "page": "realisation",
+                    "section": "Avant / après",
+                    "libelle": "Étiquette de la capture d’après",
+                    "type": "court",
+                    "variables": [
+                      "ville",
+                      "delaiReponse",
+                      "email",
+                      "telephone"
+                    ]
+                  },
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 40,
+                  "allOf": [
+                    {
+                      "pattern": "^[^\\u2013\\u2014]*$"
+                    },
+                    {
+                      "pattern": "^(?:[^{}]|\\{(?:ville|delaiReponse|email|telephone)\\})*$"
+                    },
+                    {
+                      "pattern": "^[^*]*$"
+                    }
+                  ]
+                },
+                "avantApresCurseur": {
+                  "editeur": {
+                    "page": "realisation",
+                    "section": "Avant / après",
+                    "libelle": "Nom du curseur",
+                    "type": "court",
+                    "variables": [
+                      "ville",
+                      "delaiReponse",
+                      "email",
+                      "telephone"
+                    ],
+                    "aide": "Lu par les lecteurs d’écran."
+                  },
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 80,
+                  "allOf": [
+                    {
+                      "pattern": "^[^\\u2013\\u2014]*$"
+                    },
+                    {
+                      "pattern": "^(?:[^{}]|\\{(?:ville|delaiReponse|email|telephone)\\})*$"
+                    },
+                    {
+                      "pattern": "^[^*]*$"
+                    }
+                  ]
+                },
+                "avantApresValeur": {
+                  "editeur": {
+                    "page": "realisation",
+                    "section": "Avant / après",
+                    "libelle": "Position du curseur",
+                    "type": "court",
+                    "variables": [
+                      "ville",
+                      "delaiReponse",
+                      "email",
+                      "telephone",
+                      "avant",
+                      "apres"
+                    ],
+                    "aide": "Lue par les lecteurs d’écran ; {avant} et {apres} : parts en pourcentage."
+                  },
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 80,
+                  "allOf": [
+                    {
+                      "pattern": "^[^\\u2013\\u2014]*$"
+                    },
+                    {
+                      "pattern": "^[^*]*$"
+                    },
+                    {
+                      "pattern": "^(?:[^{}]|\\{(?:ville|delaiReponse|email|telephone|avant|apres)\\})*$"
+                    }
+                  ]
+                },
+                "avantApresVues": {
+                  "editeur": {
+                    "page": "realisation",
+                    "section": "Avant / après",
+                    "libelle": "Nom du choix de la vue",
+                    "type": "court",
+                    "variables": [
+                      "ville",
+                      "delaiReponse",
+                      "email",
+                      "telephone"
+                    ],
+                    "aide": "Lu par les lecteurs d’écran, avec deux vues."
+                  },
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 60,
+                  "allOf": [
+                    {
+                      "pattern": "^[^\\u2013\\u2014]*$"
+                    },
+                    {
+                      "pattern": "^(?:[^{}]|\\{(?:ville|delaiReponse|email|telephone)\\})*$"
+                    },
+                    {
+                      "pattern": "^[^*]*$"
+                    }
+                  ]
+                },
+                "avantApresBureau": {
+                  "editeur": {
+                    "page": "realisation",
+                    "section": "Avant / après",
+                    "libelle": "Bouton de la vue ordinateur",
+                    "type": "court",
+                    "variables": [
+                      "ville",
+                      "delaiReponse",
+                      "email",
+                      "telephone"
+                    ]
+                  },
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 30,
+                  "allOf": [
+                    {
+                      "pattern": "^[^\\u2013\\u2014]*$"
+                    },
+                    {
+                      "pattern": "^(?:[^{}]|\\{(?:ville|delaiReponse|email|telephone)\\})*$"
+                    },
+                    {
+                      "pattern": "^[^*]*$"
+                    }
+                  ]
+                },
+                "avantApresMobile": {
+                  "editeur": {
+                    "page": "realisation",
+                    "section": "Avant / après",
+                    "libelle": "Bouton de la vue téléphone",
+                    "type": "court",
+                    "variables": [
+                      "ville",
+                      "delaiReponse",
+                      "email",
+                      "telephone"
+                    ]
+                  },
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 30,
+                  "allOf": [
+                    {
+                      "pattern": "^[^\\u2013\\u2014]*$"
+                    },
+                    {
+                      "pattern": "^(?:[^{}]|\\{(?:ville|delaiReponse|email|telephone)\\})*$"
+                    },
+                    {
+                      "pattern": "^[^*]*$"
+                    }
+                  ]
+                },
+                "avantApresSource": {
+                  "editeur": {
+                    "page": "realisation",
+                    "section": "Avant / après",
+                    "libelle": "Avant le lien vers l’archive",
+                    "type": "court",
+                    "variables": [
+                      "ville",
+                      "delaiReponse",
+                      "email",
+                      "telephone"
+                    ],
+                    "aide": "Suivi de l’adresse web.archive.org, en petit."
+                  },
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 60,
+                  "allOf": [
+                    {
+                      "pattern": "^[^\\u2013\\u2014]*$"
+                    },
+                    {
+                      "pattern": "^(?:[^{}]|\\{(?:ville|delaiReponse|email|telephone)\\})*$"
+                    },
+                    {
+                      "pattern": "^[^*]*$"
+                    }
+                  ]
+                },
                 "technologies": {
                   "editeur": {
                     "page": "realisation",
@@ -12417,6 +12817,15 @@
         "choix": "Les choix et pourquoi",
         "resultat": "Le résultat",
         "captures": "Captures",
+        "avantApres": "Avant / après",
+        "avantApresAvant": "Avant (archive de {date})",
+        "avantApresApres": "Après",
+        "avantApresCurseur": "Comparer avant et après la refonte",
+        "avantApresValeur": "{avant} % avant, {apres} % après",
+        "avantApresVues": "Vue comparée",
+        "avantApresBureau": "Ordinateur",
+        "avantApresMobile": "Mobile",
+        "avantApresSource": "Capture d’avant :",
         "technologies": "Technologies",
         "liens": "Liens"
       },

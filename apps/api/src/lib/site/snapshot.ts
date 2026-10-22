@@ -17,7 +17,7 @@ import {
   type SiteOptionalFileName,
 } from "@/lib/site/contract.js";
 import { defaultsFromContract, finalSeoIssues, textVariables } from "@/lib/site/seo-menus.js";
-import { concernsClient, detailBlocker, detailOut, detailStarted, faqOut, projectOut, referenceOut, reviewOut } from "@/lib/site/mapping.js";
+import { concernsClient, detailBlocker, detailOut, detailStarted, faqOut, projectOut, referenceOut, reviewOut, VIEW_LABEL } from "@/lib/site/mapping.js";
 import { readSiteText } from "@/lib/site/texts.js";
 import { SITE_MEDIA_PATH_RE, type SiteMediaExt } from "@/lib/site/media.js";
 
@@ -148,6 +148,10 @@ export async function buildSiteSnapshot(contract?: unknown): Promise<SiteSnapsho
       [p.imagePath, `capture de « ${p.name} »`, "realisations"],
       [p.imageMobilePath, `capture de téléphone de « ${p.name} »`, "realisations"],
       ...(detailOut(p)?.captures ?? []).map((c, i): [string | null, string, SiteAnyFileName] => [c.image, `capture ${i + 1} de la page « ${p.name} »`, "realisations"]),
+      ...(detailOut(p)?.avantApres ?? []).flatMap((x): [string | null, string, SiteAnyFileName][] => [
+        [x.avant.image, `capture d'avant (${VIEW_LABEL[x.vue]}) de la page « ${p.name} »`, "realisations"],
+        [x.apres.image, `capture d'après (${VIEW_LABEL[x.vue]}) de la page « ${p.name} »`, "realisations"],
+      ]),
     ]),
     ...references.map((r): [string | null, string, SiteAnyFileName] => [r.logoPath, `logo de « ${r.name} »`, "references"]),
     ...(optional.seo && seo
@@ -171,9 +175,24 @@ export async function buildSiteSnapshot(contract?: unknown): Promise<SiteSnapsho
     }
   }
   const media = Object.keys(mediaNames).sort();
-  const known = new Set(
-    (await prisma.siteMedia.findMany({ where: { sha12: { in: media } }, select: { sha12: true } })).map((m) => m.sha12),
+  const sizes = new Map(
+    (await prisma.siteMedia.findMany({ where: { sha12: { in: media } }, select: { sha12: true, width: true, height: true } })).map((m) => [m.sha12, m]),
   );
+  const known = new Set(sizes.keys());
+  // Avant / après : le build du site échoue si les deux captures d'une paire n'ont pas exactement le même ratio (1x).
+  for (const p of projects) {
+    for (const x of detailOut(p)?.avantApres ?? []) {
+      const a = sizes.get(SITE_MEDIA_PATH_RE.exec(x.avant.image)?.[1] ?? "");
+      const b = sizes.get(SITE_MEDIA_PATH_RE.exec(x.apres.image)?.[1] ?? "");
+      if (a && b && a.width * b.height !== b.width * a.height) {
+        issues.push({
+          file: "realisations",
+          path: `${p.name}, avant / après (${VIEW_LABEL[x.vue]})`,
+          message: `Ratios différents : ${a.width}×${a.height} avant, ${b.width}×${b.height} après ; recadrer l'une des deux captures`,
+        });
+      }
+    }
+  }
   for (const sha of media) {
     // Fichier en ligne mais absent de l'ERP : contenu repris du site sans ses images, ou base restaurée sans le
     // dossier des fichiers (uploads). Renvoyer l'image depuis la fiche la recrée.

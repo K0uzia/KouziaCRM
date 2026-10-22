@@ -18,8 +18,8 @@ import { prisma } from "@/lib/prisma.js";
 import { decryptOptional, encryptOptional } from "@/lib/crypto.js";
 import { getCompanySettings } from "@/lib/company.js";
 import { secretMeta } from "@/lib/settings/secrets.js";
-import { httpsUrl, imagePath, SITE_FILES, SITE_OPTIONAL_FILES, siteText, slug } from "@/lib/site/contract.js";
-import { detailBlocker, detailStarted, parseJsonList, parseTech, type ProjectCapture, type ProjectLink } from "@/lib/site/mapping.js";
+import { archiveMonth, archiveUrl, httpsUrl, imagePath, SITE_FILES, SITE_OPTIONAL_FILES, siteText, slug } from "@/lib/site/contract.js";
+import { detailBlocker, detailStarted, parseJsonList, parseTech, type ProjectBeforeAfter, type ProjectCapture, type ProjectLink } from "@/lib/site/mapping.js";
 import { readSiteText, writeSiteText, isSiteTextKey } from "@/lib/site/texts.js";
 import { readSiteDefaults, siteCityOrNull, textVariables } from "@/lib/site/seo-menus.js";
 import { buildSiteSnapshot } from "@/lib/site/snapshot.js";
@@ -57,6 +57,7 @@ const status = z.enum(SiteItemStatus).optional();
 
 /** Texte facultatif : vide ou blancs = absent (null). */
 const blankToNull = <T extends z.ZodType>(schema: T) => z.preprocess((v) => (typeof v === "string" && !v.trim() ? null : v), schema.nullish());
+const mediaImage = z.string().regex(/^\/media\/[a-f0-9]{12}\.webp$/, "Image de la médiathèque attendue");
 
 const projectInput = z.strictObject({
   slug,
@@ -91,6 +92,18 @@ const projectInput = z.strictObject({
   links: z
     .array(z.strictObject({ label: siteText.max(60), url: httpsUrl.refine((u) => !CODE_HOSTS.test(u), "Lien vers du code source interdit (charte)") }))
     .max(4)
+    .default([]),
+  // Forme publiée (detail.avantApres) ; le ratio des deux images est contrôlé à la publication (médiathèque).
+  avantApres: z
+    .array(
+      z.strictObject({
+        vue: z.enum(["bureau", "mobile"]),
+        avant: z.strictObject({ image: mediaImage, alt: siteText.max(200), date: archiveMonth, source: blankToNull(archiveUrl) }),
+        apres: z.strictObject({ image: mediaImage, alt: siteText.max(200) }),
+      }),
+    )
+    .max(2)
+    .refine((l) => new Set(l.map((x) => x.vue)).size === l.length, "Chaque vue (ordinateur, téléphone) une fois au plus")
     .default([]),
   clientId: z.string().regex(/^[A-Za-z0-9_-]{1,64}$/).nullish(),
   consentAt: z.iso.datetime({ offset: true }).nullish(),
@@ -173,6 +186,7 @@ function projectOutAdmin(p: ProjectRow) {
     tech: parseTech(p.techJson) ?? [],
     captures: parseJsonList<ProjectCapture>(p.capturesJson),
     links: parseJsonList<ProjectLink>(p.linksJson),
+    avantApres: parseJsonList<ProjectBeforeAfter>(p.avantApresJson),
     consentFile: Boolean(publicationConsentFile),
     // Page projet : ce qui manque pour qu'elle parte (null si elle part ou n'est pas commencée).
     detailBlocker: detailStarted(p) ? detailBlocker(p) : null,
@@ -401,6 +415,15 @@ export const siteRoutes: FastifyPluginAsync = async (app) => {
     clientName: d.clientName ?? null,
     capturesJson: d.captures.length ? JSON.stringify(d.captures.map((c) => ({ image: c.image, alt: c.alt, ...(c.caption ? { caption: c.caption } : {}) }))) : null,
     linksJson: d.links.length ? JSON.stringify(d.links) : null,
+    avantApresJson: d.avantApres.length
+      ? JSON.stringify(
+          d.avantApres.map((x) => ({
+            vue: x.vue,
+            avant: { image: x.avant.image, alt: x.avant.alt, date: x.avant.date, ...(x.avant.source ? { source: x.avant.source } : {}) },
+            apres: { image: x.apres.image, alt: x.apres.alt },
+          })),
+        )
+      : null,
     clientId: d.clientId ?? null,
     publicationConsentAt: d.consentAt ? new Date(d.consentAt) : null,
     publicationConsentNote: d.consentNote ?? null,

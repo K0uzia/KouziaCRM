@@ -48,6 +48,13 @@ export function parseTech(techJson: string | null): string[] | undefined {
 
 export type ProjectCapture = { image: string; alt: string; caption?: string | null };
 export type ProjectLink = { label: string; url: string };
+/** Paire avant / après, stockée sous la forme publiée (detail.avantApres du contrat du site). */
+export type ProjectBeforeAfter = {
+  vue: "bureau" | "mobile";
+  avant: { image: string; alt: string; date: string; source?: string };
+  apres: { image: string; alt: string };
+};
+export const VIEW_LABEL: Record<ProjectBeforeAfter["vue"], string> = { bureau: "ordinateur", mobile: "téléphone" };
 
 export function parseJsonList<T>(json: string | null): T[] {
   if (!json) return [];
@@ -65,7 +72,7 @@ export function concernsClient(p: Pick<SiteProject, "clientId" | "clientName" | 
 
 /** Saisie de la page projet commencée (un champ au moins). */
 export function detailStarted(p: SiteProject): boolean {
-  return filled(p.descriptionText) || DETAIL_TEXTS.some((k) => filled(p[k])) || parseJsonList(p.capturesJson).length > 0;
+  return filled(p.descriptionText) || DETAIL_TEXTS.some((k) => filled(p[k])) || parseJsonList(p.capturesJson).length > 0 || parseJsonList(p.avantApresJson).length > 0;
 }
 
 /**
@@ -87,6 +94,7 @@ export function detailOut(p: SiteProject): DetailOut | null {
   const text = (v: string | null) => (filled(v) ? v!.trim() : undefined);
   const captures = parseJsonList<ProjectCapture>(p.capturesJson);
   const links = parseJsonList<ProjectLink>(p.linksJson);
+  const pairs = parseJsonList<ProjectBeforeAfter>(p.avantApresJson);
   const entries: [keyof DetailOut, unknown][] = [
     ["description", p.descriptionText!.trim()],
     ["contexte", text(p.contextText)],
@@ -99,6 +107,16 @@ export function detailOut(p: SiteProject): DetailOut | null {
     ["choix", text(p.choicesText)],
     ["resultat", text(p.resultText)],
     ["captures", captures.length ? captures.map((c) => ({ image: c.image, alt: c.alt, ...(c.caption ? { legende: c.caption } : {}) })) : undefined],
+    [
+      "avantApres",
+      pairs.length
+        ? pairs.map((x) => ({
+            vue: x.vue,
+            avant: { image: x.avant.image, alt: x.avant.alt, date: x.avant.date, ...(x.avant.source ? { source: x.avant.source } : {}) },
+            apres: { image: x.apres.image, alt: x.apres.alt },
+          }))
+        : undefined,
+    ],
     ["liens", links.length ? links.map((l) => ({ libelle: l.label, url: l.url })) : undefined],
   ];
   // Clés absentes (jamais undefined) quand la valeur manque : sérialisation identique au dépôt.

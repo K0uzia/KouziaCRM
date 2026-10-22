@@ -23,6 +23,12 @@ type SiteItem = {
   publication?: PublicationState;
 };
 
+/** Paire avant / après de la page projet, sous la forme publiée (detail.avantApres du contrat du site). */
+export type BeforeAfterPair = {
+  vue: "bureau" | "mobile";
+  avant: { image: string; alt: string; date: string; source?: string };
+  apres: { image: string; alt: string };
+};
 export type SiteProject = SiteItem & {
   slug: string;
   name: string;
@@ -49,6 +55,7 @@ export type SiteProject = SiteItem & {
   clientName: string | null;
   captures: { image: string; alt: string; caption?: string | null }[];
   links: { label: string; url: string }[];
+  avantApres: BeforeAfterPair[];
   clientId: string | null;
   client: { id: string; displayName: string } | null;
   publicationConsentAt: string | null;

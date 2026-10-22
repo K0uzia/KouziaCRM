@@ -51,6 +51,10 @@ export const offresValue = z.strictObject({
   tarif: siteText,
 });
 
+const mediaWebp = z.string().regex(/^\/media\/[a-f0-9]{12}\.webp$/);
+export const archiveMonth = z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/, "Mois attendu : AAAA-MM");
+export const archiveUrl = z.string().regex(/^https:\/\/web\.archive\.org\/\S+$/, "Adresse web.archive.org attendue");
+
 export const realisationValue = z.strictObject({
   id: slug,
   nom: siteText,
@@ -83,6 +87,19 @@ export const realisationValue = z.strictObject({
         .array(z.strictObject({ image: z.string().regex(/^\/media\/[a-f0-9]{12}\.webp$/), alt: siteText.max(200), legende: siteText.max(150).optional() }))
         .min(1)
         .max(6)
+        .optional(),
+      /** Comparateur (contrat du 23/10/2026) : une paire par vue ; ratio identique dans une paire, contrôlé à la publication. */
+      avantApres: z
+        .array(
+          z.strictObject({
+            vue: z.enum(["bureau", "mobile"]),
+            avant: z.strictObject({ image: mediaWebp, alt: siteText.max(200), date: archiveMonth, source: archiveUrl.optional() }),
+            apres: z.strictObject({ image: mediaWebp, alt: siteText.max(200) }),
+          }),
+        )
+        .min(1)
+        .max(2)
+        .refine((l) => new Set(l.map((x) => x.vue)).size === l.length, "Chaque vue (bureau, mobile) une fois au plus")
         .optional(),
       liens: z.array(z.strictObject({ libelle: siteText.max(60), url: projectUrl })).max(4).optional(),
     })
