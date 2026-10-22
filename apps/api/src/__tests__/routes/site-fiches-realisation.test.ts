@@ -2,11 +2,15 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import type { FastifyInstance } from "fastify";
 import { prisma } from "@/lib/prisma.js";
 import { hashPassword, SESSION_COOKIE } from "@/lib/auth.js";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { buildSiteSnapshot } from "@/lib/site/snapshot.js";
+import { contractFileIssues, type SiteContract } from "@/lib/site/editeur-rules.js";
 import { clearTable, resetDb } from "../helpers/db.js";
 import { createClient, seedCompanySettings } from "../helpers/factories.js";
 
 const { buildApp } = await import("@/app.js");
+const CONTRACT = JSON.parse(readFileSync(fileURLToPath(new URL("../fixtures/site/contenu.schema.editeur.json", import.meta.url)), "utf8")) as SiteContract;
 
 const ADMIN = "admin-fiches@kouzia.test";
 const PASSWORD = "mot-de-passe-de-test";
@@ -134,5 +138,60 @@ describe("fiches Réalisation : saisie et règles de publication", () => {
     expect(read.body).toContain("accord");
     expect((await call("DELETE", `/api/site/projects/${id}/consent-file`)).json().consentFile).toBe(false);
     expect((await call("GET", `/api/site/projects/${id}/consent-file`)).statusCode).toBe(404);
+  });
+});
+
+describe("fiches Réalisation : avant / après (contrat du site main 61feb6f)", () => {
+  const media = (sha12: string, kind: "CAPTURE" | "MOBILE", width: number, height: number) =>
+    prisma.siteMedia.create({ data: { sha12, kind, width, height, bytes: 1000 } });
+  const pair = (vue: "bureau" | "mobile", avant: string, apres: string, source?: string) => ({
+    vue,
+    avant: { image: `/media/${avant}.webp`, alt: "Ancien site", date: "2024-03", ...(source !== undefined ? { source } : {}) },
+    apres: { image: `/media/${apres}.webp`, alt: "Nouveau site" },
+  });
+
+  it("deux paires : stockées, relues, publiées entre captures et liens, images comptées dans la publication", async () => {
+    await media("aaaaaaaaaaa1", "CAPTURE", 960, 540);
+    await media("aaaaaaaaaaa2", "CAPTURE", 1920, 1080);
+    await media("bbbbbbbbbbb1", "MOBILE", 390, 844);
+    await media("bbbbbbbbbbb2", "MOBILE", 390, 844);
+    const avantApres = [pair("bureau", "aaaaaaaaaaa1", "aaaaaaaaaaa2", "https://web.archive.org/web/2024/https://atelier.example.fr/"), pair("mobile", "bbbbbbbbbbb1", "bbbbbbbbbbb2", "")];
+    const res = await call("POST", "/api/site/projects", { ...card, ...detail, avantApres });
+    expect(res.statusCode).toBe(201);
+    // Source vide : clé absente, jamais "".
+    expect(res.json().avantApres).toEqual([avantApres[0], { ...avantApres[1], avant: { image: "/media/bbbbbbbbbbb1.webp", alt: "Ancien site", date: "2024-03" } }]);
+    const [out] = await publishedRealisations();
+    expect(Object.keys(out!.detail as object)).toEqual(["description", "contexte", "demarche", "captures", "avantApres", "liens"]);
+    expect((out!.detail as { avantApres: unknown[] }).avantApres[0]).toEqual({
+      vue: "bureau",
+      avant: { image: "/media/aaaaaaaaaaa1.webp", alt: "Ancien site", date: "2024-03", source: "https://web.archive.org/web/2024/https://atelier.example.fr/" },
+      apres: { image: "/media/aaaaaaaaaaa2.webp", alt: "Nouveau site" },
+    });
+    const snap = await buildSiteSnapshot();
+    expect(snap.media).toEqual(expect.arrayContaining(["aaaaaaaaaaa1", "aaaaaaaaaaa2", "bbbbbbbbbbb1", "bbbbbbbbbbb2"]));
+    expect(snap.issues.filter((i) => i.message.includes("Ratios"))).toEqual([]);
+    // Fichier écrit conforme au vrai contrat du site (main 61feb6f, fixture).
+    expect(contractFileIssues(CONTRACT, "realisations.json", JSON.parse(snap.files.realisations))).toEqual([]);
+  });
+
+  it("ratios différents d'un pixel : publication bloquée avec l'explication", async () => {
+    await media("ccccccccccc1", "CAPTURE", 1366, 768);
+    await media("ccccccccccc2", "CAPTURE", 1920, 1080);
+    await call("POST", "/api/site/projects", { ...card, ...detail, avantApres: [pair("bureau", "ccccccccccc1", "ccccccccccc2")] });
+    expect((await buildSiteSnapshot()).issues).toContainEqual({
+      file: "realisations",
+      path: "Atelier, avant / après (ordinateur)",
+      message: "Ratios différents : 1366×768 avant, 1920×1080 après ; recadrer l'une des deux captures",
+    });
+  });
+
+  it("refus : même vue deux fois, trois paires, date hors AAAA-MM, source hors web.archive.org, image hors médiathèque", async () => {
+    const p = pair("bureau", "aaaaaaaaaaa1", "aaaaaaaaaaa2");
+    const post = (avantApres: unknown) => call("POST", "/api/site/projects", { ...card, avantApres });
+    expect((await post([p, p])).statusCode).toBe(400);
+    expect((await post([p, pair("mobile", "bbbbbbbbbbb1", "bbbbbbbbbbb2"), p])).statusCode).toBe(400);
+    expect((await post([{ ...p, avant: { ...p.avant, date: "2024-13" } }])).statusCode).toBe(400);
+    expect((await post([{ ...p, avant: { ...p.avant, source: "https://archive.ph/abc" } }])).statusCode).toBe(400);
+    expect((await post([{ ...p, apres: { ...p.apres, image: "/projets/a.webp" } }])).statusCode).toBe(400);
   });
 });

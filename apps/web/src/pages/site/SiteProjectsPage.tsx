@@ -29,7 +29,9 @@ import {
   StatusBadge,
   TagInput,
   useSiteCollection,
+  type BeforeAfterPair,
   type FieldErrors,
+  type LibraryMedia,
   type SiteItemStatus,
   type SiteProject,
 } from "./shared";
@@ -177,6 +179,7 @@ const emptyForm = {
   result: "",
   captures: [] as { image: string | null; alt: string; caption: string }[],
   links: [] as { label: string; url: string }[],
+  avantApres: [] as PairForm[],
   // Client et accord écrit
   clientId: "",
   clientName: "",
@@ -185,7 +188,28 @@ const emptyForm = {
   consentNote: "",
 };
 type AltMode = "auto" | "custom" | "decorative";
+type PairForm = {
+  vue: BeforeAfterPair["vue"];
+  avant: { image: string | null; alt: string; date: string; source: string };
+  apres: { image: string | null; alt: string };
+};
 type ProjectForm = typeof emptyForm;
+
+const VIEW_LABEL: Record<BeforeAfterPair["vue"], string> = { bureau: "Ordinateur", mobile: "Téléphone" };
+const ARCHIVE_URL = /^https:\/\/web\.archive\.org\/\S+$/;
+const sha12Of = (path: string | null) => /^\/media\/([a-f0-9]{12})\.webp$/.exec(path ?? "")?.[1];
+
+/**
+ * Ratios des deux captures d'une paire (dimensions 1x de la médiathèque) : le build du site échoue s'ils diffèrent,
+ * même d'un pixel. null : rien à signaler (image manquante ou dimensions pas encore connues).
+ */
+export function pairRatioIssue(
+  avant: { width: number; height: number } | undefined,
+  apres: { width: number; height: number } | undefined,
+): string | null {
+  if (!avant || !apres || avant.width * apres.height === apres.width * avant.height) return null;
+  return `Ratios différents : ${avant.width}×${avant.height} avant, ${apres.width}×${apres.height} après. Le site refuserait la publication : recadrer l'une des deux dans la médiathèque, ou choisir deux captures de même format.`;
+}
 
 /** Texte que le site calcule sans saisie (altCapture du dépôt KouziaWebsite, src/data/contenu.ts). */
 export function defaultCaptureAlt(f: { kind: SiteProject["kind"]; name: string; subtitle: string }): string {
@@ -229,6 +253,11 @@ function projectBody(form: ProjectForm) {
     result: form.result,
     captures: form.captures.filter((c) => c.image).map((c) => ({ image: c.image, alt: c.alt.trim(), caption: c.caption.trim() || null })),
     links: form.links.filter((l) => l.label.trim() || l.url.trim()).map((l) => ({ label: l.label.trim(), url: l.url.trim() })),
+    avantApres: form.avantApres.map((x) => ({
+      vue: x.vue,
+      avant: { image: x.avant.image, alt: x.avant.alt.trim(), date: x.avant.date, source: x.avant.source.trim() || null },
+      apres: { image: x.apres.image, alt: x.apres.alt.trim() },
+    })),
     clientId: form.clientId || null,
     clientName: form.clientName,
     clientIntro: form.clientIntro,
@@ -251,6 +280,13 @@ function projectErrors(form: ProjectForm): FieldErrors {
   if (form.captures.some((c) => !c.image)) e.captures = "Capture sans image : en choisir une ou retirer la ligne.";
   else if (form.captures.some((c) => !c.alt.trim())) e.captures = "Chaque capture a besoin de son texte alternatif.";
   if (form.links.some((l) => !l.label.trim() || !/^https:\/\/[^\s/]+\.[^\s]+$/.test(l.url.trim()))) e.links = "Chaque lien : un libellé et une adresse https complète.";
+  const pairs = form.avantApres;
+  if (pairs.some((x) => !x.avant.image || !x.apres.image)) e.avantApres = "Paire incomplète : choisir les deux captures, ou retirer la paire.";
+  else if (pairs.some((x) => !x.avant.alt.trim() || !x.apres.alt.trim())) e.avantApres = "Chaque capture a besoin de son texte alternatif.";
+  else if (pairs.some((x) => !/^\d{4}-(0[1-9]|1[0-2])$/.test(x.avant.date))) e.avantApres = "Date de l'archive manquante : le mois de la capture d'avant.";
+  else if (pairs.some((x) => x.avant.source.trim() && !ARCHIVE_URL.test(x.avant.source.trim())))
+    e.avantApres = "Source : une adresse web.archive.org complète (https://web.archive.org/…), ou rien.";
+  else if (pairs.length === 2 && pairs[0]!.vue === pairs[1]!.vue) e.avantApres = "Chaque vue une fois au plus : une paire Ordinateur, une paire Téléphone.";
   if (form.clientName.trim() && !form.consentAt) e.consentAt = "Le nom du client n'est publié qu'avec son accord écrit : renseigner la date, ou vider le nom.";
   return e;
 }
@@ -259,7 +295,7 @@ const TAB_FIELDS = {
   // « Carte » : contenu et lien de la carte (un onglet de moins : la barre ne défile plus à 1280 px).
   contenu: ["name", "subtitle", "mention", "kind", "text", "role", "tech", "url", "linkLabel", "slug"],
   images: ["imagePath", "imageMobilePath", "imageAlt"],
-  page: ["description", "context", "need", "approach", "choices", "result", "captures", "links"],
+  page: ["description", "context", "need", "approach", "choices", "result", "captures", "avantApres", "links"],
   client: ["clientId", "clientName", "clientIntro", "consentAt", "consentNote"],
   publication: ["status"],
 } as const;
@@ -377,6 +413,11 @@ export function SiteProjectPage() {
       result: p.resultText ?? "",
       captures: p.captures.map((c) => ({ image: c.image, alt: c.alt, caption: c.caption ?? "" })),
       links: p.links,
+      avantApres: (p.avantApres ?? []).map((x) => ({
+        vue: x.vue,
+        avant: { image: x.avant.image, alt: x.avant.alt, date: x.avant.date, source: x.avant.source ?? "" },
+        apres: { image: x.apres.image, alt: x.apres.alt },
+      })),
       clientId: p.clientId ?? "",
       clientName: p.clientName ?? "",
       clientIntro: p.clientIntro ?? "",
@@ -397,6 +438,21 @@ export function SiteProjectPage() {
       .then((list) => setClients([...list].sort((a, b) => a.displayName.localeCompare(b.displayName, "fr"))))
       .catch(() => toast.error("Liste des clients indisponible"));
   }, []);
+  // Dimensions des captures d'avant / après (médiathèque) : contrôle du ratio dès le choix, relu quand une image inconnue
+  // apparaît (envoi d'une nouvelle image depuis le champ).
+  const [sizes, setSizes] = useState<Record<string, { width: number; height: number }>>({});
+  const pairShas = form.avantApres
+    .flatMap((x) => [sha12Of(x.avant.image), sha12Of(x.apres.image)])
+    .filter((s): s is string => Boolean(s))
+    .join(",");
+  useEffect(() => {
+    if (!pairShas || pairShas.split(",").every((s) => sizes[s])) return;
+    api<LibraryMedia[]>("/api/site/media")
+      .then((list) => setSizes(Object.fromEntries(list.map((m) => [m.sha12, { width: m.width, height: m.height }]))))
+      .catch(() => toast.error("Médiathèque indisponible : ratio des captures d'avant / après non vérifié"));
+    // sizes exclu : relire seulement quand les images choisies changent.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pairShas]);
   const slugLocked = Boolean(project?.publishedAt);
   const countErrors = ed.countErrors;
 
@@ -540,6 +596,23 @@ export function SiteProjectPage() {
     setForm((f) => ({ ...f, captures: f.captures.map((c, j) => (j === i ? { ...c, ...patch } : c)) }));
   const setLink = (i: number, patch: Partial<ProjectForm["links"][number]>) =>
     setForm((f) => ({ ...f, links: f.links.map((l, j) => (j === i ? { ...l, ...patch } : l)) }));
+  const setPair = (i: number, side: "avant" | "apres" | null, patch: Record<string, unknown>) =>
+    setForm((f) => ({
+      ...f,
+      avantApres: f.avantApres.map((x, j) => (j !== i ? x : side ? { ...x, [side]: { ...x[side], ...patch } } : { ...x, ...patch })),
+    }));
+  const addPair = () =>
+    setForm((f) => ({
+      ...f,
+      avantApres: [
+        ...f.avantApres,
+        {
+          vue: f.avantApres.some((x) => x.vue === "bureau") ? "mobile" : "bureau",
+          avant: { image: null, alt: "", date: "", source: "" },
+          apres: { image: null, alt: "" },
+        },
+      ],
+    }));
 
   const pageProjet = (
     <div className="space-y-4">
@@ -589,6 +662,79 @@ export function SiteProjectPage() {
           <Button variant="secondary" onClick={() => setForm((f) => ({ ...f, captures: [...f.captures, { image: null, alt: "", caption: "" }] }))}>
             <FontAwesomeIcon icon={faPlus} className="h-3.5 w-3.5" aria-hidden />
             Ajouter une capture
+          </Button>
+        ) : null}
+      </fieldset>
+      <fieldset className="space-y-3 rounded-[var(--radius)] border border-[var(--border)] p-4" aria-describedby={`avant-apres-aide${errors.avantApres ? " avant-apres-err" : ""}`}>
+        <legend className="px-1 text-sm font-medium">Avant / après (facultatif)</legend>
+        <p id="avant-apres-aide" className="text-xs text-[var(--muted)]">
+          Comparateur de la page projet : 1 ou 2 paires, une par vue (ordinateur, téléphone). Les deux captures d'une paire doivent avoir exactement le
+          même ratio. Section masquée sur le site sans paire ; ses textes se règlent dans « Tous les textes ».
+        </p>
+        {form.avantApres.map((x, i) => {
+          const n = VIEW_LABEL[x.vue].toLowerCase();
+          const ratio = pairRatioIssue(sizes[sha12Of(x.avant.image) ?? ""], sizes[sha12Of(x.apres.image) ?? ""]);
+          const kind = x.vue === "mobile" ? "MOBILE" : "CAPTURE";
+          return (
+            <div key={i} className="space-y-4 border-t border-[var(--border)] pt-4 first-of-type:border-t-0 first-of-type:pt-0">
+              <Field label={`Vue de la paire ${i + 1}`} className="max-w-xs">
+                <Select value={x.vue} onChange={(e) => setPair(i, null, { vue: e.target.value })}>
+                  {(["bureau", "mobile"] as const).map((v) => (
+                    <option key={v} value={v} disabled={form.avantApres.some((o, j) => j !== i && o.vue === v)}>
+                      {VIEW_LABEL[v]}
+                    </option>
+                  ))}
+                </Select>
+              </Field>
+              <div className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,20rem),1fr))] gap-6">
+                <div className="min-w-0 space-y-3">
+                  <ImageField label={`Capture d'avant (${n})`} kind={kind} allowRepoPath={false} value={x.avant.image} onChange={(image) => setPair(i, "avant", { image })} />
+                  <Field label={`Texte alternatif de la capture d'avant (${n})`} hint={`Ce que montre la capture d'avant. ${x.avant.alt.length} / 200`}>
+                    <Input maxLength={200} value={x.avant.alt} onChange={(e) => setPair(i, "avant", { alt: e.target.value })} />
+                  </Field>
+                  <Field label={`Date de l'archive (${n})`} hint="Mois de la capture d'avant.">
+                    <Input type="month" value={x.avant.date} onChange={(e) => setPair(i, "avant", { date: e.target.value })} />
+                  </Field>
+                  <Field label={`Source de l'archive (${n}, facultatif)`} hint="Adresse web.archive.org de la capture, affichée en petit.">
+                    <Input
+                      type="url"
+                      inputMode="url"
+                      spellCheck={false}
+                      placeholder="https://web.archive.org/web/…"
+                      value={x.avant.source}
+                      onChange={(e) => setPair(i, "avant", { source: e.target.value })}
+                    />
+                  </Field>
+                </div>
+                <div className="min-w-0 space-y-3">
+                  <ImageField
+                    label={`Capture d'après (${n})`}
+                    kind={kind}
+                    allowRepoPath={false}
+                    value={x.apres.image}
+                    onChange={(image) => setPair(i, "apres", { image })}
+                    error={ratio ?? undefined}
+                  />
+                  <Field label={`Texte alternatif de la capture d'après (${n})`} hint={`Ce que montre la capture d'après. ${x.apres.alt.length} / 200`}>
+                    <Input maxLength={200} value={x.apres.alt} onChange={(e) => setPair(i, "apres", { alt: e.target.value })} />
+                  </Field>
+                </div>
+              </div>
+              <Button variant="danger-ghost" onClick={() => setForm((f) => ({ ...f, avantApres: f.avantApres.filter((_, j) => j !== i) }))}>
+                Retirer la paire {n}
+              </Button>
+            </div>
+          );
+        })}
+        {errors.avantApres ? (
+          <p id="avant-apres-err" className="text-sm text-[var(--danger)]">
+            {errors.avantApres}
+          </p>
+        ) : null}
+        {form.avantApres.length < 2 ? (
+          <Button variant="secondary" onClick={addPair}>
+            <FontAwesomeIcon icon={faPlus} className="h-3.5 w-3.5" aria-hidden />
+            Ajouter une paire
           </Button>
         ) : null}
       </fieldset>

@@ -1772,6 +1772,9 @@ model SiteProject {
   capturesJson            String?
   /// JSON [{ label, url }], 4 au plus
   linksJson               String?
+  /// JSON [{ vue: bureau | mobile, avant: { image, alt, date AAAA-MM, source? }, apres: { image, alt } }], 2 au plus,
+  /// chaque vue une fois, les deux images d'une paire au même ratio (forme du contrat du site, detail.avantApres)
+  avantApresJson          String?
   /// Client du projet : sans accord écrit, ni la page projet ni une nouvelle carte ne sont publiées.
   clientId                String?
   client                  Client?   @relation(fields: [clientId], references: [id], onDelete: SetNull)
