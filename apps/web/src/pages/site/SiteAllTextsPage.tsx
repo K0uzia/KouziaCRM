@@ -345,7 +345,7 @@ function FieldControl({
       return (
         <div className="space-y-1">
           <label className="flex min-h-11 items-center gap-3 text-sm font-medium">
-            <input type="checkbox" className="h-5 w-5 accent-[var(--primary)]" checked={value === true} onChange={(e) => onChange(e.target.checked || undefined)} />
+            <input type="checkbox" checked={value === true} onChange={(e) => onChange(e.target.checked || undefined)} />
             {ed.libelle}
           </label>
           {error ? <p className="text-sm text-[var(--danger)]">{error}</p> : ed.aide ? <p className="text-xs text-[var(--muted)]">{ed.aide}</p> : null}

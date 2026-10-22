@@ -118,7 +118,6 @@ export function NotificationBell() {
               <span>Son à chaque notification</span>
               <input
                 type="checkbox"
-                className="h-4 w-4 accent-[var(--primary)]"
                 checked={n.soundEnabled}
                 onChange={(e) => n.setSoundEnabled(e.target.checked)}
               />

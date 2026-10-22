@@ -1741,7 +1741,6 @@ export function SettingsPage() {
                       <label className="flex min-h-11 min-w-11 items-center justify-center text-sm">
                         <input
                           type="checkbox"
-                          className="h-5 w-5"
                           aria-label={`Activer le rappel ${label}`}
                           checked={Boolean(form[enKey])}
                           onChange={(e) =>

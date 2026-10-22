@@ -97,7 +97,7 @@ export function OfflineDeviceCard() {
             <label className="flex min-h-11 items-start gap-3 text-sm">
               <input
                 type="checkbox"
-                className="mt-1 h-4 w-4"
+                className="mt-1"
                 checked={options.wipeOnLogout}
                 onChange={(e) => save({ ...options, wipeOnLogout: e.target.checked })}
               />
