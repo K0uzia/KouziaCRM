@@ -736,6 +736,7 @@ model Client {
   serviceNeeds           ClientServiceNeed[]
   portalSeen             ClientPortalSeen[]
   softwareRequests       SoftwareRequest[]
+  siteProjects           SiteProject[]
   /// Fiche préparée hors ligne : UUID de l'appareil ; un renvoi rend la même fiche (idempotence)
   clientRequestId        String?             @unique
   /// Identifiant Customer Stripe (cus_…)
@@ -1757,8 +1758,31 @@ model SiteProject {
   publishedAt     DateTime?
   /// Empreinte de la version publiée (forme écrite dans le dépôt du site) : différente de l'actuelle, statut « Modifié ».
   publishedHash   String?
+  /// Page projet (/realisations/<slug>/, publiée dans « detail ») : description pour Google et textes détaillés.
+  descriptionText         String?
+  contextText             String?
+  needText                String?
+  approachText            String?
+  choicesText             String?
+  resultText              String?
+  /// Présentation du client (sans son nom sans accord) et nom, publié seulement avec l'accord écrit.
+  clientIntro             String?
+  clientName              String?
+  /// JSON [{ image: /media/<sha12>.webp, alt, caption? }], 6 au plus
+  capturesJson            String?
+  /// JSON [{ label, url }], 4 au plus
+  linksJson               String?
+  /// Client du projet : sans accord écrit, ni la page projet ni une nouvelle carte ne sont publiées.
+  clientId                String?
+  client                  Client?   @relation(fields: [clientId], references: [id], onDelete: SetNull)
+  publicationConsentAt    DateTime?
+  /// Forme de l'accord (« e-mail du 12/10/2026 »)
+  publicationConsentNote  String?
+  /// Pièce jointe privée sous data/uploads, jamais publiée
+  publicationConsentFile  String?
 
   @@index([status, position])
+  @@index([clientId])
 }
 
 /// Avis Google repris avec accord (avis.json). Note, accord et preuve ne sont jamais publiés.

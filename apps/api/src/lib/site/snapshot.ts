@@ -17,7 +17,7 @@ import {
   type SiteOptionalFileName,
 } from "@/lib/site/contract.js";
 import { defaultsFromContract, finalSeoIssues, textVariables } from "@/lib/site/seo-menus.js";
-import { faqOut, projectOut, referenceOut, reviewOut } from "@/lib/site/mapping.js";
+import { concernsClient, detailBlocker, detailOut, detailStarted, faqOut, projectOut, referenceOut, reviewOut } from "@/lib/site/mapping.js";
 import { readSiteText } from "@/lib/site/texts.js";
 import { SITE_MEDIA_PATH_RE, type SiteMediaExt } from "@/lib/site/media.js";
 
@@ -47,7 +47,7 @@ const ordered = [{ position: "asc" as const }, { createdAt: "asc" as const }];
  * contrat (état de l'espace Site), ils figurent dès que leur document existe.
  */
 export async function buildSiteSnapshot(contract?: unknown): Promise<SiteSnapshot> {
-  const [projects, reviews, references, faq, infos, accroche, offres, avisMethode, pages, seo, menus] = await Promise.all([
+  const [allProjects, reviews, references, faq, infos, accroche, offres, avisMethode, pages, seo, menus] = await Promise.all([
     prisma.siteProject.findMany({ where: published, orderBy: ordered }),
     // Classement annoncé dans la méthode (D111-17) : du plus récent au plus ancien.
     // Écartés : jamais publiés, même marqués « Sur le site ».
@@ -65,6 +65,17 @@ export async function buildSiteSnapshot(contract?: unknown): Promise<SiteSnapsho
 
   const issues: SiteIssue[] = [];
   const warnings: SiteIssue[] = [];
+  // Réalisation liée à un client, jamais publiée, sans son accord écrit : la carte ne part pas (zéro fiction). Une carte
+  // déjà en ligne reste publiée ; seule sa page projet attend l'accord.
+  const projects = allProjects.filter((p) => {
+    const held = concernsClient(p) && !p.publicationConsentAt && !p.publishedAt;
+    if (held) warnings.push({ file: "realisations", path: p.name, message: "non publiée : accord écrit du client à renseigner" });
+    return !held;
+  });
+  for (const p of projects) {
+    const blocker = detailStarted(p) ? detailBlocker(p) : null;
+    if (blocker) warnings.push({ file: "realisations", path: p.name, message: `page projet non publiée : ${blocker}` });
+  }
   for (const r of reviews) {
     if (!r.consentAt) issues.push({ file: "avis", path: r.author, message: "Accord de l'auteur non renseigné" });
     if (!r.clientId) issues.push({ file: "avis", path: r.author, message: "Client non lié (preuve de la relation client)" });
@@ -133,6 +144,7 @@ export async function buildSiteSnapshot(contract?: unknown): Promise<SiteSnapsho
     ...projects.flatMap((p): [string | null, string, SiteAnyFileName][] => [
       [p.imagePath, `capture de « ${p.name} »`, "realisations"],
       [p.imageMobilePath, `capture de téléphone de « ${p.name} »`, "realisations"],
+      ...(detailOut(p)?.captures ?? []).map((c, i): [string | null, string, SiteAnyFileName] => [c.image, `capture ${i + 1} de la page « ${p.name} »`, "realisations"]),
     ]),
     ...references.map((r): [string | null, string, SiteAnyFileName] => [r.logoPath, `logo de « ${r.name} »`, "references"]),
     ...(optional.seo && seo

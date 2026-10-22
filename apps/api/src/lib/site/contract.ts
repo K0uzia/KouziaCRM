@@ -66,6 +66,27 @@ export const realisationValue = z.strictObject({
   imageMobile: imagePath.optional(),
   /** Texte alternatif de la capture : absent = calculé par le site (altCapture), "" = capture décorative. */
   imageAlt: z.union([z.literal(""), siteText.max(200)]).optional(),
+  /** Page projet /realisations/<id>/ (contrat du 22/10/2026), clés dans l'ordre du schéma du site. */
+  detail: z
+    .strictObject({
+      description: siteText.max(300),
+      contexte: siteText.max(1500).optional(),
+      clientNom: siteText.max(100).optional(),
+      accordClient: z.boolean().optional(),
+      client: siteText.max(800).optional(),
+      besoin: siteText.max(1500).optional(),
+      demarche: siteText.max(1500).optional(),
+      choix: siteText.max(1500).optional(),
+      resultat: siteText.max(1500).optional(),
+      captures: z
+        .array(z.strictObject({ image: z.string().regex(/^\/media\/[a-f0-9]{12}\.webp$/), alt: siteText.max(200), legende: siteText.max(150).optional() }))
+        .min(1)
+        .max(6)
+        .optional(),
+      liens: z.array(z.strictObject({ libelle: siteText.max(60), url: projectUrl })).max(4).optional(),
+    })
+    .refine((d) => !d.clientNom || d.accordClient === true, "Nom du client publié sans son accord écrit")
+    .optional(),
 });
 
 export const avisValue = z.strictObject({
