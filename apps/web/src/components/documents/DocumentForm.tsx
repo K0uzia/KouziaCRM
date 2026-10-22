@@ -1,5 +1,7 @@
-import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
 import { toast } from "sonner";
+import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
+import { faChevronRight, faPlus, faTrashCan } from "@fortawesome/free-solid-svg-icons";
 import { api, formatEUR } from "@/lib/api";
 import { offlineEnabled } from "@/lib/offline/config";
 import { isLocalClientId, submitCreation, useRequestId } from "@/lib/offline/queue";
@@ -489,7 +491,6 @@ export function DocumentFormEditor({
   const eur = (n: number) => euros(n);
   const catalog = catalogGroups(services);
   const clientGroups = [{ heading: "", options: clients.map((c) => ({ value: c.id, label: c.displayName, meta: c.clientNumber ?? undefined })) }];
-  const sectionTitle = "text-xs font-semibold uppercase tracking-[0.08em] text-[var(--muted)]";
   const needsClient = clients.find((c) => c.id === form.clientId);
   const clientNeeds = needsClient?.serviceNeeds ?? [];
   const openNeeds = pendingNeeds(clientNeeds);
@@ -498,14 +499,39 @@ export function DocumentFormEditor({
   const needsDetails = needsClient?.needsDetails?.trim() ?? "";
   const quoted = new Set(form.lines.map((l) => l.serviceId).filter(Boolean));
 
+  // Clavier rapide (D2) : Entrée dans la quantité ou le prix passe à la désignation de la ligne suivante, et sur la
+  // dernière ligne en ajoute une. Entrée dans la désignation reste un retour à la ligne.
+  const descriptionRefs = useRef<Array<HTMLTextAreaElement | null>>([]);
+  const [focusLine, setFocusLine] = useState<number | null>(null);
+  useEffect(() => {
+    if (focusLine === null) return;
+    descriptionRefs.current[focusLine]?.focus();
+    setFocusLine(null);
+  }, [focusLine, form.lines.length]);
+  const onLineKeyDown = (index: number) => (e: KeyboardEvent<HTMLInputElement>) => {
+    if (e.key !== "Enter" || e.shiftKey || e.nativeEvent.isComposing) return;
+    e.preventDefault();
+    if (index === form.lines.length - 1) addLine();
+    setFocusLine(index + 1);
+  };
+  /** Désignation : hauteur qui suit le texte (une ligne au départ, six au plus), sans étirer les autres champs. */
+  const descriptionRows = (text: string) => Math.min(6, Math.max(1, text.split("\n").reduce((n, l) => n + Math.max(1, Math.ceil(l.length / 60)), 0)));
+  const recapRef = useRef<HTMLElement>(null);
+
+  const sectionTitle = "font-display text-base font-semibold text-[var(--text)]";
+  const lineLabel = "mb-1 block text-xs font-medium text-[var(--muted)] lg:sr-only";
+  const totalsLine = "flex items-baseline justify-between gap-3 text-sm";
+
   return (
     <>
-    <div className="lg:grid lg:grid-cols-[minmax(0,1fr)_20rem] lg:items-start lg:gap-6">
-    <form onSubmit={onSubmit} className="min-w-0 space-y-6">
-      {/* 1. Client */}
-      <section className="space-y-2" aria-labelledby="doc-client">
+    <form onSubmit={onSubmit}>
+    {/* Grille dans un bloc à part : la barre d'actions reste enfant direct du formulaire, donc collante. */}
+    <div className="lg:grid lg:grid-cols-[minmax(0,1fr)_minmax(18rem,22rem)] lg:items-start lg:gap-8">
+    <div className="min-w-0 space-y-8">
+      {/* Client et dates */}
+      <section className="space-y-3" aria-labelledby="doc-client">
         <h3 id="doc-client" className={sectionTitle}>
-          1. Client
+          Client et dates
         </h3>
         <Combobox
           label="Client"
@@ -517,18 +543,23 @@ export function DocumentFormEditor({
           emptyText="Aucun client ne correspond."
           onChange={(clientId) => setForm((f) => ({ ...f, clientId, sourceQuoteId: "" }))}
         />
-        {!isQuote ? (
-          <Field
-            label="Devis lié (facultatif)"
-            hint={
-              signedQuotes.length === 0
-                ? "Aucun devis signé pour ce client : la facture reste indépendante."
-                : "Rattache la facture à un devis signé : il apparaît dans les documents liés, et le paiement démarre le projet."
-            }
-          >
-            <div className="flex flex-wrap gap-2">
+        {isQuote ? (
+          <p className="text-sm text-[var(--muted)]">
+            <span className="font-medium text-[var(--text)]">Validité : 30 jours</span>, calculée automatiquement à partir de la
+            date d&apos;émission. Le client peut l&apos;accepter en ligne depuis son espace.
+          </p>
+        ) : (
+          <div className="grid gap-4 sm:grid-cols-12">
+            <Field
+              className="sm:col-span-8"
+              label="Devis lié (facultatif)"
+              hint={
+                signedQuotes.length === 0
+                  ? "Aucun devis signé pour ce client : la facture reste indépendante."
+                  : "Rattache la facture à un devis signé : il apparaît dans les documents liés, et le paiement démarre le projet."
+              }
+            >
               <Select
-                className="min-w-0 flex-1"
                 value={form.sourceQuoteId}
                 disabled={signedQuotes.length === 0}
                 onChange={(e) => setForm((f) => ({ ...f, sourceQuoteId: e.target.value }))}
@@ -540,14 +571,19 @@ export function DocumentFormEditor({
                   </option>
                 ))}
               </Select>
-              {form.sourceQuoteId ? (
+            </Field>
+            <Field className="sm:col-span-4" label="Date de la prestation" hint="Si elle diffère de la date d'émission.">
+              <Input type="date" value={form.serviceDate} onChange={(e) => setForm((f) => ({ ...f, serviceDate: e.target.value }))} />
+            </Field>
+            {form.sourceQuoteId ? (
+              <div className="sm:col-span-12">
                 <Button type="button" variant="secondary" onClick={() => void copyQuoteLines(form.sourceQuoteId)}>
                   Reprendre ses prestations
                 </Button>
-              ) : null}
-            </div>
-          </Field>
-        ) : null}
+              </div>
+            ) : null}
+          </div>
+        )}
       </section>
 
       {documentType === "QUOTE" && (clientNeeds.length > 0 || needsDetails) ? (
@@ -603,37 +639,113 @@ export function DocumentFormEditor({
         </details>
       ) : null}
 
-      {/* 2. Prestations */}
+      {/* Prestations : tableau dès 1024 px (en-têtes de colonnes), cartes avec libellés au téléphone. */}
       <section className="space-y-3" aria-labelledby="doc-lines">
-        <div className="flex flex-wrap items-end justify-between gap-2">
+        <div className="flex flex-wrap items-center justify-between gap-2">
           <h3 id="doc-lines" className={sectionTitle}>
-            2. Prestations
+            Prestations
           </h3>
+          <div className="flex flex-wrap gap-2">
+            {services.length > 0 ? (
+              <Combobox
+                variant="action"
+                label="Catalogue des prestations"
+                placeholder="Ajouter depuis le catalogue"
+                searchPlaceholder="Prestation, pack ou abonnement"
+                emptyText="Aucune prestation ne correspond."
+                groups={catalog}
+                onChange={addFromCatalog}
+              />
+            ) : null}
+          </div>
         </div>
-        {services.length > 0 ? (
-          <Combobox
-            variant="action"
-            label="Catalogue des prestations"
-            placeholder="Ajouter depuis le catalogue"
-            searchPlaceholder="Prestation, pack ou abonnement"
-            emptyText="Aucune prestation ne correspond."
-            groups={catalog}
-            onChange={addFromCatalog}
-          />
-        ) : null}
 
-        <ul className="space-y-2">
+        <div
+          aria-hidden
+          className="hidden border-b border-[var(--border)] pb-2 text-xs font-medium text-[var(--muted)] lg:grid lg:grid-cols-[minmax(0,1fr)_5.5rem_8rem_7rem_2.75rem] lg:gap-2"
+        >
+          <span>Désignation</span>
+          <span>Qté</span>
+          <span>Prix unitaire</span>
+          <span className="text-right">Total</span>
+          <span />
+        </div>
+        <ul className="space-y-2 lg:space-y-0">
           {form.lines.map((line, i) => {
             const lineTotal = (line.isSubscription ? 1 : Number(line.quantity) || 0) * (Number(line.unitPriceEuros) || 0);
+            const outOfTotal = documentType === "QUOTE" && !billedWithDocument(line);
+            const monthly = line.isSubscription ? monthlyEquivalentText(eurosInputToCents(line.unitPriceEuros), line.billingInterval) : null;
             return (
-              <li key={i} className="rounded-[var(--radius)] border border-[var(--border)] bg-[var(--bg-subtle)] p-3">
+              <li
+                key={i}
+                className="rounded-[var(--radius)] border border-[var(--border)] bg-[var(--bg-subtle)] p-3 lg:rounded-none lg:border-0 lg:border-b lg:bg-transparent lg:px-0 lg:py-2"
+              >
                 {line.groupTitle ? (
                   <p className="mb-2 text-xs font-medium text-[var(--muted)]">
                     {line.isPackDiscount ? "Remise du pack" : "Pack"} : {line.groupTitle}
                   </p>
                 ) : null}
+                <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1.6fr)_2.75rem] items-end gap-2 lg:grid-cols-[minmax(0,1fr)_5.5rem_8rem_7rem_2.75rem] lg:items-start">
+                  <label className="col-span-3 min-w-0 lg:col-span-1">
+                    <span className={lineLabel}>Désignation</span>
+                    <Textarea
+                      ref={(el) => {
+                        descriptionRefs.current[i] = el;
+                      }}
+                      required
+                      rows={descriptionRows(line.description)}
+                      className="min-h-[var(--field-h)] resize-none py-2.5"
+                      aria-label={`Ligne ${i + 1} : désignation`}
+                      placeholder="Désignation de la prestation"
+                      value={line.description}
+                      onChange={(e) => updateLine(i, { description: e.target.value })}
+                    />
+                  </label>
+                  <label className="min-w-0">
+                    <span className={lineLabel}>Qté</span>
+                    <Input
+                      required
+                      aria-label={`Ligne ${i + 1} : quantité`}
+                      type="number"
+                      inputMode="decimal"
+                      step="0.01"
+                      min="0.01"
+                      value={line.isSubscription ? "1" : line.quantity}
+                      disabled={line.isSubscription}
+                      onKeyDown={onLineKeyDown(i)}
+                      onChange={(e) => updateLine(i, { quantity: e.target.value })}
+                    />
+                  </label>
+                  <label className="min-w-0">
+                    <span className={lineLabel}>{line.isSubscription ? `Prix ${periodSuffix(line.billingInterval)}` : "Prix unitaire"}</span>
+                    <Input
+                      required
+                      type="number"
+                      inputMode="decimal"
+                      step="0.01"
+                      aria-label={`Ligne ${i + 1} : prix unitaire en euros`}
+                      placeholder={line.isSubscription ? `€ ${periodSuffix(line.billingInterval)}` : "€"}
+                      value={line.unitPriceEuros}
+                      onKeyDown={onLineKeyDown(i)}
+                      onChange={(e) => updateLine(i, { unitPriceEuros: e.target.value })}
+                    />
+                  </label>
+                  <p className="col-span-2 flex h-[var(--field-h)] items-center text-sm tabular-nums lg:col-span-1 lg:justify-end">
+                    <span className="mr-1 text-xs text-[var(--muted)] lg:sr-only">Total de la ligne :</span>
+                    {outOfTotal ? <span className="text-xs text-[var(--muted)]">Hors total</span> : <span className="font-medium">{eur(lineTotal)}</span>}
+                  </p>
+                  <Button
+                    variant="danger-ghost"
+                    className="h-[var(--field-h)] min-w-11 px-0"
+                    aria-label={`Supprimer la ligne ${i + 1}`}
+                    disabled={form.lines.length <= 1}
+                    onClick={() => removeLine(i)}
+                  >
+                    <FontAwesomeIcon icon={faTrashCan} className="h-4 w-4" aria-hidden />
+                  </Button>
+                </div>
                 {line.isSubscription ? (
-                  <div className="mb-2 flex flex-wrap items-center gap-2 text-xs">
+                  <div className="mt-2 flex flex-wrap items-center gap-2 text-xs lg:pr-[3.25rem]">
                     <Segmented
                       label={`Ligne ${i + 1} : périodicité de l'abonnement`}
                       options={INTERVAL_OPTIONS}
@@ -641,246 +753,206 @@ export function DocumentFormEditor({
                       onChange={(next) => changeLineInterval(i, next)}
                     />
                     {subscriptionOnly || mixedQuote ? (
-                      <SubscriptionStartFields
-                        index={i}
-                        line={line}
-                        hasProject={mixedQuote}
-                        onChange={(patch) => updateLine(i, patch)}
-                      />
+                      <SubscriptionStartFields index={i} line={line} hasProject={mixedQuote} onChange={(patch) => updateLine(i, patch)} />
                     ) : (
-                    <label className="flex flex-wrap items-center gap-1.5 text-[var(--muted)]">
-                      Facturée le
-                      <select
-                        className="rounded-[var(--radius-sm)] border border-[var(--border-input)] bg-[var(--surface-raised)] px-1.5 py-1 text-[var(--text)]"
-                        aria-label={`Ligne ${i + 1} : jour de facturation`}
-                        value={line.billingDay}
-                        onChange={(e) => updateLine(i, { billingDay: e.target.value })}
-                      >
-                        {Array.from({ length: 28 }, (_, d) => d + 1).map((d) => (
-                          <option key={d} value={String(d)}>
-                            {d}
-                          </option>
-                        ))}
-                      </select>
-                      {line.billingInterval === "YEAR"
-                        ? "du mois, chaque année à la date anniversaire (1re année incluse dans ce document)"
-                        : "de chaque mois (1re échéance incluse dans ce document)"}
-                    </label>
+                      <label className="flex flex-wrap items-center gap-2 text-[var(--muted)]">
+                        Facturée le
+                        <Select
+                          className="w-auto"
+                          aria-label={`Ligne ${i + 1} : jour de facturation`}
+                          value={line.billingDay}
+                          onChange={(e) => updateLine(i, { billingDay: e.target.value })}
+                        >
+                          {Array.from({ length: 28 }, (_, d) => d + 1).map((d) => (
+                            <option key={d} value={String(d)}>
+                              {d}
+                            </option>
+                          ))}
+                        </Select>
+                        {line.billingInterval === "YEAR"
+                          ? "du mois, chaque année à la date anniversaire (1re année incluse dans ce document)"
+                          : "de chaque mois (1re échéance incluse dans ce document)"}
+                      </label>
                     )}
                   </div>
                 ) : null}
-                <div className="grid grid-cols-[4.5rem_1fr_auto] gap-2 sm:grid-cols-[1fr_5rem_8rem_auto]">
-                  <Textarea
-                    required
-                    rows={2}
-                    className="col-span-3 min-h-[2.75rem] sm:col-span-1"
-                    aria-label={`Ligne ${i + 1} : désignation`}
-                    placeholder="Désignation de la prestation"
-                    value={line.description}
-                    onChange={(e) => updateLine(i, { description: e.target.value })}
-                  />
-                  <Input
-                    required
-                    aria-label={`Ligne ${i + 1} : quantité`}
-                    type="number"
-                    inputMode="decimal"
-                    step="0.01"
-                    min="0.01"
-                    placeholder="Qté"
-                    value={line.isSubscription ? "1" : line.quantity}
-                    disabled={line.isSubscription}
-                    onChange={(e) => updateLine(i, { quantity: e.target.value })}
-                  />
-                  <Input
-                    required
-                    type="number"
-                    inputMode="decimal"
-                    step="0.01"
-                    aria-label={`Ligne ${i + 1} : prix unitaire en euros`}
-                    placeholder={line.isSubscription ? `€ ${periodSuffix(line.billingInterval)}` : "Prix"}
-                    value={line.unitPriceEuros}
-                    onChange={(e) => updateLine(i, { unitPriceEuros: e.target.value })}
-                  />
-                  <Button
-                    variant="danger-ghost"
-                    className="min-h-11 min-w-11 px-0"
-                    aria-label={`Supprimer la ligne ${i + 1}`}
-                    disabled={form.lines.length <= 1}
-                    onClick={() => removeLine(i)}
-                  >
-                    ×
-                  </Button>
-                </div>
-                <p className="mt-1.5 text-right text-xs text-[var(--muted)]">
-                  {documentType === "QUOTE" && !billedWithDocument(line) ? (
-                    "Hors total du devis : 1re facture repoussée (date précise ou mois offerts)"
-                  ) : (
-                    <>
-                      Total ligne : <span className="font-medium tabular-nums text-[var(--text)]">{eur(lineTotal)}</span>
-                    </>
-                  )}
-                </p>
-                {line.isSubscription && monthlyEquivalentText(eurosInputToCents(line.unitPriceEuros), line.billingInterval) ? (
-                  <p className="text-right text-xs text-[var(--muted)]">
-                    {monthlyEquivalentText(eurosInputToCents(line.unitPriceEuros), line.billingInterval)}
-                  </p>
+                {outOfTotal ? (
+                  <p className="mt-1.5 text-xs text-[var(--muted)]">Hors total du devis : 1re facture repoussée (date précise ou mois offerts).</p>
                 ) : null}
+                {monthly ? <p className="mt-1 text-xs text-[var(--muted)]">{monthly}</p> : null}
               </li>
             );
           })}
         </ul>
-        <Button variant="ghost" className="px-3 text-sm" onClick={addLine}>
-          + Ligne libre
+        <Button variant="secondary" onClick={() => {
+          addLine();
+          setFocusLine(form.lines.length);
+        }}>
+          <FontAwesomeIcon icon={faPlus} className="h-3.5 w-3.5" aria-hidden />
+          Ligne libre
         </Button>
-
-        <details className="rounded-[var(--radius)] border border-[var(--border)] p-3" open={form.discountType !== "NONE"}>
-          <summary className="flex min-h-11 cursor-pointer items-center text-sm font-medium">Remise</summary>
-          <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-[12rem_1fr]">
-            <Select
-              aria-label="Type de remise globale"
-              value={form.discountType}
-              onChange={(e) =>
-                setForm((f) => ({ ...f, discountType: e.target.value as DocumentFormValues["discountType"] }))
-              }
-            >
-              <option value="NONE">Aucune</option>
-              <option value="PERCENT">Pourcentage (%)</option>
-              <option value="FIXED">Montant fixe (€)</option>
-            </Select>
-            {form.discountType === "PERCENT" ? (
-              <Input
-                aria-label="Remise en pourcentage"
-                type="number"
-                step="0.01"
-                min="0"
-                max="100"
-                placeholder="Ex. 10"
-                value={form.discountPercent}
-                onChange={(e) => setForm((f) => ({ ...f, discountPercent: e.target.value }))}
-              />
-            ) : form.discountType === "FIXED" ? (
-              <Input
-                aria-label="Remise en euros"
-                type="number"
-                step="0.01"
-                min="0"
-                placeholder="Ex. 50.00"
-                value={form.discountEuros}
-                onChange={(e) => setForm((f) => ({ ...f, discountEuros: e.target.value }))}
-              />
-            ) : null}
-          </div>
-        </details>
       </section>
 
-      {/* 3. Conditions */}
+      {/* Paiement */}
       <section className="space-y-3" aria-labelledby="doc-terms">
         <h3 id="doc-terms" className={sectionTitle}>
-          3. Conditions
+          Paiement
         </h3>
-        {isQuote ? (
-          <p className="rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--bg-subtle)] px-3 py-2 text-sm text-[var(--muted)]">
-            <span className="font-medium text-[var(--text)]">Validité : 30 jours</span>, calculée automatiquement à partir de la
-            date d&apos;émission. Le client peut l&apos;accepter en ligne depuis son espace.
+        {subscriptionOnly ? (
+          <p className="text-sm text-[var(--muted)]">
+            <span className="font-medium text-[var(--text)]">Abonnement, sans acompte.</span> Après la signature, le client met en
+            place le prélèvement (ou reçoit sa 1re facture sans Stripe) ; chaque échéance est ensuite facturée par
+            l&apos;abonnement.
           </p>
         ) : null}
-        {subscriptionOnly ? (
-          <p className="rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--bg-subtle)] px-3 py-2 text-sm text-[var(--muted)]">
-            <span className="font-medium text-[var(--text)]">Paiement : abonnement, sans acompte.</span> Après la
-            signature, le client met en place le prélèvement (ou reçoit sa 1re facture sans Stripe) ; chaque
-            échéance est ensuite facturée par l&apos;abonnement.
-          </p>
-        ) : isQuote ? (
-          <Field
-            label="Paiement"
-            hint={
-              mixedQuote
-                ? `Acompte et échéancier sur la partie ponctuelle (${formatEUR(Math.round(oneOffPreview * 100))}) ; l'abonnement démarre à la livraison.${
-                    planSettings && form.paymentPlanOffer !== "TWO" && oneOffPreview * 100 < planSettings.split3MinTotalCents
-                      ? ` Sous ${formatEUR(planSettings.split3MinTotalCents)}, le devis passera en 2 fois à l'émission.`
-                      : ""
-                  }`
-                : planSettings && form.paymentPlanOffer !== "TWO" && totalPreview * 100 < planSettings.split3MinTotalCents
-                ? `Sous ${formatEUR(planSettings.split3MinTotalCents)}, le devis passera en 2 fois à l'émission.`
-                : form.paymentPlanOffer === "CHOICE"
-                  ? "Le client choisira à la signature ; les deux échéanciers figurent sur le devis."
-                  : undefined
-            }
-          >
-            <Select
-              value={form.paymentPlanOffer}
-              onChange={(e) =>
-                setForm((f) => ({ ...f, paymentPlanOffer: e.target.value as DocumentFormValues["paymentPlanOffer"] }))
+        <div className="grid gap-4 sm:grid-cols-12">
+          {isQuote && !subscriptionOnly ? (
+            <Field
+              className="sm:col-span-5"
+              label="Échéancier"
+              hint={
+                mixedQuote
+                  ? `Acompte et échéancier sur la partie ponctuelle (${formatEUR(Math.round(oneOffPreview * 100))}) ; l'abonnement démarre à la livraison.${
+                      planSettings && form.paymentPlanOffer !== "TWO" && oneOffPreview * 100 < planSettings.split3MinTotalCents
+                        ? ` Sous ${formatEUR(planSettings.split3MinTotalCents)}, le devis passera en 2 fois à l'émission.`
+                        : ""
+                    }`
+                  : planSettings && form.paymentPlanOffer !== "TWO" && totalPreview * 100 < planSettings.split3MinTotalCents
+                    ? `Sous ${formatEUR(planSettings.split3MinTotalCents)}, le devis passera en 2 fois à l'émission.`
+                    : form.paymentPlanOffer === "CHOICE"
+                      ? "Le client choisira à la signature ; les deux échéanciers figurent sur le devis."
+                      : undefined
               }
             >
-              <option value="TWO">En 2 fois : acompte et solde</option>
-              <option value="THREE">En 3 fois : acompte, 2e acompte à une étape, solde</option>
-              <option value="CHOICE">Au choix du client (2 ou 3 fois)</option>
-            </Select>
-          </Field>
-        ) : null}
-        <div className={isQuote ? "" : "grid gap-4 sm:grid-cols-2"}>
-          <Field label={isQuote ? "Conditions de règlement" : "Conditions de paiement"}>
-            <Input value={form.paymentTerms} onChange={(e) => setForm((f) => ({ ...f, paymentTerms: e.target.value }))} />
-          </Field>
-          {!isQuote ? (
-            <Field label="Date de la prestation" hint="Si elle diffère de la date d'émission.">
-              <Input
-                type="date"
-                value={form.serviceDate}
-                onChange={(e) => setForm((f) => ({ ...f, serviceDate: e.target.value }))}
-              />
+              <Select
+                value={form.paymentPlanOffer}
+                onChange={(e) => setForm((f) => ({ ...f, paymentPlanOffer: e.target.value as DocumentFormValues["paymentPlanOffer"] }))}
+              >
+                <option value="TWO">En 2 fois : acompte et solde</option>
+                <option value="THREE">En 3 fois : acompte, 2e acompte à une étape, solde</option>
+                <option value="CHOICE">Au choix du client (2 ou 3 fois)</option>
+              </Select>
             </Field>
           ) : null}
+          <Field className={isQuote && !subscriptionOnly ? "sm:col-span-7" : "sm:col-span-12"} label={isQuote ? "Conditions de règlement" : "Conditions de paiement"}>
+            <Input value={form.paymentTerms} onChange={(e) => setForm((f) => ({ ...f, paymentTerms: e.target.value }))} />
+          </Field>
         </div>
       </section>
 
-      {/* 4. Compléments */}
-      <details className="rounded-[var(--radius)] border border-[var(--border)] p-3" open={Boolean(form.notes || form.purchaseOrderRef)}>
-        <summary className="flex min-h-11 cursor-pointer items-center text-sm font-medium">
-          Compléments (bon de commande, notes)
+      {/* Notes et bon de commande */}
+      <details className="group border-t border-[var(--border)] pt-2" open={Boolean(form.notes || form.purchaseOrderRef)}>
+        <summary className={`flex min-h-11 cursor-pointer items-center gap-2 ${sectionTitle}`}>
+          <FontAwesomeIcon icon={faChevronRight} className="h-3 w-3 transition-transform group-open:rotate-90 motion-reduce:transition-none" aria-hidden />
+          Notes et bon de commande
         </summary>
-        <div className="mt-3 space-y-4">
-          <Field label="Bon de commande du client" hint="Sa référence, s'il en a fourni un.">
-            <Input
-              value={form.purchaseOrderRef}
-              onChange={(e) => setForm((f) => ({ ...f, purchaseOrderRef: e.target.value }))}
-            />
+        <div className="mt-3 grid gap-4 sm:grid-cols-12">
+          <Field className="sm:col-span-5" label="Bon de commande du client" hint="Sa référence, s'il en a fourni un.">
+            <Input value={form.purchaseOrderRef} onChange={(e) => setForm((f) => ({ ...f, purchaseOrderRef: e.target.value }))} />
           </Field>
-          <Field label="Notes" hint="Affichées sur le PDF.">
+          <Field className="sm:col-span-12" label="Notes" hint="Affichées sur le PDF.">
             <Textarea value={form.notes} rows={3} onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))} />
           </Field>
         </div>
       </details>
+    </div>
+
+    {/* Récapitulatif : à droite dès 1024 px (collant), en fin de formulaire au téléphone. */}
+    <aside
+      ref={recapRef}
+      aria-labelledby="doc-recap"
+      className="mt-8 space-y-4 rounded-[var(--radius)] border border-[var(--border)] bg-[var(--bg-subtle)] p-4 lg:sticky lg:top-0 lg:mt-0"
+    >
+      <h3 id="doc-recap" className={sectionTitle}>
+        Récapitulatif
+      </h3>
+      <p className={totalsLine}>
+        <span className="text-[var(--muted)]">{mixedQuote ? "Partie ponctuelle" : "Sous-total"}</span>
+        <span className="tabular-nums">{eur(mixedQuote ? oneOffSubtotal : subtotalPreview)}</span>
+      </p>
+      <div className="space-y-2">
+        <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)] gap-2">
+          <Field label="Remise">
+            <Select
+              value={form.discountType}
+              onChange={(e) => setForm((f) => ({ ...f, discountType: e.target.value as DocumentFormValues["discountType"] }))}
+            >
+              <option value="NONE">Aucune</option>
+              <option value="PERCENT">En %</option>
+              <option value="FIXED">En €</option>
+            </Select>
+          </Field>
+          {form.discountType === "PERCENT" ? (
+            <Field label="Pourcentage">
+              <Input
+                type="number"
+                step="0.01"
+                min="0"
+                max="100"
+                placeholder="10"
+                value={form.discountPercent}
+                onChange={(e) => setForm((f) => ({ ...f, discountPercent: e.target.value }))}
+              />
+            </Field>
+          ) : form.discountType === "FIXED" ? (
+            <Field label="Montant (€)">
+              <Input
+                type="number"
+                step="0.01"
+                min="0"
+                placeholder="50.00"
+                value={form.discountEuros}
+                onChange={(e) => setForm((f) => ({ ...f, discountEuros: e.target.value }))}
+              />
+            </Field>
+          ) : null}
+        </div>
+        {discountPreview > 0 ? (
+          <p className={totalsLine}>
+            <span className="text-[var(--muted)]">Remise</span>
+            <span className="tabular-nums">−{eur(discountPreview)}</span>
+          </p>
+        ) : null}
+        {form.discountType !== "NONE" && mixedQuote ? (
+          <p className="text-xs text-[var(--muted)]">Sur la partie ponctuelle seulement : l&apos;abonnement reste à son prix.</p>
+        ) : null}
+      </div>
+      <div className="border-t border-[var(--border)] pt-3">
+        <p className={totalsLine}>
+          <span className="font-semibold">{mixedQuote ? "Total du projet" : "Total"}</span>
+          <span className="font-display text-2xl font-semibold tabular-nums">{eur(mixedQuote ? oneOffPreview : totalPreview)}</span>
+        </p>
+        {mixedQuote ? (
+          <p className="mt-1 text-xs text-[var(--muted)]">
+            Abonnement{subscriptionLinesPreview.length > 1 ? "s" : ""} en plus : {subscriptionsPreviewText}
+          </p>
+        ) : null}
+        <p className="mt-1 text-xs text-[var(--muted)]">TVA non applicable, art. 293 B du CGI.</p>
+      </div>
+      {widePreview ? (
+        <div className="space-y-2 border-t border-[var(--border)] pt-3">
+          <p className="text-sm font-medium">Aperçu</p>
+          <DocumentPreview body={previewBody} pausedReason={previewPaused} active kindLabel={previewKind} />
+        </div>
+      ) : (
+        <Button variant="secondary" className="w-full" onClick={() => setPreviewOpen(true)}>
+          Aperçu du PDF
+        </Button>
+      )}
+    </aside>
+    </div>
 
       <ModalActions>
-        <div className="mr-auto basis-full text-sm sm:basis-auto">
-          {mixedQuote ? (
-            <>
-              <span className="text-[var(--muted)]">Total du projet </span>
-              <span className="font-display text-lg font-semibold tabular-nums">{eur(oneOffPreview)}</span>
-              <span className="block text-xs text-[var(--muted)]">
-                Abonnement{subscriptionLinesPreview.length > 1 ? "s" : ""} en plus : {subscriptionsPreviewText}
-              </span>
-            </>
-          ) : (
-            <>
-              {discountPreview > 0 ? (
-                <span className="mr-2 text-xs text-[var(--muted)]">
-                  {eur(subtotalPreview)} − {eur(discountPreview)} =
-                </span>
-              ) : null}
-              <span className="text-[var(--muted)]">Total </span>
-              <span className="font-display text-lg font-semibold tabular-nums">{eur(totalPreview)}</span>
-            </>
-          )}
-        </div>
-        {widePreview ? null : (
-          <Button variant="secondary" onClick={() => setPreviewOpen(true)}>
-            Aperçu
-          </Button>
-        )}
-        <Button variant="secondary" onClick={onCancel} disabled={busy}>
+        {/* Téléphone : le total renvoie au récapitulatif ; Annuler reste dans la croix de la fenêtre et sous Échap. */}
+        <button
+          type="button"
+          className="mr-auto flex min-h-11 flex-col items-start justify-center text-left"
+          onClick={() => recapRef.current?.scrollIntoView({ block: "start" })}
+        >
+          <span className="text-xs text-[var(--muted)]">{mixedQuote ? "Total du projet" : "Total"}<span className="lg:hidden"> (détail)</span></span>
+          <span className="font-display text-lg font-semibold tabular-nums">{eur(mixedQuote ? oneOffPreview : totalPreview)}</span>
+        </button>
+        <Button variant="secondary" className="hidden sm:inline-flex" onClick={onCancel} disabled={busy}>
           Annuler
         </Button>
         <Button type="submit" disabled={busy || !form.clientId}>
@@ -888,15 +960,6 @@ export function DocumentFormEditor({
         </Button>
       </ModalActions>
     </form>
-    {widePreview ? (
-      <aside aria-labelledby="doc-preview" className="sticky top-0 space-y-2">
-        <h3 id="doc-preview" className={sectionTitle}>
-          Aperçu
-        </h3>
-        <DocumentPreview body={previewBody} pausedReason={previewPaused} active kindLabel={previewKind} />
-      </aside>
-    ) : null}
-    </div>
     <Modal
       open={previewOpen && !widePreview}
       onClose={() => setPreviewOpen(false)}
