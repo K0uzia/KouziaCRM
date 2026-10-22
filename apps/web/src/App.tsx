@@ -98,24 +98,8 @@ const SiteReferencesPage = lazy(() =>
 const SiteFaqPage = lazy(() =>
   import("@/pages/site/SiteFaqPage").then((m) => ({ default: m.SiteFaqPage })),
 );
-const SiteContactPage = lazy(() =>
-  import("@/pages/site/SiteTextsPage").then((m) => ({ default: m.SiteContactPage })),
-);
-const SiteHeroPage = lazy(() =>
-  import("@/pages/site/textesPages").then((m) => ({ default: m.SiteHeroScreen })),
-);
-const SitePagesTextsPage = lazy(() =>
-  import("@/pages/site/textesPages").then((m) => ({ default: m.SitePagesTextsPage })),
-);
-const SiteOffersPage = lazy(() =>
-  import("@/pages/site/SiteTextsPage").then((m) => ({ default: m.SiteOffersPage })),
-);
-const SiteTextsRedirect = lazy(() =>
-  import("@/pages/site/SiteTextsPage").then((m) => ({ default: m.SiteTextsRedirect })),
-);
-const SiteSeoListPage = lazy(() => import("@/pages/site/SiteSeoMenusPages").then((m) => ({ default: m.SiteSeoListPage })));
-const SiteSeoPageEditor = lazy(() => import("@/pages/site/SiteSeoMenusPages").then((m) => ({ default: m.SiteSeoPageEditor })));
-const SiteMenusPage = lazy(() => import("@/pages/site/SiteSeoMenusPages").then((m) => ({ default: m.SiteMenusPage })));
+const SiteAllTextsPage = lazy(() => import("@/pages/site/SiteAllTextsPage").then((m) => ({ default: m.SiteAllTextsPage })));
+const SiteTextsRedirect = lazy(() => import("@/pages/site/SiteAllTextsPage").then((m) => ({ default: m.SiteTextsRedirect })));
 const SiteConnectionPage = lazy(() =>
   import("@/pages/site/SiteConnectionPage").then((m) => ({ default: m.SiteConnectionPage })),
 );
@@ -199,13 +183,15 @@ export default function App() {
           <Route path="site/historique" element={<SiteHistoryPage />} />
           <Route path="site/faq" element={<SiteFaqPage />} />
           <Route path="site/faq/:id" element={<SiteFaqItemPage />} />
-          <Route path="site/coordonnees" element={<SiteContactPage />} />
-          <Route path="site/accroche" element={<SiteHeroPage />} />
-          <Route path="site/textes-pages" element={<SitePagesTextsPage />} />
-          <Route path="site/offres" element={<SiteOffersPage />} />
-          <Route path="site/referencement" element={<SiteSeoListPage />} />
-          <Route path="site/referencement/:page" element={<SiteSeoPageEditor />} />
-          <Route path="site/menus" element={<SiteMenusPage />} />
+          <Route path="site/tous-les-textes" element={<SiteAllTextsPage />} />
+          {/* Anciennes adresses des écrans de textes : renvoyées vers la page concernée de « Tous les textes ». */}
+          <Route path="site/coordonnees" element={<SiteTextsRedirect page="global" />} />
+          <Route path="site/accroche" element={<SiteTextsRedirect page="accueil" />} />
+          <Route path="site/textes-pages" element={<SiteTextsRedirect page="accueil" />} />
+          <Route path="site/offres" element={<SiteTextsRedirect page="sitesWeb" />} />
+          <Route path="site/referencement" element={<SiteTextsRedirect page="accueil" />} />
+          <Route path="site/referencement/:page" element={<SiteTextsRedirect />} />
+          <Route path="site/menus" element={<SiteTextsRedirect page="global" />} />
           {/* Ancien écran unique « Textes et coordonnées » (?tab=accroche|offres). */}
           <Route path="site/textes" element={<SiteTextsRedirect />} />
           <Route path="site/connexion" element={<SiteConnectionPage />} />

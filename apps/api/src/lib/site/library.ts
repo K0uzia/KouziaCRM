@@ -44,7 +44,7 @@ export async function mediaUsages(): Promise<Map<string, MediaUsage[]>> {
   }
   for (const r of references) add(r.logoPath, { label: `Logo de « ${r.name} »`, to: `/site/references/${r.id}`, field: "logoPath" });
   for (const id of SITE_PAGE_IDS) {
-    add(seo?.pages[id]?.image ?? null, { label: `Image de partage de la page « ${SITE_PAGE_LABEL[id]} »`, to: `/site/referencement/${id}`, field: "seoImage" });
+    add(seo?.pages[id]?.image ?? null, { label: `Image de partage de la page « ${SITE_PAGE_LABEL[id]} »`, to: `/site/tous-les-textes?page=${id}`, field: "seoImage" });
   }
   return usages;
 }

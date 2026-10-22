@@ -49,8 +49,8 @@ const CHANGE: Record<Change["state"], { label: string; tone: "blue" | "amber" | 
 };
 /** Écran où corriger une anomalie, selon le fichier du site concerné. */
 const ISSUE_ROUTE: Record<string, string> = {
-  infos: "/site/coordonnees",
-  textes: "/site/accroche",
+  infos: "/site/tous-les-textes?page=global",
+  textes: "/site/tous-les-textes?page=accueil",
   faq: "/site/faq",
   realisations: "/site/realisations",
   avis: "/site/avis",

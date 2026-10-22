@@ -64,14 +64,14 @@ export type PendingChange = {
 };
 
 const TEXT_LABEL: Record<SiteTextKey, { label: string; to: string }> = {
-  infos: { label: "Coordonnées et réseaux", to: "/site/coordonnees" },
-  accroche: { label: "Accroche de l'accueil", to: "/site/accroche" },
-  offres: { label: "Offres et tarifs", to: "/site/offres" },
+  infos: { label: "Coordonnées et réseaux", to: "/site/tous-les-textes?page=global" },
+  accroche: { label: "Accroche de l'accueil", to: "/site/tous-les-textes?page=accueil" },
+  offres: { label: "Offres et tarifs", to: "/site/tous-les-textes?page=sitesWeb" },
   avisMethode: { label: "Méthode des témoignages", to: "/site/avis" },
-  pages: { label: "Textes des pages", to: "/site/textes-pages" },
-  seo: { label: "Référencement des pages", to: "/site/referencement" },
-  "espace-client": { label: "Textes de l'espace client", to: "/site/tous-les-textes?doc=espace-client" },
-  menus: { label: "Menus", to: "/site/menus" },
+  pages: { label: "Textes des pages", to: "/site/tous-les-textes?page=accueil" },
+  seo: { label: "Référencement des pages", to: "/site/tous-les-textes?page=accueil" },
+  "espace-client": { label: "Textes de l'espace client", to: "/site/tous-les-textes?page=espaceClient" },
+  menus: { label: "Menus", to: "/site/tous-les-textes?page=global" },
 };
 
 const COLLECTION_FILE: Record<SiteCollection, SiteFileName> = {

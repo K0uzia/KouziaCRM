@@ -558,6 +558,19 @@
                   "aide": "Par exemple « Voir le site » ou « Voir la démo »."
                 }
               },
+              "lienCourt": {
+                "editeur": {
+                  "libelle": "Libellé court du lien",
+                  "page": "accueil",
+                  "section": "Réalisations",
+                  "type": "court",
+                  "aide": "Affiché quand la carte manque de place ; le libellé complet reste lu par les lecteurs d’écran."
+                },
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 20,
+                "pattern": "^[^\\u2013\\u2014]*$"
+              },
               "image": {
                 "type": "string",
                 "pattern": "^\\/(projets|media)\\/[a-z0-9-]+\\.webp$",
@@ -5349,6 +5362,66 @@
                     }
                   ]
                 },
+                "fonctionsIcone": {
+                  "editeur": {
+                    "page": "tracebay",
+                    "section": "Fonctions",
+                    "libelle": "Icône du titre",
+                    "type": "choix",
+                    "variables": [
+                      "ville",
+                      "delaiReponse",
+                      "email",
+                      "telephone"
+                    ]
+                  },
+                  "type": "string",
+                  "enum": [
+                    "bell",
+                    "bolt",
+                    "book",
+                    "boxes-stacked",
+                    "cart-shopping",
+                    "chart-line",
+                    "clock",
+                    "cloud-arrow-up",
+                    "code",
+                    "comments",
+                    "desktop",
+                    "file-export",
+                    "flask",
+                    "globe",
+                    "hand-pointer",
+                    "heart-pulse",
+                    "key",
+                    "laptop-code",
+                    "location-dot",
+                    "lock",
+                    "magnifying-glass",
+                    "mobile-screen",
+                    "palette",
+                    "pen-ruler",
+                    "pen-to-square",
+                    "people-group",
+                    "phone",
+                    "plug",
+                    "rocket",
+                    "rotate",
+                    "seedling",
+                    "server",
+                    "shield-halved",
+                    "store",
+                    "universal-access",
+                    "wrench",
+                    "file-signature",
+                    "credit-card",
+                    "file-invoice",
+                    "clipboard-list",
+                    "hard-drive",
+                    "box-archive",
+                    "calendar-days"
+                  ]
+                },
                 "fonctions": {
                   "editeur": {
                     "page": "tracebay",
@@ -5503,6 +5576,66 @@
                     }
                   ]
                 },
+                "pourQuiIcone": {
+                  "editeur": {
+                    "page": "tracebay",
+                    "section": "À qui il sert",
+                    "libelle": "Icône du titre",
+                    "type": "choix",
+                    "variables": [
+                      "ville",
+                      "delaiReponse",
+                      "email",
+                      "telephone"
+                    ]
+                  },
+                  "type": "string",
+                  "enum": [
+                    "bell",
+                    "bolt",
+                    "book",
+                    "boxes-stacked",
+                    "cart-shopping",
+                    "chart-line",
+                    "clock",
+                    "cloud-arrow-up",
+                    "code",
+                    "comments",
+                    "desktop",
+                    "file-export",
+                    "flask",
+                    "globe",
+                    "hand-pointer",
+                    "heart-pulse",
+                    "key",
+                    "laptop-code",
+                    "location-dot",
+                    "lock",
+                    "magnifying-glass",
+                    "mobile-screen",
+                    "palette",
+                    "pen-ruler",
+                    "pen-to-square",
+                    "people-group",
+                    "phone",
+                    "plug",
+                    "rocket",
+                    "rotate",
+                    "seedling",
+                    "server",
+                    "shield-halved",
+                    "store",
+                    "universal-access",
+                    "wrench",
+                    "file-signature",
+                    "credit-card",
+                    "file-invoice",
+                    "clipboard-list",
+                    "hard-drive",
+                    "box-archive",
+                    "calendar-days"
+                  ]
+                },
                 "pourQui": {
                   "editeur": {
                     "page": "tracebay",
@@ -5557,6 +5690,66 @@
                     {
                       "pattern": "^[^*]*$"
                     }
+                  ]
+                },
+                "fonctionnementIcone": {
+                  "editeur": {
+                    "page": "tracebay",
+                    "section": "Comment il fonctionne",
+                    "libelle": "Icône du titre",
+                    "type": "choix",
+                    "variables": [
+                      "ville",
+                      "delaiReponse",
+                      "email",
+                      "telephone"
+                    ]
+                  },
+                  "type": "string",
+                  "enum": [
+                    "bell",
+                    "bolt",
+                    "book",
+                    "boxes-stacked",
+                    "cart-shopping",
+                    "chart-line",
+                    "clock",
+                    "cloud-arrow-up",
+                    "code",
+                    "comments",
+                    "desktop",
+                    "file-export",
+                    "flask",
+                    "globe",
+                    "hand-pointer",
+                    "heart-pulse",
+                    "key",
+                    "laptop-code",
+                    "location-dot",
+                    "lock",
+                    "magnifying-glass",
+                    "mobile-screen",
+                    "palette",
+                    "pen-ruler",
+                    "pen-to-square",
+                    "people-group",
+                    "phone",
+                    "plug",
+                    "rocket",
+                    "rotate",
+                    "seedling",
+                    "server",
+                    "shield-halved",
+                    "store",
+                    "universal-access",
+                    "wrench",
+                    "file-signature",
+                    "credit-card",
+                    "file-invoice",
+                    "clipboard-list",
+                    "hard-drive",
+                    "box-archive",
+                    "calendar-days"
                   ]
                 },
                 "fonctionnement": {
@@ -5719,28 +5912,122 @@
                     "page": "tracebay",
                     "section": "Comment il fonctionne",
                     "libelle": "Mises à jour",
-                    "type": "long",
-                    "variables": [
-                      "ville",
-                      "delaiReponse",
-                      "email",
-                      "telephone"
-                    ]
+                    "type": "objet",
+                    "aide": "Carte à côté des versions : icône, titre, texte."
                   },
-                  "type": "string",
-                  "minLength": 1,
-                  "maxLength": 300,
-                  "allOf": [
-                    {
-                      "pattern": "^[^\\u2013\\u2014]*$"
+                  "type": "object",
+                  "properties": {
+                    "icone": {
+                      "type": "string",
+                      "enum": [
+                        "bell",
+                        "bolt",
+                        "book",
+                        "boxes-stacked",
+                        "cart-shopping",
+                        "chart-line",
+                        "clock",
+                        "cloud-arrow-up",
+                        "code",
+                        "comments",
+                        "desktop",
+                        "file-export",
+                        "flask",
+                        "globe",
+                        "hand-pointer",
+                        "heart-pulse",
+                        "key",
+                        "laptop-code",
+                        "location-dot",
+                        "lock",
+                        "magnifying-glass",
+                        "mobile-screen",
+                        "palette",
+                        "pen-ruler",
+                        "pen-to-square",
+                        "people-group",
+                        "phone",
+                        "plug",
+                        "rocket",
+                        "rotate",
+                        "seedling",
+                        "server",
+                        "shield-halved",
+                        "store",
+                        "universal-access",
+                        "wrench",
+                        "file-signature",
+                        "credit-card",
+                        "file-invoice",
+                        "clipboard-list",
+                        "hard-drive",
+                        "box-archive",
+                        "calendar-days"
+                      ],
+                      "editeur": {
+                        "page": "tracebay",
+                        "section": "Comment il fonctionne",
+                        "libelle": "Icône",
+                        "type": "choix"
+                      }
                     },
-                    {
-                      "pattern": "^(?:[^{}]|\\{(?:ville|delaiReponse|email|telephone)\\})*$"
+                    "titre": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 80,
+                      "allOf": [
+                        {
+                          "pattern": "^[^\\u2013\\u2014]*$"
+                        },
+                        {
+                          "pattern": "^(?:[^{}]|\\{(?:ville|delaiReponse|email|telephone)\\})*$"
+                        },
+                        {
+                          "pattern": "^[^*]*$"
+                        }
+                      ],
+                      "editeur": {
+                        "page": "tracebay",
+                        "section": "Comment il fonctionne",
+                        "libelle": "Titre",
+                        "type": "court"
+                      }
                     },
-                    {
-                      "pattern": "^[^*]*$"
+                    "texte": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 300,
+                      "allOf": [
+                        {
+                          "pattern": "^[^\\u2013\\u2014]*$"
+                        },
+                        {
+                          "pattern": "^(?:[^{}]|\\{(?:ville|delaiReponse|email|telephone)\\})*$"
+                        },
+                        {
+                          "pattern": "^[^*]*$"
+                        }
+                      ],
+                      "editeur": {
+                        "page": "tracebay",
+                        "section": "Comment il fonctionne",
+                        "libelle": "Texte",
+                        "type": "long",
+                        "variables": [
+                          "ville",
+                          "delaiReponse",
+                          "email",
+                          "telephone"
+                        ]
+                      }
                     }
-                  ]
+                  },
+                  "required": [
+                    "icone",
+                    "titre",
+                    "texte"
+                  ],
+                  "additionalProperties": false
                 },
                 "lienLogiciels": {
                   "editeur": {
@@ -5758,6 +6045,35 @@
                   "type": "string",
                   "minLength": 1,
                   "maxLength": 40,
+                  "allOf": [
+                    {
+                      "pattern": "^[^\\u2013\\u2014]*$"
+                    },
+                    {
+                      "pattern": "^(?:[^{}]|\\{(?:ville|delaiReponse|email|telephone)\\})*$"
+                    },
+                    {
+                      "pattern": "^[^*]*$"
+                    }
+                  ]
+                },
+                "lienLogicielsCourt": {
+                  "editeur": {
+                    "page": "accueil",
+                    "section": "Réalisations",
+                    "libelle": "Lien vers la page Tracebay, version courte",
+                    "type": "court",
+                    "variables": [
+                      "ville",
+                      "delaiReponse",
+                      "email",
+                      "telephone"
+                    ],
+                    "aide": "Sur la carte Tracebay quand elle manque de place ; le libellé complet reste lu par les lecteurs d’écran."
+                  },
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 20,
                   "allOf": [
                     {
                       "pattern": "^[^\\u2013\\u2014]*$"
@@ -5799,6 +6115,66 @@
                         {
                           "pattern": "^[^*]*$"
                         }
+                      ]
+                    },
+                    "icone": {
+                      "editeur": {
+                        "page": "tracebay",
+                        "section": "Formulaire",
+                        "libelle": "Icône du titre",
+                        "type": "choix",
+                        "variables": [
+                          "ville",
+                          "delaiReponse",
+                          "email",
+                          "telephone"
+                        ]
+                      },
+                      "type": "string",
+                      "enum": [
+                        "bell",
+                        "bolt",
+                        "book",
+                        "boxes-stacked",
+                        "cart-shopping",
+                        "chart-line",
+                        "clock",
+                        "cloud-arrow-up",
+                        "code",
+                        "comments",
+                        "desktop",
+                        "file-export",
+                        "flask",
+                        "globe",
+                        "hand-pointer",
+                        "heart-pulse",
+                        "key",
+                        "laptop-code",
+                        "location-dot",
+                        "lock",
+                        "magnifying-glass",
+                        "mobile-screen",
+                        "palette",
+                        "pen-ruler",
+                        "pen-to-square",
+                        "people-group",
+                        "phone",
+                        "plug",
+                        "rocket",
+                        "rotate",
+                        "seedling",
+                        "server",
+                        "shield-halved",
+                        "store",
+                        "universal-access",
+                        "wrench",
+                        "file-signature",
+                        "credit-card",
+                        "file-invoice",
+                        "clipboard-list",
+                        "hard-drive",
+                        "box-archive",
+                        "calendar-days"
                       ]
                     },
                     "intro": {
@@ -6390,6 +6766,64 @@
                   "type": "string",
                   "minLength": 1,
                   "maxLength": 40,
+                  "allOf": [
+                    {
+                      "pattern": "^[^\\u2013\\u2014]*$"
+                    },
+                    {
+                      "pattern": "^(?:[^{}]|\\{(?:ville|delaiReponse|email|telephone)\\})*$"
+                    },
+                    {
+                      "pattern": "^[^*]*$"
+                    }
+                  ]
+                },
+                "lienCourtSite": {
+                  "editeur": {
+                    "page": "accueil",
+                    "section": "Réalisations",
+                    "libelle": "Libellé court du lien d’un site",
+                    "type": "court",
+                    "variables": [
+                      "ville",
+                      "delaiReponse",
+                      "email",
+                      "telephone"
+                    ],
+                    "aide": "Quand la carte manque de place, à la place de « Voir le site » ; sauf libellé court propre à la réalisation."
+                  },
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 20,
+                  "allOf": [
+                    {
+                      "pattern": "^[^\\u2013\\u2014]*$"
+                    },
+                    {
+                      "pattern": "^(?:[^{}]|\\{(?:ville|delaiReponse|email|telephone)\\})*$"
+                    },
+                    {
+                      "pattern": "^[^*]*$"
+                    }
+                  ]
+                },
+                "lienCourtLogiciel": {
+                  "editeur": {
+                    "page": "accueil",
+                    "section": "Réalisations",
+                    "libelle": "Libellé court du lien d’un logiciel",
+                    "type": "court",
+                    "variables": [
+                      "ville",
+                      "delaiReponse",
+                      "email",
+                      "telephone"
+                    ],
+                    "aide": "Quand la carte manque de place, à la place de « Essayer la démo » ; sauf libellé court propre à la réalisation."
+                  },
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 20,
                   "allOf": [
                     {
                       "pattern": "^[^\\u2013\\u2014]*$"
@@ -11875,6 +12309,7 @@
         "demo": "Essayer la démo",
         "demoUrl": "https://tracebay.kouzia.com/",
         "fonctionsTitre": "Ce que fait Tracebay",
+        "fonctionsIcone": "wrench",
         "fonctions": [
           {
             "icone": "boxes-stacked",
@@ -11908,8 +12343,10 @@
           }
         ],
         "pourQuiTitre": "À qui il sert",
+        "pourQuiIcone": "people-group",
         "pourQui": "Aux ateliers qui reçoivent, reconditionnent, effacent, donnent ou prêtent du matériel informatique et doivent en garder la trace, document à l’appui.",
         "fonctionnementTitre": "Comment il fonctionne",
+        "fonctionnementIcone": "laptop-code",
         "fonctionnement": "Un logiciel de bureau pour Linux, Windows et macOS, en deux versions au choix.",
         "versions": [
           {
@@ -11923,10 +12360,16 @@
             "texte": "Elle fonctionne seule, sur le poste où elle est installée."
           }
         ],
-        "misesAJour": "Les mises à jour ne sont pas automatiques : quand une nouvelle version est publiée, le logiciel affiche une notification, puis vous la téléchargez et l’installez.",
+        "misesAJour": {
+          "icone": "bell",
+          "titre": "Mises à jour",
+          "texte": "Les mises à jour ne sont pas automatiques : quand une nouvelle version est publiée, le logiciel affiche une notification, puis vous la téléchargez et l’installez."
+        },
         "lienLogiciels": "Découvrir Tracebay",
+        "lienLogicielsCourt": "Découvrir",
         "formulaire": {
           "titre": "Demander à utiliser Tracebay",
+          "icone": "pen-to-square",
           "intro": "Décrivez votre atelier et votre besoin : je vous réponds {delaiReponse}.",
           "entreprise": "Entreprise ou structure",
           "nom": "Nom",
@@ -11965,6 +12408,8 @@
       "realisation": {
         "finTitre": ", réalisation de Kouzia",
         "lienCarte": "Voir le projet",
+        "lienCourtSite": "Site",
+        "lienCourtLogiciel": "Démo",
         "contexte": "Le contexte",
         "client": "Le client",
         "besoin": "Le besoin",

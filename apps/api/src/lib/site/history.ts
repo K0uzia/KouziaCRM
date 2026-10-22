@@ -308,7 +308,7 @@ export async function restoreVersion(id: string, file: SiteAnyFileName, key: str
     const textKey = key as SiteTextKey;
     await writeSiteText(textKey, item.value);
     to =
-      { infos: "/site/coordonnees", accroche: "/site/accroche", offres: "/site/offres", avisMethode: "/site/avis", pages: "/site/textes-pages", seo: "/site/referencement", menus: "/site/menus" }[
+      { infos: "/site/tous-les-textes?page=global", accroche: "/site/tous-les-textes?page=accueil", offres: "/site/tous-les-textes?page=sitesWeb", avisMethode: "/site/avis", pages: "/site/tous-les-textes?page=accueil", seo: "/site/tous-les-textes?page=accueil", menus: "/site/tous-les-textes?page=global", "espace-client": "/site/tous-les-textes?page=espaceClient" }[
         textKey as "infos"
       ] ?? "/site";
   }
