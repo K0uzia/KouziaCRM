@@ -45,7 +45,7 @@ export function Field({
 }
 
 const control =
-  "w-full rounded-[var(--radius)] border border-[var(--border-input)] bg-[var(--surface-raised)] px-3 text-sm text-[var(--text)] placeholder:text-[var(--muted)] transition focus:border-[var(--primary)] focus:outline-none focus:ring-2 focus:ring-[var(--primary)]/20 disabled:bg-[var(--bg-subtle)] disabled:opacity-70";
+  "w-full rounded-[var(--radius)] border border-[var(--border-input)] bg-[var(--surface-raised)] px-3 text-sm text-[var(--text)] placeholder:text-[var(--muted)] ui-field transition disabled:bg-[var(--bg-subtle)] disabled:opacity-70";
 /** Hauteur fixe (--field-h) : un champ d'une ligne ne s'étire plus dans une grille à côté d'une zone de texte. */
 const singleLine = "h-[var(--field-h)]";
 

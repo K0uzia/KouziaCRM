@@ -87,6 +87,11 @@
      tout le reste), une seule taille de case à cocher. */
   --field-h: 2.75rem;
   --check-size: 1.25rem;
+  /* Focus : une seule indication par contrôle. Boutons et liens : contour décalé ; champs : bordure d'accent doublée
+     d'un anneau collé de même couleur (un seul trait de 2 px, jamais bordure + contour). */
+  --focus-color: var(--primary);
+  --focus-width: 2px;
+  --focus-offset: 2px;
   --text-meta: 0.8125rem;
   /* Libellés des onglets du bas : « Messages » entier sur 5 onglets à 320 px. */
   --text-tab: clamp(0.75rem, 0.45rem + 1.1vw, 0.8125rem);
@@ -176,6 +181,13 @@ body {
     accent-color: var(--primary);
     cursor: pointer;
   }
+
+  /* Focus clavier par défaut. Dans la couche base : hors couche, il s'ajoutait au focus propre des champs (double
+     trait), car une règle hors couche l'emporte sur focus:outline-none. */
+  :focus-visible {
+    outline: var(--focus-width) solid var(--focus-color);
+    outline-offset: var(--focus-offset);
+  }
 }
 
 /* Liste de choix (Select) : chevron dessiné, même allure que le sélecteur de client ; la flèche native varie selon
@@ -191,6 +203,24 @@ body {
   }
   .ui-select::-ms-expand {
     display: none;
+  }
+}
+
+/* Champ (Input, Select, Textarea, déclencheur du Combobox, recherche des tableaux) : seule source de son focus. La
+   bordure de 1 px et l'anneau collé de 1 px forment un trait unique de --focus-width, sans contour décalé. Couche
+   utilities : la couleur de bordure au repos du champ est une classe utilitaire, que l'état focus doit remplacer. */
+@layer utilities {
+  .ui-field:is(:focus, :focus-within) {
+    outline: none;
+    border-color: var(--focus-color);
+    box-shadow: 0 0 0 calc(var(--focus-width) - 1px) var(--focus-color);
+  }
+  .ui-field[aria-invalid="true"] {
+    border-color: var(--danger);
+  }
+  .ui-field[aria-invalid="true"]:is(:focus, :focus-within) {
+    border-color: var(--danger);
+    box-shadow: 0 0 0 calc(var(--focus-width) - 1px) var(--danger);
   }
 }
 
@@ -232,11 +262,6 @@ body {
 }
 .link-row:hover .link-row-muted {
   color: var(--text);
-}
-
-:focus-visible {
-  outline: 2px solid var(--primary);
-  outline-offset: 2px;
 }
 
 @media (prefers-reduced-motion: reduce) {

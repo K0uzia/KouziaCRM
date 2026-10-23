@@ -613,7 +613,7 @@ export function AppLayout() {
           id="contenu"
           tabIndex={isMailWorkspace ? -1 : 0}
           aria-label="Contenu"
-          className={`custom-scrollbar relative min-h-0 min-w-0 flex-1 focus:outline-none focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-[var(--primary)] ${
+          className={`custom-scrollbar relative min-h-0 min-w-0 flex-1 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-[var(--primary)] ${
             isMailWorkspace ? "overflow-hidden" : "overflow-y-auto overflow-x-hidden"
           }`}
         >
