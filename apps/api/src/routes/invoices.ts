@@ -228,6 +228,9 @@ class PaymentAmountError extends Error {
   }
 }
 
+/** Objet et texte relus dans « Vérifier l'e-mail » (envois sur clic). Absents : texte de l'ERP. */
+const emailEditsSchema = z.object({ subject: z.string().trim().max(300).optional(), text: z.string().trim().max(20000).optional() });
+
 export const invoicesRoutes: FastifyPluginAsync = async (app) => {
   app.get("/api/invoices", async (request, reply) => {
     await requireAuth(request, reply);
@@ -908,6 +911,18 @@ export const invoicesRoutes: FastifyPluginAsync = async (app) => {
     }
   });
 
+  // « Vérifier l'e-mail » : brouillon du renvoi par e-mail (PDF joint), rien n'est envoyé ni préparé.
+  app.get<{ Params: { id: string } }>("/api/invoices/:id/send-email/draft", async (request, reply) => {
+    await requireAuth(request, reply);
+    if (reply.sent) return;
+    const invoice = await prisma.invoice.findUnique({ where: { id: request.params.id }, select: { id: true, number: true, status: true } });
+    if (!invoice) return reply.code(404).send({ error: "Introuvable" });
+    if (!invoice.number || invoice.status === "DRAFT") return reply.code(400).send({ error: "Document non émis" });
+    const res = await sendDocumentPdf(invoice.id, { draft: true });
+    if (!res.draft) return reply.code(409).send({ error: res.reason === "no_email" ? "Ce client n'a pas d'adresse e-mail." : "Brouillon indisponible" });
+    return res.draft;
+  });
+
   app.post<{ Params: { id: string } }>("/api/invoices/:id/send-email", async (request, reply) => {
     await requireAuth(request, reply);
     if (reply.sent) return;
@@ -993,23 +1008,49 @@ export const invoicesRoutes: FastifyPluginAsync = async (app) => {
     },
   );
 
+  /** Relance manuelle telle que l'ERP l'enverrait (« Relancer le client ») : objet, texte, destinataire. */
+  async function manualReminderDraft(invoice: { documentType: InvoiceDocumentType; number: string | null; client: { emailEncrypted: string | null } }) {
+    const label = invoice.documentType === InvoiceDocumentType.QUOTE ? "devis" : "facture";
+    const brand = await brandFromSettings();
+    const signature = formatPlainTextSignature(await getCompanySettings(), brand);
+    return {
+      to: decryptOptional(invoice.client.emailEncrypted),
+      subject: `Relance - ${label} ${invoice.number ?? "brouillon"}`,
+      text: `Bonjour,\n\nSauf erreur de notre part, le ${label} ${invoice.number ?? ""} est en attente.\n\n${signature}`,
+      brand,
+    };
+  }
+
+  // « Vérifier l'e-mail » : brouillon de la relance manuelle, rien n'est envoyé.
+  app.get<{ Params: { id: string } }>("/api/invoices/:id/reminders/draft", async (request, reply) => {
+    await requireAuth(request, reply);
+    if (reply.sent) return;
+    const invoice = await prisma.invoice.findUnique({ where: { id: request.params.id }, include: { client: true } });
+    if (!invoice) return reply.code(404).send({ error: "Introuvable" });
+    const draft = await manualReminderDraft(invoice);
+    if (!draft.to) return reply.code(409).send({ error: "Ce client n'a pas d'adresse e-mail." });
+    return { to: draft.to, subject: draft.subject, text: draft.text, attachments: [] };
+  });
+
   app.post<{ Params: { id: string } }>(
     "/api/invoices/:id/reminders/send",
     async (request, reply) => {
       await requireAuth(request, reply);
       if (reply.sent) return;
+      const edits = emailEditsSchema.safeParse(request.body ?? {});
+      if (!edits.success) return reply.code(400).send({ error: "Objet ou message invalide" });
       const invoice = await prisma.invoice.findUnique({
         where: { id: request.params.id },
         include: { client: true },
       });
       if (!invoice) return reply.code(404).send({ error: "Introuvable" });
 
-      const email = decryptOptional(invoice.client.emailEncrypted);
-      const label = invoice.documentType === InvoiceDocumentType.QUOTE ? "devis" : "facture";
-      const subject = `Relance - ${label} ${invoice.number ?? "brouillon"}`;
-      const brand = await brandFromSettings();
-      const signature = formatPlainTextSignature(await getCompanySettings(), brand);
-      const body = `Bonjour,\n\nSauf erreur de notre part, le ${label} ${invoice.number ?? ""} est en attente.\n\n${signature}`;
+      const draft = await manualReminderDraft(invoice);
+      const email = draft.to;
+      const brand = draft.brand;
+      // Objet et texte relus dans « Vérifier l'e-mail », sinon ceux de l'ERP.
+      const subject = edits.data.subject || draft.subject;
+      const body = edits.data.text || draft.text;
       // Pied légal : ajouté une seule fois à l'envoi (processor) ; le brouillon mailto le reçoit ici.
       const mailtoBody = `${body}\n\n${renderEmailTextFooter(brand)}`;
 
@@ -1114,6 +1155,38 @@ export const invoicesRoutes: FastifyPluginAsync = async (app) => {
     return reply.code(201).send({ ...payment, receipt });
   });
 
+  /** Règlement visé par le reçu : celui indiqué, sinon le dernier enregistré (montant positif). */
+  async function receiptPayment(invoiceId: string, paymentId: string | undefined) {
+    return prisma.payment.findFirst({
+      where: { invoiceId, amountCents: { gt: 0 }, ...(paymentId ? { id: paymentId } : {}) },
+      orderBy: { createdAt: "desc" },
+    });
+  }
+
+  // « Vérifier l'e-mail » : brouillon du reçu de paiement (reçu et facture joints), rien n'est envoyé ni rendu.
+  app.get<{ Params: { id: string }; Querystring: { paymentId?: string } }>("/api/invoices/:id/receipt/draft", async (request, reply) => {
+    await requireAuth(request, reply);
+    if (reply.sent) return;
+    const payment = await receiptPayment(request.params.id, request.query.paymentId);
+    if (!payment) return reply.code(404).send({ error: "Paiement introuvable" });
+    const { sendPaymentReceipt } = await import("@/lib/email/payment-receipt.js");
+    const r = await sendPaymentReceipt(request.params.id, payment.amountCents, payment.id, { draft: true });
+    if (!r.draft) return reply.code(409).send({ error: r.reason === "no_email" ? "Ce client n'a pas d'adresse e-mail." : "Brouillon indisponible" });
+    return r.draft;
+  });
+
+  app.post<{ Params: { id: string } }>("/api/invoices/:id/receipt", async (request, reply) => {
+    await requireAuth(request, reply);
+    if (reply.sent) return;
+    const parsed = emailEditsSchema.extend({ paymentId: z.string().min(1).max(64).optional() }).safeParse(request.body ?? {});
+    if (!parsed.success) return reply.code(400).send({ error: "Objet ou message invalide" });
+    const payment = await receiptPayment(request.params.id, parsed.data.paymentId);
+    if (!payment) return reply.code(404).send({ error: "Paiement introuvable" });
+    const { sendPaymentReceipt } = await import("@/lib/email/payment-receipt.js");
+    const r = await sendPaymentReceipt(request.params.id, payment.amountCents, payment.id, { subject: parsed.data.subject, text: parsed.data.text });
+    return { sent: r.sent, reason: r.reason ?? null };
+  });
+
   // Remboursement d'un trop-perçu (paiement reçu après un avoir, avoir en mode « Autre » ou sans ligne enregistrée) :
   // ligne négative au livre des recettes, au plus le trop-perçu relu sous verrou, à la date réelle du virement.
   app.post<{ Params: { id: string } }>("/api/invoices/:id/refund", async (request, reply) => {
@@ -1183,6 +1256,8 @@ export const invoicesRoutes: FastifyPluginAsync = async (app) => {
         issueDate: z.string().optional(),
         registerRefundPayment: z.boolean().optional(),
         refundPaidAt: z.string().optional(),
+        /** false : avoir créé sans e-mail, relu ensuite dans « Vérifier l'e-mail ». Absent : envoi direct, comme avant. */
+        sendEmail: z.boolean().optional(),
       });
       const parsed = schema.safeParse(request.body);
       if (!parsed.success) {
@@ -1203,7 +1278,7 @@ export const invoicesRoutes: FastifyPluginAsync = async (app) => {
             ? new Date(parsed.data.refundPaidAt)
             : undefined,
         });
-        const mail = await sendDocumentPdf(creditNote.id);
+        const mail = parsed.data.sendEmail === false ? { sent: false, reason: undefined } : await sendDocumentPdf(creditNote.id);
         return reply.code(201).send({
           ...serializeInvoice(creditNote),
           emailed: mail.sent,

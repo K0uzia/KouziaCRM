@@ -40,6 +40,7 @@ import { ClientRenewalsCard } from "@/components/clients/ClientRenewalsCard";
 import { ClientMessagesTab } from "@/pages/messaging/ClientMessagesTab";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { useCreateParam } from "@/lib/use-create-param";
+import { VerifyEmailDialog } from "@/components/messaging/VerifyEmailDialog";
 
 
 const TYPE_IDS = ["tous", "particulier", "pro", "association"] as const;
@@ -56,6 +57,8 @@ export function ClientsPage() {
   const [inviteOpen, setInviteOpen] = useState(false);
   const [inviteEmail, setInviteEmail] = useState("");
   const [inviteBusy, setInviteBusy] = useState(false);
+  // Adresse saisie : l'invitation est relue dans « Vérifier l'e-mail » avant l'envoi (E6c).
+  const [inviteVerify, setInviteVerify] = useState<string | null>(null);
   // Filtres dans l'URL : type (particulier, pro, association), échanges (avec, sans) et recherche.
   const filters = useUrlFilters();
   const typeFilter = filters.pick("type", TYPE_IDS, "tous");
@@ -366,14 +369,45 @@ export function ClientsPage() {
         description="Le prospect recevra un lien sécurisé pour remplir lui-même sa fiche. Le client sera créé automatiquement à la soumission."
       >
         <form
-          onSubmit={async (e) => {
+          onSubmit={(e) => {
             e.preventDefault();
             if (!inviteEmail.trim()) return;
+            setInviteOpen(false);
+            setInviteVerify(inviteEmail.trim());
+          }}
+          className="space-y-4"
+        >
+          <Field label="Email du prospect" hint="Vous relirez l'invitation avant l'envoi.">
+            <Input
+              type="email"
+              required
+              placeholder="prospect@exemple.fr"
+              value={inviteEmail}
+              onChange={(e) => setInviteEmail(e.target.value)}
+            />
+          </Field>
+          <ModalActions>
+            <Button type="button" variant="secondary" onClick={() => setInviteOpen(false)}>
+              Annuler
+            </Button>
+            <Button type="submit">Vérifier l'e-mail</Button>
+          </ModalActions>
+        </form>
+      </Modal>
+      {inviteVerify ? (
+        <VerifyEmailDialog
+          open
+          title="Vérifier l'e-mail : invitation"
+          draftUrl={`/api/onboarding/invite/draft?email=${encodeURIComponent(inviteVerify)}`}
+          note="{{lien}} est remplacé à l'envoi par le lien personnel du prospect. La mise en page et les mentions légales sont ajoutées à l'envoi."
+          sendLabel={inviteBusy ? "Envoi..." : "Envoyer l'invitation"}
+          onClose={() => setInviteVerify(null)}
+          onSend={async (edits) => {
             setInviteBusy(true);
             try {
               const r = await api<{ ok: boolean; sent: boolean; reason?: string }>(
                 "/api/onboarding/invite",
-                { method: "POST", body: JSON.stringify({ email: inviteEmail.trim() }) },
+                { method: "POST", body: JSON.stringify({ email: inviteVerify, ...edits }) },
               );
               if (r.sent) {
                 toast.success(
@@ -385,39 +419,15 @@ export function ClientsPage() {
                 toast.success("Invitation créée (email non envoyé).");
               }
               setInviteEmail("");
-              setInviteOpen(false);
+              setInviteVerify(null);
             } catch (err) {
               toast.error(err instanceof Error ? err.message : "Erreur");
             } finally {
               setInviteBusy(false);
             }
           }}
-          className="space-y-4"
-        >
-          <Field label="Email du prospect" hint="L'invitation sera envoyée à cette adresse">
-            <Input
-              type="email"
-              required
-              placeholder="prospect@exemple.fr"
-              value={inviteEmail}
-              onChange={(e) => setInviteEmail(e.target.value)}
-            />
-          </Field>
-          <ModalActions>
-            <Button
-              type="button"
-              variant="secondary"
-              onClick={() => setInviteOpen(false)}
-              disabled={inviteBusy}
-            >
-              Annuler
-            </Button>
-            <Button type="submit" disabled={inviteBusy}>
-              {inviteBusy ? "Envoi..." : "Envoyer l'invitation"}
-            </Button>
-          </ModalActions>
-        </form>
-      </Modal>
+        />
+      ) : null}
     </div>
   );
 }
@@ -518,6 +528,8 @@ function ClientDetail({ id }: { id: string | undefined }) {
   const [editOpen, setEditOpen] = useState(false);
   const [busyAccess, setBusyAccess] = useState(false);
   const [busyWelcome, setBusyWelcome] = useState(false);
+  const [verifyWelcome, setVerifyWelcome] = useState(false);
+  const [verifyInvite, setVerifyInvite] = useState(false);
   const [confirmRegen, setConfirmRegen] = useState(false);
   const [busyOnboarding, setBusyOnboarding] = useState(false);
   const [docs, setDocs] = useState<
@@ -849,23 +861,35 @@ function ClientDetail({ id }: { id: string | undefined }) {
             variant="secondary"
             disabled={busyWelcome || !client.email}
             title={client.email ? undefined : "Adresse e-mail manquante sur la fiche"}
-            onClick={() => {
-              setBusyWelcome(true);
-              void api<{ sent: boolean; reason?: string }>(`/api/clients/${client.id}/portal/welcome`, {
-                method: "POST",
-              })
-                .then((r) => {
-                  if (r.sent) toast.success(`Accès à l'espace client envoyé à ${client.email}.`);
-                  else if (r.reason === "smtp_off") toast.error("SMTP non configuré : e-mail non envoyé.");
-                  else if (r.reason === "no_email") toast.error("Le client n'a pas d'adresse e-mail.");
-                  else toast.error("L'e-mail d'accès n'a pas pu partir.");
-                })
-                .catch((e: Error) => toast.error(e.message))
-                .finally(() => setBusyWelcome(false));
-            }}
+            onClick={() => setVerifyWelcome(true)}
           >
             {busyWelcome ? "Envoi…" : "Envoyer l'accès à l'espace client"}
           </Button>
+          <VerifyEmailDialog
+            open={verifyWelcome}
+            title="Vérifier l'e-mail : accès à l'espace client"
+            draftUrl={`/api/clients/${client.id}/portal/welcome/draft`}
+            onClose={() => setVerifyWelcome(false)}
+            onSend={async (edits) => {
+              setBusyWelcome(true);
+              try {
+                const r = await api<{ sent: boolean; reason?: string }>(`/api/clients/${client.id}/portal/welcome`, {
+                  method: "POST",
+                  body: JSON.stringify(edits),
+                });
+                if (r.sent) {
+                  toast.success(`Accès à l'espace client envoyé à ${client.email}.`);
+                  setVerifyWelcome(false);
+                } else if (r.reason === "smtp_off") toast.error("SMTP non configuré : e-mail non envoyé.");
+                else if (r.reason === "no_email") toast.error("Le client n'a pas d'adresse e-mail.");
+                else toast.error("L'e-mail d'accès n'a pas pu partir.");
+              } catch (e) {
+                toast.error(e instanceof Error ? e.message : "Envoi impossible");
+              } finally {
+                setBusyWelcome(false);
+              }
+            }}
+          />
           <Button
             variant="secondary"
             disabled={busyAccess}
@@ -903,30 +927,37 @@ function ClientDetail({ id }: { id: string | undefined }) {
           <Button
             variant="secondary"
             disabled={busyOnboarding || !client.email}
-            onClick={() => {
-              setBusyOnboarding(true);
-              void api<{ ok: boolean; sent: boolean; reason?: string }>(
-                `/api/clients/${client.id}/onboarding/invite`,
-                { method: "POST", body: JSON.stringify({ email: client.email ?? "" }) },
-              )
-                .then((r) => {
-                  if (r.sent) {
-                    toast.success("Invitation envoyée : le client recevra un lien pour compléter sa fiche.");
-                  } else if (r.reason === "smtp_off") {
-                    toast.error("SMTP non configuré : impossible d'envoyer l'email d'invitation.");
-                  } else if (r.reason === "no_email") {
-                    toast.error("Le client n'a pas d'email renseigné.");
-                  } else {
-                    toast.success("Lien d'invitation généré (email non envoyé).");
-                  }
-                  refresh();
-                })
-                .catch((e: Error) => toast.error(e.message))
-                .finally(() => setBusyOnboarding(false));
-            }}
+            onClick={() => setVerifyInvite(true)}
           >
             {busyOnboarding ? "Envoi..." : "Demander les infos par email"}
           </Button>
+          <VerifyEmailDialog
+            open={verifyInvite}
+            title="Vérifier l'e-mail : demande des informations"
+            draftUrl={`/api/onboarding/invite/draft?email=${encodeURIComponent(client.email ?? "")}&clientId=${encodeURIComponent(client.id)}`}
+            note="{{lien}} est remplacé à l'envoi par le lien personnel du client. La mise en page et les mentions légales sont ajoutées à l'envoi."
+            onClose={() => setVerifyInvite(false)}
+            onSend={async (edits) => {
+              setBusyOnboarding(true);
+              try {
+                const r = await api<{ ok: boolean; sent: boolean; reason?: string }>(`/api/clients/${client.id}/onboarding/invite`, {
+                  method: "POST",
+                  body: JSON.stringify({ email: client.email ?? "", ...edits }),
+                });
+                if (r.sent) {
+                  toast.success("Invitation envoyée : le client recevra un lien pour compléter sa fiche.");
+                  setVerifyInvite(false);
+                } else if (r.reason === "smtp_off") toast.error("SMTP non configuré : impossible d'envoyer l'email d'invitation.");
+                else if (r.reason === "no_email") toast.error("Le client n'a pas d'email renseigné.");
+                else toast.success("Lien d'invitation généré (email non envoyé).");
+                refresh();
+              } catch (e) {
+                toast.error(e instanceof Error ? e.message : "Envoi impossible");
+              } finally {
+                setBusyOnboarding(false);
+              }
+            }}
+          />
         </div>
 
         {client.onboardingCompletedAt ? (

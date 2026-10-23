@@ -1,3 +1,6 @@
+import type { IconDefinition } from "@fortawesome/fontawesome-svg-core";
+import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
+
 /** Choix exclusif compact (période, vue, dimension d'un filtre à 2 à 4 valeurs) : groupe de boutons à bascule. */
 export function Segmented<T extends string>({
   options,
@@ -10,8 +13,8 @@ export function Segmented<T extends string>({
   disabled = false,
   describedBy,
 }: {
-  /** count : nombre d'éléments de la valeur (filtre d'une liste), affiché après le libellé. */
-  options: ReadonlyArray<{ id: T; label: string; count?: number | null }>;
+  /** count : nombre d'éléments de la valeur (filtre d'une liste), affiché après le libellé ; icon : décorative, avant le libellé. */
+  options: ReadonlyArray<{ id: T; label: string; count?: number | null; icon?: IconDefinition }>;
   value: T;
   onChange: (id: T) => void;
   label: string;
@@ -46,6 +49,7 @@ export function Segmented<T extends string>({
                 : "text-[var(--muted)] hover:text-[var(--text)]"
             }`}
           >
+            {o.icon ? <FontAwesomeIcon icon={o.icon} className="h-3.5 w-3.5 shrink-0" aria-hidden /> : null}
             {o.label}
             {o.count != null ? <span className="text-xs tabular-nums opacity-80">{o.count}</span> : null}
           </button>

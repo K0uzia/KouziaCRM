@@ -11,8 +11,11 @@ import {
 } from "@/lib/clients.js";
 import { requireAuth } from "@/lib/auth.js";
 import { revokeAllPortalSessions } from "@/lib/portal/auth.js";
-import { sendOnboardingInvite } from "@/lib/clients/onboarding.js";
-import { sendPortalWelcomeEmail } from "@/lib/clients/access-email.js";
+import { onboardingInviteDraft, sendOnboardingInvite } from "@/lib/clients/onboarding.js";
+import { portalWelcomeDraft, sendPortalWelcomeEmail } from "@/lib/clients/access-email.js";
+
+/** Objet et texte relus dans « Vérifier l'e-mail » (envois sur clic). Absents : texte de l'ERP. */
+const emailEditsSchema = z.object({ subject: z.string().trim().max(300).optional(), text: z.string().trim().max(20000).optional() });
 import {
   parseNeeds,
   readServiceNeeds,
@@ -362,18 +365,31 @@ export const clientsRoutes: FastifyPluginAsync = async (app) => {
   });
 
   // Espace client : (r)envoie l'e-mail d'accès (adresse du site, connexion par code).
+  // « Vérifier l'e-mail » : brouillon de l'e-mail d'accès, rien n'est envoyé.
+  app.get<{ Params: { id: string } }>("/api/clients/:id/portal/welcome/draft", async (request, reply) => {
+    await requireAuth(request, reply);
+    if (reply.sent) return;
+    const existing = await prisma.client.findUnique({ where: { id: request.params.id }, select: { id: true } });
+    if (!existing) return reply.code(404).send({ error: "Introuvable" });
+    const draft = await portalWelcomeDraft(existing.id);
+    if (!draft) return reply.code(409).send({ error: "Ce client n'a pas d'adresse e-mail." });
+    return draft;
+  });
+
   app.post<{ Params: { id: string } }>(
     "/api/clients/:id/portal/welcome",
     { config: { rateLimit: { max: 5, timeWindow: "15 minutes" } } },
     async (request, reply) => {
       await requireAuth(request, reply);
       if (reply.sent) return;
+      const edits = emailEditsSchema.safeParse(request.body ?? {});
+      if (!edits.success) return reply.code(400).send({ error: "Objet ou message invalide" });
       const existing = await prisma.client.findUnique({
         where: { id: request.params.id },
         select: { id: true },
       });
       if (!existing) return reply.code(404).send({ error: "Introuvable" });
-      return sendPortalWelcomeEmail(existing.id);
+      return sendPortalWelcomeEmail(existing.id, edits.data);
     },
   );
 
@@ -404,8 +420,10 @@ export const clientsRoutes: FastifyPluginAsync = async (app) => {
       const body = (request.body ?? {}) as { email?: string };
       const email = (body.email ?? "").trim();
       if (!email) return reply.code(400).send({ error: "Email requis" });
+      const edits = emailEditsSchema.safeParse(request.body ?? {});
+      if (!edits.success) return reply.code(400).send({ error: "Objet ou message invalide" });
       try {
-        const result = await sendOnboardingInvite({ email, existingClientId: existing.id });
+        const result = await sendOnboardingInvite({ email, existingClientId: existing.id, ...edits.data });
         return result;
       } catch (err) {
         return reply
@@ -415,14 +433,25 @@ export const clientsRoutes: FastifyPluginAsync = async (app) => {
     },
   );
 
+  // « Vérifier l'e-mail » : brouillon de l'invitation (lien d'exemple ; le vrai lien est créé à l'envoi).
+  app.get("/api/onboarding/invite/draft", async (request, reply) => {
+    await requireAuth(request, reply);
+    if (reply.sent) return;
+    const q = z.object({ email: z.string().trim().email(), clientId: z.string().min(1).max(64).optional() }).safeParse(request.query);
+    if (!q.success) return reply.code(400).send({ error: "Adresse e-mail invalide" });
+    return onboardingInviteDraft(q.data.email, q.data.clientId ?? null);
+  });
+
   app.post("/api/onboarding/invite", async (request, reply) => {
     await requireAuth(request, reply);
     if (reply.sent) return;
     const body = (request.body ?? {}) as { email?: string };
     const email = (body.email ?? "").trim();
     if (!email) return reply.code(400).send({ error: "Email requis" });
+    const edits = emailEditsSchema.safeParse(request.body ?? {});
+    if (!edits.success) return reply.code(400).send({ error: "Objet ou message invalide" });
     try {
-      const result = await sendOnboardingInvite({ email, existingClientId: null });
+      const result = await sendOnboardingInvite({ email, existingClientId: null, ...edits.data });
       return result;
     } catch (err) {
       return reply

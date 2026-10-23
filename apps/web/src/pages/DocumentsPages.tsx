@@ -59,6 +59,7 @@ import { useCreateParam } from "@/lib/use-create-param";
 import { OfflineGuard } from "@/components/ui/OfflineGuard";
 import { useOfflineQueue } from "@/lib/offline/queue";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
+import { MilestoneLinkDialog, ReceiptDialog, ReminderDialog, ResendDocumentDialog } from "@/components/messaging/document-email-dialogs";
 
 type Milestone = {
   id: string;
@@ -619,7 +620,12 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
   const [payingMilestoneId, setPayingMilestoneId] = useState<string | null>(null);
   const [issueOpen, setIssueOpen] = useState(false);
   const [issueBusy, setIssueBusy] = useState(false);
-  const [resendBusy, setResendBusy] = useState(false);
+  // « Vérifier l'e-mail » : document à renvoyer, relance à relire (E6c).
+  const [resendFor, setResendFor] = useState<string | null>(null);
+  // E6c, 2e partie : e-mail du lien d'une échéance, reçu de paiement, relus avant l'envoi.
+  const [milestoneEmailFor, setMilestoneEmailFor] = useState<string | null>(null);
+  const [receiptFor, setReceiptFor] = useState<string | null>(null);
+  const [reminderOpen, setReminderOpen] = useState(false);
   const [sendEmailOnIssue, setSendEmailOnIssue] = useState(true);
   const [emailSubject, setEmailSubject] = useState("");
   const [emailBody, setEmailBody] = useState("");
@@ -860,19 +866,15 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
   async function savePaymentLinkOnInvoice(payment: ReturnType<typeof paymentChoiceOf>, sendEmail: boolean) {
     setLinkBusy(true);
     try {
+      // Lien enregistré sans e-mail ; la facture se renvoie ensuite, relue dans « Vérifier l'e-mail ».
       const res = await api<{ checkoutUrl: string | null; emailed: boolean }>(
         `/api/invoices/${id}/payment-link`,
-        { method: "PUT", body: JSON.stringify({ payment, sendEmail }) },
+        { method: "PUT", body: JSON.stringify({ payment, sendEmail: false }) },
       );
-      toast.success(
-        !res.checkoutUrl
-          ? "Lien de paiement retiré"
-          : res.emailed
-            ? "Lien enregistré et facture renvoyée au client"
-            : "Lien de paiement enregistré",
-      );
+      toast.success(!res.checkoutUrl ? "Lien de paiement retiré" : "Lien de paiement enregistré");
       setLinkOpen(false);
       await load();
+      if (res.checkoutUrl && sendEmail && id) setResendFor(id);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Erreur");
     } finally {
@@ -984,13 +986,18 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
   async function manualPayMilestone(milestoneId: string, input: ManualPaymentInput) {
     setBusyId(`pay-${milestoneId}`);
     try {
-      await api(`/api/quotes/${id}/milestones/${milestoneId}/pay-manual`, {
+      // Reçu relu dans « Vérifier l'e-mail » avant l'envoi (jamais envoyé d'office).
+      const paid = await api<{ invoiceId: string | null }>(`/api/quotes/${id}/milestones/${milestoneId}/pay-manual`, {
         method: "POST",
-        body: JSON.stringify(input),
+        body: JSON.stringify({ ...input, notifyClient: false }),
       });
       toast.success("Acompte payé : le projet démarre");
       setPayingMilestoneId(null);
       await load();
+      if (input.notifyClient && paid.invoiceId) {
+        setReceiptFor(paid.invoiceId);
+        return;
+      }
       // Étape suivante du parcours : compléter le projet créé au paiement.
       const projects = await api<Array<{ id: string; quoteId: string | null }>>(
         `/api/clients/${doc!.client.id}/projects`,
@@ -1011,16 +1018,14 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
   ) {
     setBusyId(`link-${milestoneId}`);
     try {
+      // Lien enregistré sans e-mail ; l'e-mail d'encaissement est relu ensuite dans « Vérifier l'e-mail ».
       await api(`/api/quotes/${id}/milestones/${milestoneId}/payment-link`, {
         method: "POST",
-        body: JSON.stringify({ checkoutUrl, sendEmail }),
+        body: JSON.stringify({ checkoutUrl, sendEmail: false }),
       });
-      toast.success(
-        sendEmail
-          ? "Lien enregistré et email d'encaissement envoyé"
-          : "Lien de paiement enregistré",
-      );
+      toast.success("Lien de paiement enregistré");
       await load();
+      if (sendEmail) setMilestoneEmailFor(milestoneId);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Erreur");
     } finally {
@@ -1032,25 +1037,12 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
     setBilling({ kind: "SOLDE", amountCents: market?.balance.balanceDueCents ?? 0, force });
   }
 
-  async function sendReminder() {
-    try {
-      const res = await api<{ emailed: boolean; mailto: string | null }>(
-        `/api/invoices/${id}/reminders/send`,
-        { method: "POST", body: "{}" },
-      );
-      if (res.emailed) toast.success("Relance envoyée");
-      else if (res.mailto) {
-        window.location.href = res.mailto;
-        toast.info("Client mail ouvert");
-      } else toast.info("Relance enregistrée (pas d'email client)");
-      await load();
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Erreur");
-    }
-  }
-
   return (
     <div className="space-y-5">
+      <ResendDocumentDialog documentId={resendFor} onClose={() => setResendFor(null)} onSent={() => load()} />
+      <ReminderDialog documentId={reminderOpen ? (id ?? null) : null} onClose={() => setReminderOpen(false)} onDone={() => load()} />
+      {id ? <MilestoneLinkDialog quoteId={id} milestoneId={milestoneEmailFor} onClose={() => setMilestoneEmailFor(null)} onDone={() => load()} /> : null}
+      <ReceiptDialog invoiceId={receiptFor} onClose={() => setReceiptFor(null)} onDone={() => load()} />
       <PageHeader
         title={
           doc.number ??
@@ -1104,20 +1096,10 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
                 ...(doc.number
                   ? [
                       {
-                        label: resendBusy ? "Envoi…" : "Renvoyer par email",
-                        disabled: resendBusy,
-                        onSelect: () => {
-                          setResendBusy(true);
-                          void api<{ emailed: boolean }>(`/api/invoices/${doc.id}/send-email`, {
-                            method: "POST",
-                            body: "{}",
-                          })
-                            .then(() => toast.success("PDF en file d'envoi"))
-                            .catch((e: Error) => toast.error(e.message))
-                            .finally(() => setResendBusy(false));
-                        },
+                        label: "Renvoyer par email",
+                        onSelect: () => setResendFor(doc.id),
                       },
-                      { label: "Relancer le client", onSelect: () => void sendReminder() },
+                      { label: "Relancer le client", onSelect: () => setReminderOpen(true) },
                     ]
                   : []),
                 ...(isQuote && doc.quoteStatus === "SENT"
@@ -1423,17 +1405,7 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
                           type="button"
                           variant="ghost"
                           className="h-7 px-2 text-xs"
-                          disabled={resendBusy}
-                          onClick={() => {
-                            setResendBusy(true);
-                            void api(`/api/invoices/${inv.id}/send-email`, {
-                              method: "POST",
-                              body: "{}",
-                            })
-                              .then(() => toast.success("PDF en file d'envoi"))
-                              .catch((e: Error) => toast.error(e.message))
-                              .finally(() => setResendBusy(false));
-                          }}
+                          onClick={() => setResendFor(inv.id)}
                         >
                           Envoyer par email
                         </Button>

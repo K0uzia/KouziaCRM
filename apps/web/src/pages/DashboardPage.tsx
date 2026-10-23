@@ -41,6 +41,7 @@ import { Segmented } from "@/components/ui/Segmented";
 import { StatStrip } from "@/components/ui/StatStrip";
 import { formMessageName } from "@/pages/messaging/sender";
 import { useReadOnly } from "@/lib/offline/read-only";
+import { ReminderDialog } from "@/components/messaging/document-email-dialogs";
 
 /** Notifications qui changent les chiffres ou les listes du tableau de bord (les autres ne le rechargent pas). */
 const DASHBOARD_KINDS = new Set<NotificationKind>(["mail", "payment", "deposit_due", "quote_accepted", "quote_rejected", "subscription_stripe"]);
@@ -384,22 +385,8 @@ export function DashboardPage() {
     }
   }
 
-  async function sendReminder(id: string) {
-    try {
-      const res = await api<{ emailed: boolean; mailto: string | null }>(
-        `/api/invoices/${id}/reminders/send`,
-        { method: "POST", body: "{}" },
-      );
-      if (res.emailed) toast.success("Relance envoyée");
-      else if (res.mailto) {
-        window.location.href = res.mailto;
-        toast.info("Client mail ouvert");
-      } else toast.success("Relance enregistrée");
-      reload();
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Erreur");
-    }
-  }
+  // « Relancer » : relance relue dans « Vérifier l'e-mail » avant l'envoi (E6c).
+  const [reminderFor, setReminderFor] = useState<string | null>(null);
 
   const firstName = (user?.name ?? "").split(/\s+/)[0];
   // Hors ligne : date des données, et actions qui exigent le réseau désactivées (raison liée et écrite).
@@ -529,6 +516,7 @@ export function DashboardPage() {
 
   return (
     <div>
+      <ReminderDialog documentId={reminderFor} onClose={() => setReminderFor(null)} onDone={() => reload()} />
       {header}
       {quickActions}
 
@@ -731,7 +719,7 @@ export function DashboardPage() {
                           {r.reminderCount > 1 ? "s" : ""}
                         </span>
                       </Link>
-                      <Button variant="secondary" className="shrink-0 px-3 text-sm" onClick={() => void sendReminder(r.id)}>
+                      <Button variant="secondary" className="shrink-0 px-3 text-sm" onClick={() => setReminderFor(r.id)}>
                         Envoyer
                       </Button>
                     </li>

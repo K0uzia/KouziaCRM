@@ -147,29 +147,37 @@ export async function sendNewDeviceAlertEmail(
   });
 }
 
-/** Après l'onboarding : explique comment entrer dans l'espace client (e-mail + code). */
-export async function sendPortalWelcomeEmail(clientId: string): Promise<SendAccessEmailResult> {
-  if (!(await isSmtpConfigured())) return { sent: false, reason: "smtp_off" };
+/** E-mail d'accès à l'espace client tel que l'ERP l'enverrait (« Vérifier l'e-mail ») ; null sans adresse. */
+export async function portalWelcomeDraft(clientId: string): Promise<{ to: string; subject: string; text: string; attachments: string[] } | null> {
   const client = await prisma.client.findUnique({ where: { id: clientId } });
   const email = decryptOptional(client?.emailEncrypted ?? null);
-  if (!client || !email) return { sent: false, reason: "no_email" };
+  if (!client || !email) return null;
+  const { brand, signature } = await signatureBlock();
+  const portalUrl = await resolveClientPortalUrl();
+  const text = [
+    greeting(client),
+    "",
+    "Votre espace client est prêt. Vous y retrouvez vos devis, factures et paiements, et l'avancement de votre projet.",
+    "",
+    `Pour y entrer : ${portalUrl}`,
+    `Saisissez votre adresse e-mail (${email}) : vous recevez aussitôt un code à 6 chiffres. Aucun mot de passe à retenir.`,
+    "",
+    signature,
+  ].join("\n");
+  return { to: email, subject: `Votre espace client ${brand}`, text, attachments: [] };
+}
+
+/** Après l'onboarding : explique comment entrer dans l'espace client (e-mail + code). edits : objet et texte relus. */
+export async function sendPortalWelcomeEmail(clientId: string, edits: { subject?: string; text?: string } = {}): Promise<SendAccessEmailResult> {
+  if (!(await isSmtpConfigured())) return { sent: false, reason: "smtp_off" };
+  const draft = await portalWelcomeDraft(clientId);
+  if (!draft) return { sent: false, reason: "no_email" };
 
   try {
-    const { brand, signature } = await signatureBlock();
-    const portalUrl = await resolveClientPortalUrl();
-    const body = [
-      greeting(client),
-      "",
-      "Votre espace client est prêt. Vous y retrouvez vos devis, factures et paiements, et l'avancement de votre projet.",
-      "",
-      `Pour y entrer : ${portalUrl}`,
-      `Saisissez votre adresse e-mail (${email}) : vous recevez aussitôt un code à 6 chiffres. Aucun mot de passe à retenir.`,
-      "",
-      signature,
-    ].join("\n");
+    const body = edits.text?.trim() || draft.text;
     await mailEnqueue({
-      to: email,
-      subject: `Votre espace client ${brand}`,
+      to: draft.to,
+      subject: edits.subject?.trim() || draft.subject,
       text: body,
       clientId,
       kind: "access",

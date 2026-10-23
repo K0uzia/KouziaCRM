@@ -100,7 +100,7 @@ export async function buildSiteSnapshot(contract?: unknown): Promise<SiteSnapsho
     infos: { schemaVersion: SITE_SCHEMA_VERSION, infos },
     textes: { schemaVersion: SITE_SCHEMA_VERSION, accroche, offres },
     faq: { schemaVersion: SITE_SCHEMA_VERSION, questions: faq.map(faqOut) },
-    realisations: { schemaVersion: SITE_SCHEMA_VERSION, realisations: projects.map(projectOut) },
+    realisations: { schemaVersion: SITE_SCHEMA_VERSION, realisations: projects.map((p) => projectOut(p)) },
     avis: { schemaVersion: SITE_SCHEMA_VERSION, ...(avisMethode ? { methode: avisMethode } : {}), avis: reviews.map(reviewOut) },
     references: { schemaVersion: SITE_SCHEMA_VERSION, references: references.map(referenceOut) },
   };

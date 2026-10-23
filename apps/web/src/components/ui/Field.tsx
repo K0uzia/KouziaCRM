@@ -1,4 +1,4 @@
-import { Children, cloneElement, isValidElement, useId } from "react";
+import { Children, cloneElement, isValidElement, useEffect, useId, useState } from "react";
 import type { ComponentPropsWithRef, SelectHTMLAttributes, ReactNode } from "react";
 import { useMediaQuery } from "@/lib/use-media-query";
 import { Listbox } from "@/components/ui/Listbox";
@@ -86,6 +86,103 @@ export function DateInput({ value, onChange, className = "", ...props }: DatePic
     <input type="date" className={classes} value={value} onChange={(e) => onChange(e.target.value)} {...props} />
   ) : (
     <DatePicker className={classes} value={value} onChange={onChange} {...props} />
+  );
+}
+
+const MONTHS = ["janvier", "février", "mars", "avril", "mai", "juin", "juillet", "août", "septembre", "octobre", "novembre", "décembre"];
+
+/**
+ * Mois et année (valeur « AAAA-MM ») : deux listes, mois puis année, au design de l'ERP (Select : Listbox à la souris,
+ * liste native au téléphone). Remplace le champ mois natif, réduit à un champ texte par Firefox et Safari de bureau.
+ * La valeur n'est émise qu'une fois les deux choisis ; « » tant qu'il en manque un.
+ */
+export function MonthField({
+  label,
+  hint,
+  error,
+  value,
+  onChange,
+  minYear = 1996,
+  maxYear = new Date().getFullYear(),
+  className = "",
+}: {
+  label: string;
+  hint?: string;
+  error?: string;
+  value: string;
+  onChange: (value: string) => void;
+  minYear?: number;
+  maxYear?: number;
+  className?: string;
+}) {
+  const id = useId();
+  const noteId = hint || error ? `${id}-note` : undefined;
+  const parsed = /^(d{4})-(d{2})$/.exec(value);
+  const [year, setYear] = useState(parsed?.[1] ?? "");
+  const [month, setMonth] = useState(parsed?.[2] ?? "");
+  // Valeur changée de l'extérieur (fiche rechargée) : les deux listes suivent.
+  useEffect(() => {
+    const m = /^(d{4})-(d{2})$/.exec(value);
+    if (m) {
+      setYear(m[1]!);
+      setMonth(m[2]!);
+    }
+  }, [value]);
+  const emit = (y: string, m: string) => onChange(y && m ? `${y}-${m}` : "");
+  const years = Array.from({ length: Math.max(0, maxYear - minYear + 1) }, (_, i) => String(maxYear - i));
+  const describe = { "aria-describedby": noteId, ...(error ? { "aria-invalid": true } : {}) };
+  return (
+    <fieldset className={`min-w-0 space-y-1.5 ${className}`}>
+      <legend className="mb-1.5 text-sm font-medium text-[var(--text)]">{label}</legend>
+      <div className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,9rem),1fr))] gap-2">
+        <label className="block min-w-0">
+          <span className="sr-only">{`Mois (${label})`}</span>
+          <Select
+            value={month}
+            {...describe}
+            onChange={(e) => {
+              setMonth(e.target.value);
+              emit(year, e.target.value);
+            }}
+          >
+            <option value="">Mois</option>
+            {MONTHS.map((name, i) => (
+              <option key={name} value={String(i + 1).padStart(2, "0")}>
+                {name}
+              </option>
+            ))}
+          </Select>
+        </label>
+        <label className="block min-w-0">
+          <span className="sr-only">{`Année (${label})`}</span>
+          <Select
+            value={year}
+            {...describe}
+            onChange={(e) => {
+              setYear(e.target.value);
+              emit(e.target.value, month);
+            }}
+          >
+            <option value="">Année</option>
+            {years.map((y) => (
+              <option key={y} value={y}>
+                {y}
+              </option>
+            ))}
+          </Select>
+        </label>
+      </div>
+      {hint && !error ? (
+        <span id={noteId} className="block text-xs text-[var(--muted)]">
+          {hint}
+        </span>
+      ) : null}
+      {error ? (
+        <span id={noteId} className="block text-sm text-[var(--danger)]">
+          {error}
+        </span>
+      ) : null}
+    </fieldset>
   );
 }
 

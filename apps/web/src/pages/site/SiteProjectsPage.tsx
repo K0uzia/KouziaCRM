@@ -4,14 +4,16 @@ import { api } from "@/lib/api";
 import { Combobox } from "@/components/ui/Combobox";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { faArrowsUpDown, faCheck, faPlus } from "@fortawesome/free-solid-svg-icons";
+import { faArrowUpRightFromSquare, faArrowsUpDown, faCheck, faEye, faPlus } from "@fortawesome/free-solid-svg-icons";
 import { Card, PageHeader } from "@/components/ui/Card";
-import { Button, ButtonLink } from "@/components/ui/Button";
+import { Button, ButtonLink, buttonClass } from "@/components/ui/Button";
 import { EditorFooter, EditorLayout, useItemEditor } from "./editor";
 import { reorderVisible, saveIds, SortableList } from "./sortable";
+import { applyProposals, proposePairAlt, type MediaNames } from "@/lib/site-proposals";
+import { CaptureGallery, ProposedInput, captureKey, type CaptureForm } from "./captures";
 import { ProjectCardPreview } from "./preview";
 import { DataTable, type DataColumn } from "@/components/ui/DataTable";
-import { DateInput, Field, Input, Select, Textarea } from "@/components/ui/Field";
+import { DateInput, Field, Input, MonthField, Select, Textarea } from "@/components/ui/Field";
 import { Segmented } from "@/components/ui/Segmented";
 import { StatStrip } from "@/components/ui/StatStrip";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
@@ -179,7 +181,7 @@ const emptyForm = {
   approach: "",
   choices: "",
   result: "",
-  captures: [] as { image: string | null; alt: string; caption: string; vue: "bureau" | "mobile" }[],
+  captures: [] as CaptureForm[],
   links: [] as { label: string; url: string }[],
   avantApres: [] as PairForm[],
   // Client et accord écrit
@@ -192,8 +194,8 @@ const emptyForm = {
 type AltMode = "auto" | "custom" | "decorative";
 type PairForm = {
   vue: BeforeAfterPair["vue"];
-  avant: { image: string | null; alt: string; date: string; source: string };
-  apres: { image: string | null; alt: string };
+  avant: { image: string | null; alt: string; date: string; source: string; altAuto?: boolean | null };
+  apres: { image: string | null; alt: string; altAuto?: boolean | null };
 };
 type ProjectForm = typeof emptyForm;
 
@@ -417,7 +419,7 @@ export function SiteProjectPage() {
       approach: p.approachText ?? "",
       choices: p.choicesText ?? "",
       result: p.resultText ?? "",
-      captures: p.captures.map((c) => ({ image: c.image, alt: c.alt, caption: c.caption ?? "", vue: c.vue ?? "bureau" })),
+      captures: p.captures.map((c) => ({ key: captureKey(), image: c.image, alt: c.alt, caption: c.caption ?? "", vue: c.vue ?? "bureau" })),
       links: p.links,
       avantApres: (p.avantApres ?? []).map((x) => ({
         vue: x.vue,
@@ -444,22 +446,73 @@ export function SiteProjectPage() {
       .then((list) => setClients([...list].sort((a, b) => a.displayName.localeCompare(b.displayName, "fr"))))
       .catch(() => toast.error("Liste des clients indisponible"));
   }, []);
-  // Dimensions des captures d'avant / après (médiathèque) : contrôle du ratio dès le choix, relu quand une image inconnue
-  // apparaît (envoi d'une nouvelle image depuis le champ).
+  // Médiathèque : dimensions des captures d'avant / après (contrôle du ratio dès le choix) et noms lisibles des images
+  // (textes proposés). Lue à l'ouverture, relue quand une image inconnue apparaît (envoi d'une nouvelle image depuis un champ).
   const [sizes, setSizes] = useState<Record<string, { width: number; height: number }>>({});
-  const pairShas = form.avantApres
-    .flatMap((x) => [sha12Of(x.avant.image), sha12Of(x.apres.image)])
+  const [names, setNames] = useState<MediaNames | null>(null);
+  const shas = [...form.captures.map((c) => c.image), ...form.avantApres.flatMap((x) => [x.avant.image, x.apres.image])]
+    .map(sha12Of)
     .filter((s): s is string => Boolean(s))
     .join(",");
   useEffect(() => {
-    if (!pairShas || pairShas.split(",").every((s) => sizes[s])) return;
+    if (names && shas.split(",").filter(Boolean).every((s) => sizes[s])) return;
+    // Réponse d'une lecture dépassée (lancée avant le dernier changement d'images) : ignorée, elle écraserait la liste à jour.
+    let stale = false;
     api<LibraryMedia[]>("/api/site/media")
-      .then((list) => setSizes(Object.fromEntries(list.map((m) => [m.sha12, { width: m.width, height: m.height }]))))
-      .catch(() => toast.error("Médiathèque indisponible : ratio des captures d'avant / après non vérifié"));
-    // sizes exclu : relire seulement quand les images choisies changent.
+      .then((list) => {
+        if (stale) return;
+        setSizes(Object.fromEntries(list.map((m) => [m.sha12, { width: m.width, height: m.height }])));
+        setNames(Object.fromEntries(list.map((m) => [m.sha12, { label: m.label, originalName: m.originalName }])));
+      })
+      .catch(() => {
+        if (stale) return;
+        setNames((current) => current ?? {});
+        toast.error("Médiathèque indisponible : ratio des captures d'avant / après non vérifié, textes proposés sans le nom des images");
+      });
+    return () => {
+      stale = true;
+    };
+    // sizes et names exclus : relire seulement quand les images choisies changent.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pairShas]);
+  }, [shas]);
+  // Textes proposés (alt, légende) : appliqués une fois la médiathèque lue, puis à chaque changement de contexte.
+  useEffect(() => {
+    if (names) setForm((f) => applyProposals(f, names));
+  }, [form, names, setForm]);
   const slugLocked = Boolean(project?.publishedAt);
+  // Page projet telle que publiée : lien seulement si la dernière publication l'a mise en ligne.
+  const [pageUrl, setPageUrl] = useState<string | null>(null);
+  useEffect(() => {
+    if (!project?.id) return;
+    let stale = false;
+    api<{ url: string | null }>(`${BASE}/${project.id}/page-online`)
+      .then((r) => !stale && setPageUrl(r.url))
+      .catch(() => !stale && setPageUrl(null));
+    return () => {
+      stale = true;
+    };
+  }, [project?.id, project?.publishedAt]);
+
+  // Aperçu du brouillon (page /apercu du site) : onglet ouvert au clic (sinon bloqué après l'attente), puis dirigé
+  // vers le lien signé une fois le brouillon enregistré ; sans lien vers cet onglet (opener coupé).
+  const [previewing, setPreviewing] = useState(false);
+  async function openDraftPreview() {
+    if (!project) return;
+    const tab = window.open("about:blank", "_blank");
+    if (tab) tab.opener = null;
+    setPreviewing(true);
+    try {
+      await auto.flush();
+      const { url } = await api<{ url: string }>(`${BASE}/${project.id}/preview`, { method: "POST" });
+      if (tab) tab.location.href = url;
+      else window.location.href = url;
+    } catch (e) {
+      tab?.close();
+      toast.error(e instanceof Error ? e.message : "Aperçu impossible");
+    } finally {
+      setPreviewing(false);
+    }
+  }
   const countErrors = ed.countErrors;
 
   const contenu = (
@@ -598,8 +651,6 @@ export function SiteProjectPage() {
     ["choices", "Les choix et pourquoi", "Pourquoi le site ou le logiciel est ainsi."],
     ["result", "Le résultat", "Ce qui a changé, sans chiffre invérifiable."],
   ] as const;
-  const setCapture = (i: number, patch: Partial<ProjectForm["captures"][number]>) =>
-    setForm((f) => ({ ...f, captures: f.captures.map((c, j) => (j === i ? { ...c, ...patch } : c)) }));
   const setLink = (i: number, patch: Partial<ProjectForm["links"][number]>) =>
     setForm((f) => ({ ...f, links: f.links.map((l, j) => (j === i ? { ...l, ...patch } : l)) }));
   const setPair = (i: number, side: "avant" | "apres" | null, patch: Record<string, unknown>) =>
@@ -614,8 +665,8 @@ export function SiteProjectPage() {
         ...f.avantApres,
         {
           vue: f.avantApres.some((x) => x.vue === "bureau") ? "mobile" : "bureau",
-          avant: { image: null, alt: "", date: "", source: "" },
-          apres: { image: null, alt: "" },
+          avant: { image: null, alt: "", date: "", source: "", altAuto: true },
+          apres: { image: null, alt: "", altAuto: true },
         },
       ],
     }));
@@ -655,55 +706,13 @@ export function SiteProjectPage() {
           <Textarea rows={5} maxLength={1500} value={form[key]} onChange={(e) => set(key, e.target.value)} />
         </Field>
       ))}
-      <fieldset className="space-y-3 rounded-[var(--radius)] border border-[var(--border)] p-4" aria-describedby={errors.captures ? "captures-err" : undefined}>
-        <legend className="px-1 text-sm font-medium">Captures (6 au plus)</legend>
-        {form.captures.map((c, i) => (
-          <div key={i} className="space-y-3 border-t border-[var(--border)] pt-3 first:border-t-0 first:pt-0">
-            <div className="space-y-1.5">
-              <p id={`capture-vue-${i}`} className="text-sm font-medium">
-                Vue de la capture {i + 1}
-              </p>
-              {/* Changer de vue retire l'image : une capture d'ordinateur et une de téléphone ne sont pas du même type. */}
-              <Segmented
-                label={`Vue de la capture ${i + 1}`}
-                options={[
-                  { id: "bureau", label: "Ordinateur" },
-                  { id: "mobile", label: "Téléphone" },
-                ]}
-                value={c.vue}
-                onChange={(vue) => setCapture(i, vue === c.vue ? {} : { vue, image: null })}
-              />
-            </div>
-            <ImageField
-              label={`Capture ${i + 1}`}
-              kind={c.vue === "mobile" ? "MOBILE" : "CAPTURE"}
-              allowRepoPath={false}
-              value={c.image}
-              onChange={(image) => setCapture(i, { image })}
-            />
-            <Field label={`Texte alternatif de la capture ${i + 1}`} hint={`Ce que montre la capture. ${c.alt.length} / 200`}>
-              <Input maxLength={200} value={c.alt} onChange={(e) => setCapture(i, { alt: e.target.value })} />
-            </Field>
-            <Field label={`Légende de la capture ${i + 1} (facultatif)`} hint={`${c.caption.length} / 150`}>
-              <Input maxLength={150} value={c.caption} onChange={(e) => setCapture(i, { caption: e.target.value })} />
-            </Field>
-            <Button variant="danger-ghost" onClick={() => setForm((f) => ({ ...f, captures: f.captures.filter((_, j) => j !== i) }))}>
-              Retirer la capture {i + 1}
-            </Button>
-          </div>
-        ))}
-        {errors.captures ? (
-          <p id="captures-err" className="text-sm text-[var(--danger)]">
-            {errors.captures}
-          </p>
-        ) : null}
-        {form.captures.length < 6 ? (
-          <Button variant="secondary" onClick={() => setForm((f) => ({ ...f, captures: [...f.captures, { image: null, alt: "", caption: "", vue: "bureau" }] }))}>
-            <FontAwesomeIcon icon={faPlus} className="h-3.5 w-3.5" aria-hidden />
-            Ajouter une capture
-          </Button>
-        ) : null}
-      </fieldset>
+      <CaptureGallery
+        captures={form.captures}
+        setCaptures={(update) => setForm((f) => ({ ...f, captures: update(f.captures) }))}
+        project={form}
+        names={names}
+        error={errors.captures}
+      />
       <fieldset className="space-y-3 rounded-[var(--radius)] border border-[var(--border)] p-4" aria-describedby={`avant-apres-aide${errors.avantApres ? " avant-apres-err" : ""}`}>
         <legend className="px-1 text-sm font-medium">Avant / après (facultatif)</legend>
         <p id="avant-apres-aide" className="text-xs text-[var(--muted)]">
@@ -728,12 +737,17 @@ export function SiteProjectPage() {
               <div className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,20rem),1fr))] gap-6">
                 <div className="min-w-0 space-y-3">
                   <ImageField label={`Capture d'avant (${n})`} kind={kind} allowRepoPath={false} value={x.avant.image} onChange={(image) => setPair(i, "avant", { image })} />
-                  <Field label={`Texte alternatif de la capture d'avant (${n})`} hint={`Ce que montre la capture d'avant. ${x.avant.alt.length} / 200`}>
-                    <Input maxLength={200} value={x.avant.alt} onChange={(e) => setPair(i, "avant", { alt: e.target.value })} />
-                  </Field>
-                  <Field label={`Date de l'archive (${n})`} hint="Mois de la capture d'avant.">
-                    <Input type="month" value={x.avant.date} onChange={(e) => setPair(i, "avant", { date: e.target.value })} />
-                  </Field>
+                  <ProposedInput
+                    label={`Texte alternatif de la capture d'avant (${n})`}
+                    hint="Ce que montre la capture d'avant."
+                    max={200}
+                    value={x.avant.alt}
+                    auto={x.avant.altAuto}
+                    proposal={proposePairAlt(form, x, "avant")}
+                    onChange={(alt) => setPair(i, "avant", { alt, altAuto: false })}
+                    onReset={() => setPair(i, "avant", { altAuto: true })}
+                  />
+                  <MonthField label={`Date de l'archive (${n})`} hint="Mois de la capture d'avant." value={x.avant.date} onChange={(date) => setPair(i, "avant", { date })} />
                   <Field label={`Source de l'archive (${n}, facultatif)`} hint="Adresse web.archive.org de la capture, affichée en petit.">
                     <Input
                       type="url"
@@ -754,9 +768,16 @@ export function SiteProjectPage() {
                     onChange={(image) => setPair(i, "apres", { image })}
                     error={ratio ?? undefined}
                   />
-                  <Field label={`Texte alternatif de la capture d'après (${n})`} hint={`Ce que montre la capture d'après. ${x.apres.alt.length} / 200`}>
-                    <Input maxLength={200} value={x.apres.alt} onChange={(e) => setPair(i, "apres", { alt: e.target.value })} />
-                  </Field>
+                  <ProposedInput
+                    label={`Texte alternatif de la capture d'après (${n})`}
+                    hint="Ce que montre la capture d'après."
+                    max={200}
+                    value={x.apres.alt}
+                    auto={x.apres.altAuto}
+                    proposal={proposePairAlt(form, x, "apres")}
+                    onChange={(alt) => setPair(i, "apres", { alt, altAuto: false })}
+                    onReset={() => setPair(i, "apres", { altAuto: true })}
+                  />
                 </div>
               </div>
               <Button variant="danger-ghost" onClick={() => setForm((f) => ({ ...f, avantApres: f.avantApres.filter((_, j) => j !== i) }))}>
@@ -874,11 +895,39 @@ export function SiteProjectPage() {
         back={{ to: "/site/realisations", label: "Réalisations" }}
         title={creating ? "Nouvelle réalisation" : project?.name ?? "Réalisation"}
         subtitle={project ? <StatusBadge row={project} /> : undefined}
+        actions={
+          creating ? undefined : (
+            <div className="flex flex-wrap items-center gap-2">
+              <Button variant="secondary" disabled={!project || previewing} onClick={openDraftPreview}>
+                <FontAwesomeIcon icon={faEye} className="h-3.5 w-3.5" aria-hidden />
+                {previewing ? "Préparation…" : "Aperçu du brouillon"}
+                <span className="sr-only"> (nouvel onglet, lien valable 15 minutes)</span>
+              </Button>
+              {pageUrl ? (
+                <a className={buttonClass("secondary")} href={pageUrl} target="_blank" rel="noopener noreferrer">
+                  <FontAwesomeIcon icon={faArrowUpRightFromSquare} className="h-3.5 w-3.5" aria-hidden />
+                  Voir la page sur le site<span className="sr-only"> (nouvel onglet)</span>
+                </a>
+              ) : (
+                <>
+                  <Button variant="secondary" disabled aria-describedby="page-hors-ligne">
+                    <FontAwesomeIcon icon={faArrowUpRightFromSquare} className="h-3.5 w-3.5" aria-hidden />
+                    Voir la page sur le site
+                  </Button>
+                  <span id="page-hors-ligne" className="text-xs text-[var(--muted)]">
+                    Pas encore en ligne
+                  </span>
+                </>
+              )}
+            </div>
+          )
+        }
       />
       <LoadState loading={ed.loading} error={ed.loadError} onRetry={() => void ed.load()}>
-        <form onSubmit={ed.onSubmit} noValidate>
+        <form onSubmit={ed.onSubmit} onBlur={ed.onBlur} noValidate>
           <EditorLayout
             label="Sections de la réalisation"
+            previewTitle="Carte de la liste"
             tabs={[
               {
                 id: "contenu",
