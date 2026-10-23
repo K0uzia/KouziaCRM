@@ -17,6 +17,7 @@
 #   kouziactl update --skip-backup    # sans backup, donc sans retour arrière possible
 #   kouziactl update --force-deps     # force npm ci
 #   kouziactl update --force-web      # force rebuild SPA
+#   kouziactl update --no-system      # sans la mise à jour des paquets Alpine (apk upgrade)
 #   kouziactl rollback [--yes]        # code et données d'avant la dernière mise à jour
 
 set -euo pipefail
@@ -34,6 +35,7 @@ FORCE_ALL=0
 GIT_EXPLICIT=0
 SKIP_POST_UPDATE=0
 RESUMED=0
+NO_SYSTEM=0
 ROLLBACK=0
 YES=0
 
@@ -49,8 +51,9 @@ while [[ $# -gt 0 ]]; do
     --rollback) ROLLBACK=1; shift ;;
     --yes) YES=1; shift ;;
     --resumed) RESUMED=1; shift ;;
+    --no-system) NO_SYSTEM=1; shift ;;
     -h|--help)
-      echo "Usage: update.sh [--git|--no-git] [--skip-backup] [--skip-config] [--force-deps] [--force-web] [--force]"
+      echo "Usage: update.sh [--git|--no-git] [--skip-backup] [--skip-config] [--force-deps] [--force-web] [--force] [--no-system]"
       echo "       update.sh --rollback [--yes]   (kouziactl rollback)"
       echo "  Défaut : git pull si $KOUZIA_APP_DIR/.git existe."
       echo "  Après update : propose les nouvelles configs (Tailscale, etc.) si encore vides."
@@ -188,8 +191,6 @@ fi
 if [[ "$RESUMED" -eq 0 ]]; then
   # Avant le backup, l'arrêt, le git pull et npm ci : rien ne change si Node est trop ancien.
   require_node_min
-  # Correctif de sécurité de Node (CVE-2026-111497) : tenté ici, jamais bloquant.
-  node_security_upgrade
   disk_guard "$KOUZIA_APP_DIR" 400
   [[ -f "${KOUZIA_APP_DIR}/package.json" ]] || die "App introuvable dans $KOUZIA_APP_DIR (lancer install.sh d'abord)."
 
@@ -276,6 +277,7 @@ if [[ "$RESUMED" -eq 0 ]]; then
     [[ "$FORCE_DEPS" -eq 1 ]] && FWD+=(--force-deps)
     [[ "$FORCE_WEB" -eq 1 ]] && FWD+=(--force-web)
     [[ "$SKIP_POST_UPDATE" -eq 1 ]] && FWD+=(--skip-config)
+    [[ "$NO_SYSTEM" -eq 1 ]] && FWD+=(--no-system)
     trap - EXIT
     unset KOUZIA_UPDATE_REEXEC
     exec bash "${SCRIPT_DIR}/update.sh" "${FWD[@]}"
@@ -284,6 +286,14 @@ if [[ "$RESUMED" -eq 0 ]]; then
 fi
 
 ensure_app_dirs
+
+# --- 4 bis. Paquets Alpine (correctifs de sécurité de la branche installée), pile arrêtée et sauvegarde faite ---
+if [[ "$NO_SYSTEM" -eq 0 ]]; then
+  system_upgrade
+else
+  warn "--no-system : paquets Alpine non mis à jour."
+fi
+node_security_report
 
 # --- 5. Détection changements ---
 log "Calcul des empreintes…"

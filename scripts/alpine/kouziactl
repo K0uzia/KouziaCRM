@@ -98,6 +98,7 @@ Mise à jour :
   update --no-git   sans git pull (code déjà sur le CT)
   update --force    force npm ci + rebuild SPA
   update --skip-config  sans assistant post-update
+  update --no-system    sans la mise à jour des paquets Alpine (apk upgrade, faite par défaut)
   rollback [--yes]  code et données d'avant la dernière mise à jour (backup pré-update)
   new-config        proposer les nouveautés (Tailscale, Google Agenda, etc.) sans update
 

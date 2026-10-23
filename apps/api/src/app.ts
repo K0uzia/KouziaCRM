@@ -45,6 +45,7 @@ import { ensureDefaultLegalClauses } from "@/lib/company/legal-clauses.js";
 import { withOfflineOrigin } from "@/lib/spa-index.js";
 import { API_CONTRACT, BUILD_HEADER, CONTRACT_HEADER } from "@/lib/api-contract.js";
 import { intlDataStatus } from "@/lib/format-fr.js";
+import { installNoBrotliFetch } from "@/lib/http/no-brotli-fetch.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -73,6 +74,8 @@ export type BuildAppOptions = {
 };
 
 export async function buildApp(opts: BuildAppOptions = {}): Promise<FastifyInstance> {
+  // Réponses des services extérieurs jamais demandées en Brotli (CVE-2026-111497).
+  installNoBrotliFetch();
   const trustedProxies = getTrustedProxies();
   const app = Fastify({
     logger: opts.silent
