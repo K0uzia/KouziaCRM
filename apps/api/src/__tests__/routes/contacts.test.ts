@@ -53,8 +53,12 @@ describe("contact principal synchronisé avec la fiche", () => {
     expect(rest).toHaveLength(0);
     expect(primary).toMatchObject({ firstName: "Lou", lastName: "Martin", role: null, email: "lou@example.test", phone: "06 12 34 56 78", isPrimary: true });
     const row = await prisma.clientContact.findFirstOrThrow({ where: { clientId: client.id } });
-    expect(row.emailEncrypted).not.toContain("example");
-    expect(row.phoneEncrypted).not.toContain("06");
+    // Valeur en clair absente et déchiffrement exact : une sous-chaîne courte (« 06 ») apparaît au hasard dans le
+    // base64 d'environ 1 chiffrement sur 80, d'où l'échec intermittent constaté le 23/10/2026.
+    expect(row.emailEncrypted).not.toContain("lou@example.test");
+    expect(row.phoneEncrypted).not.toContain("06 12 34 56 78");
+    expect(decryptOptional(row.emailEncrypted)).toBe("lou@example.test");
+    expect(decryptOptional(row.phoneEncrypted)).toBe("06 12 34 56 78");
     expect(row.emailHash).toBe(computeEmailHash("lou@example.test"));
   });
 
