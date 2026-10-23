@@ -1,5 +1,6 @@
 import { EmailDirection, QuoteStatus } from "@prisma/client";
 import { prisma } from "@/lib/prisma.js";
+import { REVIEW_FAMILIES, type ReviewFamily } from "@/lib/email/review.js";
 import { formatEUR } from "@/lib/money.js";
 
 export type NotificationKind =
@@ -12,7 +13,8 @@ export type NotificationKind =
   | "client_onboarded"
   | "google_reauth"
   | "testimonial"
-  | "software_request";
+  | "software_request"
+  | "email_review";
 
 export type NotificationItem = {
   /** Identifiant stable (type + id source) : sert à dédoublonner côté interface. */
@@ -40,7 +42,7 @@ function eur(cents: number): string {
 export async function listNotifications(since: Date): Promise<NotificationItem[]> {
   const recentMail = new Date(Date.now() - MAIL_RECENT_MS);
 
-  const [mails, accepted, rejected, payments, depositsDue, stripeSubs, onboarded, googleReauth, testimonials, withdrawn, softwareRequests] = await Promise.all([
+  const [mails, accepted, rejected, payments, depositsDue, stripeSubs, onboarded, googleReauth, testimonials, withdrawn, softwareRequests, emailReviews] = await Promise.all([
     prisma.emailMessage.findMany({
       where: {
         direction: EmailDirection.INBOUND,
@@ -156,6 +158,13 @@ export async function listNotifications(since: Date): Promise<NotificationItem[]
       take: MAX_ITEMS,
       select: { id: true, software: true, companyName: true, createdAt: true },
     }),
+    // E-mail automatique au client en attente de validation (E6) : aucun contenu ni destinataire dans la notification.
+    prisma.emailOutbox.findMany({
+      where: { status: "REVIEW", createdAt: { gt: since } },
+      orderBy: { createdAt: "desc" },
+      take: MAX_ITEMS,
+      select: { id: true, reviewFamily: true, clientWaiting: true, createdAt: true },
+    }),
   ]);
 
   const items: NotificationItem[] = [
@@ -259,6 +268,14 @@ export async function listNotifications(since: Date): Promise<NotificationItem[]
       body: "Nouvelle demande d'utilisation depuis le site.",
       href: `/demandes-logiciel/${r.id}`,
       at: r.createdAt.toISOString(),
+    })),
+    ...emailReviews.map((e) => ({
+      id: `email_review:${e.id}`,
+      kind: "email_review" as const,
+      title: e.clientWaiting ? "E-mail à valider : le client attend" : "E-mail à valider",
+      body: `${(e.reviewFamily && REVIEW_FAMILIES[e.reviewFamily as ReviewFamily]) || "E-mail automatique"} : à relire avant l'envoi.`,
+      href: `/emails-a-valider?id=${e.id}`,
+      at: e.createdAt.toISOString(),
     })),
   ];
 

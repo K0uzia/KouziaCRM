@@ -25,6 +25,7 @@ import { useReadOnly } from "@/lib/offline/read-only";
 import { offlineEnabled } from "@/lib/offline/config";
 import { getQueueSnapshot, itemsLabel, replayQueue, useOfflineQueue } from "@/lib/offline/queue";
 import { usePendingSoftwareRequests } from "@/lib/software-requests";
+import { usePendingEmailReviews } from "@/lib/email-review";
 import { isOnline } from "@/lib/network";
 import { apiInflight } from "@/lib/api";
 import { startReconnectRefresh } from "@/lib/reconnect";
@@ -151,12 +152,14 @@ function SideLink({
   unread,
   queued = 0,
   requests = 0,
+  reviews = 0,
 }: {
   item: NavItem;
   active: boolean;
   unread: number;
   queued?: number;
   requests?: number;
+  reviews?: number;
 }) {
   return (
     <NavLink
@@ -181,6 +184,7 @@ function SideLink({
       {item.badge === "unread" ? <UnreadBadge count={unread} /> : null}
       {item.badge === "queue" ? <UnreadBadge count={queued} /> : null}
       {item.badge === "requests" ? <UnreadBadge count={requests} /> : null}
+      {item.badge === "review" ? <UnreadBadge count={reviews} /> : null}
     </NavLink>
   );
 }
@@ -201,6 +205,7 @@ function Sidebar({
   const sections = filterSections(space.sections, features, offlineEnabled());
   const { items: queued } = useOfflineQueue();
   const requests = usePendingSoftwareRequests();
+  const reviews = usePendingEmailReviews();
   return (
     <div className="flex h-full min-h-0 flex-col">
       <Link to="/" className="flex h-[var(--topbar-h)] shrink-0 items-center gap-2.5 px-5" aria-label="Kouzia ERP, tableau de bord">
@@ -221,7 +226,7 @@ function Sidebar({
             <ul className="space-y-0.5">
               {section.items.map((item) => (
                 <li key={item.id}>
-                  <SideLink item={item} active={item.match(pathname)} unread={unread} queued={queued.length} requests={requests} />
+                  <SideLink item={item} active={item.match(pathname)} unread={unread} queued={queued.length} requests={requests} reviews={reviews} />
                 </li>
               ))}
             </ul>

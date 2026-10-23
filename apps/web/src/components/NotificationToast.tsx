@@ -8,6 +8,7 @@ import {
   faEnvelope,
   faFileInvoiceDollar,
   faKey,
+  faEnvelopeCircleCheck,
   faRotate,
   faUserPlus,
   faWallet,
@@ -27,6 +28,7 @@ export const NOTIFICATION_KIND_STYLE: Record<NotificationKind, { icon: IconDefin
   google_reauth: { icon: faCalendarXmark, tone: "bg-[var(--warning-soft)] text-[var(--warning)]" },
   testimonial: { icon: faCommentDots, tone: "bg-[var(--info-soft)] text-[var(--info)]" },
   software_request: { icon: faKey, tone: "bg-[var(--success-soft)] text-[var(--success)]" },
+  email_review: { icon: faEnvelopeCircleCheck, tone: "bg-[var(--warning-soft)] text-[var(--warning)]" },
 };
 
 /**
