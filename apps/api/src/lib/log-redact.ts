@@ -4,7 +4,7 @@ import type { FastifyRequest } from "fastify";
 // d'abonnement, carte) et dans la requête (?token= de l'invitation, ?code= et ?state= du retour OAuth
 // Google). Ils sont masqués avant écriture : un journal copié ne donne accès à rien.
 const TOKEN_PATH = /^(\/api\/public\/(?:card|documents|manage|pay|receipts|subscribe))\/[^/?#]+/;
-const SECRET_QUERY = new Set(["token", "code", "state", "accesscode", "reference", "key", "jti"]);
+const SECRET_QUERY = new Set(["token", "code", "state", "accesscode", "reference", "key", "jti", "jeton"]);
 
 export function redactUrl(url: string | undefined): string {
   if (!url) return "";

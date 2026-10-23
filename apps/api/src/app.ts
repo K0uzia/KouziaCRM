@@ -34,6 +34,7 @@ import { webhooksSiteRoutes } from "@/routes/webhooks-site.js";
 import { siteRoutes } from "@/routes/site.js";
 import { softwareRequestsRoutes } from "@/routes/software-requests.js";
 import { siteEditorRoutes } from "@/routes/site-editor.js";
+import { previewWebOrigin, sitePreviewRoutes } from "@/routes/site-preview.js";
 import { projectsRoutes } from "@/routes/projects.js";
 import { notificationsRoutes } from "@/routes/notifications.js";
 import { pushRoutes } from "@/routes/push.js";
@@ -160,8 +161,8 @@ export async function buildApp(opts: BuildAppOptions = {}): Promise<FastifyInsta
   });
 
   const origins = getAllowedOrigins();
-  await app.register(cors, {
-    origin: (origin, cb) => {
+  const appCors = {
+    origin: (origin: string | undefined, cb: (err: Error | null, allow: boolean) => void) => {
       if (!origin || origins.includes(origin)) {
         cb(null, true);
         return;
@@ -171,6 +172,13 @@ export async function buildApp(opts: BuildAppOptions = {}): Promise<FastifyInsta
     credentials: true,
     // Défaut de @fastify/cors : GET, HEAD, POST. PUT et DELETE servent au témoignage depuis /suivi (kouzia.com).
     methods: ["GET", "HEAD", "POST", "PUT", "DELETE"],
+  };
+  // Aperçu du brouillon (lot 5b, contrat du site) : page /apercu du site seulement (et le site local en développement),
+  // GET, jeton en en-tête Authorization (préflight), sans cookie.
+  const previewOrigins = [previewWebOrigin(), "http://localhost:4321", "http://127.0.0.1:4321"].filter((o): o is string => Boolean(o));
+  const previewCors = { origin: previewOrigins, credentials: false, methods: ["GET"], allowedHeaders: ["authorization"] };
+  await app.register(cors, {
+    delegator: (request, cb) => cb(null, request.url.startsWith("/api/public/preview/") ? previewCors : appCors),
   });
 
   await app.register(cookie, {
@@ -234,6 +242,7 @@ export async function buildApp(opts: BuildAppOptions = {}): Promise<FastifyInsta
   await app.register(siteRoutes);
   await app.register(softwareRequestsRoutes);
   await app.register(siteEditorRoutes);
+  await app.register(sitePreviewRoutes);
 
   // pendingMigrations > 0 : base en retard sur le code (contrôle d'après déploiement).
   // Par le tunnel : état seulement (l'avance des migrations ne regarde que le LAN, kouziactl compris).

@@ -4,7 +4,7 @@ import { api } from "@/lib/api";
 import { Combobox } from "@/components/ui/Combobox";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { faArrowUpRightFromSquare, faArrowsUpDown, faCheck, faPlus } from "@fortawesome/free-solid-svg-icons";
+import { faArrowUpRightFromSquare, faArrowsUpDown, faCheck, faEye, faPlus } from "@fortawesome/free-solid-svg-icons";
 import { Card, PageHeader } from "@/components/ui/Card";
 import { Button, ButtonLink, buttonClass } from "@/components/ui/Button";
 import { EditorFooter, EditorLayout, useItemEditor } from "./editor";
@@ -492,6 +492,27 @@ export function SiteProjectPage() {
       stale = true;
     };
   }, [project?.id, project?.publishedAt]);
+
+  // Aperçu du brouillon (page /apercu du site) : onglet ouvert au clic (sinon bloqué après l'attente), puis dirigé
+  // vers le lien signé une fois le brouillon enregistré ; sans lien vers cet onglet (opener coupé).
+  const [previewing, setPreviewing] = useState(false);
+  async function openDraftPreview() {
+    if (!project) return;
+    const tab = window.open("about:blank", "_blank");
+    if (tab) tab.opener = null;
+    setPreviewing(true);
+    try {
+      await auto.flush();
+      const { url } = await api<{ url: string }>(`${BASE}/${project.id}/preview`, { method: "POST" });
+      if (tab) tab.location.href = url;
+      else window.location.href = url;
+    } catch (e) {
+      tab?.close();
+      toast.error(e instanceof Error ? e.message : "Aperçu impossible");
+    } finally {
+      setPreviewing(false);
+    }
+  }
   const countErrors = ed.countErrors;
 
   const contenu = (
@@ -875,20 +896,29 @@ export function SiteProjectPage() {
         title={creating ? "Nouvelle réalisation" : project?.name ?? "Réalisation"}
         subtitle={project ? <StatusBadge row={project} /> : undefined}
         actions={
-          creating ? undefined : pageUrl ? (
-            <a className={buttonClass("secondary")} href={pageUrl} target="_blank" rel="noopener noreferrer">
-              <FontAwesomeIcon icon={faArrowUpRightFromSquare} className="h-3.5 w-3.5" aria-hidden />
-              Voir la page sur le site<span className="sr-only"> (nouvel onglet)</span>
-            </a>
-          ) : (
+          creating ? undefined : (
             <div className="flex flex-wrap items-center gap-2">
-              <Button variant="secondary" disabled aria-describedby="page-hors-ligne">
-                <FontAwesomeIcon icon={faArrowUpRightFromSquare} className="h-3.5 w-3.5" aria-hidden />
-                Voir la page sur le site
+              <Button variant="secondary" disabled={!project || previewing} onClick={openDraftPreview}>
+                <FontAwesomeIcon icon={faEye} className="h-3.5 w-3.5" aria-hidden />
+                {previewing ? "Préparation…" : "Aperçu du brouillon"}
+                <span className="sr-only"> (nouvel onglet, lien valable 15 minutes)</span>
               </Button>
-              <span id="page-hors-ligne" className="text-xs text-[var(--muted)]">
-                Pas encore en ligne
-              </span>
+              {pageUrl ? (
+                <a className={buttonClass("secondary")} href={pageUrl} target="_blank" rel="noopener noreferrer">
+                  <FontAwesomeIcon icon={faArrowUpRightFromSquare} className="h-3.5 w-3.5" aria-hidden />
+                  Voir la page sur le site<span className="sr-only"> (nouvel onglet)</span>
+                </a>
+              ) : (
+                <>
+                  <Button variant="secondary" disabled aria-describedby="page-hors-ligne">
+                    <FontAwesomeIcon icon={faArrowUpRightFromSquare} className="h-3.5 w-3.5" aria-hidden />
+                    Voir la page sur le site
+                  </Button>
+                  <span id="page-hors-ligne" className="text-xs text-[var(--muted)]">
+                    Pas encore en ligne
+                  </span>
+                </>
+              )}
             </div>
           )
         }
