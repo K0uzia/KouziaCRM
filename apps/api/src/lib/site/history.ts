@@ -45,6 +45,7 @@ const FIELD_LABEL: Record<string, string> = {
   image: "Capture",
   imageMobile: "Capture de téléphone",
   imageAlt: "Texte alternatif de la capture",
+  miseEnAvant: "Mise en avant sur l'accueil",
   logo: "Logo",
   logoAlt: "Texte alternatif du logo",
   emplacements: "Emplacements",

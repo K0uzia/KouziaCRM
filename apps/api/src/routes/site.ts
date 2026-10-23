@@ -84,6 +84,8 @@ const projectInput = z.strictObject({
   imageMobilePath: imagePath.nullish(),
   /** null : le site calcule le texte ; "" : capture décorative ; texte : publié tel quel. */
   imageAlt: z.union([z.literal(""), siteText.max(200)]).nullish(),
+  /** Absent : inchangé (client antérieur à la case). */
+  featuredOnHome: z.boolean().optional(),
   status,
   // Page projet (contrat du 22/10/2026) : champs vides = absents ; publiée seulement complète (detailBlocker).
   description: blankToNull(siteText.max(300)),
@@ -176,6 +178,8 @@ const faqInput = z.strictObject({
 });
 
 const idParams = z.object({ id: z.string().min(1).max(64) });
+/** Réalisations mises en avant sur l'accueil : le site refuse son build au-delà. */
+const MAX_FEATURED = 3;
 const reorderBody = z.strictObject({ ids: z.array(z.string().min(1).max(64)).min(1).max(500) });
 
 type Guarded = (request: FastifyRequest, reply: FastifyReply) => Promise<unknown>;
@@ -409,6 +413,30 @@ export const siteRoutes: FastifyPluginAsync = async (app) => {
 
   const projectInclude = { client: { select: { id: true, displayName: true } } } as const;
 
+  /**
+   * Mise en avant sur l'accueil : 3 au plus, brouillons compris (une publication ne fait jamais passer le total à 4) ;
+   * une réalisation retirée du site n'est plus mise en avant et libère sa place. Renvoie la valeur à enregistrer, ou le
+   * refus (400) avec les réalisations déjà mises en avant.
+   */
+  async function featuredValue(
+    projectId: string | null,
+    wanted: boolean | undefined,
+    status: SiteItemStatus,
+    current: boolean,
+  ): Promise<{ value: boolean } | { error: string }> {
+    const value = status === SiteItemStatus.WITHDRAWN ? false : (wanted ?? current);
+    if (!value || current) return { value };
+    const others = await prisma.siteProject.findMany({
+      where: { featuredOnHome: true, ...(projectId ? { id: { not: projectId } } : {}) },
+      orderBy: { position: "asc" },
+      select: { name: true },
+    });
+    if (others.length < MAX_FEATURED) return { value };
+    return {
+      error: `${MAX_FEATURED} réalisations au plus sur l'accueil, brouillons compris : décochez d'abord « ${others.map((o) => o.name).join(" », « ")} ».`,
+    };
+  }
+
   // « Voir la page sur le site » : la page projet telle que publiée (dernière publication arrivée dans le dépôt).
   app.get(
     "/api/site/projects/:id/page-online",
@@ -472,9 +500,15 @@ export const siteRoutes: FastifyPluginAsync = async (app) => {
       const body = projectInput.safeParse(request.body);
       if (!body.success) return invalid(reply, body.error);
       if (!(await clientExists(body.data.clientId))) return reply.code(400).send({ error: "Client introuvable" });
+      const featured = await featuredValue(null, body.data.featuredOnHome, body.data.status ?? SiteItemStatus.DRAFT, false);
+      if ("error" in featured) return reply.code(400).send({ error: featured.error });
       try {
         const row = await prisma.siteProject.create({
-          data: { ...projectData(body.data), position: nextPosition(await prisma.siteProject.aggregate({ _max: { position: true } })) },
+          data: {
+            ...projectData(body.data),
+            featuredOnHome: featured.value,
+            position: nextPosition(await prisma.siteProject.aggregate({ _max: { position: true } })),
+          },
           include: projectInclude,
         });
         return reply.code(201).send(projectOutAdmin(row));
@@ -498,8 +532,14 @@ export const siteRoutes: FastifyPluginAsync = async (app) => {
         return reply.code(409).send({ error: "Identifiant publié : il ne change plus (le code du site y fait référence)." });
       }
       if (!(await clientExists(body.data.clientId))) return reply.code(400).send({ error: "Client introuvable" });
+      const featured = await featuredValue(current.id, body.data.featuredOnHome, body.data.status ?? current.status, current.featuredOnHome);
+      if ("error" in featured) return reply.code(400).send({ error: featured.error });
       try {
-        const row = await prisma.siteProject.update({ where: { id: current.id }, data: projectData(body.data), include: projectInclude });
+        const row = await prisma.siteProject.update({
+          where: { id: current.id },
+          data: { ...projectData(body.data), featuredOnHome: featured.value },
+          include: projectInclude,
+        });
         return projectOutAdmin(row);
       } catch (e) {
         if (isUniqueViolation(e)) return reply.code(409).send({ error: "Identifiant déjà utilisé" });

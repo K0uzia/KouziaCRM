@@ -1788,6 +1788,8 @@ model SiteProject {
   imageMobilePath String?
   /// Texte alternatif de la capture publié (imageAlt). Null : calculé par le site ; "" : capture décorative
   imageAlt        String?
+  /// Mise en avant sur l'accueil du site (miseEnAvant) : 3 au plus, brouillons compris ; décochée au retrait du site.
+  featuredOnHome  Boolean         @default(false)
   createdAt       DateTime        @default(now())
   updatedAt       DateTime        @updatedAt
   publishedAt     DateTime?

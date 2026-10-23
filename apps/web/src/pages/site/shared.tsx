@@ -44,6 +44,8 @@ export type SiteProject = SiteItem & {
   imageMobilePath: string | null;
   /** null : texte calculé par le site ; "" : capture décorative. */
   imageAlt: string | null;
+  /** Mise en avant sur l'accueil du site (3 au plus). */
+  featuredOnHome: boolean;
   // Page projet (/realisations/<slug>/) et accord écrit du client.
   descriptionText: string | null;
   contextText: string | null;

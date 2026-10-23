@@ -136,7 +136,7 @@ export async function importSiteFiles(
     ...optionalTexts,
     ...realisations.realisations.map((r, position) =>
       prisma.siteProject.create({
-        data: { ...done, position, ...projectFieldsFromSite(r) },
+        data: { ...done, position, ...projectFieldsFromSite(r), featuredOnHome: r.miseEnAvant === true },
       }),
     ),
     ...faq.questions.map((q, position) =>

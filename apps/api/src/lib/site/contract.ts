@@ -71,6 +71,8 @@ export const realisationValue = z.strictObject({
   imageMobile: imagePath.optional(),
   /** Texte alternatif de la capture : absent = calculé par le site (altCapture), "" = capture décorative. */
   imageAlt: z.union([z.literal(""), siteText.max(200)]).optional(),
+  /** Mise en avant sur l'accueil : écrite seulement à true (absente sinon), 3 réalisations au plus. */
+  miseEnAvant: z.literal(true).optional(),
   /** Page projet /realisations/<id>/ (contrat du 22/10/2026), clés dans l'ordre du schéma du site. */
   detail: z
     .strictObject({
@@ -161,7 +163,10 @@ export const siteFileSchemas = {
     ),
   }),
   realisations: file({
-    realisations: z.array(realisationValue).refine(uniqueIds, "Identifiants de réalisation en double"),
+    realisations: z
+      .array(realisationValue)
+      .refine(uniqueIds, "Identifiants de réalisation en double")
+      .refine((list) => list.filter((r) => r.miseEnAvant).length <= 3, "3 réalisations au plus mises en avant sur l'accueil"),
   }),
   avis: file({ methode: avisMethodeValue.optional(), avis: z.array(avisValue) }).refine((f) => f.avis.length === 0 || Boolean(f.methode), {
     message: "Méthode de recueil et de vérification requise dès qu'un avis est publié",
