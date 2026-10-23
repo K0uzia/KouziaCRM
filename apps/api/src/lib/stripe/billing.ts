@@ -292,7 +292,9 @@ export async function syncSubscriptionFromStripe(
     price?.recurring?.interval === "year"
       ? "YEAR"
       : price?.recurring?.interval === "month"
-        ? "MONTH"
+        ? price.recurring.interval_count === 3
+          ? "QUARTER"
+          : "MONTH"
         : sub.billingInterval;
 
   // Clôturé est définitif dans l'ERP : un événement Stripe tardif ne le rouvre pas.

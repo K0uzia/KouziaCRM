@@ -13,6 +13,7 @@ import { clausesForClient, DEDICATED_CLAUSE_KINDS } from "@/lib/company/legal-cl
 import {
   describePlans,
   parsePaymentPlan,
+  parseBillingMode,
   parsePaymentPlanOffer,
   isSubscriptionOnly,
   type PlanSettings,
@@ -58,7 +59,7 @@ export async function pdfSettingsOf(): Promise<Pick<BuildPdfPayloadInput, "planS
   return { planSettings: s, cgv: { published: s.cgvPublished, url: s.cgvUrl, version: s.cgvVersion } };
 }
 
-const PLAN_TITLE = { TWO: "Paiement en 2 fois", THREE: "Paiement en 3 fois" } as const;
+const PLAN_TITLE = { ONE: "Paiement comptant", TWO: "Paiement en 2 fois", THREE: "Paiement en 3 fois" } as const;
 
 const MILESTONE_STATUS_LABEL: Record<string, string> = {
   PENDING: "En attente",
@@ -142,7 +143,7 @@ export function buildInvoicePdfPayload({
     // Devis au choix non signé : les deux échéanciers ; devis signé : la formule retenue.
     paymentPlanChoice:
       isQuote && offer === "CHOICE" && !retained && planSettings
-        ? describePlans(offer, invoice.depositBaseCents ?? invoice.totalCents, planSettings).map((p) => ({
+        ? describePlans(offer, invoice.depositBaseCents ?? invoice.totalCents, planSettings, parseBillingMode(invoice.billingMode)).map((p) => ({
             title: PLAN_TITLE[p.plan],
             milestones: p.milestones,
           }))

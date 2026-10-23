@@ -10,6 +10,8 @@ import {
 import { requireAuth } from "@/lib/auth.js";
 import { prisma } from "@/lib/prisma.js";
 import { computeLineTotals, assertSubscriptionLinesValid } from "@/lib/invoices/totals.js";
+import { BILLING_MODES, parseBillingMode } from "@/lib/quotes/payment-plans.js";
+import { assertBillingModeLines } from "@/lib/quotes/billing-mode.js";
 import { eurosToCents, formatEUR } from "@/lib/money.js";
 import {
   issueInvoice,
@@ -69,7 +71,7 @@ const lineSchema = z.object({
   unitPriceEuros: z.coerce.number(),
   isSubscription: z.boolean().optional().default(false),
   billingDay: z.coerce.number().int().min(1).max(28).optional().nullable(),
-  billingInterval: z.enum(["MONTH", "YEAR"]).optional().nullable(),
+  billingInterval: z.enum(["MONTH", "QUARTER", "YEAR"]).optional().nullable(),
   serviceId: z.string().optional().nullable(),
   // Départ de la facturation d'une ligne d'abonnement de devis (lib/subscriptions/start.ts).
   subscriptionStart: z.enum(SUBSCRIPTION_STARTS).optional().nullable(),
@@ -130,7 +132,9 @@ const createSchema = z.object({
   discountPercent: z.coerce.number().min(0).max(100).optional(),
   discountEuros: z.coerce.number().min(0).optional(),
   /** Devis : paiement en 2 fois, en 3 fois ou au choix du client (défaut : réglages). */
-  paymentPlanOffer: z.enum(["TWO", "THREE", "CHOICE"]).optional(),
+  paymentPlanOffer: z.enum(["ONE", "TWO", "THREE", "CHOICE"]).optional(),
+  /** Devis : mode de facturation de tout le document (null = règles par ligne, devis antérieurs). */
+  billingMode: z.enum(BILLING_MODES).optional().nullable(),
   ...offlineQuoteFields,
 });
 
@@ -157,7 +161,9 @@ const updateSchema = z.object({
   discountType: z.enum(["NONE", "PERCENT", "FIXED"]).optional(),
   discountPercent: z.coerce.number().min(0).max(100).optional(),
   discountEuros: z.coerce.number().min(0).optional(),
-  paymentPlanOffer: z.enum(["TWO", "THREE", "CHOICE"]).optional(),
+  paymentPlanOffer: z.enum(["ONE", "TWO", "THREE", "CHOICE"]).optional(),
+  /** Devis : mode de facturation de tout le document (null = règles par ligne, devis antérieurs). */
+  billingMode: z.enum(BILLING_MODES).optional().nullable(),
 });
 
 function discountFromBody(data: {
@@ -305,8 +311,10 @@ export const invoicesRoutes: FastifyPluginAsync = async (app) => {
 
       const discount = discountFromBody(parsed.data);
       const lineInputs = lineInputsOf(parsed.data.lines);
+      const billingMode = parsed.data.documentType === "QUOTE" ? (parsed.data.billingMode ?? null) : null;
       try {
         assertSubscriptionLinesValid(lineInputs);
+        assertBillingModeLines(billingMode, lineInputs);
       } catch (e) {
         return reply.code(400).send({ error: e instanceof Error ? e.message : "Lignes invalides" });
       }
@@ -340,16 +348,20 @@ export const invoicesRoutes: FastifyPluginAsync = async (app) => {
             ? new Date(parsed.data.validUntil)
             : null;
 
+      // Mode récurrent : frais de mise en service éventuels en une échéance à la signature.
       const paymentPlanOffer =
-        documentType === InvoiceDocumentType.QUOTE
-          ? (parsed.data.paymentPlanOffer ?? ((await getCompanySettings()).paymentChoiceDefault ? "CHOICE" : "TWO"))
-          : null;
+        documentType !== InvoiceDocumentType.QUOTE
+          ? null
+          : billingMode === "RECURRING"
+            ? "ONE"
+            : (parsed.data.paymentPlanOffer ?? ((await getCompanySettings()).paymentChoiceDefault ? "CHOICE" : "TWO"));
 
       const conflicts = clientRequestId ? await offlineConflicts(client, parsed.data) : [];
       const invoice = await prisma.invoice.create({
         data: {
           documentType,
           paymentPlanOffer,
+          billingMode,
           ...(clientRequestId ? { clientRequestId, offlineReviewReason: offlineReviewReason(conflicts) } : {}),
           quoteStatus: documentType === InvoiceDocumentType.QUOTE ? QuoteStatus.DRAFT : null,
           clientId: parsed.data.clientId,
@@ -441,6 +453,7 @@ export const invoicesRoutes: FastifyPluginAsync = async (app) => {
       validUntil: d.validUntil ? new Date(d.validUntil) : null,
       sourceQuoteId: d.documentType === "INVOICE" ? (d.sourceQuoteId ?? null) : null,
       paymentPlanOffer: d.paymentPlanOffer ?? null,
+      billingMode: d.documentType === "QUOTE" ? (d.billingMode ?? null) : null,
       totals: computeLineTotals(lineInputs, discountFromBody(d)),
     });
     if (!pdf) return reply.code(404).send({ error: "Client introuvable" });
@@ -617,9 +630,24 @@ export const invoicesRoutes: FastifyPluginAsync = async (app) => {
       quoteId?: string | null;
       sourceQuoteId?: string | null;
       paymentPlanOffer?: string;
+      billingMode?: string | null;
     } = {};
     if (parsed.data.paymentPlanOffer && existing.documentType === InvoiceDocumentType.QUOTE) {
       data.paymentPlanOffer = parsed.data.paymentPlanOffer;
+    }
+    // Mode de facturation : vérifié sur les lignes envoyées, sinon sur celles du brouillon.
+    if (existing.documentType === InvoiceDocumentType.QUOTE && (parsed.data.billingMode !== undefined || parsed.data.lines)) {
+      const mode = parsed.data.billingMode !== undefined ? (parsed.data.billingMode ?? null) : parseBillingMode(existing.billingMode);
+      const modeLines = parsed.data.lines
+        ? lineInputsOf(parsed.data.lines)
+        : await prisma.invoiceLine.findMany({ where: { invoiceId: id }, orderBy: { position: "asc" } });
+      try {
+        assertBillingModeLines(mode, modeLines);
+      } catch (e) {
+        return reply.code(400).send({ error: e instanceof Error ? e.message : "Lignes invalides" });
+      }
+      if (parsed.data.billingMode !== undefined) data.billingMode = mode;
+      if (mode === "RECURRING") data.paymentPlanOffer = "ONE";
     }
 
     if (
@@ -810,7 +838,7 @@ export const invoicesRoutes: FastifyPluginAsync = async (app) => {
         const settings = await getCompanySettings();
         if (settings.moduleStripeEnabled) {
           const { quoteOnlineMinimumWarning } = await import("@/lib/stripe/minimum.js");
-          minimumWarning = quoteOnlineMinimumWarning(doc.paymentPlanOffer, issued.depositBaseCents ?? issued.totalCents, settings);
+          minimumWarning = quoteOnlineMinimumWarning(issued.paymentPlanOffer, issued.depositBaseCents ?? issued.totalCents, settings, parseBillingMode(issued.billingMode));
         }
       }
       if (doc.documentType === InvoiceDocumentType.INVOICE && body.payment) {

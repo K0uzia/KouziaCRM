@@ -1,6 +1,8 @@
 import { z } from "zod";
 import type { Service } from "@prisma/client";
 import { prisma } from "@/lib/prisma.js";
+import { periodAmountCents } from "@/lib/quotes/billing-mode.js";
+import type { BillingMode } from "@/lib/quotes/payment-plans.js";
 
 /**
  * Packs : une prestation qui regroupe des prestations du catalogue avec leur quantité. Son prix (unitPriceCents)
@@ -34,12 +36,40 @@ export async function validatePack(items: PackItemInput[], priceCents: number, p
     if (!service.active) throw new PackError(`« ${service.name} » est archivée : elle ne peut pas entrer dans un pack.`);
     return { quantity: i.quantity, service };
   });
-  const sum = oneOffSum(resolved);
-  if (sum === 0) throw new PackError("Un pack contient au moins une prestation ponctuelle (le site, le logiciel…).");
-  if (priceCents > sum) {
-    throw new PackError("Le prix du pack dépasse la somme de ses prestations ponctuelles : un pack ne coûte jamais plus que le détail.");
-  }
+  // Depuis le mode de facturation (24/10/2026), le contenu d'un pack est descriptif : son prix d'achat et son prix
+  // annuel sont libres, et il peut ne contenir que des abonnements.
+  void priceCents;
   return resolved;
+}
+
+/** « Comprend : Site vitrine, Rédaction (2), Maintenance » : contenu d'un pack, dans l'ordre de la fiche. */
+export function packContents(items: Array<{ quantity: number; service: Pick<Service, "name"> }>): string {
+  return `Comprend : ${items.map((i) => (i.quantity > 1 ? `${i.service.name} (${i.quantity})` : i.service.name)).join(", ")}`;
+}
+
+/**
+ * Pack sur un devis avec mode (24/10/2026) : UNE ligne, titre = nom du pack, description = sa description puis son
+ * contenu. Paiement unique : prix d'achat. Récurrent : prix annuel ramené à la période ; refusé sans prix annuel.
+ */
+export async function packModeLine(packId: string, mode: BillingMode, interval: "MONTH" | "QUARTER" | "YEAR"): Promise<PackLine> {
+  const pack = await prisma.service.findUnique({
+    where: { id: packId },
+    include: { packItems: { orderBy: { position: "asc" }, include: { service: true } } },
+  });
+  if (!pack || !pack.isPack) throw new PackError("Pack introuvable.");
+  const details = [pack.description?.trim().replace(/\.$/, ""), packContents(pack.packItems)].filter(Boolean).join(". ");
+  const base = { serviceId: pack.id, description: `${pack.name} : ${details}`, quantity: 1, groupTitle: "", isPackDiscount: false };
+  if (mode === "ONE_OFF") return { ...base, unitPriceCents: pack.unitPriceCents, isSubscription: false, billingInterval: null, billingDay: null };
+  if (pack.annualPriceCents === null) {
+    throw new PackError(`« ${pack.name} » n'a pas de prix annuel : renseignez-le dans le catalogue pour le vendre en abonnement.`);
+  }
+  return {
+    ...base,
+    unitPriceCents: periodAmountCents(pack.annualPriceCents, interval),
+    isSubscription: true,
+    billingInterval: interval,
+    billingDay: pack.defaultBillingDay,
+  };
 }
 
 export type PackLine = {
@@ -48,7 +78,7 @@ export type PackLine = {
   quantity: number;
   unitPriceCents: number;
   isSubscription: boolean;
-  billingInterval: "MONTH" | "YEAR" | null;
+  billingInterval: "MONTH" | "QUARTER" | "YEAR" | null;
   billingDay: number | null;
   groupTitle: string;
   isPackDiscount: boolean;

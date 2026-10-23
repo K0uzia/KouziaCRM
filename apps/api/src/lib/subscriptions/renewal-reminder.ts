@@ -1,5 +1,6 @@
 import { SubscriptionCollectionMethod, SubscriptionStatus } from "@prisma/client";
 import { prisma } from "@/lib/prisma.js";
+import { periodWord } from "@/lib/subscriptions/subscription-service.js";
 import { getCompanySettings } from "@/lib/company.js";
 import { decryptOptional } from "@/lib/crypto.js";
 import { formatEUR, formatLongDate } from "@/lib/money.js";
@@ -207,7 +208,7 @@ export function renderFirstChargeNoticeEmail(opts: {
 }) {
   const name = (opts.clientFirstName ?? opts.clientName)?.trim();
   const date = fmtDate(opts.firstChargeDate);
-  const period = opts.billingInterval === "YEAR" ? "par an" : "par mois";
+  const period = `par ${periodWord(opts.billingInterval)}`;
   const callout = opts.stripe ? `1er prélèvement le ${date}` : `1re facture le ${date}`;
   const subject = opts.stripe ? `Votre abonnement « ${opts.label} » : 1er prélèvement le ${date}` : `Votre abonnement « ${opts.label} » : 1re facture le ${date}`;
   const text = [

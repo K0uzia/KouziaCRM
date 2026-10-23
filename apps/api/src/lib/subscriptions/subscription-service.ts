@@ -17,16 +17,23 @@ import { applyStripeSubscriptionAction } from "@/lib/stripe/subscription-control
 import { billedSubscriptionIds } from "@/lib/subscriptions/renewal-reminder.js";
 import { formatDateFr } from "@/lib/format-fr.js";
 
-/** Périodicité d'un abonnement ; null en base vaut MONTH. */
-export type BillingInterval = "MONTH" | "YEAR";
+/** Périodicité d'un abonnement ; null en base vaut MONTH. QUARTER : trimestriel (mode récurrent, 24/10/2026). */
+export type BillingInterval = "MONTH" | "QUARTER" | "YEAR";
 
 export function normalizeInterval(value: string | null | undefined): BillingInterval {
-  return value === "YEAR" ? "YEAR" : "MONTH";
+  return value === "YEAR" || value === "QUARTER" ? value : "MONTH";
+}
+
+/** Mot de la période dans « 375 € par trimestre ». */
+export function periodWord(interval: string | null | undefined): "an" | "trimestre" | "mois" {
+  const iv = normalizeInterval(interval);
+  return iv === "YEAR" ? "an" : iv === "QUARTER" ? "trimestre" : "mois";
 }
 
 /** Nombre de mois couverts par une échéance. */
 export function periodMonths(interval: string | null | undefined): number {
-  return normalizeInterval(interval) === "YEAR" ? 12 : 1;
+  const iv = normalizeInterval(interval);
+  return iv === "YEAR" ? 12 : iv === "QUARTER" ? 3 : 1;
 }
 
 /** Équivalent mensuel d'une échéance (MRR) : un montant annuel compte pour 1/12. */
@@ -379,7 +386,9 @@ export async function endSubscription(id: string, endDate?: Date) {
 /** Factures dues d'un abonnement pour son échéance courante. @returns true si une facture a été émise. */
 async function invoiceSubscriptionCycle(sub: Prisma.SubscriptionGetPayload<{ include: { client: true; service: true } }>): Promise<boolean> {
   const issueDate = sub.nextInvoiceAt;
-  const yearly = normalizeInterval(sub.billingInterval) === "YEAR";
+  const interval = normalizeInterval(sub.billingInterval);
+  // Annuel et trimestriel : la période couverte figure sur la ligne ; mensuel : le libellé seul.
+  const dated = interval !== "MONTH";
   const followingInvoiceAt = addMonths(issueDate, periodMonths(sub.billingInterval));
 
   // Idempotence : une facture existe déjà pour ce cycle ?
@@ -417,15 +426,18 @@ async function invoiceSubscriptionCycle(sub: Prisma.SubscriptionGetPayload<{ inc
         status: InvoiceStatus.DRAFT,
         clientId: sub.clientId,
         subscriptionId: sub.id,
-        paymentTerms: yearly
-          ? "Échéance annuelle : paiement à réception"
-          : "Prélèvement mensuel : paiement à réception",
+        paymentTerms:
+          interval === "YEAR"
+            ? "Échéance annuelle : paiement à réception"
+            : interval === "QUARTER"
+              ? "Échéance trimestrielle : paiement à réception"
+              : "Prélèvement mensuel : paiement à réception",
         subtotalCents: sub.amountCents,
         totalCents: sub.amountCents,
         lines: {
           create: {
             position: 1,
-            description: yearly ? `${sub.label} : période du ${fmtDay(issueDate)} au ${fmtDay(addDays(followingInvoiceAt, -1))}` : sub.label,
+            description: dated ? `${sub.label} : période du ${fmtDay(issueDate)} au ${fmtDay(addDays(followingInvoiceAt, -1))}` : sub.label,
             quantity: 1,
             unitPriceCents: sub.amountCents,
             lineTotalCents: sub.amountCents,

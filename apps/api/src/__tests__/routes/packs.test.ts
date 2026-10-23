@@ -86,10 +86,11 @@ describe("packs", () => {
     expect(listed?.packItems).toHaveLength(3);
   });
 
-  it("règles : prix au plus le détail, ni pack dans un pack, ni doublon, au moins une prestation ponctuelle", async () => {
+  it("règles : ni pack dans un pack, ni doublon ; prix et contenu libres (mode de facturation, 24/10/2026)", async () => {
     const { site, fiche, maint } = await catalogue();
-    expect((await call("POST", "/api/services", packBody([{ serviceId: site.id }], 1500))).json().error).toMatch(/dépasse la somme/);
-    expect((await call("POST", "/api/services", packBody([{ serviceId: maint.id }], 100))).json().error).toMatch(/au moins une prestation ponctuelle/);
+    // Le contenu d'un pack est descriptif : prix d'achat au-dessus du détail et pack d'abonnements seuls acceptés.
+    expect((await call("POST", "/api/services", packBody([{ serviceId: site.id }], 1500))).statusCode).toBe(201);
+    expect((await call("POST", "/api/services", packBody([{ serviceId: maint.id }], 100))).statusCode).toBe(201);
     expect((await call("POST", "/api/services", packBody([{ serviceId: site.id }, { serviceId: site.id }], 900))).json().error).toMatch(/deux fois/);
     const pack = (await call("POST", "/api/services", packBody([{ serviceId: site.id }, { serviceId: fiche.id }], 1050))).json();
     expect((await call("POST", "/api/services", packBody([{ serviceId: pack.id }], 100))).json().error).toMatch(/autre pack/);
