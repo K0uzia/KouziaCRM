@@ -11,7 +11,7 @@ import { EditorFooter, EditorLayout, useItemEditor } from "./editor";
 import { reorderVisible, saveIds, SortableList } from "./sortable";
 import { ProjectCardPreview } from "./preview";
 import { DataTable, type DataColumn } from "@/components/ui/DataTable";
-import { DateInput, Field, Input, Select, Textarea } from "@/components/ui/Field";
+import { DateInput, Field, Input, MonthField, Select, Textarea } from "@/components/ui/Field";
 import { Segmented } from "@/components/ui/Segmented";
 import { StatStrip } from "@/components/ui/StatStrip";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
@@ -731,9 +731,7 @@ export function SiteProjectPage() {
                   <Field label={`Texte alternatif de la capture d'avant (${n})`} hint={`Ce que montre la capture d'avant. ${x.avant.alt.length} / 200`}>
                     <Input maxLength={200} value={x.avant.alt} onChange={(e) => setPair(i, "avant", { alt: e.target.value })} />
                   </Field>
-                  <Field label={`Date de l'archive (${n})`} hint="Mois de la capture d'avant.">
-                    <Input type="month" value={x.avant.date} onChange={(e) => setPair(i, "avant", { date: e.target.value })} />
-                  </Field>
+                  <MonthField label={`Date de l'archive (${n})`} hint="Mois de la capture d'avant." value={x.avant.date} onChange={(date) => setPair(i, "avant", { date })} />
                   <Field label={`Source de l'archive (${n}, facultatif)`} hint="Adresse web.archive.org de la capture, affichée en petit.">
                     <Input
                       type="url"
