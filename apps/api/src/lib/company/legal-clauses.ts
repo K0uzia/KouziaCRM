@@ -93,12 +93,13 @@ export const DEFAULT_LEGAL_CLAUSES: Array<{
     required: true,
     position: 6,
   },
-  // Proposition neutre (demande du 23/10/2026) : même clause, période lue sur l'abonnement ({{periode}}, {{periodicite}}).
+  // Proposition (décisions du 23/10/2026) : clause unique des devis récurrents, tout rythme de paiement ({{periode}},
+  // {{periodicite}}) : engagement minimal, paiement fractionné, reconduction annuelle, préavis d'un mois, rappel.
   // Créée inactive à côté du texte d'Alexandre, jamais à sa place : il active l'une et désactive l'autre.
   {
     kind: LegalClauseKind.SUBSCRIPTION_COMMITMENT,
-    title: "Abonnement avec engagement (proposition, toute périodicité)",
-    body: "[BROUILLON À RELIRE PAR ALEXANDRE ET UN JURISTE OU LA CCI] Abonnement conclu pour la durée d'engagement indiquée ci-dessus, à compter de la signature du devis, payable d'avance {{periodicite}}. Pendant l'engagement, le client peut demander la résiliation depuis l'espace client ou par e-mail à {{email}} ; en cas de départ anticipé, les échéances restant à courir jusqu'à la fin de l'engagement restent dues. [À FAIRE VALIDER : une indemnité jugée excessive peut être réduite par le juge (art. 1231-5 du Code civil) ; le droit de rétractation de 14 jours prévaut pour les petits professionnels signés hors établissement (art. L221-3 du Code de la consommation).] À l'issue de l'engagement, l'abonnement se poursuit par périodes successives d'un {{periode}}, au prix en vigueur et sans nouvel engagement : {{nom_commercial}} en informe le client par e-mail avant la fin de l'engagement, et la résiliation devient libre, sans frais ni justification, avec effet à la fin de la période en cours, déjà facturée. Dans tous les cas, le client conserve ses contenus et son nom de domaine.",
+    title: "Abonnement avec engagement (proposition, tout rythme de paiement)",
+    body: "[BROUILLON À RELIRE PAR ALEXANDRE ET UN JURISTE OU LA CCI] Abonnement conclu pour la durée d'engagement indiquée ci-dessus, de 12 mois au minimum, à compter de la signature du devis. Le prix est celui de l'engagement ; il est payable d'avance {{periodicite}}, par échéances d'un {{periode}}. Ce fractionnement est une facilité de paiement : il ne permet pas de résilier en cours d'engagement, et les échéances restent dues jusqu'à la fin de l'engagement. [À FAIRE VALIDER : une indemnité jugée excessive peut être réduite par le juge (art. 1231-5 du Code civil) ; le droit de rétractation de 14 jours prévaut pour les particuliers et pour les petits professionnels signés hors établissement (art. L221-18 et L221-3 du Code de la consommation).] À la fin de l'engagement, l'abonnement est reconduit tacitement par périodes d'un an, au prix en vigueur et au même rythme de paiement. Le client peut en demander la non-reconduction, sans frais ni justification, au plus tard un mois avant la fin de l'engagement ou de l'année reconduite en cours, depuis l'espace client ou par e-mail à {{email}} : l'abonnement prend alors fin à cette date. {{nom_commercial}} lui rappelle cette date limite par e-mail avant qu'elle n'expire (art. L215-1 du Code de la consommation). Dans tous les cas, le client conserve ses contenus et son nom de domaine.",
     required: false,
     position: 6,
     active: false,

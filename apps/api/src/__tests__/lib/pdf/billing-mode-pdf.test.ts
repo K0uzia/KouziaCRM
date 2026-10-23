@@ -78,14 +78,25 @@ describe("PDF du devis selon le mode de facturation", () => {
     expect(text).toContain("Départ de la facturation : 375,00 € par trimestre à partir de la livraison du projet.");
   });
 
-  it("récurrent trimestriel sans engagement : clause trimestrielle (brouillon) imprimée", async () => {
+  it("récurrent trimestriel engagé, proposition activée : {{periodicite}} et {{periode}} remplies, aucune clause « résiliable à tout moment »", async () => {
+    await prisma.legalClause.updateMany({ where: { title: "Abonnement avec engagement" }, data: { active: false } });
+    await prisma.legalClause.updateMany({ where: { title: { startsWith: "Abonnement avec engagement (proposition" } }, data: { active: true } });
     const svc = await createService({ name: "Site tout compris", unitPriceCents: 150000 });
     const text = await quote("RECURRING", "ONE", [
-      { description: "Site tout compris", unitPriceCents: 37500, isSubscription: true, billingInterval: "QUARTER", billingDay: 1, serviceId: svc.id },
+      { description: "Site tout compris", unitPriceCents: 37500, isSubscription: true, billingInterval: "QUARTER", billingDay: 1, commitmentMonths: 12, serviceId: svc.id },
     ]);
-    expect(text).toContain("Sans engagement : résiliable à tout moment");
-    expect(text).toContain("Engagement d'abonnement trimestriel");
-    expect(text).toContain("[BROUILLON À RELIRE PAR ALEXANDRE] Sans durée minimale, payable d'avance chaque trimestre.");
-    expect(text).toContain("375,00 € par trimestre à partir de la signature");
+    expect(text).toContain("payable d'avance chaque trimestre, par échéances d'un trimestre");
+    expect(text).not.toMatch(/\{\{/);
+    expect(text).not.toContain("résiliable à tout moment");
+    expect(text).not.toContain("Sans durée minimale");
+  });
+
+  it("récurrent sans engagement : refusé à l'émission (brouillon antérieur à la règle)", async () => {
+    const svc = await createService({ name: "Site tout compris", unitPriceCents: 150000 });
+    await expect(
+      quote("RECURRING", "ONE", [
+        { description: "Site tout compris", unitPriceCents: 37500, isSubscription: true, billingInterval: "QUARTER", billingDay: 1, serviceId: svc.id },
+      ]),
+    ).rejects.toThrow(/12, 24 ou 36 mois/);
   });
 });

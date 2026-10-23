@@ -1,4 +1,5 @@
 import type { BillingMode } from "@/lib/quotes/payment-plans.js";
+import { isCommitmentMonths } from "@/lib/subscriptions/commitment.js";
 
 /** Ligne vue par les règles du mode : champs d'abonnement tels qu'enregistrés. */
 export type ModeLine = {
@@ -37,6 +38,11 @@ export function assertBillingModeLines(mode: BillingMode | null, lines: Readonly
     return;
   }
   if (subs.length === 0) throw new BillingModeError("Paiement récurrent : le devis doit comporter au moins une ligne d'abonnement.");
+  // Décision du 23/10/2026 : pas d'abonnement sans engagement, 12 mois au minimum ; le mois et le trimestre ne sont
+  // qu'une façon de payer l'engagement.
+  if (subs.some((l) => !isCommitmentMonths(l.commitmentMonths))) {
+    throw new BillingModeError("Paiement récurrent : choisissez un engagement de 12, 24 ou 36 mois.");
+  }
   const key = (l: ModeLine) =>
     [l.billingInterval ?? "MONTH", l.commitmentMonths ?? "", l.subscriptionStart ?? "", day(l.subscriptionStartDate), l.subscriptionFreeMonths ?? "", l.billingDay ?? ""].join("|");
   if (new Set(subs.map(key)).size > 1) {

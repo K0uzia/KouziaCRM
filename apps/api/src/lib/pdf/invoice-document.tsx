@@ -670,7 +670,7 @@ export function InvoiceDocument({ company, client, invoice, specimen, draft }: I
               <Text style={styles.vat}>
                 {invoice.recurringSummary.commitmentMonths && invoice.recurringSummary.periods && invoice.recurringSummary.totalCommitmentCents !== null
                   ? `Engagement de ${invoice.recurringSummary.commitmentMonths} mois à compter de la signature, soit ${invoice.recurringSummary.periods} échéances et ${fmtMoney(invoice.recurringSummary.totalCommitmentCents)} sur la durée (hors frais de mise en service).`
-                  : "Sans engagement : résiliable à tout moment, effet à la fin de la période en cours."}
+                  : "[Engagement à choisir : 12, 24 ou 36 mois]"}
               </Text>
               {company.vatMention ? <Text style={styles.vat}>{company.vatMention}</Text> : null}
               {invoice.subscriptionDateNotice ? (

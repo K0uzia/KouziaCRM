@@ -3,7 +3,7 @@ import { InvoiceDocumentType, InvoiceStatus } from "@prisma/client";
 import { prisma } from "@/lib/prisma.js";
 import { invalidateCompanySettingsCache } from "@/lib/company.js";
 import { acceptQuoteByClient, issueQuote } from "@/lib/invoices/transitions.js";
-import { commitmentEndOf, isUnderCommitment } from "@/lib/subscriptions/commitment.js";
+import { cancellableTermOf, commitmentEndOf, currentTermEndOf, isUnderCommitment } from "@/lib/subscriptions/commitment.js";
 import { buildInvoicePdfPayload } from "@/lib/pdf/build-payload.js";
 import { loadDocumentForPdf, renderLoadedDocumentPdf } from "@/lib/pdf/document-pdf.js";
 import { resetDb } from "../../helpers/db.js";
@@ -84,5 +84,17 @@ describe("durée d'engagement d'un abonnement", () => {
     expect(payload.subscriptionTerms?.COMMITMENT).toContain("les annuités restant à courir jusqu'à la fin de l'engagement restent dues");
     expect(payload.subscriptionTerms?.COMMITMENT).toContain("[À FAIRE VALIDER");
     expect((await renderLoadedDocumentPdf(doc)).length).toBeGreaterThan(1000);
+  });
+});
+
+describe("période en cours d'un abonnement engagé (décision du 23/10/2026)", () => {
+  it("fin de l'engagement, puis de chaque année reconduite ; date limite un mois avant, incluse", () => {
+    const end = new Date(2027, 0, 31);
+    expect(currentTermEndOf(end, new Date(2026, 5, 1))).toEqual(end);
+    expect(currentTermEndOf(end, new Date(2027, 1, 1))).toEqual(new Date(2028, 0, 31));
+    expect(cancellableTermOf(end, new Date(2026, 11, 31, 18))).toEqual({ termEndsAt: end, cancelDeadline: new Date(2026, 11, 31) });
+    expect(cancellableTermOf(end, new Date(2027, 0, 1))).toEqual({ termEndsAt: new Date(2028, 0, 31), cancelDeadline: new Date(2027, 11, 31) });
+    // 31 mars : date limite au dernier jour de février.
+    expect(cancellableTermOf(new Date(2027, 2, 31), new Date(2027, 0, 1)).cancelDeadline).toEqual(new Date(2027, 1, 28));
   });
 });

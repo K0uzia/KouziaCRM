@@ -63,6 +63,9 @@ describe("mode de facturation : règles de calcul", () => {
     expect(() => assertBillingModeLines("RECURRING", [{ isSubscription: false }])).toThrow(/au moins une ligne d'abonnement/);
     expect(() => assertBillingModeLines("RECURRING", [sub, { ...sub, billingInterval: "YEAR" }])).toThrow(/les mêmes/);
     expect(() => assertBillingModeLines("RECURRING", [{ isSubscription: false }, sub, { ...sub }])).not.toThrow();
+    // Décision du 23/10/2026 : pas d'abonnement sans engagement en récurrent, 12 mois au minimum.
+    expect(() => assertBillingModeLines("RECURRING", [{ ...sub, commitmentMonths: null }])).toThrow(/12, 24 ou 36 mois/);
+    expect(() => assertBillingModeLines("RECURRING", [{ ...sub, commitmentMonths: 6 }])).toThrow(/12, 24 ou 36 mois/);
     expect(() => assertBillingModeLines(null, [{ isSubscription: false }, sub, { ...sub, billingInterval: "YEAR" }])).not.toThrow();
   });
 
@@ -161,7 +164,7 @@ describe("mode de facturation : devis émis puis signé", () => {
   it("récurrent sans frais : pas d'échéancier ; facture du worker tous les 3 mois, période datée", async () => {
     const svc = await createService({ name: "Site tout compris", unitPriceCents: 150000 });
     const q = await quote("RECURRING", "ONE", [
-      { description: "Site tout compris", unitPriceCents: 37500, isSubscription: true, billingInterval: "QUARTER", billingDay: 1, serviceId: svc.id },
+      { description: "Site tout compris", unitPriceCents: 37500, isSubscription: true, billingInterval: "QUARTER", billingDay: 1, commitmentMonths: 12, serviceId: svc.id },
     ]);
     expect((await issueQuote(q.id)).paymentPlanOffer).toBe("NONE");
     await acceptQuoteByClient(q.id, "Atelier Mode", { source: "ADMIN" });

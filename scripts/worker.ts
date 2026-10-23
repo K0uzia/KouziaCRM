@@ -5,7 +5,7 @@ import { syncImapInbox } from "../apps/api/src/lib/email/imap-sync.js";
 import { processEmailOutbox } from "../apps/api/src/lib/email/mailer/index.js";
 import { expireQuotes, scheduleReminders } from "../apps/api/src/lib/reminders.js";
 import { generateDueSubscriptionInvoices } from "../apps/api/src/lib/subscriptions/subscription-service.js";
-import { sendDueFirstChargeNotices, sendDueRenewalReminders } from "../apps/api/src/lib/subscriptions/renewal-reminder.js";
+import { sendDueFirstChargeNotices, sendDueRenewalReminders, sendDueTermEndReminders } from "../apps/api/src/lib/subscriptions/renewal-reminder.js";
 import { sendDueActionReminders } from "../apps/api/src/lib/subscriptions/dunning.js";
 import { checkExpiringCards } from "../apps/api/src/lib/subscriptions/card-expiry.js";
 import { archivePendingIssuedPdfs } from "../apps/api/src/lib/pdf/issued-archive.js";
@@ -34,6 +34,7 @@ async function runMaintenance() {
     const subscriptions = await generateDueSubscriptionInvoices();
     const renewalReminders = await sendDueRenewalReminders();
     const firstChargeNotices = await sendDueFirstChargeNotices();
+    const termEndReminders = await sendDueTermEndReminders();
     // Renouvellements chez un tiers : date passée avancée d'une période, puis e-mail au client à J-30 s'il est demandé.
     await advancePastClientRenewals();
     const clientRenewalNotices = await sendDueClientRenewalNotices();
@@ -46,7 +47,7 @@ async function runMaintenance() {
     const depositRemindersSent = await sendDueDepositReminders();
     const obligationEmails = await sendDueObligationEmails();
     console.log(
-      `[worker] maintenance: expired=${expired} remindersScheduled=${scheduled} subscriptionsInvoices=${subscriptions} renewalReminders=${renewalReminders} firstChargeNotices=${firstChargeNotices} clientRenewalNotices=${clientRenewalNotices} actionReminders=${actionReminders} cardNotices=${cardNotices} pdfArchived=${pdfArchived} receiptsArchived=${receiptsArchived} remindersSent=${remindersSent} depositReminders=${depositRemindersSent} obligationEmails=${obligationEmails}`,
+      `[worker] maintenance: expired=${expired} remindersScheduled=${scheduled} subscriptionsInvoices=${subscriptions} renewalReminders=${renewalReminders} firstChargeNotices=${firstChargeNotices} termEndReminders=${termEndReminders} clientRenewalNotices=${clientRenewalNotices} actionReminders=${actionReminders} cardNotices=${cardNotices} pdfArchived=${pdfArchived} receiptsArchived=${receiptsArchived} remindersSent=${remindersSent} depositReminders=${depositRemindersSent} obligationEmails=${obligationEmails}`,
     );
   } catch (err) {
     console.error(`[worker] maintenance error`, err);

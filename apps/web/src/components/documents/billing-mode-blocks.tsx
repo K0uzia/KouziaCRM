@@ -11,7 +11,8 @@ import { equalInstallments, modePlansShown, PERIOD_WORD, periodsIn, type Period,
  */
 
 export type BillingMode = "ONE_OFF" | "RECURRING";
-export type RecurringForm = StartFields & { interval: Period; commitmentMonths: "" | "12" | "24" | "36"; billingDay: string };
+// Pas d'abonnement sans engagement (décision du 23/10/2026) : 12 mois au minimum, le rythme n'est qu'une façon de payer.
+export type RecurringForm = StartFields & { interval: Period; commitmentMonths: "12" | "24" | "36"; billingDay: string };
 
 export const DEFAULT_RECURRING: RecurringForm = {
   interval: "YEAR",
@@ -31,7 +32,7 @@ export function recurringFromLine(
   return {
     ...DEFAULT_RECURRING,
     interval,
-    commitmentMonths: months === 12 || months === 24 || months === 36 ? (String(months) as RecurringForm["commitmentMonths"]) : "",
+    commitmentMonths: months === 12 || months === 24 || months === 36 ? (String(months) as RecurringForm["commitmentMonths"]) : "12",
     billingDay: String(line.billingDay ?? 1),
     subscriptionStart: line.subscriptionStart,
     subscriptionStartDate: line.subscriptionStartDate,
@@ -158,15 +159,14 @@ export function RecurringSettings({
     <div className="space-y-4">
       <h4 className={blockTitle}>Abonnement</h4>
       <div className="flex flex-wrap items-center gap-3">
-        <Segmented label="Période de l'abonnement" options={PERIOD_OPTIONS} value={value.interval} onChange={(interval) => onChange({ interval })} />
+        <Segmented label="Rythme de paiement" options={PERIOD_OPTIONS} value={value.interval} onChange={(interval) => onChange({ interval })} />
         <span className="text-sm tabular-nums">
           {formatEUR(periodCents)} par {PERIOD_WORD[value.interval]}
         </span>
       </div>
       <div className="grid gap-4 sm:grid-cols-[repeat(auto-fit,minmax(min(100%,14rem),1fr))]">
-        <Field label="Engagement" hint={months ? undefined : "Résiliable à tout moment, effet à la fin de la période en cours."}>
+        <Field label="Engagement" hint="Puis reconduit chaque année ; résiliable avec un préavis d'un mois avant l'échéance.">
           <Select value={value.commitmentMonths} onChange={(e) => onChange({ commitmentMonths: e.target.value as RecurringForm["commitmentMonths"] })}>
-            <option value="">Sans engagement</option>
             <option value="12">12 mois</option>
             <option value="24">24 mois</option>
             <option value="36">36 mois</option>
@@ -211,7 +211,7 @@ export function RecurringSettings({
       </div>
       <p className="text-sm text-[var(--muted)]" aria-live="polite">
         {phrase ? `Sur le devis : « ${phrase} »` : "Complétez la date ou le nombre de mois offerts."}
-        {months ? `, engagement de ${months} mois (${periodsIn(months, value.interval)} échéances).` : ", sans engagement."}
+        {`, engagement de ${months} mois (${periodsIn(months, value.interval)} échéances), puis reconduit chaque année.`}
       </p>
     </div>
   );
@@ -237,9 +237,7 @@ export function RecurringRecap({ value, periodCents, feesCents }: { value: Recur
         </span>
       </p>
       <p className="text-xs text-[var(--muted)]">
-        {months
-          ? `Engagement ${months} mois, soit ${formatEUR(periodCents * periodsIn(months, value.interval))} sur la durée (hors frais de mise en service).`
-          : "Sans engagement, résiliable à tout moment."}
+        {`Engagement ${months} mois, soit ${formatEUR(periodCents * periodsIn(months, value.interval))} sur la durée (hors frais de mise en service), puis reconduit chaque année.`}
       </p>
     </div>
   );

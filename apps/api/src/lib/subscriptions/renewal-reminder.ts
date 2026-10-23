@@ -12,6 +12,8 @@ import { formatPlainTextSignature } from "@/lib/email/signature.js";
 import type { EmailBrand } from "@/lib/email/templates.js";
 import type { CompanySettings } from "@prisma/client";
 import { subscriptionPaymentUrl } from "@/lib/stripe/portal.js";
+import { resolveClientPortalUrl } from "@/lib/email/portal-url.js";
+import { cancellableTermOf } from "@/lib/subscriptions/commitment.js";
 
 /**
  * Information annuelle de reconduction (Code de la consommation, L215-1) : e-mail dédié, au plus
@@ -135,6 +137,8 @@ export async function sendDueRenewalReminders(now: Date = new Date()): Promise<n
       billingInterval: "YEAR",
       stripeCancelAt: null,
       cancellationRequestedAt: null,
+      // Abonnement engagé : rappel de fin de période (sendDueTermEndReminders), pas d'annuel ordinaire.
+      commitmentEndsAt: null,
       nextInvoiceAt: { gt: now, lte: horizon },
     },
     include: { client: true },
@@ -188,6 +192,119 @@ export async function sendDueRenewalReminders(now: Date = new Date()): Promise<n
       where: { id: sub.id },
       data: { renewalReminderSentFor: sub.nextInvoiceAt },
     });
+    queued += 1;
+  }
+  return queued;
+}
+
+export function renderTermEndReminderEmail(opts: {
+  brand: EmailBrand;
+  settings: Pick<CompanySettings, "emailSignatureHtml" | "brandPrimaryColor" | "brandSecondaryColor">;
+  clientName: string;
+  clientFirstName?: string | null;
+  label: string;
+  amountCents: number;
+  billingInterval: string | null;
+  termEndsAt: Date;
+  deadline: Date;
+  /** Fin de l'engagement (et non d'une année reconduite). */
+  commitmentEnd: boolean;
+  /** Espace client (/suivi), où se demande la non-reconduction. */
+  portalUrl: string;
+}) {
+  const name = (opts.clientFirstName ?? opts.clientName)?.trim();
+  const date = fmtDate(opts.termEndsAt);
+  const callout = `Date limite pour demander la non-reconduction : ${fmtDate(opts.deadline)}`;
+  const subject = opts.commitmentEnd
+    ? `Votre abonnement « ${opts.label} » : fin d'engagement le ${date}`
+    : `Votre abonnement « ${opts.label} » : reconduction le ${date}`;
+  const text = [
+    name ? `Bonjour ${name},` : "Bonjour,",
+    "",
+    opts.commitmentEnd
+      ? `L'engagement de votre abonnement « ${opts.label} » prend fin le ${date}.`
+      : `L'année en cours de votre abonnement « ${opts.label} » prend fin le ${date}.`,
+    `Sans démarche de votre part, il sera reconduit pour un an au prix en vigueur (actuellement ${formatEUR(opts.amountCents)} par ${periodWord(opts.billingInterval)}).`,
+    "",
+    callout,
+    "",
+    "Vous pouvez demander sa non-reconduction, sans frais ni justification, jusqu'à cette date (préavis d'un mois) : depuis votre espace client, ou en répondant à cet e-mail. L'abonnement prendra alors fin le " +
+      `${date}.`,
+    "",
+    formatPlainTextSignature(opts.settings, opts.brand),
+  ].join("\n");
+  const html = renderEmailHtml({
+    text,
+    brand: opts.brand,
+    colors: { brandPrimaryColor: opts.settings.brandPrimaryColor, brandSecondaryColor: opts.settings.brandSecondaryColor },
+    callout,
+    paymentUrl: opts.portalUrl,
+    paymentLabel: "Mon espace client",
+  });
+  return { subject, text, html };
+}
+
+/**
+ * Rappel avant la date limite de préavis d'un abonnement engagé, quel que soit son rythme de paiement (décision du
+ * 23/10/2026) : fin de l'engagement, puis de chaque année reconduite. Envoyé dès 45 jours avant la date limite, dans
+ * la fenêtre de l'art. L215-1. Ni pour un abonnement suspendu, ni pour une fin programmée ou demandée. Idempotent par
+ * fin de période (renewalReminderSentFor).
+ * @returns nombre d'e-mails enfilés.
+ */
+export async function sendDueTermEndReminders(now: Date = new Date()): Promise<number> {
+  if (!(await isSmtpConfigured())) return 0;
+  const candidates = await prisma.subscription.findMany({
+    where: {
+      status: SubscriptionStatus.ACTIVE,
+      commitmentEndsAt: { not: null },
+      stripeCancelAt: null,
+      cancellationRequestedAt: null,
+    },
+    include: { client: true },
+  });
+  const due = candidates
+    .map((s) => ({ s, term: cancellableTermOf(s.commitmentEndsAt!, now) }))
+    .filter(
+      ({ s, term }) =>
+        term.cancelDeadline.getTime() - now.getTime() <= NOTICE_DAYS_BEFORE_DEADLINE * DAY_MS &&
+        s.renewalReminderSentFor?.getTime() !== term.termEndsAt.getTime() &&
+        (!s.endDate || s.endDate > term.termEndsAt),
+    );
+  if (due.length === 0) return 0;
+
+  const settings = await getCompanySettings();
+  const brand = buildEmailBrand(settings);
+  const portalUrl = await resolveClientPortalUrl();
+  let queued = 0;
+  for (const { s: sub, term } of due) {
+    const to = decryptOptional(sub.client.emailEncrypted);
+    if (!to) {
+      console.warn(`[subscriptions] rappel de fin de période ignoré : client sans e-mail (${sub.id})`);
+      continue;
+    }
+    const content = renderTermEndReminderEmail({
+      brand,
+      settings,
+      clientName: sub.client.displayName,
+      clientFirstName: sub.client.firstName,
+      label: sub.label,
+      amountCents: sub.amountCents,
+      billingInterval: sub.billingInterval,
+      termEndsAt: term.termEndsAt,
+      deadline: term.cancelDeadline,
+      commitmentEnd: term.termEndsAt.getTime() === sub.commitmentEndsAt!.getTime(),
+      portalUrl,
+    });
+    await mailEnqueue({
+      to,
+      subject: content.subject,
+      text: content.text,
+      html: content.html,
+      clientId: sub.clientId,
+      kind: "subscription_term_end",
+      bodyTextForMessage: content.text,
+    });
+    await prisma.subscription.update({ where: { id: sub.id }, data: { renewalReminderSentFor: term.termEndsAt } });
     queued += 1;
   }
   return queued;

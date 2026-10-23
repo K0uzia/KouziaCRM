@@ -7,6 +7,7 @@ import { encrypt } from "@/lib/crypto.js";
 import { computeEmailHash } from "@/lib/clients/email-hash.js";
 import { invalidateCompanySettingsCache } from "@/lib/company.js";
 import { parsePayload } from "@/lib/email/mailer/outbox.js";
+import { commitmentEndOf } from "@/lib/subscriptions/commitment.js";
 import { resetDb } from "../helpers/db.js";
 import { createClient, createService, seedCompanySettings } from "../helpers/factories.js";
 
@@ -213,24 +214,33 @@ describe("/suivi : gestion des abonnements", () => {
   });
 });
 
-describe("/suivi : abonnement avec engagement (décision du 19/10/2026)", () => {
+describe("/suivi : abonnement avec engagement (décisions du 19/10 et du 23/10/2026)", () => {
   const engaged = { ...stripe, commitmentMonths: 36, commitmentEndsAt: new Date(2029, 0, 1) };
+  const iso = (d: Date) => d.toISOString();
 
-  it("pendant l'engagement : demande au lieu du portail Stripe, fin d'engagement affichée, aucune reconduction à refuser", async () => {
+  it("pendant l'engagement : demande de non-reconduction, période et date limite exposées, portail sans résiliation", async () => {
     const c = await clientWith(EMAIL, "Lou Martin");
     const sub = await subscription(c.id, engaged);
     const kz_portal = await login();
     const t = (await app.inject({ method: "GET", url: "/api/public/tracking", cookies: { kz_portal } })).json();
-    expect(t.subscriptions[0]).toMatchObject({ id: sub.id, manage: "REQUEST", commitmentEndsAt: new Date(2029, 0, 1).toISOString() });
+    expect(t.subscriptions[0]).toMatchObject({
+      id: sub.id,
+      manage: "REQUEST",
+      commitmentEndsAt: iso(new Date(2029, 0, 1)),
+      currentTermEndsAt: iso(new Date(2029, 0, 1)),
+      cancelDeadline: iso(new Date(2028, 11, 1)),
+      nonRenewalRequestedAt: null,
+      nonRenewalEffectiveAt: iso(new Date(2029, 0, 1)),
+    });
     expect(t.subscriptions[0].renewalDeadline).toBeUndefined();
 
+    // Portail Stripe ouvert pour le moyen de paiement : sa configuration sans résiliation est choisie par l'ERP.
     const portal = await app.inject({ method: "POST", url: `/api/public/subscriptions/${sub.id}/portal`, cookies: { kz_portal } });
-    expect(portal.statusCode).toBe(409);
-    expect(portal.json().error).toBe("Cet abonnement est engagé jusqu'au 1er janvier 2029 : utilisez « Demander la résiliation ».");
-    expect(createSubscriptionPortalUrl).not.toHaveBeenCalled();
+    expect(portal.statusCode).toBe(200);
+    expect(createSubscriptionPortalUrl).toHaveBeenCalledWith(sub.id);
   });
 
-  it("demande de résiliation pendant l'engagement : enregistrée, admin alerté avec la fin d'engagement, rien de coupé", async () => {
+  it("demande pendant l'engagement : effet à la fin de l'engagement, accusé et alerte datés, rien de coupé", async () => {
     const c = await clientWith(EMAIL, "Lou Martin");
     const sub = await subscription(c.id, engaged);
     const kz_portal = await login();
@@ -248,19 +258,47 @@ describe("/suivi : abonnement avec engagement (décision du 19/10/2026)", () => 
     const rows = await prisma.emailOutbox.findMany();
     const payloads = rows.map((r) => parsePayload(outboxPayloadRaw(r)));
     const alert = payloads.find((p) => p.to === ADMIN);
-    expect(alert?.text).toMatch(/Engagement en cours jusqu'au 1er janvier 2029 : appliquez les conditions du contrat avant de clôturer\. Rien n'a été coupé dans Stripe\./);
-    expect(payloads.some((p) => p.to === EMAIL && /Demande de résiliation reçue/.test(p.subject))).toBe(true);
-    const ack = payloads.find((p) => p.to === EMAIL)!;
-    expect(ack.text).toContain("Votre abonnement est engagé jusqu'au 1er janvier 2029 : nous reprenons contact avec vous pour en parler. Rien ne change d'ici là.");
-    expect(ack.text).not.toContain("date de fin");
+    expect(alert?.text).toContain("Abonnement engagé : fin au 1er janvier 2029 (préavis d'un mois), échéances dues jusque-là. Rien n'a été coupé dans Stripe.");
+    const ack = payloads.find((p) => p.to === EMAIL && /Demande de résiliation reçue/.test(p.subject))!;
+    expect(ack.text).toContain("Votre abonnement prendra fin le 1er janvier 2029, à la fin de votre engagement. Les échéances jusqu'à cette date restent dues.");
+
+    const t = (await app.inject({ method: "GET", url: "/api/public/tracking", cookies: { kz_portal } })).json();
+    expect(t.subscriptions[0]).toMatchObject({
+      manage: null,
+      nonRenewalRequestedAt: iso(after.cancellationRequestedAt!),
+      nonRenewalEffectiveAt: iso(new Date(2029, 0, 1)),
+    });
   });
 
-  it("engagement terminé : portail Stripe et reconduction refusable comme avant", async () => {
+  it("engagement terminé : toujours une demande (jamais le portail), année reconduite en cours", async () => {
+    const now = new Date();
+    const ended = commitmentEndOf(now, -4);
     const c = await clientWith(EMAIL, "Lou Martin");
-    await subscription(c.id, { ...engaged, commitmentEndsAt: new Date(2026, 5, 1) });
+    await subscription(c.id, { ...engaged, commitmentEndsAt: ended });
     const kz_portal = await login();
     const t = (await app.inject({ method: "GET", url: "/api/public/tracking", cookies: { kz_portal } })).json();
-    expect(t.subscriptions[0].manage).toBe("STRIPE_PORTAL");
-    expect(t.subscriptions[0].renewalDeadline).toBeDefined();
+    const term = commitmentEndOf(ended, 12);
+    expect(t.subscriptions[0]).toMatchObject({
+      manage: "REQUEST",
+      currentTermEndsAt: iso(term),
+      cancelDeadline: iso(commitmentEndOf(term, -1)),
+      nonRenewalEffectiveAt: iso(term),
+    });
+    expect(t.subscriptions[0].renewalDeadline).toBeUndefined();
+  });
+
+  it("date limite passée : la demande vaut pour l'année suivante", async () => {
+    const end = new Date();
+    end.setDate(end.getDate() + 15);
+    end.setHours(0, 0, 0, 0);
+    const c = await clientWith(EMAIL, "Lou Martin");
+    await subscription(c.id, { ...engaged, commitmentEndsAt: end });
+    const kz_portal = await login();
+    const t = (await app.inject({ method: "GET", url: "/api/public/tracking", cookies: { kz_portal } })).json();
+    expect(t.subscriptions[0]).toMatchObject({
+      currentTermEndsAt: iso(end),
+      cancelDeadline: iso(commitmentEndOf(end, -1)),
+      nonRenewalEffectiveAt: iso(commitmentEndOf(end, 12)),
+    });
   });
 });

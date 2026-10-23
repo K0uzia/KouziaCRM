@@ -9,7 +9,7 @@ import { renderEmailHtml } from "@/lib/email/layout.js";
 import { formatPlainTextSignature } from "@/lib/email/signature.js";
 import { alertAdmin } from "@/lib/stripe/alert.js";
 import { nonRenewalDeadline, isRenewal } from "@/lib/subscriptions/renewal-reminder.js";
-import { isUnderCommitment } from "@/lib/subscriptions/commitment.js";
+import { CANCEL_NOTICE_MONTHS, cancellableTermOf, commitmentEndOf, currentTermEndOf } from "@/lib/subscriptions/commitment.js";
 
 /** Abonnement géré dans le portail Stripe (prélevé par Stripe). */
 export function isStripeManaged(sub: Pick<Subscription, "collectionMethod" | "stripeSubscriptionId">): boolean {
@@ -37,8 +37,14 @@ type PortalSubscription = Pick<
  *   de résiliation d'un abonnement par virement), null (demande faite ou fin actée) ;
  * - paymentIssue : seulement pour un abonnement prélevé par Stripe ;
  * - renewalDeadline : abonnement annuel, date limite pour refuser la reconduction (même calcul que l'e-mail) ;
- * - commitmentEndsAt (ajout du 19/10/2026) : fin de l'engagement. Avant cette date, même prélevé par Stripe, manage
- *   vaut REQUEST (demande traitée par l'admin, rien n'est coupé) et aucune reconduction n'est refusable.
+ * - commitmentEndsAt (ajout du 19/10/2026) : fin de l'engagement ;
+ * - abonnement engagé (décision du 23/10/2026), quel que soit son rythme de paiement et même après l'engagement :
+ *   manage vaut REQUEST tant que la demande de non-reconduction est possible (jamais STRIPE_PORTAL) ;
+ *   currentTermEndsAt : fin de la période en cours (engagement, puis chaque année reconduite) ;
+ *   cancelDeadline : currentTermEndsAt moins un mois (peut être passée) ;
+ *   nonRenewalRequestedAt : date de la demande, ou null ;
+ *   nonRenewalEffectiveAt : fin effective de la demande faite, sinon d'une demande faite aujourd'hui (date limite
+ *   passée : fin de la période suivante).
  */
 /** billed : abonnement déjà facturé au moins une fois. Jamais facturé (1re échéance différée) : pas de reconduction. */
 export function portalSubscriptionFields(sub: PortalSubscription, noticeDays: number, now = new Date(), billed = true) {
@@ -51,17 +57,14 @@ export function portalSubscriptionFields(sub: PortalSubscription, noticeDays: nu
         ? ("LATE" as const)
         : null
     : null;
-  const committed = isUnderCommitment(sub, now);
-  const manage =
-    stripe && !committed
-      ? ("STRIPE_PORTAL" as const)
-      : !sub.cancellationRequestedAt && !endsAt
-        ? ("REQUEST" as const)
-        : null;
-  // Échéance encore couverte par l'engagement : ce n'est pas une reconduction, rien à refuser.
-  const withinCommitment = Boolean(sub.commitmentEndsAt && sub.nextInvoiceAt < sub.commitmentEndsAt);
+  const engaged = Boolean(sub.commitmentEndsAt);
+  const open = !sub.cancellationRequestedAt && !endsAt;
+  const manage = stripe && !engaged ? ("STRIPE_PORTAL" as const) : open ? ("REQUEST" as const) : null;
+  const currentTermEndsAt = sub.commitmentEndsAt ? currentTermEndOf(sub.commitmentEndsAt, now) : null;
+  const effective = sub.commitmentEndsAt ? cancellableTermOf(sub.commitmentEndsAt, sub.cancellationRequestedAt ?? now).termEndsAt : null;
+  // Abonnement engagé : sa reconduction suit cancelDeadline, pas la date limite des annuels sans engagement.
   const annualOpen =
-    sub.billingInterval === "YEAR" && sub.status === "ACTIVE" && !endsAt && !sub.cancellationRequestedAt && billed && isRenewal(sub) && !withinCommitment;
+    sub.billingInterval === "YEAR" && sub.status === "ACTIVE" && open && billed && isRenewal(sub) && !engaged;
   return {
     status: sub.status === "PAUSED" ? ("PAUSED" as const) : ("ACTIVE" as const),
     paymentIssue,
@@ -70,6 +73,14 @@ export function portalSubscriptionFields(sub: PortalSubscription, noticeDays: nu
     manage,
     ...(annualOpen ? { renewalDeadline: nonRenewalDeadline(sub.nextInvoiceAt, noticeDays).toISOString() } : {}),
     ...(sub.commitmentEndsAt ? { commitmentEndsAt: sub.commitmentEndsAt.toISOString() } : {}),
+    ...(currentTermEndsAt && effective
+      ? {
+          currentTermEndsAt: currentTermEndsAt.toISOString(),
+          cancelDeadline: commitmentEndOf(currentTermEndsAt, -CANCEL_NOTICE_MONTHS).toISOString(),
+          nonRenewalRequestedAt: sub.cancellationRequestedAt ? sub.cancellationRequestedAt.toISOString() : null,
+          nonRenewalEffectiveAt: effective.toISOString(),
+        }
+      : {}),
   };
 }
 
@@ -88,9 +99,10 @@ export class CancelRequestError extends Error {
  */
 export async function requestSubscriptionCancellation(subscriptionId: string, now = new Date()): Promise<Date> {
   const sub = await prisma.subscription.findUniqueOrThrow({ where: { id: subscriptionId }, include: { client: true } });
-  // Engagé : demande traitée par l'admin, même prélevé par Stripe (rien n'est coupé automatiquement).
-  const committed = isUnderCommitment(sub, now);
-  if (isStripeManaged(sub) && !committed) {
+  // Engagé : demande traitée par l'admin, même prélevé par Stripe (rien n'est coupé automatiquement), effet à la fin
+  // de l'engagement ou de l'année reconduite visée par le préavis.
+  const term = sub.commitmentEndsAt ? cancellableTermOf(sub.commitmentEndsAt, now) : null;
+  if (isStripeManaged(sub) && !term) {
     throw new CancelRequestError("Cet abonnement se résilie depuis « Gérer mon abonnement ».", 409);
   }
   if (sub.cancellationRequestedAt) {
@@ -109,10 +121,10 @@ export async function requestSubscriptionCancellation(subscriptionId: string, no
   await alertAdmin(
     `Demande de résiliation : ${who}`,
     `${who} demande la résiliation de l'abonnement « ${sub.label} » depuis son espace client (le ${formatLongDate(now)}). ` +
-      (committed && sub.commitmentEndsAt
-        ? `Engagement en cours jusqu'au ${formatLongDate(sub.commitmentEndsAt)} : appliquez les conditions du contrat avant de clôturer. Rien n'a été coupé dans Stripe. `
-        : "") +
-      "Clôturez l'abonnement dans l'ERP (Abonnements) et confirmez la date de fin au client.",
+      (term
+        ? `Abonnement engagé : fin au ${formatLongDate(term.termEndsAt)} (préavis d'un mois), échéances dues jusque-là. Rien n'a été coupé dans Stripe. ` +
+          "Programmez la fin de l'abonnement à cette date dans l'ERP (Abonnements)."
+        : "Clôturez l'abonnement dans l'ERP (Abonnements) et confirmez la date de fin au client."),
   );
 
   const to = decryptOptional(sub.client.emailEncrypted);
@@ -123,12 +135,14 @@ export async function requestSubscriptionCancellation(subscriptionId: string, no
     const text = [
       name ? `Bonjour ${name},` : "Bonjour,",
       "",
-      // Engagement en cours : rien ne prend fin automatiquement, la demande est traitée avec le client.
-      ...(committed && sub.commitmentEndsAt
+      // Abonnement engagé : la date de fin découle du contrat (fin de l'engagement ou de l'année reconduite).
+      ...(term
         ? [
             `Nous avons bien reçu, le ${formatLongDate(now)}, votre demande de résiliation de l'abonnement « ${sub.label} ».`,
             "",
-            `Votre abonnement est engagé jusqu'au ${formatLongDate(sub.commitmentEndsAt)} : nous reprenons contact avec vous pour en parler. Rien ne change d'ici là.`,
+            `Votre abonnement prendra fin le ${formatLongDate(term.termEndsAt)}, ${
+              sub.commitmentEndsAt!.getTime() === term.termEndsAt.getTime() ? "à la fin de votre engagement" : "à la fin de l'année en cours"
+            }. Les échéances jusqu'à cette date restent dues. Rien ne change d'ici là.`,
           ]
         : [
             `Nous avons bien reçu, le ${formatLongDate(now)}, votre demande de résiliation de l'abonnement « ${sub.label} ».`,

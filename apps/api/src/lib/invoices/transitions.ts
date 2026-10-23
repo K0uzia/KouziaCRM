@@ -26,6 +26,7 @@ import {
   resolveAcceptedPlan,
   type PaymentPlan,
 } from "@/lib/quotes/payment-plans.js";
+import { assertBillingModeLines } from "@/lib/quotes/billing-mode.js";
 import {
   buildClientSnapshot,
   type ClientSnapshot,
@@ -152,6 +153,8 @@ export async function issueQuote(
     if (quote.lines.length === 0) {
       throw new Error("Impossible d'émettre un devis sans lignes");
     }
+    // Brouillon antérieur à une règle du mode (engagement obligatoire en récurrent) : bloqué avant numérotation.
+    assertBillingModeLines(parseBillingMode(quote.billingMode), quote.lines);
     // Émis = signable en ligne : un particulier exige un médiateur de la consommation déclaré (L612-1).
     const client = await tx.client.findUniqueOrThrow({ where: { id: quote.clientId }, select: { type: true } });
     assertMediatorFor(client.type, settings);
