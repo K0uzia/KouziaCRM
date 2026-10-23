@@ -1779,13 +1779,17 @@ model SiteProject {
   /// Présentation du client (sans son nom sans accord) et nom, publié seulement avec l'accord écrit.
   clientIntro             String?
   clientName              String?
-  /// JSON [{ image: /media/<sha12>.webp, alt, caption? }], 6 au plus
+  /// JSON [{ image: /media/<sha12>.webp, alt, caption?, vue? }], 6 au plus ; vue : bureau (absente) ou mobile
   capturesJson            String?
   /// JSON [{ label, url }], 4 au plus
   linksJson               String?
   /// JSON [{ vue: bureau | mobile, avant: { image, alt, date AAAA-MM, source? }, apres: { image, alt } }], 2 au plus,
   /// chaque vue une fois, les deux images d'une paire au même ratio (forme du contrat du site, detail.avantApres)
   avantApresJson          String?
+  /// Nature du projet (detail.nature) : refonte ou creation ; null : non précisée
+  nature                  String?
+  /// Durée du projet (detail.duree), 40 caractères au plus, par exemple « 3 semaines »
+  duree                   String?
   /// Client du projet : sans accord écrit, ni la page projet ni une nouvelle carte ne sont publiées.
   clientId                String?
   client                  Client?   @relation(fields: [clientId], references: [id], onDelete: SetNull)
@@ -1929,6 +1933,9 @@ model SiteMedia {
   /// Point d'intérêt du recadrage, de 0 à 1 depuis le coin haut gauche de l'original. Null : recadrage automatique
   focalX        Float?
   focalY        Float?
+  /// Recadrage choisi à la main d'une capture : « 16:10 », « 16:9 » ou « l:h » de l'autre image d'une paire avant / après.
+  /// Null : format d'origine, sans recadrage (capture, téléphone, logo) ; l'image de partage est toujours en 1200×630
+  cropRatio     String?
   createdAt     DateTime      @default(now())
 }
 

@@ -75,6 +75,29 @@ describe("fiches Réalisation : saisie et règles de publication", () => {
     expect((await buildSiteSnapshot()).issues.some((i) => i.message.includes("0123456789ab"))).toBe(true);
   });
 
+  it("étude de cas : nature et durée juste après la description, vue « mobile » seule écrite (bureau : absente)", async () => {
+    const captures = [
+      { image: "/media/0123456789ab.webp", alt: "Accueil", caption: null, vue: "bureau" },
+      { image: "/media/0123456789ac.webp", alt: "Accueil au téléphone", caption: null, vue: "mobile" },
+    ];
+    const res = await call("POST", "/api/site/projects", { ...card, ...detail, captures, nature: "refonte", duree: " 3 semaines " });
+    expect(res.statusCode).toBe(201);
+    expect(res.json()).toMatchObject({ nature: "refonte", duree: "3 semaines" });
+    const [out] = await publishedRealisations();
+    const d = out!.detail as Record<string, unknown>;
+    expect(Object.keys(d)).toEqual(["description", "nature", "duree", "contexte", "demarche", "captures", "liens"]);
+    expect(d.captures).toEqual([
+      { image: "/media/0123456789ab.webp", alt: "Accueil" },
+      { image: "/media/0123456789ac.webp", alt: "Accueil au téléphone", vue: "mobile" },
+    ]);
+    // Vides : clés absentes ; nature inconnue et durée de plus de 40 caractères refusées.
+    const id = res.json().id as string;
+    expect((await call("PUT", `/api/site/projects/${id}`, { ...card, ...detail, nature: null, duree: "" })).statusCode).toBe(200);
+    expect(Object.keys((await publishedRealisations())[0]!.detail as object)).not.toContain("nature");
+    expect((await call("POST", "/api/site/projects", { ...card, slug: "autre", nature: "maintenance" })).statusCode).toBe(400);
+    expect((await call("POST", "/api/site/projects", { ...card, slug: "autre", duree: "x".repeat(41) })).statusCode).toBe(400);
+  });
+
   it("sans description ou sans texte détaillé : carte publiée, page projet retenue avec son motif", async () => {
     const res = await call("POST", "/api/site/projects", { ...card, captures: detail.captures, description: detail.description });
     expect(res.json().detailBlocker).toMatch(/aucun texte détaillé/);

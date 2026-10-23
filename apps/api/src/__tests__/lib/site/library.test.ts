@@ -10,7 +10,14 @@ import { importSiteFiles } from "@/lib/site/import.js";
 import { buildSiteSnapshot } from "@/lib/site/snapshot.js";
 import { recordPublished } from "@/lib/site/changes.js";
 import { ORIGINAL_MAX_SIDE, focalCrop, readSiteMedia, saveSiteImage, siteMediaRelativePath, sniffImageType } from "@/lib/site/media.js";
-import { adoptMissingMedia, deleteLibraryMedia, listLibrary, purgePreviousVersions, recropLibraryMedia } from "@/lib/site/library.js";
+import {
+  adoptMissingMedia,
+  deleteLibraryMedia,
+  listLibrary,
+  purgePreviousVersions,
+  recropLibraryMedia,
+  regenerateFramedCaptures,
+} from "@/lib/site/library.js";
 import { resetDb } from "../../helpers/db.js";
 import { seedCompanySettings } from "../../helpers/factories.js";
 
@@ -109,9 +116,10 @@ describe("recadrage et images en ligne", () => {
     await prisma.siteProject.update({ where: { id: projet.id }, data: { imagePath: `/media/${media.sha12}.webp` } });
     await publier();
 
-    const gauche = await recropLibraryMedia(media.id, { x: 0, y: 0.5 });
+    // Capture : recadrage choisi à la main (16:9), autour du point d'intérêt.
+    const gauche = await recropLibraryMedia(media.id, { x: 0, y: 0.5 }, "16:9");
     expect(gauche.sha12).not.toBe(media.sha12);
-    expect(gauche).toMatchObject({ focalX: 0, focalY: 0.5, label: "boutique", originalPath: media.originalPath });
+    expect(gauche).toMatchObject({ focalX: 0, focalY: 0.5, cropRatio: "16:9", width: 960, height: 540, label: "boutique", originalPath: media.originalPath });
     const pixel = await sharp((await readSiteMedia(gauche.sha12))!).extract({ left: 10, top: 10, width: 1, height: 1 }).raw().toBuffer();
     expect(pixel[0]).toBeGreaterThan(150); // rouge : moitié gauche gardée
     expect((await prisma.siteProject.findUniqueOrThrow({ where: { id: projet.id } })).imagePath).toBe(`/media/${gauche.sha12}.webp`);
@@ -133,7 +141,7 @@ describe("recadrage et images en ligne", () => {
 
   it("recadrer une image hors ligne : l'ancienne version disparaît aussitôt ; logo et image sans original refusés", async () => {
     const media = await saveSiteImage(await photo(3000, 1080, 9), SiteMediaKind.CAPTURE, "brouillon.jpg");
-    const droite = await recropLibraryMedia(media.id, { x: 1, y: 0.5 });
+    const droite = await recropLibraryMedia(media.id, { x: 1, y: 0.5 }, "16:9");
     expect(await prisma.siteMedia.findUnique({ where: { id: media.id } })).toBeNull();
     expect(exists(siteMediaRelativePath(media.sha12))).toBe(false);
     expect(exists(droite.originalPath!)).toBe(true);
@@ -141,7 +149,7 @@ describe("recadrage et images en ligne", () => {
     const logo = await saveSiteImage(await sharp({ create: { width: 400, height: 200, channels: 4, background: "#0000" } }).png().toBuffer(), SiteMediaKind.LOGO);
     await expect(recropLibraryMedia(logo.id, { x: 0.5, y: 0.5 })).rejects.toMatchObject({ code: "FORMAT" });
     await prisma.siteMedia.update({ where: { id: droite.id }, data: { originalPath: null } });
-    await expect(recropLibraryMedia(droite.id, { x: 0.5, y: 0.5 })).rejects.toMatchObject({ message: expect.stringContaining("Original non conservé") });
+    await expect(recropLibraryMedia(droite.id, { x: 0.5, y: 0.5 }, "16:9")).rejects.toMatchObject({ message: expect.stringContaining("Original non conservé") });
   });
 });
 
@@ -149,7 +157,7 @@ describe("doublons", () => {
   it("même fichier renvoyé après un recadrage : la version recadrée revient, aucune nouvelle image", async () => {
     const input = await photo(3000, 1080, 11);
     const media = await saveSiteImage(input, SiteMediaKind.CAPTURE, "vitrine.jpg");
-    const recadree = await recropLibraryMedia(media.id, { x: 0, y: 0.5 });
+    const recadree = await recropLibraryMedia(media.id, { x: 0, y: 0.5 }, "16:9");
     const encore = await saveSiteImage(input, SiteMediaKind.CAPTURE, "vitrine.jpg");
     expect(encore.id).toBe(recadree.id);
     expect(await prisma.siteMedia.count()).toBe(1);
@@ -245,7 +253,8 @@ describe("routes de la médiathèque", () => {
       expect(original.headers["content-type"]).toBe("image/jpeg");
 
       expect((await app.inject({ method: "POST", url: `/api/site/media/${media.id}/recadrage`, headers: { cookie }, payload: { x: 2, y: 0 } })).statusCode).toBe(400);
-      const recadree = await app.inject({ method: "POST", url: `/api/site/media/${media.id}/recadrage`, headers: { cookie }, payload: { x: 1, y: 0.5 } });
+      expect((await app.inject({ method: "POST", url: `/api/site/media/${media.id}/recadrage`, headers: { cookie }, payload: { ratio: "16-9" } })).statusCode).toBe(400);
+      const recadree = await app.inject({ method: "POST", url: `/api/site/media/${media.id}/recadrage`, headers: { cookie }, payload: { x: 1, y: 0.5, ratio: "16:9" } });
       expect(recadree.statusCode).toBe(200);
       const next = recadree.json() as { id: string; path: string };
       expect(next.path).toMatch(/^\/media\/[a-f0-9]{12}\.webp$/);
@@ -255,5 +264,58 @@ describe("routes de la médiathèque", () => {
     } finally {
       await app.close();
     }
+  });
+});
+
+describe("page projet : captures et avant / après (correctif du 23/10/2026)", () => {
+  const capture = (sha12: string, vue?: "mobile") => ({ image: `/media/${sha12}.webp`, alt: "Accueil", ...(vue ? { vue } : {}) });
+
+  it("utilisées par les captures et l'avant / après : comptées, non supprimables, format de l'autre image proposé", async () => {
+    const a = await saveSiteImage(await photo(1440, 900, 21), SiteMediaKind.CAPTURE, "avant.jpg");
+    const b = await saveSiteImage(await photo(1440, 920, 22), SiteMediaKind.CAPTURE, "apres.jpg");
+    const c = await saveSiteImage(await photo(780, 1688, 23), SiteMediaKind.MOBILE, "mobile.jpg");
+    const projet = await firstProject();
+    await prisma.siteProject.update({
+      where: { id: projet.id },
+      data: {
+        capturesJson: JSON.stringify([capture(c.sha12, "mobile")]),
+        avantApresJson: JSON.stringify([
+          { vue: "bureau", avant: { image: `/media/${a.sha12}.webp`, alt: "Avant", date: "2020-01" }, apres: { image: `/media/${b.sha12}.webp`, alt: "Après" } },
+        ]),
+      },
+    });
+    const items = await listLibrary();
+    const of = (id: string) => items.find((m) => m.id === id)!;
+    expect(of(c.id).usages).toEqual([expect.objectContaining({ field: "captures", mediaKind: "MOBILE" })]);
+    expect(of(a.id).usages).toEqual([expect.objectContaining({ field: "avantApres", pairPath: `/media/${b.sha12}.webp` })]);
+    expect(of(a.id).pairFormats).toEqual([expect.objectContaining({ ratio: `${b.width}:${b.height}` })]);
+    await expect(deleteLibraryMedia(c.id)).rejects.toMatchObject({ status: 409, message: expect.stringContaining("page projet") });
+
+    // Recadrage au format de l'autre image : les deux ont le même ratio, et la paire est repointée.
+    const aligned = await recropLibraryMedia(a.id, null, `${b.width}:${b.height}`);
+    expect(aligned.width * b.height).toBe(b.width * aligned.height);
+    const after = await prisma.siteProject.findUniqueOrThrow({ where: { id: projet.id } });
+    expect(after.avantApresJson).toContain(`/media/${aligned.sha12}.webp`);
+    expect(after.avantApresJson).not.toContain(`/media/${a.sha12}.webp`);
+  });
+
+  it("captures coupées d'office en 16:9 : signalées, puis régénérées sans recadrage depuis l'original, fiches repointées", async () => {
+    const media = await saveSiteImage(await photo(1440, 900, 31), SiteMediaKind.CAPTURE, "ancienne.jpg");
+    // Version produite avant le correctif : cadre figé 960×540.
+    await prisma.siteMedia.update({ where: { id: media.id }, data: { width: 960, height: 540 } });
+    const sansOriginal = await saveSiteImage(await photo(1600, 1000, 32), SiteMediaKind.CAPTURE);
+    await prisma.siteMedia.update({ where: { id: sansOriginal.id }, data: { width: 960, height: 540, originalPath: null } });
+    const projet = await firstProject();
+    await prisma.siteProject.update({ where: { id: projet.id }, data: { imagePath: `/media/${media.sha12}.webp`, capturesJson: JSON.stringify([capture(media.sha12)]) } });
+
+    const flagged = (await listLibrary()).filter((m) => m.regenerable).map((m) => m.id);
+    expect(flagged).toEqual([media.id]);
+    expect(await regenerateFramedCaptures()).toBe(1);
+    const next = await prisma.siteMedia.findFirstOrThrow({ where: { originalPath: media.originalPath, id: { not: media.id } } });
+    expect(next).toMatchObject({ width: 960, height: 600, cropRatio: null });
+    const after = await prisma.siteProject.findUniqueOrThrow({ where: { id: projet.id } });
+    expect(after.imagePath).toBe(`/media/${next.sha12}.webp`);
+    expect(after.capturesJson).toContain(`/media/${next.sha12}.webp`);
+    expect((await listLibrary()).some((m) => m.regenerable)).toBe(false);
   });
 });

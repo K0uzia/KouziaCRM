@@ -75,6 +75,9 @@ export const realisationValue = z.strictObject({
   detail: z
     .strictObject({
       description: siteText.max(300),
+      /** Étude de cas (feat/etude-de-cas du site) : nature du projet et durée, facultatives. */
+      nature: z.enum(["refonte", "creation"]).optional(),
+      duree: siteText.max(40).optional(),
       contexte: siteText.max(1500).optional(),
       clientNom: siteText.max(100).optional(),
       accordClient: z.boolean().optional(),
@@ -83,8 +86,16 @@ export const realisationValue = z.strictObject({
       demarche: siteText.max(1500).optional(),
       choix: siteText.max(1500).optional(),
       resultat: siteText.max(1500).optional(),
+      /** vue : absente = bureau ; ratio libre (aucun recadrage d'office). */
       captures: z
-        .array(z.strictObject({ image: z.string().regex(/^\/media\/[a-f0-9]{12}\.webp$/), alt: siteText.max(200), legende: siteText.max(150).optional() }))
+        .array(
+          z.strictObject({
+            image: z.string().regex(/^\/media\/[a-f0-9]{12}\.webp$/),
+            alt: siteText.max(200),
+            legende: siteText.max(150).optional(),
+            vue: z.enum(["bureau", "mobile"]).optional(),
+          }),
+        )
         .min(1)
         .max(6)
         .optional(),

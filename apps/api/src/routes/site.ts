@@ -34,10 +34,19 @@ import {
   saveSiteImage,
   SiteMediaError,
   SITE_MEDIA_MAX_INPUT_BYTES,
+  parseCropRatio,
 } from "@/lib/site/media.js";
 import { readPagesDefaults } from "@/lib/site/pages.js";
 import { HistoryError, publicationDetail, restoreVersion } from "@/lib/site/history.js";
-import { adoptMissingMedia, deleteLibraryMedia, LibraryError, libraryPath, listLibrary, recropLibraryMedia } from "@/lib/site/library.js";
+import {
+  adoptMissingMedia,
+  deleteLibraryMedia,
+  LibraryError,
+  libraryPath,
+  listLibrary,
+  recropLibraryMedia,
+  regenerateFramedCaptures,
+} from "@/lib/site/library.js";
 import { issuedPdfAbsolutePath } from "@/lib/pdf/issued-archive.js";
 import { mkdir, readFile, unlink } from "node:fs/promises";
 import { createWriteStream } from "node:fs";
@@ -86,9 +95,20 @@ const projectInput = z.strictObject({
   clientIntro: blankToNull(siteText.max(800)),
   clientName: blankToNull(siteText.max(100)),
   captures: z
-    .array(z.strictObject({ image: z.string().regex(/^\/media\/[a-f0-9]{12}\.webp$/, "Capture : image de la médiathèque"), alt: siteText.max(200), caption: blankToNull(siteText.max(150)) }))
+    .array(
+      z.strictObject({
+        image: z.string().regex(/^\/media\/[a-f0-9]{12}\.webp$/, "Capture : image de la médiathèque"),
+        alt: siteText.max(200),
+        caption: blankToNull(siteText.max(150)),
+        // Absente = bureau (contrat du site, detail.captures[].vue).
+        vue: z.enum(["bureau", "mobile"]).default("bureau"),
+      }),
+    )
     .max(6)
     .default([]),
+  // Étude de cas : nature du projet et durée (« 3 semaines »), facultatives.
+  nature: z.enum(["refonte", "creation"]).nullish(),
+  duree: blankToNull(siteText.max(40)),
   links: z
     .array(z.strictObject({ label: siteText.max(60), url: httpsUrl.refine((u) => !CODE_HOSTS.test(u), "Lien vers du code source interdit (charte)") }))
     .max(4)
@@ -413,7 +433,11 @@ export const siteRoutes: FastifyPluginAsync = async (app) => {
     resultText: d.result ?? null,
     clientIntro: d.clientIntro ?? null,
     clientName: d.clientName ?? null,
-    capturesJson: d.captures.length ? JSON.stringify(d.captures.map((c) => ({ image: c.image, alt: c.alt, ...(c.caption ? { caption: c.caption } : {}) }))) : null,
+    capturesJson: d.captures.length
+      ? JSON.stringify(d.captures.map((c) => ({ image: c.image, alt: c.alt, ...(c.caption ? { caption: c.caption } : {}), ...(c.vue === "mobile" ? { vue: c.vue } : {}) })))
+      : null,
+    nature: d.nature ?? null,
+    duree: d.duree ?? null,
     linksJson: d.links.length ? JSON.stringify(d.links) : null,
     avantApresJson: d.avantApres.length
       ? JSON.stringify(
@@ -907,15 +931,39 @@ export const siteRoutes: FastifyPluginAsync = async (app) => {
     }),
   );
 
-  // Recadrage autour d'un point d'intérêt (0 à 1) : nouvelle version, fiches repointées.
+  // Nouvelle version, fiches repointées. Point d'intérêt (0 à 1) : image de partage, ou capture recadrée au format
+  // choisi (ratio « 16:10 », « 16:9 », « l:h » de l'autre image d'une paire). Capture sans ratio : format d'origine.
   app.post(
     "/api/site/media/:id/recadrage",
     admin(async (request, reply) => {
-      const body = z.strictObject({ x: z.number().min(0).max(1), y: z.number().min(0).max(1) }).safeParse(request.body);
+      const body = z
+        .strictObject({
+          x: z.number().min(0).max(1).optional(),
+          y: z.number().min(0).max(1).optional(),
+          ratio: z
+            .string()
+            .refine((r) => parseCropRatio(r) !== null, "Format attendu : largeur:hauteur, par exemple 16:10")
+            .nullish(),
+        })
+        .refine((b) => (b.x === undefined) === (b.y === undefined), "Point d'intérêt incomplet")
+        .safeParse(request.body);
       if (!body.success) return invalid(reply, body.error);
+      const focal = body.data.x !== undefined && body.data.y !== undefined ? { x: body.data.x, y: body.data.y } : null;
       try {
-        const media = await recropLibraryMedia(mediaId(request), body.data);
+        const media = await recropLibraryMedia(mediaId(request), focal, body.data.ratio ?? null);
         return { ...media, path: libraryPath(media) };
+      } catch (e) {
+        return libraryError(reply, e);
+      }
+    }),
+  );
+
+  // Captures recadrées d'office avant le 23/10/2026 : toutes refaites sans recadrage depuis leur original.
+  app.post(
+    "/api/site/media/regeneration",
+    admin(async (_request, reply) => {
+      try {
+        return { regenerated: await regenerateFramedCaptures() };
       } catch (e) {
         return libraryError(reply, e);
       }

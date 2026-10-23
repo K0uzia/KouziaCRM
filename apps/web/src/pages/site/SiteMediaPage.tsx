@@ -6,7 +6,8 @@ import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { Badge, Card, PageHeader } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
-import { Field, Input } from "@/components/ui/Field";
+import { Field, Input, Select } from "@/components/ui/Field";
+import { Banner } from "@/components/ui/Banner";
 import { Modal } from "@/components/ui/Modal";
 import { FilterBar, FilterSelect } from "@/components/ui/ListFilters";
 import { useUrlFilters } from "@/lib/use-url-filters";
@@ -33,8 +34,8 @@ const ACCEPT: Record<MediaKind, string> = {
   LOGO: "image/svg+xml,image/png,image/webp,image/jpeg,image/avif",
   PARTAGE: "image/jpeg,image/png,image/webp,image/avif",
 };
-/** Proportions des cadres recadrés (largeur / hauteur), comme l'API. */
-const FRAME_RATIO: Partial<Record<MediaKind, number>> = { CAPTURE: 16 / 9, MOBILE: 390 / 844, PARTAGE: 1200 / 630 };
+/** Cadre fixe, toujours recadré : l'image de partage seulement (les captures gardent leur format, décision du 23/10/2026). */
+const FRAME_RATIO: Partial<Record<MediaKind, number>> = { PARTAGE: 1200 / 630 };
 const kb = new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 0 });
 const size = (bytes: number) => `${kb.format(bytes / 1000)} Ko`;
 
@@ -110,6 +111,26 @@ export function SiteMediaPage() {
   }, [loading, usage, previous.length]);
   const opened = rows.find((m) => m.id === openId) ?? null;
   const busy = uploads.some((u) => u.state === "pending");
+  // Captures coupées d'office avant le 23/10/2026 : régénérables depuis leur original, sur demande.
+  const regenerable = current.filter((m) => m.regenerable);
+  const [regenerating, setRegenerating] = useState(false);
+
+  async function regenerateAll() {
+    setRegenerating(true);
+    try {
+      const { regenerated } = await api<{ regenerated: number }>("/api/site/media/regeneration", { method: "POST" });
+      await reload();
+      toast.success(
+        regenerated
+          ? `${regenerated} capture${regenerated > 1 ? "s" : ""} régénérée${regenerated > 1 ? "s" : ""} sans recadrage : les fiches qui les utilisent passent en « Modifié », à publier`
+          : "Aucune capture à régénérer",
+      );
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Régénération impossible");
+    } finally {
+      setRegenerating(false);
+    }
+  }
 
   // Envoi l'un après l'autre : le serveur traite une image à la fois (sharp, mémoire bornée).
   async function send(files: File[]) {
@@ -157,6 +178,23 @@ export function SiteMediaPage() {
             { label: "En ligne", value: unknownOnline ? "?" : rows.filter((m) => m.online).length, hint: unknownOnline ? "Connu après la prochaine publication" : "Dernière publication" },
           ]}
         />
+
+        {regenerable.length ? (
+          <Banner
+            level="warning"
+            className="mb-4"
+            action={
+              <Button onClick={() => void regenerateAll()} disabled={regenerating}>
+                {regenerating ? "Régénération…" : "Tout régénérer"}
+              </Button>
+            }
+          >
+            {regenerable.length > 1 ? `${regenerable.length} captures recadrées` : "1 capture recadrée"}
+            {regenerable.every((m) => m.kind === "CAPTURE") ? " en 16:9" : " d'office (16:9 ou format téléphone)"}
+            {regenerable.length > 1 ? " peuvent être régénérées" : " peut être régénérée"} sans recadrage, depuis l'original. Les fiches qui les
+            utilisent passent en « Modifié », à publier.
+          </Banner>
+        ) : null}
 
         <Card className="mb-4 space-y-3 p-4">
           <div className="space-y-1.5">
@@ -248,7 +286,8 @@ export function SiteMediaPage() {
                     onClick={() => setOpenId(m.id)}
                     className="flex h-full min-h-11 w-full flex-col gap-2 rounded-[var(--radius)] border border-[var(--border)] bg-[var(--surface)] p-2 text-left transition-colors hover:border-[var(--primary)]"
                   >
-                    <SiteImage path={m.path} alt="" className={`aspect-video w-full rounded-[var(--radius-sm)] ${m.kind === "CAPTURE" ? "" : "object-contain"}`} />
+                    {/* Vignette entière : la capture garde son format, rien n'est coupé à l'aperçu. */}
+                    <SiteImage path={m.path} alt="" className="aspect-video w-full rounded-[var(--radius-sm)] object-contain" />
                     <span className="min-w-0">
                       <span className="block truncate text-sm font-medium" title={mediaName(m)}>
                         {mediaName(m)}
@@ -368,7 +407,7 @@ function MediaDetail({ media, onClose, onChanged }: { media: LibraryMedia; onClo
         <SiteImage
           path={media.path}
           alt={`Version publiée de ${mediaName(media)}`}
-          className={`rounded-[var(--radius-sm)] border border-[var(--border)] ${media.kind === "MOBILE" ? "mx-auto aspect-[9/19.5] w-40" : media.kind === "LOGO" ? "h-24 w-full object-contain" : "aspect-video w-full"}`}
+          className={`rounded-[var(--radius-sm)] border border-[var(--border)] object-contain ${media.kind === "MOBILE" ? "mx-auto h-auto max-h-[60vh] w-40" : media.kind === "LOGO" ? "h-24 w-full" : "h-auto w-full"}`}
         />
 
         <form onSubmit={saveLabel} className="space-y-1.5">
@@ -445,9 +484,25 @@ function MediaDetail({ media, onClose, onChanged }: { media: LibraryMedia; onClo
   );
 }
 
-/** Recadrage d'une capture autour d'un point d'intérêt, choisi sur l'original (clic ou curseurs au clavier). */
+/**
+ * Recadrage depuis l'original. Image de partage : cadre fixe 1200×630, autour du point d'intérêt. Capture (ordinateur
+ * ou téléphone) : format d'origine par défaut, sans rien couper ; 16:10, 16:9 ou le format de l'autre image d'une paire
+ * avant / après au choix, autour du point d'intérêt (décision du 23/10/2026).
+ */
 function Recrop({ media, onDone }: { media: LibraryMedia; onDone: (id: string) => Promise<void> }) {
-  const ratio = FRAME_RATIO[media.kind];
+  const capture = media.kind === "CAPTURE" || media.kind === "MOBILE";
+  const formats = useMemo(() => {
+    if (!capture) return [];
+    const list = [
+      { id: "", label: "Format d'origine, sans recadrage" },
+      { id: "16:10", label: "16:10" },
+      { id: "16:9", label: "16:9" },
+      ...media.pairFormats.map((f) => ({ id: f.ratio, label: `Format de l'autre image : ${f.ratio.replace(":", "×")} (${f.label})` })),
+    ];
+    return list.filter((f, i) => list.findIndex((g) => g.id === f.id) === i);
+  }, [capture, media.pairFormats]);
+  const [format, setFormat] = useState(media.cropRatio ?? "");
+  const ratio = FRAME_RATIO[media.kind] ?? parseRatio(format);
   const saved = useMemo(() => ({ x: media.focalX ?? 0.5, y: media.focalY ?? (media.kind === "MOBILE" ? 0 : 0.5) }), [media]);
   const [focal, setFocal] = useState(saved);
   const [natural, setNatural] = useState<{ w: number; h: number } | null>(null);
@@ -457,7 +512,7 @@ function Recrop({ media, onDone }: { media: LibraryMedia; onDone: (id: string) =
   const yId = useId();
   useEffect(() => setFocal(saved), [saved]);
 
-  if (!ratio) {
+  if (media.kind === "LOGO") {
     return (
       <section aria-labelledby="media-recrop">
         <h3 id="media-recrop" className="font-semibold">
@@ -481,19 +536,21 @@ function Recrop({ media, onDone }: { media: LibraryMedia; onDone: (id: string) =
     );
   }
 
-  const box = natural ? cropBox(natural.w, natural.h, ratio, focal) : null;
-  const changed = Math.abs(focal.x - saved.x) > 0.005 || Math.abs(focal.y - saved.y) > 0.005 || media.focalX === null;
+  const box = natural && ratio ? cropBox(natural.w, natural.h, ratio, focal) : null;
+  const focalMoved = Math.abs(focal.x - saved.x) > 0.005 || Math.abs(focal.y - saved.y) > 0.005 || media.focalX === null;
+  const changed = capture
+    ? format !== (media.cropRatio ?? "") || (format !== "" && focalMoved) || (format === "" && media.regenerable)
+    : focalMoved;
+  const toOriginal = capture && format === "";
   const pct = (v: number) => `${(v * 100).toFixed(2)}%`;
 
   async function apply() {
     setBusy(true);
     try {
-      const next = await api<{ id: string }>(`/api/site/media/${media.id}/recadrage`, { method: "POST", body: JSON.stringify(focal) });
-      toast.success(
-        media.usages.length
-          ? "Image recadrée : les fiches qui l'utilisent passent en « Modifié », à publier"
-          : "Image recadrée",
-      );
+      const body = toOriginal ? { ratio: null } : { ...focal, ...(capture ? { ratio: format } : {}) };
+      const next = await api<{ id: string }>(`/api/site/media/${media.id}/recadrage`, { method: "POST", body: JSON.stringify(body) });
+      const what = toOriginal ? "Image remise à son format d'origine" : "Image recadrée";
+      toast.success(media.usages.length ? `${what} : les fiches qui l'utilisent passent en « Modifié », à publier` : what);
       await onDone(next.id);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Recadrage impossible");
@@ -509,14 +566,28 @@ function Recrop({ media, onDone }: { media: LibraryMedia; onDone: (id: string) =
           Recadrage
         </h3>
         <p className="mt-1 text-[var(--muted)]">
-          Cliquer sur l'original pour placer le point d'intérêt : la zone claire est celle publiée. Recadrer crée une nouvelle version ; l'ancienne reste en
-          ligne jusqu'à la prochaine publication.
+          {capture
+            ? "Par défaut, la capture garde son format et rien n'est coupé. Choisir un format pour la recadrer, puis placer le point d'intérêt sur l'original : la zone claire est celle publiée."
+            : "Cliquer sur l'original pour placer le point d'intérêt : la zone claire est celle publiée."}{" "}
+          Chaque changement crée une nouvelle version ; l'ancienne reste en ligne jusqu'à la prochaine publication.
         </p>
       </div>
+      {capture ? (
+        <Field label="Format publié">
+          <Select value={format} onChange={(e) => setFormat(e.target.value)}>
+            {formats.map((f) => (
+              <option key={f.id || "origine"} value={f.id}>
+                {f.label}
+              </option>
+            ))}
+          </Select>
+        </Field>
+      ) : null}
       {/* Clic : raccourci souris ; les curseurs ci-dessous donnent le même réglage au clavier. */}
       <div
-        className="relative mx-auto w-fit max-w-full cursor-crosshair overflow-hidden rounded-[var(--radius-sm)] border border-[var(--border)]"
+        className={`relative mx-auto w-fit max-w-full overflow-hidden rounded-[var(--radius-sm)] border border-[var(--border)] ${ratio ? "cursor-crosshair" : ""}`}
         onClick={(e) => {
+          if (!ratio) return;
           const r = e.currentTarget.getBoundingClientRect();
           setFocal({ x: Math.min(Math.max((e.clientX - r.left) / r.width, 0), 1), y: Math.min(Math.max((e.clientY - r.top) / r.height, 0), 1) });
         }}
@@ -535,27 +606,37 @@ function Recrop({ media, onDone }: { media: LibraryMedia; onDone: (id: string) =
             style={{ left: pct(box.left), top: pct(box.top), width: pct(box.width), height: pct(box.height) }}
           />
         ) : null}
-        <span
-          aria-hidden
-          className="pointer-events-none absolute h-4 w-4 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-[var(--primary-fg)] bg-[var(--primary)]"
-          style={{ left: pct(focal.x), top: pct(focal.y) }}
-        />
+        {ratio ? (
+          <span
+            aria-hidden
+            className="pointer-events-none absolute h-4 w-4 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-[var(--primary-fg)] bg-[var(--primary)]"
+            style={{ left: pct(focal.x), top: pct(focal.y) }}
+          />
+        ) : null}
       </div>
-      <fieldset className="grid gap-3 sm:grid-cols-2">
-        <legend className="mb-2 font-medium">Point d'intérêt</legend>
-        <label htmlFor={xId} className="block space-y-1">
-          <span className="block">Horizontal : {Math.round(focal.x * 100)} %</span>
-          <input id={xId} type="range" min={0} max={100} step={1} value={Math.round(focal.x * 100)} onChange={(e) => setFocal((f) => ({ ...f, x: Number(e.target.value) / 100 }))} className="h-11 w-full accent-[var(--primary)]" />
-        </label>
-        <label htmlFor={yId} className="block space-y-1">
-          <span className="block">Vertical : {Math.round(focal.y * 100)} %</span>
-          <input id={yId} type="range" min={0} max={100} step={1} value={Math.round(focal.y * 100)} onChange={(e) => setFocal((f) => ({ ...f, y: Number(e.target.value) / 100 }))} className="h-11 w-full accent-[var(--primary)]" />
-        </label>
-      </fieldset>
+      {ratio ? (
+        <fieldset className="grid gap-3 sm:grid-cols-2">
+          <legend className="mb-2 font-medium">Point d'intérêt</legend>
+          <label htmlFor={xId} className="block space-y-1">
+            <span className="block">Horizontal : {Math.round(focal.x * 100)} %</span>
+            <input id={xId} type="range" min={0} max={100} step={1} value={Math.round(focal.x * 100)} onChange={(e) => setFocal((f) => ({ ...f, x: Number(e.target.value) / 100 }))} className="h-11 w-full accent-[var(--primary)]" />
+          </label>
+          <label htmlFor={yId} className="block space-y-1">
+            <span className="block">Vertical : {Math.round(focal.y * 100)} %</span>
+            <input id={yId} type="range" min={0} max={100} step={1} value={Math.round(focal.y * 100)} onChange={(e) => setFocal((f) => ({ ...f, y: Number(e.target.value) / 100 }))} className="h-11 w-full accent-[var(--primary)]" />
+          </label>
+        </fieldset>
+      ) : null}
       <Button variant="secondary" onClick={() => void apply()} disabled={busy || !changed}>
         <FontAwesomeIcon icon={faCrop} className="h-3.5 w-3.5" aria-hidden />
-        {busy ? "Recadrage…" : "Appliquer le recadrage"}
+        {busy ? "Enregistrement…" : toOriginal ? (media.regenerable ? "Régénérer sans recadrage" : "Revenir au format d'origine") : "Appliquer le recadrage"}
       </Button>
     </section>
   );
+}
+
+/** « 16:10 », « 1440:900 » : largeur sur hauteur, comme parseCropRatio côté API ; null pour le format d'origine. */
+function parseRatio(value: string): number | null {
+  const m = /^(\d{1,5}):(\d{1,5})$/.exec(value);
+  return m ? Number(m[1]) / Number(m[2]) : null;
 }
