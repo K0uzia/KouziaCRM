@@ -574,7 +574,7 @@ export function SiteReviewPage() {
         subtitle={editing ? <TestimonialState r={editing} /> : undefined}
       />
       <LoadState loading={ed.loading} error={ed.loadError} onRetry={() => void ed.load()}>
-        <form onSubmit={ed.onSubmit} noValidate>
+        <form onSubmit={ed.onSubmit} onBlur={ed.onBlur} noValidate>
           <EditorLayout
             label="Sections du témoignage"
             tabs={[

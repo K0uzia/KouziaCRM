@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
+import { useCallback, useEffect, useId, useRef, useState, type FocusEvent, type FormEvent, type ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
+import { faDesktop, faMobileScreen } from "@fortawesome/free-solid-svg-icons";
 import { api } from "@/lib/api";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
@@ -21,37 +22,54 @@ export type SaveState =
   | { kind: "saved"; at: Date }
   | { kind: "error"; message: string };
 
+/** Refus avant l'envoi (champ obligatoire vide, format) : les champs sont signalés, réessayer tel quel ne sert à rien. */
+export class IncompleteFieldsError extends Error {
+  constructor() {
+    super("champs à compléter");
+  }
+}
+
 /**
- * Enregistre `value` après une pause de frappe (`delay` ms), un enregistrement à la fois ; au départ de l'écran,
- * ce qui reste est envoyé. `reset(v)` déclare `v` comme déjà enregistré (après chargement). Rien n'est envoyé tant
- * que `enabled` est faux (création : le bouton Créer reste explicite). `save` rejette avec l'erreur de l'API ;
- * à l'appelant d'en tirer les erreurs par champ.
+ * Enregistre `value` après une pause de frappe (`delay` ms) ou à la sortie d'un champ (`flush`), un enregistrement à
+ * la fois ; au départ de l'écran, ce qui reste est envoyé. `reset(v)` déclare `v` comme déjà enregistré (après
+ * chargement). Rien n'est envoyé tant que `enabled` est faux (création : le bouton Créer reste explicite). `save`
+ * rejette avec l'erreur de l'API ; à l'appelant d'en tirer les erreurs par champ. Retour par un seul toast (même
+ * identifiant, remplacé à chaque enregistrement) : « Enregistré », ou l'erreur avec « Réessayer ».
  */
-export function useAutosave<T>(value: T, save: (v: T) => Promise<void>, enabled: boolean, delay = 1000) {
-  const key = JSON.stringify(value);
+export function useAutosave<T>(value: T, save: (v: T) => Promise<void>, enabled: boolean, delay = 1500, keyOf: (v: T) => string = (v) => JSON.stringify(v)) {
+  const keyOfRef = useRef(keyOf);
+  keyOfRef.current = keyOf;
+  const key = keyOf(value);
   const clean = useRef<string | null>(null);
   const pending = useRef<Promise<void> | null>(null);
   const latest = useRef({ value, key, save, enabled });
   latest.current = { value, key, save, enabled };
   const [state, setState] = useState<SaveState>({ kind: "idle" });
+  const toastId = useId();
 
   const run = useCallback(async (): Promise<void> => {
     while (pending.current) await pending.current;
-    const { value: v, key: k, save: s } = latest.current;
-    if (clean.current === null || k === clean.current) return;
+    const { value: v, key: k, save: s, enabled: on } = latest.current;
+    if (!on || clean.current === null || k === clean.current) return;
     setState({ kind: "saving" });
     const p = s(v).then(
       () => {
         clean.current = k;
         setState(latest.current.key === k ? { kind: "saved", at: new Date() } : { kind: "dirty" });
+        toast.success("Enregistré", { id: toastId, action: undefined });
       },
-      (e: unknown) => setState({ kind: "error", message: e instanceof Error ? e.message : "Enregistrement impossible" }),
+      (e: unknown) => {
+        const message = e instanceof Error ? e.message : "Enregistrement impossible";
+        setState({ kind: "error", message });
+        if (e instanceof IncompleteFieldsError) toast.error("Non enregistré : champs à compléter, voir les onglets signalés.", { id: toastId, action: undefined });
+        else toast.error(`Non enregistré : ${message}`, { id: toastId, action: { label: "Réessayer", onClick: () => void run() } });
+      },
     );
     pending.current = p.finally(() => {
       pending.current = null;
     });
     await pending.current;
-  }, []);
+  }, [toastId]);
 
   useEffect(() => {
     if (!enabled || clean.current === null) return;
@@ -79,12 +97,17 @@ export function useAutosave<T>(value: T, save: (v: T) => Promise<void>, enabled:
   useLeaveGuard(dirty || state.kind === "saving");
 
   const reset = useCallback((v: T) => {
-    clean.current = JSON.stringify(v);
+    clean.current = keyOfRef.current(v);
     setState({ kind: "idle" });
   }, []);
 
   return { state, dirty, reset, flush: run };
 }
+
+/** Sortie d'un champ du formulaire : ce qui a changé part sans attendre la pause de frappe. */
+export const flushOnFieldBlur = (flush: () => Promise<void>) => (e: FocusEvent<HTMLFormElement>) => {
+  if (e.target instanceof HTMLElement && e.target.matches("input, textarea, select")) void flush();
+};
 
 /**
  * Fiche d'un élément d'une collection du site (réalisation, question, référence, témoignage) : chargement, formulaire,
@@ -136,7 +159,7 @@ export function useItemEditor<T extends { id: string }, F>({
     async (f: F) => {
       const local = validate(f, itemRef.current);
       setErrors(local);
-      if (Object.keys(local).length) throw new Error("champs à compléter");
+      if (Object.keys(local).length) throw new IncompleteFieldsError();
       try {
         setItem(await api<T>(`${base}/${id}`, { method: "PUT", body: JSON.stringify(toBody(f, itemRef.current)) }));
       } catch (err) {
@@ -147,7 +170,8 @@ export function useItemEditor<T extends { id: string }, F>({
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [base, id],
   );
-  const auto = useAutosave(form, save, !creating && Boolean(item));
+  // Clé : le corps envoyé à l'API ; un état propre à l'écran (texte « proposé ») ne déclenche pas d'enregistrement.
+  const auto = useAutosave(form, save, !creating && Boolean(item), undefined, (f) => JSON.stringify(toBody(f, itemRef.current)));
 
   const load = useCallback(async () => {
     if (creating) return;
@@ -156,6 +180,7 @@ export function useItemEditor<T extends { id: string }, F>({
       const found = (await api<T[]>(base)).find((r) => r.id === id);
       if (!found) throw new Error(labels.notFound);
       const loaded = toForm(found);
+      itemRef.current = found;
       setItem(found);
       setForm(loaded);
       auto.reset(loaded);
@@ -222,7 +247,8 @@ export function useItemEditor<T extends { id: string }, F>({
   };
   const countErrors = (fields: readonly string[]) => fields.filter((f) => errors[f]).length;
 
-  return { item, setItem, form, setForm, set, loading, loadError, load, errors, setErrors, busy, setBusy, auto, onSubmit, remove, countErrors };
+  const onBlur = flushOnFieldBlur(auto.flush);
+  return { item, setItem, form, setForm, set, loading, loadError, load, errors, setErrors, busy, setBusy, auto, onSubmit, onBlur, remove, countErrors };
 }
 
 /**
@@ -249,7 +275,7 @@ export function useDocumentEditor<D, V>({
     async (draft: D) => {
       const local = validate(draft);
       setErrors(local);
-      if (Object.keys(local).length) throw new Error("champs à compléter");
+      if (Object.keys(local).length) throw new IncompleteFieldsError();
       try {
         onSaved(await api<V>(`/api/site/texts/${textKey}`, { method: "PUT", body: JSON.stringify(toValue(draft)) }));
       } catch (e) {
@@ -278,7 +304,8 @@ export function useDocumentEditor<D, V>({
     e.preventDefault();
     void auto.flush();
   };
-  return { form, setForm, set, errors, errorFor, count, auto, onSubmit };
+  const onBlur = flushOnFieldBlur(auto.flush);
+  return { form, setForm, set, errors, errorFor, count, auto, onSubmit, onBlur };
 }
 
 /** Bas de fiche : état de l'enregistrement, puis « Créer » (création) ou « Enregistrer maintenant ». */
@@ -381,8 +408,8 @@ export function EditorLayout<T extends string>({
           value={device}
           onChange={setDevice}
           options={[
-            { id: "desktop", label: "Ordinateur" },
-            { id: "phone", label: "Téléphone" },
+            { id: "desktop", label: "Ordinateur", icon: faDesktop },
+            { id: "phone", label: "Téléphone", icon: faMobileScreen },
           ]}
         />
       </div>

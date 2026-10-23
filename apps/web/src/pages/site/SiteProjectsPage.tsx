@@ -4,11 +4,12 @@ import { api } from "@/lib/api";
 import { Combobox } from "@/components/ui/Combobox";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { faArrowsUpDown, faCheck, faPlus } from "@fortawesome/free-solid-svg-icons";
+import { faArrowsUpDown, faCheck, faDesktop, faMobileScreen, faPlus } from "@fortawesome/free-solid-svg-icons";
 import { Card, PageHeader } from "@/components/ui/Card";
 import { Button, ButtonLink } from "@/components/ui/Button";
 import { EditorFooter, EditorLayout, useItemEditor } from "./editor";
 import { reorderVisible, saveIds, SortableList } from "./sortable";
+import { applyProposals, proposeCaptionText, proposeCaptureAlt, proposePairAlt, type MediaNames } from "@/lib/site-proposals";
 import { ProjectCardPreview } from "./preview";
 import { DataTable, type DataColumn } from "@/components/ui/DataTable";
 import { DateInput, Field, Input, MonthField, Select, Textarea } from "@/components/ui/Field";
@@ -179,7 +180,8 @@ const emptyForm = {
   approach: "",
   choices: "",
   result: "",
-  captures: [] as { image: string | null; alt: string; caption: string; vue: "bureau" | "mobile" }[],
+  // altAuto, captionAuto : texte proposé (suit le contexte) tant qu'il n'est pas retouché ; propre à l'écran, jamais envoyé.
+  captures: [] as { image: string | null; alt: string; caption: string; vue: "bureau" | "mobile"; altAuto?: boolean | null; captionAuto?: boolean | null }[],
   links: [] as { label: string; url: string }[],
   avantApres: [] as PairForm[],
   // Client et accord écrit
@@ -192,8 +194,8 @@ const emptyForm = {
 type AltMode = "auto" | "custom" | "decorative";
 type PairForm = {
   vue: BeforeAfterPair["vue"];
-  avant: { image: string | null; alt: string; date: string; source: string };
-  apres: { image: string | null; alt: string };
+  avant: { image: string | null; alt: string; date: string; source: string; altAuto?: boolean | null };
+  apres: { image: string | null; alt: string; altAuto?: boolean | null };
 };
 type ProjectForm = typeof emptyForm;
 
@@ -303,6 +305,45 @@ const TAB_FIELDS = {
   client: ["clientId", "clientName", "clientIntro", "consentAt", "consentNote"],
   publication: ["status"],
 } as const;
+
+/**
+ * Champ d'un texte proposé d'après le contexte (alt, légende) : signalé « proposé » tant qu'il n'est pas retouché ;
+ * retouché, il ne bouge plus et la proposition peut être reprise.
+ */
+function ProposedInput({
+  label,
+  hint,
+  max,
+  value,
+  auto,
+  proposal,
+  onChange,
+  onReset,
+}: {
+  label: string;
+  hint?: string;
+  max: number;
+  value: string;
+  auto: boolean | null | undefined;
+  proposal: string;
+  onChange: (value: string) => void;
+  onReset: () => void;
+}) {
+  const proposed = Boolean(auto && value);
+  const lead = proposed ? "Proposé d'après le projet, la vue et l'image : à corriger s'il ne décrit pas ce qu'on voit." : (hint ?? "");
+  return (
+    <div className="space-y-1">
+      <Field label={label} hint={`${lead ? `${lead} ` : ""}${value.length} / ${max}`}>
+        <Input maxLength={max} value={value} onChange={(e) => onChange(e.target.value)} />
+      </Field>
+      {!auto && proposal && value !== proposal ? (
+        <Button variant="ghost" onClick={onReset}>
+          Reprendre la proposition<span className="sr-only"> : {label}</span>
+        </Button>
+      ) : null}
+    </div>
+  );
+}
 
 /** Justificatif de l'accord écrit (PDF ou capture) : privé, jamais publié. */
 function ConsentFile({ project, onChange }: { project: SiteProject; onChange: (p: SiteProject) => void }) {
@@ -444,21 +485,32 @@ export function SiteProjectPage() {
       .then((list) => setClients([...list].sort((a, b) => a.displayName.localeCompare(b.displayName, "fr"))))
       .catch(() => toast.error("Liste des clients indisponible"));
   }, []);
-  // Dimensions des captures d'avant / après (médiathèque) : contrôle du ratio dès le choix, relu quand une image inconnue
-  // apparaît (envoi d'une nouvelle image depuis le champ).
+  // Médiathèque : dimensions des captures d'avant / après (contrôle du ratio dès le choix) et noms lisibles des images
+  // (textes proposés). Lue à l'ouverture, relue quand une image inconnue apparaît (envoi d'une nouvelle image depuis un champ).
   const [sizes, setSizes] = useState<Record<string, { width: number; height: number }>>({});
-  const pairShas = form.avantApres
-    .flatMap((x) => [sha12Of(x.avant.image), sha12Of(x.apres.image)])
+  const [names, setNames] = useState<MediaNames | null>(null);
+  const shas = [...form.captures.map((c) => c.image), ...form.avantApres.flatMap((x) => [x.avant.image, x.apres.image])]
+    .map(sha12Of)
     .filter((s): s is string => Boolean(s))
     .join(",");
   useEffect(() => {
-    if (!pairShas || pairShas.split(",").every((s) => sizes[s])) return;
+    if (names && shas.split(",").filter(Boolean).every((s) => sizes[s])) return;
     api<LibraryMedia[]>("/api/site/media")
-      .then((list) => setSizes(Object.fromEntries(list.map((m) => [m.sha12, { width: m.width, height: m.height }]))))
-      .catch(() => toast.error("Médiathèque indisponible : ratio des captures d'avant / après non vérifié"));
-    // sizes exclu : relire seulement quand les images choisies changent.
+      .then((list) => {
+        setSizes(Object.fromEntries(list.map((m) => [m.sha12, { width: m.width, height: m.height }])));
+        setNames(Object.fromEntries(list.map((m) => [m.sha12, { label: m.label, originalName: m.originalName }])));
+      })
+      .catch(() => {
+        setNames((current) => current ?? {});
+        toast.error("Médiathèque indisponible : ratio des captures d'avant / après non vérifié, textes proposés sans le nom des images");
+      });
+    // sizes et names exclus : relire seulement quand les images choisies changent.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pairShas]);
+  }, [shas]);
+  // Textes proposés (alt, légende) : appliqués une fois la médiathèque lue, puis à chaque changement de contexte.
+  useEffect(() => {
+    if (names) setForm((f) => applyProposals(f, names));
+  }, [form, names, setForm]);
   const slugLocked = Boolean(project?.publishedAt);
   const countErrors = ed.countErrors;
 
@@ -614,8 +666,8 @@ export function SiteProjectPage() {
         ...f.avantApres,
         {
           vue: f.avantApres.some((x) => x.vue === "bureau") ? "mobile" : "bureau",
-          avant: { image: null, alt: "", date: "", source: "" },
-          apres: { image: null, alt: "" },
+          avant: { image: null, alt: "", date: "", source: "", altAuto: true },
+          apres: { image: null, alt: "", altAuto: true },
         },
       ],
     }));
@@ -667,8 +719,8 @@ export function SiteProjectPage() {
               <Segmented
                 label={`Vue de la capture ${i + 1}`}
                 options={[
-                  { id: "bureau", label: "Ordinateur" },
-                  { id: "mobile", label: "Téléphone" },
+                  { id: "bureau", label: "Ordinateur", icon: faDesktop },
+                  { id: "mobile", label: "Téléphone", icon: faMobileScreen },
                 ]}
                 value={c.vue}
                 onChange={(vue) => setCapture(i, vue === c.vue ? {} : { vue, image: null })}
@@ -681,12 +733,25 @@ export function SiteProjectPage() {
               value={c.image}
               onChange={(image) => setCapture(i, { image })}
             />
-            <Field label={`Texte alternatif de la capture ${i + 1}`} hint={`Ce que montre la capture. ${c.alt.length} / 200`}>
-              <Input maxLength={200} value={c.alt} onChange={(e) => setCapture(i, { alt: e.target.value })} />
-            </Field>
-            <Field label={`Légende de la capture ${i + 1} (facultatif)`} hint={`${c.caption.length} / 150`}>
-              <Input maxLength={150} value={c.caption} onChange={(e) => setCapture(i, { caption: e.target.value })} />
-            </Field>
+            <ProposedInput
+              label={`Texte alternatif de la capture ${i + 1}`}
+              hint="Ce que montre la capture."
+              max={200}
+              value={c.alt}
+              auto={c.altAuto}
+              proposal={names ? proposeCaptureAlt(form, form.captures, i, names) : ""}
+              onChange={(alt) => setCapture(i, { alt, altAuto: false })}
+              onReset={() => setCapture(i, { altAuto: true })}
+            />
+            <ProposedInput
+              label={`Légende de la capture ${i + 1} (facultatif)`}
+              max={150}
+              value={c.caption}
+              auto={c.captionAuto}
+              proposal={names ? proposeCaptionText(c, names) : ""}
+              onChange={(caption) => setCapture(i, { caption, captionAuto: false })}
+              onReset={() => setCapture(i, { captionAuto: true })}
+            />
             <Button variant="danger-ghost" onClick={() => setForm((f) => ({ ...f, captures: f.captures.filter((_, j) => j !== i) }))}>
               Retirer la capture {i + 1}
             </Button>
@@ -698,7 +763,7 @@ export function SiteProjectPage() {
           </p>
         ) : null}
         {form.captures.length < 6 ? (
-          <Button variant="secondary" onClick={() => setForm((f) => ({ ...f, captures: [...f.captures, { image: null, alt: "", caption: "", vue: "bureau" }] }))}>
+          <Button variant="secondary" onClick={() => setForm((f) => ({ ...f, captures: [...f.captures, { image: null, alt: "", caption: "", vue: "bureau", altAuto: true, captionAuto: true }] }))}>
             <FontAwesomeIcon icon={faPlus} className="h-3.5 w-3.5" aria-hidden />
             Ajouter une capture
           </Button>
@@ -728,9 +793,16 @@ export function SiteProjectPage() {
               <div className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,20rem),1fr))] gap-6">
                 <div className="min-w-0 space-y-3">
                   <ImageField label={`Capture d'avant (${n})`} kind={kind} allowRepoPath={false} value={x.avant.image} onChange={(image) => setPair(i, "avant", { image })} />
-                  <Field label={`Texte alternatif de la capture d'avant (${n})`} hint={`Ce que montre la capture d'avant. ${x.avant.alt.length} / 200`}>
-                    <Input maxLength={200} value={x.avant.alt} onChange={(e) => setPair(i, "avant", { alt: e.target.value })} />
-                  </Field>
+                  <ProposedInput
+                    label={`Texte alternatif de la capture d'avant (${n})`}
+                    hint="Ce que montre la capture d'avant."
+                    max={200}
+                    value={x.avant.alt}
+                    auto={x.avant.altAuto}
+                    proposal={proposePairAlt(form, x, "avant")}
+                    onChange={(alt) => setPair(i, "avant", { alt, altAuto: false })}
+                    onReset={() => setPair(i, "avant", { altAuto: true })}
+                  />
                   <MonthField label={`Date de l'archive (${n})`} hint="Mois de la capture d'avant." value={x.avant.date} onChange={(date) => setPair(i, "avant", { date })} />
                   <Field label={`Source de l'archive (${n}, facultatif)`} hint="Adresse web.archive.org de la capture, affichée en petit.">
                     <Input
@@ -752,9 +824,16 @@ export function SiteProjectPage() {
                     onChange={(image) => setPair(i, "apres", { image })}
                     error={ratio ?? undefined}
                   />
-                  <Field label={`Texte alternatif de la capture d'après (${n})`} hint={`Ce que montre la capture d'après. ${x.apres.alt.length} / 200`}>
-                    <Input maxLength={200} value={x.apres.alt} onChange={(e) => setPair(i, "apres", { alt: e.target.value })} />
-                  </Field>
+                  <ProposedInput
+                    label={`Texte alternatif de la capture d'après (${n})`}
+                    hint="Ce que montre la capture d'après."
+                    max={200}
+                    value={x.apres.alt}
+                    auto={x.apres.altAuto}
+                    proposal={proposePairAlt(form, x, "apres")}
+                    onChange={(alt) => setPair(i, "apres", { alt, altAuto: false })}
+                    onReset={() => setPair(i, "apres", { altAuto: true })}
+                  />
                 </div>
               </div>
               <Button variant="danger-ghost" onClick={() => setForm((f) => ({ ...f, avantApres: f.avantApres.filter((_, j) => j !== i) }))}>
@@ -874,7 +953,7 @@ export function SiteProjectPage() {
         subtitle={project ? <StatusBadge row={project} /> : undefined}
       />
       <LoadState loading={ed.loading} error={ed.loadError} onRetry={() => void ed.load()}>
-        <form onSubmit={ed.onSubmit} noValidate>
+        <form onSubmit={ed.onSubmit} onBlur={ed.onBlur} noValidate>
           <EditorLayout
             label="Sections de la réalisation"
             tabs={[
