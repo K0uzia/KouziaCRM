@@ -16,9 +16,16 @@ export async function enqueueEmail(
   payload: OutboxPayload,
   opts: EnqueueOptions = {},
 ): Promise<EnqueueResult> {
+  const { needsReview } = await import("@/lib/email/review.js");
+  const awaitingReview = opts.review ? await needsReview(opts.review) : false;
   const row = await prisma.emailOutbox.create({
     data: {
-      status: EmailOutboxStatus.PENDING,
+      status: awaitingReview ? EmailOutboxStatus.REVIEW : EmailOutboxStatus.PENDING,
+      origin: opts.review?.origin ?? null,
+      reviewFamily: opts.review?.family ?? null,
+      reviewKind: payload.kind ?? null,
+      documentId: payload.documentId ?? null,
+      clientWaiting: opts.review?.clientWaiting ?? false,
       maxAttempts: opts.maxAttempts ?? 3,
       scheduledAt: opts.scheduledAt ?? new Date(),
       // Contenu chiffré au repos ; l'ancienne colonne en clair reste vide.
@@ -26,7 +33,7 @@ export async function enqueueEmail(
       payloadEncrypted: encrypt(serializePayload(payload)),
     },
   });
-  return { outboxId: row.id, messageId: generateMessageId(row.id) };
+  return { outboxId: row.id, messageId: generateMessageId(row.id), awaitingReview };
 }
 
 export async function claimPendingOutbox(limit: number) {

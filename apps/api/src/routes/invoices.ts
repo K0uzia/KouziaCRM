@@ -522,7 +522,8 @@ export const invoicesRoutes: FastifyPluginAsync = async (app) => {
     }
 
     try {
-      enqueued = (await sendDueReminders()) + (await sendDueDepositReminders());
+      // Clic « Relancer maintenant » : les relances automatiques gardent la validation (aucune n'a été relue).
+      enqueued = (await sendDueReminders(new Date(), "ADMIN_ACTION")) + (await sendDueDepositReminders(new Date(), "ADMIN_ACTION"));
     } catch (e) {
       errors.push(e instanceof Error ? e.message : "Enqueue relances impossible");
     }

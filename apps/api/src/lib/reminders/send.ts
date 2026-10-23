@@ -10,6 +10,8 @@ import {
 import { listPendingReminders, markReminderQueued } from "@/lib/reminders.js";
 import { clausesForClient, fillClauseVariables, listActiveLegalClauses } from "@/lib/company/legal-clauses.js";
 import { getCompanySettings } from "@/lib/company.js";
+import { prisma } from "@/lib/prisma.js";
+import type { EmailOrigin } from "@/lib/email/review.js";
 
 type PendingInvoice = Awaited<ReturnType<typeof listPendingReminders>>[number];
 
@@ -27,7 +29,8 @@ export async function penaltyClauseText(clientType: string | null | undefined): 
 }
 
 /** Enfile les relances dues via EmailOutbox (si SMTP configuré). */
-export async function sendDueReminders(now: Date = new Date()): Promise<number> {
+/** origin : WORKER (chaque heure) ou ADMIN_ACTION (« Relancer maintenant » des relances automatiques). */
+export async function sendDueReminders(now: Date = new Date(), origin: EmailOrigin = "WORKER"): Promise<number> {
   if (!(await isSmtpConfigured())) {
     console.warn("[reminders] SMTP non configuré, relances ignorées");
     return 0;
@@ -60,19 +63,25 @@ export async function sendDueReminders(now: Date = new Date()): Promise<number> 
         brand,
         ...(kind === "reminder_formal" ? { penaltyText: await penaltyClauseText(invoice.client.type) } : {}),
       });
-      await mailEnqueue({
-        to,
-        subject: built.subject,
-        text: built.text,
-        html: built.html,
-        clientId: invoice.clientId,
-        documentId: invoice.id,
-        documentNumber: invoice.number ?? undefined,
-        kind,
-        reminderInvoiceId: invoice.id,
-        bodyTextForMessage: built.text,
-      });
-      await markReminderQueued(invoice.id, now);
+      const { awaitingReview } = await mailEnqueue(
+        {
+          to,
+          subject: built.subject,
+          text: built.text,
+          html: built.html,
+          clientId: invoice.clientId,
+          documentId: invoice.id,
+          documentNumber: invoice.number ?? undefined,
+          kind,
+          reminderInvoiceId: invoice.id,
+          bodyTextForMessage: built.text,
+        },
+        { review: { family: kind === "reminder_formal" ? "formal_notice" : "reminder", origin } },
+      );
+      // En attente de validation : hors sélection (nextReminderAt nul) tant qu'elle n'est ni envoyée ni refusée,
+      // sinon le worker en remettrait une copie chaque heure.
+      if (awaitingReview) await prisma.invoice.update({ where: { id: invoice.id }, data: { nextReminderAt: null } });
+      else await markReminderQueued(invoice.id, now);
       queued += 1;
     } catch (err) {
       console.error(`[reminders] enqueue échoué pour ${invoice.id}`, err);

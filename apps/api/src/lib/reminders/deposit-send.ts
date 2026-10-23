@@ -6,6 +6,7 @@ import { brandFromSettings, buildEmailContent } from "@/lib/email/templates.js";
 import { getCompanySettings } from "@/lib/company.js";
 import { prisma } from "@/lib/prisma.js";
 import { formatDateFr } from "@/lib/format-fr.js";
+import { hasOpenEmail, type EmailOrigin } from "@/lib/email/review.js";
 
 type DepositStage = "minus7" | "minus1" | "plus3" | "plus10";
 
@@ -75,7 +76,7 @@ function stageConfig(
 }
 
 /** Enfile les rappels d'acomptes (J-7, J-1, J+3, J+10) selon PaymentMilestone.dueDate. */
-export async function sendDueDepositReminders(now: Date = new Date()): Promise<number> {
+export async function sendDueDepositReminders(now: Date = new Date(), origin: EmailOrigin = "WORKER"): Promise<number> {
   if (!(await isSmtpConfigured())) {
     console.warn("[reminders] SMTP non configuré, rappels acomptes ignorés");
     return 0;
@@ -117,7 +118,8 @@ export async function sendDueDepositReminders(now: Date = new Date()): Promise<n
       if (!isSameDay(triggerDay, today)) continue;
 
       const kind = STAGE_KIND[stage];
-      if (await alreadySent(milestone.id, kind, now)) continue;
+      // Déjà envoyé (ou refusé) aujourd'hui, ou encore en attente de validation ou d'envoi : pas de copie.
+      if ((await alreadySent(milestone.id, kind, now)) || (await hasOpenEmail(milestone.id, kind))) continue;
 
       try {
         const built = await buildEmailContent({
@@ -147,7 +149,7 @@ export async function sendDueDepositReminders(now: Date = new Date()): Promise<n
           documentNumber: milestone.quote.number ?? undefined,
           kind,
           bodyTextForMessage: built.text,
-        });
+        }, { review: { family: "deposit_reminder", origin } });
         queued += 1;
       } catch (err) {
         console.error(`[reminders] enqueue acompte ${milestone.id} (${stage})`, err);
