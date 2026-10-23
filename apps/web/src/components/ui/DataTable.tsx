@@ -380,7 +380,7 @@ export function DataTable<T>({
                 {searchLabel}
               </span>
             ) : null}
-            <label className="flex min-h-11 min-w-0 items-center gap-2 rounded-[var(--radius-sm)] border border-[var(--border-input)] bg-[var(--bg-subtle)] px-3 focus-within:border-[var(--primary)]">
+            <label className="flex min-h-11 min-w-0 items-center gap-2 rounded-[var(--radius-sm)] border border-[var(--border-input)] bg-[var(--bg-subtle)] px-3 ui-field">
               <svg viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4 shrink-0 text-[var(--muted)]" aria-hidden>
                 <path
                   fillRule="evenodd"

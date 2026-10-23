@@ -106,7 +106,7 @@ export function Tabs<T extends string>({
         id={`${base}-panel`}
         aria-labelledby={`${base}-tab-${value}`}
         tabIndex={0}
-        className="pt-5 focus:outline-none focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[var(--primary)]"
+        className="pt-5 focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[var(--primary)]"
       >
         {children}
       </div>

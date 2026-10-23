@@ -331,7 +331,7 @@ export function Combobox({
         aria-invalid={invalid || undefined}
         onClick={() => (open ? close(false) : openPanel())}
         onKeyDown={onTriggerKeyDown}
-        className={`flex min-h-11 w-full min-w-0 items-center gap-2 rounded-[var(--radius)] border border-[var(--border-input)] bg-[var(--surface-raised)] px-3 py-2 text-left text-sm text-[var(--text)] transition hover:bg-[var(--surface-hover)] focus:border-[var(--primary)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--primary)]/40 disabled:cursor-not-allowed disabled:bg-[var(--bg-subtle)] disabled:opacity-70 aria-[invalid=true]:border-[var(--danger)] ${className}`}
+        className={`flex min-h-11 w-full min-w-0 items-center gap-2 rounded-[var(--radius)] border border-[var(--border-input)] bg-[var(--surface-raised)] px-3 py-2 text-left text-sm text-[var(--text)] ui-field transition hover:bg-[var(--surface-hover)] disabled:cursor-not-allowed disabled:bg-[var(--bg-subtle)] disabled:opacity-70 ${className}`}
       >
         {variant === "action" ? (
           <FontAwesomeIcon icon={faPlus} className="h-3.5 w-3.5 shrink-0 text-[var(--primary)]" aria-hidden />
