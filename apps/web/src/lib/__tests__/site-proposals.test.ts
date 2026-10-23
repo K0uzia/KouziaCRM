@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { applyProposals, proposeCaptureAlt, proposePairAlt, readableMediaName, type CaptureDraft, type PairDraft } from "@/lib/site-proposals";
+import { applyProposals, guessVue, proposeCaptureAlt, proposePairAlt, readableMediaName, type CaptureDraft, type PairDraft } from "@/lib/site-proposals";
 
 const IMG_A = "/media/aaaaaaaaaaaa.webp";
 const IMG_B = "/media/bbbbbbbbbbbb.webp";
@@ -33,6 +33,16 @@ describe("nom lisible d'un média", () => {
     expect(readableMediaName({ label: "Screenshot 2026-10-23 at 14.02.11", originalName: "Screenshot 2026-10-23 at 14.02.11.png" })).toBeNull();
     expect(readableMediaName({ label: "Capture 1 de la page projet « Tracebay »", originalName: null })).toBeNull();
     expect(readableMediaName({ label: "Avant (bureau) de « Tracebay »", originalName: "accueil.png" })).toBe("Accueil");
+  });
+});
+
+describe("vue devinée d'après le format", () => {
+  it("téléphone : plus haute que large et 1 290 px de large au plus ; page entière d'ordinateur : ordinateur", () => {
+    expect(guessVue(1170, 2532)).toBe("mobile");
+    expect(guessVue(1290, 2796)).toBe("mobile");
+    expect(guessVue(1920, 1080)).toBe("bureau");
+    expect(guessVue(1440, 4000)).toBe("bureau");
+    expect(guessVue(1000, 1000)).toBe("bureau");
   });
 });
 

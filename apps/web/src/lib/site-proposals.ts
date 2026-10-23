@@ -46,6 +46,29 @@ export function readableMediaName(m: MediaName | undefined): string | null {
   return meaningful(m?.label ?? "") ?? meaningful(m?.originalName ?? "");
 }
 
+/** Largeur maximale d'une capture de téléphone (iPhone Pro Max : 1 290 px). */
+export const PHONE_MAX_WIDTH = 1290;
+
+/**
+ * Vue devinée d'après le format : plus haute que large et pas plus large qu'un téléphone. Une capture d'ordinateur
+ * d'une page entière est haute aussi, mais plus large.
+ */
+export function guessVue(width: number, height: number): Vue {
+  return height > width && width <= PHONE_MAX_WIDTH ? "mobile" : "bureau";
+}
+
+/** Vue d'un fichier image d'après ses dimensions (lues dans le navigateur) ; illisible : ordinateur. */
+export async function guessVueOfFile(file: Blob): Promise<Vue> {
+  try {
+    const bitmap = await createImageBitmap(file);
+    const vue = guessVue(bitmap.width, bitmap.height);
+    bitmap.close();
+    return vue;
+  } catch {
+    return "bureau";
+  }
+}
+
 const nameOf = (names: MediaNames, image: string | null) => readableMediaName(names[sha12Of(image) ?? ""]);
 
 /** « Site Tracebay : page d'accueil, vue ordinateur » ; sans nom lisible : « Site Tracebay, vue téléphone 2 ». */

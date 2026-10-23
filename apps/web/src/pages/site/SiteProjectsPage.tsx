@@ -4,12 +4,13 @@ import { api } from "@/lib/api";
 import { Combobox } from "@/components/ui/Combobox";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { faArrowsUpDown, faCheck, faDesktop, faMobileScreen, faPlus } from "@fortawesome/free-solid-svg-icons";
+import { faArrowsUpDown, faCheck, faPlus } from "@fortawesome/free-solid-svg-icons";
 import { Card, PageHeader } from "@/components/ui/Card";
 import { Button, ButtonLink } from "@/components/ui/Button";
 import { EditorFooter, EditorLayout, useItemEditor } from "./editor";
 import { reorderVisible, saveIds, SortableList } from "./sortable";
-import { applyProposals, proposeCaptionText, proposeCaptureAlt, proposePairAlt, type MediaNames } from "@/lib/site-proposals";
+import { applyProposals, proposePairAlt, type MediaNames } from "@/lib/site-proposals";
+import { CaptureGallery, ProposedInput, captureKey, type CaptureForm } from "./captures";
 import { ProjectCardPreview } from "./preview";
 import { DataTable, type DataColumn } from "@/components/ui/DataTable";
 import { DateInput, Field, Input, MonthField, Select, Textarea } from "@/components/ui/Field";
@@ -180,8 +181,7 @@ const emptyForm = {
   approach: "",
   choices: "",
   result: "",
-  // altAuto, captionAuto : texte proposé (suit le contexte) tant qu'il n'est pas retouché ; propre à l'écran, jamais envoyé.
-  captures: [] as { image: string | null; alt: string; caption: string; vue: "bureau" | "mobile"; altAuto?: boolean | null; captionAuto?: boolean | null }[],
+  captures: [] as CaptureForm[],
   links: [] as { label: string; url: string }[],
   avantApres: [] as PairForm[],
   // Client et accord écrit
@@ -306,45 +306,6 @@ const TAB_FIELDS = {
   publication: ["status"],
 } as const;
 
-/**
- * Champ d'un texte proposé d'après le contexte (alt, légende) : signalé « proposé » tant qu'il n'est pas retouché ;
- * retouché, il ne bouge plus et la proposition peut être reprise.
- */
-function ProposedInput({
-  label,
-  hint,
-  max,
-  value,
-  auto,
-  proposal,
-  onChange,
-  onReset,
-}: {
-  label: string;
-  hint?: string;
-  max: number;
-  value: string;
-  auto: boolean | null | undefined;
-  proposal: string;
-  onChange: (value: string) => void;
-  onReset: () => void;
-}) {
-  const proposed = Boolean(auto && value);
-  const lead = proposed ? "Proposé d'après le projet, la vue et l'image : à corriger s'il ne décrit pas ce qu'on voit." : (hint ?? "");
-  return (
-    <div className="space-y-1">
-      <Field label={label} hint={`${lead ? `${lead} ` : ""}${value.length} / ${max}`}>
-        <Input maxLength={max} value={value} onChange={(e) => onChange(e.target.value)} />
-      </Field>
-      {!auto && proposal && value !== proposal ? (
-        <Button variant="ghost" onClick={onReset}>
-          Reprendre la proposition<span className="sr-only"> : {label}</span>
-        </Button>
-      ) : null}
-    </div>
-  );
-}
-
 /** Justificatif de l'accord écrit (PDF ou capture) : privé, jamais publié. */
 function ConsentFile({ project, onChange }: { project: SiteProject; onChange: (p: SiteProject) => void }) {
   const input = useRef<HTMLInputElement>(null);
@@ -458,7 +419,7 @@ export function SiteProjectPage() {
       approach: p.approachText ?? "",
       choices: p.choicesText ?? "",
       result: p.resultText ?? "",
-      captures: p.captures.map((c) => ({ image: c.image, alt: c.alt, caption: c.caption ?? "", vue: c.vue ?? "bureau" })),
+      captures: p.captures.map((c) => ({ key: captureKey(), image: c.image, alt: c.alt, caption: c.caption ?? "", vue: c.vue ?? "bureau" })),
       links: p.links,
       avantApres: (p.avantApres ?? []).map((x) => ({
         vue: x.vue,
@@ -495,15 +456,22 @@ export function SiteProjectPage() {
     .join(",");
   useEffect(() => {
     if (names && shas.split(",").filter(Boolean).every((s) => sizes[s])) return;
+    // Réponse d'une lecture dépassée (lancée avant le dernier changement d'images) : ignorée, elle écraserait la liste à jour.
+    let stale = false;
     api<LibraryMedia[]>("/api/site/media")
       .then((list) => {
+        if (stale) return;
         setSizes(Object.fromEntries(list.map((m) => [m.sha12, { width: m.width, height: m.height }])));
         setNames(Object.fromEntries(list.map((m) => [m.sha12, { label: m.label, originalName: m.originalName }])));
       })
       .catch(() => {
+        if (stale) return;
         setNames((current) => current ?? {});
         toast.error("Médiathèque indisponible : ratio des captures d'avant / après non vérifié, textes proposés sans le nom des images");
       });
+    return () => {
+      stale = true;
+    };
     // sizes et names exclus : relire seulement quand les images choisies changent.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [shas]);
@@ -650,8 +618,6 @@ export function SiteProjectPage() {
     ["choices", "Les choix et pourquoi", "Pourquoi le site ou le logiciel est ainsi."],
     ["result", "Le résultat", "Ce qui a changé, sans chiffre invérifiable."],
   ] as const;
-  const setCapture = (i: number, patch: Partial<ProjectForm["captures"][number]>) =>
-    setForm((f) => ({ ...f, captures: f.captures.map((c, j) => (j === i ? { ...c, ...patch } : c)) }));
   const setLink = (i: number, patch: Partial<ProjectForm["links"][number]>) =>
     setForm((f) => ({ ...f, links: f.links.map((l, j) => (j === i ? { ...l, ...patch } : l)) }));
   const setPair = (i: number, side: "avant" | "apres" | null, patch: Record<string, unknown>) =>
@@ -707,68 +673,13 @@ export function SiteProjectPage() {
           <Textarea rows={5} maxLength={1500} value={form[key]} onChange={(e) => set(key, e.target.value)} />
         </Field>
       ))}
-      <fieldset className="space-y-3 rounded-[var(--radius)] border border-[var(--border)] p-4" aria-describedby={errors.captures ? "captures-err" : undefined}>
-        <legend className="px-1 text-sm font-medium">Captures (6 au plus)</legend>
-        {form.captures.map((c, i) => (
-          <div key={i} className="space-y-3 border-t border-[var(--border)] pt-3 first:border-t-0 first:pt-0">
-            <div className="space-y-1.5">
-              <p id={`capture-vue-${i}`} className="text-sm font-medium">
-                Vue de la capture {i + 1}
-              </p>
-              {/* Changer de vue retire l'image : une capture d'ordinateur et une de téléphone ne sont pas du même type. */}
-              <Segmented
-                label={`Vue de la capture ${i + 1}`}
-                options={[
-                  { id: "bureau", label: "Ordinateur", icon: faDesktop },
-                  { id: "mobile", label: "Téléphone", icon: faMobileScreen },
-                ]}
-                value={c.vue}
-                onChange={(vue) => setCapture(i, vue === c.vue ? {} : { vue, image: null })}
-              />
-            </div>
-            <ImageField
-              label={`Capture ${i + 1}`}
-              kind={c.vue === "mobile" ? "MOBILE" : "CAPTURE"}
-              allowRepoPath={false}
-              value={c.image}
-              onChange={(image) => setCapture(i, { image })}
-            />
-            <ProposedInput
-              label={`Texte alternatif de la capture ${i + 1}`}
-              hint="Ce que montre la capture."
-              max={200}
-              value={c.alt}
-              auto={c.altAuto}
-              proposal={names ? proposeCaptureAlt(form, form.captures, i, names) : ""}
-              onChange={(alt) => setCapture(i, { alt, altAuto: false })}
-              onReset={() => setCapture(i, { altAuto: true })}
-            />
-            <ProposedInput
-              label={`Légende de la capture ${i + 1} (facultatif)`}
-              max={150}
-              value={c.caption}
-              auto={c.captionAuto}
-              proposal={names ? proposeCaptionText(c, names) : ""}
-              onChange={(caption) => setCapture(i, { caption, captionAuto: false })}
-              onReset={() => setCapture(i, { captionAuto: true })}
-            />
-            <Button variant="danger-ghost" onClick={() => setForm((f) => ({ ...f, captures: f.captures.filter((_, j) => j !== i) }))}>
-              Retirer la capture {i + 1}
-            </Button>
-          </div>
-        ))}
-        {errors.captures ? (
-          <p id="captures-err" className="text-sm text-[var(--danger)]">
-            {errors.captures}
-          </p>
-        ) : null}
-        {form.captures.length < 6 ? (
-          <Button variant="secondary" onClick={() => setForm((f) => ({ ...f, captures: [...f.captures, { image: null, alt: "", caption: "", vue: "bureau", altAuto: true, captionAuto: true }] }))}>
-            <FontAwesomeIcon icon={faPlus} className="h-3.5 w-3.5" aria-hidden />
-            Ajouter une capture
-          </Button>
-        ) : null}
-      </fieldset>
+      <CaptureGallery
+        captures={form.captures}
+        setCaptures={(update) => setForm((f) => ({ ...f, captures: update(f.captures) }))}
+        project={form}
+        names={names}
+        error={errors.captures}
+      />
       <fieldset className="space-y-3 rounded-[var(--radius)] border border-[var(--border)] p-4" aria-describedby={`avant-apres-aide${errors.avantApres ? " avant-apres-err" : ""}`}>
         <legend className="px-1 text-sm font-medium">Avant / après (facultatif)</legend>
         <p id="avant-apres-aide" className="text-xs text-[var(--muted)]">
