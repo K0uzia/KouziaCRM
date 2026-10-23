@@ -7,6 +7,7 @@ import {
   SubscriptionStatus,
 } from "@prisma/client";
 import { prisma } from "@/lib/prisma.js";
+import { normalizeInterval } from "@/lib/subscriptions/subscription-service.js";
 import { resolveClientPortalUrl } from "@/lib/email/portal-url.js";
 import { assertStripeEnabled, getStripe } from "@/lib/stripe/client.js";
 import { ensureStripeCustomer } from "@/lib/stripe/customers.js";
@@ -206,14 +207,21 @@ export function subscriptionPriceData(
   },
   keyLive?: boolean,
 ) {
-  const interval = (sub.billingInterval ?? sub.service.billingInterval) === "YEAR" ? "year" : "month";
+  const period = normalizeInterval(sub.billingInterval ?? sub.service.billingInterval);
+  // Trimestriel : Stripe n'a pas d'intervalle « quarter », c'est tous les 3 mois.
+  const recurring =
+    period === "YEAR"
+      ? ({ interval: "year" } as const)
+      : period === "QUARTER"
+        ? ({ interval: "month", interval_count: 3 } as const)
+        : ({ interval: "month" } as const);
   const productUsable =
     sub.service.stripeProductId &&
     (keyLive === undefined || sub.service.stripeLivemode == null || sub.service.stripeLivemode === keyLive);
   return {
     currency: "eur",
     unit_amount: sub.amountCents,
-    recurring: { interval },
+    recurring,
     ...(productUsable ? { product: sub.service.stripeProductId! } : { product_data: { name: sub.label } }),
   } as const;
 }

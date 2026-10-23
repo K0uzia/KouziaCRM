@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { formatEUR, formatLongDate } from "@/lib/money.js";
-import { computeNextInvoiceAt } from "@/lib/subscriptions/subscription-service.js";
+import { computeNextInvoiceAt, periodWord } from "@/lib/subscriptions/subscription-service.js";
 
 /**
  * Départ de la facturation d'une ligne d'abonnement de devis (InvoiceLine.subscriptionStart) :
@@ -92,8 +92,8 @@ export function publicStart(line: StartLine, hasProject: boolean): { startsAt: "
  * Phrase du départ (devis dans l'ERP, PDF) : « 29,00 € par mois à partir de la livraison du projet »,
  * « 12 mois offerts à partir de la signature, puis 72,00 € par an », « 72,00 € par an à partir du 1er mars 2027 ».
  */
-export function startPhrase(line: StartLine, hasProject: boolean, amountCents: number, interval: "MONTH" | "YEAR"): string {
-  const price = `${formatEUR(amountCents)} par ${interval === "YEAR" ? "an" : "mois"}`;
+export function startPhrase(line: StartLine, hasProject: boolean, amountCents: number, interval: "MONTH" | "QUARTER" | "YEAR"): string {
+  const price = `${formatEUR(amountCents)} par ${periodWord(interval)}`;
   const p = publicStart(line, hasProject);
   const from =
     p.startsAt === "DATE" ? `à partir du ${formatLongDate(line.subscriptionStartDate!)}` : p.startsAt === "DELIVERY" ? "à partir de la livraison du projet" : "à partir de la signature";

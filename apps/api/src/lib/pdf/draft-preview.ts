@@ -8,7 +8,9 @@ import {
   effectiveOffer,
   initialPlan,
   isSubscriptionOnly,
+  milestoneAmounts,
   planTemplate,
+  type BillingMode,
   type PaymentPlanOffer,
 } from "@/lib/quotes/payment-plans.js";
 import { buildInvoicePdfPayload, type BuildPdfPayloadInput, type ClientSnapshot } from "@/lib/pdf/build-payload.js";
@@ -41,6 +43,7 @@ export type DraftPreviewInput = {
   validUntil: Date | null;
   sourceQuoteId: string | null;
   paymentPlanOffer: PaymentPlanOffer | null;
+  billingMode: BillingMode | null;
   totals: ReturnType<typeof computeLineTotals>;
 };
 
@@ -77,14 +80,19 @@ export async function renderDraftPreviewPdf(input: DraftPreviewInput, now = new 
   const { lines, subtotalCents, totalCents, discountType, discountValue } = input.totals;
   // Comme issueQuote : base de l'acompte, offre figée (seuil du 3 fois) et jalons de la formule initiale.
   const depositBaseCents = isQuote ? computeDepositBaseCents(lines, subtotalCents, totalCents) : null;
+  const mode = isQuote ? input.billingMode : null;
   const offer: PaymentPlanOffer | null = isQuote
-    ? isSubscriptionOnly(lines)
+    ? mode === "RECURRING"
+      ? (depositBaseCents ?? 0) > 0
+        ? "ONE"
+        : "NONE"
+      : isSubscriptionOnly(lines)
       ? "NONE"
       : effectiveOffer(input.paymentPlanOffer ?? (settings.paymentChoiceDefault ? "CHOICE" : "TWO"), depositBaseCents ?? 0, settings)
     : null;
   const milestones =
     isQuote && offer && offer !== "NONE"
-      ? computeMilestoneAmounts(depositBaseCents ?? 0, planTemplate(initialPlan(offer), settings)).map((m) => ({
+      ? milestoneAmounts(depositBaseCents ?? 0, planTemplate(initialPlan(offer), settings, mode), mode).map((m) => ({
           label: m.label,
           percentBps: m.percentBps,
           amountCents: m.amountCents,
@@ -116,6 +124,7 @@ export async function renderDraftPreviewPdf(input: DraftPreviewInput, now = new 
     marketTotalCents: null,
     paymentPlanOffer: offer,
     paymentPlan: null,
+    billingMode: mode,
     depositBaseCents,
     quoteStatus: isQuote ? "DRAFT" : null,
     quoteSignerName: null,
@@ -196,6 +205,7 @@ export async function renderCreditNotePreviewPdf(input: CreditNotePreviewInput):
     marketTotalCents: null,
     paymentPlanOffer: null,
     paymentPlan: null,
+    billingMode: null,
     depositBaseCents: null,
     quoteStatus: null,
     quoteSignerName: null,

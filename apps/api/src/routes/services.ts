@@ -1,5 +1,6 @@
 import { removeService, updateLinkedService } from "@/lib/services/linked-write.js";
-import { packItemsSchema, packLines, PackError, validatePack } from "@/lib/services/packs.js";
+import { packItemsSchema, packLines, packModeLine, PackError, validatePack } from "@/lib/services/packs.js";
+import { BILLING_MODES } from "@/lib/quotes/payment-plans.js";
 import { randomUUID } from "node:crypto";
 import type { FastifyPluginAsync } from "fastify";
 import { z } from "zod";
@@ -31,6 +32,13 @@ const serviceSchema = z.object({
   /** Rubrique d'une prestation ponctuelle ; null = « Autres » (packs et abonnements : rubrique propre). */
   category: z.enum(["SITE", "LOGICIEL", "OPTION"]).optional().nullable(),
   packItems: packItemsSchema.optional(),
+  /** Pack : prix annuel en paiement récurrent (vide = paiement unique seulement) ; le prix ci-dessus est le prix d'achat. */
+  annualPriceEuros: z.coerce.number().min(0).optional().nullable(),
+});
+
+const packLinesQuery = z.object({
+  mode: z.enum(BILLING_MODES).optional(),
+  interval: z.enum(["MONTH", "QUARTER", "YEAR"]).optional().default("YEAR"),
 });
 
 const PACK_INCLUDE = {
@@ -51,6 +59,7 @@ async function savePack(data: z.output<typeof serviceSchema>, id?: string) {
     name: data.name,
     description: data.description ?? null,
     unitPriceCents: priceCents,
+    annualPriceCents: data.annualPriceEuros === null || data.annualPriceEuros === undefined ? null : eurosToCents(data.annualPriceEuros),
     unit: ServiceUnit.FORFAIT,
     active: data.active,
     isPack: true,
@@ -97,7 +106,11 @@ export const servicesRoutes: FastifyPluginAsync = async (app) => {
   app.get<{ Params: { id: string } }>("/api/services/:id/pack-lines", async (request, reply) => {
     await requireAuth(request, reply);
     if (reply.sent) return;
+    // Devis avec mode (24/10/2026) : ?mode=ONE_OFF|RECURRING&interval=MONTH|QUARTER|YEAR, le pack en une ligne.
+    const q = packLinesQuery.safeParse(request.query);
+    if (!q.success) return reply.code(400).send({ error: "Mode ou période invalide" });
     try {
+      if (q.data.mode) return [await packModeLine(request.params.id, q.data.mode, q.data.interval)];
       return await packLines(request.params.id);
     } catch (err) {
       if (err instanceof PackError) return reply.code(404).send({ error: err.message });

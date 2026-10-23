@@ -180,7 +180,35 @@ export async function activateSubscriptionsFromDocument(
   let updated = 0;
   const createdIds: string[] = [];
   const ids: string[] = [];
-  for (const line of pending) {
+  // Devis en mode récurrent (24/10/2026) : ses lignes d'abonnement forment UN abonnement (montants additionnés).
+  // Période, engagement, départ et jour sont les mêmes sur chaque ligne (validés à l'enregistrement).
+  const grouped = doc.billingMode === "RECURRING" ? pending.filter((l) => !l.revisesSubscriptionId) : [];
+  if (grouped.length > 0) {
+    const first = grouped[0]!;
+    const startDate = opts.startDate ?? new Date();
+    const firstInvoiceAt = doc.documentType === "QUOTE" ? lineFirstInvoiceAt(first, first.billingDay!, startDate) : null;
+    const sub = await createSubscription(
+      {
+        clientId: doc.clientId,
+        serviceId: first.serviceId!,
+        label: grouped.length === 1 ? first.description : grouped.map((l) => shortName(l.description)).join(" + "),
+        amountCents: grouped.reduce((sum, l) => sum + l.unitPriceCents, 0),
+        billingDay: first.billingDay!,
+        billingInterval: normalizeInterval(first.billingInterval),
+        startDate,
+        commitmentMonths: first.commitmentMonths,
+        commitmentStart: doc.documentType === "QUOTE" ? (doc.quoteDecidedAt ?? startDate) : startDate,
+        ...(firstInvoiceAt ? { firstInvoiceAt } : { skipCurrentPeriod: !opts.firstPeriodNow, firstPeriodNow: opts.firstPeriodNow }),
+        ...(opts.awaitStripe ? { collectionMethod: SubscriptionCollectionMethod.STRIPE } : {}),
+      },
+      db,
+    );
+    await db.invoiceLine.updateMany({ where: { id: { in: grouped.map((l) => l.id) } }, data: { subscriptionId: sub.id } });
+    created += 1;
+    createdIds.push(sub.id);
+    ids.push(sub.id);
+  }
+  for (const line of pending.filter((l) => !grouped.includes(l))) {
     const billingInterval = normalizeInterval(line.billingInterval);
     let subId: string;
     if (line.revisesSubscriptionId) {

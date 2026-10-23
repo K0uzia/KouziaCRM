@@ -20,6 +20,7 @@ import {
   effectiveOffer,
   initialPlan,
   isSubscriptionOnly,
+  parseBillingMode,
   parsePaymentPlanOffer,
   PaymentPlanError,
   resolveAcceptedPlan,
@@ -167,9 +168,16 @@ export async function issueQuote(
     const depositBaseCents = computeDepositBaseCents(quote.lines, quote.subtotalCents, quote.totalCents);
     // Partie ponctuelle nulle (pack tout en abonnement, remise totale) : comme un abonnement seul, pas d'échéancier à 0 €.
     const noOneOffPart = quote.lines.some((l) => l.isSubscription) && depositBaseCents <= 0;
-    const offer = isSubscriptionOnly(quote.lines) || noOneOffPart
-      ? "NONE"
-      : effectiveOffer(parsePaymentPlanOffer(quote.paymentPlanOffer), depositBaseCents, settings);
+    // Mode récurrent : les lignes ponctuelles (frais de mise en service) forment une échéance unique due à la signature.
+    const mode = parseBillingMode(quote.billingMode);
+    const offer =
+      mode === "RECURRING"
+        ? depositBaseCents > 0
+          ? "ONE"
+          : "NONE"
+        : isSubscriptionOnly(quote.lines) || noOneOffPart
+          ? "NONE"
+          : effectiveOffer(parsePaymentPlanOffer(quote.paymentPlanOffer), depositBaseCents, settings);
 
     const updated = await tx.invoice.update({
       where: { id: quoteId },
@@ -197,7 +205,7 @@ export async function issueQuote(
     // un devis d'abonnement seul n'en a aucun. Un brouillon n'a jamais de jalon payé ni facturé.
     if (offer === "NONE") await tx.paymentMilestone.deleteMany({ where: { quoteId, invoiceId: null } });
     if (offer === null) await ensureQuoteMilestones(quoteId, depositBaseCents, tx);
-    else if (offer !== "NONE") await applyPlanMilestones(tx, quoteId, depositBaseCents, initialPlan(offer), settings);
+    else if (offer !== "NONE") await applyPlanMilestones(tx, quoteId, depositBaseCents, initialPlan(offer), settings, { mode });
     return updated;
   });
 
@@ -461,6 +469,7 @@ export async function acceptQuoteByClient(
     where: { id: quoteId },
     select: {
       paymentPlanOffer: true,
+      billingMode: true,
       totalCents: true,
       depositBaseCents: true,
       lines: { select: { id: true, isSubscription: true, subscriptionStart: true, subscriptionStartDate: true, subscriptionFreeMonths: true } },
@@ -509,7 +518,7 @@ export async function acceptQuoteByClient(
       },
       include: { lines: true, client: true },
     });
-    if (plan) await applyPlanMilestones(tx, quoteId, depositBaseOf(pending), plan, settings, { keepIssued: true });
+    if (plan) await applyPlanMilestones(tx, quoteId, depositBaseOf(pending), plan, settings, { keepIssued: true, mode: parseBillingMode(pending.billingMode) });
     // Abonnement seul : la 1re échéance est due tout de suite et facturée par l'abonnement
     // (Stripe après le mandat, sinon facture ERP immédiate), jamais par le devis.
     // Devis mixte : seules les lignes au départ « à la signature » ou « à une date » démarrent maintenant ; les
@@ -569,8 +578,12 @@ export function isDeferredSubscriptionQuote(quote: {
   depositBaseCents: number | null;
   paymentPlanOffer: string | null;
   lines: ReadonlyArray<{ isSubscription: boolean }>;
+  billingMode?: string | null;
 }): boolean {
-  return quote.depositBaseCents !== null && quote.paymentPlanOffer !== "NONE" && quote.lines.some((l) => l.isSubscription);
+  if (!quote.lines.some((l) => l.isSubscription)) return false;
+  // Mode récurrent, frais de mise en service ou non : le départ choisi (signature, livraison, date) fait foi.
+  if (quote.billingMode === "RECURRING") return true;
+  return quote.depositBaseCents !== null && quote.paymentPlanOffer !== "NONE";
 }
 
 /**
@@ -582,7 +595,7 @@ export function isDeferredSubscriptionQuote(quote: {
 export async function startDeferredSubscriptions(quoteId: string): Promise<string[]> {
   const quote = await prisma.invoice.findUnique({
     where: { id: quoteId },
-    select: { documentType: true, quoteStatus: true, depositBaseCents: true, paymentPlanOffer: true, lines: true },
+    select: { documentType: true, quoteStatus: true, depositBaseCents: true, paymentPlanOffer: true, billingMode: true, lines: true },
   });
   if (!quote || quote.documentType !== InvoiceDocumentType.QUOTE || quote.quoteStatus !== QuoteStatus.ACCEPTED) return [];
   if (!isDeferredSubscriptionQuote(quote)) return [];

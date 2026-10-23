@@ -438,6 +438,8 @@ model CompanySettings {
   split3Percent3Bps      Int     @default(3000)
   /// Total minimal (centimes) pour proposer le 3 fois ; en dessous, l'offre retombe sur 2 fois.
   split3MinTotalCents    Int     @default(50000)
+  /// Paiement en plusieurs fois (mode ONE_OFF) : jours entre deux échéances, la 1re étant due à la signature.
+  installmentIntervalDays Int    @default(30)
   /// Nouveaux devis : proposer au client le choix entre 2 et 3 fois.
   paymentChoiceDefault   Boolean @default(false)
   /// Déclencheur imprimé pour le 2e acompte du 3 fois.
@@ -527,6 +529,7 @@ enum LegalClauseKind {
   /// Imprimées dans l'encadré d'abonnement du devis, selon la périodicité
   SUBSCRIPTION_MONTHLY
   SUBSCRIPTION_ANNUAL
+  SUBSCRIPTION_QUARTERLY
   /// Droit de rétractation et formulaire type : devis des clients particuliers
   WITHDRAWAL
   /// Phrase sous les abonnements d'un devis : date de prélèvement à changer par un refus motivé
@@ -1007,8 +1010,10 @@ model Service {
   invoiceLines      InvoiceLine[]
   /// Rubrique du catalogue : SITE | LOGICIEL | OPTION ; null = « Autres » (packs et abonnements : rubrique propre)
   category          String?
-  /// Pack : prix de la partie ponctuelle (unitPriceCents) ; ses prestations sont dans packItems. Jamais lié à Stripe.
+  /// Pack : prix d'achat en paiement unique (unitPriceCents) ; son contenu est dans packItems. Jamais lié à Stripe.
   isPack            Boolean           @default(false)
+  /// Pack : prix de référence annuel en paiement récurrent (annuel, / 4 ou / 12). Null = pas vendable en récurrent.
+  annualPriceCents  Int?
   packItems         ServicePackItem[] @relation("PackItems")
   /// Packs qui contiennent cette prestation (elle s'archive au lieu d'être supprimée)
   inPacks           ServicePackItem[] @relation("PackComponent")
@@ -1149,10 +1154,13 @@ model Invoice {
   refundMethod                 RefundMethod?
   /// Confirmation CGV : acompte remboursable (null si non applicable)
   cgvDepositRefundable         Boolean?
-  /// Devis : formules proposées, TWO | THREE | CHOICE (null = échéancier historique). Figée à l'émission.
+  /// Devis : formules proposées, ONE | TWO | THREE | CHOICE, NONE sans partie ponctuelle (null = échéancier historique). Figée à l'émission.
   paymentPlanOffer             String?
-  /// Devis accepté : formule retenue, TWO | THREE.
+  /// Devis accepté : formule retenue, ONE | TWO | THREE.
   paymentPlan                  String?
+  /// Devis : mode de facturation de tout le document, ONE_OFF (paiement unique, parts égales datées) ou RECURRING
+  /// (un abonnement, frais de mise en service possibles). Null = devis antérieur : règles par ligne.
+  billingMode                  String?
   /// Checklist suivi post-avoir (JSON)
   creditFollowUp               Json?
   /// Pivot marché : devis commun (nullable si facture hors marché)

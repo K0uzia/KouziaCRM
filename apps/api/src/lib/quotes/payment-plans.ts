@@ -1,19 +1,30 @@
 import { MilestoneStatus, type CompanySettings, type Prisma } from "@prisma/client";
 import { computeMilestoneAmounts, type MilestoneTemplate } from "@/lib/quotes/milestones.js";
 
-/** Formule retenue par le client. */
-export type PaymentPlan = "TWO" | "THREE";
+/** Formule retenue par le client. ONE : comptant (mode ONE_OFF) ou frais de mise en service (mode RECURRING). */
+export type PaymentPlan = "ONE" | "TWO" | "THREE";
 /**
  * Formule(s) proposée(s) sur le devis. null = échéancier historique (devis émis avant la fonction).
- * NONE = devis d'abonnement seul : ni acompte ni échéancier, l'abonnement facture chaque période.
+ * NONE = pas de partie ponctuelle : ni acompte ni échéancier, l'abonnement facture chaque période.
  */
 export type PaymentPlanOffer = PaymentPlan | "CHOICE" | "NONE";
 
-export const PAYMENT_PLANS: readonly PaymentPlan[] = ["TWO", "THREE"];
-export const PAYMENT_PLAN_OFFERS: readonly PaymentPlanOffer[] = ["TWO", "THREE", "CHOICE"];
+export const PAYMENT_PLAN_OFFERS: readonly PaymentPlanOffer[] = ["ONE", "TWO", "THREE", "CHOICE"];
 
 export function parsePaymentPlanOffer(value: string | null | undefined): PaymentPlanOffer | null {
-  return value === "TWO" || value === "THREE" || value === "CHOICE" || value === "NONE" ? value : null;
+  return value === "ONE" || value === "TWO" || value === "THREE" || value === "CHOICE" || value === "NONE" ? value : null;
+}
+
+/**
+ * Mode de facturation du devis (24/10/2026). ONE_OFF : paiement unique, en parts égales datées depuis la signature.
+ * RECURRING : un abonnement, et les lignes ponctuelles éventuelles en frais de mise en service dus à la signature.
+ * null : devis antérieur, règles par ligne et échéancier en pourcentages des réglages.
+ */
+export type BillingMode = "ONE_OFF" | "RECURRING";
+export const BILLING_MODES: readonly BillingMode[] = ["ONE_OFF", "RECURRING"];
+
+export function parseBillingMode(value: string | null | undefined): BillingMode | null {
+  return value === "ONE_OFF" || value === "RECURRING" ? value : null;
 }
 
 /** Devis dont toutes les lignes sont des abonnements : pas d'acompte, pas d'échéancier. */
@@ -27,7 +38,7 @@ export function hasNoMilestones(offer: string | null | undefined): boolean {
 }
 
 export function parsePaymentPlan(value: string | null | undefined): PaymentPlan | null {
-  return value === "TWO" || value === "THREE" ? value : null;
+  return value === "ONE" || value === "TWO" || value === "THREE" ? value : null;
 }
 
 export type PlanSettings = Pick<
@@ -39,13 +50,40 @@ export type PlanSettings = Pick<
   | "split3Percent3Bps"
   | "split3MinTotalCents"
   | "split3Step2TriggerText"
+  | "installmentIntervalDays"
 >;
 
 const FIRST_TRIGGER = "À la validation du devis";
 const LAST_TRIGGER = "À la livraison / fin de mission";
 
-/** Jalons d'une formule, depuis les réglages (pourcentages et texte du déclencheur). */
-export function planTemplate(plan: PaymentPlan, s: PlanSettings): MilestoneTemplate[] {
+const installmentCount = (plan: PaymentPlan) => (plan === "ONE" ? 1 : plan === "TWO" ? 2 : 3);
+
+/**
+ * Échéancier d'un devis avec mode (24/10/2026) : parts égales, la 1re due à la signature, les suivantes tous les
+ * installmentIntervalDays. Pourcentages affichés en parts égales, le reste sur la dernière (3 333, 3 333, 3 334).
+ */
+function datedTemplate(plan: PaymentPlan, s: Pick<PlanSettings, "installmentIntervalDays">, mode: BillingMode): MilestoneTemplate[] {
+  const n = installmentCount(plan);
+  const share = Math.floor(10000 / n);
+  return Array.from({ length: n }, (_, i) => ({
+    position: i + 1,
+    label: n === 1 ? (mode === "RECURRING" ? "Frais de mise en service" : "Paiement comptant") : `${i === 0 ? "1re" : `${i + 1}e`} échéance`,
+    percentBps: i === n - 1 ? 10000 - share * (n - 1) : share,
+    triggerText: i === 0 ? "À la signature" : `${i * s.installmentIntervalDays} jours après la signature`,
+  }));
+}
+
+/** Montants d'un échéancier : parts égales (mode) ou pourcentages ; arrondi au centime, le reste sur la dernière. */
+export function milestoneAmounts(totalCents: number, template: MilestoneTemplate[], mode: BillingMode | null) {
+  if (!mode) return computeMilestoneAmounts(totalCents, template);
+  const n = template.length;
+  const part = Math.round(totalCents / n);
+  return template.map((m, i) => ({ ...m, amountCents: i === n - 1 ? totalCents - part * (n - 1) : part }));
+}
+
+/** Jalons d'une formule : parts égales datées avec un mode, sinon pourcentages et déclencheurs des réglages. */
+export function planTemplate(plan: PaymentPlan, s: PlanSettings, mode: BillingMode | null = null): MilestoneTemplate[] {
+  if (mode || plan === "ONE") return datedTemplate(plan, s, mode ?? "ONE_OFF");
   if (plan === "THREE") {
     return [
       { position: 1, label: "Acompte", percentBps: s.split3Percent1Bps, triggerText: FIRST_TRIGGER },
@@ -68,13 +106,14 @@ export function effectiveOffer(
   totalCents: number,
   s: Pick<PlanSettings, "split3MinTotalCents">,
 ): PaymentPlanOffer | null {
-  if (offer === null || offer === "TWO" || offer === "NONE") return offer;
+  if (offer === null || offer === "ONE" || offer === "TWO" || offer === "NONE") return offer;
   return totalCents < s.split3MinTotalCents ? "TWO" : offer;
 }
 
 /** Formules que le client peut retenir. */
 export function plansOffered(offer: PaymentPlanOffer | null): PaymentPlan[] {
   if (offer === "NONE") return [];
+  if (offer === "ONE") return ["ONE"];
   if (offer === "CHOICE") return ["TWO", "THREE"];
   if (offer === "THREE") return ["THREE"];
   return ["TWO"];
@@ -82,14 +121,14 @@ export function plansOffered(offer: PaymentPlanOffer | null): PaymentPlan[] {
 
 /** Formule appliquée à l'émission, avant le choix du client : 2 fois sauf offre 3 fois seule. */
 export function initialPlan(offer: PaymentPlanOffer | null): PaymentPlan {
-  return offer === "THREE" ? "THREE" : "TWO";
+  return offer === "THREE" ? "THREE" : offer === "ONE" ? "ONE" : "TWO";
 }
 
 /** Échéanciers proposés au client, montants compris (espace client, PDF). */
-export function describePlans(offer: PaymentPlanOffer | null, totalCents: number, s: PlanSettings) {
+export function describePlans(offer: PaymentPlanOffer | null, totalCents: number, s: PlanSettings, mode: BillingMode | null = null) {
   return plansOffered(offer).map((plan) => ({
     plan,
-    milestones: computeMilestoneAmounts(totalCents, planTemplate(plan, s)).map((m) => ({
+    milestones: milestoneAmounts(totalCents, planTemplate(plan, s, mode), mode).map((m) => ({
       label: m.label,
       percentBps: m.percentBps,
       amountCents: m.amountCents,
@@ -139,14 +178,15 @@ export async function applyPlanMilestones(
   totalCents: number,
   plan: PaymentPlan,
   s: PlanSettings,
-  opts: { keepIssued?: boolean } = {},
+  opts: { keepIssued?: boolean; mode?: BillingMode | null } = {},
 ): Promise<void> {
-  const template = planTemplate(plan, s);
+  const mode = opts.mode ?? null;
+  const template = planTemplate(plan, s, mode);
   const existing = await tx.paymentMilestone.findMany({ where: { quoteId }, orderBy: { position: "asc" } });
   // Signature : l'échéancier imprimé sur le devis émis fait foi. Des pourcentages changés depuis dans les réglages
   // ne le modifient pas ; seule une autre formule (choix du 3 fois) le recalcule.
   if (opts.keepIssued && existing.length === template.length && existing.every((m, i) => m.label === template[i]!.label)) return;
-  const amounts = computeMilestoneAmounts(totalCents, template);
+  const amounts = milestoneAmounts(totalCents, template, mode);
   // Montants compris : des jalons créés pendant le brouillon sur une autre base sont recalculés.
   const same =
     existing.length === template.length &&

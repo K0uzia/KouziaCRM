@@ -1,6 +1,7 @@
 import { subscriptionMethodTypes } from "@/lib/stripe/payment-methods.js";
 import { BALANCE_INCLUDE, invoiceBalance } from "@/lib/invoices/balance.js";
 import { prisma } from "@/lib/prisma.js";
+import { periodWord } from "@/lib/subscriptions/subscription-service.js";
 import { formatEUR } from "@/lib/money.js";
 import type { PayTokenKind } from "@/lib/stripe/pay-token.js";
 import { getCompanySettings } from "@/lib/company.js";
@@ -74,7 +75,7 @@ export async function payPageInfo(kind: PayTokenKind, id: string): Promise<PayPa
     };
   }
   if (!sub || sub.status === "ENDED" || sub.stripeSubscriptionId) return null;
-  const period = sub.billingInterval === "YEAR" ? "par an" : "par mois";
+  const period = `par ${periodWord(sub.billingInterval)}`;
   const methods = subscriptionMethodTypes(sub.amountCents, await getCompanySettings());
   return withMinimum(
     {

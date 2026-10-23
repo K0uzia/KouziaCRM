@@ -10,6 +10,7 @@ const settings = {
   split3Percent3Bps: 3000,
   split3MinTotalCents: 100_000,
   split3Step2TriggerText: "Maquette validée",
+  installmentIntervalDays: 30,
 } as Parameters<typeof quoteOnlineMinimumWarning>[2];
 
 describe("minimum du paiement en ligne (0,50 €)", () => {

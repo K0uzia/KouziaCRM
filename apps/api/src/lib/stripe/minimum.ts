@@ -3,6 +3,7 @@ import {
   describePlans,
   effectiveOffer,
   parsePaymentPlanOffer,
+  type BillingMode,
   type PlanSettings,
 } from "@/lib/quotes/payment-plans.js";
 
@@ -27,12 +28,13 @@ export function quoteOnlineMinimumWarning(
   offerRaw: string | null,
   totalCents: number,
   settings: PlanSettings,
+  mode: BillingMode | null = null,
 ): string | null {
   const offer = effectiveOffer(parsePaymentPlanOffer(offerRaw), totalCents, settings);
-  const small = describePlans(offer, totalCents, settings).flatMap((p) =>
+  const small = describePlans(offer, totalCents, settings, mode).flatMap((p) =>
     p.milestones
       .filter((m) => belowOnlineMinimum(m.amountCents))
-      .map((m) => `${m.label} de ${formatEUR(m.amountCents)} (${p.plan === "THREE" ? "3 fois" : "2 fois"})`),
+      .map((m) => `${m.label} de ${formatEUR(m.amountCents)} (${p.plan === "THREE" ? "3 fois" : p.plan === "ONE" ? "une fois" : "2 fois"})`),
   );
   if (small.length === 0) return null;
   return `Paiement en ligne impossible sous ${formatEUR(ONLINE_MIN_CENTS)} : ${small.join(", ")}. Le client devra régler ${small.length > 1 ? "ces échéances" : "cette échéance"} par virement.`;

@@ -28,6 +28,8 @@ import {
 import { prisma } from "@/lib/prisma.js";
 import {
   initialPlan,
+  milestoneAmounts,
+  parseBillingMode,
   parsePaymentPlan,
   parsePaymentPlanOffer,
   planTemplate,
@@ -81,17 +83,18 @@ export async function ensureQuoteMilestonesFromSettings(
   // Formule du devis (retenue, sinon celle de l'émission) ; devis historique : réglages 2 fois.
   const quote = await db.invoice.findUnique({
     where: { id: quoteId },
-    select: { paymentPlanOffer: true, paymentPlan: true, depositBaseCents: true },
+    select: { paymentPlanOffer: true, paymentPlan: true, depositBaseCents: true, billingMode: true },
   });
   const offer = parsePaymentPlanOffer(quote?.paymentPlanOffer);
   // Abonnement seul : aucun jalon (donc ni acompte exigible ni lien de paiement).
   if (offer === "NONE") return [];
+  const mode = parseBillingMode(quote?.billingMode);
   const template =
     offer === null
       ? await loadDepositTemplateFromSettings()
-      : planTemplate(parsePaymentPlan(quote?.paymentPlan) ?? initialPlan(offer), await getCompanySettings());
+      : planTemplate(parsePaymentPlan(quote?.paymentPlan) ?? initialPlan(offer), await getCompanySettings(), mode);
   // Base figée à l'émission (partie ponctuelle) : elle prime sur le montant passé.
-  const amounts = computeMilestoneAmounts(quote?.depositBaseCents ?? totalCents, template);
+  const amounts = milestoneAmounts(quote?.depositBaseCents ?? totalCents, template, offer === null ? null : mode);
   await db.paymentMilestone.createMany({
     data: amounts.map((m) => ({
       quoteId,
@@ -348,13 +351,18 @@ export async function onQuoteAcceptedByClient(quoteId: string) {
     orderBy: { position: "asc" },
   });
 
+  // Devis avec mode (24/10/2026) : échéances datées depuis la signature, tous les installmentIntervalDays.
+  const dated = parseBillingMode(quote.billingMode) !== null;
+  const signedAt = quote.quoteDecidedAt ?? new Date();
   for (const m of milestones) {
-    // 3 fois : le 2e acompte n'a pas de date, il devient exigible à l'étape de projet cochée.
-    const awaitsStep = quote.paymentPlan === "THREE" && m.position === 2;
-    await prisma.paymentMilestone.update({
-      where: { id: m.id },
-      data: { dueDate: awaitsStep ? null : computeMilestoneDueDate(quote, m, settings, milestones) },
-    });
+    // 3 fois historique : le 2e acompte n'a pas de date, il devient exigible à l'étape de projet cochée.
+    const awaitsStep = !dated && quote.paymentPlan === "THREE" && m.position === 2;
+    const dueDate = dated
+      ? new Date(signedAt.getTime() + (m.position - 1) * settings.installmentIntervalDays * 86400000)
+      : awaitsStep
+        ? null
+        : computeMilestoneDueDate(quote, m, settings, milestones);
+    await prisma.paymentMilestone.update({ where: { id: m.id }, data: { dueDate } });
   }
 
   const first = milestones[0];
