@@ -222,11 +222,16 @@ function fmtMoney(cents: number) {
   return formatEUR(cents);
 }
 
+/** « par an », « par trimestre », « par mois » : période d'un abonnement (null en base = mensuel). */
+const PERIOD_WORD: Record<string, string> = { YEAR: "an", QUARTER: "trimestre", MONTH: "mois" };
+const periodWord = (interval: string | null | undefined) => PERIOD_WORD[interval ?? "MONTH"] ?? "mois";
+
 function subscriptionHeading(lines: Array<{ isSubscription?: boolean; billingInterval?: string | null; commitmentMonths?: number | null }>) {
   const subs = lines.filter((l) => l.isSubscription);
   if (subs.every((l) => l.commitmentMonths)) return "Abonnement avec engagement";
   if (subs.every((l) => l.billingInterval === "YEAR")) return "Engagement d'abonnement annuel";
-  if (subs.every((l) => l.billingInterval !== "YEAR")) return "Engagement d'abonnement mensuel";
+  if (subs.every((l) => l.billingInterval === "QUARTER")) return "Engagement d'abonnement trimestriel";
+  if (subs.every((l) => l.billingInterval !== "YEAR" && l.billingInterval !== "QUARTER")) return "Engagement d'abonnement mensuel";
   return "Engagement d'abonnement";
 }
 
@@ -363,7 +368,18 @@ export type InvoicePdfData = {
     } | null;
     /** Clauses de l'encadré d'abonnement par périodicité (Réglages > Clauses). */
     /** COMMITMENT : lignes avec durée d'engagement, à la place de la clause de leur périodicité. */
-    subscriptionTerms?: { MONTH: string | null; YEAR: string | null; COMMITMENT?: string | null };
+    subscriptionTerms?: { MONTH: string | null; YEAR: string | null; QUARTER?: string | null; COMMITMENT?: string | null };
+    /** Devis récurrent : frais à la signature, puis l'abonnement par période, engagement et total sur la durée. */
+    recurringSummary?: {
+      period: "MONTH" | "QUARTER" | "YEAR";
+      amountCents: number;
+      feesCents: number;
+      feesBeforeDiscountCents: number;
+      commitmentMonths: number | null;
+      periods: number | null;
+      totalCommitmentCents: number | null;
+      startText: string;
+    } | null;
     /** Droit de rétractation et formulaire type : devis d'un client particulier. */
     withdrawalTerms?: string | null;
     /** Devis avec abonnement : date de prélèvement à changer par un refus motivé (clause dédiée), sous les totaux. */
@@ -594,11 +610,15 @@ export function InvoiceDocument({ company, client, invoice, specimen, draft }: I
                   <Text style={styles.lineNote}>
                     {line.billingInterval === "YEAR"
                       ? "Abonnement annuel, facturé chaque année à la date anniversaire"
-                      : `Abonnement mensuel, facturé chaque mois${line.billingDay ? ` le ${line.billingDay}` : ""}`}{" "}
+                      : line.billingInterval === "QUARTER"
+                        ? `Abonnement trimestriel, facturé chaque trimestre${line.billingDay ? ` le ${line.billingDay}` : ""}`
+                        : `Abonnement mensuel, facturé chaque mois${line.billingDay ? ` le ${line.billingDay}` : ""}`}{" "}
                     : {fmtMoney(line.unitPriceCents)}.{" "}
                     {line.startText
                       ? `Facturation : ${line.startText}.`
-                      : invoice.subscriptionOnly
+                      : invoice.recurringSummary
+                        ? `Facturation : ${invoice.recurringSummary.startText}.`
+                        : invoice.subscriptionOnly
                         ? "Facturé à partir de la signature, sans acompte."
                         : invoice.subscriptionFromDelivery
                           ? "Facturé à partir de la livraison, hors acompte et échéancier."
@@ -620,7 +640,40 @@ export function InvoiceDocument({ company, client, invoice, specimen, draft }: I
         </View>
 
         <View style={styles.totals} wrap={false}>
-          {invoice.mixedTotals ? (
+          {invoice.recurringSummary ? (
+            <>
+              {invoice.recurringSummary.feesCents > 0 ? (
+                <>
+                  {invoice.recurringSummary.feesBeforeDiscountCents > invoice.recurringSummary.feesCents ? (
+                    <View style={styles.totalLine}>
+                      <Text style={styles.muted}>Remise sur les frais</Text>
+                      <Text>- {fmtMoney(invoice.recurringSummary.feesBeforeDiscountCents - invoice.recurringSummary.feesCents)}</Text>
+                    </View>
+                  ) : null}
+                  <View style={styles.totalLine}>
+                    <Text style={styles.strong}>À la signature : frais de mise en service</Text>
+                    <Text style={styles.strong}>{fmtMoney(invoice.recurringSummary.feesCents)}</Text>
+                  </View>
+                </>
+              ) : null}
+              <View style={styles.grandTotal}>
+                <Text style={styles.grandLabel}>{invoice.recurringSummary.feesCents > 0 ? "Ensuite, abonnement" : "Abonnement"}</Text>
+                <Text style={styles.grandValue}>
+                  {`${fmtMoney(invoice.recurringSummary.amountCents)} / ${periodWord(invoice.recurringSummary.period)}`}
+                </Text>
+              </View>
+              <Text style={styles.vat}>{`Facturation : ${invoice.recurringSummary.startText}.`}</Text>
+              <Text style={styles.vat}>
+                {invoice.recurringSummary.commitmentMonths && invoice.recurringSummary.periods && invoice.recurringSummary.totalCommitmentCents !== null
+                  ? `Engagement de ${invoice.recurringSummary.commitmentMonths} mois à compter de la signature, soit ${invoice.recurringSummary.periods} échéances et ${fmtMoney(invoice.recurringSummary.totalCommitmentCents)} sur la durée (hors frais de mise en service).`
+                  : "Sans engagement : résiliable à tout moment, effet à la fin de la période en cours."}
+              </Text>
+              {company.vatMention ? <Text style={styles.vat}>{company.vatMention}</Text> : null}
+              {invoice.subscriptionDateNotice ? (
+                <Text style={[styles.vat, { marginTop: 6 }]}>{fillClauseVariables(invoice.subscriptionDateNotice, company)}</Text>
+              ) : null}
+            </>
+          ) : invoice.mixedTotals ? (
             <>
               {invoice.mixedTotals.discountCents > 0 ? (
                 <>
@@ -743,11 +796,13 @@ export function InvoiceDocument({ company, client, invoice, specimen, draft }: I
                   {`${l.description} : ${fmtMoney(l.unitPriceCents)} facturés automatiquement ${
                     l.billingInterval === "YEAR"
                       ? "chaque année à la date anniversaire"
-                      : `chaque mois${l.billingDay ? ` le ${l.billingDay}` : ""}`
+                      : `chaque ${periodWord(l.billingInterval)}${l.billingDay ? ` le ${l.billingDay}` : ""}`
                   }. ${
                     l.startText
                       ? `Départ de la facturation : ${l.startText}.`
-                      : invoice.subscriptionOnly
+                      : invoice.recurringSummary
+                        ? `Départ de la facturation : ${invoice.recurringSummary.startText}.`
+                        : invoice.subscriptionOnly
                       ? "1re échéance facturée à partir de la signature, sans acompte."
                       : invoice.subscriptionFromDelivery
                         ? "1re échéance facturée à partir de la livraison, hors acompte et échéancier."
@@ -755,9 +810,11 @@ export function InvoiceDocument({ company, client, invoice, specimen, draft }: I
                   }${l.commitmentMonths ? ` Engagement de ${l.commitmentMonths} mois à compter de la signature du devis.` : ""}`}
                 </Text>
               ))}
-            {(["MONTH", "YEAR"] as const)
+            {(["MONTH", "QUARTER", "YEAR"] as const)
               .filter((iv) =>
-                invoice.lines.some((l) => l.isSubscription && !l.commitmentMonths && (l.billingInterval === "YEAR" ? "YEAR" : "MONTH") === iv),
+                invoice.lines.some(
+                  (l) => l.isSubscription && !l.commitmentMonths && (l.billingInterval === "YEAR" || l.billingInterval === "QUARTER" ? l.billingInterval : "MONTH") === iv,
+                ),
               )
               .map((iv) =>
                 invoice.subscriptionTerms?.[iv] ? (

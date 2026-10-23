@@ -19,6 +19,7 @@ import {
   type PlanSettings,
 } from "@/lib/quotes/payment-plans.js";
 import { startPhrase } from "@/lib/subscriptions/start.js";
+import { normalizeInterval, periodMonths } from "@/lib/subscriptions/subscription-service.js";
 import { billedWithDocument } from "@/lib/invoices/totals.js";
 
 type InvoiceWithRelations = Invoice & {
@@ -153,7 +154,9 @@ export function buildInvoicePdfPayload({
     // Devis mixte : l'abonnement démarre à la livraison, hors échéancier.
     subscriptionFromDelivery: fromDelivery,
     // Devis mixte : total du projet (partie ponctuelle remisée, base de l'acompte) et abonnements à part.
-    mixedTotals: fromDelivery
+    // Devis récurrent (mode de facturation) : frais à la signature puis l'abonnement, au lieu du « total du projet ».
+    recurringSummary: isQuote && parseBillingMode(invoice.billingMode) === "RECURRING" ? recurringSummaryOf(invoice) : null,
+    mixedTotals: fromDelivery && parseBillingMode(invoice.billingMode) !== "RECURRING"
       ? (() => {
           const oneOffCents = invoice.lines.filter((l) => !l.isSubscription).reduce((s, l) => s + l.lineTotalCents, 0);
           const subs = invoice.lines.filter((l) => l.isSubscription);
@@ -165,7 +168,7 @@ export function buildInvoicePdfPayload({
             projectCents: invoice.depositBaseCents ?? 0,
             subscriptions: subs.map((l) => ({
               label: l.description,
-              text: startPhrase(l, true, l.unitPriceCents, l.billingInterval === "YEAR" ? "YEAR" : "MONTH"),
+              text: startPhrase(l, true, l.unitPriceCents, normalizeInterval(l.billingInterval)),
             })),
             yearCents: sum("YEAR"),
             monthCents: sum("MONTH"),
@@ -210,13 +213,14 @@ export function buildInvoicePdfPayload({
       // Départ choisi sur la ligne du devis (date précise, mois offerts…) : phrase à la place du départ par défaut.
       startText:
         isQuote && l.isSubscription && l.subscriptionStart
-          ? startPhrase(l, fromDelivery, l.unitPriceCents, l.billingInterval === "YEAR" ? "YEAR" : "MONTH")
+          ? startPhrase(l, fromDelivery, l.unitPriceCents, normalizeInterval(l.billingInterval))
           : null,
     })),
     legalClauses: clauses.filter((c) => !DEDICATED_CLAUSE_KINDS.has(c.kind)).map((c) => ({ title: c.title, body: c.body })),
     subscriptionTerms: {
       MONTH: clauseBody("SUBSCRIPTION_MONTHLY"),
       YEAR: clauseBody("SUBSCRIPTION_ANNUAL"),
+      QUARTER: clauseBody("SUBSCRIPTION_QUARTERLY"),
       COMMITMENT: clauseBody("SUBSCRIPTION_COMMITMENT"),
     },
     // Information précontractuelle des particuliers (audience B2C) : devis seulement.
@@ -265,3 +269,29 @@ function acceptanceOf(
 }
 
 export type { ClientSnapshot };
+
+/**
+ * Devis récurrent : frais de mise en service (partie ponctuelle remisée, due à la signature) puis l'abonnement, un
+ * seul pour le devis (lignes additionnées) ; total sur la durée de l'engagement, hors frais (contrat /suivi F5).
+ */
+function recurringSummaryOf(invoice: InvoiceWithRelations) {
+  const subs = invoice.lines.filter((l) => l.isSubscription);
+  const first = subs[0];
+  if (!first) return null;
+  const period = normalizeInterval(first.billingInterval);
+  const amountCents = subs.reduce((sum, l) => sum + l.unitPriceCents, 0);
+  const months = first.commitmentMonths ?? null;
+  const periods = months ? Math.ceil(months / periodMonths(period)) : null;
+  const feesCents = invoice.depositBaseCents ?? Math.max(0, invoice.totalCents - amountCents);
+  const hasProject = feesCents > 0 || first.subscriptionStart === "DELIVERY";
+  return {
+    period,
+    amountCents,
+    feesCents,
+    feesBeforeDiscountCents: invoice.lines.filter((l) => !l.isSubscription).reduce((sum, l) => sum + l.lineTotalCents, 0),
+    commitmentMonths: months,
+    periods,
+    totalCommitmentCents: periods ? amountCents * periods : null,
+    startText: startPhrase(first, hasProject, amountCents, period),
+  };
+}
