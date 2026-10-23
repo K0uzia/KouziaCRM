@@ -1,9 +1,10 @@
-import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent } from "react";
+import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { createPortal } from "react-dom";
 import { Command } from "cmdk";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faCheck, faChevronDown, faMagnifyingGlass, faPlus, faXmark } from "@fortawesome/free-solid-svg-icons";
 import { useMediaQuery } from "@/lib/use-media-query";
+import { useAnchoredPanel } from "@/lib/use-anchored-panel";
 import { countOptions, filterGroups, findOption, type ComboboxGroup, type ComboboxOption } from "@/lib/combobox-filter";
 
 export type { ComboboxGroup, ComboboxOption } from "@/lib/combobox-filter";
@@ -39,10 +40,8 @@ type Props = {
   "aria-invalid"?: boolean;
 };
 
-const PANEL_GAP = 4;
 const PANEL_MIN_WIDTH = 320;
 const PANEL_MAX_HEIGHT = 448;
-const PANEL_MARGIN = 8;
 
 export function Combobox({
   label,
@@ -63,7 +62,6 @@ export function Combobox({
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [active, setActive] = useState("");
-  const [position, setPosition] = useState<CSSProperties>({});
   const triggerRef = useRef<HTMLButtonElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
   const titleId = useId();
@@ -102,39 +100,7 @@ export function Combobox({
   }
 
   // Panneau ancré : sous le déclencheur, ou au-dessus quand la place manque en bas ; recalculé au défilement.
-  useLayoutEffect(() => {
-    if (!open || mobile) return;
-    let frame = 0;
-    const place = () => {
-      const rect = triggerRef.current?.getBoundingClientRect();
-      if (!rect) return;
-      const vw = window.innerWidth;
-      const vh = window.innerHeight;
-      const width = Math.min(Math.max(rect.width, PANEL_MIN_WIDTH), vw - 2 * PANEL_MARGIN);
-      const left = Math.min(Math.max(rect.left, PANEL_MARGIN), vw - width - PANEL_MARGIN);
-      const below = vh - rect.bottom - PANEL_GAP - PANEL_MARGIN;
-      const above = rect.top - PANEL_GAP - PANEL_MARGIN;
-      const up = below < 280 && above > below;
-      const maxHeight = Math.min(PANEL_MAX_HEIGHT, up ? above : below);
-      setPosition(
-        up
-          ? { left, width, maxHeight, bottom: vh - rect.top + PANEL_GAP }
-          : { left, width, maxHeight, top: rect.bottom + PANEL_GAP },
-      );
-    };
-    const schedule = () => {
-      cancelAnimationFrame(frame);
-      frame = requestAnimationFrame(place);
-    };
-    place();
-    window.addEventListener("resize", schedule);
-    window.addEventListener("scroll", schedule, true);
-    return () => {
-      cancelAnimationFrame(frame);
-      window.removeEventListener("resize", schedule);
-      window.removeEventListener("scroll", schedule, true);
-    };
-  }, [open, mobile]);
+  const position = useAnchoredPanel(open && !mobile, triggerRef, { minWidth: PANEL_MIN_WIDTH, maxHeight: PANEL_MAX_HEIGHT });
 
   // Clic en dehors (ancré) : ferme sans reprendre le focus. Le libellé du champ compte comme le déclencheur.
   useEffect(() => {
