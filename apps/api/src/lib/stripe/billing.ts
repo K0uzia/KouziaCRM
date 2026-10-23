@@ -9,6 +9,7 @@ import {
 } from "@prisma/client";
 import type Stripe from "stripe";
 import { prisma } from "@/lib/prisma.js";
+import type { ReviewOptions } from "@/lib/email/review.js";
 import { archiveIssuedDocument } from "@/lib/pdf/issued-archive.js";
 import { getCompanySettings } from "@/lib/company.js";
 import { issueInvoiceWithin } from "@/lib/invoices/transitions.js";
@@ -174,7 +175,7 @@ export async function issueErpInvoiceFromStripeInvoice(
 
   // Pas d'e-mail Stripe : l'ERP envoie sa facture (impayée tant que invoice.paid n'est pas reçu).
   await archiveIssuedDocument(issued.id);
-  await sendDocumentPdf(issued.id);
+  await sendDocumentPdf(issued.id, { review: { family: "subscription_invoice", origin: "WEBHOOK" } });
   return { invoiceId: issued.id, created: true };
 }
 
@@ -354,7 +355,11 @@ export async function syncSubscriptionFromStripe(
 }
 
 /** Envoie au client le lien pour mettre en place le prélèvement Stripe. */
-export async function sendSubscriptionSetupEmail(subscriptionId: string): Promise<void> {
+/** review : abonnement créé par l'admin (défaut) ou à la signature du client (le client attend). */
+export async function sendSubscriptionSetupEmail(
+  subscriptionId: string,
+  review: ReviewOptions = { family: "payment_link", origin: "ADMIN_ACTION" },
+): Promise<void> {
   const sub = await prisma.subscription.findUnique({
     where: { id: subscriptionId },
     include: { client: true },
@@ -394,5 +399,5 @@ export async function sendSubscriptionSetupEmail(subscriptionId: string): Promis
     clientId: sub.clientId,
     kind: "subscription_setup",
     bodyTextForMessage: text,
-  });
+  }, { review });
 }

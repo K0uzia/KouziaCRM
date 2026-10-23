@@ -1,6 +1,7 @@
 import { InvoiceDocumentType, InvoiceStatus } from "@prisma/client";
 import { isSmtpConfigured } from "@/lib/email/smtp.js";
 import { mailEnqueue } from "@/lib/email/mailer/index.js";
+import type { ReviewOptions } from "@/lib/email/review.js";
 import { loadDocumentForPdf, renderLoadedDocumentPdf } from "@/lib/pdf/document-pdf.js";
 import { resolveClientPortalUrl } from "@/lib/email/portal-url.js";
 import { resolveInvoicePaymentUrl } from "@/lib/email/payment-url.js";
@@ -13,6 +14,8 @@ export type SendDocumentPdfResult = {
   queued?: boolean;
   outboxId?: string;
   reason?: "smtp_off" | "no_email" | "not_found" | "error";
+  /** Envoi automatique (opts.review) : en attente de validation dans « E-mails à valider », pas encore parti. */
+  awaitingReview?: boolean;
   /** Avec opts.draft : le brouillon, sans envoi. */
   draft?: EmailDraft;
 };
@@ -30,6 +33,11 @@ export type SendDocumentPdfOptions = {
   draft?: boolean;
   /** PDF déjà rendu (ex. devis signé archivé), joint tel quel au lieu d'être régénéré. */
   pdf?: Buffer;
+  /**
+   * Envoi automatique (sans fenêtre « Vérifier l'e-mail ») : famille et origine pour la file « E-mails à valider ». Absent :
+   * l'admin vient de relire ou d'écrire le message, il part tout de suite.
+   */
+  review?: ReviewOptions;
   extraAttachments?: Array<{
     filename: string;
     contentBase64: string;
@@ -129,7 +137,7 @@ export async function sendDocumentPdf(
     const { issuedDocumentPdf } = await import("@/lib/pdf/issued-archive.js");
     const pdf = opts.pdf ?? (await issuedDocumentPdf(documentId, doc)) ?? (await renderLoadedDocumentPdf(doc));
 
-    const { outboxId } = await mailEnqueue({
+    const { outboxId, awaitingReview } = await mailEnqueue({
       to: email,
       subject,
       text,
@@ -148,9 +156,9 @@ export async function sendDocumentPdf(
         },
         ...(opts.extraAttachments ?? []),
       ],
-    });
+    }, opts.review ? { review: opts.review } : undefined);
 
-    return { sent: true, queued: true, outboxId };
+    return { sent: true, queued: true, outboxId, awaitingReview };
   } catch (err) {
     console.error(`[email] enqueue PDF échoué pour ${documentId}`, err);
     return { sent: false, reason: "error" };

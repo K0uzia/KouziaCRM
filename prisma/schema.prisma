@@ -377,6 +377,9 @@ model CompanySettings {
   transactionalFrom         String?
   /// Plafond d'envois (emails / minute)
   emailThrottlePerMinute    Int               @default(30)
+  /// Familles d'e-mails automatiques validées d'office (JSON string[]) ; vide : tout passe par « E-mails à valider ».
+  /// La mise en demeure n'y figure jamais (toujours validée à la main)
+  emailAutoApproveKinds     String            @default("[]")
 
   /// IMAP (réception). Prioritaire sur IMAP_* du .env si hôte + utilisateur renseignés.
   imapHost                String?
@@ -1509,10 +1512,14 @@ model SalaryPayout {
 }
 
 enum EmailOutboxStatus {
+  /// À valider par l'admin (file « E-mails à valider ») : jamais envoyé tant qu'il n'est pas validé
+  REVIEW
   PENDING
   SENDING
   SENT
   FAILED
+  /// Refusé à la validation : jamais envoyé
+  REJECTED
 }
 
 model EmailOutbox {
@@ -1528,10 +1535,27 @@ model EmailOutbox {
   payload          String
   /// Même JSON, chiffré ; vidé (avec payload) 30 jours après l'envoi, la ligne reste
   payloadEncrypted String?
+  /// Origine de l'envoi : WORKER, WEBHOOK, CLIENT_ACTION, ADMIN_ACTION ou CLICK (file « E-mails à valider »)
+  origin           String?
+  /// Famille lisible de l'e-mail (reçu, relance, lien de paiement…) : validation d'office réglable par famille
+  reviewFamily     String?
+  /// kind technique de l'e-mail (copie hors du contenu chiffré) : anti-doublons des rappels d'un même jalon
+  reviewKind       String?
+  /// Document ou jalon concerné (sans donnée personnelle) : lien depuis la file, anti-doublons
+  documentId       String?
+  /// « Le client attend » : reçus, échecs de paiement, liens envoyés après une signature
+  clientWaiting    Boolean           @default(false)
+  reviewedAt       DateTime?
+  /// Motif du refus, chiffré ; jamais envoyé au client
+  rejectReason     String?
+  /// Dernier rappel « e-mail en attente depuis plus de 24 h »
+  reviewReminderAt DateTime?
   createdAt        DateTime          @default(now())
   updatedAt        DateTime          @updatedAt
 
   @@index([status, scheduledAt])
+  @@index([status, createdAt])
+  @@index([documentId, status])
 }
 
 model EmailThread {

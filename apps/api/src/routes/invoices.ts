@@ -525,7 +525,8 @@ export const invoicesRoutes: FastifyPluginAsync = async (app) => {
     }
 
     try {
-      enqueued = (await sendDueReminders()) + (await sendDueDepositReminders());
+      // Clic « Relancer maintenant » : les relances automatiques gardent la validation (aucune n'a été relue).
+      enqueued = (await sendDueReminders(new Date(), "ADMIN_ACTION")) + (await sendDueDepositReminders(new Date(), "ADMIN_ACTION"));
     } catch (e) {
       errors.push(e instanceof Error ? e.message : "Enqueue relances impossible");
     }
@@ -899,7 +900,7 @@ export const invoicesRoutes: FastifyPluginAsync = async (app) => {
       let emailed = false;
       let emailReason: string | null = null;
       if (url && parsed.data.sendEmail) {
-        const mail = await sendDocumentPdf(request.params.id);
+        const mail = await sendDocumentPdf(request.params.id, { review: { family: "payment_link", origin: "ADMIN_ACTION" } });
         emailed = mail.sent;
         emailReason = mail.reason ?? null;
       }
@@ -1148,7 +1149,7 @@ export const invoicesRoutes: FastifyPluginAsync = async (app) => {
     let receipt: { sent: boolean; reason: string | null } | null = null;
     if (parsed.data.notifyClient !== false) {
       const { sendPaymentReceipt } = await import("@/lib/email/payment-receipt.js");
-      const r = await sendPaymentReceipt(id, amountCents);
+      const r = await sendPaymentReceipt(id, amountCents, undefined, { review: { family: "payment_receipt", origin: "ADMIN_ACTION" } });
       receipt = { sent: r.sent, reason: r.reason ?? null };
     }
     return reply.code(201).send({ ...payment, receipt });
@@ -1277,7 +1278,7 @@ export const invoicesRoutes: FastifyPluginAsync = async (app) => {
             ? new Date(parsed.data.refundPaidAt)
             : undefined,
         });
-        const mail = parsed.data.sendEmail === false ? { sent: false, reason: undefined } : await sendDocumentPdf(creditNote.id);
+        const mail = parsed.data.sendEmail === false ? { sent: false, reason: undefined } : await sendDocumentPdf(creditNote.id, { review: { family: "document", origin: "ADMIN_ACTION" } });
         return reply.code(201).send({
           ...serializeInvoice(creditNote),
           emailed: mail.sent,

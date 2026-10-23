@@ -1,6 +1,7 @@
 import { invoiceBalance } from "@/lib/invoices/balance.js";
 import { InvoiceDocumentType } from "@prisma/client";
 import { prisma } from "@/lib/prisma.js";
+import type { ReviewOptions } from "@/lib/email/review.js";
 import { formatEUR } from "@/lib/money.js";
 import { getCompanySettings } from "@/lib/company.js";
 import { brandFromSettings } from "@/lib/email/templates.js";
@@ -18,7 +19,7 @@ export async function sendPaymentReceipt(
   amountCents: number,
   paymentId?: string,
   /** « Vérifier l'e-mail » : brouillon seul (aucun PDF rendu), ou objet et texte relus. */
-  opts: { draft?: boolean; subject?: string; text?: string } = {},
+  opts: { draft?: boolean; subject?: string; text?: string; review?: ReviewOptions } = {},
 ): Promise<SendDocumentPdfResult> {
   try {
     const invoice = await prisma.invoice.findUnique({
@@ -71,6 +72,7 @@ export async function sendPaymentReceipt(
       subject: opts.subject?.trim() || (remaining === 0 ? "Paiement reçu : facture {{numero}} réglée" : "Paiement reçu : facture {{numero}}"),
       text: opts.text?.trim() || text,
       draft: opts.draft,
+      review: opts.review,
       extraAttachments: withReceipt && payment
         ? [
             {

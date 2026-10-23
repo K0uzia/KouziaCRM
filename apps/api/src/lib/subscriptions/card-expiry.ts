@@ -150,7 +150,7 @@ export async function checkExpiringCards(now: Date = new Date()): Promise<number
         clientId: sub.clientId,
         kind: "subscription_card_expiring",
         bodyTextForMessage: content.text,
-      });
+      }, { review: { family: "payment_issue", origin: "WORKER" } });
       await prisma.subscription.update({ where: { id: sub.id }, data: { cardExpiryNoticeFor: key } });
       queued += 1;
     } catch (err) {

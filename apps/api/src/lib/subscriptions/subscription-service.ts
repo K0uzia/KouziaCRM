@@ -461,7 +461,7 @@ async function invoiceSubscriptionCycle(sub: Prisma.SubscriptionGetPayload<{ inc
 
   // Hors transaction : un envoi d'email raté ne doit pas défaire la facture.
   await archiveIssuedDocument(issued.id);
-  await sendDocumentPdf(issued.id);
+  await sendDocumentPdf(issued.id, { review: { family: "subscription_invoice", origin: "WORKER" } });
 
   return true;
 }
@@ -643,7 +643,7 @@ export async function createSubscriptionRevision(opts: {
   const issued = await issueQuote(draft.id);
 
   // Envoi du PDF au client.
-  const mail = await sendDocumentPdf(issued.id, { send: true });
+  const mail = await sendDocumentPdf(issued.id, { send: true, review: { family: "document", origin: "ADMIN_ACTION" } });
 
   return {
     quoteId: issued.id,

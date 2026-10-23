@@ -29,9 +29,17 @@ export type OutboxPayload = {
 export type EnqueueOptions = {
   scheduledAt?: Date;
   maxAttempts?: number;
+  /**
+   * E-mail automatique destiné à un client (famille, origine) : il attend la validation de l'admin (« E-mails à
+   * valider »), sauf si sa famille est validée d'office. Absent : envoi direct (clic de l'admin, alerte à l'admin,
+   * code de connexion).
+   */
+  review?: import("@/lib/email/review.js").ReviewOptions;
 };
 
 export type EnqueueResult = {
   outboxId: string;
   messageId: string;
+  /** true : en attente de validation (statut REVIEW), rien n'est envoyé tant qu'il n'est pas validé. */
+  awaitingReview: boolean;
 };

@@ -160,7 +160,7 @@ export async function markPaidFromOnlinePayment(
       }
     } else if (result.invoiceId) {
       const { sendPaymentReceipt } = await import("@/lib/email/payment-receipt.js");
-      await sendPaymentReceipt(result.invoiceId, input.amountCents);
+      await sendPaymentReceipt(result.invoiceId, input.amountCents, undefined, { review: { family: "payment_receipt", origin: "WEBHOOK" } });
     }
   }
 
@@ -238,7 +238,7 @@ export async function markInvoicePaidFromStripeBilling(opts: {
   });
 
   const { sendPaymentReceipt } = await import("@/lib/email/payment-receipt.js");
-  await sendPaymentReceipt(opts.erpInvoiceId, opts.amountCents);
+  await sendPaymentReceipt(opts.erpInvoiceId, opts.amountCents, undefined, { review: { family: "payment_receipt", origin: "WEBHOOK" } });
   return { duplicate: false };
 }
 

@@ -81,7 +81,7 @@ export async function sendReviewInviteOnDone(projectId: string): Promise<boolean
       clientId: project.clientId,
       kind: REVIEW_INVITE_KIND,
       bodyTextForMessage: text,
-    });
+    }, { review: { family: "review_invite", origin: "ADMIN_ACTION" } });
     return true;
   } catch (err) {
     await prisma.clientProject.update({ where: { id: projectId }, data: { reviewInviteSentAt: null } });

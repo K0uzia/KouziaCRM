@@ -35,6 +35,7 @@ import { siteRoutes } from "@/routes/site.js";
 import { softwareRequestsRoutes } from "@/routes/software-requests.js";
 import { siteEditorRoutes } from "@/routes/site-editor.js";
 import { previewWebOrigin, sitePreviewRoutes } from "@/routes/site-preview.js";
+import { emailReviewRoutes } from "@/routes/email-review.js";
 import { projectsRoutes } from "@/routes/projects.js";
 import { notificationsRoutes } from "@/routes/notifications.js";
 import { pushRoutes } from "@/routes/push.js";
@@ -243,6 +244,7 @@ export async function buildApp(opts: BuildAppOptions = {}): Promise<FastifyInsta
   await app.register(softwareRequestsRoutes);
   await app.register(siteEditorRoutes);
   await app.register(sitePreviewRoutes);
+  await app.register(emailReviewRoutes);
 
   // pendingMigrations > 0 : base en retard sur le code (contrôle d'après déploiement).
   // Par le tunnel : état seulement (l'avance des migrations ne regarde que le LAN, kouziactl compris).
