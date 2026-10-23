@@ -22,6 +22,10 @@ import { purgeTestimonialProofs } from "../apps/api/src/lib/site/testimonials.js
 import { followSitePublications } from "../apps/api/src/lib/site/publish.js";
 import { backfillEncryptedEmails } from "../apps/api/src/lib/privacy/at-rest.js";
 import { purgeRetention } from "../apps/api/src/lib/privacy/retention.js";
+import { installNoBrotliFetch } from "../apps/api/src/lib/http/no-brotli-fetch.js";
+
+// Réponses des services extérieurs jamais demandées en Brotli (CVE-2026-111497).
+installNoBrotliFetch();
 
 async function runMaintenance() {
   try {
