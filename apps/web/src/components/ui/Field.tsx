@@ -1,5 +1,7 @@
 import { Children, cloneElement, isValidElement, useId } from "react";
 import type { ComponentPropsWithRef, SelectHTMLAttributes, ReactNode } from "react";
+import { useMediaQuery } from "@/lib/use-media-query";
+import { Listbox } from "@/components/ui/Listbox";
 
 export function Field({
   label,
@@ -54,8 +56,14 @@ export function Input({ className = "", ...props }: ComponentPropsWithRef<"input
   return <input className={`${control} ${singleLine} ${className}`} {...props} />;
 }
 
+/**
+ * Liste de choix : panneau au design de l'ERP dès 640 px avec une souris (Listbox) ; liste native au téléphone ou au
+ * doigt, plus grande sous le pouce, avec l'accessibilité du système (décision E4, 23/10/2026).
+ */
 export function Select({ className = "", ...props }: SelectHTMLAttributes<HTMLSelectElement>) {
-  return <select className={`${control} ${singleLine} ui-select ${className}`} {...props} />;
+  const native = useMediaQuery("(max-width: 639.98px), (pointer: coarse)");
+  const classes = `${control} ${singleLine} ui-select ${className}`;
+  return native ? <select className={classes} {...props} /> : <Listbox className={classes} {...props} />;
 }
 
 export function Textarea({ className = "", ...props }: ComponentPropsWithRef<"textarea">) {

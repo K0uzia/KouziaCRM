@@ -1155,8 +1155,8 @@ function SubscriptionStartFields({
       <div className="flex flex-wrap items-center gap-2">
         <label className="flex flex-wrap items-center gap-1.5 text-[var(--muted)]">
           Facturation à partir de
-          <select
-            className={control}
+          <Select
+            className="w-auto"
             aria-label={`Ligne ${n} : facturation à partir de`}
             value={start.subscriptionStart}
             onChange={(e) => onChange({ subscriptionStart: e.target.value as SubscriptionStart })}
@@ -1166,7 +1166,7 @@ function SubscriptionStartFields({
                 {o.label}
               </option>
             ))}
-          </select>
+          </Select>
         </label>
         {start.subscriptionStart === "DATE" ? (
           <label className="flex flex-wrap items-center gap-1.5 text-[var(--muted)]">
@@ -1200,8 +1200,8 @@ function SubscriptionStartFields({
         ) : null}
         <label className="flex flex-wrap items-center gap-1.5 text-[var(--muted)]">
           prélevé le
-          <select
-            className={control}
+          <Select
+            className="w-auto"
             aria-label={`Ligne ${n} : jour de prélèvement`}
             value={line.billingDay}
             onChange={(e) => onChange({ billingDay: e.target.value })}
@@ -1211,13 +1211,13 @@ function SubscriptionStartFields({
                 {d}
               </option>
             ))}
-          </select>
+          </Select>
           {line.billingInterval === "YEAR" ? "du mois anniversaire" : "de chaque mois"}
         </label>
         <label className="flex flex-wrap items-center gap-1.5 text-[var(--muted)]">
           engagement
-          <select
-            className={control}
+          <Select
+            className="w-auto"
             aria-label={`Ligne ${n} : durée d'engagement`}
             value={line.commitmentMonths ?? ""}
             onChange={(e) => onChange({ commitmentMonths: e.target.value })}
@@ -1226,7 +1226,7 @@ function SubscriptionStartFields({
             <option value="12">12 mois</option>
             <option value="24">24 mois</option>
             <option value="36">36 mois</option>
-          </select>
+          </Select>
         </label>
       </div>
       <p className="text-[var(--muted)]" aria-live="polite">
