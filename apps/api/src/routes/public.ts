@@ -560,7 +560,7 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
           const quotePending = d.quoteStatus === "SENT";
           const offer = parsePaymentPlanOffer(d.paymentPlanOffer);
           const awaitedStep =
-            d.paymentPlan === "THREE" ? flaggedStepLabel(d.project?.steps) : null;
+            d.paymentPlan === "THREE" && !d.billingMode ? flaggedStepLabel(d.project?.steps) : null;
           // Facture à régler (ajout du 19/10/2026) : bouton « Payer » si un lien existe, sinon virement, comme le PDF.
           const isInvoice = d.documentType === InvoiceDocumentType.INVOICE;
           const dueNow = isInvoice && d.status === InvoiceStatus.ISSUED ? (balanceFields(d)?.dueCents ?? 0) : 0;

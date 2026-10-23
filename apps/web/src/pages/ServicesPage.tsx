@@ -6,6 +6,7 @@ import { api, formatEUR } from "@/lib/api";
 import { useFeatures } from "@/lib/features";
 import { Button } from "@/components/ui/Button";
 import { Badge, Card, EmptyState, PageHeader } from "@/components/ui/Card";
+import { Banner } from "@/components/ui/Banner";
 import { Modal, ModalActions } from "@/components/ui/Modal";
 import { Field, Input, Select, Textarea } from "@/components/ui/Field";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
@@ -33,6 +34,8 @@ type Service = {
   stripePriceId?: string | null;
   billingInterval?: string | null;
   isPack?: boolean;
+  /** Pack : prix annuel en paiement récurrent (null : pack vendu seulement en paiement unique). */
+  annualPriceCents?: number | null;
   /** Classement d'une prestation ponctuelle : SITE | LOGICIEL | OPTION ; null = service non précisé. */
   category?: string | null;
   packItems?: Array<{
@@ -57,6 +60,8 @@ const emptyForm = {
   // Annuel par défaut : Stripe prélève des frais à chaque transaction (une par an plutôt que douze).
   billingInterval: "YEAR" as BillingInterval,
   billingDay: "1",
+  /** Pack : prix annuel en paiement récurrent (vide : paiement unique seulement). */
+  annualEuros: "",
 };
 
 /**
@@ -163,6 +168,7 @@ export function ServicesPage() {
       billingInterval: s.billingInterval === "YEAR" ? "YEAR" : "MONTH",
       billingDay: String(s.defaultBillingDay ?? 1),
       items: (s.packItems ?? []).map((i) => ({ serviceId: i.serviceId, quantity: String(i.quantity) })),
+      annualEuros: s.annualPriceCents == null ? "" : (s.annualPriceCents / 100).toFixed(2),
       category: s.category === "SITE" || s.category === "LOGICIEL" || s.category === "OPTION" ? s.category : "",
     });
     setRequestId(crypto.randomUUID());
@@ -186,7 +192,10 @@ export function ServicesPage() {
         isPack: form.kind === "PACK",
         category: form.kind === "ONE_OFF" ? form.category || null : null,
         ...(form.kind === "PACK"
-          ? { packItems: form.items.filter((i) => i.serviceId).map((i) => ({ serviceId: i.serviceId, quantity: Number(i.quantity) || 1 })) }
+          ? {
+              packItems: form.items.filter((i) => i.serviceId).map((i) => ({ serviceId: i.serviceId, quantity: Number(i.quantity) || 1 })),
+              annualPriceEuros: form.annualEuros.trim() ? Number(form.annualEuros) : null,
+            }
           : {}),
       };
       if (editing) {
@@ -263,7 +272,14 @@ export function ServicesPage() {
   const archived = rows.filter((r) => !r.active);
   const inView = view === "active" ? active : archived;
   const inTab = inView.filter((s) => ongletOf(s) === onglet);
-  const visible = onglet === "services" && genre !== "all" ? inTab.filter((s) => s.category === genre) : inTab;
+  // Packs sans prix annuel : vendus seulement en paiement unique, à compléter (filtre ?annuel=manquant).
+  const missingAnnual = active.filter((s) => s.isPack && s.annualPriceCents == null);
+  const onlyMissing = onglet === "packs" && filters.params.get("annuel") === "manquant";
+  const visible = onlyMissing
+    ? inTab.filter((s) => s.annualPriceCents == null)
+    : onglet === "services" && genre !== "all"
+      ? inTab.filter((s) => s.category === genre)
+      : inTab;
   // Compteur seulement s'il y a quelque chose : un « 0 » n'apporte rien, l'onglet vide le dit lui-même.
   const countIn = (o: Onglet) => inView.filter((s) => ongletOf(s) === o).length || null;
   const classified = inTab.some((s) => s.category === "SITE" || s.category === "LOGICIEL");
@@ -312,6 +328,20 @@ export function ServicesPage() {
           { id: "options", label: "Options", count: countIn("options") },
         ]}
       >
+      {onglet === "packs" && view === "active" && missingAnnual.length > 0 ? (
+        <Banner
+          level="warning"
+          className="mb-4"
+          action={
+            <Button variant="secondary" onClick={() => filters.set({ annuel: onlyMissing ? null : "manquant" })}>
+              {onlyMissing ? "Afficher tous les packs" : "Afficher ces packs"}
+            </Button>
+          }
+        >
+          {missingAnnual.length === 1 ? "1 pack sans prix annuel" : `${missingAnnual.length} packs sans prix annuel`} : vendu{missingAnnual.length > 1 ? "s" : ""} seulement
+          en paiement unique. Renseignez le prix annuel pour le proposer en abonnement.
+        </Banner>
+      ) : null}
       <Card className="overflow-hidden">
         <div className="flex flex-col gap-3 border-b border-[var(--border)] p-3 sm:flex-row sm:items-center sm:justify-between sm:p-4">
           <FilterBar>
@@ -383,8 +413,17 @@ export function ServicesPage() {
                   <div className="text-left sm:text-right">
                     <p className="font-display text-lg font-semibold tabular-nums">{formatEUR(s.unitPriceCents)}</p>
                     <p className="text-xs text-[var(--muted)]">
-                      {s.isSubscription ? (s.billingInterval === "YEAR" ? "Par an" : "Par mois") : s.isPack ? "Partie ponctuelle" : "Prix fixe"}
+                      {s.isSubscription ? (s.billingInterval === "YEAR" ? "Par an" : "Par mois") : s.isPack ? "Paiement unique" : "Prix fixe"}
                     </p>
+                    {s.isPack ? (
+                      s.annualPriceCents != null ? (
+                        <p className="text-xs text-[var(--muted)]">
+                          Abonnement : <span className="tabular-nums text-[var(--text)]">{formatEUR(s.annualPriceCents)}</span> / an
+                        </p>
+                      ) : (
+                        <p className="text-xs text-[var(--warning)]">Prix annuel à renseigner</p>
+                      )
+                    ) : null}
                   </div>
                   <div className="flex flex-wrap justify-end gap-1">
                     {moduleStripeEnabled && s.stripeProductId ? (
@@ -523,8 +562,8 @@ export function ServicesPage() {
             <fieldset className="space-y-2">
               <legend className="text-sm font-medium text-[var(--text)]">Contenu du pack</legend>
               <p className="text-xs text-[var(--muted)]">
-                Sur le devis, chaque prestation apparaît avec son prix, puis la remise du pack. Un abonnement inclus reste au prix
-                plein, celui qui sera prélevé.
+                Sur le devis, le pack tient en une ligne « Comprend : … ». Vendu en paiement unique au prix d'achat, ou en abonnement au
+                prix annuel ramené à la période.
               </p>
               {form.items.map((item, i) => (
                 <div key={i} className="flex min-w-0 items-end gap-2">
@@ -564,7 +603,7 @@ export function ServicesPage() {
           <Field
             label={
               form.kind === "PACK"
-                ? "Prix du pack, partie ponctuelle (€)"
+                ? "Prix d'achat, paiement unique (€)"
                 : form.kind === "SUBSCRIPTION"
                 ? form.billingInterval === "YEAR"
                   ? "Prix par an (€)"
@@ -573,7 +612,7 @@ export function ServicesPage() {
             }
             hint={
               form.kind === "PACK"
-                ? `Détail : ${formatEUR(detailCents)}${priceCents > 0 && priceCents <= detailCents ? `, remise du pack : ${formatEUR(detailCents - priceCents)}` : ""}. Le prix du pack ne dépasse jamais le détail. Un pack n'est pas envoyé à Stripe.`
+                ? `Détail des prestations : ${formatEUR(detailCents)}. Prix payé une fois quand le devis est en paiement unique. Un pack n'est pas envoyé à Stripe.`
                 : linkedPriceChange
                 ? `Un nouveau prix est créé dans Stripe et l'ancien (${formatEUR(editing?.unitPriceCents ?? 0)}) est archivé. Les abonnements en cours ne changent pas : ils gardent l'ancien prix.`
                 : priceCents > 0
@@ -594,6 +633,25 @@ export function ServicesPage() {
               <p className="mt-1 text-xs text-[var(--muted)]">{monthlyEquivalentText(eurosInputToCents(form.priceEuros), form.billingInterval)}</p>
             ) : null}
           </Field>
+          {form.kind === "PACK" ? (
+            <Field
+              label="Prix annuel, abonnement (€, facultatif)"
+              hint={
+                form.annualEuros.trim()
+                  ? `En abonnement : ${formatEUR(eurosInputToCents(form.annualEuros))} par an, ${formatEUR(Math.round(eurosInputToCents(form.annualEuros) / 4))} par trimestre ou ${formatEUR(Math.round(eurosInputToCents(form.annualEuros) / 12))} par mois.`
+                  : "Vide : pack proposé seulement en paiement unique."
+              }
+            >
+              <Input
+                type="number"
+                inputMode="decimal"
+                step="0.01"
+                min="0"
+                value={form.annualEuros}
+                onChange={(e) => setForm({ ...form, annualEuros: e.target.value })}
+              />
+            </Field>
+          ) : null}
           <label className="flex min-h-11 items-center gap-2 text-sm">
             <input
               type="checkbox"

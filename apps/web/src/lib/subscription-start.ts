@@ -22,8 +22,8 @@ const LONG = new Intl.DateTimeFormat("fr-FR", { day: "numeric", month: "long", y
 const longDate = (iso: string) => LONG.format(new Date(`${iso}T00:00:00`)).replace(/^1 /, "1er ");
 
 /** Phrase de la ligne : « 12 mois offerts à partir de la livraison du projet, puis 72,00 € par an ». null si incomplète. */
-export function startPhrase(f: StartFields, hasProject: boolean, amountCents: number, interval: "MONTH" | "YEAR"): string | null {
-  const price = `${formatEUR(amountCents)} par ${interval === "YEAR" ? "an" : "mois"}`;
+export function startPhrase(f: StartFields, hasProject: boolean, amountCents: number, interval: "MONTH" | "QUARTER" | "YEAR"): string | null {
+  const price = `${formatEUR(amountCents)} par ${interval === "YEAR" ? "an" : interval === "QUARTER" ? "trimestre" : "mois"}`;
   if (f.subscriptionStart === "DATE") return f.subscriptionStartDate ? `${price} à partir du ${longDate(f.subscriptionStartDate)}` : null;
   const point = f.subscriptionStart === "SIGNATURE" || !hasProject ? "à partir de la signature" : "à partir de la livraison du projet";
   if (f.subscriptionStart === "FREE_MONTHS") {

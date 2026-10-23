@@ -3,7 +3,8 @@ import { InvoiceDocumentType, InvoiceStatus } from "@prisma/client";
 import { prisma } from "@/lib/prisma.js";
 import { resetDb } from "../../helpers/db.js";
 import { createClient, createService, seedCompanySettings } from "../../helpers/factories.js";
-import { milestoneAmounts, planTemplate, type PlanSettings } from "@/lib/quotes/payment-plans.js";
+import { listDeposit2Todos, milestoneAmounts, planTemplate, type PlanSettings } from "@/lib/quotes/payment-plans.js";
+import { invalidateCompanySettingsCache } from "@/lib/company.js";
 import { assertBillingModeLines, periodAmountCents } from "@/lib/quotes/billing-mode.js";
 import { subscriptionPriceData } from "@/lib/stripe/checkout.js";
 
@@ -11,6 +12,7 @@ vi.mock("@/lib/email/send-document-pdf.js", () => ({ sendDocumentPdf: vi.fn(asyn
 
 const { issueQuote, acceptQuoteByClient } = await import("@/lib/invoices/transitions.js");
 const { generateDueSubscriptionInvoices } = await import("@/lib/subscriptions/subscription-service.js");
+const { activateMilestoneCheckout } = await import("@/lib/payments/milestonePaymentService.js");
 
 const settings = {
   depositPercent1Bps: 3000,
@@ -111,6 +113,21 @@ describe("mode de facturation : devis émis puis signé", () => {
     ]);
     const at = signed.quoteDecidedAt!.getTime();
     expect(ms.map((m) => Math.round((m.dueDate!.getTime() - at) / DAY))).toEqual([0, 30, 60]);
+  });
+
+  it("paiement unique en 3 fois : la 2e échéance datée reçoit son lien, sans attendre d'étape de projet", async () => {
+    await prisma.companySettings.updateMany({ data: { moduleStripeEnabled: true } });
+    invalidateCompanySettingsCache();
+    const q = await quote("ONE_OFF", "THREE", [{ description: "Site vitrine", unitPriceCents: 100000 }]);
+    await issueQuote(q.id);
+    await acceptQuoteByClient(q.id, "Atelier Mode", { source: "ADMIN" });
+    const second = await prisma.paymentMilestone.findFirstOrThrow({ where: { quoteId: q.id, position: 2 } });
+    const activated = await activateMilestoneCheckout(second.id);
+    expect(activated).toMatchObject({ status: "DUE" });
+    expect(activated.checkoutUrl).toBeTruthy();
+    // Dates des échéances : aucune étape de projet attendue côté tableau de bord.
+    const todos = await listDeposit2Todos(prisma);
+    expect([...todos.missingStep, ...todos.toInvoice].some((t) => t.quoteId === q.id)).toBe(false);
   });
 
   it("paiement unique : sous 500 € le 3 fois retombe sur 2 fois ; le comptant reste en une fois", async () => {
