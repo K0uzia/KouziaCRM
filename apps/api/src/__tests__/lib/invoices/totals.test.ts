@@ -111,7 +111,8 @@ describe("computeLineTotals", () => {
     expect(r.lines[0].quantity).toBe(2);
     expect(r.lines[0].isSubscription).toBe(false);
     expect(r.lines[0].billingDay).toBeNull();
-    expect(r.lines[0].serviceId).toBeNull();
+    // Ligne ponctuelle du catalogue : le lien à la prestation est gardé (E3, 23/10/2026).
+    expect(r.lines[0].serviceId).toBe("svc_x");
   });
 
   it("préserve l'ordre des positions", () => {

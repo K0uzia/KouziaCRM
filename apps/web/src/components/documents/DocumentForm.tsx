@@ -1,11 +1,10 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
 import { toast } from "sonner";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { faChevronRight, faPlus, faTrashCan } from "@fortawesome/free-solid-svg-icons";
+import { faChevronRight, faPen, faPlus, faTrashCan } from "@fortawesome/free-solid-svg-icons";
 import { api, formatEUR } from "@/lib/api";
 import { offlineEnabled } from "@/lib/offline/config";
 import { isLocalClientId, submitCreation, useRequestId } from "@/lib/offline/queue";
-import { subscriptionsTotalText } from "@/lib/quote-totals";
 import { euros } from "@/lib/format";
 import { Button } from "@/components/ui/Button";
 import { Modal, ModalActions } from "@/components/ui/Modal";
@@ -27,6 +26,7 @@ import {
   suggestedAmountCents,
   type BillingInterval,
 } from "@/lib/billing-interval";
+import { commitmentTotalCents, installments, oneOffMeans, orList, plansShown, subscriptionMeans, type PaymentSettings } from "@/lib/payment-summary";
 
 export type DocLine = {
   description: string;
@@ -41,6 +41,8 @@ export type DocLine = {
   isPackDiscount?: boolean;
   /** Abonnement de devis : durée d'engagement en mois (« 12 », « 24 », « 36 ») ; vide = sans engagement. */
   commitmentMonths?: string;
+  /** Ligne du catalogue passée en saisie libre (« Modifier le texte ») ; jamais envoyé. */
+  editText?: boolean;
 } & Partial<StartFields>;
 
 const NO_START: StartFields = { subscriptionStart: "", subscriptionStartDate: "", subscriptionFreeMonths: "" };
@@ -67,7 +69,7 @@ export type DocumentFormValues = {
   paymentPlanOffer: "" | "TWO" | "THREE" | "CHOICE";
 };
 
-type PlanSettings = { paymentChoiceDefault: boolean; split3MinTotalCents: number; annualFreeMonths?: number };
+type PlanSettings = PaymentSettings & { paymentChoiceDefault: boolean; annualFreeMonths?: number };
 
 type QuoteOpt = {
   id: string;
@@ -266,7 +268,8 @@ export function DocumentFormEditor({
       const clientDay = clients.find((c) => c.id === form.clientId)?.billingDay;
       const packLines = await api<PackLine[]>(`/api/services/${packId}/pack-lines`);
       const added: DocLine[] = packLines.map((p) => ({
-        serviceId: p.isSubscription ? p.serviceId : "",
+        // Lien au catalogue gardé (texte affiché tel quel) ; la remise du pack reste une ligne libre.
+        serviceId: p.isPackDiscount ? "" : p.serviceId,
         description: p.description,
         quantity: String(p.quantity),
         unitPriceEuros: (p.unitPriceCents / 100).toFixed(2),
@@ -359,11 +362,6 @@ export function DocumentFormEditor({
     documentType === "QUOTE" && filledLines.some((l) => l.isSubscription) && filledLines.some((l) => !l.isSubscription);
   // Base de l'acompte : partie ponctuelle, remise entière déduite (comme computeDepositBaseCents).
   const oneOffPreview = Math.max(0, oneOffSubtotal - discountPreview);
-  const subscriptionLinesPreview = form.lines.filter((l) => l.isSubscription && (Number(l.unitPriceEuros) || 0) > 0);
-  const subscriptionsPreviewText = subscriptionsTotalText({
-    yearCents: Math.round(subscriptionLinesPreview.filter((l) => l.billingInterval === "YEAR").reduce((s, l) => s + Number(l.unitPriceEuros) * 100, 0)),
-    monthCents: Math.round(subscriptionLinesPreview.filter((l) => l.billingInterval !== "YEAR").reduce((s, l) => s + Number(l.unitPriceEuros) * 100, 0)),
-  });
   // Conditions par défaut : suivent la nature du devis tant qu'elles n'ont pas été modifiées.
   useEffect(() => {
     setForm((f) => {
@@ -396,7 +394,7 @@ export function DocumentFormEditor({
         isSubscription: l.isSubscription,
         billingDay: l.isSubscription ? Number(l.billingDay) || 1 : null,
         billingInterval: l.isSubscription ? l.billingInterval : null,
-        serviceId: l.isSubscription ? l.serviceId : null,
+        serviceId: l.serviceId || null,
         groupTitle: l.groupTitle?.trim() || null,
         isPackDiscount: Boolean(l.isPackDiscount),
         ...(documentType === "QUOTE" && l.isSubscription
@@ -499,15 +497,41 @@ export function DocumentFormEditor({
   const needsDetails = needsClient?.needsDetails?.trim() ?? "";
   const quoted = new Set(form.lines.map((l) => l.serviceId).filter(Boolean));
 
+  // Paiement (E2) : échéances, abonnements et moyens, tels que l'API les appliquera à l'émission.
+  const scheduleBaseCents = Math.round((mixedQuote ? oneOffPreview : totalPreview) * 100);
+  const showSchedule = isQuote && !subscriptionOnly;
+  const plans = planSettings ? plansShown(form.paymentPlanOffer, scheduleBaseCents, planSettings) : [];
+  const subLines = form.lines.flatMap((line, index) => (line.isSubscription ? [{ line, index }] : []));
+  const lineName = (line: DocLine) => services.find((x) => x.id === line.serviceId)?.name ?? (line.description.split(/ : |\n/)[0]?.trim() || "Abonnement");
+  const periodCents = (line: DocLine) => eurosInputToCents(line.unitPriceEuros);
+  const cardMax = planSettings ? formatEUR(planSettings.paymentCardMaxCents) : "";
+  const oneOffMeansText = planSettings
+    ? orList([
+        ...oneOffMeans(0, planSettings).filter((m) => m !== "carte bancaire"),
+        ...(planSettings.paymentCardEnabled ? [`carte bancaire (jusqu'à ${cardMax} par paiement)`] : []),
+      ])
+    : "";
+
   // Clavier rapide (D2) : Entrée dans la quantité ou le prix passe à la désignation de la ligne suivante, et sur la
   // dernière ligne en ajoute une. Entrée dans la désignation reste un retour à la ligne.
-  const descriptionRefs = useRef<Array<HTMLTextAreaElement | null>>([]);
+  // Ligne du catalogue (texte statique) : le focus va au premier champ modifiable de la ligne.
+  const linesRef = useRef<HTMLUListElement>(null);
   const [focusLine, setFocusLine] = useState<number | null>(null);
   useEffect(() => {
     if (focusLine === null) return;
-    descriptionRefs.current[focusLine]?.focus();
+    linesRef.current
+      ?.querySelector<HTMLElement>(`[data-line="${focusLine}"] :is(textarea, input:not([disabled]))`)
+      ?.focus();
     setFocusLine(null);
   }, [focusLine, form.lines.length]);
+  /** Texte d'une ligne venue du catalogue, inchangé : affiché en titre et description, sans zone de saisie. */
+  const catalogText = (line: DocLine) => {
+    if (!line.serviceId || line.editText) return null;
+    const svc = services.find((x) => x.id === line.serviceId);
+    if (!svc) return null;
+    const text = svc.description ? `${svc.name} : ${svc.description}` : svc.name;
+    return line.description === text ? { title: svc.name, description: svc.description } : null;
+  };
   const onLineKeyDown = (index: number) => (e: KeyboardEvent<HTMLInputElement>) => {
     if (e.key !== "Enter" || e.shiftKey || e.nativeEvent.isComposing) return;
     e.preventDefault();
@@ -521,6 +545,7 @@ export function DocumentFormEditor({
   const sectionTitle = "font-display text-base font-semibold text-[var(--text)]";
   const lineLabel = "mb-1 block text-xs font-medium text-[var(--muted)] lg:sr-only";
   const totalsLine = "flex items-baseline justify-between gap-3 text-sm";
+  const blockTitle = "text-sm font-semibold text-[var(--text)]";
 
   return (
     <>
@@ -670,14 +695,16 @@ export function DocumentFormEditor({
           <span className="text-right">Total</span>
           <span />
         </div>
-        <ul className="space-y-2 lg:space-y-0">
+        <ul ref={linesRef} className="space-y-2 lg:space-y-0">
           {form.lines.map((line, i) => {
             const lineTotal = (line.isSubscription ? 1 : Number(line.quantity) || 0) * (Number(line.unitPriceEuros) || 0);
             const outOfTotal = documentType === "QUOTE" && !billedWithDocument(line);
             const monthly = line.isSubscription ? monthlyEquivalentText(eurosInputToCents(line.unitPriceEuros), line.billingInterval) : null;
+            const fixed = catalogText(line);
             return (
               <li
                 key={i}
+                data-line={i}
                 className="rounded-[var(--radius)] border border-[var(--border)] bg-[var(--bg-subtle)] p-3 lg:rounded-none lg:border-0 lg:border-b lg:bg-transparent lg:px-0 lg:py-2"
               >
                 {line.groupTitle ? (
@@ -686,12 +713,39 @@ export function DocumentFormEditor({
                   </p>
                 ) : null}
                 <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1.6fr)_2.75rem] items-end gap-2 lg:grid-cols-[minmax(0,1fr)_5.5rem_8rem_7rem_2.75rem] lg:items-start">
+                  {fixed ? (
+                    <div className="col-span-3 min-w-0 lg:col-span-1">
+                      <span className={lineLabel} aria-hidden>
+                        Désignation
+                      </span>
+                      <div className="flex items-start gap-2">
+                        <div className="min-w-0 flex-1 py-2">
+                          <p className="break-words text-sm font-medium text-[var(--text)]">
+                            <span className="sr-only">Ligne {i + 1} : </span>
+                            {fixed.title}
+                          </p>
+                          {fixed.description ? (
+                            <p className="mt-0.5 whitespace-pre-line break-words text-xs text-[var(--muted)]">{fixed.description}</p>
+                          ) : null}
+                        </div>
+                        <Button
+                          variant="ghost"
+                          className="h-[var(--field-h)] min-w-11 shrink-0 px-0"
+                          aria-label={`Modifier le texte de la ligne ${i + 1}`}
+                          title="Modifier le texte"
+                          onClick={() => {
+                            updateLine(i, { editText: true });
+                            setFocusLine(i);
+                          }}
+                        >
+                          <FontAwesomeIcon icon={faPen} className="h-3.5 w-3.5" aria-hidden />
+                        </Button>
+                      </div>
+                    </div>
+                  ) : (
                   <label className="col-span-3 min-w-0 lg:col-span-1">
                     <span className={lineLabel}>Désignation</span>
                     <Textarea
-                      ref={(el) => {
-                        descriptionRefs.current[i] = el;
-                      }}
                       required
                       rows={descriptionRows(line.description)}
                       className="min-h-[var(--field-h)] resize-none py-2.5"
@@ -701,6 +755,7 @@ export function DocumentFormEditor({
                       onChange={(e) => updateLine(i, { description: e.target.value })}
                     />
                   </label>
+                  )}
                   <label className="min-w-0">
                     <span className={lineLabel}>Qté</span>
                     <Input
@@ -745,36 +800,10 @@ export function DocumentFormEditor({
                   </Button>
                 </div>
                 {line.isSubscription ? (
-                  <div className="mt-2 flex flex-wrap items-center gap-2 text-xs lg:pr-[3.25rem]">
-                    <Segmented
-                      label={`Ligne ${i + 1} : périodicité de l'abonnement`}
-                      options={INTERVAL_OPTIONS}
-                      value={line.billingInterval}
-                      onChange={(next) => changeLineInterval(i, next)}
-                    />
-                    {subscriptionOnly || mixedQuote ? (
-                      <SubscriptionStartFields index={i} line={line} hasProject={mixedQuote} onChange={(patch) => updateLine(i, patch)} />
-                    ) : (
-                      <label className="flex flex-wrap items-center gap-2 text-[var(--muted)]">
-                        Facturée le
-                        <Select
-                          className="w-auto"
-                          aria-label={`Ligne ${i + 1} : jour de facturation`}
-                          value={line.billingDay}
-                          onChange={(e) => updateLine(i, { billingDay: e.target.value })}
-                        >
-                          {Array.from({ length: 28 }, (_, d) => d + 1).map((d) => (
-                            <option key={d} value={String(d)}>
-                              {d}
-                            </option>
-                          ))}
-                        </Select>
-                        {line.billingInterval === "YEAR"
-                          ? "du mois, chaque année à la date anniversaire (1re année incluse dans ce document)"
-                          : "de chaque mois (1re échéance incluse dans ce document)"}
-                      </label>
-                    )}
-                  </div>
+                  <p className="mt-1.5 text-xs text-[var(--muted)]">
+                    Abonnement {line.billingInterval === "YEAR" ? "annuel" : "mensuel"} :{" "}
+                    {isQuote ? "période, départ et engagement" : "période et jour de facturation"} dans la section Paiement.
+                  </p>
                 ) : null}
                 {outOfTotal ? (
                   <p className="mt-1.5 text-xs text-[var(--muted)]">Hors total du devis : 1re facture repoussée (date précise ou mois offerts).</p>
@@ -794,7 +823,7 @@ export function DocumentFormEditor({
       </section>
 
       {/* Paiement */}
-      <section className="space-y-3" aria-labelledby="doc-terms">
+      <section className="space-y-6" aria-labelledby="doc-terms">
         <h3 id="doc-terms" className={sectionTitle}>
           Paiement
         </h3>
@@ -805,11 +834,13 @@ export function DocumentFormEditor({
             l&apos;abonnement.
           </p>
         ) : null}
-        <div className="grid gap-4 sm:grid-cols-12">
-          {isQuote && !subscriptionOnly ? (
+
+        {showSchedule ? (
+          <div className="space-y-3">
+            <h4 className={blockTitle}>{mixedQuote ? "Partie ponctuelle" : "Échéancier"}</h4>
             <Field
-              className="sm:col-span-5"
-              label="Échéancier"
+              className="max-w-xl"
+              label="Formule de paiement"
               hint={
                 mixedQuote
                   ? `Acompte et échéancier sur la partie ponctuelle (${formatEUR(Math.round(oneOffPreview * 100))}) ; l'abonnement démarre à la livraison.${
@@ -833,11 +864,101 @@ export function DocumentFormEditor({
                 <option value="CHOICE">Au choix du client (2 ou 3 fois)</option>
               </Select>
             </Field>
-          ) : null}
-          <Field className={isQuote && !subscriptionOnly ? "sm:col-span-7" : "sm:col-span-12"} label={isQuote ? "Conditions de règlement" : "Conditions de paiement"}>
-            <Input value={form.paymentTerms} onChange={(e) => setForm((f) => ({ ...f, paymentTerms: e.target.value }))} />
-          </Field>
-        </div>
+            {planSettings && scheduleBaseCents > 0 ? (
+              <div className="grid gap-3 sm:grid-cols-[repeat(auto-fit,minmax(min(100%,16rem),1fr))]">
+                {plans.map((plan) => (
+                  <dl key={plan} className="space-y-1 rounded-[var(--radius)] border border-[var(--border)] p-3 text-sm">
+                    <dt className="font-medium">{plan === "THREE" ? "En 3 fois" : "En 2 fois"}</dt>
+                    {installments(plan, scheduleBaseCents, planSettings).map((m) => (
+                      <dd key={m.label} className="flex items-baseline justify-between gap-3">
+                        <span className="text-[var(--muted)]">
+                          {m.label} ({m.percentBps / 100} %)
+                        </span>
+                        <span className="tabular-nums">{formatEUR(m.amountCents)}</span>
+                      </dd>
+                    ))}
+                  </dl>
+                ))}
+              </div>
+            ) : null}
+          </div>
+        ) : null}
+
+        {subLines.length > 0 ? (
+          <div className="space-y-3">
+            <h4 className={blockTitle}>{subLines.length > 1 ? "Abonnements" : "Abonnement"}</h4>
+            {subLines.map(({ line, index }) => (
+              <fieldset key={index} className="space-y-3 rounded-[var(--radius)] border border-[var(--border)] p-3 text-sm">
+                <legend className="px-1 font-medium">
+                  {lineName(line)} <span className="font-normal text-[var(--muted)]">(ligne {index + 1})</span>
+                </legend>
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-[var(--muted)]" aria-hidden>
+                    Période
+                  </span>
+                  <Segmented
+                    label={`Ligne ${index + 1} : périodicité de l'abonnement`}
+                    options={INTERVAL_OPTIONS}
+                    value={line.billingInterval}
+                    onChange={(next) => changeLineInterval(index, next)}
+                  />
+                  <span className="tabular-nums">
+                    {formatEUR(periodCents(line))} {periodSuffix(line.billingInterval)}
+                  </span>
+                </div>
+                {subscriptionOnly || mixedQuote ? (
+                  <SubscriptionStartFields index={index} line={line} hasProject={mixedQuote} onChange={(patch) => updateLine(index, patch)} />
+                ) : (
+                  <label className="flex flex-wrap items-center gap-2 text-[var(--muted)]">
+                    Facturée le
+                    <Select
+                      className="w-auto"
+                      aria-label={`Ligne ${index + 1} : jour de facturation`}
+                      value={line.billingDay}
+                      onChange={(e) => updateLine(index, { billingDay: e.target.value })}
+                    >
+                      {Array.from({ length: 28 }, (_, d) => d + 1).map((d) => (
+                        <option key={d} value={String(d)}>
+                          {d}
+                        </option>
+                      ))}
+                    </Select>
+                    {line.billingInterval === "YEAR"
+                      ? "du mois, chaque année à la date anniversaire (1re année incluse dans ce document)"
+                      : "de chaque mois (1re échéance incluse dans ce document)"}
+                  </label>
+                )}
+              </fieldset>
+            ))}
+          </div>
+        ) : null}
+
+        {planSettings ? (
+          <div className="space-y-1.5">
+            <h4 className={blockTitle}>Moyens de paiement</h4>
+            <ul className="space-y-1 text-sm text-[var(--muted)]">
+              {!subscriptionOnly ? (
+                <li>
+                  <span className="text-[var(--text)]">{subLines.length ? "Partie ponctuelle" : isQuote ? "Échéances" : "Facture"} :</span> {oneOffMeansText}.
+                  Le virement sur l&apos;IBAN de la facture reste possible.
+                </li>
+              ) : null}
+              {subLines.map(({ line, index }) => (
+                <li key={index}>
+                  <span className="text-[var(--text)]">{lineName(line)} :</span> {orList(subscriptionMeans(periodCents(line), planSettings))}, chaque{" "}
+                  {line.billingInterval === "YEAR" ? "année" : "mois"}.
+                </li>
+              ))}
+            </ul>
+            <a href="/settings?tab=payments" target="_blank" rel="noopener" className="link inline-flex min-h-11 items-center text-sm">
+              Modifier les moyens dans les réglages (nouvel onglet)
+            </a>
+          </div>
+        ) : null}
+
+        <Field label={isQuote ? "Conditions de règlement" : "Conditions de paiement"}>
+          <Input value={form.paymentTerms} onChange={(e) => setForm((f) => ({ ...f, paymentTerms: e.target.value }))} />
+        </Field>
       </section>
 
       {/* Notes et bon de commande */}
@@ -922,13 +1043,47 @@ export function DocumentFormEditor({
           <span className="font-semibold">{mixedQuote ? "Total du projet" : "Total"}</span>
           <span className="font-display text-2xl font-semibold tabular-nums">{eur(mixedQuote ? oneOffPreview : totalPreview)}</span>
         </p>
-        {mixedQuote ? (
-          <p className="mt-1 text-xs text-[var(--muted)]">
-            Abonnement{subscriptionLinesPreview.length > 1 ? "s" : ""} en plus : {subscriptionsPreviewText}
-          </p>
-        ) : null}
         <p className="mt-1 text-xs text-[var(--muted)]">TVA non applicable, art. 293 B du CGI.</p>
       </div>
+      {showSchedule && planSettings && scheduleBaseCents > 0 ? (
+        <div className="space-y-1 border-t border-[var(--border)] pt-3">
+          <p className="text-sm font-medium">Échéances{plans.length > 1 ? " (au choix du client)" : ""}</p>
+          {plans.map((plan) => (
+            <p key={plan} className="text-xs text-[var(--muted)]">
+              {plan === "THREE" ? "En 3 fois" : "En 2 fois"} :{" "}
+              <span className="tabular-nums text-[var(--text)]">
+                {installments(plan, scheduleBaseCents, planSettings)
+                  .map((m) => formatEUR(m.amountCents))
+                  .join(" + ")}
+              </span>
+            </p>
+          ))}
+        </div>
+      ) : null}
+      {subLines.length > 0 ? (
+        <div className="space-y-2 border-t border-[var(--border)] pt-3">
+          {subLines.map(({ line, index }) => {
+            const months = Number(line.commitmentMonths) || 0;
+            return (
+              <div key={index} className="space-y-0.5">
+                <p className={totalsLine}>
+                  <span className="min-w-0 break-words text-[var(--muted)]">{lineName(line)}</span>
+                  <span className="shrink-0 tabular-nums">
+                    {formatEUR(periodCents(line))} {periodSuffix(line.billingInterval)}
+                  </span>
+                </p>
+                {isQuote ? (
+                  <p className="text-xs text-[var(--muted)]">
+                    {months
+                      ? `Engagement ${months} mois, soit ${formatEUR(commitmentTotalCents(periodCents(line), line.billingInterval, months))} sur la durée`
+                      : "Sans engagement"}
+                  </p>
+                ) : null}
+              </div>
+            );
+          })}
+        </div>
+      ) : null}
       {widePreview ? (
         <div className="space-y-2 border-t border-[var(--border)] pt-3">
           <p className="text-sm font-medium">Aperçu</p>
@@ -952,7 +1107,7 @@ export function DocumentFormEditor({
           <span className="text-xs text-[var(--muted)]">{mixedQuote ? "Total du projet" : "Total"}<span className="lg:hidden"> (détail)</span></span>
           <span className="font-display text-lg font-semibold tabular-nums">{eur(mixedQuote ? oneOffPreview : totalPreview)}</span>
         </button>
-        <Button variant="secondary" className="hidden sm:inline-flex" onClick={onCancel} disabled={busy}>
+        <Button variant="secondary" className="max-sm:hidden" onClick={onCancel} disabled={busy}>
           Annuler
         </Button>
         <Button type="submit" disabled={busy || !form.clientId}>
