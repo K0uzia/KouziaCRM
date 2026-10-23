@@ -10,7 +10,7 @@ source "${SCRIPT_DIR}/lib.sh"
 echo "${C_BOLD}Kouzia ERP status${C_RESET}"
 echo "  Host     : $(hostname) (Alpine $(cat /etc/alpine-release 2>/dev/null || echo '?'))"
 echo "  App      : $KOUZIA_APP_DIR"
-echo "  Node     : $(node -v 2>/dev/null || echo absent)"
+node_security_line
 echo ""
 
 echo "${C_BOLD}Accès ERP${C_RESET}"
