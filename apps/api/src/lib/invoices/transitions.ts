@@ -523,7 +523,12 @@ export async function acceptQuoteByClient(
     // (Stripe après le mandat, sinon facture ERP immédiate), jamais par le devis.
     // Devis mixte : seules les lignes au départ « à la signature » ou « à une date » démarrent maintenant ; les
     // autres attendent la livraison (startDeferredSubscriptions).
-    const atSignature = pending.lines.filter((l) => l.isSubscription && activationPoint(l, true) === "SIGNATURE").map((l) => l.id);
+    // Mode récurrent : un projet (livraison) seulement avec des frais de mise en service ou un départ « à la livraison »
+    // choisi ; sinon l'abonnement démarre à la signature, comme un devis d'abonnement seul.
+    const recurring = parseBillingMode(pending.billingMode) === "RECURRING";
+    const hasProject = (l: { subscriptionStart: string | null }) =>
+      !recurring || depositBaseOf(pending) > 0 || l.subscriptionStart === "DELIVERY";
+    const atSignature = pending.lines.filter((l) => l.isSubscription && activationPoint(l, hasProject(l)) === "SIGNATURE").map((l) => l.id);
     const subs = deferSubscription
       ? atSignature.length
         ? await activateSubscriptionsFromDocument(quoteId, tx, {
