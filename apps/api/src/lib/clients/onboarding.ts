@@ -46,9 +46,48 @@ function publicSiteOrigin(): string {
  * - existingClientId renseigné : client existant à mettre à jour.
  * Envoie l'email contenant le lien Kouzia /nouveau-client/?token=...
  */
+/** Lien personnel de l'invitation dans le brouillon : créé seulement à l'envoi, à cet endroit du texte. */
+export const INVITE_LINK_PLACEHOLDER = "{{lien}}";
+/** Texte relu : le lien remplace {{lien}} ; retiré par mégarde, il est ajouté en fin de message (sans lui, rien ne sert). */
+export function withInviteLink(text: string, link: string): string {
+  const t = text.trim();
+  return t.includes(INVITE_LINK_PLACEHOLDER) ? t.replaceAll(INVITE_LINK_PLACEHOLDER, link) : `${t}\n\n${link}`;
+}
+
+async function inviteContent(existingClientId: string | null, link: string) {
+  const company = await getCompanySettings();
+  const brand = company.tradeName ?? company.legalName;
+  const ttl = getOnboardingTtlDays();
+  const text = [
+    "Bonjour,",
+    "",
+    existingClientId
+      ? "Pour mettre à jour vos informations de facturation, merci de compléter le formulaire sécurisé ci-dessous :"
+      : "Pour me permettre de vous facturer dans les meilleures conditions, j'ai besoin de quelques informations vous concernant. Merci de prendre 2 minutes pour compléter votre fiche via le lien sécurisé ci-dessous :",
+    "",
+    link,
+    "",
+    `Ce lien est personnel et expire dans ${ttl} jours. Vos données sont transmises directement à ${brand} et ne sont pas conservées sur le site public.`,
+    "",
+    "Cordialement,",
+    brand,
+  ].join("\n");
+  const subject = existingClientId ? `Mise à jour de votre fiche client - ${brand}` : `Complétez votre fiche client - ${brand}`;
+  return { subject, text };
+}
+
+/** « Vérifier l'e-mail » : l'invitation telle qu'elle partirait, avec {{lien}} à la place du lien personnel. */
+export async function onboardingInviteDraft(email: string, existingClientId: string | null) {
+  const { subject, text } = await inviteContent(existingClientId, INVITE_LINK_PLACEHOLDER);
+  return { to: email.trim().toLowerCase(), subject, text, attachments: [] as string[] };
+}
+
 export async function sendOnboardingInvite(opts: {
   email: string;
   existingClientId?: string | null;
+  /** Objet et texte relus dans « Vérifier l'e-mail » ({{lien}} remplacé par le lien personnel). */
+  subject?: string;
+  text?: string;
 }): Promise<OnboardingInviteResult> {
   const email = opts.email.trim().toLowerCase();
   if (!email || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
@@ -75,29 +114,10 @@ export async function sendOnboardingInvite(opts: {
   if (!(await isSmtpConfigured())) return { ok: true, sent: false, reason: "smtp_off", token };
 
   try {
-    const company = await getCompanySettings();
-    const brand = company.tradeName ?? company.legalName;
-    const ttl = getOnboardingTtlDays();
     const link = `${publicSiteOrigin()}/nouveau-client/?token=${encodeURIComponent(token)}`;
-
-    const body = [
-      "Bonjour,",
-      "",
-      opts.existingClientId
-        ? "Pour mettre à jour vos informations de facturation, merci de compléter le formulaire sécurisé ci-dessous :"
-        : "Pour me permettre de vous facturer dans les meilleures conditions, j'ai besoin de quelques informations vous concernant. Merci de prendre 2 minutes pour compléter votre fiche via le lien sécurisé ci-dessous :",
-      "",
-      link,
-      "",
-      `Ce lien est personnel et expire dans ${ttl} jours. Vos données sont transmises directement à ${brand} et ne sont pas conservées sur le site public.`,
-      "",
-      "Cordialement,",
-      brand,
-    ].join("\n");
-
-    const subject = opts.existingClientId
-      ? `Mise à jour de votre fiche client - ${brand}`
-      : `Complétez votre fiche client - ${brand}`;
+    const content = await inviteContent(opts.existingClientId ?? null, link);
+    const body = opts.text?.trim() ? withInviteLink(opts.text, link) : content.text;
+    const subject = opts.subject?.trim() || content.subject;
     await mailEnqueue({
       to: email,
       subject,

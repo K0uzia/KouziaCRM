@@ -6,6 +6,7 @@ import { isNetworkFailure } from "@/lib/network";
 import { formatDate } from "@/lib/format";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
+import { ResendDocumentDialog } from "@/components/messaging/document-email-dialogs";
 
 type TimelineItem = {
   id: string;
@@ -24,7 +25,6 @@ export function ClientMessagesTab({ clientId }: { clientId: string }) {
   const [items, setItems] = useState<TimelineItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [offlineBlock, setOfflineBlock] = useState(false);
-  const [busy, setBusy] = useState<string | null>(null);
 
   async function load() {
     setLoading(true);
@@ -44,18 +44,8 @@ export function ClientMessagesTab({ clientId }: { clientId: string }) {
     void load();
   }, [clientId]);
 
-  async function resendPdf(documentId: string) {
-    setBusy(documentId);
-    try {
-      await api(`/api/invoices/${documentId}/send-email`, { method: "POST", body: "{}" });
-      toast.success("PDF en file d'envoi");
-      await load();
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Erreur");
-    } finally {
-      setBusy(null);
-    }
-  }
+  // « Renvoyer PDF » : e-mail relu dans « Vérifier l'e-mail » avant l'envoi (E6c).
+  const [resendFor, setResendFor] = useState<string | null>(null);
 
   if (loading) return <p className="text-sm text-[var(--muted)]">Chargement…</p>;
   if (offlineBlock) {
@@ -68,6 +58,7 @@ export function ClientMessagesTab({ clientId }: { clientId: string }) {
 
   return (
     <Card className="space-y-3 p-5">
+      <ResendDocumentDialog documentId={resendFor} onClose={() => setResendFor(null)} onSent={() => load()} />
       <div className="flex items-center justify-between">
         <h2 className="font-semibold">Messages</h2>
         <Link to={`/inbox/compose?clientId=${clientId}`}>
@@ -107,8 +98,7 @@ export function ClientMessagesTab({ clientId }: { clientId: string }) {
                       type="button"
                       variant="ghost"
                       className="h-7 px-2 text-xs"
-                      disabled={busy === item.documentId}
-                      onClick={() => void resendPdf(item.documentId!)}
+                      onClick={() => setResendFor(item.documentId!)}
                     >
                       Renvoyer PDF
                     </Button>

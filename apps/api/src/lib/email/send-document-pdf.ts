@@ -5,11 +5,16 @@ import { loadDocumentForPdf, renderLoadedDocumentPdf } from "@/lib/pdf/document-
 import { resolveClientPortalUrl } from "@/lib/email/portal-url.js";
 import { resolveInvoicePaymentUrl } from "@/lib/email/payment-url.js";
 
+/** E-mail tel que l'ERP l'enverrait, pour la fenêtre « Vérifier l'e-mail » (rien n'est envoyé ni préparé). */
+export type EmailDraft = { to: string; subject: string; text: string; attachments: string[] };
+
 export type SendDocumentPdfResult = {
   sent: boolean;
   queued?: boolean;
   outboxId?: string;
   reason?: "smtp_off" | "no_email" | "not_found" | "error";
+  /** Avec opts.draft : le brouillon, sans envoi. */
+  draft?: EmailDraft;
 };
 
 export type SendDocumentPdfOptions = {
@@ -18,6 +23,11 @@ export type SendDocumentPdfOptions = {
   /** Si false, n'envoie pas (émission seule). Défaut true. */
   send?: boolean;
   threadId?: string;
+  /**
+   * Brouillon seulement (« Vérifier l'e-mail ») : objet, texte et pièces jointes, sans envoi ni effet de bord (le lien de
+   * paiement n'est ni créé ni activé ; s'il manque au texte final, l'envoi l'ajoute comme d'habitude).
+   */
+  draft?: boolean;
   /** PDF déjà rendu (ex. devis signé archivé), joint tel quel au lieu d'être régénéré. */
   pdf?: Buffer;
   extraAttachments?: Array<{
@@ -50,7 +60,7 @@ export async function sendDocumentPdf(
   if (opts.send === false) {
     return { sent: false };
   }
-  if (!(await isSmtpConfigured())) {
+  if (!opts.draft && !(await isSmtpConfigured())) {
     return { sent: false, reason: "smtp_off" };
   }
 
@@ -63,10 +73,6 @@ export async function sendDocumentPdf(
     if (!email || !invoice.number) {
       return { sent: false, reason: "no_email" };
     }
-
-    // Facture ou avoir émis : le PDF archivé part en pièce jointe (jamais un nouveau rendu).
-    const { issuedDocumentPdf } = await import("@/lib/pdf/issued-archive.js");
-    const pdf = opts.pdf ?? (await issuedDocumentPdf(documentId, doc)) ?? (await renderLoadedDocumentPdf(doc));
 
     const isQuote = invoice.documentType === InvoiceDocumentType.QUOTE;
     const isCredit = invoice.documentType === InvoiceDocumentType.CREDIT_NOTE;
@@ -89,7 +95,8 @@ export async function sendDocumentPdf(
 
     let paymentUrl: string | null = null;
     if (!isQuote && !isCredit && invoice.status !== InvoiceStatus.PAID) {
-      paymentUrl = await resolveInvoicePaymentUrl(invoice);
+      // Brouillon : seulement un lien déjà existant (aucune session de paiement créée pour un simple aperçu).
+      paymentUrl = opts.draft ? (invoice.checkoutUrl ?? invoice.sourceMilestone?.checkoutUrl ?? null) : await resolveInvoicePaymentUrl(invoice);
     }
 
     const built = await buildEmailContent({
@@ -114,6 +121,13 @@ export async function sendDocumentPdf(
 
     const attachKind = isQuote ? "Devis" : isCredit ? "Avoir" : "Facture";
     const filename = pdfAttachmentFilename(attachKind, invoice.number, clientName);
+    if (opts.draft) {
+      return { sent: false, draft: { to: email, subject, text, attachments: [filename, ...(opts.extraAttachments ?? []).map((a) => a.filename)] } };
+    }
+
+    // Facture ou avoir émis : le PDF archivé part en pièce jointe (jamais un nouveau rendu).
+    const { issuedDocumentPdf } = await import("@/lib/pdf/issued-archive.js");
+    const pdf = opts.pdf ?? (await issuedDocumentPdf(documentId, doc)) ?? (await renderLoadedDocumentPdf(doc));
 
     const { outboxId } = await mailEnqueue({
       to: email,
