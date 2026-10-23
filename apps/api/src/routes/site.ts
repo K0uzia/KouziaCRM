@@ -23,8 +23,8 @@ import { detailBlocker, detailStarted, parseJsonList, parseTech, type ProjectBef
 import { readSiteText, writeSiteText, isSiteTextKey } from "@/lib/site/texts.js";
 import { readSiteDefaults, siteCityOrNull, textVariables } from "@/lib/site/seo-menus.js";
 import { buildSiteSnapshot } from "@/lib/site/snapshot.js";
-import { itemHash, pendingChanges, publicationState as itemPublicationState, textHash, type SiteCollection } from "@/lib/site/changes.js";
-import { previewPublication, publicationOut, publishSite, PublishError } from "@/lib/site/publish.js";
+import { itemHash, lastPublishedFiles, pendingChanges, publicationState as itemPublicationState, publishedProjectPage, textHash, type SiteCollection } from "@/lib/site/changes.js";
+import { previewPublication, publicationOut, publishSite, PublishError, sitePublicUrl } from "@/lib/site/publish.js";
 import { TESTIMONIAL_SOURCE, withdrawalsOnSite } from "@/lib/site/testimonials.js";
 import { importSiteFiles, siteContentExists, SiteImportError } from "@/lib/site/import.js";
 import { GithubError, readSiteRepoBinary, readSiteRepoFiles, saveGithubToken, siteBranch, siteRepo, testGithubConnection } from "@/lib/site/github.js";
@@ -408,6 +408,19 @@ export const siteRoutes: FastifyPluginAsync = async (app) => {
   });
 
   const projectInclude = { client: { select: { id: true, displayName: true } } } as const;
+
+  // « Voir la page sur le site » : la page projet telle que publiée (dernière publication arrivée dans le dépôt).
+  app.get(
+    "/api/site/projects/:id/page-online",
+    admin(async (request, reply) => {
+      const params = idParams.safeParse(request.params);
+      if (!params.success) return invalid(reply, params.error);
+      const project = await prisma.siteProject.findUnique({ where: { id: params.data.id }, select: { slug: true } });
+      if (!project) return reply.code(404).send({ error: "Réalisation introuvable" });
+      const slug = publishedProjectPage(await lastPublishedFiles(), project.slug);
+      return { url: slug ? `${sitePublicUrl()}/realisations/${slug}/` : null };
+    }),
+  );
   const clientExists = async (id: string | null | undefined) => !id || Boolean(await prisma.client.findUnique({ where: { id }, select: { id: true } }));
 
   const projectData = (d: z.output<typeof projectInput>) => ({

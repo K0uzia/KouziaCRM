@@ -103,6 +103,20 @@ export async function lastPublishedFiles(): Promise<Record<string, string> | nul
   return last?.filesJson ? (JSON.parse(last.filesJson) as Record<string, string>) : null;
 }
 
+/**
+ * Identifiant publié de la page projet d'une réalisation dans les fichiers d'une publication : la réalisation y figure
+ * avec son détail (page /realisations/<id>/). null : pas de publication connue, réalisation absente ou carte seule.
+ */
+export function publishedProjectPage(files: Record<string, string> | null, slug: string): string | null {
+  if (!files?.realisations) return null;
+  try {
+    const list = (JSON.parse(files.realisations) as { realisations?: Array<{ id?: unknown; detail?: unknown }> }).realisations ?? [];
+    return list.some((r) => r.id === slug && r.detail) ? slug : null;
+  } catch {
+    return null;
+  }
+}
+
 export async function pendingChanges(snapshot: SiteSnapshot): Promise<{ changes: PendingChange[]; lastFiles: Record<string, string> | null }> {
   const [projects, reviews, references, faq, texts, lastFiles] = await Promise.all([
     prisma.siteProject.findMany(),
