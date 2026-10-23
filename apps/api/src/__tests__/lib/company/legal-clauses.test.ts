@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { LegalClauseAudience, LegalClauseKind } from "@prisma/client";
 import { prisma } from "@/lib/prisma.js";
-import { clausesForClient, ensureDefaultLegalClauses, listActiveLegalClauses } from "@/lib/company/legal-clauses.js";
+import { clausesForClient, ensureDefaultLegalClauses, fillClauseVariables, listActiveLegalClauses } from "@/lib/company/legal-clauses.js";
 import { loadDocumentForPdf } from "@/lib/pdf/document-pdf.js";
 import { buildInvoicePdfPayload } from "@/lib/pdf/build-payload.js";
 import { resetDb } from "../../helpers/db.js";
@@ -72,5 +72,34 @@ describe("clauses légales par type de client", () => {
       expect(text.includes("1231-6")).toBe(!expected);
       expect(text).toContain("TVA non applicable");
     }
+  });
+});
+
+describe("clauses d'abonnement : {{periode}} et {{periodicite}}", () => {
+  const company = { legalName: "A", tradeName: null, email: "a@b.fr", addressLine1: "x", addressLine2: null, postalCode: "1", city: "y" };
+  const body = "payable d'avance {{periodicite}}, par périodes d'un {{periode}}";
+
+  it("remplies selon la périodicité ; laissées telles quelles hors abonnement", () => {
+    expect(fillClauseVariables(body, company, "MONTH")).toBe("payable d'avance chaque mois, par périodes d'un mois");
+    expect(fillClauseVariables(body, company, "QUARTER")).toBe("payable d'avance chaque trimestre, par périodes d'un trimestre");
+    expect(fillClauseVariables(body, company, "YEAR")).toBe("payable d'avance chaque année à la date anniversaire, par périodes d'un an");
+    expect(fillClauseVariables(body, company)).toBe(body);
+  });
+
+  it("proposition d'engagement créée inactive, sans toucher au texte d'Alexandre ; brouillon signalé", async () => {
+    await ensureDefaultLegalClauses();
+    const actuel = await prisma.legalClause.findFirstOrThrow({ where: { title: "Abonnement avec engagement" } });
+    await prisma.legalClause.update({ where: { id: actuel.id }, data: { body: "Texte d'Alexandre." } });
+    await prisma.legalClause.deleteMany({ where: { title: { startsWith: "Abonnement avec engagement (" } } });
+    await ensureDefaultLegalClauses();
+    const rows = await prisma.legalClause.findMany({ where: { kind: LegalClauseKind.SUBSCRIPTION_COMMITMENT }, orderBy: { createdAt: "asc" } });
+    expect(rows).toHaveLength(2);
+    expect(rows[0]).toMatchObject({ body: "Texte d'Alexandre.", active: true });
+    expect(rows[1]).toMatchObject({ active: false, required: false });
+    expect(rows[1]!.body).toMatch(/^\[BROUILLON/);
+    expect(rows[1]!.body).toContain("{{periodicite}}");
+    // Inactive : le PDF garde le texte actuel.
+    const active = await listActiveLegalClauses();
+    expect(active.filter((c) => c.kind === LegalClauseKind.SUBSCRIPTION_COMMITMENT).map((c) => c.body)).toEqual(["Texte d'Alexandre."]);
   });
 });

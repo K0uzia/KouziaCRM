@@ -2226,7 +2226,7 @@ export function SettingsPage() {
           </Field>
           <Field
             label="Texte"
-            hint="Variables remplacées sur les PDF : {{nom_commercial}}, {{raison_sociale}}, {{adresse}}, {{email}}."
+            hint="Variables remplacées sur les PDF : {{nom_commercial}}, {{raison_sociale}}, {{adresse}}, {{email}}. Clauses d'abonnement seulement, selon la périodicité : {{periode}} (« mois », « trimestre », « an ») et {{periodicite}} (« chaque mois », « chaque trimestre », « chaque année à la date anniversaire »). Une seule clause active par type d'abonnement s'imprime : la première de la liste."
           >
             <Textarea
               required

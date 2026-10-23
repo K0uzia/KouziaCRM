@@ -225,6 +225,10 @@ function fmtMoney(cents: number) {
 /** « par an », « par trimestre », « par mois » : période d'un abonnement (null en base = mensuel). */
 const PERIOD_WORD: Record<string, string> = { YEAR: "an", QUARTER: "trimestre", MONTH: "mois" };
 const periodWord = (interval: string | null | undefined) => PERIOD_WORD[interval ?? "MONTH"] ?? "mois";
+const intervalOf = (interval: string | null | undefined) => (interval === "YEAR" || interval === "QUARTER" ? interval : "MONTH");
+/** Périodicité de la clause d'engagement : celle de la 1re ligne engagée (un abonnement par devis récurrent). */
+const commitmentInterval = (lines: ReadonlyArray<{ isSubscription?: boolean; commitmentMonths?: number | null; billingInterval?: string | null }>) =>
+  intervalOf(lines.find((l) => l.isSubscription && l.commitmentMonths)?.billingInterval);
 
 function subscriptionHeading(lines: Array<{ isSubscription?: boolean; billingInterval?: string | null; commitmentMonths?: number | null }>) {
   const subs = lines.filter((l) => l.isSubscription);
@@ -819,12 +823,12 @@ export function InvoiceDocument({ company, client, invoice, specimen, draft }: I
               .map((iv) =>
                 invoice.subscriptionTerms?.[iv] ? (
                   <Text key={iv} style={[styles.muted, { marginTop: 4 }]}>
-                    {fillClauseVariables(invoice.subscriptionTerms[iv]!, company)}
+                    {fillClauseVariables(invoice.subscriptionTerms[iv]!, company, iv)}
                   </Text>
                 ) : null,
               )}
             {invoice.subscriptionTerms?.COMMITMENT && invoice.lines.some((l) => l.isSubscription && l.commitmentMonths) ? (
-              <Text style={[styles.muted, { marginTop: 4 }]}>{fillClauseVariables(invoice.subscriptionTerms.COMMITMENT, company)}</Text>
+              <Text style={[styles.muted, { marginTop: 4 }]}>{fillClauseVariables(invoice.subscriptionTerms.COMMITMENT, company, commitmentInterval(invoice.lines))}</Text>
             ) : null}
           </View>
         ) : null}
