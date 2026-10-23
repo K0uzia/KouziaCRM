@@ -81,23 +81,29 @@ export function detailStarted(p: SiteProject): boolean {
  * (meta description) est obligatoire ; un projet lié à un client attend son accord écrit (zéro fiction).
  */
 export function detailBlocker(p: SiteProject): string | null {
-  if (!filled(p.descriptionText)) return "description pour Google manquante";
-  if (!DETAIL_TEXTS.some((k) => filled(p[k]))) return "aucun texte détaillé (contexte, besoin, démarche, choix ou résultat)";
-  if (concernsClient(p) && !p.publicationConsentAt) return "accord écrit du client non renseigné";
+  return detailIssue(p)?.message ?? null;
+}
+
+/** Même règle que detailBlocker, avec un code stable (aperçu du brouillon : blockers du contrat du site). */
+export function detailIssue(p: SiteProject): { code: string; message: string } | null {
+  if (!filled(p.descriptionText)) return { code: "description-manquante", message: "description pour Google manquante" };
+  if (!DETAIL_TEXTS.some((k) => filled(p[k]))) return { code: "texte-detaille-manquant", message: "aucun texte détaillé (contexte, besoin, démarche, choix ou résultat)" };
+  if (concernsClient(p) && !p.publicationConsentAt) return { code: "accord-client-manquant", message: "accord écrit du client non renseigné" };
   return null;
 }
 
 type DetailOut = NonNullable<z.input<typeof realisationValue>["detail"]>;
 
-export function detailOut(p: SiteProject): DetailOut | null {
-  if (detailBlocker(p)) return null;
+/** preview : page rendue même si elle ne part pas encore (aperçu du brouillon), champs vides absents. */
+export function detailOut(p: SiteProject, opts: { preview?: boolean } = {}): DetailOut | null {
+  if (!opts.preview && detailBlocker(p)) return null;
   const consent = Boolean(p.publicationConsentAt);
   const text = (v: string | null) => (filled(v) ? v!.trim() : undefined);
   const captures = parseJsonList<ProjectCapture>(p.capturesJson);
   const links = parseJsonList<ProjectLink>(p.linksJson);
   const pairs = parseJsonList<ProjectBeforeAfter>(p.avantApresJson);
   const entries: [keyof DetailOut, unknown][] = [
-    ["description", p.descriptionText!.trim()],
+    ["description", text(p.descriptionText)],
     ["nature", p.nature === "refonte" || p.nature === "creation" ? p.nature : undefined],
     ["duree", text(p.duree)],
     ["contexte", text(p.contextText)],
@@ -132,8 +138,8 @@ export function detailOut(p: SiteProject): DetailOut | null {
 }
 
 // Clés dans l'ordre du schéma du site : la sérialisation reste identique au dépôt.
-export function projectOut(p: SiteProject): z.input<typeof realisationValue> {
-  const detail = detailOut(p);
+export function projectOut(p: SiteProject, opts: { preview?: boolean } = {}): z.input<typeof realisationValue> {
+  const detail = opts.preview ? (detailStarted(p) ? detailOut(p, { preview: true }) : null) : detailOut(p);
   return {
     id: p.slug,
     nom: p.name,
