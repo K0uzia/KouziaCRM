@@ -1,22 +1,27 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { faArrowUpRightFromSquare } from "@fortawesome/free-solid-svg-icons";
+import { faArrowRotateRight, faArrowUpRightFromSquare } from "@fortawesome/free-solid-svg-icons";
 import { statusMessage } from "@/lib/api";
 import { errorMessage, OFFLINE_MESSAGE, useOnline } from "@/lib/network";
 import { Button } from "@/components/ui/Button";
 import { PdfThumbnail } from "@/components/documents/PdfThumbnail";
 
-const DEBOUNCE_MS = 500;
+/** Pause de frappe avant le rendu (D3) : un PDF par pause, pas un par touche. « Actualiser l'aperçu » n'attend pas. */
+const DEBOUNCE_MS = 1500;
+/** Au-delà, le rendu est jugé lent : l'aperçu ne se met plus à jour seul, seulement par « Actualiser l'aperçu ». */
+const SLOW_RENDER_MS = 1000;
 
 type State =
   | { status: "loading" }
   | { status: "paused"; message: string }
   | { status: "error"; message: string }
+  | { status: "stale" }
   | { status: "ready" };
 
 /**
  * Aperçu d'un devis ou d'une facture avant création : PDF rendu par l'API à partir du brouillon du
- * formulaire, 500 ms après la dernière frappe (la requête précédente est annulée). Rien n'est enregistré.
+ * formulaire, 1,5 s après la dernière frappe si le rendu précédent a pris moins d'une seconde, sinon à la demande
+ * seulement (la requête précédente est annulée). Rien n'est enregistré.
  */
 export function DocumentPreview({
   body,
@@ -37,6 +42,12 @@ export function DocumentPreview({
   const [pdf, setPdf] = useState<ArrayBuffer | null>(null);
   const [pages, setPages] = useState(1);
   const [retry, setRetry] = useState(0);
+  // Demande explicite (« Actualiser l'aperçu ») : rendu sans attendre la pause de frappe.
+  const [refresh, setRefresh] = useState(0);
+  const servedRefresh = useRef(0);
+  // Dernier rendu lent (plus d'une seconde, mesuré) : plus de mise à jour automatique jusqu'à un rendu rapide.
+  const slow = useRef(false);
+  const rendered = useRef(false);
   const onThumbnailError = useCallback((message: string) => setState({ status: "error", message }), []);
 
   useEffect(() => {
@@ -50,8 +61,15 @@ export function DocumentPreview({
       return;
     }
     const ctrl = new AbortController();
+    const immediate = refresh !== servedRefresh.current;
+    servedRefresh.current = refresh;
+    if (!immediate && slow.current && rendered.current) {
+      setState({ status: "stale" });
+      return;
+    }
     const timer = window.setTimeout(() => {
       setState({ status: "loading" });
+      const startedAt = performance.now();
       fetch("/api/invoices/preview.pdf", {
         method: "POST",
         credentials: "include",
@@ -61,7 +79,10 @@ export function DocumentPreview({
       })
         .then(async (res) => {
           if (res.ok) {
-            setPdf(await res.arrayBuffer());
+            const buffer = await res.arrayBuffer();
+            slow.current = performance.now() - startedAt > SLOW_RENDER_MS;
+            rendered.current = true;
+            setPdf(buffer);
             setState({ status: "ready" });
             return;
           }
@@ -84,12 +105,12 @@ export function DocumentPreview({
           if (ctrl.signal.aborted) return;
           setState({ status: "error", message: errorMessage(e, "Aperçu indisponible.") });
         });
-    }, DEBOUNCE_MS);
+    }, immediate ? 0 : DEBOUNCE_MS);
     return () => {
       window.clearTimeout(timer);
       ctrl.abort();
     };
-  }, [body, pausedReason, active, online, retry]);
+  }, [body, pausedReason, active, online, retry, refresh]);
 
   function openPdf() {
     if (!pdf) return;
@@ -105,7 +126,9 @@ export function DocumentPreview({
           ? "Mise à jour de l'aperçu…"
           : state.status === "paused"
             ? state.message
-            : state.status === "ready"
+            : state.status === "stale"
+              ? "Aperçu à actualiser : le dernier rendu a été lent, il ne se met plus à jour seul."
+              : state.status === "ready"
               ? `Aperçu à jour, numéro attribué à l'émission${pages > 1 ? ` · page 1 sur ${pages}` : ""}.`
               : null}
       </p>
@@ -132,10 +155,16 @@ export function DocumentPreview({
       ) : state.status === "loading" ? (
         <div className="aspect-[210/297] w-full animate-pulse rounded-[var(--radius-sm)] bg-[var(--bg-subtle)] motion-reduce:animate-none" aria-hidden />
       ) : null}
-      <Button variant="secondary" className="w-full" disabled={!pdf} onClick={openPdf}>
-        <FontAwesomeIcon icon={faArrowUpRightFromSquare} className="h-3.5 w-3.5" aria-hidden />
-        Ouvrir l&apos;aperçu en grand
-      </Button>
+      <div className="grid gap-2">
+        <Button variant="secondary" className="w-full" disabled={!body || !online || state.status === "loading"} onClick={() => setRefresh((n) => n + 1)}>
+          <FontAwesomeIcon icon={faArrowRotateRight} className="h-3.5 w-3.5" aria-hidden />
+          Actualiser l&apos;aperçu
+        </Button>
+        <Button variant="secondary" className="w-full" disabled={!pdf} onClick={openPdf}>
+          <FontAwesomeIcon icon={faArrowUpRightFromSquare} className="h-3.5 w-3.5" aria-hidden />
+          Ouvrir l&apos;aperçu en grand
+        </Button>
+      </div>
     </div>
   );
 }

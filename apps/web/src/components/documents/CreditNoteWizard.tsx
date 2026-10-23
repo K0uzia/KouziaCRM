@@ -148,8 +148,8 @@ export function CreditNoteWizard({
   const needsCgv =
     !!elig?.requiresCgvCheck && reason === "REFUND_DEPOSIT";
 
-  // Aperçu PDF de l'avoir (étapes Informations et Prévisualiser) : panneau dès 1024 px, sinon fenêtre plein écran.
-  const widePreview = useMediaQuery("(min-width: 64rem)");
+  // Aperçu PDF de l'avoir (étapes Informations et Prévisualiser) : panneau dès 1280 px (D3, comme la fenêtre devis et facture), sinon fenêtre plein écran.
+  const widePreview = useMediaQuery("(min-width: 80rem)");
   const [previewOpen, setPreviewOpen] = useState(false);
   const previewStep = Boolean(elig?.allowed) && (step === 3 || step === 4);
   const amountValid = !!elig && amountCents > 0 && amountCents <= elig.maxCreditCents;
