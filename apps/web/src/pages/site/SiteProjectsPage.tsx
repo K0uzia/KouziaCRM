@@ -172,6 +172,7 @@ const emptyForm = {
   altMode: "auto" as AltMode,
   imageAlt: "",
   status: "DRAFT" as SiteItemStatus,
+  featuredOnHome: false,
   // Page projet
   description: "",
   nature: "" as "" | "refonte" | "creation",
@@ -200,6 +201,8 @@ type PairForm = {
 type ProjectForm = typeof emptyForm;
 
 const VIEW_LABEL: Record<BeforeAfterPair["vue"], string> = { bureau: "Ordinateur", mobile: "Téléphone" };
+/** Réalisations mises en avant sur l'accueil : le site refuse son build au-delà (l'API refuse aussi). */
+const MAX_FEATURED = 3;
 const ARCHIVE_URL = /^https:\/\/web\.archive\.org\/\S+$/;
 const sha12Of = (path: string | null) => /^\/media\/([a-f0-9]{12})\.webp$/.exec(path ?? "")?.[1];
 
@@ -249,6 +252,8 @@ function projectBody(form: ProjectForm) {
     imageMobilePath: form.imageMobilePath,
     imageAlt: form.altMode === "auto" ? null : form.altMode === "decorative" ? "" : form.imageAlt.trim(),
     status: form.status,
+    // Retirée du site : plus mise en avant (même règle que l'API).
+    featuredOnHome: form.featuredOnHome && form.status !== "WITHDRAWN",
     description: form.description,
     nature: form.nature || null,
     duree: form.duree,
@@ -303,7 +308,7 @@ const TAB_FIELDS = {
   images: ["imagePath", "imageMobilePath", "imageAlt"],
   page: ["description", "nature", "duree", "context", "need", "approach", "choices", "result", "captures", "avantApres", "links"],
   client: ["clientId", "clientName", "clientIntro", "consentAt", "consentNote"],
-  publication: ["status"],
+  publication: ["status", "featuredOnHome"],
 } as const;
 
 /** Justificatif de l'accord écrit (PDF ou capture) : privé, jamais publié. */
@@ -411,6 +416,7 @@ export function SiteProjectPage() {
       altMode: p.imageAlt === null ? "auto" : p.imageAlt === "" ? "decorative" : "custom",
       imageAlt: p.imageAlt ?? "",
       status: p.status,
+      featuredOnHome: p.featuredOnHome,
       description: p.descriptionText ?? "",
       nature: p.nature ?? "",
       duree: p.duree ?? "",
@@ -440,6 +446,13 @@ export function SiteProjectPage() {
   });
   const { form, set, setForm, errors, busy, auto, item: project } = ed;
   const remove = () => ed.remove().catch(() => setDeleting(false));
+  // Autres réalisations mises en avant sur l'accueil : 3 au plus, brouillons compris.
+  const [featuredOthers, setFeaturedOthers] = useState<string[]>([]);
+  useEffect(() => {
+    api<SiteProject[]>(BASE)
+      .then((list) => setFeaturedOthers(list.filter((p) => p.featuredOnHome && p.id !== id).map((p) => p.name)))
+      .catch(() => undefined);
+  }, [id]);
   const [clients, setClients] = useState<{ id: string; displayName: string }[]>([]);
   useEffect(() => {
     api<{ id: string; displayName: string }[]>("/api/clients")
@@ -879,6 +892,26 @@ export function SiteProjectPage() {
           ))}
         </Select>
       </Field>
+      <label className="flex min-h-11 items-start gap-2 text-sm">
+        <input
+          type="checkbox"
+          className="mt-1"
+          checked={form.featuredOnHome && form.status !== "WITHDRAWN"}
+          disabled={form.status === "WITHDRAWN" || (!form.featuredOnHome && featuredOthers.length >= MAX_FEATURED)}
+          aria-describedby="mise-en-avant-aide"
+          onChange={(e) => set("featuredOnHome", e.target.checked)}
+        />
+        <span>
+          Mettre en avant sur l'accueil
+          <span id="mise-en-avant-aide" className="block text-xs text-[var(--muted)]">
+            {form.status === "WITHDRAWN"
+              ? "Une réalisation retirée du site n'est pas mise en avant."
+              : !form.featuredOnHome && featuredOthers.length >= MAX_FEATURED
+                ? `3 au plus, brouillons compris : décochez d'abord « ${featuredOthers.join(" », « ")} ».`
+                : `3 au plus ; affichées dans l'ordre de la liste.${featuredOthers.length ? ` Déjà mises en avant : ${featuredOthers.join(", ")}.` : ""}`}
+          </span>
+        </span>
+      </label>
       {project?.publishedAt ? (
         <p className="text-sm text-[var(--muted)]">Déjà publiée : pour l'enlever du site, choisir « Retiré du site » plutôt que la supprimer.</p>
       ) : !creating && project ? (

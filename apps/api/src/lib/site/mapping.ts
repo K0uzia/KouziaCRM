@@ -157,6 +157,8 @@ export function projectOut(p: SiteProject, opts: { preview?: boolean } = {}): z.
     ...(p.imageMobilePath ? { imageMobile: p.imageMobilePath } : {}),
     // "" est une valeur (capture décorative) : seule l'absence de saisie (null) laisse le site calculer.
     ...(p.imageAlt !== null ? { imageAlt: p.imageAlt } : {}),
+    // Juste avant detail (contrat du site) ; clé absente si la réalisation n'est pas mise en avant.
+    ...(p.featuredOnHome ? { miseEnAvant: true as const } : {}),
     ...(detail ? { detail } : {}),
   };
 }
