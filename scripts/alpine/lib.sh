@@ -63,6 +63,61 @@ require_node_min() {
   fi
 }
 
+# Versions corrigées de la CVE-2026-111497 (décodeur Brotli, correctifs Node.js du 21/10/2026) : 22.23.4, 24.22.1,
+# 26.12.1. Branches 23 et 25, et 20 ou plus ancienne : plus corrigées.
+KOUZIA_NODE_PATCHED="22.23.4, 24.22.1 ou 26.12.1"
+
+# État de sécurité du Node installé : ok | vulnerable | eol (branche sans correctif) | absent.
+node_security_state() {
+  command -v node >/dev/null 2>&1 || { echo absent; return 0; }
+  node -e '
+const [a, b, c] = process.versions.node.split(".").map(Number);
+const fixed = { 22: [23, 4], 24: [22, 1], 26: [12, 1] };
+if (a > 26) { console.log("ok"); process.exit(0); }
+const f = fixed[a];
+if (!f) { console.log("eol"); process.exit(0); }
+console.log(b > f[0] || (b === f[0] && c >= f[1]) ? "ok" : "vulnerable");
+' 2>/dev/null || echo absent
+}
+
+# Ligne « Node » de kouziactl status : en rouge si le Node installé n'est pas corrigé.
+node_security_line() {
+  local state version
+  state="$(node_security_state)"
+  version="$(node -v 2>/dev/null || echo absent)"
+  case "$state" in
+    ok) echo "  Node     : ${version} ${C_GREEN}(corrigé, CVE-2026-111497)${C_RESET}" ;;
+    vulnerable) echo "  Node     : ${C_RED}${version} VULNÉRABLE (CVE-2026-111497, Brotli) : ${KOUZIA_NODE_PATCHED} au moins, kouziactl update${C_RESET}" ;;
+    eol) echo "  Node     : ${C_RED}${version} SANS CORRECTIF (branche plus maintenue) : passer à ${KOUZIA_NODE_PATCHED}${C_RESET}" ;;
+    *) echo "  Node     : ${C_RED}absent${C_RESET}" ;;
+  esac
+}
+
+# Mise à jour de sécurité de Node par apk (nodejs ou nodejs-current, celui qui est installé). Ne bloque jamais :
+# si Alpine ne fournit pas encore la version corrigée, le service continue et la marche à suivre est affichée.
+node_security_upgrade() {
+  local state pkg
+  state="$(node_security_state)"
+  [[ "$state" == "ok" ]] && { ok "Node $(node -v) corrigé (CVE-2026-111497)"; return 0; }
+  if [[ -f /etc/alpine-release ]] && command -v apk >/dev/null 2>&1; then
+    pkg=nodejs
+    apk info -e nodejs-current >/dev/null 2>&1 && pkg=nodejs-current
+    log "Node $(node -v 2>/dev/null || echo absent) non corrigé (CVE-2026-111497) : apk upgrade ${pkg}…"
+    apk update >/dev/null 2>&1 || true
+    apk upgrade --no-cache "$pkg" npm || warn "apk upgrade ${pkg} a échoué."
+    state="$(node_security_state)"
+  fi
+  if [[ "$state" == "ok" ]]; then
+    ok "Node $(node -v) corrigé (CVE-2026-111497). Les services prennent la nouvelle version à leur redémarrage."
+    return 0
+  fi
+  warn "Node $(node -v 2>/dev/null || echo absent) reste non corrigé (CVE-2026-111497, décodeur Brotli) : il faut ${KOUZIA_NODE_PATCHED} au moins."
+  warn "  Le service continue de tourner. Alpine ne fournit sans doute pas encore la version corrigée pour cette branche."
+  warn "  À faire : apk update && apk upgrade nodejs (ou nodejs-current) dès sa publication (pkgs.alpinelinux.org, paquet nodejs),"
+  warn "  ou passer le CT à une branche Alpine plus récente ; vérifier ensuite avec : kouziactl status"
+  return 0
+}
+
 require_root() {
   [[ "$(id -u)" -eq 0 ]] || die "Exécuter en root (sudo)."
 }

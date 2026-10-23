@@ -188,6 +188,8 @@ fi
 if [[ "$RESUMED" -eq 0 ]]; then
   # Avant le backup, l'arrêt, le git pull et npm ci : rien ne change si Node est trop ancien.
   require_node_min
+  # Correctif de sécurité de Node (CVE-2026-111497) : tenté ici, jamais bloquant.
+  node_security_upgrade
   disk_guard "$KOUZIA_APP_DIR" 400
   [[ -f "${KOUZIA_APP_DIR}/package.json" ]] || die "App introuvable dans $KOUZIA_APP_DIR (lancer install.sh d'abord)."
 
