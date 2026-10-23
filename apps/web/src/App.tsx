@@ -50,6 +50,7 @@ const ReceiptsBookPage = lazy(() =>
   import("@/pages/ReceiptsBookPage").then((m) => ({ default: m.ReceiptsBookPage })),
 );
 const OutboxPage = lazy(() => import("@/pages/OutboxPage").then((m) => ({ default: m.OutboxPage })));
+const EmailReviewPage = lazy(() => import("@/pages/EmailReviewPage").then((m) => ({ default: m.EmailReviewPage })));
 const SoftwareRequestsPage = lazy(() =>
   import("@/pages/SoftwareRequestsPages").then((m) => ({ default: m.SoftwareRequestsPage })),
 );
@@ -169,6 +170,7 @@ export default function App() {
           <Route path="inbox" element={<InboxPage />} />
           <Route path="inbox/compose" element={<ComposePage />} />
           <Route path="inbox/:threadId" element={<InboxPage />} />
+          <Route path="emails-a-valider" element={<EmailReviewPage />} />
           <Route path="demandes-logiciel" element={<SoftwareRequestsPage />} />
           <Route path="demandes-logiciel/:id" element={<SoftwareRequestPage />} />
           <Route path="settings" element={<SettingsPage />} />

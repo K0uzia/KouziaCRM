@@ -19,6 +19,7 @@ import { OfflineDeviceCard } from "@/pages/settings/OfflineDeviceCard";
 import { NotificationsTab } from "@/pages/settings/NotificationsTab";
 import { CharteTab, withPrintedBrandColors } from "@/pages/settings/CharteTab";
 import { EmailSignatureCard } from "@/pages/settings/EmailSignatureCard";
+import { EmailReviewCard } from "@/pages/settings/EmailReviewCard";
 import {
   SETTINGS_TABS,
   type PublicSettings,
@@ -1069,6 +1070,7 @@ export function SettingsPage() {
           ) : null}
 
           {tab === "email" ? <EmailSignatureCard /> : null}
+          {tab === "email" ? <EmailReviewCard /> : null}
           {tab === "email" ? (
             <Card className="space-y-6 border border-[var(--border)] p-5">
               <div className="flex flex-wrap items-center justify-between gap-2 rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--bg)] px-3 py-2.5">

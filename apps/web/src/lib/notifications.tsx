@@ -25,7 +25,8 @@ export type NotificationKind =
   | "client_onboarded"
   | "google_reauth"
   | "testimonial"
-  | "software_request";
+  | "software_request"
+  | "email_review";
 
 export type NotificationItem = {
   id: string;
