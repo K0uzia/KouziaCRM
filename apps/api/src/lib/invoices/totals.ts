@@ -85,7 +85,8 @@ export function computeLineTotals(lines: LineInput[], discount: DiscountInput = 
           ? billingDay
           : null,
       billingInterval: isSubscription && line.billingInterval === "YEAR" ? "YEAR" : null,
-      serviceId: isSubscription ? line.serviceId || null : null,
+      // Lien au catalogue gardé sur toute ligne (texte affiché tel quel dans la fenêtre, E3) ; obligatoire pour un abonnement.
+      serviceId: line.serviceId || null,
       subscriptionId: line.subscriptionId ?? null,
       revisesSubscriptionId: isSubscription ? (line.revisesSubscriptionId ?? null) : null,
       groupTitle: line.groupTitle?.trim() || null,
