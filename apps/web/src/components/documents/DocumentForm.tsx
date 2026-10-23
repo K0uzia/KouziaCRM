@@ -570,8 +570,9 @@ export function DocumentFormEditor({
     };
   }
 
-  // Aperçu : panneau voisin dès 1024 px, fenêtre plein écran en dessous (requêtes seulement si elle est ouverte).
-  const widePreview = useMediaQuery("(min-width: 64rem)");
+  // Aperçu (D3) : dans le récapitulatif dès 1280 px, où il garde une largeur lisible ; en dessous, fenêtre à la demande
+  // (requêtes seulement si elle est ouverte).
+  const widePreview = useMediaQuery("(min-width: 80rem)");
   const [previewOpen, setPreviewOpen] = useState(false);
   const previewLines = form.lines.filter((l) => l.description.trim() || l.unitPriceEuros.trim());
   const previewBody = useMemo(
