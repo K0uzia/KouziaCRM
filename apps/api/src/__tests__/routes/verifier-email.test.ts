@@ -131,3 +131,76 @@ describe("Vérifier l'e-mail : relance et renvoi du document", () => {
     expect(mail!.text.startsWith("Bonjour,\n\nVoici votre facture.")).toBe(true);
   });
 });
+
+describe("Vérifier l'e-mail (2e partie) : reçu, avoir, lien d'acompte", () => {
+  async function issuedInvoice() {
+    const c = await clientWithEmail();
+    const inv = await prisma.invoice.create({
+      data: {
+        clientId: c.id,
+        documentType: InvoiceDocumentType.INVOICE,
+        status: InvoiceStatus.DRAFT,
+        subtotalCents: 12_000,
+        totalCents: 12_000,
+        lines: { create: [{ position: 1, description: "Site", quantity: 1, unitPriceCents: 12_000, lineTotalCents: 12_000 }] },
+      },
+    });
+    await issueInvoice(inv.id);
+    await prisma.emailOutbox.deleteMany();
+    return prisma.invoice.findUniqueOrThrow({ where: { id: inv.id } });
+  }
+
+  it("paiement sans reçu d'office ; brouillon du reçu sans rendu ni envoi ; envoi relu avec reçu et facture joints", async () => {
+    const inv = await issuedInvoice();
+    const paid = await post(`/api/invoices/${inv.id}/pay`, { amountEuros: 50, notifyClient: false });
+    expect(paid.statusCode).toBe(201);
+    expect(await prisma.emailOutbox.count()).toBe(0);
+    const paymentId = paid.json().id as string;
+
+    const draft = await get(`/api/invoices/${inv.id}/receipt/draft?paymentId=${paymentId}`);
+    expect(draft.statusCode).toBe(200);
+    expect(draft.json().text).toContain("Nous avons bien reçu votre paiement de 50,00");
+    expect(draft.json().attachments).toHaveLength(2);
+    expect(await prisma.emailOutbox.count()).toBe(0);
+
+    const sent = await post(`/api/invoices/${inv.id}/receipt`, { paymentId, subject: "Merci pour votre paiement", text: "Bonjour Lou,\n\nPaiement bien reçu." });
+    expect(sent.json()).toEqual({ sent: true, reason: null });
+    const rows = await prisma.emailOutbox.findMany();
+    const mail = JSON.parse(outboxPayloadRaw(rows[0]!)) as { subject: string; text: string; attachments: unknown[] };
+    expect(mail.subject).toBe("Merci pour votre paiement");
+    expect(mail.text.startsWith("Bonjour Lou,\n\nPaiement bien reçu.")).toBe(true);
+    expect(mail.attachments).toHaveLength(2);
+    expect((await get(`/api/invoices/${inv.id}/receipt/draft?paymentId=inconnu`)).statusCode).toBe(404);
+  });
+
+  it("avoir créé sans e-mail (sendEmail: false), puis renvoyable relu ; sans l'option, envoi direct comme avant", async () => {
+    const inv = await issuedInvoice();
+    const created = await post(`/api/invoices/${inv.id}/credit-note`, { amountEuros: 20, reason: "COMMERCIAL_GESTURE", refundMethod: "DEDUCT_FROM_BALANCE", sendEmail: false });
+    expect(created.statusCode).toBe(201);
+    expect(created.json().emailed).toBe(false);
+    expect(await prisma.emailOutbox.count()).toBe(0);
+    expect((await get(`/api/invoices/${created.json().id}/send-email/draft`)).statusCode).toBe(200);
+    const direct = await post(`/api/invoices/${inv.id}/credit-note`, { amountEuros: 10, reason: "COMMERCIAL_GESTURE", refundMethod: "DEDUCT_FROM_BALANCE" });
+    expect(direct.json().emailed).toBe(true);
+    expect(await prisma.emailOutbox.count()).toBe(1);
+  });
+
+  it("lien de paiement d'une échéance : brouillon puis envoi relu ; sans lien ou sans adresse : 409", async () => {
+    const c = await clientWithEmail();
+    const quote = await prisma.invoice.create({
+      data: { clientId: c.id, documentType: InvoiceDocumentType.QUOTE, status: InvoiceStatus.ISSUED, number: "D-2026-0042", subtotalCents: 100_000, totalCents: 100_000 },
+    });
+    const ms = await prisma.paymentMilestone.create({
+      data: { quoteId: quote.id, position: 1, label: "Acompte", percentBps: 3000, amountCents: 30_000, triggerText: "À la signature", checkoutUrl: "https://paiement.example/abc" },
+    });
+    const draft = await get(`/api/quotes/${quote.id}/milestones/${ms.id}/payment-link/draft`);
+    expect(draft.statusCode).toBe(200);
+    expect(draft.json().text).toContain("https://paiement.example/abc");
+    expect(await prisma.emailOutbox.count()).toBe(0);
+    const sent = await post(`/api/quotes/${quote.id}/milestones/${ms.id}/payment-link/email`, { subject: "Votre acompte", text: "Bonjour Lou,\n\nLien : https://paiement.example/abc" });
+    expect(sent.json()).toEqual({ sent: true });
+    expect(await queued()).toEqual([expect.objectContaining({ subject: "Votre acompte", text: "Bonjour Lou,\n\nLien : https://paiement.example/abc", kind: "deposit_checkout" })]);
+    await prisma.paymentMilestone.update({ where: { id: ms.id }, data: { checkoutUrl: null } });
+    expect((await get(`/api/quotes/${quote.id}/milestones/${ms.id}/payment-link/draft`)).statusCode).toBe(409);
+  });
+});

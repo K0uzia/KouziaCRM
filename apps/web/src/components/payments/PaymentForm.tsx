@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/Button";
 import { ModalActions } from "@/components/ui/Modal";
 import { DateInput, Field, Input, Select, Textarea } from "@/components/ui/Field";
 import { paymentMethodLabel } from "@/lib/format";
+import { ReceiptDialog } from "@/components/messaging/document-email-dialogs";
 
 export function PaymentForm({
   invoiceId,
@@ -24,12 +25,15 @@ export function PaymentForm({
   const [notes, setNotes] = useState("");
   const [notifyClient, setNotifyClient] = useState(true);
   const [busy, setBusy] = useState(false);
+  // Paiement enregistré dont le reçu est à relire avant l'envoi (« Vérifier l'e-mail »).
+  const [receiptPaymentId, setReceiptPaymentId] = useState<string | null>(null);
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
     setBusy(true);
     try {
-      const res = await api<{ receipt: { sent: boolean; reason: string | null } | null }>(
+      // Reçu jamais envoyé d'office : relu ensuite dans « Vérifier l'e-mail ».
+      const res = await api<{ id: string }>(
         `/api/invoices/${invoiceId}/pay`,
         {
           method: "POST",
@@ -39,22 +43,15 @@ export function PaymentForm({
             method,
             reference: reference || null,
             notes: notes || null,
-            notifyClient,
+            notifyClient: false,
           }),
         },
       );
-      if (!notifyClient) toast.success("Paiement enregistré");
-      else if (res.receipt?.sent) toast.success("Paiement enregistré, reçu envoyé au client");
-      else
-        toast.success(
-          `Paiement enregistré (reçu non envoyé : ${
-            res.receipt?.reason === "smtp_off"
-              ? "SMTP non configuré"
-              : res.receipt?.reason === "no_email"
-                ? "adresse client manquante"
-                : "envoi impossible"
-          })`,
-        );
+      toast.success("Paiement enregistré");
+      if (notifyClient) {
+        setReceiptPaymentId(res.id);
+        return;
+      }
       onSuccess();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Erreur");
@@ -64,6 +61,7 @@ export function PaymentForm({
   }
 
   return (
+    <>
     <form onSubmit={onSubmit} className="space-y-4">
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
         <Field label="Montant encaissé (€)" hint="Montant réellement reçu">
@@ -106,7 +104,7 @@ export function PaymentForm({
         <span>
           Envoyer le reçu au client
           <span className="block text-xs text-[var(--muted)]">
-            Email avec le reçu du paiement et la facture en PDF.
+            Email avec le reçu du paiement et la facture en PDF, relu avant l'envoi.
           </span>
         </span>
       </label>
@@ -119,5 +117,15 @@ export function PaymentForm({
         </Button>
       </ModalActions>
     </form>
+    {/* Fermeture (envoyé ou non) : le paiement est enregistré, la fiche se met à jour. */}
+    <ReceiptDialog
+      invoiceId={receiptPaymentId ? invoiceId : null}
+      paymentId={receiptPaymentId}
+      onClose={() => {
+        setReceiptPaymentId(null);
+        onSuccess();
+      }}
+    />
+    </>
   );
 }

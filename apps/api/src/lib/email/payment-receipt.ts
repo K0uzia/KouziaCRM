@@ -17,6 +17,8 @@ export async function sendPaymentReceipt(
   invoiceId: string,
   amountCents: number,
   paymentId?: string,
+  /** « Vérifier l'e-mail » : brouillon seul (aucun PDF rendu), ou objet et texte relus. */
+  opts: { draft?: boolean; subject?: string; text?: string } = {},
 ): Promise<SendDocumentPdfResult> {
   try {
     const invoice = await prisma.invoice.findUnique({
@@ -36,7 +38,8 @@ export async function sendPaymentReceipt(
       [...invoice.payments]
         .filter((p) => p.amountCents === amountCents)
         .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())[0];
-    const receipt = payment ? await paymentReceiptPdf(payment.id) : null;
+    const receipt = payment && !opts.draft ? await paymentReceiptPdf(payment.id) : null;
+    const withReceipt = opts.draft ? Boolean(payment) : Boolean(receipt);
 
     // Reste à régler avoirs compris (net moins encaissé net).
     const remaining = invoiceBalance(invoice).dueCents;
@@ -47,7 +50,7 @@ export async function sendPaymentReceipt(
         : invoice.invoiceType === "SOLDE"
           ? "la facture de solde {{numero}}"
           : "la facture {{numero}}";
-    const attached = receipt
+    const attached = withReceipt
       ? "Vous trouverez ci-joint le reçu de ce paiement et la facture {{numero}}."
       : "Vous trouverez ci-joint la facture {{numero}}.";
     const signature = formatPlainTextSignature(await getCompanySettings(), await brandFromSettings());
@@ -65,13 +68,14 @@ export async function sendPaymentReceipt(
       signature,
     ].join("\n");
     return await sendDocumentPdf(invoice.id, {
-      subject: remaining === 0 ? "Paiement reçu : facture {{numero}} réglée" : "Paiement reçu : facture {{numero}}",
-      text,
-      extraAttachments: receipt && payment
+      subject: opts.subject?.trim() || (remaining === 0 ? "Paiement reçu : facture {{numero}} réglée" : "Paiement reçu : facture {{numero}}"),
+      text: opts.text?.trim() || text,
+      draft: opts.draft,
+      extraAttachments: withReceipt && payment
         ? [
             {
               filename: receiptFileName(invoice.number, payment.paidAt, payment.id),
-              contentBase64: receipt.toString("base64"),
+              contentBase64: receipt ? receipt.toString("base64") : "",
               contentType: "application/pdf",
             },
           ]

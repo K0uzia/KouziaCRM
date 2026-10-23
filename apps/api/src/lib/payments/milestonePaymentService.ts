@@ -231,6 +231,53 @@ export async function activateMilestoneCheckout(
   return updated;
 }
 
+/**
+ * E-mail « lien de paiement de l'acompte » d'une échéance qui a déjà son lien (« Vérifier l'e-mail ») : brouillon seul,
+ * ou envoi avec l'objet et le texte relus. null : pas de lien ou pas d'adresse client.
+ */
+export async function sendMilestoneLinkEmail(
+  milestoneId: string,
+  opts: { draft?: boolean; subject?: string; text?: string } = {},
+): Promise<{ to: string; subject: string; text: string; attachments: string[] } | { sent: true } | null> {
+  const milestone = await prisma.paymentMilestone.findUniqueOrThrow({
+    where: { id: milestoneId },
+    include: { quote: { include: { client: true } } },
+  });
+  const clientEmail = decryptOptional(milestone.quote.client.emailEncrypted);
+  if (!milestone.checkoutUrl || !clientEmail) return null;
+  const settings = await getCompanySettings();
+  const quoteRef = milestone.quote.number ?? "brouillon";
+  const depositTotal = (await prisma.paymentMilestone.count({ where: { quoteId: milestone.quoteId } })) || 2;
+  const content = renderDepositCheckoutEmail({
+    brand: buildEmailBrand(settings),
+    settings,
+    brandPrimaryColor: settings.brandPrimaryColor,
+    clientFirstName: milestone.quote.client.firstName,
+    clientName: milestone.quote.client.displayName,
+    quoteNumber: quoteRef,
+    amountCents: milestone.amountCents,
+    checkoutUrl: milestone.checkoutUrl,
+    depositIndex: milestone.position,
+    depositTotal,
+    label: milestone.label,
+  });
+  if (opts.draft) return { to: clientEmail, subject: content.subject, text: content.text, attachments: [] };
+  const text = opts.text?.trim();
+  // Texte relu : mise en page refaite à l'envoi depuis le texte (le lien y reste en clair).
+  await mailEnqueue({
+    to: clientEmail,
+    subject: opts.subject?.trim() || content.subject,
+    text: text || content.text,
+    ...(text && text !== content.text.trim() ? {} : { html: content.html }),
+    clientId: milestone.quote.clientId,
+    documentId: milestone.quoteId,
+    documentNumber: quoteRef,
+    kind: "deposit_checkout",
+    bodyTextForMessage: text || content.text,
+  });
+  return { sent: true };
+}
+
 /** Colle un lien de paiement à la main et envoie l'email optionnel. */
 export async function setManualMilestonePaymentLink(
   milestoneId: string,
@@ -284,39 +331,7 @@ export async function setManualMilestonePaymentLink(
     });
   }
 
-  const clientEmail = decryptOptional(milestone.quote.client.emailEncrypted);
-  const quoteRef = milestone.quote.number ?? "brouillon";
-  const depositTotal =
-    (await prisma.paymentMilestone.count({ where: { quoteId: milestone.quoteId } })) ||
-    2;
-
-  if (opts.sendEmail !== false && clientEmail) {
-    const brand = buildEmailBrand(settings);
-    const content = renderDepositCheckoutEmail({
-      brand,
-      settings,
-      brandPrimaryColor: settings.brandPrimaryColor,
-      clientFirstName: milestone.quote.client.firstName,
-      clientName: milestone.quote.client.displayName,
-      quoteNumber: quoteRef,
-      amountCents: milestone.amountCents,
-      checkoutUrl: url.toString(),
-      depositIndex: milestone.position,
-      depositTotal,
-      label: milestone.label,
-    });
-    await mailEnqueue({
-      to: clientEmail,
-      subject: content.subject,
-      text: content.text,
-      html: content.html,
-      clientId: milestone.quote.clientId,
-      documentId: milestone.quoteId,
-      documentNumber: quoteRef,
-      kind: "deposit_checkout",
-      bodyTextForMessage: content.text,
-    });
-  }
+  if (opts.sendEmail !== false) await sendMilestoneLinkEmail(milestone.id);
 
   return updated;
 }
