@@ -8,6 +8,7 @@ import { DateInput, Field, Input, Select, Textarea } from "@/components/ui/Field
 import { Modal, ModalActions } from "@/components/ui/Modal";
 import { DocumentPreview } from "@/components/documents/DocumentPreview";
 import { useMediaQuery } from "@/lib/use-media-query";
+import { ResendDocumentDialog } from "@/components/messaging/document-email-dialogs";
 
 type Eligibility = {
   allowed: boolean;
@@ -79,6 +80,8 @@ export function CreditNoteWizard({
   const [busy, setBusy] = useState(false);
   const [elig, setElig] = useState<Eligibility | null>(null);
   const [created, setCreated] = useState<CreatedCreditNote | null>(null);
+  // Avoir créé : e-mail au client relu dans « Vérifier l'e-mail » (jamais envoyé d'office).
+  const [sendCreditFor, setSendCreditFor] = useState<string | null>(null);
 
   const [reason, setReason] = useState<string>("AMOUNT_CORRECTION");
   const [reasonDetail, setReasonDetail] = useState("");
@@ -220,6 +223,7 @@ export function CreditNoteWizard({
             registerRefundPayment:
               effectiveRefund === "BANK_TRANSFER" ? registerRefund : false,
             refundPaidAt: issueDate,
+            sendEmail: false,
           }),
         },
       );
@@ -230,13 +234,10 @@ export function CreditNoteWizard({
         receiptsLineAdded:
           effectiveRefund === "BANK_TRANSFER" ? registerRefund : false,
       }));
-      toast.success(
-        cn.emailed
-          ? `Avoir ${cn.number} créé et envoyé au client`
-          : `Avoir ${cn.number} créé${cn.emailReason === "no_email" ? " (pas d'email client)" : cn.emailReason === "smtp_off" ? " (SMTP non configuré)" : ""}`,
-      );
+      toast.success(`Avoir ${cn.number} créé`);
       setStep(5);
       onCreated();
+      setSendCreditFor(cn.id);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Erreur");
     } finally {
@@ -682,6 +683,11 @@ export function CreditNoteWizard({
         </Modal>
         </>
       )}
+      <ResendDocumentDialog
+        documentId={sendCreditFor}
+        onClose={() => setSendCreditFor(null)}
+        onSent={() => setChecklist((c) => ({ ...c, sentToClient: true }))}
+      />
     </Modal>
   );
 }

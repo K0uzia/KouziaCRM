@@ -16,6 +16,7 @@ import {
   markMilestonePaidManually,
   activateMilestoneCheckout,
   setManualMilestonePaymentLink,
+  sendMilestoneLinkEmail,
 } from "@/lib/payments/milestonePaymentService.js";
 import {
   acceptQuoteByClient,
@@ -281,6 +282,29 @@ export const quotesMarketRoutes: FastifyPluginAsync = async (app) => {
       }
     },
   );
+
+  // « Vérifier l'e-mail » : e-mail du lien de paiement d'une échéance (brouillon, puis envoi relu).
+  app.get<{ Params: { id: string; mid: string } }>("/api/quotes/:id/milestones/:mid/payment-link/draft", async (request, reply) => {
+    await requireAuth(request, reply);
+    if (reply.sent) return;
+    const milestone = await prisma.paymentMilestone.findFirst({ where: { id: request.params.mid, quoteId: request.params.id } });
+    if (!milestone) return reply.code(404).send({ error: "Jalon introuvable" });
+    const draft = await sendMilestoneLinkEmail(milestone.id, { draft: true });
+    if (!draft) return reply.code(409).send({ error: "Pas de lien de paiement ou pas d'adresse e-mail client." });
+    return draft;
+  });
+
+  app.post<{ Params: { id: string; mid: string } }>("/api/quotes/:id/milestones/:mid/payment-link/email", async (request, reply) => {
+    await requireAuth(request, reply);
+    if (reply.sent) return;
+    const edits = z.object({ subject: z.string().trim().max(300).optional(), text: z.string().trim().max(20000).optional() }).safeParse(request.body ?? {});
+    if (!edits.success) return reply.code(400).send({ error: "Objet ou message invalide" });
+    const milestone = await prisma.paymentMilestone.findFirst({ where: { id: request.params.mid, quoteId: request.params.id } });
+    if (!milestone) return reply.code(404).send({ error: "Jalon introuvable" });
+    const sent = await sendMilestoneLinkEmail(milestone.id, edits.data);
+    if (!sent) return reply.code(409).send({ error: "Pas de lien de paiement ou pas d'adresse e-mail client." });
+    return { sent: true };
+  });
 
   app.post<{ Params: { id: string; mid: string } }>(
     "/api/quotes/:id/milestones/:mid/payment-link",

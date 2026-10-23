@@ -1154,6 +1154,38 @@ export const invoicesRoutes: FastifyPluginAsync = async (app) => {
     return reply.code(201).send({ ...payment, receipt });
   });
 
+  /** Règlement visé par le reçu : celui indiqué, sinon le dernier enregistré (montant positif). */
+  async function receiptPayment(invoiceId: string, paymentId: string | undefined) {
+    return prisma.payment.findFirst({
+      where: { invoiceId, amountCents: { gt: 0 }, ...(paymentId ? { id: paymentId } : {}) },
+      orderBy: { createdAt: "desc" },
+    });
+  }
+
+  // « Vérifier l'e-mail » : brouillon du reçu de paiement (reçu et facture joints), rien n'est envoyé ni rendu.
+  app.get<{ Params: { id: string }; Querystring: { paymentId?: string } }>("/api/invoices/:id/receipt/draft", async (request, reply) => {
+    await requireAuth(request, reply);
+    if (reply.sent) return;
+    const payment = await receiptPayment(request.params.id, request.query.paymentId);
+    if (!payment) return reply.code(404).send({ error: "Paiement introuvable" });
+    const { sendPaymentReceipt } = await import("@/lib/email/payment-receipt.js");
+    const r = await sendPaymentReceipt(request.params.id, payment.amountCents, payment.id, { draft: true });
+    if (!r.draft) return reply.code(409).send({ error: r.reason === "no_email" ? "Ce client n'a pas d'adresse e-mail." : "Brouillon indisponible" });
+    return r.draft;
+  });
+
+  app.post<{ Params: { id: string } }>("/api/invoices/:id/receipt", async (request, reply) => {
+    await requireAuth(request, reply);
+    if (reply.sent) return;
+    const parsed = emailEditsSchema.extend({ paymentId: z.string().min(1).max(64).optional() }).safeParse(request.body ?? {});
+    if (!parsed.success) return reply.code(400).send({ error: "Objet ou message invalide" });
+    const payment = await receiptPayment(request.params.id, parsed.data.paymentId);
+    if (!payment) return reply.code(404).send({ error: "Paiement introuvable" });
+    const { sendPaymentReceipt } = await import("@/lib/email/payment-receipt.js");
+    const r = await sendPaymentReceipt(request.params.id, payment.amountCents, payment.id, { subject: parsed.data.subject, text: parsed.data.text });
+    return { sent: r.sent, reason: r.reason ?? null };
+  });
+
   // Remboursement d'un trop-perçu (paiement reçu après un avoir, avoir en mode « Autre » ou sans ligne enregistrée) :
   // ligne négative au livre des recettes, au plus le trop-perçu relu sous verrou, à la date réelle du virement.
   app.post<{ Params: { id: string } }>("/api/invoices/:id/refund", async (request, reply) => {
@@ -1223,6 +1255,8 @@ export const invoicesRoutes: FastifyPluginAsync = async (app) => {
         issueDate: z.string().optional(),
         registerRefundPayment: z.boolean().optional(),
         refundPaidAt: z.string().optional(),
+        /** false : avoir créé sans e-mail, relu ensuite dans « Vérifier l'e-mail ». Absent : envoi direct, comme avant. */
+        sendEmail: z.boolean().optional(),
       });
       const parsed = schema.safeParse(request.body);
       if (!parsed.success) {
@@ -1243,7 +1277,7 @@ export const invoicesRoutes: FastifyPluginAsync = async (app) => {
             ? new Date(parsed.data.refundPaidAt)
             : undefined,
         });
-        const mail = await sendDocumentPdf(creditNote.id);
+        const mail = parsed.data.sendEmail === false ? { sent: false, reason: undefined } : await sendDocumentPdf(creditNote.id);
         return reply.code(201).send({
           ...serializeInvoice(creditNote),
           emailed: mail.sent,

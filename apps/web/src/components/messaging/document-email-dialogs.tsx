@@ -79,3 +79,78 @@ export function ReminderDialog({
     />
   );
 }
+
+/** Reçu de paiement (reçu et facture joints), relu avant l'envoi ; paymentId absent : dernier paiement de la facture. */
+export function ReceiptDialog({
+  invoiceId,
+  paymentId,
+  onClose,
+  onDone,
+}: {
+  invoiceId: string | null;
+  paymentId?: string | null;
+  onClose: () => void;
+  onDone?: () => void | Promise<void>;
+}) {
+  if (!invoiceId) return null;
+  const query = paymentId ? `?paymentId=${encodeURIComponent(paymentId)}` : "";
+  return (
+    <VerifyEmailDialog
+      open
+      title="Vérifier l'e-mail : reçu de paiement"
+      draftUrl={`/api/invoices/${invoiceId}/receipt/draft${query}`}
+      sendLabel="Envoyer le reçu"
+      onClose={onClose}
+      onSend={async (edits) => {
+        try {
+          const r = await api<{ sent: boolean; reason: string | null }>(`/api/invoices/${invoiceId}/receipt`, {
+            method: "POST",
+            body: JSON.stringify({ ...edits, ...(paymentId ? { paymentId } : {}) }),
+          });
+          if (!r.sent) {
+            toast.error(r.reason === "smtp_off" ? "SMTP non configuré : reçu non envoyé." : "Le reçu n'a pas pu partir.");
+            return;
+          }
+          toast.success("Reçu envoyé au client");
+          onClose();
+          await onDone?.();
+        } catch (e) {
+          toast.error(e instanceof Error ? e.message : "Envoi impossible");
+        }
+      }}
+    />
+  );
+}
+
+/** Lien de paiement d'une échéance d'acompte, relu avant l'envoi. */
+export function MilestoneLinkDialog({
+  quoteId,
+  milestoneId,
+  onClose,
+  onDone,
+}: {
+  quoteId: string;
+  milestoneId: string | null;
+  onClose: () => void;
+  onDone?: () => void | Promise<void>;
+}) {
+  if (!milestoneId) return null;
+  return (
+    <VerifyEmailDialog
+      open
+      title="Vérifier l'e-mail : lien de paiement de l'acompte"
+      draftUrl={`/api/quotes/${quoteId}/milestones/${milestoneId}/payment-link/draft`}
+      onClose={onClose}
+      onSend={async (edits) => {
+        try {
+          await api(`/api/quotes/${quoteId}/milestones/${milestoneId}/payment-link/email`, { method: "POST", body: JSON.stringify(edits) });
+          toast.success("E-mail d'encaissement envoyé");
+          onClose();
+          await onDone?.();
+        } catch (e) {
+          toast.error(e instanceof Error ? e.message : "Envoi impossible");
+        }
+      }}
+    />
+  );
+}
