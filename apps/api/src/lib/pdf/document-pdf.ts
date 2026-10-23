@@ -1,7 +1,7 @@
 import { prisma } from "@/lib/prisma.js";
 import { decryptOptional } from "@/lib/crypto.js";
 import { getCompanySettings } from "@/lib/company.js";
-import { listActiveLegalClauses } from "@/lib/company/legal-clauses.js";
+import { documentClauses, listActiveLegalClauses } from "@/lib/company/legal-clauses.js";
 import { buildInvoicePdfPayload, type ClientSnapshot } from "@/lib/pdf/build-payload.js";
 import { enrichCompanyForPdf } from "@/lib/pdf/brand-assets.js";
 import { renderInvoicePdf } from "@/lib/pdf/render.js";
@@ -66,7 +66,8 @@ export async function loadDocumentForPdf(documentId: string) {
     };
   }
 
-  return { companyRaw, legalClauses, invoice, email, snapshot, balanceSummary };
+  // Devis émis : clauses figées à l'émission, sinon clauses actives.
+  return { companyRaw, legalClauses: documentClauses(invoice, legalClauses), invoice, email, snapshot, balanceSummary };
 }
 
 export type LoadedDocumentForPdf = NonNullable<Awaited<ReturnType<typeof loadDocumentForPdf>>>;

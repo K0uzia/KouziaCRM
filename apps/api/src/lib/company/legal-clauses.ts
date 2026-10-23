@@ -1,5 +1,34 @@
 import { LegalClauseAudience, LegalClauseKind, type LegalClause } from "@prisma/client";
+import { z } from "zod";
 import { prisma } from "@/lib/prisma.js";
+
+/** Clause telle qu'imprimée : ce que fige l'instantané d'un devis émis (Invoice.legalClausesSnapshot). */
+export type ClauseText = Pick<LegalClause, "kind" | "title" | "body" | "audience" | "position">;
+
+const clauseSnapshotSchema = z.array(
+  z.object({
+    kind: z.nativeEnum(LegalClauseKind),
+    title: z.string(),
+    body: z.string(),
+    audience: z.nativeEnum(LegalClauseAudience),
+    position: z.number().int(),
+  }),
+);
+
+/** Instantané figé à l'émission d'un devis : clauses actives pour le type du client, texte brut (variables non remplies). */
+export function snapshotOfClauses(clauses: ReadonlyArray<ClauseText>, clientType: string | null | undefined): ClauseText[] {
+  return clausesForClient([...clauses], clientType).map(({ kind, title, body, audience, position }) => ({ kind, title, body, audience, position }));
+}
+
+/**
+ * Clauses d'un document (décision du 23/10/2026) : celles figées à l'émission du devis, sinon les clauses actives
+ * (brouillon, facture, avoir, devis émis avant la migration 20261205090000). Instantané illisible : clauses actives.
+ */
+export function documentClauses<T extends ClauseText>(doc: { legalClausesSnapshot?: unknown }, active: T[]): ClauseText[] {
+  if (doc.legalClausesSnapshot == null) return active;
+  const parsed = clauseSnapshotSchema.safeParse(doc.legalClausesSnapshot);
+  return parsed.success ? parsed.data : active;
+}
 
 export const DEFAULT_LEGAL_CLAUSES: Array<{
   kind: LegalClauseKind;
@@ -211,15 +240,17 @@ export async function ensureDefaultLegalClauses() {
  * variables remplies. null sans abonnement, pour une facture ou si la clause est désactivée.
  */
 export async function subscriptionDateNoticeOf(
-  doc: { documentType: string; lines: ReadonlyArray<{ isSubscription: boolean }> },
+  doc: { documentType: string; lines: ReadonlyArray<{ isSubscription: boolean }>; legalClausesSnapshot?: unknown },
   clientType: string | null | undefined,
   company: Parameters<typeof fillClauseVariables>[1],
 ): Promise<string | null> {
   if (doc.documentType !== "QUOTE" || !doc.lines.some((l) => l.isSubscription)) return null;
-  const clauses = await prisma.legalClause.findMany({
+  const active = await prisma.legalClause.findMany({
     where: { active: true, kind: LegalClauseKind.SUBSCRIPTION_BILLING_DATE },
     orderBy: [{ position: "asc" }, { createdAt: "asc" }],
   });
+  // Devis émis : la clause figée à l'émission.
+  const clauses = documentClauses(doc, active).filter((c) => c.kind === LegalClauseKind.SUBSCRIPTION_BILLING_DATE);
   const body = clausesForClient(clauses, clientType)[0]?.body;
   return body ? fillClauseVariables(body, company) : null;
 }

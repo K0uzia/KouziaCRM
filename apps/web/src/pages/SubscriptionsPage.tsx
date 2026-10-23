@@ -111,7 +111,7 @@ const emptyForm = {
   firstInvoiceAt: "",
   collectionMethod: "MANUAL_TRANSFER" as "MANUAL_TRANSFER" | "STRIPE",
   /** Durée d'engagement en mois ; vide = sans engagement (création seulement). */
-  commitmentMonths: "",
+  commitmentMonths: "12",
 };
 
 /** Avenant envoyé avant les abonnements multiples, accepté, à rattacher à l'un des abonnements du client. */
@@ -1116,10 +1116,9 @@ export function SubscriptionsPage() {
             {!editingId ? (
               <Field
                 label="Engagement"
-                hint="Offre tout compris : 36 mois. Pendant l'engagement, le client demande la résiliation depuis son espace, vous la traitez."
+                hint="Puis reconduit chaque année ; le client demande la non-reconduction depuis son espace au plus tard un mois avant l'échéance, vous la traitez."
               >
                 <Select value={form.commitmentMonths} onChange={(e) => setForm({ ...form, commitmentMonths: e.target.value })}>
-                  <option value="">Sans engagement</option>
                   <option value="12">12 mois</option>
                   <option value="24">24 mois</option>
                   <option value="36">36 mois</option>

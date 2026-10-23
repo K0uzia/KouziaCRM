@@ -36,8 +36,8 @@ const createSchema = z.object({
   firstInvoiceAt: z.string().min(1).optional().nullable(),
   /** Virement (facture de l'ERP) ou prélèvement Stripe (carte ou SEPA, lien de mise en place envoyé au client). */
   collectionMethod: z.enum(["MANUAL_TRANSFER", "STRIPE"]).default("MANUAL_TRANSFER"),
-  /** Durée d'engagement en mois (offre tout compris) ; absent ou null = sans engagement. */
-  commitmentMonths: z.union([z.literal(12), z.literal(24), z.literal(36)]).optional().nullable(),
+  /** Durée d'engagement en mois : pas d'abonnement sans engagement (décision du 23/10/2026), 12 mois par défaut. */
+  commitmentMonths: z.union([z.literal(12), z.literal(24), z.literal(36)], { message: "Engagement : 12, 24 ou 36 mois." }).default(12),
 });
 
 const patchSchema = z.object({

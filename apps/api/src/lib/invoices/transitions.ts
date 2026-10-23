@@ -1,4 +1,5 @@
 import { assertMediatorFor } from "@/lib/company/mediator.js";
+import { listActiveLegalClauses, snapshotOfClauses } from "@/lib/company/legal-clauses.js";
 import {
   InvoiceDocumentType,
   InvoiceStatus,
@@ -138,6 +139,8 @@ export async function issueQuote(
   validUntil?: Date,
 ) {
   const settings = await getCompanySettings();
+  // Clauses figées à l'émission (décision du 23/10/2026) : un devis régénéré imprime toujours les clauses d'origine.
+  const activeClauses = await listActiveLegalClauses();
   const updated = await prisma.$transaction(async (tx) => {
     const quote = await tx.invoice.findUniqueOrThrow({
       where: { id: quoteId },
@@ -158,6 +161,7 @@ export async function issueQuote(
     // Émis = signable en ligne : un particulier exige un médiateur de la consommation déclaré (L612-1).
     const client = await tx.client.findUniqueOrThrow({ where: { id: quote.clientId }, select: { type: true } });
     assertMediatorFor(client.type, settings);
+    const legalClausesSnapshot = snapshotOfClauses(activeClauses, client.type);
 
     const allocated = await allocateQuoteNumber(issueDate, tx);
     const snapshot = await buildClientSnapshot(quote.clientId, tx);
@@ -193,6 +197,7 @@ export async function issueQuote(
         dueDate: validity,
         issuedAt: new Date(),
         clientSnapshot: snapshot as unknown as Prisma.InputJsonValue,
+        legalClausesSnapshot: legalClausesSnapshot as unknown as Prisma.InputJsonValue,
         nextReminderAt: addDays(issueDate, settings.reminderQuoteDays),
         paymentPlanOffer: offer,
         depositBaseCents,

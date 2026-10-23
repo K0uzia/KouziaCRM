@@ -1122,6 +1122,9 @@ model Invoice {
   clientId                     String
   client                       Client                 @relation(fields: [clientId], references: [id])
   clientSnapshot               Json?
+  /// Devis : clauses légales retenues à l'émission (kind, title, body, audience, position), variables non remplies.
+  /// null : brouillon, ou devis émis avant la migration 20261205090000 (clauses actives au rendu).
+  legalClausesSnapshot         Json?
   issueDate                    DateTime?
   /// Date de réalisation de la prestation (mention obligatoire, distincte de l'émission)
   serviceDate                  DateTime?

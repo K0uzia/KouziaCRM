@@ -4,12 +4,11 @@ import type {
   InvoiceLine,
   Payment,
   PaymentMilestone,
-  LegalClause,
   QuoteAcceptanceAudit,
 } from "@prisma/client";
 import type { ClientSnapshot } from "@/lib/invoices/transitions.js";
 import type { InvoicePdfData } from "@/lib/pdf/invoice-document.js";
-import { clausesForClient, DEDICATED_CLAUSE_KINDS } from "@/lib/company/legal-clauses.js";
+import { clausesForClient, DEDICATED_CLAUSE_KINDS, type ClauseText } from "@/lib/company/legal-clauses.js";
 import {
   describePlans,
   parsePaymentPlan,
@@ -43,7 +42,7 @@ type BalanceSummary = NonNullable<InvoicePdfData["invoice"]["balanceSummary"]>;
 
 export type BuildPdfPayloadInput = {
   invoice: InvoiceWithRelations;
-  legalClauses?: LegalClause[];
+  legalClauses?: ClauseText[];
   /** Type du client du document (instantané à l'émission) : filtre les clauses B2B ou B2C. */
   clientType: string | null;
   balanceSummary?: BalanceSummary | null;
