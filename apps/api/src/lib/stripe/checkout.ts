@@ -111,12 +111,12 @@ export async function createInvoiceCheckoutSession(invoiceId: string): Promise<s
 export function assertMilestonePayable(milestone: {
   status: MilestoneStatus;
   position: number;
-  quote: { quoteStatus: QuoteStatus | null; paymentPlan: string | null };
+  quote: { quoteStatus: QuoteStatus | null; paymentPlan: string | null; billingMode?: string | null };
 }): void {
   if (milestone.quote.quoteStatus !== QuoteStatus.ACCEPTED) {
     throw new StripeCheckoutError("Le devis n'est pas encore signé", 409);
   }
-  if (milestone.quote.paymentPlan === "THREE" && milestone.position === 2 && milestone.status === MilestoneStatus.PENDING) {
+  if (!milestone.quote.billingMode && milestone.quote.paymentPlan === "THREE" && milestone.position === 2 && milestone.status === MilestoneStatus.PENDING) {
     throw new StripeCheckoutError("Ce 2e acompte attend l'étape de projet prévue", 409);
   }
 }

@@ -154,9 +154,10 @@ async function deposit2Of(quoteId: string | null) {
   if (!quoteId) return null;
   const quote = await prisma.invoice.findUnique({
     where: { id: quoteId },
-    select: { paymentPlan: true, milestones: { where: { position: 2 } } },
+    select: { paymentPlan: true, billingMode: true, milestones: { where: { position: 2 } } },
   });
-  if (quote?.paymentPlan !== "THREE") return null;
+  // Devis avec mode : 2e échéance datée, jamais déclenchée par une étape de projet.
+  if (quote?.paymentPlan !== "THREE" || quote.billingMode) return null;
   return quote.milestones[0] ?? null;
 }
 

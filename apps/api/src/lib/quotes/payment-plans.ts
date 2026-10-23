@@ -218,7 +218,7 @@ export async function applyPlanMilestones(
  */
 export async function listDeposit2Todos(db: Prisma.TransactionClient) {
   const quotes = await db.invoice.findMany({
-    where: { paymentPlan: "THREE", milestones: { some: { position: 2, status: { in: [MilestoneStatus.PENDING, MilestoneStatus.DUE] } } } },
+    where: { paymentPlan: "THREE", billingMode: null, milestones: { some: { position: 2, status: { in: [MilestoneStatus.PENDING, MilestoneStatus.DUE] } } } },
     select: {
       id: true,
       number: true,

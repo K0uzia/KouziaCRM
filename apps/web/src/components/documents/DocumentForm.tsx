@@ -26,7 +26,8 @@ import {
   suggestedAmountCents,
   type BillingInterval,
 } from "@/lib/billing-interval";
-import { commitmentTotalCents, installments, oneOffMeans, orList, plansShown, subscriptionMeans, type PaymentSettings } from "@/lib/payment-summary";
+import { commitmentTotalCents, equalInstallments, installments, modePlansShown, oneOffMeans, orList, PERIOD_WORD, periodAmountCents, plansShown, subscriptionMeans, type PaymentSettings } from "@/lib/payment-summary";
+import { BillingModeChoice, DEFAULT_RECURRING, OneOffSchedule, RecurringRecap, RecurringSettings, type BillingMode, type RecurringForm } from "@/components/documents/billing-mode-blocks";
 
 export type DocLine = {
   description: string;
@@ -43,6 +44,8 @@ export type DocLine = {
   commitmentMonths?: string;
   /** Ligne du catalogue passée en saisie libre (« Modifier le texte ») ; jamais envoyé. */
   editText?: boolean;
+  /** Devis récurrent : prix annuel de référence d'une ligne d'abonnement (le prix par période en découle). */
+  annualEuros?: string;
 } & Partial<StartFields>;
 
 const NO_START: StartFields = { subscriptionStart: "", subscriptionStartDate: "", subscriptionFreeMonths: "" };
@@ -65,11 +68,20 @@ export type DocumentFormValues = {
   discountEuros: string;
   /** Facture : devis signé du client auquel la rattacher (facultatif). */
   sourceQuoteId: string;
-  /** Devis : paiement en 2 fois, en 3 fois ou au choix du client (vide = réglages). */
-  paymentPlanOffer: "" | "TWO" | "THREE" | "CHOICE";
+  /** Devis : comptant, en 2 fois, en 3 fois ou au choix du client (vide = réglages). */
+  paymentPlanOffer: "" | "ONE" | "TWO" | "THREE" | "CHOICE";
+  /** Devis : mode de facturation du document ; vide = devis antérieur (règles par ligne). */
+  billingMode: "" | BillingMode;
+  /** Devis récurrent : période, engagement, départ et jour, pour toutes les lignes d'abonnement. */
+  recurring: RecurringForm;
 };
 
-type PlanSettings = PaymentSettings & { paymentChoiceDefault: boolean; annualFreeMonths?: number };
+type PlanSettings = PaymentSettings & { paymentChoiceDefault: boolean; annualFreeMonths?: number; installmentIntervalDays?: number };
+
+/** Prix annuel saisi (euros) ramené à la période, en euros avec deux décimales. */
+const periodEuros = (annualEuros: string | undefined, period: RecurringForm["interval"]) =>
+  (periodAmountCents(Math.round((Number(annualEuros) || 0) * 100), period) / 100).toFixed(2);
+const PERIOD_MONTHS: Record<string, number> = { MONTH: 1, QUARTER: 3, YEAR: 12 };
 
 type QuoteOpt = {
   id: string;
@@ -105,6 +117,8 @@ type PackLine = {
 
 const DEPOSIT_TERMS = "Acompte à la validation du devis, solde à la livraison (voir l'échéancier).";
 const SUBSCRIPTION_TERMS = "Abonnement sans acompte : chaque échéance est facturée, par prélèvement ou à réception de la facture.";
+const ONE_OFF_TERMS = "Paiement à la signature, ou en plusieurs fois à parts égales selon l'échéancier.";
+const RECURRING_TERMS = "Abonnement : chaque échéance est facturée, par prélèvement ou à réception de la facture ; frais de mise en service à la signature.";
 
 const emptyLine = (): DocLine => ({
   description: "",
@@ -156,6 +170,9 @@ export function DocumentFormEditor({
     discountEuros: initial?.discountEuros ?? "",
     sourceQuoteId: initial?.sourceQuoteId ?? "",
     paymentPlanOffer: initial?.paymentPlanOffer ?? "",
+    // Nouveau devis : paiement unique par défaut ; brouillon antérieur au mode : vide jusqu'au choix.
+    billingMode: initial?.billingMode ?? (documentType === "QUOTE" && mode === "create" ? "ONE_OFF" : ""),
+    recurring: initial?.recurring ?? DEFAULT_RECURRING,
   });
   const [planSettings, setPlanSettings] = useState<PlanSettings | null>(null);
   useEffect(() => {
@@ -288,9 +305,122 @@ export function DocumentFormEditor({
     }
   }
 
+  const quoteMode = documentType === "QUOTE" ? form.billingMode : "";
+
+  /** Prix annuel d'un abonnement du catalogue (prix mensuel × 12). */
+  const annualOfService = (svc: ServiceOpt) => (svc.billingInterval === "YEAR" ? svc.unitPriceCents : svc.unitPriceCents * 12);
+
+  /** Ligne d'abonnement d'un devis récurrent : prix annuel saisi, prix de la période en découle. */
+  const recurringLine = (base: Omit<DocLine, "unitPriceEuros" | "isSubscription" | "billingInterval">, annualCents: number, period = form.recurring.interval): DocLine => {
+    const annualEuros = (annualCents / 100).toFixed(2);
+    return { ...base, isSubscription: true, billingInterval: period as BillingInterval, annualEuros, unitPriceEuros: periodEuros(annualEuros, period) };
+  };
+
+  /** Pack d'un devis avec mode : une ligne « Comprend : … », au prix d'achat ou au prix annuel. */
+  async function packModeLine(packId: string, next: BillingMode): Promise<DocLine> {
+    const [p] = await api<PackLine[]>(`/api/services/${packId}/pack-lines?mode=${next}&interval=YEAR`);
+    if (!p) throw new Error("Pack indisponible");
+    const base = { serviceId: p.serviceId, description: p.description, quantity: "1", billingDay: form.recurring.billingDay };
+    return next === "RECURRING" ? recurringLine(base, p.unitPriceCents) : { ...emptyLine(), ...base, unitPriceEuros: (p.unitPriceCents / 100).toFixed(2) };
+  }
+
+  function placeLine(line: DocLine) {
+    setForm((f) => {
+      const emptyIndex = f.lines.findIndex((l) => !l.description.trim() && !l.unitPriceEuros);
+      return { ...f, lines: emptyIndex >= 0 ? f.lines.map((l, i) => (i === emptyIndex ? line : l)) : [...f.lines, line] };
+    });
+  }
+
+  /**
+   * Changement de mode : packs repris au bon prix (achat ou annuel), abonnements gardés en récurrent et retirés en
+   * paiement unique (dit au toast), lignes ponctuelles gardées (frais de mise en service en récurrent).
+   */
+  async function switchBillingMode(next: BillingMode) {
+    if (next === form.billingMode) return;
+    const out: DocLine[] = [];
+    const dropped: string[] = [];
+    let recurring = form.recurring;
+    // Brouillon antérieur passé en récurrent : période de sa 1re ligne d'abonnement.
+    const firstSub = form.lines.find((l) => l.isSubscription);
+    if (next === "RECURRING" && form.billingMode === "" && firstSub) {
+      recurring = { ...recurring, interval: firstSub.billingInterval === "MONTH" ? "MONTH" : "YEAR" };
+    }
+    for (const l of form.lines) {
+      const svc = services.find((x) => x.id === l.serviceId);
+      if (svc?.isPack) {
+        try {
+          out.push(await packModeLine(svc.id, next));
+        } catch (e) {
+          if (next === "RECURRING") {
+            out.push({ ...l, isSubscription: false });
+            toast.warning(e instanceof Error ? e.message : `« ${svc.name} » : pas de prix annuel, gardé en frais de mise en service.`);
+          } else dropped.push(svc.name);
+        }
+        continue;
+      }
+      if (l.isSubscription || svc?.isSubscription) {
+        if (next === "ONE_OFF") {
+          dropped.push(svc?.name ?? l.description.split(" : ")[0]!);
+          continue;
+        }
+        const annualCents = l.annualEuros
+          ? Math.round(Number(l.annualEuros) * 100)
+          : svc
+            ? annualOfService(svc)
+            : Math.round((Number(l.unitPriceEuros) || 0) * 100 * (12 / (PERIOD_MONTHS[l.billingInterval] ?? 1)));
+        out.push(recurringLine(l, annualCents, recurring.interval));
+        continue;
+      }
+      out.push(l);
+    }
+    setForm((f) => ({
+      ...f,
+      billingMode: next,
+      recurring,
+      lines: out.length ? out : [emptyLine()],
+      paymentPlanOffer: next === "ONE_OFF" && (f.paymentPlanOffer === "" || f.paymentPlanOffer === "ONE") ? f.paymentPlanOffer || "TWO" : f.paymentPlanOffer,
+    }));
+    if (dropped.length) toast.info(`Paiement unique : abonnement retiré (${dropped.join(", ")}). Il se vend en paiement récurrent.`);
+  }
+
+  /** Réglages du récurrent ; une autre période recalcule le prix de chaque ligne d'abonnement. */
+  function setRecurring(patch: Partial<RecurringForm>) {
+    setForm((f) => {
+      const recurring = { ...f.recurring, ...patch };
+      const lines =
+        patch.interval && patch.interval !== f.recurring.interval
+          ? f.lines.map((l) =>
+              l.isSubscription ? { ...l, billingInterval: recurring.interval as BillingInterval, unitPriceEuros: periodEuros(l.annualEuros, recurring.interval) } : l,
+            )
+          : f.lines;
+      return { ...f, recurring, lines };
+    });
+  }
+
   function addFromCatalog(serviceId: string) {
     const svc = services.find((x) => x.id === serviceId);
     if (!svc) return;
+    if (quoteMode) {
+      if (svc.isPack) {
+        packModeLine(serviceId, quoteMode)
+          .then(placeLine)
+          .catch((e: unknown) => toast.error(e instanceof Error ? e.message : "Pack indisponible"));
+        return;
+      }
+      if (svc.isSubscription && quoteMode === "ONE_OFF") {
+        toast.warning(`« ${svc.name} » est un abonnement : passez le devis en paiement récurrent pour le vendre.`);
+        return;
+      }
+      if (svc.isSubscription) {
+        placeLine(
+          recurringLine(
+            { serviceId, description: svc.description ? `${svc.name} : ${svc.description}` : svc.name, quantity: "1", billingDay: form.recurring.billingDay },
+            annualOfService(svc),
+          ),
+        );
+        return;
+      }
+    }
     if (svc.isPack) return void addPack(serviceId);
     const isSub = Boolean(svc.isSubscription);
     // Jour de prélèvement : celui de la fiche client, sinon celui de l'offre.
@@ -363,13 +493,16 @@ export function DocumentFormEditor({
   // Base de l'acompte : partie ponctuelle, remise entière déduite (comme computeDepositBaseCents).
   const oneOffPreview = Math.max(0, oneOffSubtotal - discountPreview);
   // Conditions par défaut : suivent la nature du devis tant qu'elles n'ont pas été modifiées.
+  // Devis avec mode : texte propre au mode, remplacé seulement s'il est encore l'un des textes par défaut.
   useEffect(() => {
     setForm((f) => {
-      if (subscriptionOnly && f.paymentTerms === DEPOSIT_TERMS) return { ...f, paymentTerms: SUBSCRIPTION_TERMS };
-      if (!subscriptionOnly && f.paymentTerms === SUBSCRIPTION_TERMS) return { ...f, paymentTerms: DEPOSIT_TERMS };
-      return f;
+      const defaults = [DEPOSIT_TERMS, SUBSCRIPTION_TERMS, ONE_OFF_TERMS, RECURRING_TERMS];
+      if (!defaults.includes(f.paymentTerms)) return f;
+      const next =
+        f.billingMode === "ONE_OFF" ? ONE_OFF_TERMS : f.billingMode === "RECURRING" ? RECURRING_TERMS : subscriptionOnly ? SUBSCRIPTION_TERMS : DEPOSIT_TERMS;
+      return next === f.paymentTerms ? f : { ...f, paymentTerms: next };
     });
-  }, [subscriptionOnly]);
+  }, [subscriptionOnly, form.billingMode]);
 
   /** Corps de la création (et de l'aperçu, qui reçoit le même brouillon). */
   function requestBody(lines: DocLine[]) {
@@ -381,26 +514,45 @@ export function DocumentFormEditor({
       serviceDate: documentType === "INVOICE" ? form.serviceDate || null : null,
       purchaseOrderRef: form.purchaseOrderRef || null,
       ...(documentType === "INVOICE" ? { sourceQuoteId: form.sourceQuoteId || null } : {}),
-      ...(documentType === "QUOTE" && form.paymentPlanOffer ? { paymentPlanOffer: form.paymentPlanOffer } : {}),
+      // Mode récurrent : l'API fixe l'offre (frais en une fois) ; sans mode : règles par ligne d'avant.
+      ...(documentType === "QUOTE" && form.paymentPlanOffer && quoteMode !== "RECURRING" ? { paymentPlanOffer: form.paymentPlanOffer } : {}),
+      ...(quoteMode ? { billingMode: quoteMode } : {}),
       discountType: form.discountType,
       discountPercent:
         form.discountType === "PERCENT" ? Number(form.discountPercent) || 0 : undefined,
       discountEuros:
         form.discountType === "FIXED" ? Number(form.discountEuros) || 0 : undefined,
-      lines: lines.map((l) => ({
-        description: l.description,
-        quantity: l.isSubscription ? 1 : Number(l.quantity),
-        unitPriceEuros: Number(l.unitPriceEuros),
-        isSubscription: l.isSubscription,
-        billingDay: l.isSubscription ? Number(l.billingDay) || 1 : null,
-        billingInterval: l.isSubscription ? l.billingInterval : null,
-        serviceId: l.serviceId || null,
-        groupTitle: l.groupTitle?.trim() || null,
-        isPackDiscount: Boolean(l.isPackDiscount),
-        ...(documentType === "QUOTE" && l.isSubscription
-          ? { ...startPayload(startOf(l)), commitmentMonths: l.commitmentMonths ? Number(l.commitmentMonths) : null }
-          : {}),
-      })),
+      lines: lines.map((l) =>
+        quoteMode === "RECURRING" && l.isSubscription
+          ? {
+              // Récurrent : période, engagement, départ et jour du document, les mêmes sur chaque ligne.
+              description: l.description,
+              quantity: 1,
+              unitPriceEuros: Number(periodEuros(l.annualEuros, form.recurring.interval)),
+              isSubscription: true,
+              billingDay: Number(form.recurring.billingDay) || 1,
+              billingInterval: form.recurring.interval,
+              serviceId: l.serviceId || null,
+              groupTitle: null,
+              isPackDiscount: false,
+              ...startPayload(form.recurring),
+              commitmentMonths: form.recurring.commitmentMonths ? Number(form.recurring.commitmentMonths) : null,
+            }
+          : {
+              description: l.description,
+              quantity: l.isSubscription ? 1 : Number(l.quantity),
+              unitPriceEuros: Number(l.unitPriceEuros),
+              isSubscription: l.isSubscription,
+              billingDay: l.isSubscription ? Number(l.billingDay) || 1 : null,
+              billingInterval: l.isSubscription ? l.billingInterval : null,
+              serviceId: l.serviceId || null,
+              groupTitle: l.groupTitle?.trim() || null,
+              isPackDiscount: Boolean(l.isPackDiscount),
+              ...(documentType === "QUOTE" && l.isSubscription
+                ? { ...startPayload(startOf(l)), commitmentMonths: l.commitmentMonths ? Number(l.commitmentMonths) : null }
+                : {}),
+            },
+      ),
     };
   }
 
@@ -511,6 +663,10 @@ export function DocumentFormEditor({
         ...(planSettings.paymentCardEnabled ? [`carte bancaire (jusqu'à ${cardMax} par paiement)`] : []),
       ])
     : "";
+  // Devis avec mode : écart entre échéances, frais de mise en service et montant par période (toutes lignes).
+  const intervalDays = planSettings?.installmentIntervalDays ?? 30;
+  const feesCents = Math.round(oneOffPreview * 100);
+  const recurringPeriodCents = subLines.reduce((sum, { line }) => sum + eurosInputToCents(line.unitPriceEuros), 0);
 
   // Clavier rapide (D2) : Entrée dans la quantité ou le prix passe à la désignation de la ligne suivante, et sur la
   // dernière ligne en ajoute une. Entrée dans la désignation reste un retour à la ligne.
@@ -530,7 +686,10 @@ export function DocumentFormEditor({
     const svc = services.find((x) => x.id === line.serviceId);
     if (!svc) return null;
     const text = svc.description ? `${svc.name} : ${svc.description}` : svc.name;
-    return line.description === text ? { title: svc.name, description: svc.description } : null;
+    if (line.description === text) return { title: svc.name, description: svc.description };
+    // Pack d'un devis avec mode : « Nom : description. Comprend : … », texte produit par l'API (pack-lines).
+    if (svc.isPack && line.description.startsWith(`${svc.name} : `)) return { title: svc.name, description: line.description.slice(svc.name.length + 3) };
+    return null;
   };
   const onLineKeyDown = (index: number) => (e: KeyboardEvent<HTMLInputElement>) => {
     if (e.key !== "Enter" || e.shiftKey || e.nativeEvent.isComposing) return;
@@ -610,6 +769,16 @@ export function DocumentFormEditor({
           </div>
         )}
       </section>
+
+      {/* Mode avant les prestations : il fixe le prix des lignes (achat ou annuel) et ce que le catalogue propose. */}
+      {isQuote ? (
+        <section className="space-y-3" aria-labelledby="doc-mode">
+          <h3 id="doc-mode" className={sectionTitle}>
+            Mode de facturation
+          </h3>
+          <BillingModeChoice value={form.billingMode} onChange={(next) => void switchBillingMode(next)} />
+        </section>
+      ) : null}
 
       {documentType === "QUOTE" && (clientNeeds.length > 0 || needsDetails) ? (
         <details className="rounded-[var(--radius)] border border-[var(--border)] p-3" data-quote-needs>
@@ -691,7 +860,7 @@ export function DocumentFormEditor({
         >
           <span>Désignation</span>
           <span>Qté</span>
-          <span>Prix unitaire</span>
+          <span>{quoteMode === "RECURRING" ? "Prix (annuel si abonnement)" : "Prix unitaire"}</span>
           <span className="text-right">Total</span>
           <span />
         </div>
@@ -699,7 +868,7 @@ export function DocumentFormEditor({
           {form.lines.map((line, i) => {
             const lineTotal = (line.isSubscription ? 1 : Number(line.quantity) || 0) * (Number(line.unitPriceEuros) || 0);
             const outOfTotal = documentType === "QUOTE" && !billedWithDocument(line);
-            const monthly = line.isSubscription ? monthlyEquivalentText(eurosInputToCents(line.unitPriceEuros), line.billingInterval) : null;
+            const monthly = line.isSubscription && quoteMode !== "RECURRING" ? monthlyEquivalentText(eurosInputToCents(line.unitPriceEuros), line.billingInterval) : null;
             const fixed = catalogText(line);
             return (
               <li
@@ -771,6 +940,25 @@ export function DocumentFormEditor({
                       onChange={(e) => updateLine(i, { quantity: e.target.value })}
                     />
                   </label>
+                  {quoteMode === "RECURRING" && line.isSubscription ? (
+                    // Récurrent : le prix saisi est annuel ; la période (total de la ligne) en découle.
+                    <label className="min-w-0">
+                      <span className={lineLabel}>Prix annuel</span>
+                      <Input
+                        required
+                        type="number"
+                        inputMode="decimal"
+                        step="0.01"
+                        aria-label={`Ligne ${i + 1} : prix annuel en euros`}
+                        placeholder="€ / an"
+                        value={line.annualEuros ?? ""}
+                        onKeyDown={onLineKeyDown(i)}
+                        onChange={(e) =>
+                          updateLine(i, { annualEuros: e.target.value, unitPriceEuros: periodEuros(e.target.value, form.recurring.interval) })
+                        }
+                      />
+                    </label>
+                  ) : (
                   <label className="min-w-0">
                     <span className={lineLabel}>{line.isSubscription ? `Prix ${periodSuffix(line.billingInterval)}` : "Prix unitaire"}</span>
                     <Input
@@ -785,6 +973,7 @@ export function DocumentFormEditor({
                       onChange={(e) => updateLine(i, { unitPriceEuros: e.target.value })}
                     />
                   </label>
+                  )}
                   <p className="col-span-2 flex h-[var(--field-h)] items-center text-sm tabular-nums lg:col-span-1 lg:justify-end">
                     <span className="mr-1 text-xs text-[var(--muted)] lg:sr-only">Total de la ligne :</span>
                     {outOfTotal ? <span className="text-xs text-[var(--muted)]">Hors total</span> : <span className="font-medium">{eur(lineTotal)}</span>}
@@ -799,11 +988,18 @@ export function DocumentFormEditor({
                     <FontAwesomeIcon icon={faTrashCan} className="h-4 w-4" aria-hidden />
                   </Button>
                 </div>
-                {line.isSubscription ? (
+                {line.isSubscription && quoteMode === "RECURRING" ? (
+                  <p className="mt-1.5 text-xs text-[var(--muted)]">
+                    Soit {formatEUR(eurosInputToCents(line.unitPriceEuros))} par {PERIOD_WORD[form.recurring.interval]} ; période, engagement et départ dans
+                    la section Paiement.
+                  </p>
+                ) : line.isSubscription ? (
                   <p className="mt-1.5 text-xs text-[var(--muted)]">
                     Abonnement {line.billingInterval === "YEAR" ? "annuel" : "mensuel"} :{" "}
                     {isQuote ? "période, départ et engagement" : "période et jour de facturation"} dans la section Paiement.
                   </p>
+                ) : quoteMode === "RECURRING" && line.description.trim() ? (
+                  <p className="mt-1.5 text-xs text-[var(--muted)]">Frais de mise en service : facturés une fois, à la signature.</p>
                 ) : null}
                 {outOfTotal ? (
                   <p className="mt-1.5 text-xs text-[var(--muted)]">Hors total du devis : 1re facture repoussée (date précise ou mois offerts).</p>
@@ -827,6 +1023,18 @@ export function DocumentFormEditor({
         <h3 id="doc-terms" className={sectionTitle}>
           Paiement
         </h3>
+        {quoteMode === "ONE_OFF" && planSettings ? (
+          <OneOffSchedule
+            offer={form.paymentPlanOffer}
+            onOffer={(paymentPlanOffer) => setForm((f) => ({ ...f, paymentPlanOffer: paymentPlanOffer as DocumentFormValues["paymentPlanOffer"] }))}
+            totalCents={Math.round(totalPreview * 100)}
+            intervalDays={intervalDays}
+            split3MinTotalCents={planSettings.split3MinTotalCents}
+          />
+        ) : quoteMode === "RECURRING" ? (
+          <RecurringSettings value={form.recurring} onChange={setRecurring} periodCents={recurringPeriodCents} feesCents={feesCents} />
+        ) : (
+        <>
         {subscriptionOnly ? (
           <p className="text-sm text-[var(--muted)]">
             <span className="font-medium text-[var(--text)]">Abonnement, sans acompte.</span> Après la signature, le client met en
@@ -933,17 +1141,33 @@ export function DocumentFormEditor({
           </div>
         ) : null}
 
+        </>
+        )}
+
         {planSettings ? (
           <div className="space-y-1.5">
             <h4 className={blockTitle}>Moyens de paiement</h4>
             <ul className="space-y-1 text-sm text-[var(--muted)]">
-              {!subscriptionOnly ? (
+              {quoteMode === "RECURRING" ? (
+                <>
+                  {feesCents > 0 ? (
+                    <li>
+                      <span className="text-[var(--text)]">Frais de mise en service :</span> {oneOffMeansText}.
+                    </li>
+                  ) : null}
+                  <li>
+                    <span className="text-[var(--text)]">Abonnement :</span> {orList(subscriptionMeans(recurringPeriodCents, planSettings))}, chaque{" "}
+                    {form.recurring.interval === "YEAR" ? "année" : form.recurring.interval === "QUARTER" ? "trimestre" : "mois"}.
+                  </li>
+                </>
+              ) : null}
+              {quoteMode !== "RECURRING" && !subscriptionOnly ? (
                 <li>
                   <span className="text-[var(--text)]">{subLines.length ? "Partie ponctuelle" : isQuote ? "Échéances" : "Facture"} :</span> {oneOffMeansText}.
                   Le virement sur l&apos;IBAN de la facture reste possible.
                 </li>
               ) : null}
-              {subLines.map(({ line, index }) => (
+              {(quoteMode === "RECURRING" ? [] : subLines).map(({ line, index }) => (
                 <li key={index}>
                   <span className="text-[var(--text)]">{lineName(line)} :</span> {orList(subscriptionMeans(periodCents(line), planSettings))}, chaque{" "}
                   {line.billingInterval === "YEAR" ? "année" : "mois"}.
@@ -987,9 +1211,11 @@ export function DocumentFormEditor({
       <h3 id="doc-recap" className={sectionTitle}>
         Récapitulatif
       </h3>
+      {quoteMode === "RECURRING" && oneOffSubtotal === 0 ? null : (
+      <>
       <p className={totalsLine}>
-        <span className="text-[var(--muted)]">{mixedQuote ? "Partie ponctuelle" : "Sous-total"}</span>
-        <span className="tabular-nums">{eur(mixedQuote ? oneOffSubtotal : subtotalPreview)}</span>
+        <span className="text-[var(--muted)]">{quoteMode === "RECURRING" ? "Frais de mise en service" : mixedQuote ? "Partie ponctuelle" : "Sous-total"}</span>
+        <span className="tabular-nums">{eur(mixedQuote || quoteMode === "RECURRING" ? oneOffSubtotal : subtotalPreview)}</span>
       </p>
       <div className="space-y-2">
         <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)] gap-2">
@@ -1034,18 +1260,48 @@ export function DocumentFormEditor({
             <span className="tabular-nums">−{eur(discountPreview)}</span>
           </p>
         ) : null}
-        {form.discountType !== "NONE" && mixedQuote ? (
-          <p className="text-xs text-[var(--muted)]">Sur la partie ponctuelle seulement : l&apos;abonnement reste à son prix.</p>
+        {form.discountType !== "NONE" && (mixedQuote || quoteMode === "RECURRING") ? (
+          <p className="text-xs text-[var(--muted)]">
+            {quoteMode === "RECURRING" ? "Sur les frais de mise en service seulement" : "Sur la partie ponctuelle seulement"} : l&apos;abonnement reste à son prix.
+          </p>
         ) : null}
       </div>
+      </>
+      )}
       <div className="border-t border-[var(--border)] pt-3">
+        {quoteMode === "RECURRING" ? (
+          <RecurringRecap value={form.recurring} periodCents={recurringPeriodCents} feesCents={feesCents} />
+        ) : (
         <p className={totalsLine}>
           <span className="font-semibold">{mixedQuote ? "Total du projet" : "Total"}</span>
           <span className="font-display text-2xl font-semibold tabular-nums">{eur(mixedQuote ? oneOffPreview : totalPreview)}</span>
         </p>
+        )}
         <p className="mt-1 text-xs text-[var(--muted)]">TVA non applicable, art. 293 B du CGI.</p>
       </div>
-      {showSchedule && planSettings && scheduleBaseCents > 0 ? (
+      {quoteMode === "ONE_OFF" && planSettings && totalPreview > 0 ? (
+        <div className="space-y-1 border-t border-[var(--border)] pt-3">
+          {(() => {
+            const shown = modePlansShown(form.paymentPlanOffer, Math.round(totalPreview * 100), planSettings);
+            return (
+              <>
+                <p className="text-sm font-medium">Échéances{shown.length > 1 ? " (au choix du client)" : ""}</p>
+                {shown.map((plan) => (
+                  <p key={plan} className="text-xs text-[var(--muted)]">
+                    {plan === "ONE" ? "Comptant" : plan === "THREE" ? "En 3 fois" : "En 2 fois"} :{" "}
+                    <span className="tabular-nums text-[var(--text)]">
+                      {equalInstallments(plan, Math.round(totalPreview * 100), intervalDays)
+                        .map((m) => formatEUR(m.amountCents))
+                        .join(" + ")}
+                    </span>
+                  </p>
+                ))}
+              </>
+            );
+          })()}
+        </div>
+      ) : null}
+      {!quoteMode && showSchedule && planSettings && scheduleBaseCents > 0 ? (
         <div className="space-y-1 border-t border-[var(--border)] pt-3">
           <p className="text-sm font-medium">Échéances{plans.length > 1 ? " (au choix du client)" : ""}</p>
           {plans.map((plan) => (
@@ -1060,7 +1316,7 @@ export function DocumentFormEditor({
           ))}
         </div>
       ) : null}
-      {subLines.length > 0 ? (
+      {subLines.length > 0 && quoteMode !== "RECURRING" ? (
         <div className="space-y-2 border-t border-[var(--border)] pt-3">
           {subLines.map(({ line, index }) => {
             const months = Number(line.commitmentMonths) || 0;
@@ -1104,8 +1360,13 @@ export function DocumentFormEditor({
           className="mr-auto flex min-h-11 flex-col items-start justify-center text-left"
           onClick={() => recapRef.current?.scrollIntoView({ block: "start" })}
         >
-          <span className="text-xs text-[var(--muted)]">{mixedQuote ? "Total du projet" : "Total"}<span className="lg:hidden"> (détail)</span></span>
-          <span className="font-display text-lg font-semibold tabular-nums">{eur(mixedQuote ? oneOffPreview : totalPreview)}</span>
+          <span className="text-xs text-[var(--muted)]">
+            {quoteMode === "RECURRING" ? `Par ${PERIOD_WORD[form.recurring.interval]}` : mixedQuote ? "Total du projet" : "Total"}
+            <span className="lg:hidden"> (détail)</span>
+          </span>
+          <span className="font-display text-lg font-semibold tabular-nums">
+            {quoteMode === "RECURRING" ? formatEUR(recurringPeriodCents) : eur(mixedQuote ? oneOffPreview : totalPreview)}
+          </span>
         </button>
         <Button variant="secondary" className="max-sm:hidden" onClick={onCancel} disabled={busy}>
           Annuler

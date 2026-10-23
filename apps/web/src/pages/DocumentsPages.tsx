@@ -9,6 +9,7 @@ import { toast } from "sonner";
 import { useLiveRefresh } from "@/lib/notifications";
 import { api, formatEUR } from "@/lib/api";
 import { billedWithDocument, startFromLine, startPhrase } from "@/lib/subscription-start";
+import { annualEurosOf, recurringFromLine } from "@/components/documents/billing-mode-blocks";
 import {
   formatDate,
   formatDecimal,
@@ -105,6 +106,8 @@ type Doc = {
   paymentTerms: string | null;
   /** Devis : formules proposées (TWO | THREE | CHOICE) et formule retenue à la signature. */
   paymentPlanOffer?: string | null;
+  /** Devis : mode de facturation (ONE_OFF | RECURRING) ; null pour un devis antérieur. */
+  billingMode?: string | null;
   /** Devis : base de l'acompte et de l'échéancier (partie ponctuelle) ; null pour un devis antérieur. */
   depositBaseCents?: number | null;
   paymentPlan?: string | null;
@@ -1961,9 +1964,14 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
             purchaseOrderRef: doc.purchaseOrderRef ?? "",
             sourceQuoteId: doc.sourceQuoteId ?? doc.quoteId ?? "",
             paymentPlanOffer:
-              doc.paymentPlanOffer === "TWO" || doc.paymentPlanOffer === "THREE" || doc.paymentPlanOffer === "CHOICE"
+              doc.paymentPlanOffer === "ONE" || doc.paymentPlanOffer === "TWO" || doc.paymentPlanOffer === "THREE" || doc.paymentPlanOffer === "CHOICE"
                 ? doc.paymentPlanOffer
                 : "",
+            billingMode: doc.billingMode === "ONE_OFF" || doc.billingMode === "RECURRING" ? doc.billingMode : "",
+            ...(() => {
+              const sub = (doc.lines ?? []).find((l) => l.isSubscription);
+              return doc.billingMode === "RECURRING" && sub ? { recurring: recurringFromLine({ ...sub, ...startFromLine(sub) }) } : {};
+            })(),
             validUntil: doc.validUntil ? doc.validUntil.slice(0, 10) : "",
             discountType:
               doc.discountType === "PERCENT" || doc.discountType === "FIXED"
@@ -1984,6 +1992,7 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
               isSubscription: Boolean(l.isSubscription),
               billingDay: String(l.billingDay ?? 1),
               billingInterval: l.billingInterval === "YEAR" ? "YEAR" : "MONTH",
+              ...(doc.billingMode === "RECURRING" && l.isSubscription ? { annualEuros: annualEurosOf(l.unitPriceCents, l.billingInterval) } : {}),
               serviceId: l.serviceId ?? "",
               groupTitle: l.groupTitle ?? "",
               isPackDiscount: Boolean(l.isPackDiscount),

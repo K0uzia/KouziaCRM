@@ -59,7 +59,8 @@ async function savePack(data: z.output<typeof serviceSchema>, id?: string) {
     name: data.name,
     description: data.description ?? null,
     unitPriceCents: priceCents,
-    annualPriceCents: data.annualPriceEuros === null || data.annualPriceEuros === undefined ? null : eurosToCents(data.annualPriceEuros),
+    // Absent (réactivation, ancienne fenêtre) : prix annuel inchangé ; null : retiré.
+    ...(data.annualPriceEuros !== undefined ? { annualPriceCents: data.annualPriceEuros === null ? null : eurosToCents(data.annualPriceEuros) } : {}),
     unit: ServiceUnit.FORFAIT,
     active: data.active,
     isPack: true,
