@@ -10,7 +10,7 @@ import { Button, ButtonLink } from "@/components/ui/Button";
 import { EditorFooter, EditorLayout, useItemEditor } from "./editor";
 import { ReviewCardPreview } from "./preview";
 import { DataTable, type DataColumn } from "@/components/ui/DataTable";
-import { Field, Input, Select, Textarea } from "@/components/ui/Field";
+import { DateInput, Field, Input, Select, Textarea } from "@/components/ui/Field";
 import { Combobox } from "@/components/ui/Combobox";
 import { Banner } from "@/components/ui/Banner";
 import { FilterSelect } from "@/components/ui/ListFilters";
@@ -445,10 +445,10 @@ export function SiteReviewPage() {
       </Field>
       <div className="grid gap-4 sm:grid-cols-2">
         <Field label="Reçu le" hint="Affiché comme date de publication." error={errors.reviewedOn}>
-          <Input required type="date" disabled={locked} value={form.reviewedOn} onChange={(e) => set("reviewedOn", e.target.value)} />
+          <DateInput required disabled={locked} value={form.reviewedOn} onChange={(v) => set("reviewedOn", v)} />
         </Field>
         <Field label="Date de l'expérience" hint="Fin de la prestation, affichée près du témoignage." error={errors.experienceOn}>
-          <Input type="date" value={form.experienceOn} onChange={(e) => set("experienceOn", e.target.value)} />
+          <DateInput value={form.experienceOn} onChange={(v) => set("experienceOn", v)} />
         </Field>
       </div>
     </div>
@@ -503,7 +503,7 @@ export function SiteReviewPage() {
         <legend className="px-1 text-sm font-medium">Accord de l'auteur (jamais publié)</legend>
         <div className="grid gap-4 sm:grid-cols-2">
           <Field label="Date de l'accord" error={errors.consentAt}>
-            <Input type="date" value={form.consentAt} onChange={(e) => set("consentAt", e.target.value)} />
+            <DateInput value={form.consentAt} onChange={(v) => set("consentAt", v)} />
           </Field>
           <Field label="Canal" hint="E-mail, courrier…" error={errors.consentChannel}>
             <Input autoComplete="off" value={form.consentChannel} onChange={(e) => set("consentChannel", e.target.value)} />
@@ -525,7 +525,7 @@ export function SiteReviewPage() {
         hint="Si l'auteur demande le retrait : passer en « Retiré du site » ; il sort du site à la prochaine publication."
         error={errors.withdrawalRequestedAt}
       >
-        <Input type="date" value={form.withdrawalRequestedAt} onChange={(e) => set("withdrawalRequestedAt", e.target.value)} />
+        <DateInput value={form.withdrawalRequestedAt} onChange={(v) => set("withdrawalRequestedAt", v)} />
       </Field>
       {!clientSpace || editing?.status === "PUBLISHED" || editing?.status === "WITHDRAWN" ? (
         <Field label="Statut" error={errors.status}>

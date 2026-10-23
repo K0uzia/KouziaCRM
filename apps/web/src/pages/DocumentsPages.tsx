@@ -42,7 +42,7 @@ import {
   type ManualPaymentInput,
 } from "@/components/payments/ManualPaymentDialog";
 import { PaymentForm } from "@/components/payments/PaymentForm";
-import { Field, Input, Textarea } from "@/components/ui/Field";
+import { DateInput, Field, Input, Textarea } from "@/components/ui/Field";
 import { ClientEmailLink } from "@/components/clients/ClientEmailLink";
 import { CreditNoteWizard } from "@/components/documents/CreditNoteWizard";
 import { buildBillingEmailDraft, buildIssueEmailDraft } from "@/lib/issue-email";
@@ -2053,7 +2053,7 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
             <Input type="number" step="0.01" min="0.01" max={(overpaid / 100).toFixed(2)} value={refundEuros} onChange={(e) => setRefundEuros(e.target.value)} required />
           </Field>
           <Field label="Date du virement">
-            <Input type="date" value={refundDate} onChange={(e) => setRefundDate(e.target.value)} required />
+            <DateInput value={refundDate} onChange={(v) => setRefundDate(v)} required />
           </Field>
           <Field label="Référence (facultatif)">
             <Input value={refundRef} onChange={(e) => setRefundRef(e.target.value)} autoComplete="off" />

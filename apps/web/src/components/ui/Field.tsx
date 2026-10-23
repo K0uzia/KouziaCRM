@@ -2,6 +2,7 @@ import { Children, cloneElement, isValidElement, useId } from "react";
 import type { ComponentPropsWithRef, SelectHTMLAttributes, ReactNode } from "react";
 import { useMediaQuery } from "@/lib/use-media-query";
 import { Listbox } from "@/components/ui/Listbox";
+import { DatePicker, type DatePickerProps } from "@/components/ui/DatePicker";
 
 export function Field({
   label,
@@ -17,20 +18,28 @@ export function Field({
   className?: string;
 }) {
   const id = useId();
+  const labelId = `${id}-label`;
   const noteId = hint || error ? `${id}-note` : undefined;
+  const single = Children.count(children) === 1 && isValidElement<Record<string, unknown>>(children) ? children : null;
+  // Champ date : son bouton de calendrier est dans le label ; nommé par le seul libellé, sinon le nom du bouton
+  // s'ajouterait au sien (« Date Changer la date, … »).
+  const labelled = single?.type === DateInput;
   // Aide et erreur : description du contrôle (aria-describedby), pas une partie de son nom.
   // aria-hidden les retire du nom calculé depuis le label ; la référence par id reste lue.
   const describedChild =
-    noteId && Children.count(children) === 1 && isValidElement<Record<string, unknown>>(children)
-      ? cloneElement(children, {
-          "aria-describedby": children.props["aria-describedby"] ?? noteId,
+    single && (noteId || labelled)
+      ? cloneElement(single, {
+          ...(labelled ? { "aria-labelledby": single.props["aria-labelledby"] ?? labelId } : {}),
+          ...(noteId ? { "aria-describedby": single.props["aria-describedby"] ?? noteId } : {}),
           ...(error ? { "aria-invalid": true } : {}),
         })
       : children;
   const linked = describedChild !== children;
   return (
     <label className={`block min-w-0 space-y-1.5 ${className}`}>
-      <span className="block text-sm font-medium text-[var(--text)]">{label}</span>
+      <span id={labelId} className="block text-sm font-medium text-[var(--text)]">
+        {label}
+      </span>
       {describedChild}
       {hint && !error ? (
         <span id={noteId} aria-hidden={linked || undefined} className="block text-xs text-[var(--muted)]">
@@ -64,6 +73,20 @@ export function Select({ className = "", ...props }: SelectHTMLAttributes<HTMLSe
   const native = useMediaQuery("(max-width: 639.98px), (pointer: coarse)");
   const classes = `${control} ${singleLine} ui-select ${className}`;
   return native ? <select className={classes} {...props} /> : <Listbox className={classes} {...props} />;
+}
+
+/**
+ * Champ date (valeur « AAAA-MM-JJ ») : saisie et calendrier de l'ERP dès 640 px avec une souris (DatePicker) ; champ
+ * date natif au téléphone ou au doigt, avec le sélecteur du système (décision E5, 23/10/2026).
+ */
+export function DateInput({ value, onChange, className = "", ...props }: DatePickerProps) {
+  const native = useMediaQuery("(max-width: 639.98px), (pointer: coarse)");
+  const classes = `${control} ${singleLine} ${className}`;
+  return native ? (
+    <input type="date" className={classes} value={value} onChange={(e) => onChange(e.target.value)} {...props} />
+  ) : (
+    <DatePicker className={classes} value={value} onChange={onChange} {...props} />
+  );
 }
 
 export function Textarea({ className = "", ...props }: ComponentPropsWithRef<"textarea">) {

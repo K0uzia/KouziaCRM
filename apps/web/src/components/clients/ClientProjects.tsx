@@ -9,7 +9,7 @@ import { formatDate } from "@/lib/format";
 import { Button } from "@/components/ui/Button";
 import { Badge, Card } from "@/components/ui/Card";
 import { Modal, ModalActions } from "@/components/ui/Modal";
-import { Field, Input, Select } from "@/components/ui/Field";
+import { DateInput, Field, Input, Select } from "@/components/ui/Field";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 
 type StepStatus = "done" | "current" | "todo";
@@ -380,15 +380,14 @@ export function ClientProjects({ clientId }: { clientId: string }) {
                       </option>
                     ))}
                   </Select>
-                  <Input
-                    type="date"
+                  <DateInput
                     aria-label="Date de l'étape (facultative)"
                     className="sm:w-40"
                     value={s.date ?? ""}
-                    onChange={(e) =>
+                    onChange={(v) =>
                       update({
                         steps: form.steps.map((x, j) =>
-                          j === i ? { ...x, date: e.target.value || null } : x,
+                          j === i ? { ...x, date: v || null } : x,
                         ),
                       })
                     }

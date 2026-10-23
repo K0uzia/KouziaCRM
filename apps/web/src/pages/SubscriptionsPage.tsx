@@ -18,7 +18,7 @@ import { useFeatures } from "@/lib/features";
 import { Button } from "@/components/ui/Button";
 import { Card, EmptyState, PageHeader, Badge } from "@/components/ui/Card";
 import { Modal, ModalActions } from "@/components/ui/Modal";
-import { Field, Input, Select } from "@/components/ui/Field";
+import { DateInput, Field, Input, Select } from "@/components/ui/Field";
 import { useCreateParam } from "@/lib/use-create-param";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { StatStrip } from "@/components/ui/StatStrip";
@@ -1091,11 +1091,10 @@ export function SubscriptionsPage() {
               </Select>
             </Field>
             <Field label="Date de début">
-              <Input
+              <DateInput
                 required
-                type="date"
                 value={form.startDate}
-                onChange={(e) => setForm({ ...form, startDate: e.target.value })}
+                onChange={(v) => setForm({ ...form, startDate: v })}
                 disabled={!!editingId}
               />
             </Field>
@@ -1105,11 +1104,10 @@ export function SubscriptionsPage() {
                 label="1re facture (facultatif)"
                 hint="Vide : au prochain jour de prélèvement. Pour offrir une période (ex. un an), la date de la 1re facture ; le client est prévenu 30 jours avant."
               >
-                <Input
-                  type="date"
+                <DateInput
                   min={form.startDate}
                   value={form.firstInvoiceAt}
-                  onChange={(e) => setForm({ ...form, firstInvoiceAt: e.target.value })}
+                  onChange={(v) => setForm({ ...form, firstInvoiceAt: v })}
                 />
               </Field>
             ) : null}

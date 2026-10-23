@@ -4,7 +4,7 @@ import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { api, formatEUR, formatDate } from "@/lib/api";
 import { Button } from "@/components/ui/Button";
-import { Field, Input, Select, Textarea } from "@/components/ui/Field";
+import { DateInput, Field, Input, Select, Textarea } from "@/components/ui/Field";
 import { Modal, ModalActions } from "@/components/ui/Modal";
 import { DocumentPreview } from "@/components/documents/DocumentPreview";
 import { useMediaQuery } from "@/lib/use-media-query";
@@ -412,10 +412,9 @@ export function CreditNoteWizard({
                   />
                 </Field>
                 <Field label="Date d'émission">
-                  <Input
-                    type="date"
+                  <DateInput
                     value={issueDate}
-                    onChange={(e) => setIssueDate(e.target.value)}
+                    onChange={(v) => setIssueDate(v)}
                   />
                 </Field>
               </div>

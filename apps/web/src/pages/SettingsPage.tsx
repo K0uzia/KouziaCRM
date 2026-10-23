@@ -8,7 +8,7 @@ import { api } from "@/lib/api";
 import { formatDate } from "@/lib/format";
 import { Button } from "@/components/ui/Button";
 import { Card, PageHeader } from "@/components/ui/Card";
-import { Field, Input, Select, Textarea } from "@/components/ui/Field";
+import { DateInput, Field, Input, Select, Textarea } from "@/components/ui/Field";
 import { Modal, ModalActions } from "@/components/ui/Modal";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { AddressAutocomplete, type AddressValue } from "@/components/forms/AddressAutocomplete";
@@ -1906,20 +1906,18 @@ export function SettingsPage() {
                   />
                 </Field>
                 <Field label="Début d'activité">
-                  <Input
-                    type="date"
+                  <DateInput
                     value={form.businessStartDate?.slice(0, 10) ?? ""}
-                    onChange={(e) =>
-                      setForm({ ...form, businessStartDate: e.target.value || null })
+                    onChange={(v) =>
+                      setForm({ ...form, businessStartDate: v || null })
                     }
                   />
                 </Field>
                 <Field label="Immatriculation RNE">
-                  <Input
-                    type="date"
+                  <DateInput
                     value={form.rneRegistrationDate?.slice(0, 10) ?? ""}
-                    onChange={(e) =>
-                      setForm({ ...form, rneRegistrationDate: e.target.value || null })
+                    onChange={(v) =>
+                      setForm({ ...form, rneRegistrationDate: v || null })
                     }
                   />
                 </Field>

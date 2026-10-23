@@ -6,7 +6,7 @@ import { useCreateParam } from "@/lib/use-create-param";
 import { Badge, Card, PageHeader } from "@/components/ui/Card";
 import { Button, ButtonLink } from "@/components/ui/Button";
 import { DataTable, type DataColumn } from "@/components/ui/DataTable";
-import { Field, Input, Select, Textarea } from "@/components/ui/Field";
+import { DateInput, Field, Input, Select, Textarea } from "@/components/ui/Field";
 import { Banner } from "@/components/ui/Banner";
 import { FilterSegment } from "@/components/ui/ListFilters";
 import { useUrlFilters } from "@/lib/use-url-filters";
@@ -422,7 +422,7 @@ export function SiteReferencePage() {
         <legend className="px-1 text-sm font-medium">Autorisation écrite (jamais publiée)</legend>
         <div className="grid gap-4 sm:grid-cols-2">
           <Field label="Date de l'autorisation" error={errors.authorizationAt}>
-            <Input type="date" value={form.authorizationAt} onChange={(e) => set("authorizationAt", e.target.value)} />
+            <DateInput value={form.authorizationAt} onChange={(v) => set("authorizationAt", v)} />
           </Field>
           <Field label="Canal" hint="E-mail, courrier, contrat…" error={errors.authorizationChannel}>
             <Input autoComplete="off" value={form.authorizationChannel} onChange={(e) => set("authorizationChannel", e.target.value)} />

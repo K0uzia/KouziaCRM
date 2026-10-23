@@ -1,0 +1,46 @@
+/* Calendrier du DatePicker, chargé avec lui (à la première ouverture) : feuille de react-day-picker dans la couche
+   components, sous les utilitaires (hors couche, elle l'emporterait sur elles, comme l'ancien focus global). */
+@import "react-day-picker/style.css" layer(components);
+
+@layer components {
+  /* Calendrier (DatePicker) aux couleurs de l'ERP : jours et navigation de --tap (44 px), jour choisi en plein. */
+  .rdp-root {
+    --rdp-accent-color: var(--primary);
+    --rdp-accent-background-color: var(--primary-soft);
+    --rdp-today-color: var(--primary);
+    --rdp-day-height: var(--tap);
+    --rdp-day-width: var(--tap);
+    --rdp-day_button-height: calc(var(--tap) - 2px);
+    --rdp-day_button-width: calc(var(--tap) - 2px);
+    --rdp-day_button-border-radius: var(--radius-sm);
+    --rdp-nav_button-height: var(--tap);
+    --rdp-nav_button-width: var(--tap);
+    --rdp-nav-height: var(--tap);
+    color: var(--text);
+  }
+  .rdp-root .rdp-selected .rdp-day_button {
+    border-color: var(--primary);
+    color: var(--primary-fg);
+    background: var(--primary);
+  }
+  .rdp-root .rdp-day_button:hover:not(:disabled) {
+    background: var(--surface-hover);
+  }
+  .rdp-root .rdp-selected .rdp-day_button:hover {
+    background: var(--primary);
+  }
+  .rdp-root .rdp-chevron {
+    fill: currentColor;
+  }
+  /* Jour actif de la grille : focus posé par le calendrier à l'ouverture ; Firefox ne lui applique pas :focus-visible,
+     le clavier perdrait sa position. Même indication que partout dans l'ERP, sur :focus. */
+  .rdp-root .rdp-day_button:focus {
+    outline: var(--focus-width) solid var(--focus-color);
+    outline-offset: var(--focus-offset);
+  }
+  /* Mois et année en listes : le focus suit l'indication unique de l'ERP, pas le contour natif de la bibliothèque. */
+  .rdp-root .rdp-dropdown:focus-visible ~ .rdp-caption_label {
+    outline: var(--focus-width) solid var(--focus-color);
+    outline-offset: var(--focus-offset);
+  }
+}
