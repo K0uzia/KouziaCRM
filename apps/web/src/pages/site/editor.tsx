@@ -381,6 +381,7 @@ export function EditorLayout<T extends string>({
   preview,
   footer,
   label,
+  previewTitle = "Aperçu sur kouzia.com",
 }: {
   tabs: ReadonlyArray<EditorTab<T>>;
   preview: (device: PreviewDevice) => ReactNode;
@@ -388,6 +389,8 @@ export function EditorLayout<T extends string>({
   footer: ReactNode;
   /** Nom accessible de la bande d'onglets (ex. « Sections de la réalisation »). */
   label: string;
+  /** Titre de l'aperçu (ex. « Carte de la liste » pour une réalisation, dont la page projet se voit sur le site). */
+  previewTitle?: string;
 }) {
   const wide = useMediaQuery("(min-width: 64rem)");
   const [device, setDevice] = useState<PreviewDevice>("desktop");
@@ -402,7 +405,7 @@ export function EditorLayout<T extends string>({
   const previewBlock = (
     <div className="space-y-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <p className="text-sm font-medium">Aperçu sur kouzia.com</p>
+        <p className="text-sm font-medium">{previewTitle}</p>
         <Segmented
           label="Taille de l'aperçu"
           value={device}
@@ -432,7 +435,7 @@ export function EditorLayout<T extends string>({
       </Card>
       {wide ? (
         // Colonne fixe au défilement, bornée à l'écran : un aperçu plus haut défile dans la colonne (focusable au clavier).
-        <Card className="sticky top-[calc(var(--topbar-h)+1rem)] max-h-[calc(100dvh-var(--topbar-h)-2rem)] overflow-y-auto p-4" tabIndex={0} role="region" aria-label="Aperçu sur kouzia.com">
+        <Card className="sticky top-[calc(var(--topbar-h)+1rem)] max-h-[calc(100dvh-var(--topbar-h)-2rem)] overflow-y-auto p-4" tabIndex={0} role="region" aria-label={previewTitle}>
           {previewBlock}
         </Card>
       ) : null}

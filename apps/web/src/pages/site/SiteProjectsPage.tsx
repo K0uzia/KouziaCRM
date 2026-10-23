@@ -4,9 +4,9 @@ import { api } from "@/lib/api";
 import { Combobox } from "@/components/ui/Combobox";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { faArrowsUpDown, faCheck, faPlus } from "@fortawesome/free-solid-svg-icons";
+import { faArrowUpRightFromSquare, faArrowsUpDown, faCheck, faPlus } from "@fortawesome/free-solid-svg-icons";
 import { Card, PageHeader } from "@/components/ui/Card";
-import { Button, ButtonLink } from "@/components/ui/Button";
+import { Button, ButtonLink, buttonClass } from "@/components/ui/Button";
 import { EditorFooter, EditorLayout, useItemEditor } from "./editor";
 import { reorderVisible, saveIds, SortableList } from "./sortable";
 import { applyProposals, proposePairAlt, type MediaNames } from "@/lib/site-proposals";
@@ -480,6 +480,18 @@ export function SiteProjectPage() {
     if (names) setForm((f) => applyProposals(f, names));
   }, [form, names, setForm]);
   const slugLocked = Boolean(project?.publishedAt);
+  // Page projet telle que publiée : lien seulement si la dernière publication l'a mise en ligne.
+  const [pageUrl, setPageUrl] = useState<string | null>(null);
+  useEffect(() => {
+    if (!project?.id) return;
+    let stale = false;
+    api<{ url: string | null }>(`${BASE}/${project.id}/page-online`)
+      .then((r) => !stale && setPageUrl(r.url))
+      .catch(() => !stale && setPageUrl(null));
+    return () => {
+      stale = true;
+    };
+  }, [project?.id, project?.publishedAt]);
   const countErrors = ed.countErrors;
 
   const contenu = (
@@ -862,11 +874,30 @@ export function SiteProjectPage() {
         back={{ to: "/site/realisations", label: "Réalisations" }}
         title={creating ? "Nouvelle réalisation" : project?.name ?? "Réalisation"}
         subtitle={project ? <StatusBadge row={project} /> : undefined}
+        actions={
+          creating ? undefined : pageUrl ? (
+            <a className={buttonClass("secondary")} href={pageUrl} target="_blank" rel="noopener noreferrer">
+              <FontAwesomeIcon icon={faArrowUpRightFromSquare} className="h-3.5 w-3.5" aria-hidden />
+              Voir la page sur le site<span className="sr-only"> (nouvel onglet)</span>
+            </a>
+          ) : (
+            <div className="flex flex-wrap items-center gap-2">
+              <Button variant="secondary" disabled aria-describedby="page-hors-ligne">
+                <FontAwesomeIcon icon={faArrowUpRightFromSquare} className="h-3.5 w-3.5" aria-hidden />
+                Voir la page sur le site
+              </Button>
+              <span id="page-hors-ligne" className="text-xs text-[var(--muted)]">
+                Pas encore en ligne
+              </span>
+            </div>
+          )
+        }
       />
       <LoadState loading={ed.loading} error={ed.loadError} onRetry={() => void ed.load()}>
         <form onSubmit={ed.onSubmit} onBlur={ed.onBlur} noValidate>
           <EditorLayout
             label="Sections de la réalisation"
+            previewTitle="Carte de la liste"
             tabs={[
               {
                 id: "contenu",
