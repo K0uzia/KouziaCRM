@@ -1,8 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { LegalClauseAudience, LegalClauseKind } from "@prisma/client";
+import { LegalClauseAudience, LegalClauseKind, Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma.js";
 import { clausesForClient, ensureDefaultLegalClauses, fillClauseVariables, listActiveLegalClauses } from "@/lib/company/legal-clauses.js";
-import { loadDocumentForPdf } from "@/lib/pdf/document-pdf.js";
+import { loadDocumentForPdf, renderLoadedDocumentPdf } from "@/lib/pdf/document-pdf.js";
+import { issueQuote } from "@/lib/invoices/transitions.js";
 import { buildInvoicePdfPayload } from "@/lib/pdf/build-payload.js";
 import { resetDb } from "../../helpers/db.js";
 import { createClient, seedCompanySettings } from "../../helpers/factories.js";
@@ -101,5 +102,61 @@ describe("clauses d'abonnement : {{periode}} et {{periodicite}}", () => {
     // Inactive : le PDF garde le texte actuel.
     const active = await listActiveLegalClauses();
     expect(active.filter((c) => c.kind === LegalClauseKind.SUBSCRIPTION_COMMITMENT).map((c) => c.body)).toEqual(["Texte d'Alexandre."]);
+  });
+});
+
+describe("clauses figées à l'émission d'un devis (décision du 23/10/2026)", () => {
+  async function quote(type: "B2B" | "B2C" = "B2B") {
+    const client = await createClient({ type, displayName: `Client ${type}` });
+    return prisma.invoice.create({
+      data: {
+        documentType: "QUOTE",
+        status: "DRAFT",
+        clientId: client.id,
+        subtotalCents: 10_000,
+        totalCents: 10_000,
+        lines: { create: { position: 1, description: "Site", quantity: 1, unitPriceCents: 10_000, lineTotalCents: 10_000 } },
+      },
+    });
+  }
+  const printed = async (id: string) => {
+    const doc = (await loadDocumentForPdf(id))!;
+    return buildInvoicePdfPayload({ invoice: doc.invoice, legalClauses: doc.legalClauses, clientType: doc.snapshot.type }).legalClauses!.map((c) => c.body).join("\n");
+  };
+
+  it("devis émis puis clause modifiée : le PDF régénéré garde le texte d'origine ; un nouveau devis prend le nouveau", async () => {
+    await ensureDefaultLegalClauses();
+    const first = await quote();
+    await issueQuote(first.id);
+    const stored = await prisma.invoice.findUniqueOrThrow({ where: { id: first.id } });
+    expect(Array.isArray(stored.legalClausesSnapshot)).toBe(true);
+
+    await prisma.legalClause.updateMany({ where: { kind: LegalClauseKind.SUSPENSION }, data: { body: "Nouveau texte de suspension." } });
+    expect(await printed(first.id)).toContain("En cas de non-paiement d'une échéance, les prestations peuvent être suspendues");
+    expect(await printed(first.id)).not.toContain("Nouveau texte de suspension.");
+    expect((await renderLoadedDocumentPdf((await loadDocumentForPdf(first.id))!)).length).toBeGreaterThan(1000);
+
+    const second = await quote();
+    await issueQuote(second.id);
+    expect(await printed(second.id)).toContain("Nouveau texte de suspension.");
+  });
+
+  it("instantané pour le type du client : un particulier n'emporte pas les pénalités des professionnels", async () => {
+    await ensureDefaultLegalClauses();
+    const q = await quote("B2C");
+    await issueQuote(q.id);
+    const snap = (await prisma.invoice.findUniqueOrThrow({ where: { id: q.id } })).legalClausesSnapshot as Array<{ audience: string }>;
+    expect(snap.every((c) => c.audience !== LegalClauseAudience.B2B)).toBe(true);
+  });
+
+  it("devis émis avant la migration (instantané nul) ou instantané illisible : clauses actives, comme avant", async () => {
+    await ensureDefaultLegalClauses();
+    const q = await quote();
+    await issueQuote(q.id);
+    await prisma.legalClause.updateMany({ where: { kind: LegalClauseKind.SUSPENSION }, data: { body: "Texte actif." } });
+    await prisma.invoice.update({ where: { id: q.id }, data: { legalClausesSnapshot: Prisma.DbNull } });
+    expect(await printed(q.id)).toContain("Texte actif.");
+    await prisma.invoice.update({ where: { id: q.id }, data: { legalClausesSnapshot: [{ kind: "INCONNU" }] } });
+    expect(await printed(q.id)).toContain("Texte actif.");
   });
 });

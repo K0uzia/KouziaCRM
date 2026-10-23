@@ -60,7 +60,7 @@ import { brandFromSettings } from "@/lib/email/templates.js";
 import { formatPlainTextSignature } from "@/lib/email/signature.js";
 import { renderEmailTextFooter } from "@/lib/email/layout.js";
 import { signDocumentToken } from "@/lib/documents/public-token.js";
-import { listActiveLegalClauses, subscriptionDateNoticeOf } from "@/lib/company/legal-clauses.js";
+import { documentClauses, listActiveLegalClauses, subscriptionDateNoticeOf } from "@/lib/company/legal-clauses.js";
 import { FREE_MONTHS_MAX, SUBSCRIPTION_STARTS } from "@/lib/subscriptions/start.js";
 import { offlineConflicts, offlineQuoteFields, offlineReviewReason } from "@/lib/invoices/offline-review.js";
 import { renderCreditNotePreviewPdf, renderDraftPreviewPdf } from "@/lib/pdf/draft-preview.js";
@@ -1312,7 +1312,7 @@ export const invoicesRoutes: FastifyPluginAsync = async (app) => {
     }
 
     const company = await enrichCompanyForPdf(await getCompanySettings());
-    const legalClauses = await listActiveLegalClauses();
+    const legalClauses = documentClauses(invoice, await listActiveLegalClauses());
     const snapshot =
       (invoice.clientSnapshot as ClientSnapshot | null) ??
       ({

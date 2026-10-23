@@ -47,6 +47,7 @@ describe("buildInvoicePdfPayload charte dynamique", () => {
         quoteSignerName: null,
         quoteRejectReason: null,
         clientSnapshot: null,
+        legalClausesSnapshot: null,
         sequenceYear: 2026,
         sequenceNumber: 1,
         currency: "EUR",

@@ -26,7 +26,7 @@ beforeEach(async () => {
   cookie = `${SESSION_COOKIE}=${res.cookies.find((c) => c.name === SESSION_COOKIE)?.value}`;
 });
 
-const call = (method: "GET" | "PATCH" | "DELETE", url: string, payload?: unknown) =>
+const call = (method: "GET" | "POST" | "PATCH" | "DELETE", url: string, payload?: unknown) =>
   app.inject({ method, url, headers: { cookie }, ...(payload ? { payload } : {}) });
 
 async function contrat(data: Record<string, unknown> = {}) {
@@ -103,4 +103,21 @@ describe("contrat verrouillé : suppression et montant refusés (409), le reste 
       expect((await call("PATCH", `/api/subscriptions/${sub.id}`, { label: "Maintenance annuelle", amountEuros: 300 })).statusCode).toBe(200);
     });
   }
+});
+
+describe("création manuelle : pas d'abonnement sans engagement (décision du 23/10/2026)", () => {
+  it("engagement de 12 mois par défaut ; null ou une autre durée refusés en 400", async () => {
+    const client = await createClient();
+    const service = await createService();
+    const base = { clientId: client.id, serviceId: service.id, label: "Maintenance", amountEuros: 29, billingDay: 1 };
+    const created = await call("POST", "/api/subscriptions", base);
+    expect(created.statusCode).toBe(201);
+    const sub = await prisma.subscription.findUniqueOrThrow({ where: { id: created.json().id } });
+    expect(sub.commitmentMonths).toBe(12);
+    expect(sub.commitmentEndsAt).not.toBeNull();
+    for (const commitmentMonths of [null, 6]) {
+      const refused = await call("POST", "/api/subscriptions", { ...base, commitmentMonths });
+      expect(refused.statusCode).toBe(400);
+    }
+  });
 });
