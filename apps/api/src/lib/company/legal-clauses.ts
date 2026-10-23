@@ -73,6 +73,15 @@ export const DEFAULT_LEGAL_CLAUSES: Array<{
     required: true,
     position: 6,
   },
+  // Abonnement trimestriel sans engagement (mode de facturation, 24/10/2026). Texte BROUILLON sur le modèle de la clause
+  // mensuelle : la mention de tête s'imprime tant qu'Alexandre ne l'a pas relu et réécrit dans Réglages.
+  {
+    kind: LegalClauseKind.SUBSCRIPTION_QUARTERLY,
+    title: "Abonnement trimestriel",
+    body: "[BROUILLON À RELIRE PAR ALEXANDRE] Sans durée minimale, payable d'avance chaque trimestre. Résiliable à tout moment, sans frais ni justification : la résiliation prend effet à la fin du trimestre en cours, déjà facturé, sans remboursement au prorata. Résiliation en ligne depuis l'espace client (« Gérer mon abonnement » pour un prélèvement, « Résilier mon abonnement » pour un règlement par virement) ou par e-mail à {{email}}.",
+    required: true,
+    position: 6,
+  },
   // Abonnement avec durée d'engagement (offre tout compris) : imprimée à la place de la clause de périodicité.
   // Texte BROUILLON (décisions du 19/10/2026) : la mention de tête s'imprime tant qu'Alexandre ne l'a pas réécrit.
   {
@@ -110,6 +119,7 @@ export const DEFAULT_LEGAL_CLAUSES: Array<{
 export const DEDICATED_CLAUSE_KINDS: ReadonlySet<LegalClauseKind> = new Set([
   LegalClauseKind.SUBSCRIPTION_MONTHLY,
   LegalClauseKind.SUBSCRIPTION_ANNUAL,
+  LegalClauseKind.SUBSCRIPTION_QUARTERLY,
   LegalClauseKind.WITHDRAWAL,
   LegalClauseKind.SUBSCRIPTION_BILLING_DATE,
   LegalClauseKind.SUBSCRIPTION_COMMITMENT,
