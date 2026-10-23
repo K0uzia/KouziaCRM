@@ -61,16 +61,15 @@ describe("PDF du devis selon le mode de facturation", () => {
     expect(text).not.toContain("Acompte");
   });
 
-  it("récurrent trimestriel avec frais : frais à la signature, abonnement par trimestre, engagement et clause d'engagement", async () => {
+  it("récurrent trimestriel livré : abonnement par trimestre, engagement et clause d'engagement, aucun frais", async () => {
     const svc = await createService({ name: "Site tout compris", unitPriceCents: 150000 });
-    const sub = { isSubscription: true, billingInterval: "QUARTER", billingDay: 1, commitmentMonths: 36, serviceId: svc.id };
-    const text = await quote("RECURRING", "ONE", [
-      { description: "Mise en service", unitPriceCents: 50000 },
-      { description: "Site tout compris", unitPriceCents: 37500, ...sub },
-    ]);
-    expect(text).toContain("À la signature : frais de mise en service");
+    const sub = { isSubscription: true, billingInterval: "QUARTER", billingDay: 1, commitmentMonths: 36, subscriptionStart: "DELIVERY", serviceId: svc.id };
+    const text = await quote("RECURRING", "ONE", [{ description: "Site tout compris", unitPriceCents: 37500, ...sub }]);
+    expect(text).not.toContain("mise en service");
+    // Départ « à la livraison » : le même partout (ligne, récapitulatif, encadré d'abonnement).
+    expect(text).not.toContain("à partir de la signature");
     expect(text).toContain("375,00 € / trimestre");
-    expect(text).toContain("Engagement de 36 mois à compter de la signature, soit 12 échéances et 4 500,00 € sur la durée");
+    expect(text).toContain("Engagement de 36 mois à compter de la signature, soit 12 échéances et 4 500,00 € sur la durée.");
     expect(text).toContain("Abonnement trimestriel, facturé chaque trimestre");
     expect(text).toContain("Abonnement avec engagement");
     expect(text).not.toContain("Total du projet");

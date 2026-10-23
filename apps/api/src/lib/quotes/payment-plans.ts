@@ -1,7 +1,7 @@
 import { MilestoneStatus, type CompanySettings, type Prisma } from "@prisma/client";
 import { computeMilestoneAmounts, type MilestoneTemplate } from "@/lib/quotes/milestones.js";
 
-/** Formule retenue par le client. ONE : comptant (mode ONE_OFF) ou frais de mise en service (mode RECURRING). */
+/** Formule retenue par le client. ONE : comptant (mode ONE_OFF). */
 export type PaymentPlan = "ONE" | "TWO" | "THREE";
 /**
  * Formule(s) proposée(s) sur le devis. null = échéancier historique (devis émis avant la fonction).
@@ -17,7 +17,7 @@ export function parsePaymentPlanOffer(value: string | null | undefined): Payment
 
 /**
  * Mode de facturation du devis (24/10/2026). ONE_OFF : paiement unique, en parts égales datées depuis la signature.
- * RECURRING : un abonnement, et les lignes ponctuelles éventuelles en frais de mise en service dus à la signature.
+ * RECURRING : un abonnement seul, au prix annuel ramené à la période (aucune ligne ponctuelle).
  * null : devis antérieur, règles par ligne et échéancier en pourcentages des réglages.
  */
 export type BillingMode = "ONE_OFF" | "RECURRING";
@@ -67,7 +67,7 @@ function datedTemplate(plan: PaymentPlan, s: Pick<PlanSettings, "installmentInte
   const share = Math.floor(10000 / n);
   return Array.from({ length: n }, (_, i) => ({
     position: i + 1,
-    label: n === 1 ? (mode === "RECURRING" ? "Frais de mise en service" : "Paiement comptant") : `${i === 0 ? "1re" : `${i + 1}e`} échéance`,
+    label: n === 1 ? "Paiement comptant" : `${i === 0 ? "1re" : `${i + 1}e`} échéance`,
     percentBps: i === n - 1 ? 10000 - share * (n - 1) : share,
     triggerText: i === 0 ? "À la signature" : `${i * s.installmentIntervalDays} jours après la signature`,
   }));

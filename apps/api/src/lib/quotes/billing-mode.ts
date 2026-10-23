@@ -28,7 +28,8 @@ const day = (d: Date | string | null | undefined) => (d ? new Date(d).toISOStrin
 /**
  * Règles d'un devis avec mode (24/10/2026). ONE_OFF : aucune ligne d'abonnement. RECURRING : au moins une ligne
  * d'abonnement, toutes avec la même période, le même engagement, le même départ et le même jour de prélèvement (le
- * mode est choisi une fois pour le document) ; les lignes ponctuelles sont des frais de mise en service.
+ * mode est choisi une fois pour le document). Aucune ligne ponctuelle (décision du 23/10/2026) : le prix annuel comprend
+ * toute la prestation, sans frais de mise en service.
  */
 export function assertBillingModeLines(mode: BillingMode | null, lines: ReadonlyArray<ModeLine>): void {
   if (!mode) return;
@@ -38,6 +39,11 @@ export function assertBillingModeLines(mode: BillingMode | null, lines: Readonly
     return;
   }
   if (subs.length === 0) throw new BillingModeError("Paiement récurrent : le devis doit comporter au moins une ligne d'abonnement.");
+  if (subs.length < lines.length) {
+    throw new BillingModeError(
+      "Paiement récurrent : le prix annuel comprend toute la prestation, sans frais de mise en service. Retirez les lignes ponctuelles, ou passez le devis en paiement unique.",
+    );
+  }
   // Décision du 23/10/2026 : pas d'abonnement sans engagement, 12 mois au minimum ; le mois et le trimestre ne sont
   // qu'une façon de payer l'engagement.
   if (subs.some((l) => !isCommitmentMonths(l.commitmentMonths))) {

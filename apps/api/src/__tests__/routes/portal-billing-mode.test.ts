@@ -69,18 +69,17 @@ async function tracking(kz_portal: string) {
 }
 
 describe("espace client : mode de facturation (contrat F5)", () => {
-  it("récurrent trimestriel avec frais : offre ONE, bloc recurring, engagement et total sur la durée", async () => {
+  it("récurrent trimestriel livré : offre NONE, bloc recurring sans frais, engagement et total sur la durée", async () => {
     const { clientId, kz_portal } = await login();
     const service = await createService({ name: "Maintenance" });
     const quote = await prisma.invoice.create({
       data: {
         clientId, documentType: InvoiceDocumentType.QUOTE, status: InvoiceStatus.DRAFT, billingMode: "RECURRING",
-        subtotalCents: 39000, totalCents: 39000,
+        subtotalCents: 9000, totalCents: 9000,
         lines: { create: [
-          { position: 1, description: "Mise en service", quantity: 1, unitPriceCents: 30000, lineTotalCents: 30000 },
           {
-            position: 2, description: "Maintenance : trimestriel", quantity: 1, unitPriceCents: 9000, lineTotalCents: 9000,
-            isSubscription: true, billingDay: 5, billingInterval: "QUARTER", commitmentMonths: 12, serviceId: service.id,
+            position: 1, description: "Maintenance : trimestriel", quantity: 1, unitPriceCents: 9000, lineTotalCents: 9000,
+            isSubscription: true, billingDay: 5, billingInterval: "QUARTER", commitmentMonths: 12, subscriptionStart: "DELIVERY", serviceId: service.id,
           },
         ] },
       },
@@ -90,23 +89,25 @@ describe("espace client : mode de facturation (contrat F5)", () => {
     const doc = (await tracking(kz_portal)).documents.find((d: { id: string }) => d.id === quote.id);
     expect(doc).toMatchObject({
       billingMode: "RECURRING",
-      paymentPlanOffer: "ONE",
+      paymentPlanOffer: "NONE",
       recurring: {
         period: "QUARTER", amountCents: 9000, commitmentMonths: 12, periods: 4, totalCommitmentCents: 36000,
-        startsAt: "DELIVERY", billingDay: 5, setupFeeCents: 30000,
+        startsAt: "DELIVERY", billingDay: 5,
       },
       subscriptionBilling: { interval: "QUARTER", startsAt: "DELIVERY", amountCents: 9000 },
     });
-    expect(doc.subscriptionLines[0]).toMatchObject({ interval: "QUARTER", amountCents: 9000 });
+    expect(doc.subscriptionLines[0]).toMatchObject({ interval: "QUARTER", amountCents: 9000, startsAt: "DELIVERY" });
+    expect(doc.recurring).not.toHaveProperty("setupFeeCents");
+    expect(doc).not.toHaveProperty("paymentPlans");
     // Pas encore d'abonnement : pas de date de 1re facture.
     expect(doc.recurring).not.toHaveProperty("firstInvoiceOn");
 
-    // Montants masqués : ni prix, ni total, ni frais.
+    // Montants masqués : ni prix, ni total.
     await prisma.companySettings.updateMany({ data: { publicTrackingShowAmounts: false } });
     invalidateCompanySettingsCache();
     const masque = (await tracking(kz_portal)).documents.find((d: { id: string }) => d.id === quote.id);
     expect(masque.recurring).toMatchObject({ period: "QUARTER", commitmentMonths: 12, periods: 4 });
-    for (const k of ["amountCents", "totalCommitmentCents", "setupFeeCents"]) expect(masque.recurring).not.toHaveProperty(k);
+    for (const k of ["amountCents", "totalCommitmentCents"]) expect(masque.recurring).not.toHaveProperty(k);
   });
 
   it("récurrent sans frais : départ à la signature, engagement minimal, puis abonnement exposé avec sa 1re facture", async () => {
@@ -129,7 +130,6 @@ describe("espace client : mode de facturation (contrat F5)", () => {
       paymentPlanOffer: "NONE",
       recurring: { period: "MONTH", amountCents: 2500, commitmentMonths: 12, periods: 12, totalCommitmentCents: 30000, startsAt: "SIGNATURE", billingDay: 1 },
     });
-    expect(before.recurring).not.toHaveProperty("setupFeeCents");
 
     await prisma.emailOutbox.deleteMany();
     await app.inject({ method: "POST", url: `/api/public/quotes/${quote.id}/sign-code`, cookies: { kz_portal } });

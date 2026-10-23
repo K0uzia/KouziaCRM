@@ -45,7 +45,6 @@ describe("mode de facturation : règles de calcul", () => {
     expect(milestoneAmounts(100000, t, "ONE_OFF").map((m) => m.amountCents)).toEqual([33333, 33333, 33334]);
     expect(milestoneAmounts(100001, planTemplate("TWO", settings, "ONE_OFF"), "ONE_OFF").map((m) => m.amountCents)).toEqual([50001, 50000]);
     expect(planTemplate("ONE", settings, "ONE_OFF")).toEqual([{ position: 1, label: "Paiement comptant", percentBps: 10000, triggerText: "À la signature" }]);
-    expect(planTemplate("ONE", settings, "RECURRING")[0]!.label).toBe("Frais de mise en service");
     // Devis sans mode : pourcentages des réglages, comme avant.
     expect(milestoneAmounts(100000, planTemplate("TWO", settings), null).map((m) => m.amountCents)).toEqual([30000, 70000]);
   });
@@ -62,7 +61,9 @@ describe("mode de facturation : règles de calcul", () => {
     expect(() => assertBillingModeLines("ONE_OFF", [{ isSubscription: false }, sub])).toThrow(/Paiement unique/);
     expect(() => assertBillingModeLines("RECURRING", [{ isSubscription: false }])).toThrow(/au moins une ligne d'abonnement/);
     expect(() => assertBillingModeLines("RECURRING", [sub, { ...sub, billingInterval: "YEAR" }])).toThrow(/les mêmes/);
-    expect(() => assertBillingModeLines("RECURRING", [{ isSubscription: false }, sub, { ...sub }])).not.toThrow();
+    expect(() => assertBillingModeLines("RECURRING", [sub, { ...sub }])).not.toThrow();
+    // Décision du 23/10/2026 : aucune ligne ponctuelle (pas de frais de mise en service).
+    expect(() => assertBillingModeLines("RECURRING", [{ isSubscription: false }, sub])).toThrow(/sans frais de mise en service/);
     // Décision du 23/10/2026 : pas d'abonnement sans engagement en récurrent, 12 mois au minimum.
     expect(() => assertBillingModeLines("RECURRING", [{ ...sub, commitmentMonths: null }])).toThrow(/12, 24 ou 36 mois/);
     expect(() => assertBillingModeLines("RECURRING", [{ ...sub, commitmentMonths: 6 }])).toThrow(/12, 24 ou 36 mois/);
@@ -142,17 +143,16 @@ describe("mode de facturation : devis émis puis signé", () => {
     expect((await prisma.paymentMilestone.findMany({ where: { quoteId: cash.id } })).map((m) => [m.label, m.amountCents])).toEqual([["Paiement comptant", 40000]]);
   });
 
-  it("récurrent trimestriel avec frais : frais à la signature, UN abonnement de 375 € par trimestre sur 36 mois", async () => {
+  it("récurrent trimestriel : aucun échéancier, UN abonnement de 375 € par trimestre sur 36 mois", async () => {
     const svc = await createService({ name: "Site tout compris", unitPriceCents: 150000 });
     const sub = { isSubscription: true, billingInterval: "QUARTER", billingDay: 1, commitmentMonths: 36, subscriptionStart: "SIGNATURE", serviceId: svc.id };
     const q = await quote("RECURRING", "ONE", [
-      { description: "Mise en service", unitPriceCents: 50000 },
       { description: "Site tout compris : hébergement", unitPriceCents: 25000, ...sub },
       { description: "Domaine : nom de domaine", unitPriceCents: 12500, ...sub },
     ]);
     const issued = await issueQuote(q.id);
-    expect(issued.paymentPlanOffer).toBe("ONE");
-    expect((await prisma.paymentMilestone.findMany({ where: { quoteId: q.id } })).map((m) => [m.label, m.amountCents])).toEqual([["Frais de mise en service", 50000]]);
+    expect(issued.paymentPlanOffer).toBe("NONE");
+    expect(await prisma.paymentMilestone.count({ where: { quoteId: q.id } })).toBe(0);
     await acceptQuoteByClient(q.id, "Atelier Mode", { source: "ADMIN" });
     const subs = await prisma.subscription.findMany({ where: { clientId: q.clientId } });
     expect(subs).toHaveLength(1);

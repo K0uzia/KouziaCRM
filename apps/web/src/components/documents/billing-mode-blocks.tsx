@@ -7,7 +7,7 @@ import { equalInstallments, modePlansShown, PERIOD_WORD, periodsIn, type Period,
 /**
  * Mode de facturation d'un devis (24/10/2026) : paiement unique (comptant, 2 ou 3 fois en parts égales datées depuis
  * la signature) ou récurrent (un abonnement : période, engagement, départ et jour de prélèvement choisis une fois ;
- * les lignes ponctuelles sont des frais de mise en service dus à la signature).
+ * aucune ligne ponctuelle, le prix annuel comprend toute la prestation : décision du 23/10/2026).
  */
 
 export type BillingMode = "ONE_OFF" | "RECURRING";
@@ -67,7 +67,7 @@ export function BillingModeChoice({ value, onChange }: { value: BillingMode | ""
       />
       <p className="text-xs text-[var(--muted)]">
         {value === "RECURRING"
-          ? "Un abonnement au prix annuel ramené à la période ; les lignes libres sont des frais de mise en service, dus à la signature."
+          ? "Un abonnement au prix annuel, qui comprend toute la prestation, payé à l'année, au trimestre ou au mois."
           : value === "ONE_OFF"
             ? "Le devis se règle une fois : comptant, ou en 2 ou 3 fois à parts égales."
             : "Devis créé avant le mode de facturation : choisissez-en un pour le mettre à jour."}
@@ -139,19 +139,17 @@ export function RecurringSettings({
   value,
   onChange,
   periodCents,
-  feesCents,
 }: {
   value: RecurringForm;
   onChange: (patch: Partial<RecurringForm>) => void;
   periodCents: number;
-  feesCents: number;
 }) {
-  const hasProject = feesCents > 0 || value.subscriptionStart === "DELIVERY";
+  const hasProject = value.subscriptionStart === "DELIVERY";
   const phrase = startPhrase(value, hasProject, periodCents, value.interval);
   const months = Number(value.commitmentMonths) || 0;
   const startChoices: ReadonlyArray<{ id: SubscriptionStart; label: string }> = [
-    { id: "", label: feesCents > 0 ? "La livraison du projet" : "La signature" },
-    ...(feesCents > 0 ? [{ id: "SIGNATURE" as const, label: "La signature" }] : [{ id: "DELIVERY" as const, label: "La livraison du projet" }]),
+    { id: "", label: "La signature" },
+    { id: "DELIVERY", label: "La livraison du projet" },
     { id: "DATE", label: "Une date précise" },
     { id: "FREE_MONTHS", label: "Des mois offerts" },
   ];
@@ -217,27 +215,21 @@ export function RecurringSettings({
   );
 }
 
-/** Récapitulatif d'un devis récurrent : à la signature, puis par période, engagement et total sur la durée. */
-export function RecurringRecap({ value, periodCents, feesCents }: { value: RecurringForm; periodCents: number; feesCents: number }) {
+/** Récapitulatif d'un devis récurrent : montant par période, engagement et total sur la durée. */
+export function RecurringRecap({ value, periodCents }: { value: RecurringForm; periodCents: number }) {
   const months = Number(value.commitmentMonths) || 0;
   const line = "flex items-baseline justify-between gap-3 text-sm";
   return (
     <div className="space-y-1.5">
-      {feesCents > 0 ? (
-        <p className={line}>
-          <span className="text-[var(--muted)]">À la signature (frais de mise en service)</span>
-          <span className="tabular-nums">{formatEUR(feesCents)}</span>
-        </p>
-      ) : null}
       <p className={line}>
-        <span className="font-semibold">{feesCents > 0 ? "Ensuite" : "Abonnement"}</span>
+        <span className="font-semibold">Abonnement</span>
         <span className="font-display text-2xl font-semibold tabular-nums">
           {formatEUR(periodCents)}
           <span className="text-sm font-normal"> / {PERIOD_WORD[value.interval]}</span>
         </span>
       </p>
       <p className="text-xs text-[var(--muted)]">
-        {`Engagement ${months} mois, soit ${formatEUR(periodCents * periodsIn(months, value.interval))} sur la durée (hors frais de mise en service), puis reconduit chaque année.`}
+        {`Engagement ${months} mois, soit ${formatEUR(periodCents * periodsIn(months, value.interval))} sur la durée, puis reconduit chaque année.`}
       </p>
     </div>
   );

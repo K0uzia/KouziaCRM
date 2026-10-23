@@ -196,7 +196,7 @@ const ymdOf = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padSta
 
 /**
  * Devis en mode récurrent (contrat F5, 24/10/2026) : un abonnement, lignes d'abonnement additionnées, mêmes période,
- * engagement, départ et jour sur chaque ligne ; frais de mise en service = partie ponctuelle remisée (depositBaseCents).
+ * engagement, départ et jour sur chaque ligne ; aucune ligne ponctuelle (décision du 23/10/2026).
  * null pour tout autre devis.
  */
 function recurringOf(d: {
@@ -215,8 +215,7 @@ function recurringOf(d: {
   const first = d.lines[0];
   if (parseBillingMode(d.billingMode) !== "RECURRING" || !first) return null;
   const period = normalizeInterval(first.billingInterval);
-  const setupFeeCents = d.depositBaseCents ?? 0;
-  const start = publicStart(first, setupFeeCents > 0 || first.subscriptionStart === "DELIVERY");
+  const start = publicStart(first, first.subscriptionStart === "DELIVERY");
   const sub = first.subscription;
   const firstInvoice = sub ? (sub.invoices[0]?.issueDate ?? sub.nextInvoiceAt) : null;
   return {
@@ -226,7 +225,6 @@ function recurringOf(d: {
     periods: first.commitmentMonths ? Math.ceil(first.commitmentMonths / periodMonths(period)) : null,
     ...start,
     billingDay: first.billingDay ?? 1,
-    setupFeeCents,
     firstInvoiceOn: firstInvoice ? ymdOf(firstInvoice) : null,
   };
 }
@@ -714,7 +712,6 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
                       ...(r.startsOn ? { startsOn: r.startsOn } : {}),
                       ...(r.freeMonths ? { freeMonths: r.freeMonths } : {}),
                       billingDay: r.billingDay,
-                      ...(showAmounts && r.setupFeeCents > 0 ? { setupFeeCents: r.setupFeeCents } : {}),
                       ...(r.firstInvoiceOn ? { firstInvoiceOn: r.firstInvoiceOn } : {}),
                     };
                   })(),
@@ -742,7 +739,8 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
                           label: l.description,
                           interval: normalizeInterval(l.billingInterval),
                           ...(showAmounts ? { amountCents: l.unitPriceCents } : {}),
-                          ...publicStart(l, offer !== "NONE"),
+                          // Mode récurrent : le départ choisi fait foi (pas de projet hors « à la livraison »).
+                          ...publicStart(l, recurringOf(d) ? l.subscriptionStart === "DELIVERY" : offer !== "NONE"),
                         })),
                         ...(offer !== "NONE" && showAmounts ? { oneOffTotalCents: depositBaseOf(d) } : {}),
                       }
