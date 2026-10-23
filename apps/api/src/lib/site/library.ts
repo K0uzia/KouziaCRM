@@ -3,7 +3,10 @@ import { prisma } from "@/lib/prisma.js";
 import { lastPublishedFiles } from "@/lib/site/changes.js";
 import { SITE_PAGE_IDS, SITE_PAGE_LABEL } from "@/lib/site/contract.js";
 import { readSiteText, writeSiteText } from "@/lib/site/texts.js";
+import { issuedPdfAbsolutePath } from "@/lib/pdf/issued-archive.js";
+import { parseJsonList, type ProjectBeforeAfter, type ProjectCapture } from "@/lib/site/mapping.js";
 import {
+  loadSharp,
   removeSiteMediaFiles,
   renderFromOriginal,
   siteMediaExt,
@@ -19,7 +22,15 @@ import {
  * suivante, même remplacée ou recadrée ; ainsi un retour en arrière avant de publier ne casse aucun lien.
  */
 
-export type MediaUsage = { label: string; to: string; field: "imagePath" | "imageMobilePath" | "logoPath" | "seoImage" };
+export type MediaUsage = {
+  label: string;
+  to: string;
+  field: "imagePath" | "imageMobilePath" | "logoPath" | "seoImage" | "captures" | "avantApres";
+  /** Type attendu à cet endroit (reprise d'une image absente de l'ERP). */
+  mediaKind: SiteMediaKind;
+  /** Avant / après : l'autre image de la paire, pour recadrer au même format. */
+  pairPath?: string;
+};
 
 const MEDIA_IN_TEXT = /\/media\/([a-f0-9]{12})\.(?:webp|jpg)/g;
 const shaOf = (path: string | null) => SITE_MEDIA_PATH_RE.exec(path ?? "")?.[1] ?? null;
@@ -29,7 +40,7 @@ export const libraryPath = (m: Pick<SiteMedia, "sha12" | "kind">) => siteMediaPu
 /** Où chaque image est utilisée (réalisations, références et référencement des pages, brouillons compris). */
 export async function mediaUsages(): Promise<Map<string, MediaUsage[]>> {
   const [projects, references, seo] = await Promise.all([
-    prisma.siteProject.findMany({ select: { id: true, name: true, imagePath: true, imageMobilePath: true } }),
+    prisma.siteProject.findMany({ select: { id: true, name: true, imagePath: true, imageMobilePath: true, capturesJson: true, avantApresJson: true } }),
     prisma.siteReference.findMany({ select: { id: true, name: true, logoPath: true } }),
     readSiteText("seo"),
   ]);
@@ -39,12 +50,33 @@ export async function mediaUsages(): Promise<Map<string, MediaUsage[]>> {
     if (sha) usages.set(sha, [...(usages.get(sha) ?? []), usage]);
   };
   for (const p of projects) {
-    add(p.imagePath, { label: `Capture de « ${p.name} »`, to: `/site/realisations/${p.id}`, field: "imagePath" });
-    add(p.imageMobilePath, { label: `Capture de téléphone de « ${p.name} »`, to: `/site/realisations/${p.id}`, field: "imageMobilePath" });
+    const to = `/site/realisations/${p.id}`;
+    add(p.imagePath, { label: `Capture de « ${p.name} »`, to, field: "imagePath", mediaKind: SiteMediaKind.CAPTURE });
+    add(p.imageMobilePath, { label: `Capture de téléphone de « ${p.name} »`, to, field: "imageMobilePath", mediaKind: SiteMediaKind.MOBILE });
+    // Page projet : captures et avant / après (detail.captures, detail.avantApres).
+    parseJsonList<ProjectCapture>(p.capturesJson).forEach((c, i) =>
+      add(c.image, {
+        label: `Capture ${i + 1} de la page projet « ${p.name} »`,
+        to: `${to}?tab=page`,
+        field: "captures",
+        mediaKind: c.vue === "mobile" ? SiteMediaKind.MOBILE : SiteMediaKind.CAPTURE,
+      }),
+    );
+    for (const x of parseJsonList<ProjectBeforeAfter>(p.avantApresJson)) {
+      const mediaKind = x.vue === "mobile" ? SiteMediaKind.MOBILE : SiteMediaKind.CAPTURE;
+      const view = x.vue === "mobile" ? "téléphone" : "ordinateur";
+      add(x.avant.image, { label: `Avant (${view}) de « ${p.name} »`, to: `${to}?tab=page`, field: "avantApres", mediaKind, pairPath: x.apres.image });
+      add(x.apres.image, { label: `Après (${view}) de « ${p.name} »`, to: `${to}?tab=page`, field: "avantApres", mediaKind, pairPath: x.avant.image });
+    }
   }
-  for (const r of references) add(r.logoPath, { label: `Logo de « ${r.name} »`, to: `/site/references/${r.id}`, field: "logoPath" });
+  for (const r of references) add(r.logoPath, { label: `Logo de « ${r.name} »`, to: `/site/references/${r.id}`, field: "logoPath", mediaKind: SiteMediaKind.LOGO });
   for (const id of SITE_PAGE_IDS) {
-    add(seo?.pages[id]?.image ?? null, { label: `Image de partage de la page « ${SITE_PAGE_LABEL[id]} »`, to: `/site/tous-les-textes?page=${id}`, field: "seoImage" });
+    add(seo?.pages[id]?.image ?? null, {
+      label: `Image de partage de la page « ${SITE_PAGE_LABEL[id]} »`,
+      to: `/site/tous-les-textes?page=${id}`,
+      field: "seoImage",
+      mediaKind: SiteMediaKind.PARTAGE,
+    });
   }
   return usages;
 }
@@ -69,6 +101,10 @@ export type LibraryItem = SiteMedia & {
   online: boolean | null;
   /** Ancienne version d'une image recadrée, gardée tant qu'elle est en ligne. */
   previousVersion: boolean;
+  /** Avant / après : format de l'autre image de chaque paire (« l:h »), pour recadrer au même ratio. */
+  pairFormats: Array<{ label: string; ratio: string }>;
+  /** Capture recadrée d'office en 16:9 ou 9:19,5 (avant le 23/10/2026), régénérable sans recadrage depuis l'original. */
+  regenerable: boolean;
 };
 
 export async function listLibrary(): Promise<LibraryItem[]> {
@@ -82,16 +118,81 @@ export async function listLibrary(): Promise<LibraryItem[]> {
   for (const m of rows) {
     if (m.originalPath && !(latest.get(m.originalPath)! > m.createdAt)) latest.set(m.originalPath, m.createdAt);
   }
-  return rows.map((m) => {
+  const bySha = new Map(rows.map((m) => [m.sha12, m]));
+  const items = rows.map((m) => {
     const used = usages.get(m.sha12) ?? [];
+    const pairFormats = used.flatMap((u) => {
+      const other = u.pairPath ? bySha.get(shaOf(u.pairPath) ?? "") : undefined;
+      return other ? [{ label: u.label, ratio: `${other.width}:${other.height}` }] : [];
+    });
     return {
       ...m,
       path: libraryPath(m),
       usages: used,
       online: online ? online.has(m.sha12) : null,
       previousVersion: !used.length && Boolean(m.originalPath && latest.get(m.originalPath)! > m.createdAt),
+      pairFormats,
+      regenerable: false,
     };
   });
+  const candidates = items.filter((m) => !m.previousVersion && legacyFramed(m));
+  const flags = await Promise.all(candidates.map((m) => originalDiffersFromFrame(m)));
+  candidates.forEach((m, i) => (m.regenerable = flags[i]!));
+  return items;
+}
+
+/** Cadres figés des captures avant le 23/10/2026 : 960×540 (ordinateur) et 390×844 (téléphone), recadrés d'office. */
+const LEGACY_FRAMES: Partial<Record<SiteMediaKind, { width: number; height: number }>> = {
+  CAPTURE: { width: 960, height: 540 },
+  MOBILE: { width: 390, height: 844 },
+};
+const legacyFramed = (m: SiteMedia) => {
+  const frame = LEGACY_FRAMES[m.kind];
+  return Boolean(frame && m.originalPath && !m.cropRatio && m.width === frame.width && m.height === frame.height);
+};
+
+/** L'original n'a pas le ratio du cadre figé : la version publiée en a été coupée. Original illisible : non. */
+async function originalDiffersFromFrame(m: SiteMedia): Promise<boolean> {
+  const frame = LEGACY_FRAMES[m.kind];
+  const sharp = await loadSharp();
+  if (!frame || !sharp || !m.originalPath) return false;
+  try {
+    const meta = await sharp(issuedPdfAbsolutePath(m.originalPath)).metadata();
+    return Boolean(meta.width && meta.height && meta.width * frame.height !== meta.height * frame.width);
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Remplace une version par une autre partout où elle sert (fiches, page projet, référencement) : les fiches
+ * deviennent « Modifié ». L'ancienne version reste tant qu'elle est en ligne, sinon disparaît.
+ */
+async function replaceEverywhere(media: SiteMedia, next: SiteMedia): Promise<void> {
+  const from = libraryPath(media);
+  const to = libraryPath(next);
+  const inJson = await prisma.siteProject.findMany({
+    where: { OR: [{ capturesJson: { contains: from } }, { avantApresJson: { contains: from } }] },
+    select: { id: true, capturesJson: true, avantApresJson: true },
+  });
+  // Chemin exact entre guillemets : /media/<sha12>.webp n'est le préfixe d'aucun autre chemin.
+  const swap = (json: string | null) => json?.replaceAll(JSON.stringify(from), JSON.stringify(to)) ?? null;
+  await prisma.$transaction([
+    prisma.siteProject.updateMany({ where: { imagePath: from }, data: { imagePath: to } }),
+    prisma.siteProject.updateMany({ where: { imageMobilePath: from }, data: { imageMobilePath: to } }),
+    prisma.siteReference.updateMany({ where: { logoPath: from }, data: { logoPath: to } }),
+    ...inJson.map((p) => prisma.siteProject.update({ where: { id: p.id }, data: { capturesJson: swap(p.capturesJson), avantApresJson: swap(p.avantApresJson) } })),
+  ]);
+  // Référencement : chaque page qui citait l'ancienne version passe à la nouvelle.
+  const seo = await readSiteText("seo");
+  if (seo && SITE_PAGE_IDS.some((id) => seo.pages[id]?.image === from)) {
+    const pages = Object.fromEntries(Object.entries(seo.pages).map(([id, p]) => [id, p?.image === from ? { ...p, image: to } : p]));
+    await writeSiteText("seo", { pages });
+  }
+  if (!(await deletionBlocker(media))) {
+    await prisma.siteMedia.delete({ where: { id: media.id } });
+    await removeSiteMediaFiles(media);
+  }
 }
 
 export class LibraryError extends Error {
@@ -124,32 +225,24 @@ export async function deleteLibraryMedia(id: string): Promise<void> {
 }
 
 /**
- * Recadre une image autour d'un point d'intérêt : nouvelle version (nouvelle empreinte), fiches qui l'utilisent
- * repointées (elles deviennent « Modifié »). L'ancienne version reste tant qu'elle est en ligne, sinon disparaît.
+ * Nouvelle version d'une image (nouvelle empreinte), fiches qui l'utilisent repointées. Image de partage : recadrée
+ * autour du point d'intérêt. Capture : au format choisi (cropRatio) autour du point d'intérêt, ou au format
+ * d'origine sans recadrage (cropRatio nul).
  */
-export async function recropLibraryMedia(id: string, focal: Focal): Promise<SiteMedia> {
+export async function recropLibraryMedia(id: string, focal: Focal | null, cropRatio: string | null = null): Promise<SiteMedia> {
   const media = await prisma.siteMedia.findUnique({ where: { id } });
   if (!media) throw new LibraryError("Image introuvable", 404);
-  const next = await renderFromOriginal(media, focal);
-  if (next.id === media.id) return next;
-  const from = libraryPath(media);
-  const to = libraryPath(next);
-  await prisma.$transaction([
-    prisma.siteProject.updateMany({ where: { imagePath: from }, data: { imagePath: to } }),
-    prisma.siteProject.updateMany({ where: { imageMobilePath: from }, data: { imageMobilePath: to } }),
-    prisma.siteReference.updateMany({ where: { logoPath: from }, data: { logoPath: to } }),
-  ]);
-  // Référencement : chaque page qui citait l'ancienne version passe à la nouvelle.
-  const seo = await readSiteText("seo");
-  if (seo && SITE_PAGE_IDS.some((id) => seo.pages[id]?.image === from)) {
-    const pages = Object.fromEntries(Object.entries(seo.pages).map(([id, p]) => [id, p?.image === from ? { ...p, image: to } : p]));
-    await writeSiteText("seo", { pages });
-  }
-  if (!(await deletionBlocker(media))) {
-    await prisma.siteMedia.delete({ where: { id: media.id } });
-    await removeSiteMediaFiles(media);
-  }
+  const next = await renderFromOriginal(media, focal, cropRatio);
+  if (next.id !== media.id) await replaceEverywhere(media, next);
   return next;
+}
+
+/** Régénère sans recadrage toutes les captures coupées d'office : renvoie le nombre de captures traitées. */
+export async function regenerateFramedCaptures(): Promise<number> {
+  const targets = (await listLibrary()).filter((m) => m.regenerable);
+  // Une à une : sharp traite une image à la fois ; un rendu identique corrige seulement les dimensions enregistrées.
+  for (const m of targets) await recropLibraryMedia(m.id, null, null);
+  return targets.length;
 }
 
 /** Après une publication : retire les anciennes versions recadrées qui ne sont plus en ligne. */
@@ -164,13 +257,6 @@ export async function purgePreviousVersions(): Promise<number> {
   return stale.length;
 }
 
-const KIND_BY_FIELD: Record<MediaUsage["field"], SiteMediaKind> = {
-  imagePath: SiteMediaKind.CAPTURE,
-  imageMobilePath: SiteMediaKind.MOBILE,
-  logoPath: SiteMediaKind.LOGO,
-  seoImage: SiteMediaKind.PARTAGE,
-};
-
 /**
  * Reprise du site : les images citées mais absentes de l'ERP sont copiées depuis le dépôt (public/media/), telles
  * que publiées, si leur contenu correspond bien à leur nom. Sans original : non recadrables, mais publiables.
@@ -182,7 +268,7 @@ export async function adoptMissingMedia(read: (path: string) => Promise<Buffer |
   let adopted = 0;
   for (const [sha12, used] of usages) {
     if (known.has(sha12)) continue;
-    const kind = KIND_BY_FIELD[used[0]!.field];
+    const kind = used[0]!.mediaKind;
     // Image de partage : un JPEG unique ; les autres : WebP 1x et 2x.
     const ext = siteMediaExt(kind);
     const x1 = await read(`public/media/${sha12}.${ext}`);

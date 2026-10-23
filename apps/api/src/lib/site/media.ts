@@ -64,19 +64,28 @@ export function focalCrop(w: number, h: number, ratio: number, focal: Focal): { 
   return { left: 0, top: clamp(Math.round(focal.y * h - height / 2), h - height), width: w, height };
 }
 
-type Variant = { width: number; height?: number; maxBytes: number; position?: "attention" | "top" };
+/** height : cadre fixe (image de partage), recadré ; sinon largeur seule, ratio d'origine conservé. */
+type Variant = { width: number; height?: number; maxBytes: number };
 const VARIANTS: Record<SiteMediaKind, { x1: Variant; x2: Variant | null }> = {
-  // Capture 16:9, affichée en 960×540 sur le site.
-  CAPTURE: { x1: { width: 960, height: 540, maxBytes: 150_000 }, x2: { width: 1920, height: 1080, maxBytes: 300_000 } },
-  // Capture de téléphone 9:19,5, recadrée par le haut : le haut de page reste, le bas d'une page plus longue est coupé.
-  MOBILE: {
-    x1: { width: 390, height: 844, maxBytes: 150_000, position: "top" },
-    x2: { width: 780, height: 1688, maxBytes: 150_000, position: "top" },
-  },
+  // Captures (décision du 23/10/2026) : jamais recadrées d'office, ratio d'origine conservé (16:10, page entière…).
+  CAPTURE: { x1: { width: 960, maxBytes: 150_000 }, x2: { width: 1920, maxBytes: 300_000 } },
+  MOBILE: { x1: { width: 390, maxBytes: 150_000 }, x2: { width: 780, maxBytes: 300_000 } },
   LOGO: { x1: { width: 200, maxBytes: 30_000 }, x2: { width: 400, maxBytes: 60_000 } },
   // Image de partage : taille fixe imposée par og:image, sans version 2x ; 300 Ko au plus (contrôle du build du site).
   PARTAGE: { x1: { width: 1200, height: 630, maxBytes: 300_000 }, x2: null },
 };
+/** Capture de page entière : hauteur bornée à 3 fois la largeur ; plus haute, elle est réduite (jamais coupée). */
+const MAX_HEIGHT_RATIO = 3;
+
+/** Recadrages proposés à la main pour une capture, en plus du ratio de l'autre image d'une paire avant / après. */
+export const CROP_RATIOS = ["16:10", "16:9"] as const;
+/** « 16:10 », « 1440:900 » : ratio largeur sur hauteur, null si la valeur n'en est pas un (borné de 1:5 à 5:1). */
+export function parseCropRatio(value: string | null | undefined): number | null {
+  const m = /^(\d{1,5}):(\d{1,5})$/.exec(value ?? "");
+  if (!m) return null;
+  const ratio = Number(m[1]) / Number(m[2]);
+  return Number.isFinite(ratio) && ratio >= 0.2 && ratio <= 5 ? ratio : null;
+}
 
 export type SiteMediaExt = "webp" | "jpg";
 /** Extension publiée d'un type d'image : JPEG pour le partage, WebP sinon. */
@@ -147,6 +156,7 @@ export async function normalizeSiteImage(
   input: Buffer,
   kind: SiteMediaKind,
   focal: Focal | null = null,
+  cropRatio: string | null = null,
 ): Promise<{ x1: ProcessedImage; x2: ProcessedImage | null; type: SniffedType }> {
   const sharp = await loadSharp();
   if (!sharp) throw new SiteMediaError("Traitement d'image indisponible sur ce serveur (sharp manquant).", "UNAVAILABLE");
@@ -191,22 +201,32 @@ export async function normalizeSiteImage(
   const srcHeight = (rotated ? meta.width : meta.height) ?? 0;
   const { x1, x2 } = VARIANTS[kind];
   const jpeg = siteMediaExt(kind) === "jpg";
-  if (srcWidth < x1.width || (x1.height && srcHeight < x1.height)) {
+  // Recadrage : toujours pour l'image de partage (cadre fixe) ; pour une capture, seulement s'il a été choisi à la main.
+  const manualRatio = kind === SiteMediaKind.CAPTURE || kind === SiteMediaKind.MOBILE ? parseCropRatio(cropRatio) : null;
+  const frameRatio = x1.height ? x1.width / x1.height : manualRatio;
+  const crop =
+    frameRatio && (focal || manualRatio)
+      ? focalCrop(srcWidth, srcHeight, frameRatio, focal ?? { x: 0.5, y: kind === SiteMediaKind.MOBILE ? 0 : 0.5 })
+      : null;
+  const usedWidth = crop?.width ?? srcWidth;
+  const usedHeight = crop?.height ?? srcHeight;
+  if (usedWidth < x1.width || (x1.height && usedHeight < x1.height)) {
     throw new SiteMediaError(
-      `Image trop petite : ${x1.width}${x1.height ? `×${x1.height}` : ""} px au moins (reçu ${srcWidth}×${srcHeight}).`,
+      crop && !x1.height
+        ? `Recadrage trop serré : ${x1.width} px de large au moins (zone gardée ${usedWidth}×${usedHeight}).`
+        : `Image trop petite : ${x1.width}${x1.height ? `×${x1.height}` : " px de large"}${x1.height ? " px" : ""} au moins (reçu ${srcWidth}×${srcHeight}).`,
       "TOO_SMALL",
     );
   }
   const render = async (v: Variant): Promise<ProcessedImage> => {
     for (const quality of QUALITIES) {
       // Sans withMetadata : sharp n'écrit aucune métadonnée (EXIF, GPS, ICC personnalisé).
-      // Point d'intérêt choisi : zone gardée calculée ici, puis mise à la taille exacte du cadre.
-      const crop = focal && v.height ? focalCrop(srcWidth, srcHeight, v.width / v.height, focal) : null;
+      // Zone gardée calculée ici (point d'intérêt), puis mise à la taille du cadre ou de la largeur voulue.
       const pipeline = crop ? base().rotate().extract(crop) : base().rotate();
       const resized = pipeline.resize(
         v.height
-          ? { width: v.width, height: v.height, fit: "cover", position: v.position ?? "attention" }
-          : { width: v.width, fit: "inside", withoutEnlargement: true },
+          ? { width: v.width, height: v.height, fit: "cover", position: "attention" }
+          : { width: v.width, height: v.width * MAX_HEIGHT_RATIO, fit: "inside", withoutEnlargement: true },
       );
       // JPEG sans transparence : fond blanc sous les zones transparentes (PNG), plutôt que du noir.
       const encoded = jpeg ? resized.flatten({ background: "#ffffff" }).jpeg({ quality, mozjpeg: true }) : resized.webp({ quality, effort: 4 });
@@ -219,7 +239,7 @@ export async function normalizeSiteImage(
     );
   };
   const first = await render(x1);
-  const bigEnough = x2 !== null && srcWidth >= x2.width && (!x2.height || srcHeight >= x2.height);
+  const bigEnough = x2 !== null && usedWidth >= x2.width && (!x2.height || usedHeight >= x2.height);
   return { x1: first, x2: bigEnough ? await render(x2) : null, type };
 }
 
@@ -288,10 +308,11 @@ export async function saveSiteImage(input: Buffer, kind: SiteMediaKind, original
 }
 
 /**
- * Nouvelle version d'une image depuis son original, recadrée autour du point d'intérêt : nouvelle empreinte,
- * donc nouveau nom publié. Renvoie la ligne de cette version (créée, ou déjà connue si le rendu est identique).
+ * Nouvelle version d'une image depuis son original : recadrée autour du point d'intérêt (image de partage, capture
+ * au format choisi), ou au format d'origine (focal et cropRatio nuls : régénération sans recadrage). Nouvelle
+ * empreinte, donc nouveau nom publié. Renvoie la ligne de cette version (créée, ou déjà connue si le rendu est identique).
  */
-export async function renderFromOriginal(media: SiteMedia, focal: Focal): Promise<SiteMedia> {
+export async function renderFromOriginal(media: SiteMedia, focal: Focal | null, cropRatio: string | null = null): Promise<SiteMedia> {
   if (!media.originalPath) {
     throw new SiteMediaError("Original non conservé (image envoyée avant la médiathèque) : renvoyer l'image pour la recadrer.", "FORMAT");
   }
@@ -302,10 +323,12 @@ export async function renderFromOriginal(media: SiteMedia, focal: Focal): Promis
   } catch {
     throw new SiteMediaError("Original introuvable sur le disque : renvoyer l'image pour la recadrer.", "FORMAT");
   }
-  const { x1, x2 } = await normalizeSiteImage(input, media.kind, focal);
+  const { x1, x2 } = await normalizeSiteImage(input, media.kind, focal, cropRatio);
   const sha12 = mediaSha(x1.buffer);
+  const framing = { focalX: focal?.x ?? null, focalY: focal?.y ?? null, cropRatio };
   const same = await prisma.siteMedia.findUnique({ where: { sha12 } });
-  if (same) return prisma.siteMedia.update({ where: { id: same.id }, data: { focalX: focal.x, focalY: focal.y } });
+  // Rendu identique : même fichier ; dimensions et poids relus du rendu (une ligne ne garde jamais un cadre périmé).
+  if (same) return prisma.siteMedia.update({ where: { id: same.id }, data: { ...framing, ...variantColumns(x1, x2) } });
   await writeVariants(sha12, x1, x2, siteMediaExt(media.kind));
   return prisma.siteMedia.create({
     data: {
@@ -316,8 +339,7 @@ export async function renderFromOriginal(media: SiteMedia, focal: Focal): Promis
       originalName: media.originalName,
       originalPath: media.originalPath,
       originalBytes: media.originalBytes,
-      focalX: focal.x,
-      focalY: focal.y,
+      ...framing,
     },
   });
 }

@@ -53,7 +53,11 @@ export type SiteProject = SiteItem & {
   resultText: string | null;
   clientIntro: string | null;
   clientName: string | null;
-  captures: { image: string; alt: string; caption?: string | null }[];
+  /** vue absente : bureau. */
+  captures: { image: string; alt: string; caption?: string | null; vue?: "bureau" | "mobile" }[];
+  /** Étude de cas : refonte ou creation ; null : non précisée. */
+  nature: "refonte" | "creation" | null;
+  duree: string | null;
   links: { label: string; url: string }[];
   avantApres: BeforeAfterPair[];
   clientId: string | null;
@@ -346,7 +350,8 @@ export function SiteImage({ path, alt, className = "" }: { path: string | null |
       decoding="async"
       referrerPolicy="no-referrer"
       onError={() => setFailed(true)}
-      className={`bg-[var(--surface-raised)] object-cover ${className}`}
+      // object-contain demandé : pas d'object-cover à côté (deux utilitaires d'une même propriété, l'ordre du CSS décide).
+      className={`bg-[var(--surface-raised)] ${className.includes("object-contain") ? "" : "object-cover"} ${className}`}
     />
   );
 }
@@ -371,24 +376,37 @@ export type LibraryMedia = {
   originalBytes: number | null;
   focalX: number | null;
   focalY: number | null;
+  /** Recadrage choisi à la main (« 16:10 », « 16:9 », « l:h ») ; null : format d'origine. */
+  cropRatio: string | null;
   createdAt: string;
   usages: Array<{ label: string; to: string }>;
   /** Citée par la dernière publication ; null : inconnu (site publié avant le suivi). */
   online: boolean | null;
   previousVersion: boolean;
+  /** Avant / après : format de l'autre image de chaque paire, pour recadrer au même ratio. */
+  pairFormats: Array<{ label: string; ratio: string }>;
+  /** Capture coupée d'office (16:9 ou 9:19,5) avant le 23/10/2026, régénérable sans recadrage. */
+  regenerable: boolean;
 };
 export const MEDIA_KIND_LABEL: Record<MediaKind, string> = { CAPTURE: "Capture", MOBILE: "Téléphone", LOGO: "Logo", PARTAGE: "Partage" };
 export const mediaName = (m: Pick<LibraryMedia, "label" | "sha12">) => m.label || `Image ${m.sha12}`;
 
 export const KIND_HINT: Record<MediaKind, string> = {
-  CAPTURE: "Capture d'écran d'ordinateur : recadrée en 16:9, 960×540 px au moins (1920×1080 pour les écrans haute densité).",
-  MOBILE: "Capture de téléphone : 390×844 px au moins (780×1688 conseillé), recadrée par le haut.",
+  CAPTURE: "Capture d'écran d'ordinateur, gardée à son format (16:10, 16:9, page entière…) : 960 px de large au moins (1920 pour les écrans haute densité).",
+  MOBILE: "Capture de téléphone, gardée à son format : 390 px de large au moins (780 conseillé, par exemple 780×1688).",
   LOGO: "Logo : SVG ou PNG transparent, 200 px de large au moins. Converti en WebP, fond transparent conservé.",
   PARTAGE: "Image de partage (réseaux sociaux, messageries) : recadrée en 1200×630 px, 1200×630 au moins. Convertie en JPEG.",
 };
+/** Cadre de l'aperçu vide ; une image choisie s'affiche à son ratio réel (KIND_PREVIEW), sans rien couper. */
 const KIND_FRAME: Record<MediaKind, string> = {
   CAPTURE: "aspect-video w-full max-w-xs",
   MOBILE: "aspect-[9/19.5] w-28",
+  LOGO: "h-16 w-40 object-contain",
+  PARTAGE: "aspect-[1200/630] w-full max-w-xs",
+};
+const KIND_PREVIEW: Record<MediaKind, string> = {
+  CAPTURE: "h-auto max-h-80 w-full max-w-xs object-contain",
+  MOBILE: "h-auto max-h-80 w-28 object-contain",
   LOGO: "h-16 w-40 object-contain",
   PARTAGE: "aspect-[1200/630] w-full max-w-xs",
 };
@@ -465,7 +483,7 @@ export function ImageField({
         <SiteImage
           path={value}
           alt={label}
-          className={`rounded-[var(--radius-sm)] border border-[var(--border)] ${KIND_FRAME[kind]}`}
+          className={`rounded-[var(--radius-sm)] border border-[var(--border)] ${value ? KIND_PREVIEW[kind] : KIND_FRAME[kind]}`}
         />
         <div className="flex flex-wrap gap-2">
           <Button
@@ -630,7 +648,8 @@ function MediaPicker({
                       aria-pressed={current}
                       className={`flex min-h-11 w-full flex-col gap-1.5 rounded-[var(--radius)] border p-2 text-left transition-colors hover:border-[var(--primary)] ${current ? "border-[var(--primary)] bg-[var(--primary-soft)]" : "border-[var(--border)] bg-[var(--surface)]"}`}
                     >
-                      <SiteImage path={m.path} alt="" className={`w-full rounded-[var(--radius-sm)] ${kind === "MOBILE" ? "aspect-[9/19.5]" : "aspect-video"} ${kind === "LOGO" ? "object-contain" : ""}`} />
+                      {/* Vignette entière (object-contain) : la capture garde son format, rien n'est coupé à l'aperçu. */}
+                      <SiteImage path={m.path} alt="" className={`w-full rounded-[var(--radius-sm)] object-contain ${kind === "MOBILE" ? "aspect-[9/19.5]" : "aspect-video"}`} />
                       <span className="line-clamp-2 break-words text-sm font-medium">{mediaName(m)}</span>
                       <span className="text-xs text-[var(--muted)]">{current ? "Image actuelle" : m.usages.length ? `Utilisée ${m.usages.length} fois` : "Non utilisée"}</span>
                     </button>

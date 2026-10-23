@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import sharp from "sharp";
 import { SiteMediaKind } from "@prisma/client";
 import { prisma } from "@/lib/prisma.js";
-import { readSiteMedia, saveSiteImage, SiteMediaError } from "@/lib/site/media.js";
+import { normalizeSiteImage, parseCropRatio, readSiteMedia, saveSiteImage, SiteMediaError } from "@/lib/site/media.js";
 import { resetDb } from "../../helpers/db.js";
 
 beforeEach(async () => {
@@ -24,12 +24,13 @@ async function phonePhoto(width: number, height: number, seed = 0): Promise<Buff
 }
 
 describe("images de l'espace Site", () => {
-  it("capture : WebP 960×540 et 1920×1080, sans aucune métadonnée (EXIF, GPS)", async () => {
+  it("capture : WebP 960 et 1920 px de large, ratio d'origine conservé (aucun recadrage), sans métadonnée (EXIF, GPS)", async () => {
     const input = await phonePhoto(2400, 1600);
     expect((await sharp(input).metadata()).exif).toBeDefined();
 
+    // 3:2 reste en 3:2 (décision du 23/10/2026 : plus de cadre 16:9 imposé).
     const media = await saveSiteImage(input, SiteMediaKind.CAPTURE);
-    expect(media).toMatchObject({ width: 960, height: 540, width2x: 1920, height2x: 1080 });
+    expect(media).toMatchObject({ width: 960, height: 640, width2x: 1920, height2x: 1280, cropRatio: null });
     expect(media.sha12).toMatch(/^[a-f0-9]{12}$/);
     for (const x2 of [false, true]) {
       const out = await readSiteMedia(media.sha12, x2);
@@ -66,30 +67,48 @@ describe("images de l'espace Site", () => {
     expect(media).toMatchObject({ width: 200, height: 75, width2x: 400, height2x: 150 });
   });
 
-  it("capture de téléphone : 390×844 et 780×1688, recadrée par le haut (le bas d'une page longue est coupé)", async () => {
-    // Page longue : 3000 px rouges en haut, puis du bleu. Un recadrage centré ferait apparaître le bleu en bas.
+  it("capture de téléphone 780×1688 : 390×844 et 780×1688 sans recadrage ; page entière : rien de coupé, hauteur bornée à 3 largeurs", async () => {
+    const phone = await saveSiteImage(await phonePhoto(780, 1688, 12), SiteMediaKind.MOBILE);
+    expect(phone).toMatchObject({ kind: "MOBILE", width: 390, height: 844, width2x: 780, height2x: 1688 });
+
+    // Page longue : 3000 px rouges en haut, puis du bleu. Plus rien n'est coupé : le bleu reste en bas.
     const red = { r: 200, g: 20, b: 20 };
     const input = await sharp({ create: { width: 1170, height: 4000, channels: 3, background: { r: 20, g: 20, b: 200 } } })
       .composite([{ input: { create: { width: 1170, height: 3000, channels: 3, background: red } }, top: 0, left: 0 }])
       .png()
       .toBuffer();
     const media = await saveSiteImage(input, SiteMediaKind.MOBILE);
-    expect(media).toMatchObject({ kind: "MOBILE", width: 390, height: 844, width2x: 780, height2x: 1688 });
-    expect(media.bytes2x!).toBeLessThanOrEqual(150_000);
+    // 1170×4000 dépasse 3 largeurs : réduite à 1170 px de haut en 1x, ratio conservé (342 px de large).
+    expect(media).toMatchObject({ width: 342, height: 1170, width2x: 684, height2x: 2340 });
+    expect(media.bytes2x!).toBeLessThanOrEqual(300_000);
     const out = await readSiteMedia(media.sha12, true);
     const { data, info } = await sharp(out!).raw().toBuffer({ resolveWithObject: true });
     const pixel = (y: number) => [...data.subarray((y * info.width + 10) * info.channels, (y * info.width + 10) * info.channels + 3)];
-    for (const y of [0, info.height - 1]) {
-      const [r, , b] = pixel(y);
-      expect(r, `ligne ${y}`).toBeGreaterThan(150);
-      expect(b, `ligne ${y}`).toBeLessThan(60);
-    }
+    expect(pixel(0)[0]).toBeGreaterThan(150);
+    expect(pixel(info.height - 1)[2]).toBeGreaterThan(150);
   });
 
-  it("capture de téléphone : 1x seule sous 780 px de large ; refusée sous 390×844", async () => {
+  it("capture de téléphone : 1x seule sous 780 px de large ; refusée sous 390 px de large", async () => {
     const media = await saveSiteImage(await phonePhoto(500, 1100, 41), SiteMediaKind.MOBILE);
-    expect(media).toMatchObject({ width: 390, height: 844, width2x: null });
+    expect(media).toMatchObject({ width: 390, height: 858, width2x: null });
     await expect(saveSiteImage(await phonePhoto(360, 800), SiteMediaKind.MOBILE)).rejects.toMatchObject({ code: "TOO_SMALL" });
+  });
+
+  it("recadrage choisi à la main : 16:10 ou ratio d'une autre image, autour du point d'intérêt ; trop serré : refusé", async () => {
+    const input = await phonePhoto(2400, 1600, 5);
+    expect((await normalizeSiteImage(input, SiteMediaKind.CAPTURE, null, "16:10")).x1).toMatchObject({ width: 960, height: 600 });
+    expect((await normalizeSiteImage(input, SiteMediaKind.CAPTURE, { x: 0.5, y: 0.5 }, "1440:900")).x2).toMatchObject({ width: 1920, height: 1200 });
+    // Ratio refusé : traité comme le format d'origine.
+    expect((await normalizeSiteImage(input, SiteMediaKind.CAPTURE, null, "n'importe quoi")).x1).toMatchObject({ width: 960, height: 640 });
+    // 1000×1000 recadré en 16:9 garde 1000×563 : assez large ; 900 px de large ne l'est pas.
+    await expect(normalizeSiteImage(await phonePhoto(900, 1800), SiteMediaKind.CAPTURE, null, "16:9")).rejects.toMatchObject({ code: "TOO_SMALL" });
+    expect(parseCropRatio("16:9")).toBeCloseTo(16 / 9);
+    expect(parseCropRatio("1:9")).toBeNull();
+  });
+
+  it("image de partage : toujours 1200×630, recadrée", async () => {
+    const media = await saveSiteImage(await phonePhoto(2400, 1600, 9), SiteMediaKind.PARTAGE);
+    expect(media).toMatchObject({ width: 1200, height: 630, width2x: null });
   });
 
   it("logo SVG : rastérisé en WebP transparent 200 et 400 px, même dessiné petit", async () => {

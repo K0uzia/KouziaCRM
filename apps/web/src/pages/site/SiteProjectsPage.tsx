@@ -172,12 +172,14 @@ const emptyForm = {
   status: "DRAFT" as SiteItemStatus,
   // Page projet
   description: "",
+  nature: "" as "" | "refonte" | "creation",
+  duree: "",
   context: "",
   need: "",
   approach: "",
   choices: "",
   result: "",
-  captures: [] as { image: string | null; alt: string; caption: string }[],
+  captures: [] as { image: string | null; alt: string; caption: string; vue: "bureau" | "mobile" }[],
   links: [] as { label: string; url: string }[],
   avantApres: [] as PairForm[],
   // Client et accord écrit
@@ -246,12 +248,14 @@ function projectBody(form: ProjectForm) {
     imageAlt: form.altMode === "auto" ? null : form.altMode === "decorative" ? "" : form.imageAlt.trim(),
     status: form.status,
     description: form.description,
+    nature: form.nature || null,
+    duree: form.duree,
     context: form.context,
     need: form.need,
     approach: form.approach,
     choices: form.choices,
     result: form.result,
-    captures: form.captures.filter((c) => c.image).map((c) => ({ image: c.image, alt: c.alt.trim(), caption: c.caption.trim() || null })),
+    captures: form.captures.filter((c) => c.image).map((c) => ({ image: c.image, alt: c.alt.trim(), caption: c.caption.trim() || null, vue: c.vue })),
     links: form.links.filter((l) => l.label.trim() || l.url.trim()).map((l) => ({ label: l.label.trim(), url: l.url.trim() })),
     avantApres: form.avantApres.map((x) => ({
       vue: x.vue,
@@ -295,7 +299,7 @@ const TAB_FIELDS = {
   // « Carte » : contenu et lien de la carte (un onglet de moins : la barre ne défile plus à 1280 px).
   contenu: ["name", "subtitle", "mention", "kind", "text", "role", "tech", "url", "linkLabel", "slug"],
   images: ["imagePath", "imageMobilePath", "imageAlt"],
-  page: ["description", "context", "need", "approach", "choices", "result", "captures", "avantApres", "links"],
+  page: ["description", "nature", "duree", "context", "need", "approach", "choices", "result", "captures", "avantApres", "links"],
   client: ["clientId", "clientName", "clientIntro", "consentAt", "consentNote"],
   publication: ["status"],
 } as const;
@@ -406,12 +410,14 @@ export function SiteProjectPage() {
       imageAlt: p.imageAlt ?? "",
       status: p.status,
       description: p.descriptionText ?? "",
+      nature: p.nature ?? "",
+      duree: p.duree ?? "",
       context: p.contextText ?? "",
       need: p.needText ?? "",
       approach: p.approachText ?? "",
       choices: p.choicesText ?? "",
       result: p.resultText ?? "",
-      captures: p.captures.map((c) => ({ image: c.image, alt: c.alt, caption: c.caption ?? "" })),
+      captures: p.captures.map((c) => ({ image: c.image, alt: c.alt, caption: c.caption ?? "", vue: c.vue ?? "bureau" })),
       links: p.links,
       avantApres: (p.avantApres ?? []).map((x) => ({
         vue: x.vue,
@@ -632,6 +638,18 @@ export function SiteProjectPage() {
       >
         <Textarea rows={3} maxLength={300} value={form.description} onChange={(e) => set("description", e.target.value)} />
       </Field>
+      <div className="grid gap-4 sm:grid-cols-[repeat(auto-fit,minmax(min(100%,14rem),1fr))]">
+        <Field label="Nature du projet (facultatif)" hint="Affichée sur la page projet." error={errors.nature}>
+          <Select value={form.nature} onChange={(e) => set("nature", e.target.value as ProjectForm["nature"])}>
+            <option value="">Non précisée</option>
+            <option value="refonte">Refonte</option>
+            <option value="creation">Création</option>
+          </Select>
+        </Field>
+        <Field label="Durée (facultatif)" hint={`Par exemple « 3 semaines ». ${form.duree.length} / 40`} error={errors.duree}>
+          <Input maxLength={40} autoComplete="off" value={form.duree} onChange={(e) => set("duree", e.target.value)} />
+        </Field>
+      </div>
       {sections.map(([key, label, hint]) => (
         <Field key={key} label={`${label} (facultatif)`} hint={`${hint} ${form[key].length} / 1 500`} error={errors[key]}>
           <Textarea rows={5} maxLength={1500} value={form[key]} onChange={(e) => set(key, e.target.value)} />
@@ -641,7 +659,28 @@ export function SiteProjectPage() {
         <legend className="px-1 text-sm font-medium">Captures (6 au plus)</legend>
         {form.captures.map((c, i) => (
           <div key={i} className="space-y-3 border-t border-[var(--border)] pt-3 first:border-t-0 first:pt-0">
-            <ImageField label={`Capture ${i + 1}`} kind="CAPTURE" allowRepoPath={false} value={c.image} onChange={(image) => setCapture(i, { image })} />
+            <div className="space-y-1.5">
+              <p id={`capture-vue-${i}`} className="text-sm font-medium">
+                Vue de la capture {i + 1}
+              </p>
+              {/* Changer de vue retire l'image : une capture d'ordinateur et une de téléphone ne sont pas du même type. */}
+              <Segmented
+                label={`Vue de la capture ${i + 1}`}
+                options={[
+                  { id: "bureau", label: "Ordinateur" },
+                  { id: "mobile", label: "Téléphone" },
+                ]}
+                value={c.vue}
+                onChange={(vue) => setCapture(i, vue === c.vue ? {} : { vue, image: null })}
+              />
+            </div>
+            <ImageField
+              label={`Capture ${i + 1}`}
+              kind={c.vue === "mobile" ? "MOBILE" : "CAPTURE"}
+              allowRepoPath={false}
+              value={c.image}
+              onChange={(image) => setCapture(i, { image })}
+            />
             <Field label={`Texte alternatif de la capture ${i + 1}`} hint={`Ce que montre la capture. ${c.alt.length} / 200`}>
               <Input maxLength={200} value={c.alt} onChange={(e) => setCapture(i, { alt: e.target.value })} />
             </Field>
@@ -659,7 +698,7 @@ export function SiteProjectPage() {
           </p>
         ) : null}
         {form.captures.length < 6 ? (
-          <Button variant="secondary" onClick={() => setForm((f) => ({ ...f, captures: [...f.captures, { image: null, alt: "", caption: "" }] }))}>
+          <Button variant="secondary" onClick={() => setForm((f) => ({ ...f, captures: [...f.captures, { image: null, alt: "", caption: "", vue: "bureau" }] }))}>
             <FontAwesomeIcon icon={faPlus} className="h-3.5 w-3.5" aria-hidden />
             Ajouter une capture
           </Button>

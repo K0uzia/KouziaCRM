@@ -46,7 +46,8 @@ export function parseTech(techJson: string | null): string[] | undefined {
   return Array.isArray(list) && list.length ? list.map(String) : undefined;
 }
 
-export type ProjectCapture = { image: string; alt: string; caption?: string | null };
+/** vue : absente = bureau (forme publiée detail.captures[].vue). */
+export type ProjectCapture = { image: string; alt: string; caption?: string | null; vue?: "bureau" | "mobile" };
 export type ProjectLink = { label: string; url: string };
 /** Paire avant / après, stockée sous la forme publiée (detail.avantApres du contrat du site). */
 export type ProjectBeforeAfter = {
@@ -97,6 +98,8 @@ export function detailOut(p: SiteProject): DetailOut | null {
   const pairs = parseJsonList<ProjectBeforeAfter>(p.avantApresJson);
   const entries: [keyof DetailOut, unknown][] = [
     ["description", p.descriptionText!.trim()],
+    ["nature", p.nature === "refonte" || p.nature === "creation" ? p.nature : undefined],
+    ["duree", text(p.duree)],
     ["contexte", text(p.contextText)],
     // Nom du client et accord : seulement avec l'accord écrit (contrôlé aussi par le build du site).
     ["clientNom", consent ? text(p.clientName) : undefined],
@@ -106,7 +109,12 @@ export function detailOut(p: SiteProject): DetailOut | null {
     ["demarche", text(p.approachText)],
     ["choix", text(p.choicesText)],
     ["resultat", text(p.resultText)],
-    ["captures", captures.length ? captures.map((c) => ({ image: c.image, alt: c.alt, ...(c.caption ? { legende: c.caption } : {}) })) : undefined],
+    [
+      "captures",
+      captures.length
+        ? captures.map((c) => ({ image: c.image, alt: c.alt, ...(c.caption ? { legende: c.caption } : {}), ...(c.vue === "mobile" ? { vue: "mobile" as const } : {}) }))
+        : undefined,
+    ],
     [
       "avantApres",
       pairs.length
