@@ -4,6 +4,7 @@ import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faCloudArrowUp, faCrop, faTrash, faUpload } from "@fortawesome/free-solid-svg-icons";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
+import { guessVueOfFile } from "@/lib/site-proposals";
 import { Badge, Card, PageHeader } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { Field, Input, Select } from "@/components/ui/Field";
@@ -20,7 +21,7 @@ const KIND_OF_SLUG = { toutes: "all", captures: "CAPTURE", telephone: "MOBILE", 
 const SLUG_OF_KIND: Record<"all" | MediaKind, string | null> = { all: null, CAPTURE: "captures", MOBILE: "telephone", LOGO: "logos", PARTAGE: "partage" };
 const KIND_FILTER_LABEL: Record<MediaKind, string> = { CAPTURE: "Captures", MOBILE: "Téléphone", LOGO: "Logos", PARTAGE: "Partage" };
 type Usage = "toutes" | "utilisees" | "non-utilisees" | "anciennes";
-type Upload = { key: string; name: string; state: "pending" | "done" | "error"; message?: string };
+type Upload = { key: string; name: string; state: "pending" | "done" | "error"; message?: string; kind?: MediaKind };
 
 const KIND_OPTIONS: ReadonlyArray<{ id: MediaKind; label: string }> = [
   { id: "CAPTURE", label: "Capture" },
@@ -141,10 +142,12 @@ export function SiteMediaPage() {
     for (const [i, file] of files.entries()) {
       const body = new FormData();
       body.append("file", file);
+      // « Capture » : ordinateur ou téléphone d'après le format de chaque fichier ; « Téléphone » force ce type.
+      const fileKind: MediaKind = kind === "CAPTURE" && (await guessVueOfFile(file)) === "mobile" ? "MOBILE" : kind;
       try {
-        await api(`/api/site/media?kind=${kind}`, { method: "POST", body });
+        await api(`/api/site/media?kind=${fileKind}`, { method: "POST", body });
         ok++;
-        setUploads((list) => list.map((u) => (u.key === batch[i]!.key ? { ...u, state: "done" } : u)));
+        setUploads((list) => list.map((u) => (u.key === batch[i]!.key ? { ...u, state: "done", kind: fileKind } : u)));
       } catch (e) {
         const message = e instanceof Error ? e.message : "Envoi impossible";
         setUploads((list) => list.map((u) => (u.key === batch[i]!.key ? { ...u, state: "error", message } : u)));
@@ -237,7 +240,9 @@ export function SiteMediaPage() {
             </p>
           </div>
           <p id={hintId} className="text-xs text-[var(--muted)]">
-            {KIND_HINT[kind]} 15 Mo au plus par fichier.
+            {KIND_HINT[kind]}
+            {kind === "CAPTURE" ? " Type deviné pour chaque fichier : une image en hauteur de 1 290 px de large au plus part en « Téléphone » ; choisir « Téléphone » pour le forcer." : ""} 15 Mo
+            au plus par fichier.
           </p>
           <input
             ref={input}
@@ -257,6 +262,7 @@ export function SiteMediaPage() {
                     {u.state === "done" ? "Enregistrée" : u.state === "error" ? "Refusée" : "En cours"}
                   </Badge>
                   <span className="min-w-0 break-all">{u.name}</span>
+                  {u.kind ? <span className="text-xs text-[var(--muted)]">{MEDIA_KIND_LABEL[u.kind]}</span> : null}
                   {u.message ? <span className="w-full text-[var(--danger)]">{u.message}</span> : null}
                 </li>
               ))}

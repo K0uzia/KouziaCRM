@@ -170,6 +170,8 @@ describe("Vérifier l'e-mail (2e partie) : reçu, avoir, lien d'acompte", () => 
     expect(mail.subject).toBe("Merci pour votre paiement");
     expect(mail.text.startsWith("Bonjour Lou,\n\nPaiement bien reçu.")).toBe(true);
     expect(mail.attachments).toHaveLength(2);
+    // Noms des pièces jointes identiques entre le brouillon relu et l'envoi (reçu : numéro de facture, date, fin de l'id du paiement).
+    expect((mail.attachments as Array<{ filename: string }>).map((a) => a.filename)).toEqual(draft.json().attachments);
     expect((await get(`/api/invoices/${inv.id}/receipt/draft?paymentId=inconnu`)).statusCode).toBe(404);
   });
 

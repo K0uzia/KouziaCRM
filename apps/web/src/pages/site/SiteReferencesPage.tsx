@@ -479,7 +479,7 @@ export function SiteReferencePage() {
         subtitle={item ? <StatusBadge row={item} /> : undefined}
       />
       <LoadState loading={ed.loading} error={ed.loadError} onRetry={() => void ed.load()}>
-        <form onSubmit={ed.onSubmit} noValidate>
+        <form onSubmit={ed.onSubmit} onBlur={ed.onBlur} noValidate>
           <EditorLayout
             label="Sections de la référence"
             tabs={[
