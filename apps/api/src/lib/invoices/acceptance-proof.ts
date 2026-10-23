@@ -105,9 +105,7 @@ export async function recordQuoteAcceptanceProof(
             "",
             doc.invoice.billingMode
               ? (doc.invoice.paymentPlan ?? audit.paymentPlan) === "ONE"
-                ? doc.invoice.billingMode === "RECURRING"
-                  ? "Frais de mise en service : à régler maintenant ; l'abonnement suit le calendrier indiqué dans votre espace client."
-                  : "Formule de paiement retenue : comptant, à régler maintenant."
+                ? "Formule de paiement retenue : comptant, à régler maintenant."
                 : `Formule de paiement retenue : en ${(doc.invoice.paymentPlan ?? audit.paymentPlan) === "THREE" ? 3 : 2} fois, à parts égales ; les dates des échéances sont dans votre espace client.`
               : (doc.invoice.paymentPlan ?? audit.paymentPlan) === "THREE"
                 ? "Formule de paiement retenue : en 3 fois. Le 2e acompte sera demandé à l'étape du projet indiquée dans votre espace client."

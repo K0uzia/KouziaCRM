@@ -9,9 +9,11 @@ import { createClient, createService, seedCompanySettings } from "../helpers/fac
 
 const retrieve = vi.fn(async (_id: string, _params?: unknown): Promise<unknown> => ({}));
 const createSession = vi.fn(async (_params: unknown) => ({ url: "https://billing.stripe.com/p/session/test_123" }));
+const listConfigs = vi.fn(async (_params?: unknown) => ({ data: [] as unknown[] }));
+const createConfig = vi.fn(async (_params: unknown, _opts?: unknown) => ({ id: "bpc_sans_resiliation" }));
 vi.mock("@/lib/stripe/client.js", async (orig) => ({
   ...(await orig<typeof import("@/lib/stripe/client.js")>()),
-  getStripe: vi.fn(async () => ({ subscriptions: { retrieve }, billingPortal: { sessions: { create: createSession } } })),
+  getStripe: vi.fn(async () => ({ subscriptions: { retrieve }, billingPortal: { sessions: { create: createSession }, configurations: { list: listConfigs, create: createConfig } } })),
 }));
 
 process.env.SESSION_SECRET = process.env.SESSION_SECRET || "test-session-secret-32chars!!";
@@ -34,6 +36,10 @@ beforeEach(async () => {
   invalidateCompanySettingsCache();
   retrieve.mockReset();
   createSession.mockClear();
+  listConfigs.mockClear();
+  createConfig.mockClear();
+  const { resetNoCancelPortalConfiguration } = await import("@/lib/stripe/portal.js");
+  resetNoCancelPortalConfiguration();
 });
 
 async function stripeSub(stripeSubscriptionId: string | null = "sub_manage") {
@@ -145,5 +151,38 @@ describe("lien de gestion d'un abonnement prélevé (/api/public/manage)", () =>
     expect(res.headers.location).not.toContain("stripe.com");
     const other = await post(`/api/public/manage/${signPayToken("subscribe", sub.id)}`);
     expect(other.headers.location).not.toContain("stripe.com");
+  });
+});
+
+describe("abonnement engagé : portail Stripe sans résiliation (décision du 23/10/2026)", () => {
+  it("configuration de l'ERP créée une fois (résiliation et changement d'offre coupés), puis réutilisée", async () => {
+    const sub = await stripeSub();
+    await prisma.subscription.update({ where: { id: sub.id }, data: { commitmentMonths: 12, commitmentEndsAt: new Date(2027, 0, 1) } });
+    const { createSubscriptionPortalUrl } = await import("@/lib/stripe/portal.js");
+    retrieve.mockResolvedValue({ status: "active", customer: "cus_1", latest_invoice: { status: "paid" } });
+    await createSubscriptionPortalUrl(sub.id);
+    await createSubscriptionPortalUrl(sub.id);
+    expect(createConfig).toHaveBeenCalledTimes(1);
+    const params = createConfig.mock.calls[0]![0] as { features: Record<string, { enabled: boolean }> };
+    expect(params.features.subscription_cancel!.enabled).toBe(false);
+    expect(params.features.subscription_update!.enabled).toBe(false);
+    expect(params.features.payment_method_update!.enabled).toBe(true);
+    expect(createSession.mock.calls.every((c) => (c[0] as { configuration?: string }).configuration === "bpc_sans_resiliation")).toBe(true);
+  });
+
+  it("configuration déjà présente chez Stripe : retrouvée par sa métadonnée ; abonnement sans engagement : configuration par défaut", async () => {
+    listConfigs.mockResolvedValueOnce({
+      data: [{ id: "bpc_existante", metadata: { kouzia_erp: "abonnement-engage" }, features: { subscription_cancel: { enabled: false } } }],
+    });
+    const engaged = await stripeSub("sub_engage");
+    await prisma.subscription.update({ where: { id: engaged.id }, data: { commitmentMonths: 12, commitmentEndsAt: new Date(2027, 0, 1) } });
+    const free = await stripeSub("sub_libre");
+    const { createSubscriptionPortalUrl } = await import("@/lib/stripe/portal.js");
+    retrieve.mockResolvedValue({ status: "active", customer: "cus_1", latest_invoice: { status: "paid" } });
+    await createSubscriptionPortalUrl(engaged.id);
+    await createSubscriptionPortalUrl(free.id);
+    expect(createConfig).not.toHaveBeenCalled();
+    expect((createSession.mock.calls[0]![0] as { configuration?: string }).configuration).toBe("bpc_existante");
+    expect(createSession.mock.calls[1]![0]).not.toHaveProperty("configuration");
   });
 });

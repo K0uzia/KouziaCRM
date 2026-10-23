@@ -10,6 +10,8 @@ export const DEFAULT_LEGAL_CLAUSES: Array<{
   audience?: LegalClauseAudience;
   /** Créée sur une base neuve (ou par migration) seulement : supprimée par l'admin, elle ne revient pas. */
   seedOnly?: boolean;
+  /** false : proposition créée inactive, à activer par l'admin. */
+  active?: boolean;
 }> = [
   {
     kind: LegalClauseKind.VAT,
@@ -91,6 +93,17 @@ export const DEFAULT_LEGAL_CLAUSES: Array<{
     required: true,
     position: 6,
   },
+  // Proposition (décisions du 23/10/2026) : clause unique des devis récurrents, tout rythme de paiement ({{periode}},
+  // {{periodicite}}) : engagement minimal, paiement fractionné, reconduction annuelle, préavis d'un mois, rappel.
+  // Créée inactive à côté du texte d'Alexandre, jamais à sa place : il active l'une et désactive l'autre.
+  {
+    kind: LegalClauseKind.SUBSCRIPTION_COMMITMENT,
+    title: "Abonnement avec engagement (proposition, tout rythme de paiement)",
+    body: "[BROUILLON À RELIRE PAR ALEXANDRE ET UN JURISTE OU LA CCI] Abonnement conclu pour la durée d'engagement indiquée ci-dessus, de 12 mois au minimum, à compter de la signature du devis. Le prix est celui de l'engagement ; il est payable d'avance {{periodicite}}, par échéances d'un {{periode}}. Ce fractionnement est une facilité de paiement : il ne permet pas de résilier en cours d'engagement, et les échéances restent dues jusqu'à la fin de l'engagement. [À FAIRE VALIDER : une indemnité jugée excessive peut être réduite par le juge (art. 1231-5 du Code civil) ; le droit de rétractation de 14 jours prévaut pour les particuliers et pour les petits professionnels signés hors établissement (art. L221-18 et L221-3 du Code de la consommation).] À la fin de l'engagement, l'abonnement est reconduit tacitement par périodes d'un an, au prix en vigueur et au même rythme de paiement. Le client peut en demander la non-reconduction, sans frais ni justification, au plus tard un mois avant la fin de l'engagement ou de l'année reconduite en cours, depuis l'espace client ou par e-mail à {{email}} : l'abonnement prend alors fin à cette date. {{nom_commercial}} lui rappelle cette date limite par e-mail avant qu'elle n'expire (art. L215-1 du Code de la consommation). Dans tous les cas, le client conserve ses contenus et son nom de domaine.",
+    required: false,
+    position: 6,
+    active: false,
+  },
   // Devis contenant un abonnement : imprimée sous les abonnements et le total du projet (PDF, fiche, e-mail d'envoi).
   {
     kind: LegalClauseKind.SUBSCRIPTION_BILLING_DATE,
@@ -128,9 +141,17 @@ export const DEDICATED_CLAUSE_KINDS: ReadonlySet<LegalClauseKind> = new Set([
 /** E-mail de contact absent des réglages : manque visible sur le document, jamais un blanc. */
 export const MISSING_CONTACT_EMAIL = "[e-mail de contact à renseigner dans Réglages]";
 
+/** {{periode}} et {{periodicite}} des clauses d'abonnement, selon la périodicité de la ligne. */
+const PERIOD_VARIABLES = {
+  MONTH: { periode: "mois", periodicite: "chaque mois" },
+  QUARTER: { periode: "trimestre", periodicite: "chaque trimestre" },
+  YEAR: { periode: "an", periodicite: "chaque année à la date anniversaire" },
+} as const;
+
 /**
  * Variables des clauses, remplacées par les réglages de l'entreprise au rendu. E-mail : celui de
  * l'entreprise, à défaut l'adresse d'envoi des e-mails (celle à laquelle le client répond).
+ * Clause d'abonnement : `interval` remplit {{periode}} et {{periodicite}} (laissées telles quelles sans abonnement).
  */
 export function fillClauseVariables(
   body: string,
@@ -144,12 +165,15 @@ export function fillClauseVariables(
     postalCode: string;
     city: string;
   },
+  interval?: "MONTH" | "QUARTER" | "YEAR",
 ): string {
   const address = [company.addressLine1, company.addressLine2, `${company.postalCode} ${company.city}`].filter(Boolean).join(", ");
   // Adresse d'envoi au format « Nom <adresse> » : seule l'adresse est imprimée.
   const smtpAddress = company.smtpFrom?.match(/<([^>]+)>/)?.[1] ?? company.smtpFrom;
   const email = company.email?.trim() || smtpAddress?.trim() || MISSING_CONTACT_EMAIL;
-  return body
+  const period = interval ? PERIOD_VARIABLES[interval] : null;
+  const filled = period ? body.replaceAll("{{periode}}", period.periode).replaceAll("{{periodicite}}", period.periodicite) : body;
+  return filled
     .replaceAll("{{nom_commercial}}", company.tradeName ?? company.legalName)
     .replaceAll("{{raison_sociale}}", company.legalName)
     .replaceAll("{{adresse}}", address)
@@ -160,23 +184,23 @@ export async function ensureDefaultLegalClauses() {
   const count = await prisma.legalClause.count();
   if (count === 0) {
     await prisma.legalClause.createMany({
-      data: DEFAULT_LEGAL_CLAUSES.map(({ seedOnly: _seedOnly, ...c }) => ({
+      data: DEFAULT_LEGAL_CLAUSES.map(({ seedOnly: _seedOnly, active, ...c }) => ({
         ...c,
-        active: true,
+        active: active ?? true,
       })),
     });
     return;
   }
 
   // Bases déjà seedées : ajouter les clauses manquantes par titre (sans doublon).
-  for (const { seedOnly, ...clause } of DEFAULT_LEGAL_CLAUSES) {
+  for (const { seedOnly, active, ...clause } of DEFAULT_LEGAL_CLAUSES) {
     if (seedOnly) continue;
     const existing = await prisma.legalClause.findFirst({
       where: { title: clause.title },
     });
     if (!existing) {
       await prisma.legalClause.create({
-        data: { ...clause, active: true },
+        data: { ...clause, active: active ?? true },
       });
     }
   }

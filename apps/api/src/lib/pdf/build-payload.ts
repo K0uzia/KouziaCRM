@@ -213,7 +213,13 @@ export function buildInvoicePdfPayload({
       // Départ choisi sur la ligne du devis (date précise, mois offerts…) : phrase à la place du départ par défaut.
       startText:
         isQuote && l.isSubscription && l.subscriptionStart
-          ? startPhrase(l, fromDelivery, l.unitPriceCents, normalizeInterval(l.billingInterval))
+          ? startPhrase(
+              l,
+              // Mode récurrent : pas de projet hors départ « à la livraison » choisi (comme recurringSummaryOf).
+              parseBillingMode(invoice.billingMode) === "RECURRING" ? l.subscriptionStart === "DELIVERY" : fromDelivery,
+              l.unitPriceCents,
+              normalizeInterval(l.billingInterval),
+            )
           : null,
     })),
     legalClauses: clauses.filter((c) => !DEDICATED_CLAUSE_KINDS.has(c.kind)).map((c) => ({ title: c.title, body: c.body })),
@@ -271,8 +277,8 @@ function acceptanceOf(
 export type { ClientSnapshot };
 
 /**
- * Devis récurrent : frais de mise en service (partie ponctuelle remisée, due à la signature) puis l'abonnement, un
- * seul pour le devis (lignes additionnées) ; total sur la durée de l'engagement, hors frais (contrat /suivi F5).
+ * Devis récurrent : l'abonnement, un seul pour le devis (lignes additionnées), sans frais de mise en service ; total
+ * sur la durée de l'engagement (contrat /suivi F5).
  */
 function recurringSummaryOf(invoice: InvoiceWithRelations) {
   const subs = invoice.lines.filter((l) => l.isSubscription);
@@ -282,16 +288,12 @@ function recurringSummaryOf(invoice: InvoiceWithRelations) {
   const amountCents = subs.reduce((sum, l) => sum + l.unitPriceCents, 0);
   const months = first.commitmentMonths ?? null;
   const periods = months ? Math.ceil(months / periodMonths(period)) : null;
-  const feesCents = invoice.depositBaseCents ?? Math.max(0, invoice.totalCents - amountCents);
-  const hasProject = feesCents > 0 || first.subscriptionStart === "DELIVERY";
   return {
     period,
     amountCents,
-    feesCents,
-    feesBeforeDiscountCents: invoice.lines.filter((l) => !l.isSubscription).reduce((sum, l) => sum + l.lineTotalCents, 0),
     commitmentMonths: months,
     periods,
     totalCommitmentCents: periods ? amountCents * periods : null,
-    startText: startPhrase(first, hasProject, amountCents, period),
+    startText: startPhrase(first, first.subscriptionStart === "DELIVERY", amountCents, period),
   };
 }

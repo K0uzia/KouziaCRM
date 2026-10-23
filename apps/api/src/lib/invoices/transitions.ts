@@ -26,6 +26,7 @@ import {
   resolveAcceptedPlan,
   type PaymentPlan,
 } from "@/lib/quotes/payment-plans.js";
+import { assertBillingModeLines } from "@/lib/quotes/billing-mode.js";
 import {
   buildClientSnapshot,
   type ClientSnapshot,
@@ -152,6 +153,8 @@ export async function issueQuote(
     if (quote.lines.length === 0) {
       throw new Error("Impossible d'émettre un devis sans lignes");
     }
+    // Brouillon antérieur à une règle du mode (engagement obligatoire en récurrent) : bloqué avant numérotation.
+    assertBillingModeLines(parseBillingMode(quote.billingMode), quote.lines);
     // Émis = signable en ligne : un particulier exige un médiateur de la consommation déclaré (L612-1).
     const client = await tx.client.findUniqueOrThrow({ where: { id: quote.clientId }, select: { type: true } });
     assertMediatorFor(client.type, settings);
@@ -168,13 +171,11 @@ export async function issueQuote(
     const depositBaseCents = computeDepositBaseCents(quote.lines, quote.subtotalCents, quote.totalCents);
     // Partie ponctuelle nulle (pack tout en abonnement, remise totale) : comme un abonnement seul, pas d'échéancier à 0 €.
     const noOneOffPart = quote.lines.some((l) => l.isSubscription) && depositBaseCents <= 0;
-    // Mode récurrent : les lignes ponctuelles (frais de mise en service) forment une échéance unique due à la signature.
+    // Mode récurrent : abonnement seul (aucune ligne ponctuelle), pas d'échéancier.
     const mode = parseBillingMode(quote.billingMode);
     const offer =
       mode === "RECURRING"
-        ? depositBaseCents > 0
-          ? "ONE"
-          : "NONE"
+        ? "NONE"
         : isSubscriptionOnly(quote.lines) || noOneOffPart
           ? "NONE"
           : effectiveOffer(parsePaymentPlanOffer(quote.paymentPlanOffer), depositBaseCents, settings);
@@ -523,11 +524,10 @@ export async function acceptQuoteByClient(
     // (Stripe après le mandat, sinon facture ERP immédiate), jamais par le devis.
     // Devis mixte : seules les lignes au départ « à la signature » ou « à une date » démarrent maintenant ; les
     // autres attendent la livraison (startDeferredSubscriptions).
-    // Mode récurrent : un projet (livraison) seulement avec des frais de mise en service ou un départ « à la livraison »
-    // choisi ; sinon l'abonnement démarre à la signature, comme un devis d'abonnement seul.
+    // Mode récurrent : un projet (livraison) seulement avec un départ « à la livraison » choisi ; sinon l'abonnement
+    // démarre à la signature, comme un devis d'abonnement seul.
     const recurring = parseBillingMode(pending.billingMode) === "RECURRING";
-    const hasProject = (l: { subscriptionStart: string | null }) =>
-      !recurring || depositBaseOf(pending) > 0 || l.subscriptionStart === "DELIVERY";
+    const hasProject = (l: { subscriptionStart: string | null }) => !recurring || l.subscriptionStart === "DELIVERY";
     const atSignature = pending.lines.filter((l) => l.isSubscription && activationPoint(l, hasProject(l)) === "SIGNATURE").map((l) => l.id);
     const subs = deferSubscription
       ? atSignature.length
@@ -586,7 +586,7 @@ export function isDeferredSubscriptionQuote(quote: {
   billingMode?: string | null;
 }): boolean {
   if (!quote.lines.some((l) => l.isSubscription)) return false;
-  // Mode récurrent, frais de mise en service ou non : le départ choisi (signature, livraison, date) fait foi.
+  // Mode récurrent : le départ choisi (signature, livraison, date) fait foi.
   if (quote.billingMode === "RECURRING") return true;
   return quote.depositBaseCents !== null && quote.paymentPlanOffer !== "NONE";
 }

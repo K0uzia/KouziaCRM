@@ -348,12 +348,12 @@ export const invoicesRoutes: FastifyPluginAsync = async (app) => {
             ? new Date(parsed.data.validUntil)
             : null;
 
-      // Mode récurrent : frais de mise en service éventuels en une échéance à la signature.
+      // Mode récurrent : rien à régler au titre du devis, l'abonnement facture chaque période.
       const paymentPlanOffer =
         documentType !== InvoiceDocumentType.QUOTE
           ? null
           : billingMode === "RECURRING"
-            ? "ONE"
+            ? "NONE"
             : (parsed.data.paymentPlanOffer ?? ((await getCompanySettings()).paymentChoiceDefault ? "CHOICE" : "TWO"));
 
       const conflicts = clientRequestId ? await offlineConflicts(client, parsed.data) : [];
@@ -647,7 +647,7 @@ export const invoicesRoutes: FastifyPluginAsync = async (app) => {
         return reply.code(400).send({ error: e instanceof Error ? e.message : "Lignes invalides" });
       }
       if (parsed.data.billingMode !== undefined) data.billingMode = mode;
-      if (mode === "RECURRING") data.paymentPlanOffer = "ONE";
+      if (mode === "RECURRING") data.paymentPlanOffer = "NONE";
     }
 
     if (

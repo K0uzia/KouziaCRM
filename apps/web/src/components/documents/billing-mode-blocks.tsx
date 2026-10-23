@@ -7,11 +7,12 @@ import { equalInstallments, modePlansShown, PERIOD_WORD, periodsIn, type Period,
 /**
  * Mode de facturation d'un devis (24/10/2026) : paiement unique (comptant, 2 ou 3 fois en parts égales datées depuis
  * la signature) ou récurrent (un abonnement : période, engagement, départ et jour de prélèvement choisis une fois ;
- * les lignes ponctuelles sont des frais de mise en service dus à la signature).
+ * aucune ligne ponctuelle, le prix annuel comprend toute la prestation : décision du 23/10/2026).
  */
 
 export type BillingMode = "ONE_OFF" | "RECURRING";
-export type RecurringForm = StartFields & { interval: Period; commitmentMonths: "" | "12" | "24" | "36"; billingDay: string };
+// Pas d'abonnement sans engagement (décision du 23/10/2026) : 12 mois au minimum, le rythme n'est qu'une façon de payer.
+export type RecurringForm = StartFields & { interval: Period; commitmentMonths: "12" | "24" | "36"; billingDay: string };
 
 export const DEFAULT_RECURRING: RecurringForm = {
   interval: "YEAR",
@@ -31,7 +32,7 @@ export function recurringFromLine(
   return {
     ...DEFAULT_RECURRING,
     interval,
-    commitmentMonths: months === 12 || months === 24 || months === 36 ? (String(months) as RecurringForm["commitmentMonths"]) : "",
+    commitmentMonths: months === 12 || months === 24 || months === 36 ? (String(months) as RecurringForm["commitmentMonths"]) : "12",
     billingDay: String(line.billingDay ?? 1),
     subscriptionStart: line.subscriptionStart,
     subscriptionStartDate: line.subscriptionStartDate,
@@ -66,7 +67,7 @@ export function BillingModeChoice({ value, onChange }: { value: BillingMode | ""
       />
       <p className="text-xs text-[var(--muted)]">
         {value === "RECURRING"
-          ? "Un abonnement au prix annuel ramené à la période ; les lignes libres sont des frais de mise en service, dus à la signature."
+          ? "Un abonnement au prix annuel, qui comprend toute la prestation, payé à l'année, au trimestre ou au mois."
           : value === "ONE_OFF"
             ? "Le devis se règle une fois : comptant, ou en 2 ou 3 fois à parts égales."
             : "Devis créé avant le mode de facturation : choisissez-en un pour le mettre à jour."}
@@ -138,19 +139,17 @@ export function RecurringSettings({
   value,
   onChange,
   periodCents,
-  feesCents,
 }: {
   value: RecurringForm;
   onChange: (patch: Partial<RecurringForm>) => void;
   periodCents: number;
-  feesCents: number;
 }) {
-  const hasProject = feesCents > 0 || value.subscriptionStart === "DELIVERY";
+  const hasProject = value.subscriptionStart === "DELIVERY";
   const phrase = startPhrase(value, hasProject, periodCents, value.interval);
   const months = Number(value.commitmentMonths) || 0;
   const startChoices: ReadonlyArray<{ id: SubscriptionStart; label: string }> = [
-    { id: "", label: feesCents > 0 ? "La livraison du projet" : "La signature" },
-    ...(feesCents > 0 ? [{ id: "SIGNATURE" as const, label: "La signature" }] : [{ id: "DELIVERY" as const, label: "La livraison du projet" }]),
+    { id: "", label: "La signature" },
+    { id: "DELIVERY", label: "La livraison du projet" },
     { id: "DATE", label: "Une date précise" },
     { id: "FREE_MONTHS", label: "Des mois offerts" },
   ];
@@ -158,15 +157,14 @@ export function RecurringSettings({
     <div className="space-y-4">
       <h4 className={blockTitle}>Abonnement</h4>
       <div className="flex flex-wrap items-center gap-3">
-        <Segmented label="Période de l'abonnement" options={PERIOD_OPTIONS} value={value.interval} onChange={(interval) => onChange({ interval })} />
+        <Segmented label="Rythme de paiement" options={PERIOD_OPTIONS} value={value.interval} onChange={(interval) => onChange({ interval })} />
         <span className="text-sm tabular-nums">
           {formatEUR(periodCents)} par {PERIOD_WORD[value.interval]}
         </span>
       </div>
       <div className="grid gap-4 sm:grid-cols-[repeat(auto-fit,minmax(min(100%,14rem),1fr))]">
-        <Field label="Engagement" hint={months ? undefined : "Résiliable à tout moment, effet à la fin de la période en cours."}>
+        <Field label="Engagement" hint="Puis reconduit chaque année ; résiliable avec un préavis d'un mois avant l'échéance.">
           <Select value={value.commitmentMonths} onChange={(e) => onChange({ commitmentMonths: e.target.value as RecurringForm["commitmentMonths"] })}>
-            <option value="">Sans engagement</option>
             <option value="12">12 mois</option>
             <option value="24">24 mois</option>
             <option value="36">36 mois</option>
@@ -211,35 +209,27 @@ export function RecurringSettings({
       </div>
       <p className="text-sm text-[var(--muted)]" aria-live="polite">
         {phrase ? `Sur le devis : « ${phrase} »` : "Complétez la date ou le nombre de mois offerts."}
-        {months ? `, engagement de ${months} mois (${periodsIn(months, value.interval)} échéances).` : ", sans engagement."}
+        {`, engagement de ${months} mois (${periodsIn(months, value.interval)} échéances), puis reconduit chaque année.`}
       </p>
     </div>
   );
 }
 
-/** Récapitulatif d'un devis récurrent : à la signature, puis par période, engagement et total sur la durée. */
-export function RecurringRecap({ value, periodCents, feesCents }: { value: RecurringForm; periodCents: number; feesCents: number }) {
+/** Récapitulatif d'un devis récurrent : montant par période, engagement et total sur la durée. */
+export function RecurringRecap({ value, periodCents }: { value: RecurringForm; periodCents: number }) {
   const months = Number(value.commitmentMonths) || 0;
   const line = "flex items-baseline justify-between gap-3 text-sm";
   return (
     <div className="space-y-1.5">
-      {feesCents > 0 ? (
-        <p className={line}>
-          <span className="text-[var(--muted)]">À la signature (frais de mise en service)</span>
-          <span className="tabular-nums">{formatEUR(feesCents)}</span>
-        </p>
-      ) : null}
       <p className={line}>
-        <span className="font-semibold">{feesCents > 0 ? "Ensuite" : "Abonnement"}</span>
+        <span className="font-semibold">Abonnement</span>
         <span className="font-display text-2xl font-semibold tabular-nums">
           {formatEUR(periodCents)}
           <span className="text-sm font-normal"> / {PERIOD_WORD[value.interval]}</span>
         </span>
       </p>
       <p className="text-xs text-[var(--muted)]">
-        {months
-          ? `Engagement ${months} mois, soit ${formatEUR(periodCents * periodsIn(months, value.interval))} sur la durée (hors frais de mise en service).`
-          : "Sans engagement, résiliable à tout moment."}
+        {`Engagement ${months} mois, soit ${formatEUR(periodCents * periodsIn(months, value.interval))} sur la durée, puis reconduit chaque année.`}
       </p>
     </div>
   );

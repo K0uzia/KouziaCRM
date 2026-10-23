@@ -83,9 +83,7 @@ export async function renderDraftPreviewPdf(input: DraftPreviewInput, now = new 
   const mode = isQuote ? input.billingMode : null;
   const offer: PaymentPlanOffer | null = isQuote
     ? mode === "RECURRING"
-      ? (depositBaseCents ?? 0) > 0
-        ? "ONE"
-        : "NONE"
+      ? "NONE"
       : isSubscriptionOnly(lines)
       ? "NONE"
       : effectiveOffer(input.paymentPlanOffer ?? (settings.paymentChoiceDefault ? "CHOICE" : "TWO"), depositBaseCents ?? 0, settings)

@@ -1,6 +1,4 @@
 import { primaryMethod } from "@/lib/stripe/payment-methods.js";
-import { isUnderCommitment } from "@/lib/subscriptions/commitment.js";
-import { formatLongDate } from "@/lib/money.js";
 import { balanceFields } from "@/lib/invoices/balance.js";
 import type { FastifyPluginAsync, FastifyReply, FastifyRequest } from "fastify";
 import { z } from "zod";
@@ -92,7 +90,8 @@ import {
 import { isValidSiren, isValidSiret } from "@kouzia/forms";
 import { listPortalProjects } from "@/lib/projects/service.js";
 import { reviewInviteEligible } from "@/lib/projects/review-invite.js";
-import { publicStart } from "@/lib/subscriptions/start.js";
+import { publicStart, type StartLine } from "@/lib/subscriptions/start.js";
+import { normalizeInterval, periodMonths } from "@/lib/subscriptions/subscription-service.js";
 import {
   PORTAL_SECTIONS,
   changedAfter,
@@ -192,6 +191,44 @@ const quoteDecisionSchema = z.discriminatedUnion("decision", [
 ]);
 
 /** Libellé de l'étape cochée « déclenche le 2e acompte » dans les étapes JSON d'un projet. */
+/** Date « AAAA-MM-JJ » à l'heure locale. */
+const ymdOf = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+
+/**
+ * Devis en mode récurrent (contrat F5, 24/10/2026) : un abonnement, lignes d'abonnement additionnées, mêmes période,
+ * engagement, départ et jour sur chaque ligne ; aucune ligne ponctuelle (décision du 23/10/2026).
+ * null pour tout autre devis.
+ */
+function recurringOf(d: {
+  billingMode: string | null;
+  depositBaseCents: number | null;
+  lines: Array<
+    StartLine & {
+      billingInterval: string | null;
+      unitPriceCents: number;
+      commitmentMonths: number | null;
+      billingDay: number | null;
+      subscription: { nextInvoiceAt: Date; invoices: Array<{ issueDate: Date | null }> } | null;
+    }
+  >;
+}) {
+  const first = d.lines[0];
+  if (parseBillingMode(d.billingMode) !== "RECURRING" || !first) return null;
+  const period = normalizeInterval(first.billingInterval);
+  const start = publicStart(first, first.subscriptionStart === "DELIVERY");
+  const sub = first.subscription;
+  const firstInvoice = sub ? (sub.invoices[0]?.issueDate ?? sub.nextInvoiceAt) : null;
+  return {
+    period,
+    amountCents: d.lines.reduce((sum, l) => sum + l.unitPriceCents, 0),
+    commitmentMonths: first.commitmentMonths ?? null,
+    periods: first.commitmentMonths ? Math.ceil(first.commitmentMonths / periodMonths(period)) : null,
+    ...start,
+    billingDay: first.billingDay ?? 1,
+    firstInvoiceOn: firstInvoice ? ymdOf(firstInvoice) : null,
+  };
+}
+
 function flaggedStepLabel(steps: string | null | undefined): string | null {
   try {
     const list = JSON.parse(steps ?? "[]") as Array<{ label?: string; triggersDeposit2?: boolean }>;
@@ -386,6 +423,10 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
               subscriptionStart: true,
               subscriptionStartDate: true,
               subscriptionFreeMonths: true,
+              // Mode récurrent (contrat F5, 24/10/2026) : engagement, jour et 1re facture de l'abonnement créé.
+              commitmentMonths: true,
+              billingDay: true,
+              subscription: { select: { nextInvoiceAt: true, invoices: { orderBy: { issueDate: "asc" }, take: 1, select: { issueDate: true } } } },
             },
           },
           quoteAcceptanceAudits: {
@@ -655,6 +696,27 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
                     ...(showAmounts ? { amountCents: m.amountCents } : {}),
                   }))
                 : undefined,
+            // Mode de facturation (contrat F5) : null pour un devis antérieur ; récurrent : l'abonnement du devis.
+            ...(d.documentType === InvoiceDocumentType.QUOTE ? { billingMode: parseBillingMode(d.billingMode) } : {}),
+            ...(d.documentType === InvoiceDocumentType.QUOTE && recurringOf(d)
+              ? {
+                  recurring: (() => {
+                    const r = recurringOf(d)!;
+                    return {
+                      period: r.period,
+                      ...(showAmounts ? { amountCents: r.amountCents } : {}),
+                      commitmentMonths: r.commitmentMonths,
+                      periods: r.periods,
+                      ...(showAmounts && r.periods ? { totalCommitmentCents: r.amountCents * r.periods } : {}),
+                      startsAt: r.startsAt,
+                      ...(r.startsOn ? { startsOn: r.startsOn } : {}),
+                      ...(r.freeMonths ? { freeMonths: r.freeMonths } : {}),
+                      billingDay: r.billingDay,
+                      ...(r.firstInvoiceOn ? { firstInvoiceOn: r.firstInvoiceOn } : {}),
+                    };
+                  })(),
+                }
+              : {}),
             // Paiement en 2 ou 3 fois : formules proposées (avant signature) et formule retenue.
             ...(d.documentType === InvoiceDocumentType.QUOTE && offer
               ? {
@@ -665,8 +727,8 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
                   ...(d.lines.length > 0 && (offer === "NONE" || d.depositBaseCents !== null)
                     ? {
                         subscriptionBilling: {
-                          interval: d.lines.some((l) => l.billingInterval === "YEAR") ? "YEAR" : "MONTH",
-                          startsAt: offer === "NONE" ? "SIGNATURE" : "DELIVERY",
+                          interval: recurringOf(d)?.period ?? (d.lines.some((l) => l.billingInterval === "YEAR") ? "YEAR" : "MONTH"),
+                          startsAt: recurringOf(d)?.startsAt ?? (offer === "NONE" ? "SIGNATURE" : "DELIVERY"),
                           // Prélèvement Stripe : la 1re échéance est prélevée à sa mise en place. Sinon, facture.
                           directDebit: settings.moduleStripeEnabled,
                           ...(showAmounts ? { amountCents: d.lines.reduce((s, l) => s + l.unitPriceCents, 0) } : {}),
@@ -675,9 +737,10 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
                         // « Espace client ») : départ de la facturation et mois offerts comptés depuis ce départ.
                         subscriptionLines: d.lines.map((l) => ({
                           label: l.description,
-                          interval: l.billingInterval === "YEAR" ? "YEAR" : "MONTH",
+                          interval: normalizeInterval(l.billingInterval),
                           ...(showAmounts ? { amountCents: l.unitPriceCents } : {}),
-                          ...publicStart(l, offer !== "NONE"),
+                          // Mode récurrent : le départ choisi fait foi (pas de projet hors « à la livraison »).
+                          ...publicStart(l, recurringOf(d) ? l.subscriptionStart === "DELIVERY" : offer !== "NONE"),
                         })),
                         ...(offer !== "NONE" && showAmounts ? { oneOffTotalCents: depositBaseOf(d) } : {}),
                       }
@@ -719,7 +782,9 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
         subscriptions: subscriptions.map((s) => ({
           label: s.label,
           billingDay: s.billingDay,
-          billingInterval: s.billingInterval === "YEAR" ? "YEAR" : "MONTH",
+          billingInterval: normalizeInterval(s.billingInterval),
+          // Contrat F5 : durée d'engagement (null = sans engagement).
+          commitmentMonths: s.commitmentMonths ?? null,
           nextInvoiceAt: s.nextInvoiceAt,
           ...(showAmounts ? { amountCents: s.amountCents } : {}),
           // Moyen enregistré dans Stripe (ajout du 19/10/2026) : type et 4 derniers chiffres seulement.
@@ -780,12 +845,7 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
       if (!isStripeManaged(sub)) {
         return reply.code(409).send({ error: "Cet abonnement n'est pas prélevé en ligne : utilisez « Demander la résiliation »." });
       }
-      // Engagement en cours : pas de gestion (ni résiliation) dans le portail Stripe, la demande passe par l'admin.
-      if (isUnderCommitment(sub)) {
-        return reply.code(409).send({
-          error: `Cet abonnement est engagé jusqu'au ${formatLongDate(sub.commitmentEndsAt!)} : utilisez « Demander la résiliation ».`,
-        });
-      }
+      // Abonnement engagé : portail sans résiliation (createSubscriptionPortalUrl), la non-reconduction se demande ici.
       try {
         const { createSubscriptionPortalUrl } = await import("@/lib/stripe/portal.js");
         return { url: await createSubscriptionPortalUrl(sub.id) };

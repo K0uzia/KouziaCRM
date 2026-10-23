@@ -14,7 +14,7 @@ vi.mock("@/lib/email/mailer/index.js", () => ({
 }));
 
 import { mailEnqueue } from "@/lib/email/mailer/index.js";
-import { sendDueFirstChargeNotices, sendDueRenewalReminders } from "@/lib/subscriptions/renewal-reminder.js";
+import { sendDueFirstChargeNotices, sendDueRenewalReminders, sendDueTermEndReminders } from "@/lib/subscriptions/renewal-reminder.js";
 import { portalSubscriptionFields } from "@/lib/subscriptions/self-service.js";
 
 beforeEach(async () => {
@@ -160,5 +160,54 @@ describe("1re échéance différée (ex. une année offerte)", () => {
     await subscription({ billed: false, startDate: new Date(2026, 11, 20) });
     await subscription();
     expect(await sendDueFirstChargeNotices(new Date(2026, 11, 2))).toBe(0);
+  });
+});
+
+describe("abonnement engagé : rappel avant la date limite de préavis (décision du 23/10/2026)", () => {
+  async function engaged(billingInterval: string, commitmentEndsAt: Date) {
+    const sub = await subscription({ billingInterval, startDate: new Date(2026, 0, 1), nextInvoiceAt: new Date(2026, 11, 1) });
+    return prisma.subscription.update({ where: { id: sub.id }, data: { commitmentMonths: 12, commitmentEndsAt, amountCents: 25_000 } });
+  }
+
+  it("tout rythme de paiement : une fois, 45 jours avant la date limite (un mois avant la fin de l'engagement)", async () => {
+    const sub = await engaged("MONTH", new Date(2027, 0, 1));
+    // Fin le 1er janvier 2027, date limite le 1er décembre 2026 : envoi à partir du 17 octobre.
+    expect(await sendDueTermEndReminders(new Date(2026, 9, 10))).toBe(0);
+    expect(await sendDueTermEndReminders(new Date(2026, 9, 20))).toBe(1);
+    expect(await sendDueTermEndReminders(new Date(2026, 10, 1))).toBe(0);
+    const call = vi.mocked(mailEnqueue).mock.calls[0]![0];
+    expect(call.subject).toBe("Votre abonnement « Maintenance annuelle » : fin d'engagement le 1er janvier 2027");
+    expect(call.text).toContain("Date limite pour demander la non-reconduction : 1er décembre 2026");
+    expect((call.text ?? "").replace(/[  ]/g, " ")).toContain("reconduit pour un an au prix en vigueur (actuellement 250,00 € par mois)");
+    expect(call.kind).toBe("subscription_term_end");
+    expect((await prisma.subscription.findUniqueOrThrow({ where: { id: sub.id } })).renewalReminderSentFor).toEqual(new Date(2027, 0, 1));
+    // Pas d'information annuelle ordinaire en plus.
+    expect(await sendDueRenewalReminders(new Date(2026, 10, 20))).toBe(0);
+  });
+
+  it("année reconduite : rappel de l'échéance suivante ; rien après une demande de non-reconduction", async () => {
+    const sub = await engaged("QUARTER", new Date(2026, 0, 1));
+    expect(await sendDueTermEndReminders(new Date(2026, 9, 20))).toBe(1);
+    expect(vi.mocked(mailEnqueue).mock.calls[0]![0].subject).toBe("Votre abonnement « Maintenance annuelle » : reconduction le 1er janvier 2027");
+    await prisma.subscription.update({ where: { id: sub.id }, data: { cancellationRequestedAt: new Date(2026, 9, 21) } });
+    expect(await sendDueTermEndReminders(new Date(2027, 9, 20))).toBe(0);
+  });
+
+  it("champs de /suivi : période en cours, date limite, effet d'une demande après la date limite", () => {
+    const base = {
+      status: "ACTIVE" as const, collectionMethod: "STRIPE" as const, stripeSubscriptionId: "sub_x", stripeStatus: "active",
+      stripeCancelAt: null, endDate: null, cancellationRequestedAt: null, billingInterval: "MONTH",
+      startDate: new Date(2026, 0, 1), nextInvoiceAt: new Date(2026, 11, 1), commitmentEndsAt: new Date(2027, 0, 1),
+    };
+    expect(portalSubscriptionFields(base, 1, new Date(2026, 11, 1, 12))).toMatchObject({
+      manage: "REQUEST",
+      currentTermEndsAt: new Date(2027, 0, 1).toISOString(),
+      cancelDeadline: new Date(2026, 11, 1).toISOString(),
+      nonRenewalEffectiveAt: new Date(2027, 0, 1).toISOString(),
+    });
+    expect(portalSubscriptionFields(base, 1, new Date(2026, 11, 2))).toMatchObject({
+      currentTermEndsAt: new Date(2027, 0, 1).toISOString(),
+      nonRenewalEffectiveAt: new Date(2028, 0, 1).toISOString(),
+    });
   });
 });

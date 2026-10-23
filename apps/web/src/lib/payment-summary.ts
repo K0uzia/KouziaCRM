@@ -23,12 +23,12 @@ export type Period = "MONTH" | "QUARTER" | "YEAR";
  * Devis avec mode de facturation (24/10/2026), comme l'API (lib/quotes/payment-plans.ts) : parts égales arrondies au
  * centime, le reste sur la dernière ; la 1re due à la signature, puis tous les intervalDays.
  */
-export function equalInstallments(plan: "ONE" | "TWO" | "THREE", totalCents: number, intervalDays: number, recurring = false): Installment[] {
+export function equalInstallments(plan: "ONE" | "TWO" | "THREE", totalCents: number, intervalDays: number): Installment[] {
   const n = plan === "ONE" ? 1 : plan === "TWO" ? 2 : 3;
   const part = Math.round(totalCents / n);
   const share = Math.floor(10000 / n);
   return Array.from({ length: n }, (_, i) => ({
-    label: n === 1 ? (recurring ? "Frais de mise en service" : "Paiement comptant") : `${i === 0 ? "1re" : `${i + 1}e`} échéance`,
+    label: n === 1 ? "Paiement comptant" : `${i === 0 ? "1re" : `${i + 1}e`} échéance`,
     percentBps: i === n - 1 ? 10000 - share * (n - 1) : share,
     amountCents: i === n - 1 ? totalCents - part * (n - 1) : part,
     when: i === 0 ? "à la signature" : `${i * intervalDays} jours après la signature`,

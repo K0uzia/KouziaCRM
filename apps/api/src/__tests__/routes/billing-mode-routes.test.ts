@@ -30,7 +30,7 @@ const call = (method: "GET" | "POST" | "PUT", url: string, payload?: unknown) =>
   app.inject({ method, url, payload: payload as never, headers: { cookie } });
 
 describe("devis avec mode de facturation (API)", () => {
-  it("création : mode enregistré, récurrent → frais en une fois ; lignes incohérentes refusées en 400", async () => {
+  it("création : mode enregistré, récurrent sans échéancier ; frais de mise en service et lignes incohérentes refusés en 400", async () => {
     const client = await createClient({ displayName: "Client Mode" });
     const svc = await createService({ name: "Site tout compris", unitPriceCents: 150000 });
     const sub = { description: "Site tout compris", quantity: 1, unitPriceEuros: 375, isSubscription: true, billingInterval: "QUARTER", billingDay: 1, serviceId: svc.id, commitmentMonths: 36 };
@@ -38,10 +38,24 @@ describe("devis avec mode de facturation (API)", () => {
       clientId: client.id,
       documentType: "QUOTE",
       billingMode: "RECURRING",
-      lines: [{ description: "Mise en service", quantity: 1, unitPriceEuros: 500 }, sub],
+      lines: [sub],
     });
     expect(ok.statusCode).toBe(201);
-    expect(await prisma.invoice.findUniqueOrThrow({ where: { id: ok.json().id } })).toMatchObject({ billingMode: "RECURRING", paymentPlanOffer: "ONE" });
+    expect(await prisma.invoice.findUniqueOrThrow({ where: { id: ok.json().id } })).toMatchObject({ billingMode: "RECURRING", paymentPlanOffer: "NONE" });
+
+    // Décision du 23/10/2026 : le prix annuel comprend toute la prestation, pas de frais de mise en service.
+    const withFees = await call("POST", "/api/invoices", {
+      clientId: client.id,
+      documentType: "QUOTE",
+      billingMode: "RECURRING",
+      lines: [{ description: "Mise en service", quantity: 1, unitPriceEuros: 500 }, sub],
+    });
+    expect(withFees.statusCode).toBe(400);
+    expect(withFees.json().error).toBe(
+      "Paiement récurrent : le prix annuel comprend toute la prestation, sans frais de mise en service. Retirez les lignes ponctuelles, ou passez le devis en paiement unique.",
+    );
+    const feesAdded = await call("PUT", `/api/invoices/${ok.json().id}`, { lines: [{ description: "Mise en service", quantity: 1, unitPriceEuros: 500 }, sub] });
+    expect(feesAdded.statusCode).toBe(400);
 
     const oneOffWithSub = await call("POST", "/api/invoices", { clientId: client.id, documentType: "QUOTE", billingMode: "ONE_OFF", lines: [sub] });
     expect(oneOffWithSub.statusCode).toBe(400);

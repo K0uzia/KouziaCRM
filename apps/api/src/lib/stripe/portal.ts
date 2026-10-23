@@ -42,6 +42,46 @@ export async function subscriptionCardUpdateUrl(sub: { id: string }): Promise<st
   return `${publicApiBaseUrl()}/api/public/card/${await publicTokenOf(sub.id)}`;
 }
 
+/** Repère de la configuration de portail créée par l'ERP pour les abonnements engagés. */
+export const NO_CANCEL_PORTAL_METADATA = { kouzia_erp: "abonnement-engage" } as const;
+let noCancelConfigId: string | null = null;
+
+/**
+ * Configuration du portail sans résiliation (décision du 23/10/2026) : moyen de paiement et factures seulement.
+ * La configuration par défaut du compte Stripe se règle dans le tableau de bord et peut permettre la résiliation :
+ * elle n'est jamais utilisée pour un abonnement engagé. Retrouvée par sa métadonnée, créée au premier besoin.
+ */
+export async function noCancelPortalConfiguration(stripe: Stripe): Promise<string> {
+  if (noCancelConfigId) return noCancelConfigId;
+  const existing = await stripe.billingPortal.configurations.list({ active: true, limit: 100 });
+  const found = existing.data.find(
+    (c) => c.metadata?.kouzia_erp === NO_CANCEL_PORTAL_METADATA.kouzia_erp && !c.features.subscription_cancel.enabled,
+  );
+  const config =
+    found ??
+    (await stripe.billingPortal.configurations.create(
+      {
+        name: "ERP Kouzia : abonnement engagé",
+        metadata: { ...NO_CANCEL_PORTAL_METADATA },
+        features: {
+          payment_method_update: { enabled: true },
+          invoice_history: { enabled: true },
+          subscription_cancel: { enabled: false },
+          subscription_update: { enabled: false },
+          customer_update: { enabled: false },
+        },
+      },
+      { idempotencyKey: "kouzia-portal-config-abonnement-engage-v1" },
+    ));
+  noCancelConfigId = config.id;
+  return config.id;
+}
+
+/** Tests : oublie la configuration retenue. */
+export function resetNoCancelPortalConfiguration() {
+  noCancelConfigId = null;
+}
+
 function customerIdOf(stripeSub: Stripe.Subscription): string {
   return typeof stripeSub.customer === "string" ? stripeSub.customer : stripeSub.customer.id;
 }
@@ -79,6 +119,8 @@ export async function createSubscriptionPortalUrl(
   const params: Stripe.BillingPortal.SessionCreateParams = {
     customer: customerIdOf(stripeSub),
     return_url: await resolveClientPortalUrl(),
+    // Abonnement engagé : portail sans résiliation ni changement d'offre (la résiliation se demande depuis /suivi).
+    ...(sub.commitmentEndsAt ? { configuration: await noCancelPortalConfiguration(stripe) } : {}),
     ...(late ? { flow_data: { type: "payment_method_update" as const } } : {}),
   };
   // Lien rouvert le même jour (client ou analyse de messagerie) : même session de portail.
