@@ -164,7 +164,7 @@ export async function requestSubscriptionCancellation(subscriptionId: string, no
       clientId: sub.clientId,
       kind: "subscription_cancel_request",
       bodyTextForMessage: text,
-    });
+    }, { review: { family: "cancellation_ack", origin: "CLIENT_ACTION", clientWaiting: true } });
   } else {
     console.warn(`[subscriptions] accusé de résiliation non envoyé : client sans e-mail (${sub.id})`);
   }

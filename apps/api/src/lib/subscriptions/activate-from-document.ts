@@ -369,7 +369,7 @@ export async function notifyStripeSubscriptionSetup(
     });
     if (claimed.count !== 1) continue;
     try {
-      await sendSubscriptionSetupEmail(id);
+      await sendSubscriptionSetupEmail(id, { family: "payment_link", origin: "CLIENT_ACTION", clientWaiting: true });
     } catch (err) {
       await prisma.subscription.update({ where: { id }, data: { setupLinkSentAt: null } });
       console.error("[subscriptions] envoi lien prélèvement Stripe", err);

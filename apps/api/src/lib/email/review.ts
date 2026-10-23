@@ -149,15 +149,33 @@ export async function approveReviewEmail(id: string, edits: { subject?: string; 
     data: { status: EmailOutboxStatus.PENDING, scheduledAt: now, reviewedAt: now, payloadEncrypted: encrypt(serializePayload(p)) },
   });
   if (claimed.count === 0) throw new ReviewError("Cet e-mail n'est plus en attente de validation.", 409);
+  await resumeReminder(p.reminderInvoiceId, now);
+}
+
+/**
+ * Relance validée : même état qu'une relance mise en file sans validation (délai d'une heure, puis l'envoi programme la
+ * suivante). Sans cela, nextReminderAt resterait nul (posé à la mise en attente) et plus aucune relance ne partirait.
+ */
+async function resumeReminder(invoiceId: string | undefined, now: Date) {
+  if (!invoiceId) return;
+  const { markReminderQueued } = await import("@/lib/reminders.js");
+  await markReminderQueued(invoiceId, now);
 }
 
 /** Valide plusieurs e-mails tels quels ; renvoie le nombre réellement validés (ceux déjà traités sont ignorés). */
 export async function approveReviewEmails(ids: string[], now = new Date()): Promise<number> {
-  const res = await prisma.emailOutbox.updateMany({
-    where: { id: { in: ids }, status: EmailOutboxStatus.REVIEW },
-    data: { status: EmailOutboxStatus.PENDING, scheduledAt: now, reviewedAt: now },
-  });
-  return res.count;
+  const rows = await prisma.emailOutbox.findMany({ where: { id: { in: ids }, status: EmailOutboxStatus.REVIEW } });
+  let approved = 0;
+  for (const row of rows) {
+    const claimed = await prisma.emailOutbox.updateMany({
+      where: { id: row.id, status: EmailOutboxStatus.REVIEW },
+      data: { status: EmailOutboxStatus.PENDING, scheduledAt: now, reviewedAt: now },
+    });
+    if (claimed.count === 0) continue;
+    approved += 1;
+    await resumeReminder(parsePayload(outboxPayloadRaw(row)).reminderInvoiceId, now);
+  }
+  return approved;
 }
 
 /**

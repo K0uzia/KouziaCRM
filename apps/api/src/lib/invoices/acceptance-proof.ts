@@ -136,6 +136,7 @@ export async function recordQuoteAcceptanceProof(
       subject: "Devis {{numero}} signé : confirmation",
       text,
       threadId: audit.threadId ?? undefined,
+      review: { family: "signature_confirmation", origin: "CLIENT_ACTION", clientWaiting: true },
     });
   } catch (err) {
     console.error(`[quote] preuve d'acceptation impossible pour ${quoteId}`, err);

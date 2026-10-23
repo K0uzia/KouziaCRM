@@ -1,6 +1,7 @@
 import type { CompanySettings } from "@prisma/client";
 import type Stripe from "stripe";
 import { prisma } from "@/lib/prisma.js";
+import type { EmailOrigin } from "@/lib/email/review.js";
 import { getCompanySettings } from "@/lib/company.js";
 import { decryptOptional } from "@/lib/crypto.js";
 import { formatEUR, formatLongDate } from "@/lib/money.js";
@@ -166,7 +167,7 @@ async function send(
     documentId,
     kind,
     bodyTextForMessage: content.text,
-  });
+  }, { review: { family: "payment_issue", origin: (kind === "subscription_action_reminder" ? "WORKER" : "WEBHOOK") satisfies EmailOrigin } });
   return true;
 }
 

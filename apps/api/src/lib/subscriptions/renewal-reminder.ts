@@ -187,7 +187,7 @@ export async function sendDueRenewalReminders(now: Date = new Date()): Promise<n
       clientId: sub.clientId,
       kind: "subscription_renewal",
       bodyTextForMessage: content.text,
-    });
+    }, { review: { family: "subscription_notice", origin: "WORKER" } });
     await prisma.subscription.update({
       where: { id: sub.id },
       data: { renewalReminderSentFor: sub.nextInvoiceAt },
@@ -303,7 +303,7 @@ export async function sendDueTermEndReminders(now: Date = new Date()): Promise<n
       clientId: sub.clientId,
       kind: "subscription_term_end",
       bodyTextForMessage: content.text,
-    });
+    }, { review: { family: "subscription_notice", origin: "WORKER" } });
     await prisma.subscription.update({ where: { id: sub.id }, data: { renewalReminderSentFor: term.termEndsAt } });
     queued += 1;
   }
@@ -413,7 +413,7 @@ export async function sendDueFirstChargeNotices(now: Date = new Date()): Promise
       clientId: sub.clientId,
       kind: "subscription_first_charge",
       bodyTextForMessage: content.text,
-    });
+    }, { review: { family: "subscription_notice", origin: "WORKER" } });
     await prisma.subscription.update({ where: { id: sub.id }, data: { renewalReminderSentFor: sub.nextInvoiceAt } });
     queued += 1;
   }

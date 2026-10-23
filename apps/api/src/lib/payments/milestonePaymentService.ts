@@ -26,6 +26,7 @@ import {
   type MilestoneTemplate,
 } from "@/lib/quotes/milestones.js";
 import { prisma } from "@/lib/prisma.js";
+import type { ReviewOptions } from "@/lib/email/review.js";
 import {
   initialPlan,
   milestoneAmounts,
@@ -140,7 +141,7 @@ function computeMilestoneDueDate(
 
 export async function activateMilestoneCheckout(
   milestoneId: string,
-  opts: { sendEmail?: boolean } = {},
+  opts: { sendEmail?: boolean; review?: ReviewOptions } = {},
 ) {
   const milestone = await prisma.paymentMilestone.findUniqueOrThrow({
     where: { id: milestoneId },
@@ -225,7 +226,7 @@ export async function activateMilestoneCheckout(
       documentNumber: quoteRef,
       kind: "deposit_checkout",
       bodyTextForMessage: content.text,
-    });
+    }, { review: opts.review ?? { family: "payment_link", origin: "ADMIN_ACTION" } });
   }
 
   return updated;
@@ -401,7 +402,7 @@ export async function onQuoteAcceptedByClient(quoteId: string) {
     // Sans Stripe, le jalon reste « À payer » : lien collé à la main ou virement.
     if (settings.moduleStripeEnabled) {
       try {
-        await activateMilestoneCheckout(first.id, { sendEmail: true });
+        await activateMilestoneCheckout(first.id, { sendEmail: true, review: { family: "payment_link", origin: "CLIENT_ACTION", clientWaiting: true } });
       } catch (err) {
         console.error("[milestone] activation acompte après validation devis", err);
       }
@@ -431,7 +432,7 @@ export async function activateDueMilestoneCheckouts(): Promise<number> {
   let activated = 0;
   for (const m of due) {
     try {
-      await activateMilestoneCheckout(m.id, { sendEmail: true });
+      await activateMilestoneCheckout(m.id, { sendEmail: true, review: { family: "payment_link", origin: "WORKER" } });
       activated++;
     } catch (err) {
       console.error(`[milestone] activate checkout ${m.id}`, err);
@@ -540,9 +541,11 @@ export async function notifyDepositPaid(
   const clientEmail = decryptOptional(milestone.quote.client.emailEncrypted);
   const quoteRef = milestone.quote.number ?? "";
 
+  // Paiement en ligne : webhook Stripe ; paiement noté à la main : suite à l'action de l'admin.
+  const receiptReview: ReviewOptions = { family: "payment_receipt", origin: opts.online ? "WEBHOOK" : "ADMIN_ACTION" };
   if (opts.notifyClient !== false && clientEmail && milestone.invoiceId) {
     const { sendPaymentReceipt } = await import("@/lib/email/payment-receipt.js");
-    await sendPaymentReceipt(milestone.invoiceId, milestone.amountCents);
+    await sendPaymentReceipt(milestone.invoiceId, milestone.amountCents, undefined, { review: receiptReview });
   } else if (opts.notifyClient !== false && clientEmail) {
     const content = renderDepositPaidEmail({
       brand,
@@ -563,7 +566,7 @@ export async function notifyDepositPaid(
       documentNumber: quoteRef,
       kind: "payment_received",
       bodyTextForMessage: content.text,
-    });
+    }, { review: receiptReview });
   }
 
   // Paiement saisi à la main : l'administrateur le sait déjà.

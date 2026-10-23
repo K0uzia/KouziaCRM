@@ -140,7 +140,7 @@ export async function sendDueClientRenewalNotices(now: Date = new Date()): Promi
       continue;
     }
     const content = renderClientRenewalEmail({ brand, settings, clientName: r.client.displayName, clientFirstName: r.client.firstName, renewal: r });
-    await mailEnqueue({ to, subject: content.subject, text: content.text, html: content.html, clientId: r.clientId, kind: "client_renewal", bodyTextForMessage: content.text });
+    await mailEnqueue({ to, subject: content.subject, text: content.text, html: content.html, clientId: r.clientId, kind: "client_renewal", bodyTextForMessage: content.text }, { review: { family: "subscription_notice", origin: "WORKER" } });
     await prisma.clientRenewal.update({ where: { id: r.id }, data: { noticeSentFor: r.renewsAt } });
     queued += 1;
   }

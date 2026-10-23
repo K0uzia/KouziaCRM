@@ -87,7 +87,7 @@ export async function notifyMilestonePaymentFailed(pi: Stripe.PaymentIntent, was
     text: lines.join("\n"),
     clientId: client.id,
     kind: "payment_failed",
-  });
+  }, { review: { family: "payment_issue", origin: "WEBHOOK" } });
   return "échec signalé";
 }
 
@@ -131,7 +131,7 @@ export async function notifyInvoicePaymentFailed(pi: Stripe.PaymentIntent): Prom
       text: lines.join("\n"),
       clientId: invoice.clientId,
       kind: "payment_failed",
-    });
+    }, { review: { family: "payment_issue", origin: "WEBHOOK" } });
   }
   return "échec signalé";
 }
