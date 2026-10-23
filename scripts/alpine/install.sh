@@ -96,6 +96,8 @@ if [[ "$NODE_MAJOR" -lt "$KOUZIA_NODE_MIN" ]]; then
   [[ "$NODE_MAJOR" -ge "$KOUZIA_NODE_MIN" ]] || die "Node.js toujours < $KOUZIA_NODE_MIN après nodejs-current."
 fi
 ok "Node $(node -v) / npm $(npm -v)"
+# Correctif de sécurité de Node (CVE-2026-111497) : signalé, jamais bloquant (paquets à jour : apk upgrade ci-dessus).
+node_security_report
 
 # --- Utilisateur dédié ---
 if ! id -u "$KOUZIA_USER" >/dev/null 2>&1; then

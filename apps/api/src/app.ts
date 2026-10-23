@@ -45,6 +45,7 @@ import { ensureDefaultLegalClauses } from "@/lib/company/legal-clauses.js";
 import { withOfflineOrigin } from "@/lib/spa-index.js";
 import { API_CONTRACT, BUILD_HEADER, CONTRACT_HEADER } from "@/lib/api-contract.js";
 import { intlDataStatus } from "@/lib/format-fr.js";
+import { installNoBrotliFetch } from "@/lib/http/no-brotli-fetch.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -73,6 +74,8 @@ export type BuildAppOptions = {
 };
 
 export async function buildApp(opts: BuildAppOptions = {}): Promise<FastifyInstance> {
+  // Réponses des services extérieurs jamais demandées en Brotli (CVE-2026-111497).
+  installNoBrotliFetch();
   const trustedProxies = getTrustedProxies();
   const app = Fastify({
     logger: opts.silent
@@ -110,6 +113,9 @@ export async function buildApp(opts: BuildAppOptions = {}): Promise<FastifyInsta
   // modérée : le CT a peu de processeur et les réponses sont recompressées à chaque envoi.
   await app.register(compress, {
     encodings: ["br", "gzip"],
+    // Corps de requête : jamais décompressés en Brotli (CVE-2026-111497, décodeur Brotli de Node, 21/10/2026) ;
+    // Content-Encoding br reçoit 415. La compression Brotli des réponses n'utilise pas le décodeur.
+    requestEncodings: ["gzip", "deflate"],
     threshold: 1024,
     brotliOptions: { params: { [zlibConstants.BROTLI_PARAM_QUALITY]: 4 } },
   });

@@ -63,6 +63,92 @@ require_node_min() {
   fi
 }
 
+# --- Node : correctif de sécurité CVE-2026-111497 (décodeur Brotli, correctifs Node.js du 21/10/2026) ---
+# Versions corrigées : 22.23.4, 24.22.1, 26.12.1. Branches 23 et 25, et 20 ou plus ancienne : plus corrigées.
+# Node vient d'apk seulement (décision du 24/10/2026 : pas de binaire téléchargé hors apk) : kouziactl update met les
+# paquets à jour à chaque passage, et status signale en rouge un Node encore vulnérable.
+KOUZIA_NODE_PATCHED="22.23.4, 24.22.1 ou 26.12.1"
+
+# État d'un binaire Node : ok | vulnerable | eol (branche sans correctif) | absent.
+node_state_of() {
+  local bin="${1:-node}"
+  command -v "$bin" >/dev/null 2>&1 || { echo absent; return 0; }
+  "$bin" -e '
+const [a, b, c] = process.versions.node.split(".").map(Number);
+const fixed = { 22: [23, 4], 24: [22, 1], 26: [12, 1] };
+if (a > 26) { console.log("ok"); process.exit(0); }
+const f = fixed[a];
+if (!f) { console.log("eol"); process.exit(0); }
+console.log(b > f[0] || (b === f[0] && c >= f[1]) ? "ok" : "vulnerable");
+' 2>/dev/null || echo absent
+}
+node_security_state() { node_state_of node; }
+
+# Ligne « Node » de kouziactl status : chemin, version, et état en rouge s'il n'est pas corrigé.
+node_security_line() {
+  local bin version
+  bin="$(command -v node 2>/dev/null || echo absent)"
+  version="$(node -v 2>/dev/null || echo absent)"
+  case "$(node_security_state)" in
+    ok) echo "  Node     : ${bin} ${version} ${C_GREEN}(corrigé, CVE-2026-111497)${C_RESET}" ;;
+    vulnerable) echo "  Node     : ${C_RED}${bin} ${version} VULNÉRABLE (CVE-2026-111497, Brotli) : ${KOUZIA_NODE_PATCHED} au moins, attendre le paquet apk puis kouziactl update${C_RESET}" ;;
+    eol) echo "  Node     : ${C_RED}${bin} ${version} SANS CORRECTIF (branche plus maintenue) : passer à ${KOUZIA_NODE_PATCHED}${C_RESET}" ;;
+    *) echo "  Node     : ${C_RED}absent${C_RESET}" ;;
+  esac
+}
+
+# Après la mise à jour des paquets : Node corrigé ou non, sans jamais bloquer le service.
+node_security_report() {
+  case "$(node_security_state)" in
+    ok) ok "Node $(node -v) corrigé (CVE-2026-111497)." ;;
+    *)
+      warn "Node $(node -v 2>/dev/null || echo absent) n'est pas corrigé (CVE-2026-111497, décodeur Brotli) : il faut ${KOUZIA_NODE_PATCHED} au moins."
+      warn "  Le service continue. Alpine ne publie pas encore la version corrigée pour cette branche."
+      warn "  L'API refuse déjà tout corps compressé en Brotli et n'en demande pas aux services extérieurs."
+      warn "  À faire : relancer kouziactl update quand le paquet nodejs corrigé paraît (pkgs.alpinelinux.org), puis kouziactl status."
+      ;;
+  esac
+}
+
+# Paquets Alpine à jour dans la branche installée (jamais de changement de version d'Alpine). Journal :
+# ${KOUZIA_OPS_LOG_DIR}/system-upgrade.log. Démons touchés (binaire ou bibliothèque remplacé) redémarrés.
+system_upgrade() {
+  command -v apk >/dev/null 2>&1 || return 0
+  local out rc=0 svc proc pid exe
+  local journal="${KOUZIA_OPS_LOG_DIR}/system-upgrade.log"
+  log "Paquets Alpine (branche $(cat /etc/alpine-release 2>/dev/null || echo '?'), sans changement de version)…"
+  grep -qE '/edge/' /etc/apk/repositories 2>/dev/null && warn "/etc/apk/repositories contient edge : paquets de la branche de développement."
+  apk update >/dev/null 2>&1 || warn "apk update a échoué (réseau ?) : index des paquets peut-être ancien."
+  out="$(apk upgrade --no-cache 2>&1)" || rc=$?
+  { echo "=== $(date '+%F %T') apk upgrade (code ${rc}) ==="; echo "$out"; } >> "$journal"
+  if [[ "$rc" -ne 0 ]]; then
+    warn "apk upgrade a échoué (code ${rc}) : détail dans ${journal}. La mise à jour de l'ERP continue."
+    return 0
+  fi
+  if grep -qE '^\([0-9]+/[0-9]+\) (Upgrading|Installing|Replacing)' <<<"$out"; then
+    ok "Paquets mis à jour (liste complète dans ${journal}) :"
+    grep -E '^\([0-9]+/[0-9]+\) (Upgrading|Installing|Replacing)' <<<"$out" | sed 's/^/    /'
+  else
+    ok "Paquets Alpine déjà à jour."
+  fi
+  # Démons dont le binaire ou une bibliothèque vient d'être remplacé : redémarrés (l'app et le worker le sont ensuite).
+  # cloudflared vient de GitHub (/usr/local/bin), pas d'apk : redémarré seulement si une bibliothèque a changé.
+  for svc in cloudflared tailscale; do
+    service_exists "$svc" || continue
+    rc-service "$svc" status >/dev/null 2>&1 || continue
+    proc="$svc"
+    [[ "$svc" == "tailscale" ]] && proc="tailscaled"
+    pid="$(pgrep -o -x "$proc" 2>/dev/null || true)"
+    [[ -n "$pid" ]] || continue
+    exe="$(readlink "/proc/${pid}/exe" 2>/dev/null || true)"
+    if [[ "$exe" == *"(deleted)"* ]] || grep -q " (deleted)" "/proc/${pid}/maps" 2>/dev/null; then
+      [[ "$svc" == "tailscale" ]] && warn "Redémarrage de tailscale : une session SSH par Tailscale peut se couper quelques secondes."
+      log "Redémarrage de ${svc} (fichiers remplacés par apk)…"
+      rc-service "$svc" restart || warn "${svc} ne redémarre pas : rc-service ${svc} status"
+    fi
+  done
+}
+
 require_root() {
   [[ "$(id -u)" -eq 0 ]] || die "Exécuter en root (sudo)."
 }
