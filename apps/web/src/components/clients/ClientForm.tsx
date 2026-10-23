@@ -24,6 +24,7 @@ import { offlineEnabled } from "@/lib/offline/config";
 import { submitCreation, useRequestId, type QueueItem } from "@/lib/offline/queue";
 import { useReadOnly } from "@/lib/offline/read-only";
 import { addressChanged } from "@/lib/address-compare";
+import { VerifyEmailDialog } from "@/components/messaging/VerifyEmailDialog";
 
 export type Client = {
   id: string;
@@ -235,6 +236,8 @@ export function ClientFormEditor({
   const [addressError, setAddressError] = useState<string | null>(null);
   // Création seulement : envoi de l'accès à l'espace client, coché par défaut.
   const [sendPortalAccess, setSendPortalAccess] = useState(true);
+  // Client tout juste créé dont l'e-mail d'accès est à vérifier avant envoi.
+  const [accessFor, setAccessFor] = useState<Client | null>(null);
   // Création seulement : besoins notés en rendez-vous (sur la fiche, bloc « Besoins » dédié).
   const [needs, setNeeds] = useState<ClientNeeds>({ services: [], details: "" });
   const needsPayload = { serviceNeeds: needs.services.map((n) => n.serviceId), needsDetails: needs.details };
@@ -308,7 +311,8 @@ export function ClientFormEditor({
             addressLon: form.addressLon,
             addressManualConfirmed: form.addressManualConfirmed,
             billingDay: form.billingDay ? Number(form.billingDay) : null,
-            ...(clientId ? {} : { sendPortalAccess: sendPortalAccess && Boolean(form.email), ...needsPayload }),
+            // Accès à l'espace client : jamais envoyé d'office à la création, relu dans « Vérifier l'e-mail » juste après.
+            ...(clientId ? {} : { sendPortalAccess: false, ...needsPayload }),
           };
       type Saved = Client & { portalAccess?: { sent: boolean; reason?: string } | null };
       let client: Saved;
@@ -330,15 +334,11 @@ export function ClientFormEditor({
         });
       }
       if (!clientId) {
-        const access = client.portalAccess;
-        if (access?.sent) {
-          toast.success(`Client créé (${client.clientNumber}). Accès à l'espace client envoyé par e-mail.`);
-        } else if (access?.reason === "smtp_off") {
-          toast.warning(`Client créé (${client.clientNumber}). SMTP non configuré : accès non envoyé.`);
-        } else if (access) {
-          toast.warning(`Client créé (${client.clientNumber}). L'e-mail d'accès n'a pas pu partir.`);
-        } else {
-          toast.success(`Client créé (${client.clientNumber}).`);
+        toast.success(`Client créé (${client.clientNumber}).`);
+        if (sendPortalAccess && form.email) {
+          // La fiche se ferme une fois l'e-mail d'accès envoyé ou écarté.
+          setAccessFor(client);
+          return;
         }
       } else {
         toast.success("Client mis à jour");
@@ -352,6 +352,7 @@ export function ClientFormEditor({
   }
 
   return (
+    <>
     <form onSubmit={onSubmit} className="space-y-5">
       {minimal ? (
         <p role="note" data-offline-form className="rounded-[var(--radius-sm)] border border-[var(--warning)]/40 bg-[var(--warning-soft)] px-3 py-2 text-sm text-[var(--text)]">
@@ -517,7 +518,7 @@ export function ClientFormEditor({
             Envoyer l&apos;accès à l&apos;espace client
             <span className="block text-xs text-[var(--muted)]">
               {form.email
-                ? "Un e-mail donne le lien de l'espace client et explique la connexion par code."
+                ? "Un e-mail donne le lien de l'espace client et explique la connexion par code. Vous le relisez avant l'envoi."
                 : "Renseignez une adresse e-mail pour envoyer l'accès."}
             </span>
           </span>
@@ -533,6 +534,35 @@ export function ClientFormEditor({
         </Button>
       </ModalActions>
     </form>
+    {accessFor ? (
+      <VerifyEmailDialog
+        open
+        title="Vérifier l'e-mail : accès à l'espace client"
+        draftUrl={`/api/clients/${accessFor.id}/portal/welcome/draft`}
+        onClose={() => {
+          const created = accessFor;
+          setAccessFor(null);
+          onSuccess(created);
+        }}
+        onSend={async (edits) => {
+          const r = await api<{ sent: boolean; reason?: string }>(`/api/clients/${accessFor.id}/portal/welcome`, {
+            method: "POST",
+            body: JSON.stringify(edits),
+          }).catch((e: unknown) => {
+            toast.error(e instanceof Error ? e.message : "Envoi impossible");
+            return null;
+          });
+          if (!r) return;
+          if (r.sent) toast.success("Accès à l'espace client envoyé par e-mail.");
+          else if (r.reason === "smtp_off") toast.warning("SMTP non configuré : accès non envoyé.");
+          else toast.warning("L'e-mail d'accès n'a pas pu partir.");
+          const created = accessFor;
+          setAccessFor(null);
+          onSuccess(created);
+        }}
+      />
+    ) : null}
+    </>
   );
 }
 

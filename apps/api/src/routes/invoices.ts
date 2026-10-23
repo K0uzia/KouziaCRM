@@ -228,6 +228,9 @@ class PaymentAmountError extends Error {
   }
 }
 
+/** Objet et texte relus dans « Vérifier l'e-mail » (envois sur clic). Absents : texte de l'ERP. */
+const emailEditsSchema = z.object({ subject: z.string().trim().max(300).optional(), text: z.string().trim().max(20000).optional() });
+
 export const invoicesRoutes: FastifyPluginAsync = async (app) => {
   app.get("/api/invoices", async (request, reply) => {
     await requireAuth(request, reply);
@@ -907,6 +910,18 @@ export const invoicesRoutes: FastifyPluginAsync = async (app) => {
     }
   });
 
+  // « Vérifier l'e-mail » : brouillon du renvoi par e-mail (PDF joint), rien n'est envoyé ni préparé.
+  app.get<{ Params: { id: string } }>("/api/invoices/:id/send-email/draft", async (request, reply) => {
+    await requireAuth(request, reply);
+    if (reply.sent) return;
+    const invoice = await prisma.invoice.findUnique({ where: { id: request.params.id }, select: { id: true, number: true, status: true } });
+    if (!invoice) return reply.code(404).send({ error: "Introuvable" });
+    if (!invoice.number || invoice.status === "DRAFT") return reply.code(400).send({ error: "Document non émis" });
+    const res = await sendDocumentPdf(invoice.id, { draft: true });
+    if (!res.draft) return reply.code(409).send({ error: res.reason === "no_email" ? "Ce client n'a pas d'adresse e-mail." : "Brouillon indisponible" });
+    return res.draft;
+  });
+
   app.post<{ Params: { id: string } }>("/api/invoices/:id/send-email", async (request, reply) => {
     await requireAuth(request, reply);
     if (reply.sent) return;
@@ -992,23 +1007,49 @@ export const invoicesRoutes: FastifyPluginAsync = async (app) => {
     },
   );
 
+  /** Relance manuelle telle que l'ERP l'enverrait (« Relancer le client ») : objet, texte, destinataire. */
+  async function manualReminderDraft(invoice: { documentType: InvoiceDocumentType; number: string | null; client: { emailEncrypted: string | null } }) {
+    const label = invoice.documentType === InvoiceDocumentType.QUOTE ? "devis" : "facture";
+    const brand = await brandFromSettings();
+    const signature = formatPlainTextSignature(await getCompanySettings(), brand);
+    return {
+      to: decryptOptional(invoice.client.emailEncrypted),
+      subject: `Relance - ${label} ${invoice.number ?? "brouillon"}`,
+      text: `Bonjour,\n\nSauf erreur de notre part, le ${label} ${invoice.number ?? ""} est en attente.\n\n${signature}`,
+      brand,
+    };
+  }
+
+  // « Vérifier l'e-mail » : brouillon de la relance manuelle, rien n'est envoyé.
+  app.get<{ Params: { id: string } }>("/api/invoices/:id/reminders/draft", async (request, reply) => {
+    await requireAuth(request, reply);
+    if (reply.sent) return;
+    const invoice = await prisma.invoice.findUnique({ where: { id: request.params.id }, include: { client: true } });
+    if (!invoice) return reply.code(404).send({ error: "Introuvable" });
+    const draft = await manualReminderDraft(invoice);
+    if (!draft.to) return reply.code(409).send({ error: "Ce client n'a pas d'adresse e-mail." });
+    return { to: draft.to, subject: draft.subject, text: draft.text, attachments: [] };
+  });
+
   app.post<{ Params: { id: string } }>(
     "/api/invoices/:id/reminders/send",
     async (request, reply) => {
       await requireAuth(request, reply);
       if (reply.sent) return;
+      const edits = emailEditsSchema.safeParse(request.body ?? {});
+      if (!edits.success) return reply.code(400).send({ error: "Objet ou message invalide" });
       const invoice = await prisma.invoice.findUnique({
         where: { id: request.params.id },
         include: { client: true },
       });
       if (!invoice) return reply.code(404).send({ error: "Introuvable" });
 
-      const email = decryptOptional(invoice.client.emailEncrypted);
-      const label = invoice.documentType === InvoiceDocumentType.QUOTE ? "devis" : "facture";
-      const subject = `Relance - ${label} ${invoice.number ?? "brouillon"}`;
-      const brand = await brandFromSettings();
-      const signature = formatPlainTextSignature(await getCompanySettings(), brand);
-      const body = `Bonjour,\n\nSauf erreur de notre part, le ${label} ${invoice.number ?? ""} est en attente.\n\n${signature}`;
+      const draft = await manualReminderDraft(invoice);
+      const email = draft.to;
+      const brand = draft.brand;
+      // Objet et texte relus dans « Vérifier l'e-mail », sinon ceux de l'ERP.
+      const subject = edits.data.subject || draft.subject;
+      const body = edits.data.text || draft.text;
       // Pied légal : ajouté une seule fois à l'envoi (processor) ; le brouillon mailto le reçoit ici.
       const mailtoBody = `${body}\n\n${renderEmailTextFooter(brand)}`;
 
