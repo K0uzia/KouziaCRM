@@ -2,7 +2,7 @@ import { useEffect, useState, type FormEvent } from "react";
 import { toast } from "sonner";
 import { api, formatEUR } from "@/lib/api";
 import { Button } from "@/components/ui/Button";
-import { Field, Input } from "@/components/ui/Field";
+import { DateInput, Field, Input } from "@/components/ui/Field";
 import { Modal, ModalActions } from "@/components/ui/Modal";
 
 export type Withdrawal = { id: string; amountCents: number; date: string; note: string | null };
@@ -101,7 +101,7 @@ export function WithdrawalDialog({
           />
         </Field>
         <Field label="Date" error={errors.date}>
-          <Input type="date" value={date} max={today()} onChange={(e) => setDate(e.target.value)} />
+          <DateInput value={date} max={today()} onChange={(v) => setDate(v)} />
         </Field>
         <Field label="Note (facultatif)" error={errors.note}>
           <Input value={note} maxLength={200} onChange={(e) => setNote(e.target.value)} />

@@ -67,6 +67,10 @@ voudrait reconstruire CompanySettings, Invoice, InvoiceLine, Payment et StripeWe
 dernière existante (`…_090000`), même s'il est déjà « dans le futur » : une date réelle antérieure placerait la
 migration avant d'autres déjà appliquées et Prisma la signalerait hors ordre.
 
+**Calendrier des champs date : `react-day-picker` 10.0.2, version verrouillée** (MIT, maintenu, typé, avec `date-fns`
+et `@date-fns/tz`, MIT) : la grille de dates accessible au clavier (flèches, mois et année, jours hors limites) ne
+s'écrit pas en quelques lignes ; au téléphone, le champ date natif reste utilisé (`DateInput`, décision E5).
+
 ## Formulaire client public (Kouzia)
 
 Flux :

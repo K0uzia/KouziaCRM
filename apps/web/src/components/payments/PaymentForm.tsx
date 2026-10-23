@@ -3,7 +3,7 @@ import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { Button } from "@/components/ui/Button";
 import { ModalActions } from "@/components/ui/Modal";
-import { Field, Input, Select, Textarea } from "@/components/ui/Field";
+import { DateInput, Field, Input, Select, Textarea } from "@/components/ui/Field";
 import { paymentMethodLabel } from "@/lib/format";
 
 export function PaymentForm({
@@ -78,7 +78,7 @@ export function PaymentForm({
           />
         </Field>
         <Field label="Date d’encaissement">
-          <Input type="date" required value={paidAt} onChange={(e) => setPaidAt(e.target.value)} />
+          <DateInput required value={paidAt} onChange={(v) => setPaidAt(v)} />
         </Field>
       </div>
       <Field label="Mode de paiement">

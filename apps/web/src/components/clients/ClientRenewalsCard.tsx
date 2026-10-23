@@ -7,7 +7,7 @@ import { isOnline } from "@/lib/network";
 import { formatDate } from "@/lib/format";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
-import { Field, Input, Select } from "@/components/ui/Field";
+import { DateInput, Field, Input, Select } from "@/components/ui/Field";
 import { Modal, ModalActions } from "@/components/ui/Modal";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 
@@ -171,7 +171,7 @@ export function ClientRenewalsCard({ clientId }: { clientId: string }) {
           </Field>
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <Field label="Prochain renouvellement">
-              <Input required type="date" value={form.renewsAt} onChange={(e) => setForm({ ...form, renewsAt: e.target.value })} />
+              <DateInput required value={form.renewsAt} onChange={(v) => setForm({ ...form, renewsAt: v })} />
             </Field>
             <Field label="Périodicité">
               <Select value={form.interval} onChange={(e) => setForm({ ...form, interval: e.target.value === "MONTH" ? "MONTH" : "YEAR" })}>

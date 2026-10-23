@@ -11,7 +11,7 @@ import { EditorFooter, EditorLayout, useItemEditor } from "./editor";
 import { reorderVisible, saveIds, SortableList } from "./sortable";
 import { ProjectCardPreview } from "./preview";
 import { DataTable, type DataColumn } from "@/components/ui/DataTable";
-import { Field, Input, Select, Textarea } from "@/components/ui/Field";
+import { DateInput, Field, Input, Select, Textarea } from "@/components/ui/Field";
 import { Segmented } from "@/components/ui/Segmented";
 import { StatStrip } from "@/components/ui/StatStrip";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
@@ -833,7 +833,7 @@ export function SiteProjectPage() {
       </Field>
       <div className="grid gap-4 sm:grid-cols-2">
         <Field label="Accord écrit reçu le" hint="Vide : pas d'accord." error={errors.consentAt}>
-          <Input type="date" value={form.consentAt} onChange={(e) => set("consentAt", e.target.value)} />
+          <DateInput value={form.consentAt} onChange={(v) => set("consentAt", v)} />
         </Field>
         <Field label="Forme de l'accord (facultatif)" hint="Par exemple « e-mail du 12/10/2026 »." error={errors.consentNote}>
           <Input maxLength={300} autoComplete="off" value={form.consentNote} onChange={(e) => set("consentNote", e.target.value)} />

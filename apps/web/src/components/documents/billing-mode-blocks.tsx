@@ -1,5 +1,5 @@
 import { formatEUR } from "@/lib/api";
-import { Field, Input, Select } from "@/components/ui/Field";
+import { DateInput, Field, Input, Select } from "@/components/ui/Field";
 import { Segmented } from "@/components/ui/Segmented";
 import { FREE_MONTHS_MAX, startPhrase, type StartFields, type SubscriptionStart } from "@/lib/subscription-start";
 import { equalInstallments, modePlansShown, PERIOD_WORD, periodsIn, type Period, type PlanOffer } from "@/lib/payment-summary";
@@ -181,7 +181,7 @@ export function RecurringSettings({
         </Field>
         {value.subscriptionStart === "DATE" ? (
           <Field label="Date de la 1re facture">
-            <Input type="date" required value={value.subscriptionStartDate} onChange={(e) => onChange({ subscriptionStartDate: e.target.value })} />
+            <DateInput required value={value.subscriptionStartDate} onChange={(v) => onChange({ subscriptionStartDate: v })} />
           </Field>
         ) : null}
         {value.subscriptionStart === "FREE_MONTHS" ? (

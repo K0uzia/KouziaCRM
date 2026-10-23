@@ -10,7 +10,7 @@ import { Button } from "@/components/ui/Button";
 import { Modal, ModalActions } from "@/components/ui/Modal";
 import { DocumentPreview } from "@/components/documents/DocumentPreview";
 import { useMediaQuery } from "@/lib/use-media-query";
-import { Field, Input, Select, Textarea } from "@/components/ui/Field";
+import { DateInput, Field, Input, Select, Textarea } from "@/components/ui/Field";
 import type { Client } from "@/components/clients/ClientForm";
 import { pendingNeeds, type ServiceNeed } from "@/components/clients/ServiceNeedsEditor";
 import { Segmented } from "@/components/ui/Segmented";
@@ -770,7 +770,7 @@ export function DocumentFormEditor({
               </Select>
             </Field>
             <Field className="sm:col-span-4" label="Date de la prestation" hint="Si elle diffère de la date d'émission.">
-              <Input type="date" value={form.serviceDate} onChange={(e) => setForm((f) => ({ ...f, serviceDate: e.target.value }))} />
+              <DateInput value={form.serviceDate} onChange={(v) => setForm((f) => ({ ...f, serviceDate: v }))} />
             </Field>
             {form.sourceQuoteId ? (
               <div className="sm:col-span-12">
@@ -1443,14 +1443,12 @@ function SubscriptionStartFields({
         {start.subscriptionStart === "DATE" ? (
           <label className="flex flex-wrap items-center gap-1.5 text-[var(--muted)]">
             le
-            <input
-              type="date"
+            <DateInput
               required
               min={todayIso()}
-              className={control}
               aria-label={`Ligne ${n} : date de la 1re facture`}
               value={start.subscriptionStartDate}
-              onChange={(e) => onChange({ subscriptionStartDate: e.target.value })}
+              onChange={(v) => onChange({ subscriptionStartDate: v })}
             />
           </label>
         ) : null}
