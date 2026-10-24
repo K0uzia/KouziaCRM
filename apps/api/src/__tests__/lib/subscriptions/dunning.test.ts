@@ -208,6 +208,11 @@ describe("abonnement impayé, résiliation programmée", () => {
 
     await processStripeEvent(event("customer.subscription.updated", stripeSub(sub, {})));
     expect(sentTo(CLIENT).filter((m) => m.kind === "subscription_cancel_revoked")).toHaveLength(1);
+    // Accusés de résiliation : famille cancellation_ack (« E-mails à valider »), pas celle des incidents de paiement.
+    const families = vi.mocked(mailEnqueue).mock.calls
+      .filter((c) => c[0].kind === "subscription_cancel_scheduled" || c[0].kind === "subscription_cancel_revoked")
+      .map((c) => (c[1] as { review?: { family?: string } } | undefined)?.review?.family);
+    expect(families).toEqual(["cancellation_ack", "cancellation_ack"]);
   });
 });
 

@@ -4,6 +4,8 @@ import { formatEUR } from "@/lib/money.js";
 import { decryptOptional } from "@/lib/crypto.js";
 import { getCompanySettings } from "@/lib/company.js";
 import { mailEnqueue } from "@/lib/email/mailer/index.js";
+import { buildEmailBrand } from "@/lib/email/deposit-templates.js";
+import { formatPlainTextSignature } from "@/lib/email/signature.js";
 import { getStripe } from "@/lib/stripe/client.js";
 import { alertAdmin } from "@/lib/stripe/alert.js";
 
@@ -80,6 +82,8 @@ export async function notifyMilestonePaymentFailed(pi: Stripe.PaymentIntent, was
     ...(settings.bankIban ? ["", `Ou par virement sur l'IBAN ${settings.bankIban}, en indiquant la référence ${milestone.quote.number ?? ""}.`] : []),
     "",
     "Une question ? Répondez simplement à cet e-mail.",
+    "",
+    formatPlainTextSignature(settings, buildEmailBrand(settings)),
   ];
   await mailEnqueue({
     to,
@@ -124,6 +128,8 @@ export async function notifyInvoicePaymentFailed(pi: Stripe.PaymentIntent): Prom
       ...(settings.bankIban ? ["", `Ou par virement sur l'IBAN ${settings.bankIban}, en indiquant la référence ${invoice.number ?? ""}.`] : []),
       "",
       "Une question ? Répondez simplement à cet e-mail.",
+      "",
+      formatPlainTextSignature(settings, buildEmailBrand(settings)),
     ];
     await mailEnqueue({
       to,

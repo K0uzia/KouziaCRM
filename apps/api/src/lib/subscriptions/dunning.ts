@@ -111,6 +111,9 @@ export function renderSuspendedEmail(ctx: MailContext & { label: string; url: st
   );
 }
 
+/** Résiliation programmée ou annulée : famille des accusés de résiliation, pas des incidents de paiement. */
+const CANCELLATION_KINDS: ReadonlySet<string> = new Set(["subscription_cancel_scheduled", "subscription_cancel_revoked"]);
+
 export function renderCancelScheduledEmail(ctx: MailContext & { label: string; endsAt: Date }) {
   const date = fmtDate(ctx.endsAt);
   return finish(ctx, `Résiliation enregistrée : ${ctx.label}`, [
@@ -167,7 +170,7 @@ async function send(
     documentId,
     kind,
     bodyTextForMessage: content.text,
-  }, { review: { family: "payment_issue", origin: (kind === "subscription_action_reminder" ? "WORKER" : "WEBHOOK") satisfies EmailOrigin } });
+  }, { review: { family: CANCELLATION_KINDS.has(kind) ? "cancellation_ack" : "payment_issue", origin: (kind === "subscription_action_reminder" ? "WORKER" : "WEBHOOK") satisfies EmailOrigin } });
   return true;
 }
 

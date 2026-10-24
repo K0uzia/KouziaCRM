@@ -9,6 +9,7 @@ import { decryptOptional } from "@/lib/crypto.js";
 import { prisma } from "@/lib/prisma.js";
 import { CODE_TTL_MS, maskEmail } from "@/lib/portal/auth.js";
 import { formatDateTimeLongFr } from "@/lib/format-fr.js";
+import type { ReviewOptions } from "@/lib/email/review.js";
 
 /**
  * E-mails de l'espace client. Connexion par e-mail + code à usage unique :
@@ -167,8 +168,15 @@ export async function portalWelcomeDraft(clientId: string): Promise<{ to: string
   return { to: email, subject: `Votre espace client ${brand}`, text, attachments: [] };
 }
 
-/** Après l'onboarding : explique comment entrer dans l'espace client (e-mail + code). edits : objet et texte relus. */
-export async function sendPortalWelcomeEmail(clientId: string, edits: { subject?: string; text?: string } = {}): Promise<SendAccessEmailResult> {
+/**
+ * Après l'onboarding : explique comment entrer dans l'espace client (e-mail + code). edits : objet et texte relus.
+ * review : envoi automatique (fiche remplie par le prospect), relu dans « E-mails à valider » comme les autres.
+ */
+export async function sendPortalWelcomeEmail(
+  clientId: string,
+  edits: { subject?: string; text?: string } = {},
+  review?: ReviewOptions,
+): Promise<SendAccessEmailResult> {
   if (!(await isSmtpConfigured())) return { sent: false, reason: "smtp_off" };
   const draft = await portalWelcomeDraft(clientId);
   if (!draft) return { sent: false, reason: "no_email" };
@@ -183,7 +191,7 @@ export async function sendPortalWelcomeEmail(clientId: string, edits: { subject?
       kind: "access",
       markAccessEmailSent: true,
       bodyTextForMessage: body,
-    });
+    }, review ? { review } : undefined);
     return { sent: true };
   } catch (err) {
     console.error(`[email] e-mail d'accès à l'espace client échoué pour ${clientId}`, err);

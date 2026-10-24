@@ -138,6 +138,8 @@ async function bodyTextFor(input: EmailContentInput): Promise<string> {
   const portalUrl =
     input.clientPortalUrl?.trim() || (await resolveClientPortalUrl());
   const lines: string[] = [greets, ""];
+  // Relances : informations du rappel (jalon, étape, échéance des rappels d'acompte) avant le lien de paiement.
+  const reminderExtras = () => (input.extraLines?.length ? ["", ...input.extraLines] : []);
 
   switch (input.kind) {
     case "quote":
@@ -168,6 +170,7 @@ async function bodyTextFor(input: EmailContentInput): Promise<string> {
       lines.push(
         `Sauf erreur de notre part, le ${input.docLabel ?? "document"} ${num} reste en attente.`,
         "N'hésitez pas si un RIB ou une précision vous manque.",
+        ...reminderExtras(),
       );
       if (input.paymentUrl?.trim()) {
         lines.push(...paymentLinesText(input.paymentUrl.trim()));
@@ -177,6 +180,7 @@ async function bodyTextFor(input: EmailContentInput): Promise<string> {
       lines.push(
         `Je me permets de revenir vers vous concernant le ${input.docLabel ?? "document"} ${num}, toujours en attente de règlement.`,
         "Merci de me confirmer la date de virement prévue.",
+        ...reminderExtras(),
       );
       if (input.paymentUrl?.trim()) {
         lines.push(...paymentLinesText(input.paymentUrl.trim()));
@@ -188,6 +192,7 @@ async function bodyTextFor(input: EmailContentInput): Promise<string> {
         input.penaltyText?.trim()
           ? `Sans règlement sous huit jours, les conditions de retard de paiement suivantes pourront être appliquées : ${input.penaltyText.trim()}`
           : "Sans règlement sous huit jours, les conditions de retard de paiement prévues au contrat pourront être appliquées.",
+        ...reminderExtras(),
       );
       if (input.paymentUrl?.trim()) {
         lines.push(...paymentLinesText(input.paymentUrl.trim()));
