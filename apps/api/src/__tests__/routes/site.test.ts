@@ -291,6 +291,16 @@ describe("espace Site : textes", () => {
     expect((await call("PUT", "/api/site/texts/avisMethode", { ...methode, texte: "" })).statusCode).toBe(400);
     expect(((await call("GET", "/api/site/texts")).json() as { avisMethode: unknown }).avisMethode).toEqual(methode);
   });
+
+  it("D5 : textes des pages, référencement et menus seulement par « Tous les textes » ; routes des valeurs par défaut retirées", async () => {
+    const texts = (await call("GET", "/api/site/texts")).json() as Record<string, unknown>;
+    expect(texts).not.toHaveProperty("pages");
+    expect(texts).not.toHaveProperty("seo");
+    expect(texts).not.toHaveProperty("menus");
+    for (const key of ["pages", "seo", "menus"]) expect((await call("PUT", `/api/site/texts/${key}`, {})).statusCode).toBe(404);
+    expect((await call("GET", "/api/site/textes-pages/defauts")).statusCode).toBe(404);
+    expect((await call("GET", "/api/site/defauts")).statusCode).toBe(404);
+  });
 });
 
 describe("espace Site : jeton GitHub et import", () => {
