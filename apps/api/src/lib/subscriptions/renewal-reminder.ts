@@ -211,14 +211,32 @@ export function renderTermEndReminderEmail(opts: {
   commitmentEnd: boolean;
   /** Espace client (/suivi), où se demande la non-reconduction. */
   portalUrl: string;
+  /** Rachat (R3) : prix du catalogue, seulement à la fin du premier engagement d'une offre rachetable. */
+  buyoutPriceCents?: number | null;
 }) {
   const name = (opts.clientFirstName ?? opts.clientName)?.trim();
   const date = fmtDate(opts.termEndsAt);
   const callout = `Date limite pour demander la non-reconduction : ${fmtDate(opts.deadline)}`;
+  // Rachat proposé (R3, texte accepté par Alexandre, relu dans « E-mails à valider » avant chaque envoi) : trois choix.
+  const threeChoices = opts.commitmentEnd && opts.buyoutPriceCents != null;
   const subject = opts.commitmentEnd
     ? `Votre abonnement « ${opts.label} » : fin d'engagement le ${date}`
     : `Votre abonnement « ${opts.label} » : reconduction le ${date}`;
-  const text = [
+  const text = threeChoices
+    ? [
+        name ? `Bonjour ${name},` : "Bonjour,",
+        "",
+        `L'engagement de votre abonnement « ${opts.label} » prend fin le ${date}.`,
+        "Trois possibilités :",
+        `- Continuer : vous n'avez rien à faire. L'abonnement est reconduit pour un an au prix en vigueur (actuellement ${formatEUR(opts.amountCents)} par ${periodWord(opts.billingInterval)}).`,
+        `- Arrêter : demandez sa non-reconduction, sans frais ni justification, jusqu'au ${fmtDate(opts.deadline)} (préavis d'un mois), depuis votre espace client ou en répondant à cet e-mail. L'abonnement prendra fin le ${date}.`,
+        `- Racheter votre site : il devient le vôtre pour ${formatEUR(opts.buyoutPriceCents!)}, en une fois, sans abonnement ensuite. Répondez à cet e-mail pour le demander : je vous envoie le devis.`,
+        "",
+        callout,
+        "",
+        formatPlainTextSignature(opts.settings, opts.brand),
+      ].join("\n")
+    : [
     name ? `Bonjour ${name},` : "Bonjour,",
     "",
     opts.commitmentEnd
@@ -275,6 +293,8 @@ export async function sendDueTermEndReminders(now: Date = new Date()): Promise<n
   const settings = await getCompanySettings();
   const brand = buildEmailBrand(settings);
   const portalUrl = await resolveClientPortalUrl();
+  // Import tardif : le module du rachat dépend du service d'abonnement, qui dépend de celui-ci.
+  const { buyoutOfferPriceCents } = await import("@/lib/subscriptions/buyout.js");
   let queued = 0;
   for (const { s: sub, term } of due) {
     const to = decryptOptional(sub.client.emailEncrypted);
@@ -282,6 +302,9 @@ export async function sendDueTermEndReminders(now: Date = new Date()): Promise<n
       console.warn(`[subscriptions] rappel de fin de période ignoré : client sans e-mail (${sub.id})`);
       continue;
     }
+    const commitmentEnd = term.termEndsAt.getTime() === sub.commitmentEndsAt!.getTime();
+    // Fin du premier engagement seulement (Q5) : prix de rachat si l'offre en a un et qu'aucun rachat n'est signé.
+    const buyoutPriceCents = commitmentEnd ? await buyoutOfferPriceCents(sub.id) : null;
     const content = renderTermEndReminderEmail({
       brand,
       settings,
@@ -292,8 +315,9 @@ export async function sendDueTermEndReminders(now: Date = new Date()): Promise<n
       billingInterval: sub.billingInterval,
       termEndsAt: term.termEndsAt,
       deadline: term.cancelDeadline,
-      commitmentEnd: term.termEndsAt.getTime() === sub.commitmentEndsAt!.getTime(),
+      commitmentEnd,
       portalUrl,
+      buyoutPriceCents,
     });
     await mailEnqueue({
       to,
@@ -301,7 +325,9 @@ export async function sendDueTermEndReminders(now: Date = new Date()): Promise<n
       text: content.text,
       html: content.html,
       clientId: sub.clientId,
-      kind: "subscription_term_end",
+      // Rachat proposé : type à part et abonnement concerné, pour la notification « proposer le rachat ? » (R3).
+      kind: buyoutPriceCents != null ? "subscription_term_end_buyout" : "subscription_term_end",
+      ...(buyoutPriceCents != null ? { documentId: sub.id } : {}),
       bodyTextForMessage: content.text,
     }, { review: { family: "subscription_notice", origin: "WORKER" } });
     await prisma.subscription.update({ where: { id: sub.id }, data: { renewalReminderSentFor: term.termEndsAt } });

@@ -7,6 +7,7 @@ import {
   faCircleXmark,
   faEnvelope,
   faFileInvoiceDollar,
+  faFileSignature,
   faKey,
   faEnvelopeCircleCheck,
   faRotate,
@@ -29,6 +30,7 @@ export const NOTIFICATION_KIND_STYLE: Record<NotificationKind, { icon: IconDefin
   testimonial: { icon: faCommentDots, tone: "bg-[var(--info-soft)] text-[var(--info)]" },
   software_request: { icon: faKey, tone: "bg-[var(--success-soft)] text-[var(--success)]" },
   email_review: { icon: faEnvelopeCircleCheck, tone: "bg-[var(--warning-soft)] text-[var(--warning)]" },
+  buyout_offer: { icon: faFileSignature, tone: "bg-[var(--info-soft)] text-[var(--info)]" },
 };
 
 /**

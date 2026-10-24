@@ -2,6 +2,7 @@ import { EmailDirection, QuoteStatus } from "@prisma/client";
 import { prisma } from "@/lib/prisma.js";
 import { REVIEW_FAMILIES, type ReviewFamily } from "@/lib/email/review.js";
 import { formatEUR } from "@/lib/money.js";
+import { formatDateFr } from "@/lib/format-fr.js";
 
 export type NotificationKind =
   | "mail"
@@ -14,7 +15,8 @@ export type NotificationKind =
   | "google_reauth"
   | "testimonial"
   | "software_request"
-  | "email_review";
+  | "email_review"
+  | "buyout_offer";
 
 export type NotificationItem = {
   /** Identifiant stable (type + id source) : sert à dédoublonner côté interface. */
@@ -278,6 +280,33 @@ export async function listNotifications(since: Date): Promise<NotificationItem[]
       at: e.createdAt.toISOString(),
     })),
   ];
+
+  // Rachat (R3) : rappel de fin du premier engagement mis en file avec le rachat proposé.
+  const buyoutReminders = await prisma.emailOutbox.findMany({
+    where: { reviewKind: "subscription_term_end_buyout", createdAt: { gt: since }, documentId: { not: null } },
+    orderBy: { createdAt: "desc" },
+    take: MAX_ITEMS,
+    select: { id: true, documentId: true, createdAt: true },
+  });
+  if (buyoutReminders.length) {
+    const subs = await prisma.subscription.findMany({
+      where: { id: { in: buyoutReminders.map((r) => r.documentId!) } },
+      select: { id: true, label: true, commitmentEndsAt: true, client: { select: { displayName: true } } },
+    });
+    const byId = new Map(subs.map((s) => [s.id, s]));
+    for (const r of buyoutReminders) {
+      const s = byId.get(r.documentId!);
+      if (!s) continue;
+      items.push({
+        id: `buyout_offer:${r.id}`,
+        kind: "buyout_offer" as const,
+        title: `Fin d'engagement de ${s.client.displayName}${s.commitmentEndsAt ? ` le ${formatDateFr(s.commitmentEndsAt)}` : ""} : proposer le rachat ?`,
+        body: `Abonnement « ${s.label} » : le rappel au client propose le rachat.`,
+        href: `/abonnements?tab=contrats&contrat=${s.id}`,
+        at: r.createdAt.toISOString(),
+      });
+    }
+  }
 
   return items.sort((a, b) => b.at.localeCompare(a.at)).slice(0, MAX_ITEMS);
 }

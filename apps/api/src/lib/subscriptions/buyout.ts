@@ -190,6 +190,18 @@ export async function assertBuyoutService(
   if (target.isSubscription || target.isPack) throw new BuyoutError("La prestation de rachat est une prestation ponctuelle du catalogue, pas un abonnement ni un pack.");
 }
 
+/** Rappel de fin du premier engagement (R3) : prix de rachat à proposer, ou null (pas de prestation active, rachat signé). */
+export async function buyoutOfferPriceCents(subscriptionId: string): Promise<number | null> {
+  const sub = await prisma.subscription.findUnique({ where: { id: subscriptionId }, select: { service: { select: { buyoutServiceId: true } } } });
+  if (!sub?.service.buyoutServiceId) return null;
+  const service = await prisma.service.findUnique({ where: { id: sub.service.buyoutServiceId }, select: { active: true, unitPriceCents: true } });
+  if (!service?.active) return null;
+  const signed = await prisma.invoice.count({
+    where: { buysOutSubscriptionId: subscriptionId, documentType: InvoiceDocumentType.QUOTE, quoteStatus: QuoteStatus.ACCEPTED },
+  });
+  return signed ? null : service.unitPriceCents;
+}
+
 type Tx = Prisma.TransactionClient;
 export type BuyoutSignature = { subscriptionId: string; endDate: Date; stripe: { id: string; livemode: boolean | null } | null };
 
