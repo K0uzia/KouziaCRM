@@ -1,9 +1,9 @@
 import { useSyncExternalStore } from "react";
 import { API_CONTRACT, BUILD_HEADER, CONTRACT_HEADER } from "@kouzia-erp/api-contract";
 
-/** Identifiant du build de cette interface (vite.config.ts) ; « dev » hors build de production. */
-declare const __KOUZIA_BUILD__: string;
-export const OWN_BUILD = typeof __KOUZIA_BUILD__ === "string" ? __KOUZIA_BUILD__ : "dev";
+/** Identifiant du build de cette interface (balise kouzia-build d'index.html, vite.config.ts) ; « dev » sans elle. */
+export const OWN_BUILD =
+  (typeof document !== "undefined" && document.querySelector<HTMLMetaElement>('meta[name="kouzia-build"]')?.content.trim()) || "dev";
 
 /**
  * Interface plus ancienne que le serveur : « build » (nouvelle version, recharger quand on veut) ou « contract » (le

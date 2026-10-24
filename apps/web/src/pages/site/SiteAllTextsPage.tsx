@@ -24,6 +24,7 @@ import {
   type SchemaNode,
 } from "@/lib/site-editor";
 import { ImageField, LoadState } from "./shared";
+import { useUnsavedGuard } from "@/lib/unsaved";
 
 /**
  * « Tous les textes » (lot générique) : chaque texte du site, généré depuis le contrat (clé « editeur »), rangé par
@@ -78,13 +79,8 @@ export function SiteAllTextsPage() {
     void load();
   }, [load]);
 
-  // Modifications non enregistrées : avertir avant de quitter la page du navigateur.
-  useEffect(() => {
-    if (dirty.size === 0) return;
-    const warn = (e: BeforeUnloadEvent) => e.preventDefault();
-    window.addEventListener("beforeunload", warn);
-    return () => window.removeEventListener("beforeunload", warn);
-  }, [dirty]);
+  // Modifications non enregistrées : avertir avant de quitter la page du navigateur, et avant « Recharger ».
+  useUnsavedGuard(dirty.size > 0);
 
   const fields = useMemo(() => (data ? data.docs.flatMap((d) => collectFields(d.id, d.schema)) : []), [data]);
   const pages = useMemo(() => {
