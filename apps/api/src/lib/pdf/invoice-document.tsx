@@ -8,6 +8,7 @@ import {
   Image,
   Font,
 } from "@react-pdf/renderer";
+import { Readable } from "@/lib/pdf/readable.js";
 import type { PdfCompanySettings } from "@/lib/pdf/brand-assets.js";
 import { fillClauseVariables } from "@/lib/company/legal-clauses.js";
 import type { ClientSnapshot } from "@/lib/invoices/transitions.js";
@@ -489,6 +490,7 @@ export function InvoiceDocument({ company, client, invoice, specimen, draft }: I
         ) : null}
 
         <View style={styles.header}>
+          <Readable as="issuer">
           <View style={{ flex: 1 }}>
             {company.brandLogoDataUrl ? (
               <Image src={company.brandLogoDataUrl} style={styles.logo} />
@@ -514,7 +516,9 @@ export function InvoiceDocument({ company, client, invoice, specimen, draft }: I
               </Text>
             ) : null}
           </View>
+          </Readable>
           <View style={styles.docBlock}>
+            <Readable as="heading">
             <Text style={styles.docKind}>{title}</Text>
             {draft ? (
               <>
@@ -524,18 +528,22 @@ export function InvoiceDocument({ company, client, invoice, specimen, draft }: I
             ) : (
               <Text style={styles.docNumber}>N° {invoice.number}</Text>
             )}
+            </Readable>
             <View style={styles.docMeta}>
               {meta.map(([label, value]) => (
-                <View key={label} style={styles.metaRow}>
+                <Readable key={label} as="detail">
+                <View style={styles.metaRow}>
                   <Text style={styles.metaLabel}>{label}</Text>
                   <Text style={styles.metaValue}>{value}</Text>
                 </View>
+                </Readable>
               ))}
             </View>
           </View>
         </View>
 
         <View style={styles.parties}>
+          <Readable as="recipient">
           <View style={styles.party}>
             <Text style={styles.partyTitle}>{isQuote ? "DESTINATAIRE" : "FACTURÉ À"}</Text>
             <Text style={styles.partyName}>{client.displayName}</Text>
@@ -546,7 +554,9 @@ export function InvoiceDocument({ company, client, invoice, specimen, draft }: I
             {client.siret ? <Text style={styles.muted}>SIRET {client.siret}</Text> : null}
             {client.email ? <Text style={styles.muted}>{client.email}</Text> : null}
           </View>
+          </Readable>
           {(isAcompte && invoice.milestoneTrigger) || invoice.paymentTerms || (isCredit && invoice.nothingToPay) ? (
+            <Readable as="section" heading>
             <View style={styles.party}>
               <Text style={styles.partyTitle}>CONDITIONS</Text>
               {invoice.paymentTerms ? <Text>{invoice.paymentTerms}</Text> : null}
@@ -562,18 +572,23 @@ export function InvoiceDocument({ company, client, invoice, specimen, draft }: I
                 <Text style={[styles.strong, { marginTop: 2 }]}>Vous n&apos;avez rien à payer.</Text>
               ) : null}
             </View>
+            </Readable>
           ) : null}
         </View>
 
         {isSolde && invoice.balanceSummary ? (
+          <Readable as="section" heading>
           <View style={[styles.box, { marginBottom: 16 }]}>
             <Text style={styles.h2}>Récapitulatif du marché</Text>
+            <Readable as="pair">
             <View style={styles.totalLine}>
               <Text>Total du marché (devis {invoice.balanceSummary.quoteNumber ?? "?"})</Text>
               <Text>{fmtMoney(invoice.balanceSummary.marketTotalCents)}</Text>
             </View>
+            </Readable>
             {invoice.balanceSummary.acomptes.map((a, i) => (
-              <View key={i} style={styles.totalLine}>
+              <Readable key={i} as="pair">
+              <View style={styles.totalLine}>
                 <Text style={{ flex: 1, paddingRight: 10 }}>
                   {a.paid
                     ? `Acompte facturé et réglé (${a.number})`
@@ -581,21 +596,28 @@ export function InvoiceDocument({ company, client, invoice, specimen, draft }: I
                 </Text>
                 <Text>- {fmtMoney(a.amountCents)}</Text>
               </View>
+              </Readable>
             ))}
+            <Readable as="pair">
             <View style={[styles.totalLine, { borderTopWidth: 1, borderColor: LINE, marginTop: 4 }]}>
               <Text style={styles.strong}>Solde restant dû (cette facture)</Text>
               <Text style={styles.strong}>{fmtMoney(invoice.balanceSummary.balanceDueCents)}</Text>
             </View>
+            </Readable>
           </View>
+          </Readable>
         ) : null}
 
+        <Readable as="table">
         <View style={styles.table}>
+          <Readable as="headRow">
           <View style={styles.th} fixed>
             <Text style={styles.colDesc}>DÉSIGNATION</Text>
             <Text style={styles.colQty}>QTÉ</Text>
             <Text style={styles.colPrice}>PRIX UNITAIRE</Text>
             <Text style={[styles.colTotal, { fontFamily: "Helvetica-Bold" }]}>MONTANT</Text>
           </View>
+          </Readable>
           {invoice.lines.filter((l) => l.inTotal !== false).map((line, i, shown) => (
             <Fragment key={i}>
             {/* Pack : titre au-dessus de ses lignes, détail et remise compris. */}
@@ -604,6 +626,7 @@ export function InvoiceDocument({ company, client, invoice, specimen, draft }: I
                 {line.groupTitle}
               </Text>
             ) : null}
+            <Readable as="row">
             <View
               style={[styles.tr, i % 2 === 1 ? { backgroundColor: SOFT } : {}]}
               wrap={false}
@@ -639,19 +662,24 @@ export function InvoiceDocument({ company, client, invoice, specimen, draft }: I
               <Text style={styles.colPrice}>{fmtMoney(line.unitPriceCents)}</Text>
               <Text style={styles.colTotal}>{fmtMoney(line.lineTotalCents)}</Text>
             </View>
+            </Readable>
             </Fragment>
           ))}
         </View>
+        </Readable>
 
+        <Readable as="totals">
         <View style={styles.totals} wrap={false}>
           {invoice.recurringSummary ? (
             <>
+              <Readable as="mainPair">
               <View style={styles.grandTotal}>
                 <Text style={styles.grandLabel}>Abonnement</Text>
                 <Text style={styles.grandValue}>
                   {`${fmtMoney(invoice.recurringSummary.amountCents)} / ${periodWord(invoice.recurringSummary.period)}`}
                 </Text>
               </View>
+              </Readable>
               <Text style={styles.vat}>{`Facturation : ${invoice.recurringSummary.startText}.`}</Text>
               <Text style={styles.vat}>
                 {invoice.recurringSummary.commitmentMonths && invoice.recurringSummary.periods && invoice.recurringSummary.totalCommitmentCents !== null
@@ -667,10 +695,13 @@ export function InvoiceDocument({ company, client, invoice, specimen, draft }: I
             <>
               {invoice.mixedTotals.discountCents > 0 ? (
                 <>
+                  <Readable as="pair">
                   <View style={styles.totalLine}>
                     <Text style={styles.muted}>Prestations</Text>
                     <Text>{fmtMoney(invoice.mixedTotals.oneOffCents)}</Text>
                   </View>
+                  </Readable>
+                  <Readable as="pair">
                   <View style={styles.totalLine}>
                     <Text style={styles.muted}>
                       Remise
@@ -680,18 +711,23 @@ export function InvoiceDocument({ company, client, invoice, specimen, draft }: I
                     </Text>
                     <Text>- {fmtMoney(invoice.mixedTotals.discountCents)}</Text>
                   </View>
+                  </Readable>
                 </>
               ) : null}
+              <Readable as="mainPair">
               <View style={styles.grandTotal}>
                 <Text style={styles.grandLabel}>Total du projet</Text>
                 <Text style={styles.grandValue}>{fmtMoney(invoice.mixedTotals.projectCents)}</Text>
               </View>
+              </Readable>
               <Text style={styles.vat}>Acompte et échéancier portent sur cette partie ponctuelle ; l'abonnement est facturé à part.</Text>
+              <Readable as="pair">
               <View style={[styles.totalLine, { marginTop: 8 }]}>
                 <Text style={{ fontFamily: "Helvetica-Bold" }}>
                   {invoice.mixedTotals.subscriptions.length > 1 ? "Abonnements" : "Abonnement"}
                 </Text>
               </View>
+              </Readable>
               {invoice.mixedTotals.subscriptions.map((s, i) => (
                 <Text key={i} style={styles.vat}>
                   {invoice.mixedTotals!.subscriptions.length > 1 ? `${s.label} : ` : ""}
@@ -699,6 +735,7 @@ export function InvoiceDocument({ company, client, invoice, specimen, draft }: I
                 </Text>
               ))}
               {invoice.mixedTotals.subscriptions.length > 1 ? (
+                <Readable as="pair">
                 <View style={styles.totalLine}>
                   <Text style={styles.muted}>Total des abonnements</Text>
                   <Text>
@@ -710,6 +747,7 @@ export function InvoiceDocument({ company, client, invoice, specimen, draft }: I
                       .join(" + ")}
                   </Text>
                 </View>
+                </Readable>
               ) : null}
               {company.vatMention ? <Text style={styles.vat}>{company.vatMention}</Text> : null}
               {invoice.subscriptionDateNotice ? (
@@ -720,10 +758,13 @@ export function InvoiceDocument({ company, client, invoice, specimen, draft }: I
           <>
           {hasDiscount ? (
             <>
+              <Readable as="pair">
               <View style={styles.totalLine}>
                 <Text style={styles.muted}>Sous-total</Text>
                 <Text>{fmtMoney(invoice.subtotalCents)}</Text>
               </View>
+              </Readable>
+              <Readable as="pair">
               <View style={styles.totalLine}>
                 <Text style={styles.muted}>
                   {invoice.lines.some((l) => l.isSubscription) ? "Remise sur les prestations ponctuelles" : "Remise"}
@@ -733,12 +774,15 @@ export function InvoiceDocument({ company, client, invoice, specimen, draft }: I
                 </Text>
                 <Text>- {fmtMoney(Math.max(0, invoice.subtotalCents - invoice.totalCents))}</Text>
               </View>
+              </Readable>
             </>
           ) : null}
+          <Readable as="mainPair">
           <View style={styles.grandTotal}>
             <Text style={styles.grandLabel}>{isCredit ? "Montant de l'avoir" : "Net à payer"}</Text>
             <Text style={styles.grandValue}>{fmtMoney(invoice.totalCents)}</Text>
           </View>
+          </Readable>
           {company.vatMention ? <Text style={styles.vat}>{company.vatMention}</Text> : null}
           {invoice.subscriptionDateNotice ? (
             <Text style={[styles.vat, { marginTop: 6 }]}>{fillClauseVariables(invoice.subscriptionDateNotice, company)}</Text>
@@ -746,26 +790,34 @@ export function InvoiceDocument({ company, client, invoice, specimen, draft }: I
           {showSettlement && !settled ? (
             <>
               {creditedCents > 0 ? (
+                <Readable as="pair">
                 <View style={styles.totalLine}>
                   <Text style={styles.muted}>Avoirs</Text>
                   <Text>- {fmtMoney(creditedCents)}</Text>
                 </View>
+                </Readable>
               ) : null}
               {paidCents > 0 ? (
+                <Readable as="pair">
                 <View style={styles.totalLine}>
                   <Text style={styles.muted}>Déjà réglé</Text>
                   <Text>- {fmtMoney(paidCents)}</Text>
                 </View>
+                </Readable>
               ) : null}
+              <Readable as="pair">
               <View style={[styles.totalLine, { borderTopWidth: 1, borderColor: LINE }]}>
                 <Text style={styles.strong}>Reste dû</Text>
                 <Text style={styles.strong}>{fmtMoney(dueCents)}</Text>
               </View>
+              </Readable>
             </>
           ) : null}
           {settled ? (
             <View style={styles.settled}>
+              <Readable as="subheading">
               <Text style={styles.settledTitle}>FACTURE ACQUITTÉE</Text>
+              </Readable>
               <Text style={{ fontSize: 8, color: "#14532d" }}>
                 {lastPaidAt ? `Réglée le ${fmtDate(lastPaidAt)}. ` : ""}Ce document vaut reçu.
               </Text>
@@ -774,8 +826,10 @@ export function InvoiceDocument({ company, client, invoice, specimen, draft }: I
           </>
           )}
         </View>
+        </Readable>
 
         {invoice.lines.some((l) => l.isSubscription) ? (
+          <Readable as="section" heading>
           <View style={[styles.box, styles.section]} wrap={false}>
             <Text style={styles.h2}>{subscriptionHeading(invoice.lines)}</Text>
             {invoice.lines
@@ -817,9 +871,11 @@ export function InvoiceDocument({ company, client, invoice, specimen, draft }: I
               <Text style={[styles.muted, { marginTop: 4 }]}>{fillClauseVariables(invoice.subscriptionTerms.COMMITMENT, company, commitmentInterval(invoice.lines))}</Text>
             ) : null}
           </View>
+          </Readable>
         ) : null}
 
         {isQuote && invoice.paymentPlanChoice && invoice.paymentPlanChoice.length > 0 ? (
+          <Readable as="section" heading>
           <View style={styles.section} wrap={false}>
             <Text style={styles.h2}>{invoice.mixedTotals ? "Partie ponctuelle : échéancier au choix" : "Échéancier au choix"}</Text>
             <Text style={styles.muted}>La formule de paiement se choisit à la signature du devis.</Text>
@@ -827,7 +883,8 @@ export function InvoiceDocument({ company, client, invoice, specimen, draft }: I
               <View key={p.title} style={{ marginTop: 6 }}>
                 <Text style={styles.strong}>{p.title}</Text>
                 {p.milestones.map((m, i) => (
-                  <View key={i} style={styles.milestone}>
+                  <Readable key={i} as="item">
+                  <View style={styles.milestone}>
                     <View style={{ flex: 1 }}>
                       <Text>
                         {m.label} ({(m.percentBps / 100).toFixed(0)} %)
@@ -836,11 +893,14 @@ export function InvoiceDocument({ company, client, invoice, specimen, draft }: I
                     </View>
                     <Text style={styles.strong}>{fmtMoney(m.amountCents)}</Text>
                   </View>
+                  </Readable>
                 ))}
               </View>
             ))}
           </View>
+          </Readable>
         ) : isQuote && invoice.milestones && invoice.milestones.length > 0 ? (
+          <Readable as="section" heading>
           <View style={styles.section} wrap={false}>
             <Text style={styles.h2}>
               {invoice.paymentPlanRetained
@@ -850,7 +910,8 @@ export function InvoiceDocument({ company, client, invoice, specimen, draft }: I
                   : "Échéancier de paiement"}
             </Text>
             {invoice.milestones.map((m, i) => (
-              <View key={i} style={styles.milestone}>
+              <Readable key={i} as="item">
+              <View style={styles.milestone}>
                 <View style={{ flex: 1 }}>
                   <Text style={styles.strong}>
                     {m.label} ({(m.percentBps / 100).toFixed(0)} %)
@@ -863,11 +924,14 @@ export function InvoiceDocument({ company, client, invoice, specimen, draft }: I
                 </View>
                 <Text style={styles.strong}>{fmtMoney(m.amountCents)}</Text>
               </View>
+              </Readable>
             ))}
           </View>
+          </Readable>
         ) : null}
 
         {isQuote && invoice.acceptance?.mode ? (
+          <Readable as="section" heading>
           <View style={styles.payBox} wrap={false}>
             <Text style={styles.h2}>Bon pour accord</Text>
             <View style={styles.signRow}>
@@ -884,7 +948,9 @@ export function InvoiceDocument({ company, client, invoice, specimen, draft }: I
                 <Text style={styles.muted}>Signé le {fmtDateTime(invoice.acceptance.acceptedAt)}</Text>
               </View>
               <View style={styles.proof}>
+                <Readable as="subheading">
                 <Text style={styles.proofTitle}>SIGNATURE ÉLECTRONIQUE</Text>
+                </Readable>
                 <Text style={styles.muted}>Signé dans l'espace client {brandName}.</Text>
                 {invoice.acceptance.emailMasked && invoice.acceptance.sessionLoginAt ? (
                   <Text style={styles.muted}>
@@ -911,7 +977,9 @@ export function InvoiceDocument({ company, client, invoice, specimen, draft }: I
               </View>
             </View>
           </View>
+          </Readable>
         ) : isQuote && invoice.acceptance ? (
+          <Readable as="section" heading>
           <View style={styles.payBox} wrap={false}>
             <Text style={styles.h2}>Bon pour accord</Text>
             <Text>
@@ -920,36 +988,46 @@ export function InvoiceDocument({ company, client, invoice, specimen, draft }: I
             </Text>
             <SignatureTermsLines acceptance={invoice.acceptance} muted={styles.muted} />
           </View>
+          </Readable>
         ) : null}
 
         {!isQuote && !isCredit && invoice.payments && invoice.payments.length > 0 ? (
+          <Readable as="section" heading>
           <View style={styles.section} wrap={false}>
             <Text style={styles.h2}>Règlements reçus</Text>
+            <Readable as="headRow">
             <View style={styles.th}>
               <Text style={styles.colPayDate}>DATE</Text>
               <Text style={styles.colPayMethod}>MOYEN</Text>
               <Text style={styles.colPayRef}>RÉFÉRENCE</Text>
               <Text style={styles.colPayAmount}>MONTANT</Text>
             </View>
+            </Readable>
             {invoice.payments.map((p, i) => (
-              <View key={i} style={styles.tr}>
+              <Readable key={i} as="row">
+              <View style={styles.tr}>
                 <Text style={styles.colPayDate}>{fmtDate(p.paidAt)}</Text>
                 <Text style={styles.colPayMethod}>{p.method}</Text>
                 <Text style={styles.colPayRef}>{p.reference ?? "-"}</Text>
                 <Text style={styles.colPayAmount}>{fmtMoney(p.amountCents)}</Text>
               </View>
+              </Readable>
             ))}
           </View>
+          </Readable>
         ) : null}
 
         {invoice.notes ? (
+          <Readable as="section" heading>
           <View style={styles.section}>
             <Text style={styles.h2}>Notes</Text>
             <Text>{invoice.notes}</Text>
           </View>
+          </Readable>
         ) : null}
 
         {!isQuote && !isCredit && !settled && company.bankIban ? (
+          <Readable as="section" heading>
           <View style={styles.payBox} wrap={false}>
             <Text style={styles.h2}>Règlement par virement</Text>
             <Text>
@@ -970,9 +1048,11 @@ export function InvoiceDocument({ company, client, invoice, specimen, draft }: I
               </View>
             </View>
           </View>
+          </Readable>
         ) : null}
 
         {isQuote && invoice.withdrawalTerms ? (
+          <Readable as="section" heading>
           <View style={styles.section} wrap={false}>
             <Text style={styles.h2}>Droit de rétractation</Text>
             {fillClauseVariables(invoice.withdrawalTerms, company)
@@ -983,8 +1063,10 @@ export function InvoiceDocument({ company, client, invoice, specimen, draft }: I
                 </Text>
               ))}
           </View>
+          </Readable>
         ) : null}
 
+        <Readable as="section">
         <View style={styles.legal}>
           {isQuote && invoice.cgv ? (
             <Text>
@@ -1044,12 +1126,15 @@ export function InvoiceDocument({ company, client, invoice, specimen, draft }: I
             <Text style={{ marginTop: 6 }}>{company.pdfFooterText}</Text>
           ) : null}
         </View>
+        </Readable>
 
         {/* Pas de lineHeight sur la page : hérité, il masque le numéro de page (bug react-pdf). */}
         <View style={styles.footerRule} fixed />
+        <Readable as="footer">
         <Text style={styles.footerLeft} fixed>
           {`${brandName} · ${title.charAt(0)}${title.slice(1).toLowerCase()} ${shownNumber}`}
         </Text>
+        </Readable>
         <Text
           style={styles.footerRight}
           fixed

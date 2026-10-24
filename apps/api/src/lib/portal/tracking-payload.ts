@@ -7,6 +7,7 @@ import {
   type PaymentMilestone,
 } from "@prisma/client";
 import { signDocumentToken, signReceiptToken } from "@/lib/documents/public-token.js";
+import { readableAvailable } from "@/lib/pdf/readable-documents.js";
 
 type DocRow = Invoice & {
   payments: Payment[];
@@ -129,6 +130,8 @@ export function buildPaymentHistory(opts: {
     receiptToken: string | null;
     /** Reçu PDF de ce règlement (archivé) ; receiptToken reste le lien de la facture. */
     receiptPdfToken?: string | null;
+    /** Contrat B (version accessible) : présent seulement si la version lisible du reçu existe. */
+    receiptReadableAvailable?: true;
     projectId: string | null;
   }> = [];
 
@@ -174,7 +177,10 @@ export function buildPaymentHistory(opts: {
       // Reçu du règlement de l'acompte : porté par l'entrée du jalon.
       const entry = items.find((i) => i.id === `milestone-${coveredByMilestone.id}`);
       const last = [...d.payments].sort((a, b) => b.paidAt.getTime() - a.paidAt.getTime())[0];
-      if (entry && last && d.number) entry.receiptPdfToken = signReceiptToken(last.id);
+      if (entry && last && d.number) {
+        entry.receiptPdfToken = signReceiptToken(last.id);
+        if (readableAvailable(last.receiptReadableSnapshot)) entry.receiptReadableAvailable = true;
+      }
       continue;
     }
 
@@ -189,6 +195,7 @@ export function buildPaymentHistory(opts: {
         documentNumber: d.number,
         receiptToken: d.number ? signDocumentToken(d.id) : null,
         receiptPdfToken: d.number ? signReceiptToken(p.id) : null,
+        ...(d.number && readableAvailable(p.receiptReadableSnapshot) ? { receiptReadableAvailable: true as const } : {}),
         projectId: projectOfDocument(byQuote, d),
       });
     }

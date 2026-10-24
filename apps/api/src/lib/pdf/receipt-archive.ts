@@ -137,6 +137,8 @@ export async function paymentReceiptPdf(paymentId: string): Promise<Buffer | nul
   const data = await buildReceiptData(paymentId);
   if (!data) return null;
   const pdf = await renderReceipt(data);
+  const { alertMismatch, readableReceipt, snapshotFor } = await import("@/lib/pdf/readable-documents.js");
+  const readable = await snapshotFor(pdf, readableReceipt(data));
   const digest = sha256(pdf);
   const safeNumber = row.invoice.number.replace(/[^A-Za-z0-9_-]/g, "_");
   const pdfPath = `${RECEIPTS_DIR}/${safeNumber}-${paymentId}-${digest.slice(0, 12)}-${randomBytes(3).toString("hex")}.pdf`;
@@ -145,9 +147,12 @@ export async function paymentReceiptPdf(paymentId: string): Promise<Buffer | nul
   await fs.writeFile(abs, pdf, { flag: "wx" });
   const claimed = await prisma.payment.updateMany({
     where: { id: paymentId, receiptPdfPath: null },
-    data: { receiptPdfPath: pdfPath, receiptPdfSha256: digest, receiptArchivedAt: new Date() },
+    data: { receiptPdfPath: pdfPath, receiptPdfSha256: digest, receiptArchivedAt: new Date(), receiptReadableSnapshot: readable.snapshot },
   });
-  if (claimed.count === 1) return pdf;
+  if (claimed.count === 1) {
+    if (!readable.ok) await alertMismatch([`reçu de ${row.invoice.number}`]);
+    return pdf;
+  }
   // Accès simultané : l'autre archive est gardée.
   await fs.rm(abs, { force: true });
   return paymentReceiptPdf(paymentId);

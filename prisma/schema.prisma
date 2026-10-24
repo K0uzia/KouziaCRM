@@ -1205,6 +1205,8 @@ model Invoice {
   /// Empreinte SHA-256 du PDF archivé
   pdfSha256                    String?
   pdfArchivedAt                DateTime?
+  /// Version lisible (JSON, contrat B du site) figée avec le PDF archivé ; {"unavailable":…} si elle ne peut pas l'être
+  readableSnapshot             String?
   /// Facture Stripe : dernière tentative (attempt_count) pour laquelle l'e-mail d'échec est parti
   stripeFailureNotifiedAttempt Int?
   /// Facture Stripe payée après un échec : e-mail de régularisation envoyé
@@ -1362,6 +1364,8 @@ model Payment {
   receiptPdfPath        String?
   receiptPdfSha256      String?
   receiptArchivedAt     DateTime?
+  /// Version lisible du reçu, figée avec son PDF archivé
+  receiptReadableSnapshot String?
   createdAt             DateTime         @default(now())
   bankTransaction       BankTransaction?
 

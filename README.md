@@ -517,6 +517,7 @@ Le site (dépôt KouziaWebsite) lit `/api/public/*`. Quand une version change le
 | 57dd4db, gestion des abonnements dans /suivi | site **avant** `kouziactl update` | `/api/public/tracking` renvoie aussi les abonnements suspendus ; l'ancien /suivi les afficherait comme actifs. |
 | Type client « Association » (à venir) | `kouziactl update` **avant** le site | le nouveau formulaire /nouveau-client envoie `ASSOCIATION`, refusé (400) par un ERP plus ancien. |
 | Aperçu du brouillon d'une réalisation (5b) | `kouziactl update` **avant** le site | la page `/apercu` du site lit `GET /api/public/preview/realisation` (jeton en `Authorization: Bearer`, 30 requêtes par 15 min) et `GET /api/public/preview/media/:fichier?jeton=` (300 par 15 min, seulement les images de cette réalisation) ; le lien signé (15 min, jeton dans le fragment) vient de `POST /api/site/projects/:id/preview`. Réponse : `{ realisation, blockers: [{ code, message }], media: { "/media/<sha12>.webp": { src, width?, height?, src2x? } }, expiresAt, generatedAt }`, 404 identique sinon. |
+| Version accessible des documents (B, RGAA 13.3) | `kouziactl update` **avant** le site | la page `/suivi/document` du site lit `GET /api/public/documents/:token/lisible` (jeton `downloadToken`) et `GET /api/public/receipts/:token/lisible` (jeton `receiptPdfToken`), 30 requêtes par 15 min. Réponse : `{ version: 1, kind, title, number, issuer, recipient, details, table, totals, sections, footer, source }`, textes déjà formatés comme dans le PDF ; 404 `{ error: "Document introuvable" }` identique sinon ; en-têtes `Cache-Control: private, no-store`, `Referrer-Policy: no-referrer`, `Content-Language: fr`. `/api/public/tracking` ajoute `readableAvailable: true` (document) et `receiptReadableAvailable: true` (règlement) quand la version existe ; un ancien site les ignore. |
 
 Une nouvelle version concernée s'ajoute à ce tableau.
 
@@ -544,6 +545,14 @@ sauvegarde (archive chiffrée `kouziacrm-<date>.uploads.tar.gz.gpg`, restaurée 
 
 Après la mise à jour qui introduit l'archivage, lancer une fois `kouziactl archive-pdfs` : les factures et
 avoirs déjà émis sont archivés avec les réglages du moment (sans effet sur ceux déjà archivés).
+
+**Version accessible (RGAA 13.3).** Chaque facture, avoir et reçu archivé porte aussi sa version lisible
+(`Invoice.readableSnapshot`, `Payment.receiptReadableSnapshot`, JSON en base, donc dans la sauvegarde de la base),
+tirée du même gabarit que le PDF et figée avec lui seulement si son texte est exactement celui du PDF (lu par
+pdf.js). Les devis sont lus à la demande, comme leur PDF. Pour les documents archivés avant, le worker la
+reconstruit telle qu'à leur archivage (règlements et avoirs ultérieurs exclus) et ne la fige que si le texte
+correspond ; sinon le lien reste masqué dans `/suivi` et une alerte unique part à l'administrateur, le PDF
+archivé restant inchangé.
 
 # Mise en place (une seule fois)
 
