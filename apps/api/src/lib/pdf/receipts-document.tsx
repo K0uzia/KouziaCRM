@@ -99,7 +99,7 @@ export type ReceiptsPdfData = {
 export function ReceiptsDocument(data: ReceiptsPdfData) {
   const brand = data.company.tradeName ?? data.company.legalName;
   return (
-    <Document title={`Livre des recettes ${data.year}`}>
+    <Document title={`Livre des recettes ${data.year}`} author={data.company.legalName} language="fr">
       <Page size="A4" orientation="landscape" style={styles.page}>
         <View style={styles.head}>
           <View>

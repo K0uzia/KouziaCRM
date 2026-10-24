@@ -427,6 +427,8 @@ export function InvoiceDocument({ company, client, invoice, specimen, draft }: I
         : isSolde
           ? "FACTURE DE SOLDE"
           : "FACTURE";
+  // Titre des métadonnées, annoncé par les lecteurs d'écran : casse normale, les capitales pouvant être épelées.
+  const docTitle = title.charAt(0) + title.slice(1).toLowerCase();
   const brandName = company.tradeName ?? company.legalName;
 
   const legalFormLine = [
@@ -477,7 +479,7 @@ export function InvoiceDocument({ company, client, invoice, specimen, draft }: I
     invoice.subtotalCents !== invoice.totalCents;
 
   return (
-    <Document title={`${title} ${shownNumber}`} author={brandName} creator={brandName}>
+    <Document title={`${docTitle} ${draft ? "(aperçu)" : shownNumber}`} author={brandName} creator={brandName} language="fr">
       <Page size="A4" style={styles.page}>
         <View style={styles.accent} fixed />
         {specimen || draft ? (
