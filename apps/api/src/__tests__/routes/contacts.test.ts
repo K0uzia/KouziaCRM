@@ -173,6 +173,7 @@ describe("reprise des contacts", () => {
 
     expect((await runTakeovers({ dryRun: false })).contacts).toEqual({ contacts: 0, withEmail: 0, withPhone: 0, unnamed: 0, skipped: 1 });
     expect(await prisma.clientContact.count()).toBe(2);
-    expect(JSON.stringify(real)).not.toMatch(/Lou|Martin|example|Exemple|06/);
+    // Numéro complet, pas « 06 » : le résumé porte l'heure de la reprise, qui contient « 06 » à hh:06 ou hh:mm:06.
+    expect(JSON.stringify(real)).not.toMatch(/Lou|Martin|example|Exemple|0612345678/);
   });
 });
