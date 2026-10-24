@@ -36,23 +36,27 @@ export async function readBrandLogo(
   return null;
 }
 
+/** Plus grand côté du logo dans les PDF (4 fois sa taille affichée de 64 pt). */
+export const LOGO_MAX_PX = 256;
+
 export async function loadBrandLogoDataUrl(
   brandLogoPath: string | null | undefined,
 ): Promise<string | null> {
   const logo = await readBrandLogo(brandLogoPath);
   if (!logo) return null;
   let { buffer, mime } = logo;
-  // @react-pdf ne lit que le PNG et le JPEG : un ancien logo WebP ou GIF est converti à la volée.
-  if (mime !== "image/png" && mime !== "image/jpeg") {
-    const { loadSharp } = await import("@/lib/site/media.js");
-    const sharp = await loadSharp();
-    if (!sharp) return null;
-    try {
-      buffer = await sharp(buffer).png().toBuffer();
-      mime = "image/png";
-    } catch {
-      return null;
-    }
+  const { loadSharp } = await import("@/lib/site/media.js");
+  const sharp = await loadSharp();
+  // @react-pdf ne lit que le PNG et le JPEG : sans sharp, un logo WebP ou GIF est ignoré, les autres gardés tels quels.
+  if (!sharp) return mime === "image/png" || mime === "image/jpeg" ? `data:${mime};base64,${buffer.toString("base64")}` : null;
+  try {
+    // Affiché à 64 pt : 256 px au plus suffisent à l'impression, sans alourdir chaque PDF (jamais agrandi). PNG pour garder
+    // la transparence (WebP et GIF compris), JPEG reste JPEG. Seuls les documents rendus ensuite changent, pas les archives.
+    const resized = sharp(buffer).resize({ width: LOGO_MAX_PX, height: LOGO_MAX_PX, fit: "inside", withoutEnlargement: true });
+    buffer = mime === "image/jpeg" ? await resized.jpeg({ quality: 85, mozjpeg: true }).toBuffer() : await resized.png({ compressionLevel: 9 }).toBuffer();
+    if (mime !== "image/jpeg") mime = "image/png";
+  } catch {
+    if (mime !== "image/png" && mime !== "image/jpeg") return null;
   }
   return `data:${mime};base64,${buffer.toString("base64")}`;
 }
