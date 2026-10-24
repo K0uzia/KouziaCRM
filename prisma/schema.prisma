@@ -1022,6 +1022,8 @@ model Service {
   inPacks           ServicePackItem[] @relation("PackComponent")
   /// Clients qui ont noté cette prestation comme besoin (elle s'archive au lieu d'être supprimée)
   clientNeeds       ClientServiceNeed[]
+  /// Offre d'abonnement : prestation ponctuelle de rachat du site (prix du catalogue) ; null = pas de rachat
+  buyoutServiceId   String?
 
   @@index([active])
   @@index([name])
@@ -1094,6 +1096,8 @@ model Subscription {
   /// Moyen enregistré dans Stripe (sepa_debit | card) et ses 4 derniers chiffres ; jamais l'IBAN ni le numéro complet
   paymentMethodType       String?
   paymentMethodLast4      String?
+  /// Rachat : date du transfert du site au client (suivi, hors ERP)
+  transferredAt           DateTime?
   invoices                Invoice[]
   sourceLines             InvoiceLine[]                @relation("SubscriptionLines")
   /// Lignes de devis d'avenant qui révisent cet abonnement
@@ -1207,6 +1211,8 @@ model Invoice {
   pdfArchivedAt                DateTime?
   /// Version lisible (JSON, contrat B du site) figée avec le PDF archivé ; {"unavailable":…} si elle ne peut pas l'être
   readableSnapshot             String?
+  /// Devis de rachat (et sa facture) : abonnement racheté
+  buysOutSubscriptionId        String?
   /// Facture Stripe : dernière tentative (attempt_count) pour laquelle l'e-mail d'échec est parti
   stripeFailureNotifiedAttempt Int?
   /// Facture Stripe payée après un échec : e-mail de régularisation envoyé
@@ -1238,6 +1244,7 @@ model Invoice {
   @@index([quoteStatus])
   @@index([nextReminderAt])
   @@index([subscriptionId])
+  @@index([buysOutSubscriptionId])
   @@index([documentType, status])
   @@index([documentType, quoteStatus])
   @@index([clientId, documentType])

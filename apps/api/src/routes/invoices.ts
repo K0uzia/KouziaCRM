@@ -577,6 +577,10 @@ export const invoicesRoutes: FastifyPluginAsync = async (app) => {
       balance: adminBalanceFields(invoice),
       client: serializeClient(invoice.client),
       subscriptionDateNotice: await subscriptionDateNoticeOf(invoice, clientType, await getCompanySettings()),
+      // Rachat (R1) : abonnement racheté par ce devis ou cette facture, lien affiché sur la fiche.
+      buysOutSubscription: invoice.buysOutSubscriptionId
+        ? await prisma.subscription.findUnique({ where: { id: invoice.buysOutSubscriptionId }, select: { id: true, label: true } })
+        : null,
       bankTransactions: invoice.bankTransactions.map((t) => ({
         ...t,
         bookedAt: t.bookedAt.toISOString(),

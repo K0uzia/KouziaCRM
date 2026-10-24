@@ -84,6 +84,8 @@ type Doc = {
   quoteRejectReason?: string | null;
   /** Devis avec abonnement : phrase de la clause « date de prélèvement » (Réglages > Mentions légales). */
   subscriptionDateNotice?: string | null;
+  /** Rachat (R1) : abonnement racheté par ce devis ou cette facture. */
+  buysOutSubscription?: { id: string; label: string } | null;
   documentType: string;
   invoiceType?: string;
   quoteId?: string | null;
@@ -1164,6 +1166,19 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
                   <>
                     <dt className="text-[var(--muted)]">Bon de commande</dt>
                     <dd className="font-mono text-xs">{doc.purchaseOrderRef}</dd>
+                  </>
+                ) : null}
+                {doc.buysOutSubscription ? (
+                  <>
+                    <dt className="text-[var(--muted)]">Rachat de</dt>
+                    <dd>
+                      <Link
+                        to={`/abonnements?tab=contrats&contrat=${doc.buysOutSubscription.id}`}
+                        className="link inline-flex min-h-11 items-center underline! underline-offset-2 sm:justify-end"
+                      >
+                        {doc.buysOutSubscription.label}
+                      </Link>
+                    </dd>
                   </>
                 ) : null}
               </dl>

@@ -22,6 +22,7 @@ import {
   deleteSubscription,
   assertAmountCorrectable,
 } from "@/lib/subscriptions/subscription-service.js";
+import { buyoutStateOf, BuyoutError, createBuyoutQuote } from "@/lib/subscriptions/buyout.js";
 
 const createSchema = z.object({
   clientId: z.string().min(1),
@@ -116,7 +117,22 @@ export const subscriptionsRoutes: FastifyPluginAsync = async (app) => {
     if (reply.sent) return;
     const sub = await getSubscription(request.params.id);
     if (!sub) return reply.code(404).send({ error: "Introuvable" });
-    return sub;
+    // Rachat (R1) : null si l'offre n'a pas de prestation de rachat.
+    return { ...sub, buyout: await buyoutStateOf(sub.id) };
+  });
+
+  // Proposer le rachat (R1) : devis brouillon en paiement unique, modifiable avant émission ; 409 si un devis est en cours.
+  app.post<{ Params: { id: string } }>("/api/subscriptions/:id/buyout-quote", async (request, reply) => {
+    await requireAuth(request, reply);
+    if (reply.sent) return;
+    const exists = await prisma.subscription.findUnique({ where: { id: request.params.id }, select: { id: true } });
+    if (!exists) return reply.code(404).send({ error: "Introuvable" });
+    try {
+      return reply.code(201).send(await createBuyoutQuote(exists.id));
+    } catch (err) {
+      if (err instanceof BuyoutError) return reply.code(err.statusCode).send({ error: err.message, ...(err.quoteId ? { quoteId: err.quoteId } : {}) });
+      throw err;
+    }
   });
 
   app.patch<{ Params: { id: string } }>("/api/subscriptions/:id", async (request, reply) => {

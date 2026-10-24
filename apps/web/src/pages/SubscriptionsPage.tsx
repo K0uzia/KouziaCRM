@@ -27,6 +27,7 @@ import { Segmented } from "@/components/ui/Segmented";
 import { Combobox } from "@/components/ui/Combobox";
 import { catalogOption } from "@/lib/catalog-options";
 import { DataTable, type DataColumn } from "@/components/ui/DataTable";
+import { BuyoutSection } from "@/components/subscriptions/BuyoutSection";
 import {
   eurosInputToCents,
   INTERVAL_OPTIONS,
@@ -82,6 +83,9 @@ type Service = {
   active?: boolean;
   stripeProductId?: string | null;
   billingInterval?: string | null;
+  isPack?: boolean;
+  /** Offre : prestation ponctuelle de rachat du site (null : pas de rachat). */
+  buyoutServiceId?: string | null;
 };
 
 const emptyOfferForm = {
@@ -90,6 +94,8 @@ const emptyOfferForm = {
   unitPriceEuros: "",
   defaultBillingDay: "1",
   active: true,
+  /** Prestation de rachat du site (vide : pas de rachat). */
+  buyoutServiceId: "",
 };
 
 const statusBadge: Record<SubscriptionStatus, { tone: "green" | "amber" | "neutral"; label: string }> = {
@@ -178,6 +184,8 @@ export function SubscriptionsPage() {
   const [clients, setClients] = useState<Client[]>([]);
   const [services, setServices] = useState<Service[]>([]);
   const [offers, setOffers] = useState<Service[]>([]);
+  /** Prestations ponctuelles : choix de la prestation de rachat d'une offre. */
+  const [oneOffs, setOneOffs] = useState<Service[]>([]);
   const [offerOpen, setOfferOpen] = useState(false);
   const [editingOffer, setEditingOffer] = useState<Service | null>(null);
   const [offerBusy, setOfferBusy] = useState(false);
@@ -198,13 +206,15 @@ export function SubscriptionsPage() {
   const [loaded, setLoaded] = useState(false);
 
   async function load() {
-    const [subs, cls, svcs, catalog, settings] = await Promise.all([
+    const [subs, cls, svcs, catalog, settings, ponctuelles] = await Promise.all([
       api<Subscription[]>("/api/subscriptions"),
       api<Client[]>("/api/clients").catch(() => [] as Client[]),
       api<Service[]>("/api/services?active=1&subscription=1").catch(() => [] as Service[]),
       api<Service[]>("/api/services?subscription=1").catch(() => [] as Service[]),
       api<{ annualFreeMonths?: number }>("/api/settings").catch(() => null),
+      api<Service[]>("/api/services?subscription=0").catch(() => [] as Service[]),
     ]);
+    setOneOffs(ponctuelles.filter((x) => !x.isPack));
     setRows(subs);
     setClients(cls);
     setServices(svcs);
@@ -225,6 +235,7 @@ export function SubscriptionsPage() {
       unitPriceEuros: (s.unitPriceCents / 100).toFixed(2),
       defaultBillingDay: String(s.defaultBillingDay ?? 1),
       active: s.active !== false,
+      buyoutServiceId: s.buyoutServiceId ?? "",
     });
     setOfferOpen(true);
   }
@@ -243,6 +254,7 @@ export function SubscriptionsPage() {
         defaultBillingDay: Number(offerForm.defaultBillingDay) || 1,
         // Nouvelle offre : annuelle (frais Stripe par transaction) ; une offre existante garde sa périodicité.
         ...(editingOffer ? {} : { billingInterval: "YEAR" as const }),
+        buyoutServiceId: offerForm.buyoutServiceId || null,
       };
       if (editingOffer) {
         await api(`/api/services/${editingOffer.id}`, {
@@ -525,7 +537,14 @@ export function SubscriptionsPage() {
   const [tab, setTab] = useTabParam(["offres", "contrats"] as const, "offres");
   const navigate = useNavigate();
   const activeOffers = offers.filter((o) => o.active);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  // ?contrat=<id> (lien depuis un devis de rachat) : ouvre la fiche du contrat.
+  const [selectedId, setSelectedId] = useState<string | null>(() => params.get("contrat"));
+  useEffect(() => {
+    if (selectedId || !params.get("contrat")) return;
+    const next = new URLSearchParams(params);
+    next.delete("contrat");
+    setParams(next, { replace: true });
+  }, [selectedId, params, setParams]);
   const [endTarget, setEndTarget] = useState<Subscription | null>(null);
   const selected = rows.find((r) => r.id === selectedId) ?? null;
 
@@ -855,6 +874,7 @@ export function SubscriptionsPage() {
                 </dd>
               </div>
             </dl>
+            <BuyoutSection subscriptionId={selected.id} />
             <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
               {selected.status !== "ENDED" ? (
                 <Button variant="secondary" onClick={() => fromPanel(() => openEdit(selected))}>
@@ -1268,6 +1288,21 @@ export function SubscriptionsPage() {
               </Select>
             </Field>
           </div>
+          <Field
+            label="Prestation de rachat (facultatif)"
+            hint="Prestation ponctuelle du catalogue, au prix du catalogue : « Proposer le rachat » sur la fiche d'un contrat à cette offre crée le devis. Vide : pas de rachat."
+          >
+            <Select value={offerForm.buyoutServiceId} onChange={(e) => setOfferForm({ ...offerForm, buyoutServiceId: e.target.value })}>
+              <option value="">Pas de rachat</option>
+              {oneOffs
+                .filter((x) => x.active !== false || x.id === offerForm.buyoutServiceId)
+                .map((x) => (
+                  <option key={x.id} value={x.id}>
+                    {`${x.name} (${formatEUR(x.unitPriceCents)})${x.active === false ? ", archivée" : ""}`}
+                  </option>
+                ))}
+            </Select>
+          </Field>
           <label className="flex items-center gap-2 text-sm">
             <input
               type="checkbox"
