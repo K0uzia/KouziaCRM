@@ -213,11 +213,14 @@ export function ClientFormEditor({
   initial,
   onSuccess,
   onCancel,
+  defaultSendPortalAccess = true,
 }: {
   clientId?: string;
   initial?: ClientFormData;
   onSuccess: (client: Client) => void;
   onCancel: () => void;
+  /** Création depuis un e-mail : expéditeur souvent prospect, accès à l'espace client décoché d'office. */
+  defaultSendPortalAccess?: boolean;
 }) {
   const requestId = useRequestId();
   const [form, setForm] = useState<ClientFormData>(initial ?? emptyClientForm());
@@ -235,7 +238,7 @@ export function ClientFormEditor({
   const [busy, setBusy] = useState(false);
   const [addressError, setAddressError] = useState<string | null>(null);
   // Création seulement : envoi de l'accès à l'espace client, coché par défaut.
-  const [sendPortalAccess, setSendPortalAccess] = useState(true);
+  const [sendPortalAccess, setSendPortalAccess] = useState(defaultSendPortalAccess);
   // Client tout juste créé dont l'e-mail d'accès est à vérifier avant envoi.
   const [accessFor, setAccessFor] = useState<Client | null>(null);
   // Création seulement : besoins notés en rendez-vous (sur la fiche, bloc « Besoins » dédié).

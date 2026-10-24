@@ -17,6 +17,7 @@ import { MessageBody } from "@/pages/messaging/MessageBody";
 import { AttachmentList } from "@/pages/messaging/AttachmentList";
 import { QuoteValidationBlock } from "@/pages/messaging/QuoteValidationBlock";
 import { FormSubmissionPanel, type FormSubmission } from "@/pages/messaging/FormSubmissionPanel";
+import { SenderClientPanel, type SenderSuggestion } from "@/pages/messaging/SenderClientPanel";
 import { formatMailDateTime } from "@/lib/format";
 import { Link } from "react-router-dom";
 import { senderLabel } from "@kouzia-erp/email-sender";
@@ -87,6 +88,8 @@ type ThreadDetail = {
   quoteConfirmationHint?: boolean;
   client?: { id: string; displayName: string } | null;
   formSubmission?: FormSubmission | null;
+  /** Expéditeur sans client : fiche à créer ou client à associer. */
+  senderSuggestion?: SenderSuggestion | null;
 };
 
 /** Expéditeur technique du formulaire du site (Web3Forms) : on ne lui répond jamais. */
@@ -375,6 +378,17 @@ export function ReadingPane({
           <Link to={`/clients/${thread.client.id}`} className="link mt-1 inline-flex min-h-11 items-center text-sm">
             Client : {thread.client.displayName}
           </Link>
+        ) : thread.senderSuggestion ? (
+          <SenderClientPanel
+            threadId={thread.id}
+            suggestion={thread.senderSuggestion}
+            onLinked={() => {
+              void (async () => {
+                setThread(await api<ThreadDetail>(`/api/emails/${thread.id}`));
+                onRefresh();
+              })();
+            }}
+          />
         ) : null}
         <QuoteValidationBlock
           threadId={thread.id}
