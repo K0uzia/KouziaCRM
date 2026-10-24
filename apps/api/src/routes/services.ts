@@ -10,6 +10,7 @@ import { prisma } from "@/lib/prisma.js";
 import { eurosToCents } from "@/lib/money.js";
 import { StripeModeError } from "@/lib/stripe/mode.js";
 import { getCompanySettings } from "@/lib/company.js";
+import { assertBuyoutService, BuyoutError } from "@/lib/subscriptions/buyout.js";
 import {
   StripeCatalogError,
   createLinkedService,
@@ -34,7 +35,37 @@ const serviceSchema = z.object({
   packItems: packItemsSchema.optional(),
   /** Pack : prix annuel en paiement récurrent (vide = paiement unique seulement) ; le prix ci-dessus est le prix d'achat. */
   annualPriceEuros: z.coerce.number().min(0).optional().nullable(),
+  /** Offre d'abonnement : prestation ponctuelle de rachat du site (R1) ; null retire le rachat, absent le garde. */
+  buyoutServiceId: z.string().min(1).nullable().optional(),
 });
+
+type OfferShape = { isSubscription: boolean; isPack: boolean; annualPriceCents: number | null };
+/** Offre d'abonnement : prestation d'abonnement ou pack vendable en récurrent. */
+const isOffer = (s: OfferShape) => s.isSubscription || (s.isPack && s.annualPriceCents !== null);
+
+/** Rachat demandé : contrôlé avant toute écriture (offre d'abonnement, prestation ponctuelle active). */
+async function checkBuyout(data: z.output<typeof serviceSchema>, existing?: { id: string; annualPriceCents: number | null }) {
+  if (!data.buyoutServiceId) return;
+  const annualPriceCents =
+    data.annualPriceEuros === undefined ? (existing?.annualPriceCents ?? null) : data.annualPriceEuros === null ? null : eurosToCents(data.annualPriceEuros);
+  await assertBuyoutService(
+    { id: existing?.id, isSubscription: !data.isPack && data.isSubscription, isPack: data.isPack, annualPriceCents },
+    data.buyoutServiceId,
+  );
+}
+
+/** Rachat écrit après l'offre ; une prestation qui n'est plus une offre d'abonnement perd le sien. */
+async function withBuyout<T extends OfferShape & { id: string; buyoutServiceId: string | null }>(row: T, requested: string | null | undefined): Promise<T> {
+  const value = !isOffer(row) ? null : requested === undefined ? row.buyoutServiceId : requested;
+  if (value === row.buyoutServiceId) return row;
+  await prisma.service.update({ where: { id: row.id }, data: { buyoutServiceId: value } });
+  return { ...row, buyoutServiceId: value };
+}
+
+function buyoutError(reply: { code: (n: number) => { send: (b: unknown) => unknown } }, err: unknown) {
+  if (err instanceof BuyoutError) return reply.code(err.statusCode).send({ error: err.message });
+  throw err;
+}
 
 const packLinesQuery = z.object({
   mode: z.enum(BILLING_MODES).optional(),
@@ -126,9 +157,15 @@ export const servicesRoutes: FastifyPluginAsync = async (app) => {
     if (!parsed.success) {
       return reply.code(400).send({ error: "Données invalides", details: parsed.error.flatten() });
     }
+    try {
+      await checkBuyout(parsed.data);
+    } catch (err) {
+      return buyoutError(reply, err);
+    }
+    const buyout = parsed.data.buyoutServiceId;
     if (parsed.data.isPack) {
       try {
-        return reply.code(201).send(await savePack(parsed.data));
+        return reply.code(201).send(await withBuyout(await savePack(parsed.data), buyout));
       } catch (err) {
         if (err instanceof PackError) return reply.code(400).send({ error: err.message });
         throw err;
@@ -149,7 +186,7 @@ export const servicesRoutes: FastifyPluginAsync = async (app) => {
         // Rubrique : classement local, sans équivalent dans Stripe.
         const category = parsed.data.isSubscription ? null : (parsed.data.category ?? null);
         const linked = category ? await prisma.service.update({ where: { id: linked0.id }, data: { category } }) : linked0;
-        return reply.code(201).send(linked);
+        return reply.code(201).send(await withBuyout(linked, buyout));
       } catch (err) {
         return stripeError(reply, err);
       }
@@ -170,7 +207,7 @@ export const servicesRoutes: FastifyPluginAsync = async (app) => {
         billingInterval: parsed.data.isSubscription ? (parsed.data.billingInterval ?? "MONTH") : null,
       },
     });
-    return reply.code(201).send(created);
+    return reply.code(201).send(await withBuyout(created, buyout));
   });
 
   app.put<{ Params: { id: string } }>("/api/services/:id", async (request, reply) => {
@@ -185,9 +222,15 @@ export const servicesRoutes: FastifyPluginAsync = async (app) => {
     if (existing.isPack !== parsed.data.isPack) {
       return reply.code(400).send({ error: "Un pack reste un pack, une prestation reste une prestation : créez-en une nouvelle." });
     }
+    try {
+      await checkBuyout(parsed.data, existing);
+    } catch (err) {
+      return buyoutError(reply, err);
+    }
+    const buyout = parsed.data.buyoutServiceId;
     if (existing.isPack) {
       try {
-        return await savePack(parsed.data, existing.id);
+        return await withBuyout(await savePack(parsed.data, existing.id), buyout);
       } catch (err) {
         if (err instanceof PackError) return reply.code(400).send({ error: err.message });
         throw err;
@@ -197,7 +240,7 @@ export const servicesRoutes: FastifyPluginAsync = async (app) => {
     // Prestation liée à Stripe : même chemin que kouziactl catalog --stripe (lib/services/linked-write.ts).
     if (existing.stripeProductId) {
       try {
-        return await updateLinkedService(
+        return await withBuyout(await updateLinkedService(
           existing,
           {
             name: parsed.data.name,
@@ -207,7 +250,7 @@ export const servicesRoutes: FastifyPluginAsync = async (app) => {
             category: parsed.data.category,
           },
           parsed.data.requestId ?? randomUUID(),
-        );
+        ), buyout);
       } catch (err) {
         return stripeError(reply, err);
       }
@@ -229,7 +272,7 @@ export const servicesRoutes: FastifyPluginAsync = async (app) => {
         billingInterval: parsed.data.isSubscription ? (parsed.data.billingInterval ?? existing.billingInterval ?? "MONTH") : null,
       },
     });
-    return updated;
+    return withBuyout(updated, buyout);
   });
 
   // Supprime une prestation jamais utilisée ; si elle figure sur un document ou un abonnement,

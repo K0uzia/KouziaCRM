@@ -38,6 +38,8 @@ type Service = {
   annualPriceCents?: number | null;
   /** Classement d'une prestation ponctuelle : SITE | LOGICIEL | OPTION ; null = service non précisé. */
   category?: string | null;
+  /** Offre d'abonnement : prestation ponctuelle de rachat du site (null : pas de rachat). */
+  buyoutServiceId?: string | null;
   packItems?: Array<{
     serviceId: string;
     quantity: number;
@@ -62,6 +64,8 @@ const emptyForm = {
   billingDay: "1",
   /** Pack : prix annuel en paiement récurrent (vide : paiement unique seulement). */
   annualEuros: "",
+  /** Offre d'abonnement : prestation de rachat (vide : pas de rachat). */
+  buyoutServiceId: "",
 };
 
 /**
@@ -170,6 +174,7 @@ export function ServicesPage() {
       items: (s.packItems ?? []).map((i) => ({ serviceId: i.serviceId, quantity: String(i.quantity) })),
       annualEuros: s.annualPriceCents == null ? "" : (s.annualPriceCents / 100).toFixed(2),
       category: s.category === "SITE" || s.category === "LOGICIEL" || s.category === "OPTION" ? s.category : "",
+      buyoutServiceId: s.buyoutServiceId ?? "",
     });
     setRequestId(crypto.randomUUID());
     setOpen(true);
@@ -197,6 +202,8 @@ export function ServicesPage() {
               annualPriceEuros: form.annualEuros.trim() ? Number(form.annualEuros) : null,
             }
           : {}),
+        // Rachat (R1) : seulement une offre d'abonnement ; une prestation ponctuelle n'en envoie pas.
+        ...(form.kind !== "ONE_OFF" ? { buyoutServiceId: isOfferForm ? form.buyoutServiceId || null : null } : {}),
       };
       if (editing) {
         await api(`/api/services/${editing.id}`, { method: "PUT", body: JSON.stringify(body) });
@@ -224,6 +231,12 @@ export function ServicesPage() {
   }
 
   const neededBy = deleting?.clientNeedsCount ?? 0;
+  /** Offre d'abonnement : abonnement, ou pack vendable en récurrent (prix annuel renseigné). */
+  const isOfferForm = form.kind === "SUBSCRIPTION" || (form.kind === "PACK" && Boolean(form.annualEuros.trim()));
+  /** Prestations de rachat possibles : ponctuelles et actives (la valeur enregistrée reste affichée, même archivée). */
+  const buyoutChoices = catalog.filter(
+    (s) => !s.isSubscription && !s.isPack && s.id !== editing?.id && (s.active || s.id === form.buyoutServiceId),
+  );
 
   async function remove() {
     if (!deleting) return;
@@ -650,6 +663,21 @@ export function ServicesPage() {
                 value={form.annualEuros}
                 onChange={(e) => setForm({ ...form, annualEuros: e.target.value })}
               />
+            </Field>
+          ) : null}
+          {isOfferForm ? (
+            <Field
+              label="Prestation de rachat (facultatif)"
+              hint="Prestation ponctuelle du catalogue, au prix du catalogue : « Proposer le rachat » sur la fiche d'un abonnement à cette offre crée le devis. Vide : pas de rachat."
+            >
+              <Select value={form.buyoutServiceId} onChange={(e) => setForm({ ...form, buyoutServiceId: e.target.value })}>
+                <option value="">Pas de rachat</option>
+                {buyoutChoices.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {`${s.name} (${formatEUR(s.unitPriceCents)})${s.active ? "" : ", archivée"}`}
+                  </option>
+                ))}
+              </Select>
             </Field>
           ) : null}
           <label className="flex min-h-11 items-center gap-2 text-sm">
