@@ -35,7 +35,7 @@ import {
   parsePaymentPlanOffer,
   planTemplate,
 } from "@/lib/quotes/payment-plans.js";
-import { assertMilestoneInvoiced, assertQuoteSigned } from "@/lib/invoices/workflow.js";
+import { assertMilestoneInvoiced, assertQuoteSigned, isBalanceMilestone } from "@/lib/invoices/workflow.js";
 import { buildPayUrl } from "@/lib/stripe/pay-urls.js";
 
 export class MilestonePaymentError extends Error {
@@ -171,6 +171,14 @@ export async function activateMilestoneCheckout(
       "Stripe désactivé. Collez un lien de paiement sur le jalon (Réglages > Paiements).",
       400,
     );
+  }
+
+  // Solde : sa facture (marché moins acomptes réglés) est émise avant le lien, jamais à la réception du paiement.
+  // Échec (acompte encore dû, devis déjà facturé) : pas de lien, l'erreur remonte à l'appelant.
+  if (!milestone.invoiceId && isBalanceMilestone(milestone)) {
+    const { generateBalanceInvoice } = await import("@/lib/invoices/documentFlowService.js");
+    const { invoice } = await generateBalanceInvoice(milestone.quoteId, { milestoneId: milestone.id });
+    milestone.invoiceId = invoice.id;
   }
 
   const quoteRef = milestone.quote.number ?? "brouillon";

@@ -32,6 +32,12 @@ async function withMinimum(info: NonNullable<PayPageInfo>, amountCents: number):
   return { ...info, button: null, notice: onlineMinimumMessage(settings.email) };
 }
 
+/** Prélèvement SEPA lancé, résultat attendu : un second paiement ferait payer deux fois (audit du 25/10/2026). */
+export const PROCESSING_NOTICE =
+  "Un prélèvement est déjà en cours pour ce paiement : son résultat arrive sous quelques jours ouvrés. Aucun autre paiement n'est nécessaire.";
+
+const processing = (info: NonNullable<PayPageInfo>): NonNullable<PayPageInfo> => ({ ...info, button: null, notice: PROCESSING_NOTICE });
+
 /** Libellé et montant affichés avant le paiement ; null si le document n'est plus payable. */
 export async function payPageInfo(kind: PayTokenKind, id: string): Promise<PayPageInfo> {
   if (kind === "invoice") {
@@ -40,10 +46,9 @@ export async function payPageInfo(kind: PayTokenKind, id: string): Promise<PayPa
     // Reste dû avoirs compris : le montant que Checkout prélèvera.
     const remaining = invoiceBalance(inv).dueCents;
     if (remaining <= 0) return null;
-    return withMinimum(
-      { title: `Facture ${inv.number ?? ""}`.trim(), detail: `Montant à régler : ${formatEUR(remaining)}`, button: "Payer" },
-      remaining,
-    );
+    const info = { title: `Facture ${inv.number ?? ""}`.trim(), detail: `Montant à régler : ${formatEUR(remaining)}`, button: "Payer" };
+    if (inv.paymentProcessingAt) return processing(info);
+    return withMinimum(info, remaining);
   }
   if (kind === "milestone") {
     const m = await prisma.paymentMilestone.findUnique({ where: { id }, include: { quote: true } });
@@ -52,14 +57,13 @@ export async function payPageInfo(kind: PayTokenKind, id: string): Promise<PayPa
     const billed = m.invoiceId ? await prisma.invoice.findUnique({ where: { id: m.invoiceId }, include: BALANCE_INCLUDE }) : null;
     const amount = billed ? invoiceBalance(billed).dueCents : m.amountCents;
     if (amount <= 0) return null;
-    return withMinimum(
-      {
-        title: `${m.label}, devis ${m.quote.number ?? ""}`.trim(),
-        detail: `Montant à régler : ${formatEUR(amount)}`,
-        button: "Payer",
-      },
-      amount,
-    );
+    const info = {
+      title: `${m.label}, devis ${m.quote.number ?? ""}`.trim(),
+      detail: `Montant à régler : ${formatEUR(amount)}`,
+      button: "Payer",
+    };
+    if (m.paymentProcessingAt || billed?.paymentProcessingAt) return processing(info);
+    return withMinimum(info, amount);
   }
   const sub = await prisma.subscription.findUnique({ where: { id } });
   if (kind === "manage" || kind === "card") {

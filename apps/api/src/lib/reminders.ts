@@ -128,6 +128,8 @@ export async function listPendingReminders(now = new Date()) {
           documentType: InvoiceDocumentType.INVOICE,
           status: InvoiceStatus.ISSUED,
           stripeInvoiceId: null,
+          // Prélèvement en cours : pas de relance ni de mise en demeure avant son résultat.
+          paymentProcessingAt: null,
         },
       ],
     },
