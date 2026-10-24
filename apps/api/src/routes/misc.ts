@@ -27,6 +27,7 @@ import {
 } from "@/lib/email/sync/index.js";
 import { fetchMessageBody } from "@/lib/email/sync/body-fetch.js";
 import { formLeadForMessage, formSubmissionForThread } from "@/lib/email/web3forms.js";
+import { linkSenderToClient, SenderLinkError, senderSuggestionForThread } from "@/lib/email/sender-client.js";
 import { setBulkMessageFlags, setMessageFlags } from "@/lib/email/sync/flag-sync.js";
 import { withImapClient } from "@/lib/email/sync/imap-connection.js";
 import { toImapInt } from "@/lib/email/sync/imap-int.js";
@@ -757,6 +758,8 @@ export const miscRoutes: FastifyPluginAsync = async (app) => {
 
       // Formulaire du site : client rattaché (ou fiche à créer), champs lisibles et adresse de réponse du client.
       const formSubmission = await formSubmissionForThread(thread.id, (id) => fetchMessageBody(id)).catch(() => null);
+      // Expéditeur sans client (hors formulaire du site, qui a son encart) : fiche à créer ou client à associer.
+      const senderSuggestion = formSubmission ? null : await senderSuggestionForThread(thread).catch(() => null);
 
       return {
         ...thread,
@@ -767,6 +770,7 @@ export const miscRoutes: FastifyPluginAsync = async (app) => {
         acceptanceAudits,
         quoteConfirmationHint,
         formSubmission,
+        senderSuggestion,
         messages: thread.messages.map((m) => ({
           ...m,
           toAddresses: JSON.parse(m.toAddresses || "[]"),
@@ -796,6 +800,22 @@ export const miscRoutes: FastifyPluginAsync = async (app) => {
       };
     },
   );
+
+  // Associer l'expéditeur à un client (créé à l'instant ou existant) : ce fil et ses autres fils sans client.
+  app.post<{ Params: { threadId: string } }>("/api/emails/:threadId/link-client", async (request, reply) => {
+    await requireAuth(request, reply);
+    if (reply.sent) return;
+    const parsed = z.object({ clientId: z.string().min(1), addContact: z.boolean().optional().default(false) }).safeParse(request.body ?? {});
+    if (!parsed.success) return reply.code(400).send({ error: "Données invalides" });
+    try {
+      return await linkSenderToClient(request.params.threadId, parsed.data.clientId, { addContact: parsed.data.addContact });
+    } catch (err) {
+      if (err instanceof SenderLinkError) return reply.code(err.statusCode).send({ error: err.message });
+      const { ContactConflictError } = await import("@/lib/clients/contacts.js");
+      if (err instanceof ContactConflictError) return reply.code(409).send({ error: err.message, code: err.code });
+      throw err;
+    }
+  });
 
   app.post("/api/emails/draft-attachments", async (request, reply) => {
     await requireAuth(request, reply);
