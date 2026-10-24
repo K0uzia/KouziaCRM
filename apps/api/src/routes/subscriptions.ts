@@ -22,7 +22,7 @@ import {
   deleteSubscription,
   assertAmountCorrectable,
 } from "@/lib/subscriptions/subscription-service.js";
-import { buyoutStateOf, BuyoutError, createBuyoutQuote } from "@/lib/subscriptions/buyout.js";
+import { buyoutStateOf, BuyoutError, createBuyoutQuote, setTransferredAt } from "@/lib/subscriptions/buyout.js";
 
 const createSchema = z.object({
   clientId: z.string().min(1),
@@ -227,6 +227,23 @@ export const subscriptionsRoutes: FastifyPluginAsync = async (app) => {
       if (err instanceof SubscriptionError || err instanceof MediatorRequiredError) {
         return reply.code(400).send({ error: err.message });
       }
+      throw err;
+    }
+  });
+
+  // Transfert du site effectué (R2), suivi seulement : date du jour par défaut, null pour la retirer ; 409 sans rachat signé.
+  const transferSchema = z.object({ transferredAt: z.iso.date().nullable() });
+  app.put<{ Params: { id: string } }>("/api/subscriptions/:id/transfer", async (request, reply) => {
+    await requireAuth(request, reply);
+    if (reply.sent) return;
+    const parsed = transferSchema.safeParse(request.body);
+    if (!parsed.success) return reply.code(400).send({ error: "Date de transfert invalide" });
+    const exists = await prisma.subscription.findUnique({ where: { id: request.params.id }, select: { id: true } });
+    if (!exists) return reply.code(404).send({ error: "Introuvable" });
+    try {
+      return await setTransferredAt(exists.id, parsed.data.transferredAt ? new Date(`${parsed.data.transferredAt}T12:00:00`) : null);
+    } catch (err) {
+      if (err instanceof BuyoutError) return reply.code(err.statusCode).send({ error: err.message });
       throw err;
     }
   });

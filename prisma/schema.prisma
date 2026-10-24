@@ -539,6 +539,8 @@ enum LegalClauseKind {
   SUBSCRIPTION_BILLING_DATE
   /// Abonnement avec durée d'engagement (offre tout compris) : imprimée à la place de la clause de périodicité
   SUBSCRIPTION_COMMITMENT
+  /// Cession du site au client (rachat, R2) : imprimée seulement sur un devis de rachat
+  BUYOUT_TRANSFER
 }
 
 /// Clients auxquels une clause s'imprime (type du client du document)

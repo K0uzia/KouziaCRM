@@ -1,4 +1,4 @@
-import { InvoiceDocumentType, QuoteStatus, SubscriptionStatus } from "@prisma/client";
+import { InvoiceDocumentType, QuoteStatus, SubscriptionStatus, type Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma.js";
 import { formatDateFr } from "@/lib/format-fr.js";
 import { lineTotalCents } from "@/lib/money.js";
@@ -70,6 +70,7 @@ export async function buyoutStateOf(subscriptionId: string, now = new Date()) {
       nextInvoiceAt: true,
       billingInterval: true,
       commitmentEndsAt: true,
+      endDate: true,
       transferredAt: true,
       service: { select: { buyoutServiceId: true } },
     },
@@ -88,8 +89,11 @@ export async function buyoutStateOf(subscriptionId: string, now = new Date()) {
   const remaining = remainingCommitmentPeriods(sub, now);
   const price = remaining.count > 0 ? await originalPeriodPriceCents(sub) : null;
   const live = quotes.find((q) => q.quoteStatus && LIVE_QUOTE_STATUSES.includes(q.quoteStatus));
-  const blocked =
-    sub.status !== SubscriptionStatus.ACTIVE
+  const signed = quotes.some((q) => q.quoteStatus === QuoteStatus.ACCEPTED);
+  // Rachat signé : la fiche montre la fin de l'abonnement et le suivi du transfert, plus les périodes restantes.
+  const blocked = signed
+    ? "Rachat signé."
+    : sub.status !== SubscriptionStatus.ACTIVE
       ? "Seul un abonnement actif peut être racheté."
       : !sub.commitmentEndsAt
         ? "Pas de rachat sans engagement."
@@ -101,10 +105,14 @@ export async function buyoutStateOf(subscriptionId: string, now = new Date()) {
   return {
     service,
     periodEndsAt: remaining.from,
-    remaining: remaining.count > 0 ? { count: remaining.count, unitPriceCents: price!.cents, until: remaining.until, label: remainingLabel(sub.billingInterval) } : null,
+    remaining: !signed && remaining.count > 0 ? { count: remaining.count, unitPriceCents: price!.cents, until: remaining.until, label: remainingLabel(sub.billingInterval) } : null,
     quotes,
     canPropose: blocked === null,
     blockedReason: blocked,
+    // R2 : rachat signé, fin programmée (dernier instant de la période) et suivi du transfert du site.
+    signed,
+    endsAt: sub.endDate,
+    transferredAt: sub.transferredAt,
   };
 }
 
@@ -180,4 +188,65 @@ export async function assertBuyoutService(
   if (!target) throw new BuyoutError("Prestation de rachat introuvable.", 404);
   if (!target.active) throw new BuyoutError("La prestation de rachat est archivée.");
   if (target.isSubscription || target.isPack) throw new BuyoutError("La prestation de rachat est une prestation ponctuelle du catalogue, pas un abonnement ni un pack.");
+}
+
+type Tx = Prisma.TransactionClient;
+export type BuyoutSignature = { subscriptionId: string; endDate: Date; stripe: { id: string; livemode: boolean | null } | null };
+
+/**
+ * Signature d'un devis de rachat (R2, décision Q2) : l'abonnement prend fin à la fin de la période en cours, sans
+ * nouvelle échéance (endDate au dernier instant de la période : ni facture, ni rappel ensuite). Une fin déjà plus
+ * proche est gardée. Dans la transaction de la signature ; Stripe est prévenu après (finishBuyoutSignature).
+ */
+export async function applyBuyoutSignature(tx: Tx, quoteId: string, now = new Date()): Promise<BuyoutSignature | null> {
+  const quote = await tx.invoice.findUnique({ where: { id: quoteId }, select: { documentType: true, buysOutSubscriptionId: true } });
+  if (quote?.documentType !== InvoiceDocumentType.QUOTE || !quote.buysOutSubscriptionId) return null;
+  const sub = await tx.subscription.findUnique({
+    where: { id: quote.buysOutSubscriptionId },
+    select: { id: true, status: true, endDate: true, nextInvoiceAt: true, billingInterval: true, commitmentEndsAt: true, stripeSubscriptionId: true, stripeLivemode: true },
+  });
+  if (!sub || sub.status === SubscriptionStatus.ENDED) return null;
+  const lastInstant = new Date(currentPeriodEndOf(sub, now).getTime() - 1);
+  const endDate = sub.endDate && sub.endDate < lastInstant ? sub.endDate : lastInstant;
+  await tx.subscription.update({ where: { id: sub.id }, data: { endDate } });
+  return { subscriptionId: sub.id, endDate, stripe: sub.stripeSubscriptionId ? { id: sub.stripeSubscriptionId, livemode: sub.stripeLivemode } : null };
+}
+
+/** Après la signature : prélèvement Stripe arrêté à la fin de sa période. Un échec ne défait pas la signature : alerte. */
+export async function finishBuyoutSignature(signature: BuyoutSignature | null): Promise<void> {
+  if (!signature?.stripe) return;
+  try {
+    const { applyStripeSubscriptionAction } = await import("@/lib/stripe/subscription-control.js");
+    await applyStripeSubscriptionAction(signature.stripe.id, "endAtPeriodEnd", signature.stripe.livemode);
+  } catch (err) {
+    const { alertAdmin } = await import("@/lib/stripe/alert.js");
+    await alertAdmin(
+      "Rachat signé : prélèvement Stripe à arrêter",
+      `Le devis de rachat est signé, mais Stripe n'a pas programmé la fin du prélèvement (${err instanceof Error ? err.message : "erreur inconnue"}). Programmez la fin à la fin de la période en cours dans Stripe, sinon le client sera prélevé de nouveau.`,
+    ).catch(() => undefined);
+  }
+}
+
+/** Worker : abonnement racheté dont la dernière période est terminée, passé à « Clôturé ». */
+export async function closeBoughtOutSubscriptions(now = new Date()): Promise<number> {
+  const signed = await prisma.invoice.findMany({
+    where: { documentType: InvoiceDocumentType.QUOTE, quoteStatus: QuoteStatus.ACCEPTED, buysOutSubscriptionId: { not: null } },
+    select: { buysOutSubscriptionId: true },
+  });
+  const ids = [...new Set(signed.map((q) => q.buysOutSubscriptionId!))];
+  if (!ids.length) return 0;
+  const closed = await prisma.subscription.updateMany({
+    where: { id: { in: ids }, status: { not: SubscriptionStatus.ENDED }, endDate: { lt: now } },
+    data: { status: SubscriptionStatus.ENDED },
+  });
+  return closed.count;
+}
+
+/** Suivi du transfert du site (hors ERP) : seulement après un rachat signé. null retire la date. */
+export async function setTransferredAt(subscriptionId: string, at: Date | null) {
+  const signed = await prisma.invoice.count({
+    where: { buysOutSubscriptionId: subscriptionId, documentType: InvoiceDocumentType.QUOTE, quoteStatus: QuoteStatus.ACCEPTED },
+  });
+  if (!signed) throw new BuyoutError("Le transfert se note après la signature du devis de rachat.", 409);
+  return prisma.subscription.update({ where: { id: subscriptionId }, data: { transferredAt: at }, select: { id: true, transferredAt: true } });
 }

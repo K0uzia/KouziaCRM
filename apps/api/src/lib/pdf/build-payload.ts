@@ -221,7 +221,11 @@ export function buildInvoicePdfPayload({
             )
           : null,
     })),
-    legalClauses: clauses.filter((c) => !DEDICATED_CLAUSE_KINDS.has(c.kind)).map((c) => ({ title: c.title, body: c.body })),
+    // Clause de cession (R2) : seulement sur le devis de rachat d'un abonnement.
+    legalClauses: clauses
+      .filter((c) => !DEDICATED_CLAUSE_KINDS.has(c.kind))
+      .filter((c) => c.kind !== "BUYOUT_TRANSFER" || (invoice.documentType === "QUOTE" && Boolean(invoice.buysOutSubscriptionId)))
+      .map((c) => ({ title: c.title, body: c.body })),
     subscriptionTerms: {
       MONTH: clauseBody("SUBSCRIPTION_MONTHLY"),
       YEAR: clauseBody("SUBSCRIPTION_ANNUAL"),
