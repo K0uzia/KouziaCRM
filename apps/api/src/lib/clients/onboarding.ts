@@ -7,6 +7,8 @@ import { isSmtpConfigured } from "@/lib/email/smtp.js";
 import { mailEnqueue } from "@/lib/email/mailer/index.js";
 import { allocateClientNumber } from "@/lib/clients/numbering.js";
 import { sendPortalWelcomeEmail } from "@/lib/clients/access-email.js";
+import { buildEmailBrand } from "@/lib/email/deposit-templates.js";
+import { formatPlainTextSignature } from "@/lib/email/signature.js";
 import {
   createOnboardingToken,
   getOnboardingTtlDays,
@@ -24,6 +26,9 @@ import { computeEmailHash } from "@/lib/clients/email-hash.js";
 import { syncPrimaryContact } from "@/lib/clients/contacts.js";
 import { AddressValidationError } from "@/lib/clients.js";
 import { maskEmail } from "@/lib/portal/auth.js";
+
+/** Bienvenue envoyée d'office après la fiche remplie : file « E-mails à valider » (famille portal_access), le client attend. */
+const WELCOME_REVIEW = { family: "portal_access", origin: "CLIENT_ACTION", clientWaiting: true } as const;
 
 export type OnboardingInviteResult = {
   ok: boolean;
@@ -69,8 +74,8 @@ async function inviteContent(existingClientId: string | null, link: string) {
     "",
     `Ce lien est personnel et expire dans ${ttl} jours. Vos données sont transmises directement à ${brand} et ne sont pas conservées sur le site public.`,
     "",
-    "Cordialement,",
-    brand,
+    // Signature des Réglages, comme les autres e-mails (défaut : « Cordialement, » et le nom commercial).
+    formatPlainTextSignature(company, buildEmailBrand(company)),
   ].join("\n");
   const subject = existingClientId ? `Mise à jour de votre fiche client - ${brand}` : `Complétez votre fiche client - ${brand}`;
   return { subject, text };
@@ -347,7 +352,7 @@ async function applySubmission(
         where: { id: invitation.id },
         data: { usedAt: now },
       });
-      await sendPortalWelcomeEmail(invitation.existingClientId).catch((err) => {
+      await sendPortalWelcomeEmail(invitation.existingClientId, {}, WELCOME_REVIEW).catch((err) => {
         console.error(`[email] accès espace client après onboarding (existant) échoué`, err);
       });
       return { ok: true };
@@ -366,7 +371,7 @@ async function applySubmission(
       where: { id: invitation.id },
       data: { usedAt: now, createdClientId: created.id },
     });
-    await sendPortalWelcomeEmail(created.id).catch((err) => {
+    await sendPortalWelcomeEmail(created.id, {}, WELCOME_REVIEW).catch((err) => {
       console.error(`[email] accès espace client après onboarding (nouveau) échoué`, err);
     });
     return { ok: true };
