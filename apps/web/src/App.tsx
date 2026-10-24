@@ -51,6 +51,8 @@ const ReceiptsBookPage = lazy(() =>
 );
 const OutboxPage = lazy(() => import("@/pages/OutboxPage").then((m) => ({ default: m.OutboxPage })));
 const EmailReviewPage = lazy(() => import("@/pages/EmailReviewPage").then((m) => ({ default: m.EmailReviewPage })));
+const EmailTemplatesPage = lazy(() => import("@/pages/settings/EmailTemplatesPage").then((m) => ({ default: m.EmailTemplatesPage })));
+const EmailTemplatePage = lazy(() => import("@/pages/settings/EmailTemplatesPage").then((m) => ({ default: m.EmailTemplatePage })));
 const SoftwareRequestsPage = lazy(() =>
   import("@/pages/SoftwareRequestsPages").then((m) => ({ default: m.SoftwareRequestsPage })),
 );
@@ -174,6 +176,8 @@ export default function App() {
           <Route path="demandes-logiciel" element={<SoftwareRequestsPage />} />
           <Route path="demandes-logiciel/:id" element={<SoftwareRequestPage />} />
           <Route path="settings" element={<SettingsPage />} />
+          <Route path="settings/modeles-emails" element={<EmailTemplatesPage />} />
+          <Route path="settings/modeles-emails/:key" element={<EmailTemplatePage />} />
           <Route path="site" element={<SiteOverviewPage />} />
           <Route path="site/realisations" element={<SiteProjectsPage />} />
           <Route path="site/realisations/:id" element={<SiteProjectPage />} />

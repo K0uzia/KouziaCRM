@@ -6,7 +6,7 @@ import { useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { formatDate } from "@/lib/format";
-import { Button } from "@/components/ui/Button";
+import { Button, ButtonLink } from "@/components/ui/Button";
 import { Card, PageHeader } from "@/components/ui/Card";
 import { DateInput, Field, Input, Select, Textarea } from "@/components/ui/Field";
 import { Modal, ModalActions } from "@/components/ui/Modal";
@@ -1071,6 +1071,17 @@ export function SettingsPage() {
 
           {tab === "email" ? <EmailSignatureCard /> : null}
           {tab === "email" ? <EmailReviewCard /> : null}
+          {tab === "email" ? (
+            <Card className="flex flex-col gap-3 border border-[var(--border)] p-5 sm:flex-row sm:items-center sm:justify-between">
+              <div className="min-w-0 space-y-1">
+                <h2 className="text-base font-semibold">Modèles d&apos;e-mails</h2>
+                <p className="text-sm text-[var(--muted)]">Objet et texte des e-mails envoyés aux clients : devis, factures, avoirs et relances.</p>
+              </div>
+              <ButtonLink variant="secondary" to="/settings/modeles-emails">
+                Modifier les modèles
+              </ButtonLink>
+            </Card>
+          ) : null}
           {tab === "email" ? (
             <Card className="space-y-6 border border-[var(--border)] p-5">
               <div className="flex flex-wrap items-center justify-between gap-2 rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--bg)] px-3 py-2.5">
