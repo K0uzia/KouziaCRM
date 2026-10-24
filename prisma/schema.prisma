@@ -2067,3 +2067,11 @@ model ServicePackItem {
   @@index([packId])
   @@index([serviceId])
 }
+
+/// Modèle d'e-mail modifié dans Réglages (clé du registre lib/email/template-registry.ts) ; absent : texte d'origine du code
+model EmailTemplate {
+  key       String   @id
+  subject   String?
+  body      String?
+  updatedAt DateTime @updatedAt
+}

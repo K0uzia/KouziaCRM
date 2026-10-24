@@ -54,6 +54,7 @@ const TABLES = [
   "SiteFaq",
   "SiteText",
   "SiteMedia",
+  "EmailTemplate",
 ];
 
 /** Vide toutes les tables métier (garde User ; CompanySettings est recréé par seedCompanySettings). */

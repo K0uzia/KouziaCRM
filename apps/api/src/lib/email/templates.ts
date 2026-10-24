@@ -3,6 +3,7 @@ import { formatEUR } from "@/lib/money.js";
 import { renderEmailHtml } from "@/lib/email/layout.js";
 import { resolveClientPortalUrl } from "@/lib/email/portal-url.js";
 import { formatPlainTextSignature } from "@/lib/email/signature.js";
+import { fillTemplate, templateOverride } from "@/lib/email/template-registry.js";
 
 export type EmailTemplateKind =
   | "quote"
@@ -223,13 +224,47 @@ async function resolveEmailSignature(brand: EmailBrand): Promise<string> {
   return formatPlainTextSignature(settings, brand);
 }
 
+/** Modèle modifiable de chaque type (lib/email/template-registry.ts) ; les autres types restent au texte du code. */
+export const TEMPLATE_KEY: Partial<Record<EmailTemplateKind, string>> = {
+  quote: "document.quote",
+  invoice: "document.invoice",
+  invoice_acompte: "document.invoice_acompte",
+  invoice_solde: "document.invoice_solde",
+  credit_note: "document.credit_note",
+  reminder_soft: "reminder.soft",
+  reminder_firm: "reminder.firm",
+  reminder_formal: "reminder.formal",
+};
+
+/** Variables d'un modèle, calculées comme le texte du code. */
+export async function templateValues(input: EmailContentInput): Promise<Record<string, string>> {
+  const portalUrl = input.clientPortalUrl?.trim() || (await resolveClientPortalUrl());
+  const invoiceKind = input.kind === "invoice" || input.kind === "invoice_acompte" || input.kind === "invoice_solde";
+  return {
+    salutation: greeting(input.clientFirstName || input.clientName),
+    prenom: input.clientFirstName?.trim() ?? "",
+    client: input.clientName,
+    numero: input.docNumber?.trim() ?? "",
+    document: input.docLabel ?? "document",
+    bloc_suivi: input.kind === "quote" ? quoteTrackingBlockText(portalUrl) : invoiceKind ? invoiceTrackingBlockText(portalUrl) : "",
+    lien_paiement: input.paymentUrl?.trim() ?? "",
+    informations: input.extraLines?.join("\n") ?? "",
+  };
+}
+
 export async function buildEmailContent(input: EmailContentInput): Promise<{
   subject: string;
   text: string;
   html: string;
 }> {
-  const subject = subjectFor(input);
-  const text = await bodyTextFor(input);
+  // Modèle modifié dans Réglages : objet et corps remplis, signature du système ajoutée ; sinon le texte du code.
+  const key = TEMPLATE_KEY[input.kind];
+  const override = key ? await templateOverride(key) : null;
+  const values = override ? await templateValues(input) : null;
+  const subject = override ? fillTemplate(override.subject, values!) : subjectFor(input);
+  const text = override
+    ? [fillTemplate(override.body, values!), "", await resolveEmailSignature(input.brand)].join("\n")
+    : await bodyTextFor(input);
   const settings = await getCompanySettings();
   const html = renderEmailHtml({
     text,
