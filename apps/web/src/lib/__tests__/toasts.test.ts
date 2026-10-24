@@ -38,7 +38,7 @@ describe("messages de l'ERP : un seul style, jamais deux pour un même événeme
     expect(shouldNotifySystem({ visibility: undefined, permission: "granted" })).toBe(false);
   });
 
-  it("nouvelle version en attente dans le service worker : le même état que le bandeau, pas un toast à part", () => {
+  it("nouvelle version en attente dans le service worker : le même état que le toast de version, pas un second message", () => {
     resetVersionForTests();
     expect(typeof useVersionState).toBe("function");
     markUpdateWaiting();

@@ -9,6 +9,7 @@ import { Segmented } from "@/components/ui/Segmented";
 import { Tabs, useTabParam } from "@/components/ui/Tabs";
 import { useMediaQuery } from "@/lib/use-media-query";
 import { fieldErrorsOf, type FieldErrors } from "./shared";
+import { useUnsavedGuard } from "@/lib/unsaved";
 
 /**
  * Éditeurs de l'espace Site : enregistrement automatique du brouillon, état affiché, et mise en page en deux
@@ -328,14 +329,7 @@ export function EditorFooter({ auto, creating, busy, createLabel }: { auto: { st
 
 /** Alerte du navigateur avant de fermer ou recharger l'onglet tant que quelque chose n'est pas enregistré. */
 export function useLeaveGuard(active: boolean) {
-  useEffect(() => {
-    if (!active) return;
-    const onBeforeUnload = (e: BeforeUnloadEvent) => {
-      e.preventDefault();
-    };
-    window.addEventListener("beforeunload", onBeforeUnload);
-    return () => window.removeEventListener("beforeunload", onBeforeUnload);
-  }, [active]);
+  useUnsavedGuard(active);
 }
 
 /** « 14 h 32 » : heure à la française, sans les secondes. */

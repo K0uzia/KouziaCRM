@@ -22,8 +22,9 @@ function offlineOrigin(mode: string): Plugin {
 }
 
 /**
- * Identifiant de ce build : compilé dans l'interface (__KOUZIA_BUILD__) et écrit dans dist/version.json, que l'API
- * lit au démarrage et renvoie dans X-Kouzia-Build. Un écart signale une interface plus ancienne que le serveur.
+ * Identifiant de ce build : balise kouzia-build d'index.html et dist/version.json, que l'API lit au démarrage et renvoie
+ * dans X-Kouzia-Build. Un écart signale une interface plus ancienne que le serveur. Jamais compilé dans un module : il
+ * changerait l'empreinte de presque tous les fichiers à chaque build, retéléchargés à chaque mise à jour (mesuré : 49 sur 70).
  */
 const BUILD_ID = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 function buildVersion(): Plugin {
@@ -33,12 +34,14 @@ function buildVersion(): Plugin {
     generateBundle() {
       this.emitFile({ type: "asset", fileName: "version.json", source: JSON.stringify({ build: BUILD_ID }) });
     },
+    transformIndexHtml() {
+      return [{ tag: "meta", attrs: { name: "kouzia-build", content: BUILD_ID }, injectTo: "head" }];
+    },
   };
 }
 
 export default defineConfig(({ mode }) => ({
   envDir,
-  define: { __KOUZIA_BUILD__: JSON.stringify(mode === "production" ? BUILD_ID : "dev") },
   plugins: [
     buildVersion(),
     react(),

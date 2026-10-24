@@ -8,6 +8,7 @@ import { useReadOnly } from "@/lib/offline/read-only";
 import { Card } from "@/components/ui/Card";
 import { Banner } from "@/components/ui/Banner";
 import { Textarea } from "@/components/ui/Field";
+import { useUnsavedGuard } from "@/lib/unsaved";
 
 type Notepad = { text: string; version: number; updatedAt: string | null; conflictAt: string | null; conflict?: boolean };
 type Status = "idle" | "dirty" | "saving" | "saved" | "queued" | "error";
@@ -154,13 +155,8 @@ export function ClientNotepadCard({ clientId, clientName }: { clientId: string; 
     timer.current = window.setTimeout(() => void save(), AUTOSAVE_MS);
   }
 
-  // Saisie non enregistrée : le navigateur prévient avant de quitter la page.
-  useEffect(() => {
-    if (status !== "dirty" && status !== "saving") return;
-    const warn = (e: BeforeUnloadEvent) => e.preventDefault();
-    window.addEventListener("beforeunload", warn);
-    return () => window.removeEventListener("beforeunload", warn);
-  }, [status]);
+  // Saisie non enregistrée : le navigateur prévient avant de quitter, « Recharger » (mise à jour) aussi.
+  useUnsavedGuard(status === "dirty" || status === "saving");
 
   useEffect(() => () => window.clearTimeout(timer.current), []);
 

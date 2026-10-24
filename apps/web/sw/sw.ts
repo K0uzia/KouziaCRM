@@ -5,7 +5,8 @@
 //   l'index et tous les fichiers des écrans en cache, toute page servie par index.html sauf /api. Aucune réponse
 //   /api n'entre dans Cache Storage : les données passent par la copie chiffrée d'IndexedDB.
 // Mise à jour : la nouvelle version attend ; la page propose « Recharger » et envoie SKIP_WAITING.
-import { cleanupOutdatedCaches, createHandlerBoundToURL, precacheAndRoute } from "workbox-precaching";
+import { addPlugins, cleanupOutdatedCaches, createHandlerBoundToURL, getCacheKeyForURL, precacheAndRoute } from "workbox-precaching";
+import { cacheNames } from "workbox-core";
 import { NavigationRoute, registerRoute } from "workbox-routing";
 
 declare const self: ServiceWorkerGlobalScope & { __WB_MANIFEST: Array<{ url: string; revision: string | null }> };
@@ -15,10 +16,37 @@ const isOfflineScript = (url: string | undefined) => Boolean(url) && new URL(url
 const manifest = self.__WB_MANIFEST;
 
 if (isOfflineScript(self.location.href)) {
+  // Avancement de l'installation d'une nouvelle version (« Mise à jour en cours », lib/sw-register.ts) : fichiers à
+  // télécharger (absents du cache) et fichiers reçus, envoyés aux onglets.
+  let total: number | null = null;
+  let done = 0;
+  const notify = async () => {
+    for (const client of await self.clients.matchAll({ type: "window", includeUncontrolled: true })) {
+      client.postMessage({ type: "UPDATE_PROGRESS", done, total });
+    }
+  };
+  addPlugins([
+    {
+      cacheDidUpdate: async () => {
+        done += 1;
+        await notify();
+      },
+    },
+  ]);
   precacheAndRoute(manifest);
   cleanupOutdatedCaches();
   registerRoute(new NavigationRoute(createHandlerBoundToURL("index.html"), { denylist: [/^\/api(\/|$)/] }));
   self.addEventListener("install", () => {
+    void (async () => {
+      const cache = await caches.open(cacheNames.precache);
+      let missing = 0;
+      for (const entry of manifest) {
+        const key = getCacheKeyForURL(new URL(entry.url, self.location.href).href);
+        if (!key || !(await cache.match(key))) missing += 1;
+      }
+      total = missing;
+      await notify();
+    })().catch(() => undefined);
     // Remplace un service worker sans cache (notifications seules) : rien de périmé à protéger, pas d'attente.
     if (!isOfflineScript(self.registration.active?.scriptURL)) void self.skipWaiting();
   });
