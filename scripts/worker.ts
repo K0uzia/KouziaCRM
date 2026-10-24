@@ -43,6 +43,9 @@ async function runMaintenance() {
     // Factures et avoirs émis sans PDF archivé (émission sans accès, ou antérieurs à l'archivage).
     const pdfArchived = await archivePendingIssuedPdfs();
     const receiptsArchived = await archivePendingReceipts();
+    // Version accessible des documents archivés avant elle : figée seulement si son texte est celui du PDF archivé.
+    const { backfillReadableSnapshots } = await import("../apps/api/src/lib/pdf/readable-documents.js");
+    const readable = await backfillReadableSnapshots();
     const remindersSent = await sendDueReminders();
     const depositRemindersSent = await sendDueDepositReminders();
     const obligationEmails = await sendDueObligationEmails();
@@ -50,7 +53,7 @@ async function runMaintenance() {
     const { remindStaleReviews } = await import("../apps/api/src/lib/email/review-reminder.js");
     const reviewReminders = await remindStaleReviews();
     console.log(
-      `[worker] maintenance: expired=${expired} remindersScheduled=${scheduled} subscriptionsInvoices=${subscriptions} renewalReminders=${renewalReminders} firstChargeNotices=${firstChargeNotices} termEndReminders=${termEndReminders} clientRenewalNotices=${clientRenewalNotices} actionReminders=${actionReminders} cardNotices=${cardNotices} pdfArchived=${pdfArchived} receiptsArchived=${receiptsArchived} remindersSent=${remindersSent} depositReminders=${depositRemindersSent} obligationEmails=${obligationEmails} reviewReminders=${reviewReminders}`,
+      `[worker] maintenance: expired=${expired} remindersScheduled=${scheduled} subscriptionsInvoices=${subscriptions} renewalReminders=${renewalReminders} firstChargeNotices=${firstChargeNotices} termEndReminders=${termEndReminders} clientRenewalNotices=${clientRenewalNotices} actionReminders=${actionReminders} cardNotices=${cardNotices} pdfArchived=${pdfArchived} receiptsArchived=${receiptsArchived} readableFrozen=${readable.frozen} readableUnavailable=${readable.unavailable} remindersSent=${remindersSent} depositReminders=${depositRemindersSent} obligationEmails=${obligationEmails} reviewReminders=${reviewReminders}`,
     );
   } catch (err) {
     console.error(`[worker] maintenance error`, err);

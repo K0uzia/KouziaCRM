@@ -3,7 +3,9 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { InvoiceDocumentType, InvoiceStatus } from "@prisma/client";
 import { prisma } from "@/lib/prisma.js";
-import { loadDocumentForPdf, renderLoadedDocumentPdf, type LoadedDocumentForPdf } from "@/lib/pdf/document-pdf.js";
+import { loadDocumentForPdf, pdfDataOfLoaded, renderLoadedDocumentPdf, type LoadedDocumentForPdf } from "@/lib/pdf/document-pdf.js";
+import { renderInvoicePdf } from "@/lib/pdf/render.js";
+import { alertMismatch, readableInvoice, snapshotFor } from "@/lib/pdf/readable-documents.js";
 import { uploadsPath } from "@/lib/uploads.js";
 
 /**
@@ -83,7 +85,10 @@ async function alertArchiveProblem(state: ArchiveState, problem: string): Promis
 async function archiveNow(state: ArchiveState, loaded?: LoadedDocumentForPdf | null): Promise<Buffer | null> {
   const doc = loaded ?? (await loadDocumentForPdf(state.id));
   if (!doc) return null;
-  const pdf = await renderLoadedDocumentPdf(doc);
+  // PDF et version lisible depuis les mêmes données ; la version lisible n'est figée que si son texte est celui du PDF.
+  const data = await pdfDataOfLoaded(doc);
+  const pdf = await renderInvoicePdf(data);
+  const readable = await snapshotFor(pdf, readableInvoice(data, "ARCHIVE"));
   const digest = sha256(pdf);
   const safeNumber = (state.number ?? "document").replace(/[^A-Za-z0-9_-]/g, "_");
   const pdfPath = `${ISSUED_DIR}/${safeNumber}-${state.id}-${digest.slice(0, 12)}-${randomBytes(3).toString("hex")}.pdf`;
@@ -93,9 +98,12 @@ async function archiveNow(state: ArchiveState, loaded?: LoadedDocumentForPdf | n
 
   const claimed = await prisma.invoice.updateMany({
     where: { id: state.id, pdfPath: null },
-    data: { pdfPath, pdfSha256: digest, pdfArchivedAt: new Date() },
+    data: { pdfPath, pdfSha256: digest, pdfArchivedAt: new Date(), readableSnapshot: readable.snapshot },
   });
-  if (claimed.count === 1) return pdf;
+  if (claimed.count === 1) {
+    if (!readable.ok) await alertMismatch([state.number ?? state.id]);
+    return pdf;
+  }
 
   await fs.rm(abs, { force: true });
   const winner = await stateOf(state.id);

@@ -1,5 +1,6 @@
 import React from "react";
 import { Document, Image, Page, Text, View, StyleSheet } from "@react-pdf/renderer";
+import { Readable } from "@/lib/pdf/readable.js";
 import { formatEUR } from "@/lib/money.js";
 import { resolveBrandColors } from "@/lib/brand.js";
 import { formatDateFr } from "@/lib/format-fr.js";
@@ -99,6 +100,7 @@ export function PaymentReceiptDocument(data: PaymentReceiptPdfData) {
           </Text>
         ) : null}
         <View style={styles.head}>
+          <Readable as="issuer">
           <View>
             {company.brandLogoDataUrl ? <Image src={company.brandLogoDataUrl} style={styles.logo} /> : null}
             <Text style={styles.brand}>{brand}</Text>
@@ -107,13 +109,19 @@ export function PaymentReceiptDocument(data: PaymentReceiptPdfData) {
             <Text style={styles.muted}>{`SIRET ${company.siret}`}</Text>
             {company.email ? <Text style={styles.muted}>{company.email}</Text> : null}
           </View>
+          </Readable>
           <View>
+            <Readable as="heading">
             <Text style={styles.title}>Reçu de paiement</Text>
+            </Readable>
+            <Readable as="section">
             <Text style={[styles.muted, { textAlign: "right" }]}>{`Règlement du ${fmtDate(payment.paidAt)} sur ${invoice.number}`}</Text>
             <Text style={[styles.muted, { textAlign: "right" }]}>{`Émis le ${fmtDate(data.issuedAt)}`}</Text>
+            </Readable>
           </View>
         </View>
 
+        <Readable as="recipient">
         <View style={styles.section}>
           <Text style={styles.label}>Reçu de</Text>
           <Text style={styles.strong}>{client.displayName}</Text>
@@ -122,7 +130,9 @@ export function PaymentReceiptDocument(data: PaymentReceiptPdfData) {
             <Text>{[client.postalCode, client.city].filter(Boolean).join(" ")}</Text>
           ) : null}
         </View>
+        </Readable>
 
+        <Readable as="section" heading>
         <View style={styles.section}>
           <Text style={styles.label}>Montant reçu</Text>
           <Text style={styles.amount}>{formatEUR(payment.amountCents)}</Text>
@@ -130,36 +140,53 @@ export function PaymentReceiptDocument(data: PaymentReceiptPdfData) {
             {`le ${fmtDate(payment.paidAt)}, par ${payment.methodLabel}${payment.reference ? ` (réf. ${payment.reference})` : ""}`}
           </Text>
         </View>
+        </Readable>
 
+        <Readable as="section" heading>
         <View style={styles.section}>
           <Text style={styles.label}>Facture concernée</Text>
+          <Readable as="pair">
           <View style={styles.row}>
             <Text style={styles.rowLabel}>
               {`${invoice.label} ${invoice.number}${invoice.issueDate ? ` du ${fmtDate(invoice.issueDate)}` : ""}`}
             </Text>
             <Text style={[styles.rowValue, styles.strong]}>{formatEUR(invoice.totalCents)}</Text>
           </View>
+          </Readable>
           {data.creditedCents ? (
+            <Readable as="pair">
             <View style={styles.row}>
               <Text style={styles.rowLabel}>Avoirs émis sur cette facture</Text>
               <Text style={styles.rowValue}>{formatEUR(-data.creditedCents)}</Text>
             </View>
+            </Readable>
           ) : null}
+          <Readable as="pair">
           <View style={styles.row}>
             <Text style={styles.rowLabel}>Réglé à ce jour (ce paiement compris)</Text>
             <Text style={styles.rowValue}>{formatEUR(data.paidToDateCents)}</Text>
           </View>
+          </Readable>
+          <Readable as="pair">
           <View style={styles.row}>
             <Text style={[styles.rowLabel, styles.strong]}>Reste dû</Text>
             <Text style={[styles.rowValue, styles.strong]}>{formatEUR(data.remainingCents)}</Text>
           </View>
-          {data.remainingCents === 0 ? <Text style={styles.settled}>FACTURE ACQUITTÉE</Text> : null}
+          </Readable>
+          {data.remainingCents === 0 ? (
+            <Readable as="subheading">
+              <Text style={styles.settled}>FACTURE ACQUITTÉE</Text>
+            </Readable>
+          ) : null}
         </View>
+        </Readable>
 
+        <Readable as="section">
         <Text style={styles.legal}>
           {`Ce reçu atteste du paiement indiqué ci-dessus. Il ne remplace pas la facture, qui reste la pièce de référence.${company.vatMention ? ` ${company.vatMention}.` : ""}`}
         </Text>
         {company.pdfFooterText ? <Text style={[styles.legal, { marginTop: 6 }]}>{company.pdfFooterText}</Text> : null}
+        </Readable>
       </Page>
     </Document>
   );

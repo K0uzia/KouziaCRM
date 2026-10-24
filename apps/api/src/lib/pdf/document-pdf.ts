@@ -5,6 +5,7 @@ import { documentClauses, listActiveLegalClauses } from "@/lib/company/legal-cla
 import { buildInvoicePdfPayload, type ClientSnapshot } from "@/lib/pdf/build-payload.js";
 import { enrichCompanyForPdf } from "@/lib/pdf/brand-assets.js";
 import { renderInvoicePdf } from "@/lib/pdf/render.js";
+import type { InvoicePdfData } from "@/lib/pdf/invoice-document.js";
 
 /**
  * Charge un document émis (devis, facture, avoir) avec tout ce qu'il faut pour son PDF.
@@ -25,7 +26,7 @@ export async function loadDocumentForPdf(documentId: string) {
         milestones: { orderBy: { position: "asc" } },
         payments: { orderBy: { paidAt: "asc" } },
         // Rendu de secours d'une facture sans archive : avoirs et remboursements pour le reste dû.
-        creditNotes: { select: { totalCents: true, payments: { select: { amountCents: true } } } },
+        creditNotes: { select: { totalCents: true, createdAt: true, payments: { select: { amountCents: true, createdAt: true } } } },
         quoteAcceptanceAudits: { orderBy: { createdAt: "desc" }, take: 1 },
       },
     }),
@@ -72,8 +73,9 @@ export async function loadDocumentForPdf(documentId: string) {
 
 export type LoadedDocumentForPdf = NonNullable<Awaited<ReturnType<typeof loadDocumentForPdf>>>;
 
-export async function renderLoadedDocumentPdf(doc: LoadedDocumentForPdf): Promise<Buffer> {
-  return renderInvoicePdf({
+/** Données du gabarit : une seule source pour le PDF et sa version lisible. */
+export async function pdfDataOfLoaded(doc: LoadedDocumentForPdf): Promise<InvoicePdfData> {
+  return {
     company: await enrichCompanyForPdf(doc.companyRaw),
     client: doc.snapshot,
     invoice: buildInvoicePdfPayload({
@@ -84,7 +86,11 @@ export async function renderLoadedDocumentPdf(doc: LoadedDocumentForPdf): Promis
       planSettings: doc.companyRaw,
       cgv: { published: doc.companyRaw.cgvPublished, url: doc.companyRaw.cgvUrl, version: doc.companyRaw.cgvVersion },
     }),
-  });
+  };
+}
+
+export async function renderLoadedDocumentPdf(doc: LoadedDocumentForPdf): Promise<Buffer> {
+  return renderInvoicePdf(await pdfDataOfLoaded(doc));
 }
 
 export async function renderDocumentPdf(documentId: string): Promise<Buffer | null> {
