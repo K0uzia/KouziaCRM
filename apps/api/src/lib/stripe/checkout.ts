@@ -15,6 +15,7 @@ import { keyLivemode } from "@/lib/stripe/mode.js";
 import { getCompanySettings } from "@/lib/company.js";
 import { paymentMethodTypes, subscriptionMethodTypes } from "@/lib/stripe/payment-methods.js";
 import { dailyIdempotencyKey } from "@/lib/stripe/idempotency.js";
+import { PROCESSING_NOTICE } from "@/lib/stripe/pay-page.js";
 import type Stripe from "stripe";
 
 export class StripeCheckoutError extends Error {
@@ -48,6 +49,7 @@ export async function createInvoiceCheckoutSession(invoiceId: string): Promise<s
   if (invoice.status === InvoiceStatus.PAID || invoice.status === InvoiceStatus.CANCELLED) {
     throw new StripeCheckoutError("Cette facture est déjà réglée ou annulée", 409);
   }
+  if (invoice.paymentProcessingAt) throw new StripeCheckoutError(PROCESSING_NOTICE, 409);
 
   // Montant du lien : le reste dû, avoirs compris.
   const remaining = invoiceBalance(invoice).dueCents;
@@ -138,6 +140,7 @@ export async function createMilestoneCheckoutSession(milestoneId: string): Promi
   if (milestone.amountCents <= 0) {
     throw new StripeCheckoutError("Montant invalide", 400);
   }
+  if (milestone.paymentProcessingAt) throw new StripeCheckoutError(PROCESSING_NOTICE, 409);
   assertMilestonePayable(milestone);
 
   // Si une facture est déjà liée, on paie la facture (reste dû).

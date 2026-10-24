@@ -88,6 +88,8 @@ export async function sendDueDepositReminders(now: Date = new Date(), origin: Em
     where: {
       dueDate: { not: null },
       status: { notIn: [MilestoneStatus.PAID, MilestoneStatus.CANCELLED] },
+      // Prélèvement en cours : pas de rappel avant son résultat.
+      paymentProcessingAt: null,
       quote: {
         documentType: InvoiceDocumentType.QUOTE,
         quoteStatus: QuoteStatus.ACCEPTED,

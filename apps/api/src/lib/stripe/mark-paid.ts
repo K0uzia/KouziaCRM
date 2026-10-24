@@ -1,5 +1,5 @@
 import { BALANCE_INCLUDE, invoiceBalance } from "@/lib/invoices/balance.js";
-import { applySettledStatus } from "@/lib/invoices/balance-status.js";
+import { applySettledStatus, lockInvoice } from "@/lib/invoices/balance-status.js";
 import {
   InvoiceDocumentType,
   InvoiceStatus,
@@ -9,9 +9,12 @@ import {
 } from "@prisma/client";
 import { prisma } from "@/lib/prisma.js";
 import {
+  generateBalanceInvoice,
   generateMilestoneInvoice,
   syncMilestoneOnInvoicePaid,
 } from "@/lib/invoices/documentFlowService.js";
+import { formatEUR } from "@/lib/money.js";
+import { isBalanceMilestone } from "@/lib/invoices/workflow.js";
 import {
   notifyDepositFailed,
   notifyDepositPaid,
@@ -57,15 +60,26 @@ export async function markPaidFromOnlinePayment(
   let milestoneId = input.milestoneId?.trim() || null;
   let invoiceId = input.invoiceId?.trim() || null;
 
+  // Un paiement reçu n'est jamais rejeté (audit du 25/10/2026) : sans facture possible, il est enregistré sans facture
+  // et l'administrateur est alerté. Une erreur ici renverrait 500 à Stripe en boucle, sans trace de l'argent reçu.
   if (milestoneId) {
     const milestoneBefore = await prisma.paymentMilestone.findUnique({
       where: { id: milestoneId },
     });
     if (!milestoneBefore) {
-      throw new StripePaymentError("Jalon introuvable", 404);
+      return recordUnattachedPayment(input, null, "l'échéance payée est introuvable dans l'ERP");
     }
     if (!milestoneBefore.invoiceId && milestoneBefore.status !== MilestoneStatus.PAID) {
-      await generateMilestoneInvoice(milestoneBefore.id);
+      try {
+        if (isBalanceMilestone(milestoneBefore)) {
+          await generateBalanceInvoice(milestoneBefore.quoteId, { milestoneId: milestoneBefore.id });
+        } else {
+          await generateMilestoneInvoice(milestoneBefore.id);
+        }
+      } catch (err) {
+        const reason = err instanceof Error ? err.message : String(err);
+        return recordUnattachedPayment(input, milestoneBefore.id, `la facture de l'échéance « ${milestoneBefore.label} » n'a pas pu être émise (${reason})`);
+      }
     }
   }
 
@@ -90,16 +104,14 @@ export async function markPaidFromOnlinePayment(
       invoiceId = milestone.invoiceId;
     }
 
-    if (!invoiceId) {
-      throw new StripePaymentError("Facture introuvable pour ce paiement", 404);
-    }
-
-    const invoice = await tx.invoice.findUniqueOrThrow({
-      where: { id: invoiceId },
-      include: { ...BALANCE_INCLUDE, payments: true },
-    });
-    if (invoice.documentType !== InvoiceDocumentType.INVOICE) {
-      throw new StripePaymentError("Document invalide", 400);
+    const invoice = invoiceId
+      ? await tx.invoice.findUnique({
+          where: { id: invoiceId },
+          include: { ...BALANCE_INCLUDE, payments: true },
+        })
+      : null;
+    if (!invoice || invoice.documentType !== InvoiceDocumentType.INVOICE) {
+      return { unattached: true as const };
     }
 
     // Montant réellement reçu, toujours enregistré (livre des recettes, URSSAF) : jamais plafonné au reste dû. Un
@@ -137,6 +149,9 @@ export async function markPaidFromOnlinePayment(
 
     return { duplicate: false as const, invoiceId: invoice.id, milestoneId };
   });
+  if ("unattached" in result) {
+    return recordUnattachedPayment(input, milestoneId, "la facture du paiement est introuvable dans l'ERP");
+  }
 
   if (!result.duplicate && overpaidCents > 0 && result.invoiceId) {
     // Trop-perçu (avoir émis pendant que le virement Stripe était en route) : à rembourser par un avoir.
@@ -165,6 +180,46 @@ export async function markPaidFromOnlinePayment(
   }
 
   return result;
+}
+
+/**
+ * Paiement Stripe sans facture rattachable : enregistré sans facture (livre des recettes), échéance soldée pour
+ * arrêter les rappels au client, et alerte à l'administrateur pour régulariser. Idempotent sur le PaymentIntent.
+ */
+async function recordUnattachedPayment(
+  input: OnlinePaymentInput,
+  milestoneId: string | null,
+  reason: string,
+): Promise<{ duplicate: boolean; invoiceId: null; milestoneId: string | null }> {
+  const created = await prisma.$transaction(async (tx) => {
+    if (await tx.payment.findUnique({ where: { stripePaymentIntentId: input.paymentIntentId } })) return false;
+    await tx.payment.create({
+      data: {
+        invoiceId: null,
+        amountCents: input.amountCents,
+        paidAt: new Date(),
+        method: input.method,
+        reference: input.paymentIntentId,
+        notes: "Paiement Stripe sans facture : à régulariser",
+        stripePaymentIntentId: input.paymentIntentId,
+        feeCents: input.feeCents ?? null,
+      },
+    });
+    if (milestoneId) {
+      await tx.paymentMilestone.updateMany({
+        where: { id: milestoneId, status: { notIn: [MilestoneStatus.PAID, MilestoneStatus.CANCELLED] } },
+        data: { status: MilestoneStatus.PAID, paidAt: new Date(), paymentMethod: input.method, checkoutUrl: null },
+      });
+    }
+    return true;
+  });
+  if (!created) return { duplicate: true, invoiceId: null, milestoneId };
+  const { alertAdmin } = await import("@/lib/stripe/alert.js");
+  await alertAdmin(
+    "Paiement Stripe reçu sans facture",
+    `Paiement Stripe de ${formatEUR(input.amountCents)} reçu (${input.paymentIntentId}) : ${reason}. Le paiement est enregistré sans facture ; émettez la facture correspondante ou remboursez le client.`,
+  ).catch(() => undefined);
+  return { duplicate: false, invoiceId: null, milestoneId };
 }
 
 export async function markMilestoneFailedFromStripe(opts: {
@@ -203,39 +258,46 @@ export async function markInvoicePaidFromStripeBilling(opts: {
     if (existing) return { duplicate: true };
   }
 
-  await prisma.$transaction(async (tx) => {
+  // Montant réellement prélevé (amount_paid), jamais le reste dû : une facture réglée à la main avant le prélèvement
+  // garde les deux paiements, et le trop-perçu est signalé pour remboursement.
+  if (opts.amountCents <= 0) return { duplicate: false };
+  let overpaidCents = 0;
+  let invoiceNumber: string | null = null;
+  const recorded = await prisma.$transaction(async (tx) => {
+    await lockInvoice(tx, opts.erpInvoiceId);
     const invoice = await tx.invoice.findUniqueOrThrow({
       where: { id: opts.erpInvoiceId },
-      include: { ...BALANCE_INCLUDE, payments: true },
+      include: BALANCE_INCLUDE,
     });
-    if (invoice.status === InvoiceStatus.PAID) return;
-
-    const remaining = invoiceBalance(invoice).dueCents;
-    if (remaining <= 0) {
-      await tx.invoice.update({
-        where: { id: invoice.id },
-        data: { status: InvoiceStatus.PAID },
-      });
-      return;
-    }
-
+    invoiceNumber = invoice.number;
+    // Sans PaymentIntent, pas de clé d'idempotence : un renvoi de l'événement sur une facture soldée n'ajoute rien.
+    if (!opts.paymentIntentId && invoice.status === InvoiceStatus.PAID) return false;
+    const due = Math.max(0, invoiceBalance(invoice).dueCents);
     await tx.payment.create({
       data: {
         invoiceId: invoice.id,
-        amountCents: remaining,
+        amountCents: opts.amountCents,
         paidAt: new Date(),
         method: opts.method,
         reference: opts.paymentIntentId ?? null,
-        notes: "Prélèvement Stripe Billing",
+        notes: due > 0 ? "Prélèvement Stripe Billing" : "Prélèvement Stripe Billing (facture déjà soldée)",
         stripePaymentIntentId: opts.paymentIntentId ?? null,
         feeCents: opts.feeCents ?? null,
       },
     });
-    await tx.invoice.update({
-      where: { id: invoice.id },
-      data: { status: InvoiceStatus.PAID },
-    });
+    if (opts.amountCents > due) overpaidCents = opts.amountCents - due;
+    await applySettledStatus(tx, invoice.id);
+    return true;
   });
+  if (!recorded) return { duplicate: true };
+
+  if (overpaidCents > 0) {
+    const { alertAdmin } = await import("@/lib/stripe/alert.js");
+    await alertAdmin(
+      `Trop-perçu sur la facture ${invoiceNumber ?? ""}`.trim(),
+      `Prélèvement Stripe de ${formatEUR(opts.amountCents)} reçu, dont ${formatEUR(overpaidCents)} au-delà du reste dû (facture déjà réglée en tout ou partie). Le prélèvement est enregistré en entier ; remboursez le trop-perçu depuis la fiche de la facture (« Enregistrer un remboursement »).`,
+    ).catch(() => undefined);
+  }
 
   const { sendPaymentReceipt } = await import("@/lib/email/payment-receipt.js");
   await sendPaymentReceipt(opts.erpInvoiceId, opts.amountCents, undefined, { review: { family: "payment_receipt", origin: "WEBHOOK" } });

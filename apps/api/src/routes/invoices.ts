@@ -1103,6 +1103,12 @@ export const invoicesRoutes: FastifyPluginAsync = async (app) => {
     if (invoice.totalCents < 0) {
       return reply.code(400).send({ error: "Pas de paiement sur un avoir" });
     }
+    // Facture d'abonnement prélevée par Stripe : un règlement à la main suivi du prélèvement ferait payer deux fois.
+    if (invoice.stripeInvoiceId) {
+      return reply.code(409).send({
+        error: "Cette facture est prélevée par Stripe : son règlement s'enregistre à la réception du prélèvement.",
+      });
+    }
 
     const amountCents = eurosToCents(parsed.data.amountEuros);
     // Reste dû avoirs compris : net (total - avoirs) moins encaissé net.

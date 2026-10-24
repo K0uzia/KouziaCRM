@@ -44,6 +44,11 @@ export async function assertQuoteSigned(quoteId: string, db: Db = prisma) {
   }
 }
 
+/** Dernière échéance « Solde » : sa facture est la facture de solde (marché moins acomptes réglés), pas un acompte. */
+export function isBalanceMilestone(milestone: { label: string }): boolean {
+  return milestone.label.toLowerCase().includes("solde");
+}
+
 /** Un acompte ne se règle qu'une fois sa facture émise. */
 export function assertMilestoneInvoiced(milestone: { invoiceId: string | null; label: string }) {
   if (!milestone.invoiceId) {
