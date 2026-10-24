@@ -26,7 +26,8 @@ export type NotificationKind =
   | "google_reauth"
   | "testimonial"
   | "software_request"
-  | "email_review";
+  | "email_review"
+  | "buyout_offer";
 
 export type NotificationItem = {
   id: string;

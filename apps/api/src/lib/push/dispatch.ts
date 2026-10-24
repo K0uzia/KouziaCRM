@@ -15,6 +15,7 @@ export const PUSHED_KINDS: ReadonlySet<NotificationKind> = new Set<NotificationK
   "testimonial",
   "software_request",
   "email_review",
+  "buyout_offer",
 ]);
 
 /**
