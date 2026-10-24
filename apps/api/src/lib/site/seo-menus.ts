@@ -12,7 +12,6 @@ import {
   type SiteIssue,
   type SitePageId,
 } from "@/lib/site/contract.js";
-import { readRepoFileAt, siteBranch, SITE_CONTENT_DIR } from "@/lib/site/github.js";
 import { readSiteText } from "@/lib/site/texts.js";
 
 /**
@@ -45,21 +44,6 @@ export function defaultsFromContract(contract: unknown): SiteDefaults | null {
   return complete ? d : null;
 }
 
-const CACHE_MS = 10 * 60_000;
-let cache: { at: number; value: SiteDefaults | null } | null = null;
-
-/** Valeurs actuelles du site lues sur sa branche (10 min de cache). Erreur GitHub : propagée à l'appelant. */
-export async function readSiteDefaults(force = false): Promise<SiteDefaults | null> {
-  if (!force && cache && Date.now() - cache.at < CACHE_MS) return cache.value;
-  const contract = JSON.parse(await readRepoFileAt(`${SITE_CONTENT_DIR}/contenu.schema.json`, siteBranch()));
-  cache = { at: Date.now(), value: defaultsFromContract(contract) };
-  return cache.value;
-}
-
-export const resetSiteDefaultsCache = () => {
-  cache = null;
-};
-
 export type TextVariables = { ville: string; delaiReponse: string };
 
 /**
@@ -73,12 +57,6 @@ export async function textVariables(siteCity?: string | null): Promise<TextVaria
   if (!infos || !ville) return null;
   return { ville, delaiReponse: infos.delaiReponse };
 }
-
-/** Ville exportée par le site, lue dans le contrat en cache ; null si indisponible (le repli des réglages s'applique). */
-export const siteCityOrNull = (force = false) =>
-  readSiteDefaults(force)
-    .then((d) => d?.variables?.ville ?? null)
-    .catch(() => null);
 
 export const fillVariables = (text: string, vars: TextVariables) =>
   text.replace(/\{(ville|delaiReponse)\}/g, (_, k: keyof TextVariables) => vars[k]);

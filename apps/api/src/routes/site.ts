@@ -21,7 +21,6 @@ import { secretMeta } from "@/lib/settings/secrets.js";
 import { archiveMonth, archiveUrl, httpsUrl, imagePath, SITE_FILES, SITE_OPTIONAL_FILES, siteText, slug } from "@/lib/site/contract.js";
 import { detailBlocker, detailStarted, parseJsonList, parseTech, type ProjectBeforeAfter, type ProjectCapture, type ProjectLink } from "@/lib/site/mapping.js";
 import { readSiteText, writeSiteText, isSiteTextKey } from "@/lib/site/texts.js";
-import { readSiteDefaults, siteCityOrNull, textVariables } from "@/lib/site/seo-menus.js";
 import { buildSiteSnapshot } from "@/lib/site/snapshot.js";
 import { itemHash, lastPublishedFiles, pendingChanges, publicationState as itemPublicationState, publishedProjectPage, textHash, type SiteCollection } from "@/lib/site/changes.js";
 import { previewPublication, publicationOut, publishSite, PublishError, sitePublicUrl } from "@/lib/site/publish.js";
@@ -36,7 +35,6 @@ import {
   SITE_MEDIA_MAX_INPUT_BYTES,
   parseCropRatio,
 } from "@/lib/site/media.js";
-import { readPagesDefaults } from "@/lib/site/pages.js";
 import { HistoryError, publicationDetail, restoreVersion } from "@/lib/site/history.js";
 import {
   adoptMissingMedia,
@@ -178,6 +176,8 @@ const faqInput = z.strictObject({
 });
 
 const idParams = z.object({ id: z.string().min(1).max(64) });
+/** Textes écrits par « Tous les textes » (/api/site/editor) : plus lus ni écrits par /api/site/texts. */
+const EDITOR_TEXT_KEYS: ReadonlySet<string> = new Set(["pages", "seo", "menus"]);
 /** Réalisations mises en avant sur l'accueil : le site refuse son build au-delà. */
 const MAX_FEATURED = 3;
 const reorderBody = z.strictObject({ ids: z.array(z.string().min(1).max(64)).min(1).max(500) });
@@ -872,42 +872,8 @@ export const siteRoutes: FastifyPluginAsync = async (app) => {
         accroche: await readSiteText("accroche"),
         offres: await readSiteText("offres"),
         avisMethode: await readSiteText("avisMethode"),
-        seo: await readSiteText("seo"),
-        menus: await readSiteText("menus"),
-        pages: await readSiteText("pages"),
         publication,
       };
-    }),
-  );
-
-  // Valeurs actuelles du site (contenu.schema.json, « defauts ») et valeurs des variables, pour les fiches
-  // Référencement et Menus. defaults null : le site en ligne ne les exporte pas encore.
-  app.get(
-    "/api/site/defauts",
-    admin(async (request) => {
-      const force = (request.query as { rafraichir?: string }).rafraichir === "1";
-      try {
-        const defaults = await readSiteDefaults(force);
-        return { defaults, variables: await textVariables(defaults?.variables?.ville), error: null };
-      } catch (e) {
-        const message = e instanceof GithubError ? e.message : "Contrat du site illisible.";
-        return { defaults: null, variables: await textVariables(), error: message };
-      }
-    }),
-  );
-
-  // Textes actuels des pages (exemples sous les champs vides, point de départ) et valeurs des variables.
-  app.get(
-    "/api/site/textes-pages/defauts",
-    admin(async (request) => {
-      const force = (request.query as { rafraichir?: string }).rafraichir === "1";
-      // {ville} : celle que le site exporte, comme pour le référencement.
-      const variables = await textVariables(await siteCityOrNull(force));
-      try {
-        return { defaults: await readPagesDefaults(force), variables, error: null };
-      } catch (e) {
-        return { defaults: null, variables, error: e instanceof GithubError ? e.message : "Contrat du site illisible." };
-      }
     }),
   );
 
@@ -915,7 +881,8 @@ export const siteRoutes: FastifyPluginAsync = async (app) => {
     "/api/site/texts/:key",
     admin(async (request, reply) => {
       const { key } = request.params as { key: string };
-      if (!isSiteTextKey(key)) return reply.code(404).send({ error: "Introuvable" });
+      // Textes des pages, référencement et menus : écrits par « Tous les textes » (/api/site/editor), plus ici.
+      if (!isSiteTextKey(key) || EDITOR_TEXT_KEYS.has(key)) return reply.code(404).send({ error: "Introuvable" });
       try {
         return await writeSiteText(key, request.body);
       } catch (e) {
