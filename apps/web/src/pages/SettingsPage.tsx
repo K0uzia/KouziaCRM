@@ -2109,6 +2109,9 @@ export function SettingsPage() {
                           {AUDIENCE_LABEL[c.audience]} seulement
                         </p>
                       ) : null}
+                      {c.kind === "BUYOUT_TRANSFER" ? (
+                        <p className="mt-0.5 text-xs font-medium text-[var(--primary)]">Devis de rachat seulement</p>
+                      ) : null}
                       <p className="mt-1 whitespace-pre-wrap text-xs text-[var(--muted)]">{c.body}</p>
                     </div>
                     <div className="flex gap-2">

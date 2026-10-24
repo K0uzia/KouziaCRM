@@ -370,6 +370,8 @@ export async function generateMilestoneInvoice(
         milestoneId: milestone.id,
         quoteId: milestone.quoteId,
         sourceQuoteId: milestone.quoteId,
+        // Rachat (R2) : la facture garde le lien vers l'abonnement racheté.
+        buysOutSubscriptionId: milestone.quote.buysOutSubscriptionId,
         marketTotalCents: depositBaseOf(milestone.quote),
         subtotalCents: milestone.amountCents,
         totalCents: milestone.amountCents,
@@ -489,6 +491,8 @@ export async function generateBalanceInvoice(
         milestoneId,
         quoteId: quote.id,
         sourceQuoteId: quote.id,
+        // Rachat (R2) : la facture garde le lien vers l'abonnement racheté.
+        buysOutSubscriptionId: quote.buysOutSubscriptionId,
         marketTotalCents: depositBaseOf(quote),
         subtotalCents: summary.balanceDueCents,
         totalCents: summary.balanceDueCents,

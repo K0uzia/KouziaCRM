@@ -9,12 +9,14 @@ export class StripeSubscriptionSyncError extends Error {
   statusCode = 502;
 }
 
-type Action = "cancel" | "pause" | "resume";
+/** endAtPeriodEnd : fin à la fin de la période en cours (rachat signé, R2), sans nouveau prélèvement. */
+type Action = "cancel" | "pause" | "resume" | "endAtPeriodEnd";
 
 const FAILURE: Record<Action, string> = {
   cancel: "Stripe n'a pas résilié le prélèvement : l'abonnement n'est pas clôturé.",
   pause: "Stripe n'a pas suspendu le prélèvement : l'abonnement n'est pas suspendu.",
   resume: "Stripe n'a pas repris le prélèvement : l'abonnement reste suspendu.",
+  endAtPeriodEnd: "Stripe n'a pas programmé la fin du prélèvement à la fin de la période en cours.",
 };
 
 function isMissing(err: unknown): boolean {
@@ -37,6 +39,8 @@ export async function applyStripeSubscriptionAction(
     const stripe = await getStripe();
     if (action === "cancel") {
       await stripe.subscriptions.cancel(stripeSubscriptionId);
+    } else if (action === "endAtPeriodEnd") {
+      await stripe.subscriptions.update(stripeSubscriptionId, { cancel_at_period_end: true });
     } else if (action === "pause") {
       await stripe.subscriptions.update(stripeSubscriptionId, { pause_collection: { behavior: "void" } });
     } else {

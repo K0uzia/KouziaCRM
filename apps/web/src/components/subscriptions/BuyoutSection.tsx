@@ -6,6 +6,7 @@ import { toast } from "sonner";
 import { api, formatDate, formatEUR } from "@/lib/api";
 import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Card";
+import { Checkbox } from "@/components/ui/Field";
 
 /** État du rachat renvoyé par GET /api/subscriptions/:id (null : l'offre n'a pas de prestation de rachat). */
 type BuyoutState = {
@@ -15,6 +16,10 @@ type BuyoutState = {
   quotes: Array<{ id: string; number: string | null; quoteStatus: string | null; totalCents: number }>;
   canPropose: boolean;
   blockedReason: string | null;
+  /** R2 : rachat signé, fin programmée de l'abonnement et transfert du site (suivi). */
+  signed: boolean;
+  endsAt: string | null;
+  transferredAt: string | null;
 } | null;
 
 const QUOTE_STATUS: Record<string, { label: string; tone: "green" | "amber" | "neutral" | "red" }> = {
@@ -34,6 +39,7 @@ export function BuyoutSection({ subscriptionId }: { subscriptionId: string }) {
     status: "loading",
   });
   const [busy, setBusy] = useState(false);
+  const [savingTransfer, setSavingTransfer] = useState(false);
   const navigate = useNavigate();
   const headingId = useId();
 
@@ -59,6 +65,24 @@ export function BuyoutSection({ subscriptionId }: { subscriptionId: string }) {
       toast.error(e instanceof Error ? e.message : "Devis de rachat impossible");
     } finally {
       setBusy(false);
+    }
+  }
+
+  async function toggleTransfer(done: boolean) {
+    setSavingTransfer(true);
+    try {
+      const today = new Date();
+      const iso = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
+      const res = await api<{ transferredAt: string | null }>(`/api/subscriptions/${subscriptionId}/transfer`, {
+        method: "PUT",
+        body: JSON.stringify({ transferredAt: done ? iso : null }),
+      });
+      setState((s) => (s.status === "ready" && s.buyout ? { status: "ready", buyout: { ...s.buyout, transferredAt: res.transferredAt } } : s));
+      toast.success(done ? "Transfert du site noté" : "Transfert du site retiré");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Enregistrement impossible");
+    } finally {
+      setSavingTransfer(false);
     }
   }
 
@@ -96,10 +120,17 @@ export function BuyoutSection({ subscriptionId }: { subscriptionId: string }) {
             </dd>
           </div>
         ) : null}
-        <div className="flex flex-wrap items-baseline justify-between gap-x-3">
-          <dt className="text-[var(--muted)]">Fin de la période en cours</dt>
-          <dd>{formatDate(b.periodEndsAt)}</dd>
-        </div>
+        {b.signed && b.endsAt ? (
+          <div className="flex flex-wrap items-baseline justify-between gap-x-3">
+            <dt className="text-[var(--muted)]">Fin de l'abonnement (rachat signé)</dt>
+            <dd>{formatDate(b.endsAt)}</dd>
+          </div>
+        ) : (
+          <div className="flex flex-wrap items-baseline justify-between gap-x-3">
+            <dt className="text-[var(--muted)]">Fin de la période en cours</dt>
+            <dd>{formatDate(b.periodEndsAt)}</dd>
+          </div>
+        )}
       </dl>
       {b.quotes.length > 0 ? (
         <ul className="space-y-1 text-sm">
@@ -118,6 +149,15 @@ export function BuyoutSection({ subscriptionId }: { subscriptionId: string }) {
             );
           })}
         </ul>
+      ) : null}
+      {b.signed ? (
+        <Checkbox
+          label="Transfert du site effectué"
+          hint={b.transferredAt ? `Noté le ${formatDate(b.transferredAt)}. Domaine, accès et fichiers : hors ERP.` : "Domaine, accès et fichiers : à transférer hors ERP, puis à cocher ici."}
+          checked={Boolean(b.transferredAt)}
+          disabled={savingTransfer}
+          onChange={(e) => void toggleTransfer(e.target.checked)}
+        />
       ) : null}
       {b.canPropose ? (
         <Button onClick={() => void propose()} disabled={busy}>

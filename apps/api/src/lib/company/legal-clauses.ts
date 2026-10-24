@@ -155,6 +155,16 @@ export const DEFAULT_LEGAL_CLAUSES: Array<{
     position: 7,
     audience: LegalClauseAudience.B2C,
   },
+  // Cession du site lors du rachat (R2, décision Q6) : emplacement à rédiger par Alexandre, créé inactif, sans texte
+  // juridique écrit ici. Une fois activé, il ne s'imprime que sur un devis de rachat (build-payload).
+  {
+    kind: LegalClauseKind.BUYOUT_TRANSFER,
+    title: "Cession du site (rachat)",
+    body: "[À RÉDIGER PAR ALEXANDRE : ce qui est cédé au client lors du rachat (site, contenus, nom de domaine, accès) et les modalités du transfert.]",
+    required: false,
+    position: 8,
+    active: false,
+  },
 ];
 
 /** Clauses imprimées dans leur propre bloc du devis, jamais dans la liste des mentions. */

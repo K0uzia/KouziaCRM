@@ -510,6 +510,8 @@ export async function acceptQuoteByClient(
     "@/lib/invoices/acceptance-proof.js"
   );
   const original = audit.signature ? await captureQuoteBeforeSignature(quoteId) : null;
+  // Rachat (R2) : import tardif, le module dépend du service d'abonnement qui dépend de celui-ci.
+  const { applyBuyoutSignature, finishBuyoutSignature } = await import("@/lib/subscriptions/buyout.js");
 
   const updated = await prisma.$transaction(async (tx) => {
     await loadPendingQuote(tx, quoteId);
@@ -550,8 +552,10 @@ export async function acceptQuoteByClient(
             ? { firstPeriodNow: true, awaitStripe: settings.moduleStripeEnabled, startDate: subscriptionStart ?? undefined }
             : {},
         );
-    return { result, subscriptionIds: subs.subscriptionIds, createdIds: subs.createdIds };
+    const buyout = await applyBuyoutSignature(tx, quoteId);
+    return { result, subscriptionIds: subs.subscriptionIds, createdIds: subs.createdIds, buyout };
   });
+  await finishBuyoutSignature(updated.buyout);
   if (subscriptionOnly || deferSubscription) await startSubscriptionBilling(updated.createdIds, settings.moduleStripeEnabled, subscriptionStart);
   else await notifyStripeSubscriptionSetup(updated.subscriptionIds);
   const accepted = updated.result;
@@ -695,6 +699,7 @@ export async function acceptQuoteFromThread(
 
 /** Transforme un devis émis en brouillon de facture. */
 export async function convertQuoteToInvoice(quoteId: string) {
+  const { applyBuyoutSignature, finishBuyoutSignature } = await import("@/lib/subscriptions/buyout.js");
   const invoice = await prisma.$transaction(async (tx) => {
     const quote = await tx.invoice.findUniqueOrThrow({
       where: { id: quoteId },
@@ -769,6 +774,8 @@ export async function convertQuoteToInvoice(quoteId: string) {
           : { discountType: quote.discountType, discountValue: quote.discountValue }),
         quoteId: quote.id,
         sourceQuoteId: quote.id,
+        // Rachat (R2) : la facture garde le lien vers l'abonnement racheté.
+        buysOutSubscriptionId: quote.buysOutSubscriptionId,
         marketTotalCents: invoiceTotal,
         lines: {
           create: invoicedLines.map((line) => ({
@@ -843,13 +850,17 @@ export async function convertQuoteToInvoice(quoteId: string) {
       }
     }
 
+    const buyout = await applyBuyoutSignature(tx, quoteId);
     return {
       ...created,
       subscriptionsCreated: subs.created,
       subscriptionIds: subs.subscriptionIds,
+      buyout,
     };
   });
 
+  await finishBuyoutSignature(invoice.buyout);
   await notifyStripeSubscriptionSetup(invoice.subscriptionIds ?? []);
-  return invoice;
+  const { buyout: _buyout, ...converted } = invoice;
+  return converted;
 }
