@@ -4,7 +4,7 @@ import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { api, formatEUR, formatDate } from "@/lib/api";
 import { Button } from "@/components/ui/Button";
-import { DateInput, Field, Input, Select, Textarea } from "@/components/ui/Field";
+import { Checkbox, DateInput, Field, Input, Select, Textarea } from "@/components/ui/Field";
 import { Modal, ModalActions } from "@/components/ui/Modal";
 import { DocumentPreview } from "@/components/documents/DocumentPreview";
 import { useMediaQuery } from "@/lib/use-media-query";
@@ -178,12 +178,20 @@ export function CreditNoteWizard({
       </Button>
     ) : null;
 
+  // Pied fixe (D4, même gabarit que le devis) : le montant de l'avoir à gauche, les actions à droite.
+  const amountSummary = (
+    <p className="mr-auto flex min-h-11 flex-col justify-center">
+      <span className="text-xs text-[var(--muted)]">Montant de l'avoir</span>
+      <span className="font-display text-lg font-semibold tabular-nums">{amountValid ? formatEUR(amountCents) : "À saisir"}</span>
+    </p>
+  );
+
   const stepTitle = useMemo(() => {
     const titles: Record<Step, string> = {
       1: "Diagnostic",
       2: "CGV acompte",
       3: "Informations",
-      4: "Génération",
+      4: "Prévisualiser",
       5: "Livre des recettes",
       6: "Déclaration URSSAF",
       7: "Suivi",
@@ -271,7 +279,7 @@ export function CreditNoteWizard({
         <p className="text-sm text-[var(--muted)]">Analyse de la facture…</p>
       ) : (
         <>
-        <div className={previewStep && widePreview ? "lg:grid lg:grid-cols-[minmax(0,1fr)_20rem] lg:items-start lg:gap-6" : ""}>
+        <div className={previewStep && widePreview ? "lg:grid lg:grid-cols-[minmax(0,1fr)_minmax(18rem,22rem)] lg:items-start lg:gap-8" : ""}>
         <div className="min-w-0 space-y-5">
           {step === 1 ? (
             <div className="space-y-4 text-sm">
@@ -354,7 +362,7 @@ export function CreditNoteWizard({
                   recette encaissée. Conservez la facture et vos CGV 10 ans.
                 </p>
               ) : null}
-              <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-between [&_button]:w-full sm:[&_button]:w-auto">
+              <ModalActions>
                 <Button variant="secondary" onClick={() => setStep(1)}>
                   Retour
                 </Button>
@@ -365,7 +373,7 @@ export function CreditNoteWizard({
                     Fermer
                   </Button>
                 )}
-              </div>
+              </ModalActions>
             </div>
           ) : null}
 
@@ -442,33 +450,26 @@ export function CreditNoteWizard({
                 </>
               )}
               {effectiveRefund === "BANK_TRANSFER" ? (
-                <label className="flex items-start gap-2 text-sm">
-                  <input
-                    type="checkbox"
-                    className="mt-1"
-                    checked={registerRefund}
-                    onChange={(e) => setRegisterRefund(e.target.checked)}
-                  />
-                  <span>
-                    Enregistrer la ligne négative dans le livre des recettes
-                    (virement)
-                  </span>
-                </label>
+                <Checkbox
+                  label="Enregistrer la ligne négative dans le livre des recettes (virement)"
+                  checked={registerRefund}
+                  onChange={(e) => setRegisterRefund(e.target.checked)}
+                />
               ) : null}
               <p className="text-xs text-[var(--muted)]">
                 Prochain numéro : {elig.nextNumberPreview}. Conservez tous les
                 documents 10 ans.
               </p>
-              <div className="flex flex-wrap justify-between gap-2">
-                <Button
-                  variant="secondary"
-                  onClick={() => setStep(needsCgv ? 2 : 1)}
-                >
+              <ModalActions>
+                {amountSummary}
+                <Button variant="secondary" onClick={() => setStep(needsCgv ? 2 : 1)}>
                   Retour
                 </Button>
                 {previewButton}
-                <Button onClick={() => setStep(4)}>Prévisualiser</Button>
-              </div>
+                <Button onClick={() => setStep(4)} disabled={!amountValid}>
+                  Continuer
+                </Button>
+              </ModalActions>
             </div>
           ) : null}
 
@@ -501,7 +502,8 @@ export function CreditNoteWizard({
                   <p className="font-medium">Vous n&apos;avez rien à payer.</p>
                 ) : null}
               </div>
-              <div className="flex flex-wrap justify-between gap-2">
+              <ModalActions>
+                {amountSummary}
                 <Button variant="secondary" onClick={() => setStep(3)}>
                   Retour
                 </Button>
@@ -509,7 +511,7 @@ export function CreditNoteWizard({
                 <Button variant="danger" disabled={busy} onClick={() => void generate()}>
                   {busy ? "Création…" : "Émettre l'avoir"}
                 </Button>
-              </div>
+              </ModalActions>
             </div>
           ) : null}
 
@@ -600,12 +602,12 @@ export function CreditNoteWizard({
                   </p>
                 </div>
               ) : null}
-              <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-between [&_button]:w-full sm:[&_button]:w-auto">
+              <ModalActions>
                 <Button variant="secondary" onClick={() => setStep(5)}>
                   Retour
                 </Button>
                 <Button onClick={() => setStep(7)}>Checklist</Button>
-              </div>
+              </ModalActions>
             </div>
           ) : null}
 
@@ -625,45 +627,66 @@ export function CreditNoteWizard({
                   ],
                 ] as const
               ).map(([key, label]) => (
-                <label key={key} className="flex items-start gap-2">
-                  <input
-                    type="checkbox"
-                    className="mt-1"
-                    checked={checklist[key]}
-                    onChange={(e) =>
-                      setChecklist((c) => ({ ...c, [key]: e.target.checked }))
-                    }
-                  />
-                  <span>{label}</span>
-                </label>
+                <Checkbox
+                  key={key}
+                  label={label}
+                  checked={checklist[key]}
+                  onChange={(e) => setChecklist((c) => ({ ...c, [key]: e.target.checked }))}
+                />
               ))}
-              <div className="flex flex-col-reverse gap-2 sm:flex-row sm:flex-wrap sm:justify-between [&_button]:w-full sm:[&_button]:w-auto">
+              <ModalActions>
                 <Button variant="secondary" onClick={() => setStep(6)}>
                   Retour
                 </Button>
-                <div className="flex flex-col-reverse gap-2 sm:flex-row sm:flex-wrap [&_button]:w-full sm:[&_button]:w-auto">
-                  <Button variant="secondary" onClick={() => void saveChecklist()}>
-                    Enregistrer checklist
-                  </Button>
-                  <Button
-                    onClick={() => {
-                      onClose();
-                      navigate(`/invoices/${created.id}`);
-                    }}
-                  >
-                    Ouvrir l&apos;avoir
-                  </Button>
-                </div>
-              </div>
+                <Button variant="secondary" onClick={() => void saveChecklist()}>
+                  Enregistrer la checklist
+                </Button>
+                <Button
+                  onClick={() => {
+                    onClose();
+                    navigate(`/invoices/${created.id}`);
+                  }}
+                >
+                  Ouvrir l&apos;avoir
+                </Button>
+              </ModalActions>
             </div>
           ) : null}
         </div>
         {previewStep && widePreview ? (
-          <aside aria-labelledby="avoir-apercu" className="sticky top-0 space-y-2">
-            <h3 id="avoir-apercu" className="text-xs font-semibold uppercase tracking-[0.08em] text-[var(--muted)]">
-              Aperçu
+          <aside
+            aria-labelledby="avoir-recap"
+            className="sticky top-0 space-y-4 rounded-[var(--radius)] border border-[var(--border)] bg-[var(--bg-subtle)] p-4"
+          >
+            <h3 id="avoir-recap" className="font-display text-base font-semibold text-[var(--text)]">
+              Récapitulatif
             </h3>
-            <DocumentPreview body={previewBody} pausedReason={previewPaused} active kindLabel="Avoir" />
+            <dl className="space-y-1.5 text-sm">
+              <div className="flex items-baseline justify-between gap-3">
+                <dt className="text-[var(--muted)]">Facture d&apos;origine</dt>
+                <dd className="tabular-nums">{elig.invoiceNumber ?? "?"}</dd>
+              </div>
+              <div className="flex items-baseline justify-between gap-3">
+                <dt className="text-[var(--muted)]">Montant de l&apos;avoir</dt>
+                <dd className="font-semibold tabular-nums">{amountValid ? formatEUR(amountCents) : "À saisir"}</dd>
+              </div>
+              {amountValid ? (
+                <>
+                  <div className="flex items-baseline justify-between gap-3">
+                    <dt className="text-[var(--muted)]">Déduit du reste dû</dt>
+                    <dd className="tabular-nums">{formatEUR(deductedCents)}</dd>
+                  </div>
+                  <div className="flex items-baseline justify-between gap-3">
+                    <dt className="text-[var(--muted)]">À rembourser</dt>
+                    <dd className="tabular-nums">{formatEUR(refundCents)}</dd>
+                  </div>
+                </>
+              ) : null}
+            </dl>
+            <div className="space-y-2 border-t border-[var(--border)] pt-3">
+              <p className="text-sm font-medium">Aperçu</p>
+              <DocumentPreview body={previewBody} pausedReason={previewPaused} active kindLabel="Avoir" />
+            </div>
           </aside>
         ) : null}
         </div>
