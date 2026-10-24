@@ -59,7 +59,7 @@ describe("rachat R3 : rappel à trois choix", () => {
     expect(text).toContain("- Continuer : vous n'avez rien à faire. L'abonnement est reconduit pour un an au prix en vigueur (actuellement 360,00 € par an).");
     expect(text).toContain("- Arrêter : demandez sa non-reconduction, sans frais ni justification, jusqu'au 1er décembre 2026 (préavis d'un mois)");
     expect(text).toContain("- Racheter votre site : il devient le vôtre pour 750,00 €, en une fois, sans abonnement ensuite. Répondez à cet e-mail pour le demander : je vous envoie le devis.");
-    expect(text).not.toMatch(/[–—]/);
+    expect(text).not.toMatch(/[\u2013\u2014]/);
     expect(call[0]).toMatchObject({ kind: "subscription_term_end_buyout", documentId: sub.id });
     // Toujours relu dans « E-mails à valider » (famille des avis d'abonnement).
     expect(call[1]).toEqual({ review: { family: "subscription_notice", origin: "WORKER" } });
