@@ -1,13 +1,14 @@
 import { useEffect, useState } from "react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { faPaperclip } from "@fortawesome/free-solid-svg-icons";
+import { faPaperclip, faPen } from "@fortawesome/free-solid-svg-icons";
 import { api } from "@/lib/api";
 import { Modal, ModalActions } from "@/components/ui/Modal";
-import { Button } from "@/components/ui/Button";
+import { Button, ButtonLink } from "@/components/ui/Button";
+import { templatePath } from "@/lib/email-review";
 import { Field, Input, Textarea } from "@/components/ui/Field";
 
 /** E-mail tel que l'ERP l'enverrait (brouillon renvoyé par l'API) : rien n'est parti. */
-export type EmailDraft = { to: string; subject: string; text: string; attachments: string[] };
+export type EmailDraft = { to: string; subject: string; text: string; attachments: string[]; templateKey?: string | null };
 
 /**
  * « Vérifier l'e-mail » (E6c, décision d'Alexandre du 23/10/2026) : tout envoi sur clic passe par cette fenêtre.
@@ -103,6 +104,15 @@ export function VerifyEmailDialog({
           <Field label="Message" hint={note ?? "La mise en page aux couleurs de l'ERP et les mentions légales sont ajoutées à l'envoi."}>
             <Textarea rows={14} value={text} onChange={(e) => setText(e.target.value)} required maxLength={20000} />
           </Field>
+          {draft.templateKey ? (
+            <div className="flex flex-col gap-2 rounded-[var(--radius-sm)] border border-[var(--border)] p-3 sm:flex-row sm:items-center sm:justify-between">
+              <p className="text-sm text-[var(--muted)]">Vos corrections ne valent que pour cet envoi. Pour les prochains e-mails de ce type, modifiez le modèle.</p>
+              <ButtonLink variant="secondary" to={templatePath(draft.templateKey)}>
+                <FontAwesomeIcon icon={faPen} className="h-3.5 w-3.5" aria-hidden />
+                Modifier le modèle
+              </ButtonLink>
+            </div>
+          ) : null}
           {draft.attachments.length ? (
             <div className="text-sm">
               <p className="font-medium">Pièces jointes</p>

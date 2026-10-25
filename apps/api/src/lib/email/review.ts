@@ -4,6 +4,7 @@ import { decrypt, encrypt } from "@/lib/crypto.js";
 import { getCompanySettings } from "@/lib/company.js";
 import { outboxPayloadRaw } from "@/lib/privacy/at-rest.js";
 import { parsePayload, serializePayload } from "@/lib/email/mailer/outbox.js";
+import { templateKeyFor } from "@/lib/email/template-registry.js";
 
 /**
  * File « E-mails à valider » (décision d'Alexandre, 23/10/2026) : tout e-mail automatique destiné à un client attend sa
@@ -87,6 +88,8 @@ async function view(row: Row, clients: Map<string, string>) {
     documentNumber: p.documentNumber ?? null,
     family: row.reviewFamily,
     familyLabel: row.reviewFamily ? (REVIEW_FAMILIES[row.reviewFamily as ReviewFamily] ?? row.reviewFamily) : null,
+    // « Modifier le modèle » : modèle qui donne le texte de cet e-mail (null : texte du code seul).
+    templateKey: templateKeyFor(p.kind ?? row.reviewKind, row.reviewFamily),
     origin: row.origin,
     originLabel: row.origin ? (EMAIL_ORIGINS[row.origin as EmailOrigin] ?? row.origin) : null,
     clientWaiting: row.clientWaiting,

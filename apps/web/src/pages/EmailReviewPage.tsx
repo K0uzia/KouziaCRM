@@ -2,12 +2,12 @@ import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { toast } from "sonner";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { faCheckDouble } from "@fortawesome/free-solid-svg-icons";
+import { faCheckDouble, faPen } from "@fortawesome/free-solid-svg-icons";
 import { api, formatDate } from "@/lib/api";
 import { useUrlFilters } from "@/lib/use-url-filters";
-import { REVIEW_CHANGED_EVENT, type ReviewItem, type ReviewQueue } from "@/lib/email-review";
+import { REVIEW_CHANGED_EVENT, templatePath, type ReviewItem, type ReviewQueue } from "@/lib/email-review";
 import { Badge, Card, PageHeader } from "@/components/ui/Card";
-import { Button } from "@/components/ui/Button";
+import { Button, ButtonLink } from "@/components/ui/Button";
 import { Banner } from "@/components/ui/Banner";
 import { StatStrip } from "@/components/ui/StatStrip";
 import { Segmented } from "@/components/ui/Segmented";
@@ -19,6 +19,16 @@ import { LoadState } from "@/pages/site/shared";
 type View = "a-valider" | "refuses";
 /** La mise en demeure n'est jamais validée en groupe : elle se relit une par une. */
 const NEVER_BULK = "formal_notice";
+
+/** « Modifier le modèle » d'une ligne : fiche du modèle qui donne ce texte (icône seule, nom accessible complet). */
+function TemplateLink({ row }: { row: ReviewItem }) {
+  if (!row.templateKey) return null;
+  return (
+    <ButtonLink variant="ghost" to={templatePath(row.templateKey)} className="px-0" aria-label={`Modifier le modèle de « ${row.subject} »`} title="Modifier le modèle">
+      <FontAwesomeIcon icon={faPen} className="h-3.5 w-3.5" aria-hidden />
+    </ButtonLink>
+  );
+}
 
 function StateBadge({ row }: { row: ReviewItem }) {
   if (row.status === "REJECTED") return <Badge tone="neutral">Refusé</Badge>;
@@ -91,6 +101,7 @@ export function EmailReviewPage() {
     { name: "Origine", grow: 2, showFrom: 1280, cell: (r) => r.originLabel ?? "" },
     { name: view === "refuses" ? "Refusé le" : "Préparé le", width: "8rem", showFrom: 1024, cell: (r) => formatDate(view === "refuses" ? r.reviewedAt : r.createdAt) },
     { name: "État", width: "10rem", cell: (r) => <StateBadge row={r} /> },
+    { name: "Modèle", width: "5rem", cell: (r) => <TemplateLink row={r} /> },
   ];
 
   return (
@@ -151,6 +162,7 @@ export function EmailReviewPage() {
                     <StateBadge row={r} />
                   </span>
                 </Link>
+                <TemplateLink row={r} />
               </div>
             )}
           />

@@ -1229,7 +1229,7 @@ export const invoicesRoutes: FastifyPluginAsync = async (app) => {
     const { sendPaymentReceipt } = await import("@/lib/email/payment-receipt.js");
     const r = await sendPaymentReceipt(request.params.id, payment.amountCents, payment.id, { draft: true });
     if (!r.draft) return reply.code(409).send({ error: r.reason === "no_email" ? "Ce client n'a pas d'adresse e-mail." : "Brouillon indisponible" });
-    return r.draft;
+    return { ...r.draft, templateKey: "payment.receipt" };
   });
 
   app.post<{ Params: { id: string } }>("/api/invoices/:id/receipt", async (request, reply) => {

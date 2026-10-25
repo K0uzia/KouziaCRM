@@ -1,15 +1,20 @@
 import { useEffect, useId, useRef, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import { toast } from "sonner";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { faChevronRight, faLock } from "@fortawesome/free-solid-svg-icons";
+import { faLock } from "@fortawesome/free-solid-svg-icons";
 import { api } from "@/lib/api";
 import { formatDate } from "@/lib/format";
 import { useUnsavedGuard } from "@/lib/unsaved";
+import { useUrlFilters } from "@/lib/use-url-filters";
+import { templatePath } from "@/lib/email-review";
 import { Banner } from "@/components/ui/Banner";
 import { Button } from "@/components/ui/Button";
 import { Card, PageHeader } from "@/components/ui/Card";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
+import { DataTable, type DataColumn } from "@/components/ui/DataTable";
+import { FilterBar, FilterSegment, FilterSelect } from "@/components/ui/ListFilters";
+import { StatStrip } from "@/components/ui/StatStrip";
 import { Field, Input, Select, Textarea } from "@/components/ui/Field";
 
 type TemplateSummary = {
@@ -43,8 +48,34 @@ function LoadError({ message, onRetry }: { message: string; onRetry: () => void 
   );
 }
 
-/** Réglages, Modèles d'e-mails : modèles par famille, état (texte d'origine, modifié, verrouillé). */
+/** Famille d'un modèle, identifiant lisible dans l'URL (« relance », « acces-et-securite »). */
+const familyId = (label: string | null) =>
+  (label ?? "Autres")
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "");
+
+type StateFilter = "tous" | "modifies" | "verrouilles";
+type Row = TemplateSummary & { familyName: string; family: string };
+
+function StateText({ row }: { row: TemplateSummary }) {
+  if (row.locked)
+    return (
+      <span className="inline-flex items-center gap-1.5 text-xs text-[var(--muted)]">
+        <FontAwesomeIcon icon={faLock} className="h-3 w-3" aria-hidden />
+        Verrouillé
+      </span>
+    );
+  if (row.modified) return <span className="text-xs text-[var(--primary)]">Modifié le {formatDate(row.updatedAt)}</span>;
+  return <span className="text-xs text-[var(--muted)]">Texte d&apos;origine</span>;
+}
+
+/** Réglages, Modèles d'e-mails : une seule liste (gabarit des listes), recherche, filtres par famille et par état. */
 export function EmailTemplatesPage() {
+  const navigate = useNavigate();
+  const filters = useUrlFilters();
   const [templates, setTemplates] = useState<TemplateSummary[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [attempt, setAttempt] = useState(0);
@@ -60,11 +91,33 @@ export function EmailTemplatesPage() {
     };
   }, [attempt]);
 
-  const groups = new Map<string, TemplateSummary[]>();
-  for (const t of templates ?? []) {
-    const name = t.familyLabel ?? "Autres";
-    groups.set(name, [...(groups.get(name) ?? []), t]);
-  }
+  const all: Row[] = (templates ?? []).map((t) => ({ ...t, familyName: t.familyLabel ?? "Autres", family: familyId(t.familyLabel) }));
+  // Familles dans l'ordre du registre, avec le nombre de modèles de chacune.
+  const families = [...new Map(all.map((t) => [t.family, t.familyName])).entries()];
+  const familyFilter = filters.pick("famille", ["toutes", ...families.map(([id]) => id)], "toutes");
+  const stateFilter = filters.pick<StateFilter>("etat", ["tous", "modifies", "verrouilles"], "tous");
+  const byFamily = all.filter((t) => familyFilter === "toutes" || t.family === familyFilter);
+  const rows = byFamily.filter((t) => (stateFilter === "modifies" ? t.modified : stateFilter === "verrouilles" ? Boolean(t.locked) : true));
+  const modified = all.filter((t) => t.modified).length;
+  const locked = all.filter((t) => t.locked).length;
+  const pathOf = (t: TemplateSummary) => templatePath(t.key);
+
+  const columns: DataColumn<Row>[] = [
+    {
+      name: "Modèle",
+      grow: 3,
+      cell: (t) => (
+        <div className="min-w-0 py-2">
+          <Link to={pathOf(t)} className="block max-w-full font-medium hover:text-[var(--primary)]">
+            {t.label}
+          </Link>
+          <p className="truncate text-xs text-[var(--muted)]">{t.familyName}</p>
+        </div>
+      ),
+    },
+    { name: "Objet", grow: 3, showFrom: 1024, cell: (t) => <span className="line-clamp-2 break-words text-sm text-[var(--muted)]">{t.subject}</span> },
+    { name: "État", width: "11rem", cell: (t) => <StateText row={t} /> },
+  ];
 
   return (
     <div>
@@ -75,48 +128,65 @@ export function EmailTemplatesPage() {
       />
       {error ? (
         <LoadError message={error} onRetry={() => setAttempt((n) => n + 1)} />
-      ) : !templates ? (
-        <p className="text-sm text-[var(--muted)]" role="status">
-          Chargement…
-        </p>
-      ) : templates.length === 0 ? (
-        <p className="text-sm text-[var(--muted)]">Aucun modèle.</p>
       ) : (
-        <div className="grid gap-4 lg:grid-cols-[repeat(auto-fit,minmax(min(100%,28rem),1fr))] lg:items-start">
-          {[...groups].map(([name, list]) => (
-            <Card key={name} className="border border-[var(--border)] p-2 sm:p-3">
-              <h2 className="px-3 pb-1 pt-2 text-base font-semibold">{name}</h2>
-              <ul>
-                {list.map((t) => (
-                  <li key={t.key}>
-                    <Link
-                      to={`${LIST_PATH}/${t.key.split(".").map(encodeURIComponent).join("/")}`}
-                      className="flex min-h-11 items-center gap-3 rounded-[var(--radius-sm)] px-3 py-2.5 hover:bg-[var(--surface-hover)]"
-                    >
-                      <span className="min-w-0 flex-1">
-                        <span className="block font-medium text-[var(--text)]">{t.label}</span>
-                        <span className="block break-words text-sm text-[var(--muted)]">{t.subject}</span>
-                      </span>
-                      <span className="shrink-0 text-right text-xs text-[var(--muted)]">
-                        {t.locked ? (
-                          <span className="inline-flex items-center gap-1.5">
-                            <FontAwesomeIcon icon={faLock} className="h-3 w-3" aria-hidden />
-                            Verrouillé
-                          </span>
-                        ) : t.modified ? (
-                          <span className="text-[var(--primary)]">Modifié le {formatDate(t.updatedAt)}</span>
-                        ) : (
-                          "Texte d'origine"
-                        )}
-                      </span>
-                      <FontAwesomeIcon icon={faChevronRight} className="h-3 w-3 shrink-0 text-[var(--muted)]" aria-hidden />
-                    </Link>
-                  </li>
-                ))}
-              </ul>
-            </Card>
-          ))}
-        </div>
+        <>
+          <StatStrip
+            className="mb-4"
+            items={[
+              { label: "Modèles", value: templates ? all.length : "…" },
+              { label: "Modifiés", value: templates ? modified : "…" },
+              { label: "Verrouillés", value: templates ? locked : "…" },
+            ]}
+          />
+          <Card className="overflow-hidden">
+            <DataTable
+              columns={columns}
+              data={rows}
+              loading={!templates}
+              onRowClick={(t) => navigate(pathOf(t))}
+              countLabel={rows.length > 1 ? "modèles" : "modèle"}
+              searchable={["label", "subject", "familyName"]}
+              searchLabel="Rechercher"
+              searchPlaceholder="Libellé, objet ou famille"
+              search={filters.text("q")}
+              onSearchChange={(q) => filters.set({ q })}
+              emptyTitle="Aucun modèle ne correspond"
+              emptyHint="Changez la recherche ou les filtres."
+              toolbar={
+                <FilterBar>
+                  <FilterSelect
+                    label="Famille"
+                    value={familyFilter}
+                    onChange={(v) => filters.set({ famille: v === "toutes" ? null : v })}
+                    options={[
+                      { id: "toutes", label: "Toutes les familles", count: all.length },
+                      ...families.map(([id, name]) => ({ id, label: name, count: all.filter((t) => t.family === id).length })),
+                    ]}
+                  />
+                  <FilterSegment<StateFilter>
+                    label="État"
+                    value={stateFilter}
+                    onChange={(v) => filters.set({ etat: v === "tous" ? null : v })}
+                    options={[
+                      { id: "tous", label: "Tous", count: byFamily.length },
+                      { id: "modifies", label: "Modifiés", count: byFamily.filter((t) => t.modified).length },
+                      { id: "verrouilles", label: "Verrouillés", count: byFamily.filter((t) => t.locked).length },
+                    ]}
+                  />
+                </FilterBar>
+              }
+              renderMobileCard={(t) => (
+                <Link to={pathOf(t)} className="block min-h-11 rounded-[var(--radius)] border border-[var(--border)] bg-[var(--surface)] p-2.5">
+                  <span className="block break-words font-medium">{t.label}</span>
+                  <span className="mt-0.5 block break-words text-xs text-[var(--muted)]">{t.subject}</span>
+                  <span className="mt-1 block">
+                    <StateText row={t} />
+                  </span>
+                </Link>
+              )}
+            />
+          </Card>
+        </>
       )}
     </div>
   );

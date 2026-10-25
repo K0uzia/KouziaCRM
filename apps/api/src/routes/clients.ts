@@ -375,7 +375,7 @@ export const clientsRoutes: FastifyPluginAsync = async (app) => {
     if (!existing) return reply.code(404).send({ error: "Introuvable" });
     const draft = await portalWelcomeDraft(existing.id);
     if (!draft) return reply.code(409).send({ error: "Ce client n'a pas d'adresse e-mail." });
-    return draft;
+    return { ...draft, templateKey: "access.welcome" };
   });
 
   app.post<{ Params: { id: string } }>(
@@ -441,7 +441,7 @@ export const clientsRoutes: FastifyPluginAsync = async (app) => {
     if (reply.sent) return;
     const q = z.object({ email: z.string().trim().email(), clientId: z.string().min(1).max(64).optional() }).safeParse(request.query);
     if (!q.success) return reply.code(400).send({ error: "Adresse e-mail invalide" });
-    return onboardingInviteDraft(q.data.email, q.data.clientId ?? null);
+    return { ...(await onboardingInviteDraft(q.data.email, q.data.clientId ?? null)), templateKey: "onboarding.invite" };
   });
 
   app.post("/api/onboarding/invite", async (request, reply) => {
