@@ -280,7 +280,8 @@ export class QuoteDecisionError extends Error {
       | "NOT_A_QUOTE"
       | "NOT_PENDING"
       | "ALREADY_INVOICED"
-      | "DEPOSIT_REQUIRED",
+      | "DEPOSIT_REQUIRED"
+      | "EXPIRED",
   ) {
     super(message);
     this.name = "QuoteDecisionError";
@@ -325,6 +326,7 @@ export type QuoteSignature = {
 };
 
 async function logQuoteAcceptance(
+  db: Prisma.TransactionClient,
   quoteId: string,
   signerName: string,
   source: QuoteAcceptanceSource,
@@ -338,7 +340,7 @@ async function logQuoteAcceptance(
     terms?: QuoteSignatureTerms;
   } = {},
 ) {
-  return prisma.quoteAcceptanceAudit.create({
+  return db.quoteAcceptanceAudit.create({
     data: {
       quoteId,
       signerName: signerName.trim(),
@@ -402,7 +404,7 @@ export function deferredStartOf(terms: Pick<QuoteSignatureTerms, "consumer" | "e
  * Charge un devis en attente de décision client.
  * Un devis déjà facturé n'est plus décidable : la décision commerciale est actée.
  */
-async function loadPendingQuote(tx: Prisma.TransactionClient, quoteId: string) {
+async function loadPendingQuote(tx: Prisma.TransactionClient, quoteId: string, opts: { refuseExpired?: boolean } = {}) {
   const quote = await tx.invoice.findUniqueOrThrow({ where: { id: quoteId } });
 
   if (quote.documentType !== InvoiceDocumentType.QUOTE) {
@@ -413,6 +415,10 @@ async function loadPendingQuote(tx: Prisma.TransactionClient, quoteId: string) {
       "Seul un devis envoyé et encore en attente peut être accepté ou refusé",
       "NOT_PENDING",
     );
+  }
+  // Validité dépassée : même règle que le passage en « Expiré » par le worker, sans attendre son passage.
+  if (opts.refuseExpired && quote.validUntil && quote.validUntil < new Date()) {
+    throw new QuoteDecisionError("Ce devis n'est plus valable : demandez un nouveau devis.", "EXPIRED");
   }
 
   const invoiced = await tx.invoice.count({
@@ -514,7 +520,7 @@ export async function acceptQuoteByClient(
   const { applyBuyoutSignature, finishBuyoutSignature } = await import("@/lib/subscriptions/buyout.js");
 
   const updated = await prisma.$transaction(async (tx) => {
-    await loadPendingQuote(tx, quoteId);
+    await loadPendingQuote(tx, quoteId, { refuseExpired: (audit.source ?? "PORTAL") !== "ADMIN" });
     await ensureQuoteHasOfficialNumber(tx, quoteId);
     const result = await tx.invoice.update({
       where: { id: quoteId },
@@ -553,23 +559,25 @@ export async function acceptQuoteByClient(
             : {},
         );
     const buyout = await applyBuyoutSignature(tx, quoteId);
-    return { result, subscriptionIds: subs.subscriptionIds, createdIds: subs.createdIds, buyout };
+    // Preuve de signature dans la même transaction : jamais de devis accepté sans preuve (audit du 25/10/2026).
+    // Seul l'archivage du fichier PDF reste après.
+    const acceptance = await logQuoteAcceptance(tx, quoteId, signerName, audit.source ?? "PORTAL", {
+      threadId: audit.threadId,
+      actor: audit.actor,
+      context: audit.context,
+      signature: audit.signature,
+      originalPdfSha256: original?.sha256 ?? null,
+      paymentPlan: plan,
+      terms,
+    });
+    return { result, subscriptionIds: subs.subscriptionIds, createdIds: subs.createdIds, buyout, acceptance };
   });
+  const acceptance = updated.acceptance;
+  if (original) await archiveOriginalQuote(acceptance.id, original);
   await finishBuyoutSignature(updated.buyout);
   if (subscriptionOnly || deferSubscription) await startSubscriptionBilling(updated.createdIds, settings.moduleStripeEnabled, subscriptionStart);
   else await notifyStripeSubscriptionSetup(updated.subscriptionIds);
   const accepted = updated.result;
-
-  const acceptance = await logQuoteAcceptance(quoteId, signerName, audit.source ?? "PORTAL", {
-    threadId: audit.threadId,
-    actor: audit.actor,
-    context: audit.context,
-    signature: audit.signature,
-    originalPdfSha256: original?.sha256 ?? null,
-    paymentPlan: plan,
-    terms,
-  });
-  if (original) await archiveOriginalQuote(acceptance.id, original);
 
   const { onQuoteAcceptedByClient } = await import(
     "@/lib/payments/milestonePaymentService.js"

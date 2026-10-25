@@ -65,18 +65,9 @@ export function verifyDocumentToken(token: string): string | null {
     return null;
   }
 
+  // Jeton sans date d'expiration (format du 25 au 27/08/2026) : refusé. Les jetons sont produits à la demande (/suivi,
+  // fiche facture) et jamais stockés ; tous ceux de l'ancien format auraient expiré depuis le 26/09/2026.
   const payload = decodePayload(body);
-  if (payload) {
-    if (payload.exp < Math.floor(Date.now() / 1000)) return null;
-    return payload.id;
-  }
-
-  // Compat tokens legacy: base64url(id).sig sans exp
-  try {
-    const legacyId = Buffer.from(body, "base64url").toString("utf8");
-    if (legacyId && !legacyId.startsWith("{")) return legacyId;
-  } catch {
-    /* ignore */
-  }
-  return null;
+  if (!payload || payload.exp < Math.floor(Date.now() / 1000)) return null;
+  return payload.id;
 }

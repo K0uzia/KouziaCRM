@@ -93,3 +93,20 @@ declare module "fastify" {
     viaTunnel: boolean;
   }
 }
+
+/**
+ * Clé des limites de débit : l'IPv4 telle quelle, l'IPv6 réduite à son préfixe /64. Un abonné reçoit au moins un /64 :
+ * changer d'adresse dans ce bloc ne remet pas le compteur à zéro (audit du 25/10/2026).
+ */
+export function rateLimitKey(ip: string): string {
+  const address = ip.split("%")[0]!;
+  if (isIP(address) !== 6) return ip;
+  const mapped = /^::ffff:(\d+\.\d+\.\d+\.\d+)$/i.exec(address);
+  if (mapped) return mapped[1]!;
+  const groupsOf = (part: string) => (part ? part.split(":").flatMap((g) => (g.includes(".") ? ["0", "0"] : [g])) : []);
+  const [head = "", tail] = address.split("::");
+  const left = groupsOf(head);
+  const right = tail === undefined ? [] : groupsOf(tail);
+  const groups = tail === undefined ? left : [...left, ...Array<string>(8 - left.length - right.length).fill("0"), ...right];
+  return `${groups.slice(0, 4).map((g) => parseInt(g, 16).toString(16)).join(":")}::/64`;
+}

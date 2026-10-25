@@ -262,7 +262,7 @@ describe("signature d'un devis depuis l'espace client", () => {
         },
       },
     });
-    await issueQuote(quote.id, new Date(2026, 5, 15));
+    await issueQuote(quote.id, new Date());
     return quote.id;
   }
 

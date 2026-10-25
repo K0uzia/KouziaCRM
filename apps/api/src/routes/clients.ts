@@ -310,7 +310,7 @@ export const clientsRoutes: FastifyPluginAsync = async (app) => {
       // Adresse identique à celle enregistrée : reprise telle quelle, sans revérification qui pourrait la réécrire.
       const stored = await prisma.client.findUnique({
         where: { id: request.params.id },
-        select: { addressLine1: true, addressLine2: true, postalCode: true, city: true, country: true },
+        select: { addressLine1: true, addressLine2: true, postalCode: true, city: true, country: true, emailHash: true },
       });
       const same = (a: string | null | undefined, b: string | null | undefined) => (a ?? "").trim() === (b ?? "").trim();
       const addressUnchanged = Boolean(
@@ -327,6 +327,13 @@ export const clientsRoutes: FastifyPluginAsync = async (app) => {
         include: { serviceNeeds: serviceNeedsInclude },
       });
       await syncPrimaryContact(client.id);
+      // Adresse e-mail principale changée : les appareils connectés avec l'ancienne adresse sont déconnectés.
+      // Les codes déjà envoyés à l'ancienne adresse expirent aussi.
+      if (stored && stored.emailHash !== client.emailHash) {
+        await revokeAllPortalSessions(client.id);
+        const now = new Date();
+        await prisma.portalCode.updateMany({ where: { clientId: client.id, usedAt: null, expiresAt: { gt: now } }, data: { expiresAt: now } });
+      }
       return serializeClient(client);
     } catch (e) {
       if (e instanceof AddressValidationError) {
