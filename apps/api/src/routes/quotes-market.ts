@@ -239,6 +239,8 @@ export const quotesMarketRoutes: FastifyPluginAsync = async (app) => {
         reference: z.string().max(120).optional().nullable(),
         notes: z.string().max(500).optional().nullable(),
         notifyClient: z.boolean().optional(),
+        // Date du règlement (virement reçu, chèque encaissé) : lisible et pas dans le futur.
+        paidAt: z.string().trim().refine((s) => !Number.isNaN(new Date(s).getTime()) && new Date(s).getTime() <= Date.now() + 86_400_000, { message: "Date de règlement invalide ou future." }).optional(),
       });
       const parsed = schema.safeParse(request.body ?? {});
       if (!parsed.success) {
@@ -251,6 +253,7 @@ export const quotesMarketRoutes: FastifyPluginAsync = async (app) => {
           reference: parsed.data.reference,
           notes: parsed.data.notes,
           notifyClient: parsed.data.notifyClient,
+          paidAt: parsed.data.paidAt ? new Date(parsed.data.paidAt) : undefined,
         });
         return updated;
       } catch (e) {

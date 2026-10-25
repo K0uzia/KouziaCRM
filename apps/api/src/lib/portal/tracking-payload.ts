@@ -176,7 +176,7 @@ export function buildPaymentHistory(opts: {
     if (coveredByMilestone) {
       // Reçu du règlement de l'acompte : porté par l'entrée du jalon.
       const entry = items.find((i) => i.id === `milestone-${coveredByMilestone.id}`);
-      const last = [...d.payments].sort((a, b) => b.paidAt.getTime() - a.paidAt.getTime())[0];
+      const last = d.payments.filter((p) => p.amountCents > 0).sort((a, b) => b.paidAt.getTime() - a.paidAt.getTime())[0];
       if (entry && last && d.number) {
         entry.receiptPdfToken = signReceiptToken(last.id);
         if (readableAvailable(last.receiptReadableSnapshot)) entry.receiptReadableAvailable = true;
@@ -184,7 +184,8 @@ export function buildPaymentHistory(opts: {
       continue;
     }
 
-    for (const p of d.payments) {
+    // Remboursement (montant négatif) : ni règlement ni reçu ; il réduit seulement le montant encaissé.
+    for (const p of d.payments.filter((x) => x.amountCents > 0)) {
       items.push({
         id: `payment-${p.id}`,
         date: p.paidAt,

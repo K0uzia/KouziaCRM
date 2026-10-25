@@ -79,6 +79,7 @@ export async function markPaidFromOnlinePayment(
   }
 
   let overpaidCents = 0;
+  let recorded: { id: string; amountCents: number } | null = null;
   const result = await prisma.$transaction(async (tx) => {
     const again = await tx.payment.findUnique({
       where: { stripePaymentIntentId: input.paymentIntentId },
@@ -113,7 +114,7 @@ export async function markPaidFromOnlinePayment(
     // virement Stripe peut arriver après un avoir émis entre-temps : le trop-perçu est signalé, à rembourser.
     const before = invoiceBalance(invoice);
     if (input.amountCents > 0 && !invoice.payments.some((p) => p.stripePaymentIntentId === input.paymentIntentId)) {
-      await tx.payment.create({
+      recorded = await tx.payment.create({
         data: {
           invoiceId: invoice.id,
           amountCents: input.amountCents,
@@ -160,7 +161,7 @@ export async function markPaidFromOnlinePayment(
 
   if (!result.duplicate) {
     if (result.milestoneId) {
-      await notifyDepositPaid(result.milestoneId, { online: true, notifyClient: true });
+      await notifyDepositPaid(result.milestoneId, { online: true, notifyClient: true, payment: recorded });
       const milestone = await prisma.paymentMilestone.findUnique({
         where: { id: result.milestoneId },
       });

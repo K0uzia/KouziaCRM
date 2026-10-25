@@ -67,14 +67,19 @@ const ALERT_EVERY_MS = 24 * 60 * 60 * 1000;
 const lastAlertAt = new Map<string, number>();
 
 async function alertArchiveProblem(state: ArchiveState, problem: string): Promise<void> {
+  await alertArchivedFile({ id: state.id, label: state.number ?? state.id, path: state.pdfPath ?? "" }, problem);
+}
+
+/** Fichier archivé (document émis ou reçu) altéré ou perdu : alerte à l'administrateur, une par fichier et par 24 h. */
+export async function alertArchivedFile(file: { id: string; label: string; path: string }, problem: string): Promise<void> {
   const now = Date.now();
-  if (now - (lastAlertAt.get(state.id) ?? 0) < ALERT_EVERY_MS) return;
-  lastAlertAt.set(state.id, now);
+  if (now - (lastAlertAt.get(file.id) ?? 0) < ALERT_EVERY_MS) return;
+  lastAlertAt.set(file.id, now);
   try {
     const { alertAdmin } = await import("@/lib/stripe/alert.js");
     await alertAdmin(
-      `PDF archivé à vérifier : ${state.number}`,
-      `Le PDF archivé de ${state.number} pose problème : ${problem}. Restaurez data/uploads/${state.pdfPath} depuis la dernière sauvegarde (kouziactl restore --uploads).`,
+      `PDF archivé à vérifier : ${file.label}`,
+      `Le PDF archivé de ${file.label} pose problème : ${problem}. Restaurez data/uploads/${file.path} depuis la dernière sauvegarde (kouziactl restore --uploads).`,
     );
   } catch (err) {
     console.error("[pdf] alerte d'archive impossible", err);

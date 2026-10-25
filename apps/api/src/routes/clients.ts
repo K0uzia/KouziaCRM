@@ -10,7 +10,7 @@ import {
   toPrismaClientData,
 } from "@/lib/clients.js";
 import { requireAuth } from "@/lib/auth.js";
-import { revokeAllPortalSessions } from "@/lib/portal/auth.js";
+import { endPortalAccessAfterEmailChange, revokeAllPortalSessions } from "@/lib/portal/auth.js";
 import { onboardingInviteDraft, sendOnboardingInvite } from "@/lib/clients/onboarding.js";
 import { portalWelcomeDraft, sendPortalWelcomeEmail } from "@/lib/clients/access-email.js";
 
@@ -328,12 +328,7 @@ export const clientsRoutes: FastifyPluginAsync = async (app) => {
       });
       await syncPrimaryContact(client.id);
       // Adresse e-mail principale changée : les appareils connectés avec l'ancienne adresse sont déconnectés.
-      // Les codes déjà envoyés à l'ancienne adresse expirent aussi.
-      if (stored && stored.emailHash !== client.emailHash) {
-        await revokeAllPortalSessions(client.id);
-        const now = new Date();
-        await prisma.portalCode.updateMany({ where: { clientId: client.id, usedAt: null, expiresAt: { gt: now } }, data: { expiresAt: now } });
-      }
+      if (stored && stored.emailHash !== client.emailHash) await endPortalAccessAfterEmailChange(client.id);
       return serializeClient(client);
     } catch (e) {
       if (e instanceof AddressValidationError) {

@@ -343,10 +343,17 @@ async function applySubmission(
 
   try {
     if (invitation.existingClientId) {
-      await prisma.client.update({
+      const before = await prisma.client.findUnique({ where: { id: invitation.existingClientId }, select: { emailHash: true } });
+      const updated = await prisma.client.update({
         where: { id: invitation.existingClientId },
         data: { ...(await toPrismaData(locked)), onboardingCompletedAt: now },
+        select: { emailHash: true },
       });
+      // Adresse remplacée par celle de l'invitation : les accès ouverts avec l'ancienne adresse sont fermés.
+      if (before && before.emailHash !== updated.emailHash) {
+        const { endPortalAccessAfterEmailChange } = await import("@/lib/portal/auth.js");
+        await endPortalAccessAfterEmailChange(invitation.existingClientId);
+      }
       await syncPrimaryContact(invitation.existingClientId);
       await prisma.onboardingInvitation.update({
         where: { id: invitation.id },
