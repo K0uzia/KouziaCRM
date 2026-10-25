@@ -110,5 +110,5 @@ const fromWords = (line: StartLine, startsAt: string) =>
 export function startFromPhrase(line: StartLine, hasProject: boolean): string {
   const p = publicStart(line, hasProject);
   const from = fromWords(line, p.startsAt);
-  return p.freeMonths ? `après ${p.freeMonths} mois offert${p.freeMonths > 1 ? "s" : ""}, comptés ${from}` : from;
+  return p.freeMonths ? `après ${p.freeMonths} mois offert${p.freeMonths > 1 ? "s" : ""}, compté${p.freeMonths > 1 ? "s" : ""} ${from}` : from;
 }

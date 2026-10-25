@@ -82,7 +82,7 @@ import {
 } from "@/lib/quotes/payment-plans.js";
 import { getPublicClientPreview, submitPublicClient } from "@/lib/clients/onboarding.js";
 import { signDocumentToken } from "@/lib/documents/public-token.js";
-import { parseReadable, readableAvailable, readableInvoice } from "@/lib/pdf/readable-documents.js";
+import { parseReadable, readableAvailable, readableInvoice, snapshotFor } from "@/lib/pdf/readable-documents.js";
 import type { InvoicePdfData } from "@/lib/pdf/invoice-document.js";
 import { replyEntrepriseLookup } from "@/lib/company/entreprise-route.js";
 import {
@@ -310,6 +310,23 @@ async function loadPublicDocument(invoiceId: string) {
     },
   });
   return invoice && invoice.status !== InvoiceStatus.DRAFT && invoice.number ? invoice : null;
+}
+
+/**
+ * Devis signé : le PDF archivé dans la preuve de signature (décision du 25/10/2026), jamais un nouveau rendu ; null pour
+ * un devis non signé ou une archive illisible (rendu du jour).
+ */
+async function signedQuotePdf(invoice: NonNullable<Awaited<ReturnType<typeof loadPublicDocument>>>): Promise<Buffer | null> {
+  const proof = invoice.quoteAcceptanceAudits[0];
+  if (invoice.documentType !== InvoiceDocumentType.QUOTE || invoice.quoteStatus !== "ACCEPTED" || !proof?.pdfPath) return null;
+  try {
+    const { signedQuoteAbsolutePath } = await import("@/lib/invoices/acceptance-proof.js");
+    const fs = await import("node:fs/promises");
+    return await fs.readFile(signedQuoteAbsolutePath(proof.pdfPath));
+  } catch (err) {
+    console.error(`[public] devis signé illisible pour ${invoice.id}`, err);
+    return null;
+  }
 }
 
 /** Données du PDF rendu à la demande (devis, facture sans archive) : une seule source pour le PDF et sa version lisible. */
@@ -695,8 +712,9 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
             validUntil: d.validUntil,
             dueDate: d.dueDate,
             downloadToken: d.number ? signDocumentToken(d.id) : null,
-            // Contrat B (version accessible) : devis rendu à la demande, facture et avoir figés avec leur PDF archivé.
-            ...(d.number && (d.documentType === InvoiceDocumentType.QUOTE || readableAvailable(d.readableSnapshot))
+            // Contrat B (version accessible) : devis rendu à la demande (signé : figé avec son PDF signé, masqué si indisponible),
+            // facture et avoir figés avec leur PDF archivé.
+            ...(d.number && ((d.documentType === InvoiceDocumentType.QUOTE && !d.readableSnapshot) || readableAvailable(d.readableSnapshot))
               ? { readableAvailable: true as const }
               : {}),
             ...(isInvoice ? { milestoneId: d.milestoneId } : {}),
@@ -1171,6 +1189,13 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
           .header("Content-Disposition", `inline; filename="${invoice.number}.pdf"`)
           .send(archived);
       }
+      const signed = await signedQuotePdf(invoice);
+      if (signed) {
+        return reply
+          .header("Content-Type", "application/pdf")
+          .header("Content-Disposition", `inline; filename="${invoice.number}.pdf"`)
+          .send(signed);
+      }
 
       const buffer = await renderInvoicePdf(await liveDocumentPdfData(invoice));
 
@@ -1191,6 +1216,17 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
       if (!invoice) return readableNotFound(reply);
       const { isArchivableDocument, issuedDocumentPdf } = await import("@/lib/pdf/issued-archive.js");
       if (!isArchivableDocument(invoice)) {
+        // Devis signé : version lisible figée au 1er accès, seulement si son texte est celui du PDF signé archivé.
+        const signed = await signedQuotePdf(invoice);
+        if (signed) {
+          let frozen = invoice.readableSnapshot;
+          if (!frozen) {
+            frozen = (await snapshotFor(signed, readableInvoice(await liveDocumentPdfData(invoice), "ARCHIVE"))).snapshot;
+            await prisma.invoice.updateMany({ where: { id: invoice.id, readableSnapshot: null }, data: { readableSnapshot: frozen } });
+          }
+          const doc = parseReadable(frozen);
+          return doc ? readableHeaders(reply).send(doc) : readableNotFound(reply);
+        }
         // Devis : rendu à la demande, depuis les mêmes données que son PDF.
         return readableHeaders(reply).send(readableInvoice(await liveDocumentPdfData(invoice), "LIVE").doc);
       }

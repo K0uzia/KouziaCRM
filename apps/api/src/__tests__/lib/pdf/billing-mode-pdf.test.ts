@@ -99,6 +99,15 @@ describe("PDF du devis selon le mode de facturation", () => {
     expect(text).not.toContain("Sans durée minimale");
   });
 
+  it("récurrent annuel 12 mois avec 1 mois offert : singulier (« 1 échéance », « 1 mois offert, compté »)", async () => {
+    const svc = await createService({ name: "Site tout compris", unitPriceCents: 150000 });
+    const text = await quote("RECURRING", "ONE", [
+      { description: "Site tout compris", unitPriceCents: 150000, isSubscription: true, billingInterval: "YEAR", billingDay: 1, commitmentMonths: 12, subscriptionStart: "FREE_MONTHS", subscriptionFreeMonths: 1, serviceId: svc.id },
+    ]);
+    expect(text).toContain("Total sur la durée de l'engagement : 1 500,00 € (1 échéance).");
+    expect(text).toContain("Départ de la facturation : après 1 mois offert, compté à partir de la signature.");
+    expect(text).not.toMatch(/1 échéances|1 mois offerts|compté s/);
+  });
   it("récurrent sans engagement : refusé à l'émission (brouillon antérieur à la règle)", async () => {
     const svc = await createService({ name: "Site tout compris", unitPriceCents: 150000 });
     await expect(

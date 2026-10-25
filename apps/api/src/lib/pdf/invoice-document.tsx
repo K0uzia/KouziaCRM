@@ -707,7 +707,7 @@ export function InvoiceDocument({ company, client, invoice, specimen, draft }: I
                   `Facturé ${rhythm}.`,
                   r.startFromText ? `Départ de la facturation : ${r.startFromText}.` : `Facturation : ${r.startText}.`,
                   engaged ? `Engagement de ${r.commitmentMonths} mois à compter de la signature.` : "[Engagement à choisir : 12, 24 ou 36 mois]",
-                  ...(engaged ? [`Total sur la durée de l'engagement : ${fmtMoney(r.totalCommitmentCents!)} (${r.periods} échéances).`] : []),
+                  ...(engaged ? [`Total sur la durée de l'engagement : ${fmtMoney(r.totalCommitmentCents!)} (${r.periods} échéance${r.periods! > 1 ? "s" : ""}).`] : []),
                   ...(r.period !== "MONTH" && r.amountCents > 0
                     ? [`Soit ${fmtMoney(Math.round(r.amountCents / (r.period === "YEAR" ? 12 : 3)))} par mois, à titre indicatif.`]
                     : []),
