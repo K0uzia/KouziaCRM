@@ -473,7 +473,7 @@ function PendingClientPage({ localId }: { localId: string }) {
         title={
           <span className="flex min-w-0 items-center gap-3">
             <Avatar name={client.displayName} size="lg" />
-            <span className="min-w-0 truncate">{client.displayName}</span>
+            <span className="line-clamp-2 min-w-0 break-words" title={client.displayName}>{client.displayName}</span>
           </span>
         }
         subtitle={
@@ -668,7 +668,7 @@ function ClientDetail({ id }: { id: string | undefined }) {
         title={
           <span className="flex min-w-0 items-center gap-3">
             <Avatar name={client.displayName} size="lg" />
-            <span className="min-w-0 truncate">{client.displayName}</span>
+            <span className="line-clamp-2 min-w-0 break-words" title={client.displayName}>{client.displayName}</span>
           </span>
         }
         subtitle={

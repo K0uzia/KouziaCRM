@@ -115,7 +115,8 @@ export function SiteReferencesPage() {
         </div>
       ),
     },
-    { name: "Type", width: "8rem", cell: (r) => REFERENCE_TYPE_LABEL[r.type] },
+    // Tablette (800 px) : le nom passe avant le type, qui reste sur la fiche.
+    { name: "Type", width: "8rem", showFrom: 1024, cell: (r) => REFERENCE_TYPE_LABEL[r.type] },
     {
       name: "Emplacements",
       width: "11rem",
