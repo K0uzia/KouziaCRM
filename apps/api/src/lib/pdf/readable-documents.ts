@@ -74,6 +74,16 @@ export function parseReadable(snapshot: string | null | undefined): ReadableDocu
 /** Disponible sans tout analyser (liste /suivi) : seul un instantané valide commence ainsi. */
 export const readableAvailable = (snapshot: string | null | undefined) => Boolean(snapshot?.startsWith('{"version":1'));
 
+/**
+ * Lien « version lisible » annoncé dans /suivi seulement s'il peut être servi : devis non signé rendu à la demande ;
+ * devis signé, facture ou avoir avec une version figée valable (figée à la signature ou à l'archivage, rattrapée sinon).
+ */
+export function readableLinkAvailable(d: { number: string | null; documentType: string; quoteStatus: string | null; readableSnapshot: string | null }): boolean {
+  if (!d.number) return false;
+  if (d.documentType === InvoiceDocumentType.QUOTE && d.quoteStatus !== "ACCEPTED") return true;
+  return readableAvailable(d.readableSnapshot);
+}
+
 /** Une alerte par rattrapage, listant les documents dont le texte ne correspond pas : chacun n'est signalé qu'une fois. */
 export async function alertMismatch(labels: string[]): Promise<void> {
   if (!labels.length) return;
@@ -134,6 +144,28 @@ export async function backfillReadableSnapshots(limit = 50): Promise<{ frozen: n
     } catch (err) {
       // Archive illisible : déjà signalée par la lecture du PDF ; on réessaiera au prochain passage.
       console.error(`[pdf] version lisible non rattrapée pour ${row.number}`, err);
+    }
+  }
+
+  const signedQuotes = await prisma.invoice.findMany({
+    where: { documentType: InvoiceDocumentType.QUOTE, quoteStatus: "ACCEPTED", number: { not: null }, readableSnapshot: null, quoteAcceptanceAudits: { some: { pdfPath: { not: null } } } },
+    select: { id: true, number: true, quoteAcceptanceAudits: { where: { pdfPath: { not: null } }, orderBy: { createdAt: "desc" }, take: 1, select: { pdfPath: true } } },
+    take: limit,
+  });
+  if (signedQuotes.length) {
+    const { signedQuoteAbsolutePath } = await import("@/lib/invoices/acceptance-proof.js");
+    for (const row of signedQuotes) {
+      try {
+        const pdf = await fs.readFile(signedQuoteAbsolutePath(row.quoteAcceptanceAudits[0]!.pdfPath!));
+        const loaded = await loadDocumentForPdf(row.id);
+        if (!loaded) continue;
+        const { snapshot, ok } = await snapshotFor(pdf, readableInvoice(await pdfDataOfLoaded(loaded), "ARCHIVE"));
+        await prisma.invoice.updateMany({ where: { id: row.id, readableSnapshot: null }, data: { readableSnapshot: snapshot } });
+        if (ok) frozen += 1;
+        else mismatched.push(row.number!);
+      } catch (err) {
+        console.error(`[pdf] version lisible du devis signé non rattrapée pour ${row.number}`, err);
+      }
     }
   }
 

@@ -3,7 +3,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { prisma } from "@/lib/prisma.js";
 import { getCompanySettings } from "@/lib/company.js";
-import { loadDocumentForPdf, renderLoadedDocumentPdf } from "@/lib/pdf/document-pdf.js";
+import { loadDocumentForPdf, pdfDataOfLoaded, renderLoadedDocumentPdf } from "@/lib/pdf/document-pdf.js";
 import { sendDocumentPdf } from "@/lib/email/send-document-pdf.js";
 import { formatPlainTextSignature } from "@/lib/email/signature.js";
 import { brandFromSettings } from "@/lib/email/templates.js";
@@ -89,6 +89,10 @@ export async function recordQuoteAcceptanceProof(
       where: { id: auditId },
       data: { pdfPath, pdfSha256 },
     });
+    // Version lisible du devis signé : figée maintenant, seulement si son texte est celui du PDF archivé.
+    const { readableInvoice, snapshotFor } = await import("@/lib/pdf/readable-documents.js");
+    const readable = await snapshotFor(pdf, readableInvoice(await pdfDataOfLoaded(doc), "ARCHIVE"));
+    await prisma.invoice.update({ where: { id: quoteId }, data: { readableSnapshot: readable.snapshot } });
 
     if (opts.sendConfirmation === false) return;
 

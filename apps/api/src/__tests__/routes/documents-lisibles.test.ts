@@ -215,8 +215,17 @@ describe("devis signé : le document signé, jamais un nouveau rendu (décision 
     expect((await get(`/api/public/documents/${signDocumentToken(quote.id)}/lisible`)).json()).toEqual(readable.json());
   }, 60_000);
 
-  it("texte du rendu du jour différent du PDF signé : version lisible indisponible et plus annoncée", async () => {
+  it("version lisible figée à la signature (P0 du 25/10/2026) : servie même après un réglage changé", async () => {
+    const { quote } = await signedQuote("D-2026-0982");
+    await changeCity();
+    const readable = await get(`/api/public/documents/${signDocumentToken(quote.id)}/lisible`);
+    expect(readable.statusCode, readable.body).toBe(200);
+    expect(readable.json()).toMatchObject({ number: "D-2026-0982", source: "ARCHIVE" });
+  }, 60_000);
+
+  it("devis signé sans version figée (antérieur) et rendu du jour différent du PDF signé : indisponible et plus annoncée", async () => {
     const { quote, client } = await signedQuote("D-2026-0981");
+    await prisma.invoice.update({ where: { id: quote.id }, data: { readableSnapshot: null } });
     await changeCity();
     expect((await get(`/api/public/documents/${signDocumentToken(quote.id)}/lisible`)).statusCode).toBe(404);
     const { token } = await openPortalSession({ clientId: client.id, deviceId: "appareil-signe", ipAddress: "203.0.113.9", userAgent: "Test" });
