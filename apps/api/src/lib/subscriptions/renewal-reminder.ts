@@ -186,6 +186,7 @@ export async function sendDueRenewalReminders(now: Date = new Date()): Promise<n
       html: content.html,
       clientId: sub.clientId,
       kind: "subscription_renewal",
+      documentId: sub.id,
       bodyTextForMessage: content.text,
     }, { review: { family: "subscription_notice", origin: "WORKER" } });
     await prisma.subscription.update({
@@ -327,7 +328,8 @@ export async function sendDueTermEndReminders(now: Date = new Date()): Promise<n
       clientId: sub.clientId,
       // Rachat proposé : type à part et abonnement concerné, pour la notification « proposer le rachat ? » (R3).
       kind: buyoutPriceCents != null ? "subscription_term_end_buyout" : "subscription_term_end",
-      ...(buyoutPriceCents != null ? { documentId: sub.id } : {}),
+      // Abonnement concerné (tous les avis) : retiré de la file s'il n'a plus d'objet (rachat signé, fin programmée).
+      documentId: sub.id,
       bodyTextForMessage: content.text,
     }, { review: { family: "subscription_notice", origin: "WORKER" } });
     await prisma.subscription.update({ where: { id: sub.id }, data: { renewalReminderSentFor: term.termEndsAt } });
@@ -438,6 +440,7 @@ export async function sendDueFirstChargeNotices(now: Date = new Date()): Promise
       html: content.html,
       clientId: sub.clientId,
       kind: "subscription_first_charge",
+      documentId: sub.id,
       bodyTextForMessage: content.text,
     }, { review: { family: "subscription_notice", origin: "WORKER" } });
     await prisma.subscription.update({ where: { id: sub.id }, data: { firstChargeNoticeSentFor: sub.nextInvoiceAt } });

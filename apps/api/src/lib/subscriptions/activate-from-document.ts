@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma.js";
 import {
   createSubscription,
   updateSubscription,
+  nextPeriodDate,
   normalizeInterval,
   periodMonths,
   SubscriptionError,
@@ -34,6 +35,11 @@ export type ActivateSubscriptionsOptions = {
   startDate?: Date;
   /** Seulement ces lignes (rattachement d'un avenant : les autres lignes du devis restent à rattacher). */
   onlyLineIds?: string[];
+  /**
+   * Avenant : le document facture-t-il la période révisée maintenant ? Par défaut, oui pour une facture, non pour un
+   * devis (sa période n'est facturée qu'à sa conversion en facture, qui décale alors l'échéance).
+   */
+  periodBilledNow?: boolean;
 };
 
 /** Migration qui a introduit les avenants ciblés (InvoiceLine.revisesSubscriptionId). */
@@ -135,6 +141,13 @@ async function activateLegacyDocument(
   return { created, updated, subscriptionIds: [...new Set([...linked, subId])], createdIds };
 }
 
+/** Période révisée facturée par un document : l'échéance de l'abonnement avance d'une période (fin de mois bornée). */
+export async function shiftRevisedPeriod(subscriptionId: string, db: Db = prisma): Promise<void> {
+  const sub = await db.subscription.findUnique({ where: { id: subscriptionId }, select: { nextInvoiceAt: true, billingInterval: true, stripeSubscriptionId: true } });
+  if (!sub || sub.stripeSubscriptionId) return;
+  await db.subscription.update({ where: { id: subscriptionId }, data: { nextInvoiceAt: nextPeriodDate(sub.nextInvoiceAt, periodMonths(sub.billingInterval)) } });
+}
+
 /**
  * Abonnements des lignes `isSubscription` d'un document. Un client peut avoir plusieurs abonnements actifs
  * (ex. maintenance mensuelle et e-mails annuels) : chaque ligne crée le sien, avec sa périodicité. Une ligne
@@ -225,13 +238,11 @@ export async function activateSubscriptionsFromDocument(
         { label: line.description, amountCents: line.unitPriceCents, billingDay: line.billingDay!, billingInterval },
         db,
       );
-      // Le document facture déjà une période (facture, ou devis qui inclut la 1re échéance) : l'échéance suivante
-      // est décalée d'une période, sinon elle serait facturée deux fois. Un prélèvement Stripe suit son propre
-      // calendrier : on n'y touche pas.
-      if (!opts.firstPeriodNow && !target.stripeSubscriptionId) {
-        const next = new Date(target.nextInvoiceAt);
-        next.setMonth(next.getMonth() + periodMonths(billingInterval));
-        await db.subscription.update({ where: { id: target.id }, data: { nextInvoiceAt: next } });
+      // Le document facture déjà la période (facture) : l'échéance suivante est décalée d'une période, sinon elle serait
+      // facturée deux fois. Un devis signé ne facture rien tant qu'il n'est pas converti (audit du 25/10/2026 : décaler
+      // à la signature sautait une période si le devis restait sans facture). Un prélèvement Stripe suit son calendrier.
+      if (!opts.firstPeriodNow && (opts.periodBilledNow ?? doc.documentType !== "QUOTE") && !target.stripeSubscriptionId) {
+        await shiftRevisedPeriod(target.id, db);
       }
       subId = target.id;
       updated += 1;
@@ -339,7 +350,7 @@ export async function attachRevisionLine(subscriptionId: string, lineId: string)
       tx.invoice.count({ where: { quoteId: line.invoice.id, documentType: "INVOICE" } }),
     ]);
     const billsPeriod = invoiced > 0 || quoteLines.some((l) => !l.isSubscription);
-    const result = await activateSubscriptionsFromDocument(line.invoice.id, tx, { firstPeriodNow: !billsPeriod, onlyLineIds: [line.id] });
+    const result = await activateSubscriptionsFromDocument(line.invoice.id, tx, { firstPeriodNow: !billsPeriod, periodBilledNow: billsPeriod, onlyLineIds: [line.id] });
     await tx.invoiceLine.updateMany({
       where: { invoice: { quoteId: line.invoice.id, documentType: "INVOICE" }, isSubscription: true, position: line.position, subscriptionId: null },
       data: { subscriptionId },

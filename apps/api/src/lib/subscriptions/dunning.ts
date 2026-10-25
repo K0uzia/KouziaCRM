@@ -399,7 +399,11 @@ export async function notifySubscriptionSync(result: StripeSyncResult): Promise<
     const url = await subscriptionPaymentUrl(sub);
     await send(sub.clientId, "subscription_suspended", (ctx) => renderSuspendedEmail({ ...ctx, label: sub.label, url }));
   }
-  if (result.cancelScheduledAt) {
+  // Fin programmée depuis l'ERP (rachat signé, « Programmer la fin ») : Stripe ne fait que l'appliquer. Pas d'accusé
+  // de résiliation au client, qui n'a rien résilié (audit du 25/10/2026).
+  const fromErp =
+    result.cancelScheduledAt && sub.endDate && Math.abs(result.cancelScheduledAt.getTime() - (sub.endDate.getTime() + 1)) < 24 * 3_600_000;
+  if (result.cancelScheduledAt && !fromErp) {
     const endsAt = result.cancelScheduledAt;
     await alertAdmin(
       `Résiliation programmée : ${who}`,

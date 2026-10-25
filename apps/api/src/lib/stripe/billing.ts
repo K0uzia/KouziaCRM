@@ -166,7 +166,8 @@ export async function issueErpInvoiceFromStripeInvoice(
       data: {
         lastInvoiceId: emitted.id,
         nextInvoiceAt: periodEnd ?? sub.nextInvoiceAt,
-        amountCents: amountCents > 0 ? amountCents : sub.amountCents,
+        // Le montant de l'abonnement suit le prix Stripe (syncSubscriptionFromStripe), jamais une facture : une facture de
+        // prorata ou créditée ne change pas le prix des échéances suivantes.
       },
     });
 

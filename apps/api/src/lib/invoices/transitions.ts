@@ -41,6 +41,8 @@ import {
 } from "@/lib/invoices/documentFlowService.js";
 import {
   activateSubscriptionsFromDocument,
+  shiftRevisedPeriod,
+  targetedRevisionsCutoff,
   notifyStripeSubscriptionSetup,
 } from "@/lib/subscriptions/activate-from-document.js";
 import { activationPoint } from "@/lib/subscriptions/start.js";
@@ -814,6 +816,14 @@ export async function convertQuoteToInvoice(quoteId: string) {
       },
       include: { lines: true, client: true },
     });
+
+    // Avenant ciblé : la période révisée est facturée par cette facture ; l'échéance de l'abonnement avance maintenant,
+    // et non à la signature (audit du 25/10/2026). Devis antérieurs aux avenants ciblés : décalage déjà fait au rattachement.
+    const cutoff = await targetedRevisionsCutoff(tx);
+    if (!cutoff || quote.createdAt >= cutoff) {
+      const revised = new Set(invoicedLines.filter((l) => l.isSubscription && l.revisesSubscriptionId).map((l) => l.revisesSubscriptionId!));
+      for (const subscriptionId of revised) await shiftRevisedPeriod(subscriptionId, tx);
+    }
 
     await ensureQuoteHasOfficialNumber(tx, quote.id);
     await tx.invoice.update({

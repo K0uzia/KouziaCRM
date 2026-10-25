@@ -1,4 +1,4 @@
-import { EmailOutboxStatus, InvoiceDocumentType } from "@prisma/client";
+import { EmailOutboxStatus, InvoiceDocumentType, InvoiceStatus } from "@prisma/client";
 import { prisma } from "@/lib/prisma.js";
 import { decrypt, encrypt } from "@/lib/crypto.js";
 import { getCompanySettings } from "@/lib/company.js";
@@ -127,6 +127,38 @@ export async function getReviewEmail(id: string) {
   return { ...(await view(row, await clientNames([row]))), text: p.text ?? "", hasCustomLayout: Boolean(p.html) };
 }
 
+/** Échecs de paiement : à revalider avant l'envoi (le paiement a pu être régularisé depuis). */
+const PAYMENT_FAILURE_KINDS: ReadonlySet<string> = new Set(["payment_failed", "subscription_payment_failed"]);
+
+/** Avis d'abonnement devenus sans objet quand la fin est actée (rachat signé, fin programmée ou clôture). */
+export const SUBSCRIPTION_NOTICE_KINDS = ["subscription_renewal", "subscription_term_end", "subscription_term_end_buyout", "subscription_first_charge"] as const;
+
+/** Motif pour lequel un e-mail en attente ne doit plus partir ; null s'il reste valable. */
+async function obsoleteReason(row: { reviewKind: string | null; documentId: string | null }): Promise<string | null> {
+  if (!row.documentId || !row.reviewKind || !PAYMENT_FAILURE_KINDS.has(row.reviewKind)) return null;
+  const [invoice, milestone] = await Promise.all([
+    prisma.invoice.findUnique({ where: { id: row.documentId }, select: { status: true } }),
+    prisma.paymentMilestone.findUnique({ where: { id: row.documentId }, select: { status: true } }),
+  ]);
+  return invoice?.status === InvoiceStatus.PAID || milestone?.status === "PAID" ? "Paiement régularisé depuis : e-mail d'échec retiré." : null;
+}
+
+/** E-mails en attente d'un document devenus sans objet : refusés avec leur motif (jamais envoyés). */
+export async function rejectObsoleteReviewEmails(documentId: string, kinds: readonly string[], reason: string, now = new Date()): Promise<number> {
+  const res = await prisma.emailOutbox.updateMany({
+    where: { documentId, reviewKind: { in: [...kinds] }, status: EmailOutboxStatus.REVIEW },
+    data: { status: EmailOutboxStatus.REJECTED, reviewedAt: now, rejectReason: encrypt(reason) },
+  });
+  return res.count;
+}
+
+async function rejectAsObsolete(id: string, reason: string, now: Date): Promise<void> {
+  await prisma.emailOutbox.updateMany({
+    where: { id, status: EmailOutboxStatus.REVIEW },
+    data: { status: EmailOutboxStatus.REJECTED, reviewedAt: now, rejectReason: encrypt(reason) },
+  });
+}
+
 /**
  * Valide un e-mail : il rejoint la file d'envoi normale. Objet ou texte modifié : contenu rechiffré, et la mise en page
  * HTML est refaite à l'envoi depuis le texte (les liens y restent en clair), pour que les deux versions disent la même chose.
@@ -135,6 +167,11 @@ export async function approveReviewEmail(id: string, edits: { subject?: string; 
   const row = await prisma.emailOutbox.findUnique({ where: { id } });
   if (!row) throw new ReviewError("E-mail introuvable", 404);
   if (row.status !== EmailOutboxStatus.REVIEW) throw new ReviewError("Cet e-mail n'est plus en attente de validation.", 409);
+  const obsolete = await obsoleteReason(row);
+  if (obsolete) {
+    await rejectAsObsolete(id, obsolete, now);
+    throw new ReviewError(obsolete, 409);
+  }
   const p = parsePayload(outboxPayloadRaw(row));
   const subject = edits.subject?.trim();
   const text = edits.text?.trim();
@@ -167,6 +204,11 @@ export async function approveReviewEmails(ids: string[], now = new Date()): Prom
   const rows = await prisma.emailOutbox.findMany({ where: { id: { in: ids }, status: EmailOutboxStatus.REVIEW } });
   let approved = 0;
   for (const row of rows) {
+    const obsolete = await obsoleteReason(row);
+    if (obsolete) {
+      await rejectAsObsolete(row.id, obsolete, now);
+      continue;
+    }
     const claimed = await prisma.emailOutbox.updateMany({
       where: { id: row.id, status: EmailOutboxStatus.REVIEW },
       data: { status: EmailOutboxStatus.PENDING, scheduledAt: now, reviewedAt: now },
