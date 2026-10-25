@@ -1,4 +1,5 @@
 import { SubscriptionCollectionMethod, SubscriptionStatus } from "@prisma/client";
+import { recurringDiscountSummary } from "@/lib/quotes/recurring-discount.js";
 import { lineFirstInvoiceAt } from "@/lib/subscriptions/start.js";
 import { prisma } from "@/lib/prisma.js";
 import {
@@ -216,6 +217,14 @@ export async function activateSubscriptionsFromDocument(
       },
       db,
     );
+    // Remise du devis (R1) : sur les premières échéances de l'abonnement, puis tarif plein.
+    const discount = recurringDiscountSummary(doc, sub.amountCents, first.billingInterval, first.commitmentMonths);
+    if (discount) {
+      await db.subscription.update({
+        where: { id: sub.id },
+        data: { discountKind: discount.kind, discountValue: discount.value, discountPeriods: discount.periods, discountPeriodsBilled: 0 },
+      });
+    }
     await db.invoiceLine.updateMany({ where: { id: { in: grouped.map((l) => l.id) } }, data: { subscriptionId: sub.id } });
     created += 1;
     createdIds.push(sub.id);

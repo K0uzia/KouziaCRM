@@ -85,6 +85,10 @@ describe("buildInvoicePdfPayload charte dynamique", () => {
         clientRequestId: null,
         offlineReviewReason: null,
         billingMode: null,
+        recurringDiscountKind: null,
+        recurringDiscountValue: null,
+        recurringDiscountMonths: null,
+        openingDiscount: false,
         lines: [
           {
             id: "l1",

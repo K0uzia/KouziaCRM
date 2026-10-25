@@ -9,7 +9,7 @@ import { toast } from "sonner";
 import { useLiveRefresh } from "@/lib/notifications";
 import { api, formatEUR } from "@/lib/api";
 import { billedWithDocument, startFromLine, startPhrase } from "@/lib/subscription-start";
-import { annualEurosOf, recurringFromLine } from "@/components/documents/billing-mode-blocks";
+import { annualEurosOf, discountFromDoc, recurringFromLine } from "@/components/documents/billing-mode-blocks";
 import {
   formatDate,
   formatDecimal,
@@ -113,6 +113,11 @@ type Doc = {
   paymentPlanOffer?: string | null;
   /** Devis : mode de facturation (ONE_OFF | RECURRING) ; null pour un devis antérieur. */
   billingMode?: string | null;
+  /** Devis récurrent : remise sur les premières échéances (R1). */
+  openingDiscount?: boolean;
+  recurringDiscountKind?: string | null;
+  recurringDiscountValue?: number | null;
+  recurringDiscountMonths?: number | null;
   /** Devis : base de l'acompte et de l'échéancier (partie ponctuelle) ; null pour un devis antérieur. */
   depositBaseCents?: number | null;
   paymentPlan?: string | null;
@@ -1997,7 +2002,7 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
             billingMode: doc.billingMode === "ONE_OFF" || doc.billingMode === "RECURRING" ? doc.billingMode : "",
             ...(() => {
               const sub = (doc.lines ?? []).find((l) => l.isSubscription);
-              return doc.billingMode === "RECURRING" && sub ? { recurring: recurringFromLine({ ...sub, ...startFromLine(sub) }) } : {};
+              return doc.billingMode === "RECURRING" && sub ? { recurring: { ...recurringFromLine({ ...sub, ...startFromLine(sub) }), discount: discountFromDoc(doc) } } : {};
             })(),
             validUntil: doc.validUntil ? doc.validUntil.slice(0, 10) : "",
             discountType:

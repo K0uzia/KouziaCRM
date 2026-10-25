@@ -1,4 +1,5 @@
 import type { Invoice } from "@prisma/client";
+import { NO_RECURRING_DISCOUNT, type RecurringDiscountFields } from "@/lib/quotes/recurring-discount.js";
 import { prisma } from "@/lib/prisma.js";
 import { decryptOptional } from "@/lib/crypto.js";
 import { getCompanySettings } from "@/lib/company.js";
@@ -45,6 +46,8 @@ export type DraftPreviewInput = {
   paymentPlanOffer: PaymentPlanOffer | null;
   billingMode: BillingMode | null;
   totals: ReturnType<typeof computeLineTotals>;
+  /** Devis récurrent : remise sur les premières échéances (R1), déjà vérifiée. */
+  recurringDiscount?: RecurringDiscountFields;
 };
 
 /** null : client introuvable. */
@@ -123,6 +126,7 @@ export async function renderDraftPreviewPdf(input: DraftPreviewInput, now = new 
     paymentPlanOffer: offer,
     paymentPlan: null,
     billingMode: mode,
+    ...(isQuote ? (input.recurringDiscount ?? NO_RECURRING_DISCOUNT) : NO_RECURRING_DISCOUNT),
     depositBaseCents,
     quoteStatus: isQuote ? "DRAFT" : null,
     quoteSignerName: null,

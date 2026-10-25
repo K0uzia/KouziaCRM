@@ -98,6 +98,7 @@ export default defineConfig(({ mode }) => ({
         "../api/src/lib/email/sanitize-html.ts",
       ),
       "@kouzia-erp/api-contract": path.resolve(__dirname, "../api/src/lib/api-contract.ts"),
+      "@kouzia-erp/recurring-discount": path.resolve(__dirname, "../api/src/lib/quotes/recurring-discount-calc.ts"),
       "@kouzia-erp/email-sender": path.resolve(
         __dirname,
         "../api/src/lib/email/sender-label.ts",

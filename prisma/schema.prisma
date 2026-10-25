@@ -1064,6 +1064,12 @@ model Subscription {
   commitmentMonths        Int?
   /// Fin de l'engagement = départ du contrat + commitmentMonths ; avant cette date, résiliation sur demande traitée par l'admin
   commitmentEndsAt        DateTime?
+  /// Remise du devis signé (R1) : PERCENT (points de base) | FIXED (centimes par échéance), sur discountPeriods échéances ;
+  /// discountPeriodsBilled : échéances déjà facturées remisées. Ensuite, tarif plein (amountCents).
+  discountKind            String?
+  discountValue           Int?
+  discountPeriods         Int?
+  discountPeriodsBilled   Int                          @default(0)
   status                  SubscriptionStatus           @default(ACTIVE)
   collectionMethod        SubscriptionCollectionMethod @default(MANUAL_TRANSFER)
   /// Identifiant Subscription Stripe (sub_…)
@@ -1154,6 +1160,14 @@ model Invoice {
   /// NONE | PERCENT (discountValue en bps, 1000 = 10 %) | FIXED (discountValue en centimes)
   discountType                 String                 @default("NONE")
   discountValue                Int                    @default(0)
+  /// Devis récurrent (R1, 26/10/2026) : remise sur les premières échéances, une seule par devis. PERCENT | FIXED, null = aucune
+  recurringDiscountKind        String?
+  /// PERCENT : points de base (3000 = 30 %) ; FIXED : centimes par échéance
+  recurringDiscountValue       Int?
+  /// Durée depuis la 1re échéance, en mois (multiple de la période, au plus l'engagement) ; null = tout l'engagement
+  recurringDiscountMonths      Int?
+  /// Case « Remise d'ouverture » : 30 % sur 12 mois, engagement de 36 mois seulement, mention sur le devis
+  openingDiscount              Boolean                @default(false)
   /// Total du marché (devis) figé à l'émission d'un acompte/solde
   marketTotalCents             Int?
   /// Devis : base de l'acompte et de l'échéancier (partie ponctuelle, remise répartie), figée à

@@ -13,6 +13,7 @@ import type { PdfCompanySettings } from "@/lib/pdf/brand-assets.js";
 import { fillClauseVariables } from "@/lib/company/legal-clauses.js";
 import type { ClientSnapshot } from "@/lib/invoices/transitions.js";
 import { formatEUR } from "@/lib/money.js";
+import { discountSentence, type RecurringDiscountSummary } from "@/lib/quotes/recurring-discount.js";
 import { readableOn, resolveBrandColors } from "@/lib/brand.js";
 import { formatDateFr, formatDateTimeShortFr } from "@/lib/format-fr.js";
 
@@ -231,6 +232,14 @@ const intervalOf = (interval: string | null | undefined) => (interval === "YEAR"
 const commitmentInterval = (lines: ReadonlyArray<{ isSubscription?: boolean; commitmentMonths?: number | null; billingInterval?: string | null }>) =>
   intervalOf(lines.find((l) => l.isSubscription && l.commitmentMonths)?.billingInterval);
 
+/** Remise d'un devis récurrent : quoi (pourcentage ou montant par échéance) et sur quelles échéances. */
+function discountWords(d: RecurringDiscountSummary) {
+  const what = d.kind === "PERCENT" ? `${String(d.value / 100).replace(".", ",")} %` : `${fmtMoney(d.value)} par échéance`;
+  const span = d.months == null ? "sur toute la durée de l’engagement" : d.periods === 1 ? "sur la 1re échéance" : `sur les ${d.periods} premières échéances`;
+  const label = d.opening ? `Remise d’ouverture : ${what} sur les ${d.months} premiers mois` : `Remise : ${what} ${span}`;
+  return { what, span, label };
+}
+
 function subscriptionHeading(lines: Array<{ isSubscription?: boolean; billingInterval?: string | null; commitmentMonths?: number | null }>) {
   const subs = lines.filter((l) => l.isSubscription);
   if (subs.every((l) => l.commitmentMonths)) return "Abonnement avec engagement";
@@ -385,6 +394,8 @@ export type InvoicePdfData = {
       /** Départ seul, sans le prix (absent d'un payload plus ancien : phrase complète startText). */
       startFromText?: string;
       billingDay?: number | null;
+      /** Remise sur les premières échéances (R1) ; absente sans remise. */
+      discount?: RecurringDiscountSummary | null;
     } | null;
     /** Droit de rétractation et formulaire type : devis d'un client particulier. */
     withdrawalTerms?: string | null;
@@ -680,6 +691,18 @@ export function InvoiceDocument({ company, client, invoice, specimen, draft }: I
             </Readable>
             </Fragment>
           ))}
+          {invoice.recurringSummary?.discount ? (
+            <Readable as="row">
+            <View style={styles.tr} wrap={false}>
+              <View style={styles.colDesc}>
+                <Text style={{ color: INK }}>{discountWords(invoice.recurringSummary.discount).label}</Text>
+              </View>
+              <Text style={styles.colQty}>{""}</Text>
+              <Text style={styles.colPrice}>{""}</Text>
+              <Text style={styles.colTotal}>{`- ${fmtMoney(invoice.recurringSummary.discount.discountCentsPerPeriod)}`}</Text>
+            </View>
+            </Readable>
+          ) : null}
         </View>
         </Readable>
 
@@ -703,7 +726,15 @@ export function InvoiceDocument({ company, client, invoice, specimen, draft }: I
                 const rhythm =
                   r.period === "YEAR" ? "chaque année à la date anniversaire" : r.period === "QUARTER" ? `chaque trimestre${day}` : `chaque mois${day}`;
                 const engaged = r.commitmentMonths && r.periods && r.totalCommitmentCents !== null;
+                const d = r.discount;
+                const per = `par ${periodWord(r.period)}`;
                 const sentences = [
+                  ...(d
+                    ? [
+                        discountSentence(d, r.amountCents, r.period, fmtMoney),
+                        ...(d.opening ? ["Remise d’ouverture : structure créée il y a moins de 12 mois."] : []),
+                      ]
+                    : []),
                   `Facturé ${rhythm}.`,
                   r.startFromText ? `Départ de la facturation : ${r.startFromText}.` : `Facturation : ${r.startText}.`,
                   engaged ? `Engagement de ${r.commitmentMonths} mois à compter de la signature.` : "[Engagement à choisir : 12, 24 ou 36 mois]",
