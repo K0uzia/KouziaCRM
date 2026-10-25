@@ -47,7 +47,7 @@ export function Listbox({
   const baseId = useId();
   const listId = `${baseId}-liste`;
   const optionId = (i: number) => `${baseId}-option-${i}`;
-  const position = useAnchoredPanel(open, triggerRef, { minWidth: 0, maxHeight: MAX_HEIGHT, flipBelow: 200 });
+  const position = useAnchoredPanel(open, triggerRef, { minWidth: 0, maxHeight: MAX_HEIGHT, flipBelow: 200, fitContent: listRef });
 
   // Nom de la liste : celui du champ (aria-label, sinon le libellé du <label> qui l'entoure, sans son aide).
   const [listName, setListName] = useState("");
@@ -240,7 +240,12 @@ export function Listbox({
         aria-labelledby={labelledBy}
         aria-describedby={describedBy}
         aria-invalid={invalid}
-        onClick={() => (open ? close() : openAt(-1))}
+        // Safari ne donne pas le focus à un bouton cliqué : sans lui, Échap et les flèches iraient à la page (Échap fermait la modale).
+        onClick={() => {
+          triggerRef.current?.focus();
+          if (open) close();
+          else openAt(-1);
+        }}
         onKeyDown={onKeyDown}
         // Espace : un bouton se déclenche au relâchement ; l'ouverture est déjà faite à l'appui.
         onKeyUp={(e) => e.key === " " && e.preventDefault()}

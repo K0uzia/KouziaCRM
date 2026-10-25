@@ -262,7 +262,7 @@ export function ClientProjects({ clientId }: { clientId: string }) {
             ? "L'acompte est payé, le projet a démarré. Ajustez son nom, ses étapes, les liens et la check-list : le client les voit dans son espace."
             : undefined
         }
-        wide
+        extraWide
       >
         {form ? (
           <form onSubmit={save} className="space-y-5">
@@ -353,6 +353,7 @@ export function ClientProjects({ clientId }: { clientId: string }) {
                 >
                   <Input
                     aria-label="Libellé de l'étape"
+                    className={GROW_WIDE}
                     placeholder="Maquettes"
                     maxLength={120}
                     value={s.label}
@@ -364,7 +365,7 @@ export function ClientProjects({ clientId }: { clientId: string }) {
                   />
                   <Select
                     aria-label="Statut de l'étape"
-                    className="sm:w-36"
+                    className="sm:w-40 sm:shrink-0"
                     value={s.status}
                     onChange={(e) =>
                       update({
@@ -382,7 +383,7 @@ export function ClientProjects({ clientId }: { clientId: string }) {
                   </Select>
                   <DateInput
                     aria-label="Date de l'étape (facultative)"
-                    className="sm:w-40"
+                    className="sm:w-44 sm:shrink-0"
                     value={s.date ?? ""}
                     onChange={(v) =>
                       update({
@@ -426,6 +427,7 @@ export function ClientProjects({ clientId }: { clientId: string }) {
                 >
                   <Input
                     aria-label="Libellé du lien"
+                    className={GROW}
                     placeholder="Voir la version de démonstration"
                     maxLength={120}
                     value={l.label}
@@ -438,6 +440,7 @@ export function ClientProjects({ clientId }: { clientId: string }) {
                   <Input
                     type="url"
                     aria-label="Adresse du lien"
+                    className={GROW_WIDE}
                     placeholder="https://…"
                     pattern="https://.*"
                     value={l.url}
@@ -462,7 +465,7 @@ export function ClientProjects({ clientId }: { clientId: string }) {
                   key={i}
                   onRemove={() => update({ checklist: form.checklist.filter((_, j) => j !== i) })}
                 >
-                  <label className="flex min-h-11 items-center gap-2 text-sm sm:w-20">
+                  <label className="flex min-h-11 shrink-0 items-center gap-2 text-sm">
                     <input
                       type="checkbox"
                       checked={c.done}
@@ -478,6 +481,7 @@ export function ClientProjects({ clientId }: { clientId: string }) {
                   </label>
                   <Input
                     aria-label="Élément de la check-list"
+                    className={GROW_WIDE}
                     placeholder="Nom de domaine réservé"
                     maxLength={160}
                     value={c.label}
@@ -491,6 +495,7 @@ export function ClientProjects({ clientId }: { clientId: string }) {
                   />
                   <Input
                     aria-label="Note (facultative)"
+                    className={GROW}
                     placeholder="Note (facultative)"
                     maxLength={240}
                     value={c.note ?? ""}
@@ -532,6 +537,10 @@ export function ClientProjects({ clientId }: { clientId: string }) {
   );
 }
 
+/** Champs d'une ligne (dès 640 px) : ils grandissent ensemble et passent à la ligne quand la place manque, sans se tronquer. */
+const GROW = "sm:min-w-0 sm:flex-[1_1_12rem]";
+const GROW_WIDE = "sm:min-w-0 sm:flex-[2_1_16rem]";
+
 function ListSection({
   title,
   onAdd,
@@ -565,9 +574,9 @@ function ListRow({
   children: ReactNode;
 }) {
   return (
-    <div className="flex flex-col gap-2 rounded-[var(--radius-sm)] border border-[var(--border)] p-2 sm:flex-row sm:items-center">
+    <div className="flex flex-col gap-2 rounded-[var(--radius-sm)] border border-[var(--border)] p-2 sm:flex-row sm:flex-wrap sm:items-center">
       {children}
-      <Button variant="ghost" className="px-2 text-xs" aria-label="Retirer" disabled={removeDisabled} onClick={onRemove}>
+      <Button variant="ghost" className="px-2 text-xs sm:ml-auto" aria-label="Retirer" disabled={removeDisabled} onClick={onRemove}>
         <FontAwesomeIcon icon={faTrash} className="h-3.5 w-3.5" aria-hidden />
       </Button>
     </div>
