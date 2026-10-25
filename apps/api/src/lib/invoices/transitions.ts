@@ -30,6 +30,7 @@ import {
   type PaymentPlan,
 } from "@/lib/quotes/payment-plans.js";
 import { assertBillingModeLines } from "@/lib/quotes/billing-mode.js";
+import { resolveRecurringDiscount, storedRecurringDiscount } from "@/lib/quotes/recurring-discount.js";
 import {
   buildClientSnapshot,
   type ClientSnapshot,
@@ -161,6 +162,8 @@ export async function issueQuote(
     }
     // Brouillon antérieur à une règle du mode (engagement obligatoire en récurrent) : bloqué avant numérotation.
     assertBillingModeLines(parseBillingMode(quote.billingMode), quote.lines);
+    // Remise du devis récurrent (R1) revérifiée sur les lignes émises (ex. remise d'ouverture sans engagement de 36 mois).
+    resolveRecurringDiscount(parseBillingMode(quote.billingMode), quote.lines, { recurringDiscount: storedRecurringDiscount(quote), openingDiscount: quote.openingDiscount });
     // Émis = signable en ligne : un particulier exige un médiateur de la consommation déclaré (L612-1).
     const client = await tx.client.findUniqueOrThrow({ where: { id: quote.clientId }, select: { type: true } });
     assertMediatorFor(client.type, settings);

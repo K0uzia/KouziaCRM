@@ -1,4 +1,5 @@
 import { cancellableTermOf, commitmentEndOf, isCommitmentMonths } from "@/lib/subscriptions/commitment.js";
+import { discountCentsPerPeriod } from "@/lib/quotes/recurring-discount.js";
 import {
   InvoiceDocumentType,
   InvoiceStatus,
@@ -512,6 +513,13 @@ async function invoiceSubscriptionCycle(sub: Prisma.SubscriptionGetPayload<{ inc
   // une facture émise dont nextInvoiceAt n'aurait pas avancé serait rejouée
   // au cycle suivant, et un brouillon sans numéro resterait orphelin.
   const settings = await getCompanySettings();
+  // Remise du devis signé (R1) : sur les discountPeriods premières échéances facturées, puis tarif plein.
+  const discountIndex = sub.discountPeriods && sub.discountPeriodsBilled < sub.discountPeriods ? sub.discountPeriodsBilled + 1 : 0;
+  const discountCents = discountIndex ? discountCentsPerPeriod(sub.discountKind, sub.discountValue, sub.amountCents) : 0;
+  const discountLabel =
+    sub.discountKind === "PERCENT" && sub.discountValue
+      ? `Remise de ${String(sub.discountValue / 100).replace(".", ",")} % (échéance ${discountIndex} sur ${sub.discountPeriods})`
+      : `Remise (échéance ${discountIndex} sur ${sub.discountPeriods})`;
   const issued = await prisma.$transaction(async (tx) => {
     const invoice = await tx.invoice.create({
       data: {
@@ -526,16 +534,21 @@ async function invoiceSubscriptionCycle(sub: Prisma.SubscriptionGetPayload<{ inc
             : interval === "QUARTER"
               ? "Échéance trimestrielle : paiement à réception"
               : "Prélèvement mensuel : paiement à réception",
-        subtotalCents: sub.amountCents,
-        totalCents: sub.amountCents,
+        subtotalCents: sub.amountCents - discountCents,
+        totalCents: sub.amountCents - discountCents,
         lines: {
-          create: {
-            position: 1,
-            description: dated ? `${sub.label} : période du ${fmtDay(issueDate)} au ${fmtDay(addDays(followingInvoiceAt, -1))}` : sub.label,
-            quantity: 1,
-            unitPriceCents: sub.amountCents,
-            lineTotalCents: sub.amountCents,
-          },
+          create: [
+            {
+              position: 1,
+              description: dated ? `${sub.label} : période du ${fmtDay(issueDate)} au ${fmtDay(addDays(followingInvoiceAt, -1))}` : sub.label,
+              quantity: 1,
+              unitPriceCents: sub.amountCents,
+              lineTotalCents: sub.amountCents,
+            },
+            ...(discountCents
+              ? [{ position: 2, description: discountLabel, quantity: 1, unitPriceCents: -discountCents, lineTotalCents: -discountCents }]
+              : []),
+          ],
         },
       },
     });
@@ -547,6 +560,7 @@ async function invoiceSubscriptionCycle(sub: Prisma.SubscriptionGetPayload<{ inc
       data: {
         lastInvoiceId: emitted.id,
         nextInvoiceAt: followingInvoiceAt,
+        ...(discountCents ? { discountPeriodsBilled: discountIndex } : {}),
       },
     });
 

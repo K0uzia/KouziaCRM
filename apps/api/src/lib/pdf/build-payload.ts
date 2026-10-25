@@ -19,6 +19,7 @@ import {
   type PlanSettings,
 } from "@/lib/quotes/payment-plans.js";
 import { startFromPhrase, startPhrase } from "@/lib/subscriptions/start.js";
+import { recurringDiscountSummary } from "@/lib/quotes/recurring-discount.js";
 import { normalizeInterval, periodMonths } from "@/lib/subscriptions/subscription-service.js";
 import { billedWithDocument } from "@/lib/invoices/totals.js";
 
@@ -292,12 +293,14 @@ function recurringSummaryOf(invoice: InvoiceWithRelations) {
   const amountCents = subs.reduce((sum, l) => sum + l.unitPriceCents, 0);
   const months = first.commitmentMonths ?? null;
   const periods = months ? Math.ceil(months / periodMonths(period)) : null;
+  const discount = recurringDiscountSummary(invoice, amountCents, period, months);
   return {
     period,
     amountCents,
     commitmentMonths: months,
     periods,
-    totalCommitmentCents: periods ? amountCents * periods : null,
+    totalCommitmentCents: discount?.totalCommitmentCents ?? (periods ? amountCents * periods : null),
+    discount,
     startText: startPhrase(first, first.subscriptionStart === "DELIVERY", amountCents, period),
     startFromText: startFromPhrase(first, first.subscriptionStart === "DELIVERY"),
     billingDay: first.billingDay,

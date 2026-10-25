@@ -13,6 +13,7 @@ import { prisma } from "@/lib/prisma.js";
 import { computeLineTotals, assertSubscriptionLinesValid } from "@/lib/invoices/totals.js";
 import { BILLING_MODES, parseBillingMode } from "@/lib/quotes/payment-plans.js";
 import { assertBillingModeLines } from "@/lib/quotes/billing-mode.js";
+import { NO_RECURRING_DISCOUNT, resolveRecurringDiscount, storedRecurringDiscount, type RecurringDiscountFields } from "@/lib/quotes/recurring-discount.js";
 import { eurosToCents, formatEUR } from "@/lib/money.js";
 import {
   issueInvoice,
@@ -118,6 +119,17 @@ const lineInputsOf = (lines: z.output<typeof lineSchema>[]) =>
     ...lineStartFields(l),
   }));
 
+/** Devis récurrent (R1) : remise sur les premières échéances ; months absent ou null = toute la durée de l'engagement. */
+const recurringDiscountSchema = z
+  .object({
+    kind: z.enum(["PERCENT", "FIXED"]),
+    percent: z.coerce.number().min(0).max(100).optional(),
+    euros: z.coerce.number().min(0).optional(),
+    months: z.number().int().positive().max(36).nullable().optional(),
+  })
+  .nullable()
+  .optional();
+
 const createSchema = z.object({
   clientId: z.string().min(1),
   documentType: z.enum(["INVOICE", "QUOTE"]).default("INVOICE"),
@@ -136,6 +148,8 @@ const createSchema = z.object({
   paymentPlanOffer: z.enum(["ONE", "TWO", "THREE", "CHOICE"]).optional(),
   /** Devis : mode de facturation de tout le document (null = règles par ligne, devis antérieurs). */
   billingMode: z.enum(BILLING_MODES).optional().nullable(),
+  recurringDiscount: recurringDiscountSchema,
+  openingDiscount: z.boolean().optional(),
   ...offlineQuoteFields,
 });
 
@@ -165,6 +179,8 @@ const updateSchema = z.object({
   paymentPlanOffer: z.enum(["ONE", "TWO", "THREE", "CHOICE"]).optional(),
   /** Devis : mode de facturation de tout le document (null = règles par ligne, devis antérieurs). */
   billingMode: z.enum(BILLING_MODES).optional().nullable(),
+  recurringDiscount: recurringDiscountSchema,
+  openingDiscount: z.boolean().optional(),
 });
 
 function discountFromBody(data: {
@@ -350,9 +366,11 @@ export const invoicesRoutes: FastifyPluginAsync = async (app) => {
       const discount = discountFromBody(parsed.data);
       const lineInputs = lineInputsOf(parsed.data.lines);
       const billingMode = parsed.data.documentType === "QUOTE" ? (parsed.data.billingMode ?? null) : null;
+      let recurringDiscount: RecurringDiscountFields;
       try {
         assertSubscriptionLinesValid(lineInputs);
         assertBillingModeLines(billingMode, lineInputs);
+        recurringDiscount = resolveRecurringDiscount(billingMode, lineInputs, parsed.data);
       } catch (e) {
         return reply.code(400).send({ error: e instanceof Error ? e.message : "Lignes invalides" });
       }
@@ -416,6 +434,7 @@ export const invoicesRoutes: FastifyPluginAsync = async (app) => {
           totalCents,
           discountType,
           discountValue,
+          ...(documentType === InvoiceDocumentType.QUOTE ? recurringDiscount : {}),
           ...(linkedQuoteId ? { quoteId: linkedQuoteId, sourceQuoteId: linkedQuoteId } : {}),
           lines: { create: lines },
         },
@@ -475,8 +494,10 @@ export const invoicesRoutes: FastifyPluginAsync = async (app) => {
       return reply.code(400).send({ error: "Données invalides", details: parsed.error.flatten() });
     }
     const lineInputs = lineInputsOf(parsed.data.lines);
+    let recurringDiscount: RecurringDiscountFields;
     try {
       assertSubscriptionLinesValid(lineInputs);
+      recurringDiscount = parsed.data.documentType === "QUOTE" ? resolveRecurringDiscount(parsed.data.billingMode ?? null, lineInputs, parsed.data) : NO_RECURRING_DISCOUNT;
     } catch (e) {
       return reply.code(400).send({ error: e instanceof Error ? e.message : "Lignes invalides" });
     }
@@ -493,6 +514,7 @@ export const invoicesRoutes: FastifyPluginAsync = async (app) => {
       paymentPlanOffer: d.paymentPlanOffer ?? null,
       billingMode: d.documentType === "QUOTE" ? (d.billingMode ?? null) : null,
       totals: computeLineTotals(lineInputs, discountFromBody(d)),
+      recurringDiscount,
     });
     if (!pdf) return reply.code(404).send({ error: "Client introuvable" });
     return pdfReply(reply, pdf);
@@ -674,18 +696,30 @@ export const invoicesRoutes: FastifyPluginAsync = async (app) => {
       sourceQuoteId?: string | null;
       paymentPlanOffer?: string;
       billingMode?: string | null;
-    } = {};
+    } & Partial<RecurringDiscountFields> = {};
     if (parsed.data.paymentPlanOffer && existing.documentType === InvoiceDocumentType.QUOTE) {
       data.paymentPlanOffer = parsed.data.paymentPlanOffer;
     }
     // Mode de facturation : vérifié sur les lignes envoyées, sinon sur celles du brouillon.
-    if (existing.documentType === InvoiceDocumentType.QUOTE && (parsed.data.billingMode !== undefined || parsed.data.lines)) {
+    const discountInputTouched = parsed.data.recurringDiscount !== undefined || parsed.data.openingDiscount !== undefined;
+    if (existing.documentType === InvoiceDocumentType.QUOTE && (parsed.data.billingMode !== undefined || parsed.data.lines || discountInputTouched)) {
       const mode = parsed.data.billingMode !== undefined ? (parsed.data.billingMode ?? null) : parseBillingMode(existing.billingMode);
       const modeLines = parsed.data.lines
         ? lineInputsOf(parsed.data.lines)
         : await prisma.invoiceLine.findMany({ where: { invoiceId: id }, orderBy: { position: "asc" } });
       try {
         assertBillingModeLines(mode, modeLines);
+        // Remise du devis récurrent : celle envoyée, sinon celle du brouillon, revérifiée sur le mode et les lignes ;
+        // passage en paiement unique sans remise envoyée : la remise du brouillon est retirée.
+        Object.assign(
+          data,
+          mode !== "RECURRING" && !discountInputTouched
+            ? NO_RECURRING_DISCOUNT
+            : resolveRecurringDiscount(mode, modeLines, {
+                recurringDiscount: parsed.data.recurringDiscount !== undefined ? parsed.data.recurringDiscount : storedRecurringDiscount(existing),
+                openingDiscount: parsed.data.openingDiscount ?? (parsed.data.recurringDiscount ? false : existing.openingDiscount),
+              }),
+        );
       } catch (e) {
         return reply.code(400).send({ error: e instanceof Error ? e.message : "Lignes invalides" });
       }

@@ -27,7 +27,7 @@ import {
   type BillingInterval,
 } from "@/lib/billing-interval";
 import { commitmentTotalCents, equalInstallments, installments, modePlansShown, oneOffMeans, orList, PERIOD_WORD, periodAmountCents, plansShown, subscriptionMeans, type PaymentSettings } from "@/lib/payment-summary";
-import { BillingModeChoice, DEFAULT_RECURRING, OneOffSchedule, RecurringRecap, RecurringSettings, type BillingMode, type RecurringForm } from "@/components/documents/billing-mode-blocks";
+import { BillingModeChoice, DEFAULT_RECURRING, discountPayload, OneOffSchedule, RecurringRecap, RecurringSettings, type BillingMode, type RecurringForm } from "@/components/documents/billing-mode-blocks";
 
 export type DocLine = {
   description: string;
@@ -531,6 +531,8 @@ export function DocumentFormEditor({
       // Mode récurrent : l'API fixe l'offre (frais en une fois) ; sans mode : règles par ligne d'avant.
       ...(documentType === "QUOTE" && form.paymentPlanOffer && quoteMode !== "RECURRING" ? { paymentPlanOffer: form.paymentPlanOffer } : {}),
       ...(quoteMode ? { billingMode: quoteMode } : {}),
+      // Devis récurrent : la remise (case ou volontaire) ; null retire une remise enregistrée.
+      ...(documentType === "QUOTE" && quoteMode === "RECURRING" ? discountPayload(form.recurring.discount) : {}),
       discountType: form.discountType,
       discountPercent:
         form.discountType === "PERCENT" ? Number(form.discountPercent) || 0 : undefined,
