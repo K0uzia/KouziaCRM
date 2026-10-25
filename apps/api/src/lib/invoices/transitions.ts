@@ -31,6 +31,7 @@ import {
 } from "@/lib/quotes/payment-plans.js";
 import { assertBillingModeLines } from "@/lib/quotes/billing-mode.js";
 import { resolveRecurringDiscount, storedRecurringDiscount } from "@/lib/quotes/recurring-discount.js";
+import { assertPromoCodeApplicable } from "@/lib/quotes/promo-codes.js";
 import {
   buildClientSnapshot,
   type ClientSnapshot,
@@ -164,6 +165,11 @@ export async function issueQuote(
     assertBillingModeLines(parseBillingMode(quote.billingMode), quote.lines);
     // Remise du devis récurrent (R1) revérifiée sur les lignes émises (ex. remise d'ouverture sans engagement de 36 mois).
     resolveRecurringDiscount(parseBillingMode(quote.billingMode), quote.lines, { recurringDiscount: storedRecurringDiscount(quote), openingDiscount: quote.openingDiscount });
+    // Code promo (R3) revérifié à l'émission : actif, valable ce jour, offres, usages restants, un usage par client.
+    if (quote.promoCodeId) {
+      const code = await tx.promoCode.findUniqueOrThrow({ where: { id: quote.promoCodeId } });
+      await assertPromoCodeApplicable(code, { id: quote.id, clientId: quote.clientId, serviceIds: quote.lines.filter((l) => l.isSubscription).map((l) => l.serviceId) }, issueDate, tx);
+    }
     // Émis = signable en ligne : un particulier exige un médiateur de la consommation déclaré (L612-1).
     const client = await tx.client.findUniqueOrThrow({ where: { id: quote.clientId }, select: { type: true } });
     assertMediatorFor(client.type, settings);

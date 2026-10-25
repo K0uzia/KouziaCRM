@@ -27,7 +27,7 @@ import {
   type BillingInterval,
 } from "@/lib/billing-interval";
 import { commitmentTotalCents, equalInstallments, installments, modePlansShown, oneOffMeans, orList, PERIOD_WORD, periodAmountCents, plansShown, subscriptionMeans, type PaymentSettings } from "@/lib/payment-summary";
-import { BillingModeChoice, DEFAULT_RECURRING, discountPayload, OneOffSchedule, RecurringRecap, RecurringSettings, type BillingMode, type RecurringForm } from "@/components/documents/billing-mode-blocks";
+import { BillingModeChoice, DEFAULT_RECURRING, discountPayload, type PromoOption, OneOffSchedule, RecurringRecap, RecurringSettings, type BillingMode, type RecurringForm } from "@/components/documents/billing-mode-blocks";
 
 export type DocLine = {
   description: string;
@@ -306,6 +306,23 @@ export function DocumentFormEditor({
   }
 
   const quoteMode = documentType === "QUOTE" ? form.billingMode : "";
+  // Codes promo valables pour ce client et ces offres (R3) : proposés dans le bloc Remise d'un devis récurrent.
+  const [promos, setPromos] = useState<PromoOption[]>([]);
+  const promoServices = form.lines.filter((l) => l.isSubscription && l.serviceId).map((l) => l.serviceId).join(",");
+  useEffect(() => {
+    if (quoteMode !== "RECURRING" || !form.clientId) {
+      setPromos([]);
+      return;
+    }
+    let cancelled = false;
+    const q = new URLSearchParams({ clientId: form.clientId, serviceIds: promoServices, ...(documentId ? { invoiceId: documentId } : {}) });
+    api<{ codes: PromoOption[] }>(`/api/promo-codes/available?${q.toString()}`)
+      .then((r) => !cancelled && setPromos(r.codes))
+      .catch(() => !cancelled && setPromos([]));
+    return () => {
+      cancelled = true;
+    };
+  }, [quoteMode, form.clientId, promoServices, documentId]);
 
   /** Prix annuel d'un abonnement du catalogue (prix mensuel × 12). */
   const annualOfService = (svc: ServiceOpt) => (svc.billingInterval === "YEAR" ? svc.unitPriceCents : svc.unitPriceCents * 12);
@@ -1053,7 +1070,7 @@ export function DocumentFormEditor({
             split3MinTotalCents={planSettings.split3MinTotalCents}
           />
         ) : quoteMode === "RECURRING" ? (
-          <RecurringSettings value={form.recurring} onChange={setRecurring} periodCents={recurringPeriodCents} />
+          <RecurringSettings value={form.recurring} onChange={setRecurring} periodCents={recurringPeriodCents} promos={promos} />
         ) : (
         <>
         {subscriptionOnly ? (
@@ -1284,7 +1301,7 @@ export function DocumentFormEditor({
       )}
       <div className="border-t border-[var(--border)] pt-3">
         {quoteMode === "RECURRING" ? (
-          <RecurringRecap value={form.recurring} periodCents={recurringPeriodCents} />
+          <RecurringRecap value={form.recurring} periodCents={recurringPeriodCents} promos={promos} />
         ) : (
         <p className={totalsLine}>
           <span className="font-semibold">{mixedQuote ? "Total du projet" : "Total"}</span>

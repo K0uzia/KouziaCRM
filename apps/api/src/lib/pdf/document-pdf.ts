@@ -22,6 +22,7 @@ export async function loadDocumentForPdf(documentId: string) {
         lines: { orderBy: { position: "asc" } },
         creditedInvoice: true,
         quote: true,
+        promoCode: { select: { code: true, conditionText: true } },
         sourceMilestone: true,
         milestones: { orderBy: { position: "asc" } },
         payments: { orderBy: { paidAt: "asc" } },

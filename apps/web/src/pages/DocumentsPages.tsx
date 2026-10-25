@@ -115,6 +115,7 @@ type Doc = {
   billingMode?: string | null;
   /** Devis récurrent : remise sur les premières échéances (R1). */
   openingDiscount?: boolean;
+  promoCode?: { code: string } | null;
   recurringDiscountKind?: string | null;
   recurringDiscountValue?: number | null;
   recurringDiscountMonths?: number | null;

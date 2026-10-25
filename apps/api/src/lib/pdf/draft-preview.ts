@@ -48,6 +48,8 @@ export type DraftPreviewInput = {
   totals: ReturnType<typeof computeLineTotals>;
   /** Devis récurrent : remise sur les premières échéances (R1), déjà vérifiée. */
   recurringDiscount?: RecurringDiscountFields;
+  /** Code promo appliqué (R3), déjà vérifié. */
+  promoCode?: { code: string; conditionText: string | null } | null;
 };
 
 /** null : client introuvable. */
@@ -127,6 +129,7 @@ export async function renderDraftPreviewPdf(input: DraftPreviewInput, now = new 
     paymentPlan: null,
     billingMode: mode,
     ...(isQuote ? (input.recurringDiscount ?? NO_RECURRING_DISCOUNT) : NO_RECURRING_DISCOUNT),
+    promoCode: isQuote ? (input.promoCode ?? null) : null,
     depositBaseCents,
     quoteStatus: isQuote ? "DRAFT" : null,
     quoteSignerName: null,

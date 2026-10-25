@@ -211,6 +211,7 @@ function recurringOf(d: {
   recurringDiscountValue: number | null;
   recurringDiscountMonths: number | null;
   openingDiscount: boolean;
+  promoCode?: { code: string; conditionText: string | null } | null;
   lines: Array<
     StartLine & {
       billingInterval: string | null;
@@ -496,6 +497,7 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
         },
         orderBy: [{ issueDate: "desc" }, { createdAt: "desc" }],
         include: {
+          promoCode: { select: { code: true, conditionText: true } },
           milestones: { orderBy: { position: "asc" } },
           payments: { orderBy: { paidAt: "asc" } },
           // 3 fois : étape du projet de CE devis qui déclenchera le 2e acompte.
@@ -813,6 +815,9 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
                               months: r.discount.months,
                               periods: r.discount.periods,
                               opening: r.discount.opening,
+                              // Code promo (R3) : « Code promo X » comme le PDF ; condition imprimée sur le devis.
+                              ...(r.discount.promoCode ? { promoCode: r.discount.promoCode } : {}),
+                              ...(r.discount.promoCode && r.discount.condition ? { condition: r.discount.condition } : {}),
                               ...(showAmounts ? { discountedAmountCents: r.discount.discountedAmountCents } : {}),
                             },
                           }
