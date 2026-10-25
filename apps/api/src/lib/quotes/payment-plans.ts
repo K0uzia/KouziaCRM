@@ -1,4 +1,5 @@
 import { MilestoneStatus, type CompanySettings, type Prisma } from "@prisma/client";
+import { z } from "zod";
 import { computeMilestoneAmounts, type MilestoneTemplate } from "@/lib/quotes/milestones.js";
 
 /** Formule retenue par le client. ONE : comptant (mode ONE_OFF). */
@@ -52,6 +53,42 @@ export type PlanSettings = Pick<
   | "split3Step2TriggerText"
   | "installmentIntervalDays"
 >;
+
+const scheduleSnapshotSchema = z.object({
+  depositPercent1Bps: z.number().int(),
+  depositPercent2Bps: z.number().int(),
+  split3Percent1Bps: z.number().int(),
+  split3Percent2Bps: z.number().int(),
+  split3Percent3Bps: z.number().int(),
+  split3MinTotalCents: z.number().int(),
+  split3Step2TriggerText: z.string(),
+  installmentIntervalDays: z.number().int(),
+});
+
+/** Réglages d'échéancier figés à l'émission d'un devis (Invoice.paymentScheduleSnapshot, audit du 25/10/2026). */
+export function scheduleSnapshotOf(s: PlanSettings): string {
+  return JSON.stringify({
+    depositPercent1Bps: s.depositPercent1Bps,
+    depositPercent2Bps: s.depositPercent2Bps,
+    split3Percent1Bps: s.split3Percent1Bps,
+    split3Percent2Bps: s.split3Percent2Bps,
+    split3Percent3Bps: s.split3Percent3Bps,
+    split3MinTotalCents: s.split3MinTotalCents,
+    split3Step2TriggerText: s.split3Step2TriggerText,
+    installmentIntervalDays: s.installmentIntervalDays,
+  } satisfies PlanSettings);
+}
+
+/** Échéancier d'un devis émis : réglages figés à son émission ; sans instantané lisible, les réglages actuels. */
+export function planSettingsOf<T extends PlanSettings>(doc: { paymentScheduleSnapshot?: string | null }, current: T): T {
+  if (!doc.paymentScheduleSnapshot) return current;
+  try {
+    const parsed = scheduleSnapshotSchema.safeParse(JSON.parse(doc.paymentScheduleSnapshot));
+    return parsed.success ? { ...current, ...parsed.data } : current;
+  } catch {
+    return current;
+  }
+}
 
 const FIRST_TRIGGER = "À la validation du devis";
 const LAST_TRIGGER = "À la livraison / fin de mission";

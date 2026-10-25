@@ -44,9 +44,23 @@ export async function assertQuoteSigned(quoteId: string, db: Db = prisma) {
   }
 }
 
-/** Dernière échéance « Solde » : sa facture est la facture de solde (marché moins acomptes réglés), pas un acompte. */
-export function isBalanceMilestone(milestone: { label: string }): boolean {
-  return milestone.label.toLowerCase().includes("solde");
+/**
+ * Nature de la facture d'une échéance (art. 289 du CGI, audit du 25/10/2026) : échéance unique (comptant) = facture
+ * simple du devis ; dernière échéance d'un échéancier (« Solde », « 3e échéance »…) = facture de solde, qui rappelle
+ * le marché et les acomptes ; les autres = factures d'acompte.
+ */
+export async function milestoneInvoiceKind(
+  milestone: { quoteId: string; position: number; label: string; percentBps: number },
+  db: Db = prisma,
+): Promise<"FULL" | "BALANCE" | "DEPOSIT"> {
+  const siblings = await db.paymentMilestone.findMany({
+    where: { quoteId: milestone.quoteId, status: { not: MilestoneStatus.CANCELLED } },
+    select: { position: true },
+  });
+  // Comptant : une seule échéance qui couvre tout le devis. Une échéance seule partielle reste un acompte.
+  if (siblings.length <= 1) return milestone.percentBps >= 10_000 ? "FULL" : "DEPOSIT";
+  const last = Math.max(...siblings.map((m) => m.position));
+  return milestone.position === last || milestone.label.toLowerCase().includes("solde") ? "BALANCE" : "DEPOSIT";
 }
 
 /** Un acompte ne se règle qu'une fois sa facture émise. */

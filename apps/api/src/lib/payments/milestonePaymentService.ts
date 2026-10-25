@@ -33,9 +33,10 @@ import {
   parseBillingMode,
   parsePaymentPlan,
   parsePaymentPlanOffer,
+  planSettingsOf,
   planTemplate,
 } from "@/lib/quotes/payment-plans.js";
-import { assertMilestoneInvoiced, assertQuoteSigned, isBalanceMilestone } from "@/lib/invoices/workflow.js";
+import { assertMilestoneInvoiced, assertQuoteSigned, milestoneInvoiceKind } from "@/lib/invoices/workflow.js";
 import { buildPayUrl } from "@/lib/stripe/pay-urls.js";
 
 export class MilestonePaymentError extends Error {
@@ -84,7 +85,7 @@ export async function ensureQuoteMilestonesFromSettings(
   // Formule du devis (retenue, sinon celle de l'émission) ; devis historique : réglages 2 fois.
   const quote = await db.invoice.findUnique({
     where: { id: quoteId },
-    select: { paymentPlanOffer: true, paymentPlan: true, depositBaseCents: true, billingMode: true },
+    select: { paymentPlanOffer: true, paymentPlan: true, depositBaseCents: true, billingMode: true, paymentScheduleSnapshot: true },
   });
   const offer = parsePaymentPlanOffer(quote?.paymentPlanOffer);
   // Abonnement seul : aucun jalon (donc ni acompte exigible ni lien de paiement).
@@ -93,7 +94,7 @@ export async function ensureQuoteMilestonesFromSettings(
   const template =
     offer === null
       ? await loadDepositTemplateFromSettings()
-      : planTemplate(parsePaymentPlan(quote?.paymentPlan) ?? initialPlan(offer), await getCompanySettings(), mode);
+      : planTemplate(parsePaymentPlan(quote?.paymentPlan) ?? initialPlan(offer), planSettingsOf(quote ?? {}, await getCompanySettings()), mode);
   // Base figée à l'émission (partie ponctuelle) : elle prime sur le montant passé.
   const amounts = milestoneAmounts(quote?.depositBaseCents ?? totalCents, template, offer === null ? null : mode);
   await db.paymentMilestone.createMany({
@@ -173,9 +174,9 @@ export async function activateMilestoneCheckout(
     );
   }
 
-  // Solde : sa facture (marché moins acomptes réglés) est émise avant le lien, jamais à la réception du paiement.
-  // Échec (acompte encore dû, devis déjà facturé) : pas de lien, l'erreur remonte à l'appelant.
-  if (!milestone.invoiceId && isBalanceMilestone(milestone)) {
+  // Dernière échéance : sa facture de solde (marché moins acomptes réglés) est émise avant le lien, jamais à la
+  // réception du paiement. Échec (acompte encore dû, devis déjà facturé) : pas de lien, l'erreur remonte à l'appelant.
+  if (!milestone.invoiceId && (await milestoneInvoiceKind(milestone)) === "BALANCE") {
     const { generateBalanceInvoice } = await import("@/lib/invoices/documentFlowService.js");
     const { invoice } = await generateBalanceInvoice(milestone.quoteId, { milestoneId: milestone.id });
     milestone.invoiceId = invoice.id;
@@ -383,7 +384,7 @@ export async function onQuoteAcceptedByClient(quoteId: string) {
     // 3 fois historique : le 2e acompte n'a pas de date, il devient exigible à l'étape de projet cochée.
     const awaitsStep = !dated && quote.paymentPlan === "THREE" && m.position === 2;
     const dueDate = dated
-      ? new Date(signedAt.getTime() + (m.position - 1) * settings.installmentIntervalDays * 86400000)
+      ? new Date(signedAt.getTime() + (m.position - 1) * planSettingsOf(quote, settings).installmentIntervalDays * 86400000)
       : awaitsStep
         ? null
         : computeMilestoneDueDate(quote, m, settings, milestones);

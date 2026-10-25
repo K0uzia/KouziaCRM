@@ -23,6 +23,8 @@ import {
   isSubscriptionOnly,
   parseBillingMode,
   parsePaymentPlanOffer,
+  planSettingsOf,
+  scheduleSnapshotOf,
   PaymentPlanError,
   resolveAcceptedPlan,
   type PaymentPlan,
@@ -198,6 +200,8 @@ export async function issueQuote(
         issuedAt: new Date(),
         clientSnapshot: snapshot as unknown as Prisma.InputJsonValue,
         legalClausesSnapshot: legalClausesSnapshot as unknown as Prisma.InputJsonValue,
+        // Échéancier figé à l'émission : la signature, le PDF et les dates d'échéance le relisent.
+        paymentScheduleSnapshot: scheduleSnapshotOf(settings),
         nextReminderAt: addDays(issueDate, settings.reminderQuoteDays),
         paymentPlanOffer: offer,
         depositBaseCents,
@@ -480,6 +484,7 @@ export async function acceptQuoteByClient(
   const pending = await prisma.invoice.findUniqueOrThrow({
     where: { id: quoteId },
     select: {
+      paymentScheduleSnapshot: true,
       paymentPlanOffer: true,
       billingMode: true,
       totalCents: true,
@@ -532,7 +537,7 @@ export async function acceptQuoteByClient(
       },
       include: { lines: true, client: true },
     });
-    if (plan) await applyPlanMilestones(tx, quoteId, depositBaseOf(pending), plan, settings, { keepIssued: true, mode: parseBillingMode(pending.billingMode) });
+    if (plan) await applyPlanMilestones(tx, quoteId, depositBaseOf(pending), plan, planSettingsOf(pending, settings), { keepIssued: true, mode: parseBillingMode(pending.billingMode) });
     // Abonnement seul : la 1re échéance est due tout de suite et facturée par l'abonnement
     // (Stripe après le mandat, sinon facture ERP immédiate), jamais par le devis.
     // Devis mixte : seules les lignes au départ « à la signature » ou « à une date » démarrent maintenant ; les

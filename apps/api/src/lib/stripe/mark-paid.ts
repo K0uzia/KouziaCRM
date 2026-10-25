@@ -9,12 +9,10 @@ import {
 } from "@prisma/client";
 import { prisma } from "@/lib/prisma.js";
 import {
-  generateBalanceInvoice,
   generateMilestoneInvoice,
   syncMilestoneOnInvoicePaid,
 } from "@/lib/invoices/documentFlowService.js";
 import { formatEUR } from "@/lib/money.js";
-import { isBalanceMilestone } from "@/lib/invoices/workflow.js";
 import {
   notifyDepositFailed,
   notifyDepositPaid,
@@ -71,11 +69,8 @@ export async function markPaidFromOnlinePayment(
     }
     if (!milestoneBefore.invoiceId && milestoneBefore.status !== MilestoneStatus.PAID) {
       try {
-        if (isBalanceMilestone(milestoneBefore)) {
-          await generateBalanceInvoice(milestoneBefore.quoteId, { milestoneId: milestoneBefore.id });
-        } else {
-          await generateMilestoneInvoice(milestoneBefore.id);
-        }
+        // Facture d'acompte, de solde (dernière échéance) ou simple (comptant) : generateMilestoneInvoice choisit.
+        await generateMilestoneInvoice(milestoneBefore.id);
       } catch (err) {
         const reason = err instanceof Error ? err.message : String(err);
         return recordUnattachedPayment(input, milestoneBefore.id, `la facture de l'échéance « ${milestoneBefore.label} » n'a pas pu être émise (${reason})`);

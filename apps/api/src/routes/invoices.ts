@@ -1,5 +1,6 @@
 import type { FastifyPluginAsync, FastifyReply } from "fastify";
 import { z } from "zod";
+import { assertIssueDateAllowed, IssueDateError } from "@/lib/invoices/numberingService.js";
 import {
   InvoiceDocumentType,
   InvoiceStatus,
@@ -183,6 +184,37 @@ function discountFromBody(data: {
     };
   }
   return { discountType: "NONE", discountValue: 0 };
+}
+
+/** Date saisie (« 2026-10-25 » ou ISO complète) : refusée si illisible, au lieu d'une Invalid Date en base. */
+const dateString = z.string().trim().min(1).refine((s) => !Number.isNaN(new Date(s).getTime()), { message: "Date invalide." });
+
+const issueBodySchema = z.object({
+  issueDate: dateString.optional(),
+  dueDate: dateString.optional(),
+  validUntil: dateString.optional(),
+  email: z.object({ send: z.boolean().optional(), subject: z.string().max(300).optional(), body: z.string().max(20_000).optional() }).optional(),
+  payment: z
+    .discriminatedUnion("mode", [
+      z.object({ mode: z.literal("none") }),
+      z.object({ mode: z.literal("manual"), url: z.string().max(2048) }),
+      z.object({ mode: z.literal("auto") }),
+    ])
+    .optional(),
+});
+
+/** Avoir daté à la main : pas avant la facture créditée, ni avant le dernier avoir, ni dans le futur. null si valable. */
+async function creditNoteDateError(invoiceId: string, issueDate: Date): Promise<string | null> {
+  const invoice = await prisma.invoice.findUnique({ where: { id: invoiceId }, select: { issueDate: true } });
+  try {
+    await assertIssueDateAllowed(InvoiceDocumentType.CREDIT_NOTE, issueDate, {
+      ...(invoice?.issueDate ? { notBefore: { date: invoice.issueDate, label: "de la facture créditée" } } : {}),
+    });
+    return null;
+  } catch (e) {
+    if (e instanceof IssueDateError) return e.message;
+    throw e;
+  }
 }
 
 const paySchema = z.object({
@@ -815,17 +847,9 @@ export const invoicesRoutes: FastifyPluginAsync = async (app) => {
   app.post<{ Params: { id: string } }>("/api/invoices/:id/issue", async (request, reply) => {
     await requireAuth(request, reply);
     if (reply.sent) return;
-    const body = (request.body ?? {}) as {
-      issueDate?: string;
-      dueDate?: string;
-      validUntil?: string;
-      email?: {
-        send?: boolean;
-        subject?: string;
-        body?: string;
-      };
-      payment?: { mode: "none" } | { mode: "manual"; url: string } | { mode: "auto" };
-    };
+    const parsedBody = issueBodySchema.safeParse(request.body ?? {});
+    if (!parsedBody.success) return reply.code(400).send({ error: parsedBody.error.issues[0]?.message ?? "Données invalides" });
+    const body = parsedBody.data;
     let issueDate = new Date();
     let dueDate: Date | undefined;
     let validUntil: Date | undefined;
@@ -835,6 +859,14 @@ export const invoicesRoutes: FastifyPluginAsync = async (app) => {
     try {
       const doc = await prisma.invoice.findUnique({ where: { id: request.params.id } });
       if (!doc) return reply.code(404).send({ error: "Introuvable" });
+      if (body.issueDate) {
+        try {
+          await assertIssueDateAllowed(doc.documentType, issueDate);
+        } catch (e) {
+          if (e instanceof IssueDateError) return reply.code(400).send({ error: e.message });
+          throw e;
+        }
+      }
       const issued =
         doc.documentType === InvoiceDocumentType.QUOTE
           ? await issueQuote(request.params.id, issueDate, validUntil ?? dueDate)
@@ -1263,16 +1295,18 @@ export const invoicesRoutes: FastifyPluginAsync = async (app) => {
         reasonDetail: z.string().optional().nullable(),
         refundMethod: z.nativeEnum(RefundMethod),
         cgvDepositRefundable: z.boolean().optional().nullable(),
-        issueDate: z.string().optional(),
+        issueDate: dateString.optional(),
         registerRefundPayment: z.boolean().optional(),
-        refundPaidAt: z.string().optional(),
+        refundPaidAt: dateString.optional(),
         /** false : avoir créé sans e-mail, relu ensuite dans « Vérifier l'e-mail ». Absent : envoi direct, comme avant. */
         sendEmail: z.boolean().optional(),
       });
       const parsed = schema.safeParse(request.body);
       if (!parsed.success) {
-        return reply.code(400).send({ error: "Données invalides" });
+        return reply.code(400).send({ error: parsed.error.issues[0]?.message ?? "Données invalides" });
       }
+      const dateError = parsed.data.issueDate ? await creditNoteDateError(request.params.id, new Date(parsed.data.issueDate)) : null;
+      if (dateError) return reply.code(400).send({ error: dateError });
       try {
         const creditNote = await createCreditNote(request.params.id, {
           amountCents: eurosToCents(parsed.data.amountEuros),
@@ -1343,8 +1377,11 @@ export const invoicesRoutes: FastifyPluginAsync = async (app) => {
   app.post<{ Params: { id: string } }>("/api/invoices/:id/cancel", async (request, reply) => {
     await requireAuth(request, reply);
     if (reply.sent) return;
-    const body = (request.body ?? {}) as { issueDate?: string };
-    const issueDate = body.issueDate ? new Date(body.issueDate) : new Date();
+    const parsedBody = z.object({ issueDate: dateString.optional() }).safeParse(request.body ?? {});
+    if (!parsedBody.success) return reply.code(400).send({ error: parsedBody.error.issues[0]?.message ?? "Données invalides" });
+    const issueDate = parsedBody.data.issueDate ? new Date(parsedBody.data.issueDate) : new Date();
+    const dateError = parsedBody.data.issueDate ? await creditNoteDateError(request.params.id, issueDate) : null;
+    if (dateError) return reply.code(400).send({ error: dateError });
     try {
       const creditNote = await cancelInvoiceWithCreditNote(request.params.id, issueDate);
       return reply.code(201).send(serializeInvoice(creditNote));

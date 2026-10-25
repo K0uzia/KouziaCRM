@@ -81,6 +81,7 @@ describe("buildInvoicePdfPayload charte dynamique", () => {
         readableSnapshot: null,
         buysOutSubscriptionId: null,
         buyoutPeriodEndsAt: null,
+        paymentScheduleSnapshot: null,
         clientRequestId: null,
         offlineReviewReason: null,
         billingMode: null,

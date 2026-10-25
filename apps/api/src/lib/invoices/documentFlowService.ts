@@ -9,7 +9,7 @@ import {
 import { archiveIssuedDocument } from "@/lib/pdf/issued-archive.js";
 import { prisma } from "@/lib/prisma.js";
 import { depositBaseOf } from "@/lib/invoices/totals.js";
-import { assertDepositsPaid, assertQuoteSigned } from "@/lib/invoices/workflow.js";
+import { assertDepositsPaid, assertQuoteSigned, milestoneInvoiceKind } from "@/lib/invoices/workflow.js";
 import { decryptOptional } from "@/lib/crypto.js";
 import { allocateInvoiceNumber } from "@/lib/invoices/numberingService.js";
 import { ensureQuoteMilestonesFromSettings } from "@/lib/payments/milestonePaymentService.js";
@@ -283,10 +283,37 @@ export async function getMarketView(quoteId: string) {
  * Génère une facture d'acompte autonome (série F-…) liée au devis pivot.
  * Verrou 409 si le jalon a déjà une facture.
  */
+/**
+ * Paiement comptant (échéance unique) : facture simple du devis, mêmes lignes et remises (conversion du devis), émise
+ * aussitôt avec les clauses figées du devis, et reliée à l'échéance.
+ */
+async function invoiceWholeQuoteForMilestone(milestoneId: string, quoteId: string, issueDate: Date) {
+  const { convertQuoteToInvoice, issueInvoice } = await import("@/lib/invoices/transitions.js");
+  const draft = await convertQuoteToInvoice(quoteId);
+  const quote = await prisma.invoice.findUniqueOrThrow({ where: { id: quoteId }, select: { legalClausesSnapshot: true } });
+  await prisma.invoice.update({
+    where: { id: draft.id },
+    data: {
+      milestoneId,
+      ...(quote.legalClausesSnapshot != null ? { legalClausesSnapshot: quote.legalClausesSnapshot as Prisma.InputJsonValue } : {}),
+    },
+  });
+  await issueInvoice(draft.id, issueDate);
+  await prisma.paymentMilestone.update({ where: { id: milestoneId }, data: { status: MilestoneStatus.INVOICED, invoiceId: draft.id } });
+  return prisma.invoice.findUniqueOrThrow({ where: { id: draft.id }, include: { lines: true, client: true, payments: true } });
+}
+
 export async function generateMilestoneInvoice(
   milestoneId: string,
   issueDate = new Date(),
 ) {
+  // Échéance unique ou dernière échéance : facture définitive (simple ou de solde), jamais une facture d'acompte.
+  const target = await prisma.paymentMilestone.findUnique({ where: { id: milestoneId }, select: { quoteId: true, position: true, label: true, percentBps: true, invoiceId: true } });
+  if (target && !target.invoiceId) {
+    const kind = await milestoneInvoiceKind(target);
+    if (kind === "BALANCE") return (await generateBalanceInvoice(target.quoteId, { issueDate, milestoneId })).invoice;
+    if (kind === "FULL") return invoiceWholeQuoteForMilestone(milestoneId, target.quoteId, issueDate);
+  }
   const invoice = await prisma.$transaction(async (tx) => {
     const milestone = await tx.paymentMilestone.findUniqueOrThrow({
       where: { id: milestoneId },
@@ -438,6 +465,22 @@ export async function generateBalanceInvoice(
     if (existingSolde) {
       throw new DocumentFlowError(
         `Une facture de solde existe déjà (${existingSolde.number ?? existingSolde.id})`,
+        409,
+      );
+    }
+    // Devis déjà facturé en totalité (facture simple) : un solde le facturerait deux fois.
+    const totalInvoice = await tx.invoice.findFirst({
+      where: {
+        OR: [{ quoteId }, { sourceQuoteId: quoteId }],
+        documentType: InvoiceDocumentType.INVOICE,
+        invoiceType: InvoiceType.SIMPLE,
+        status: { not: InvoiceStatus.CANCELLED },
+      },
+      select: { number: true },
+    });
+    if (totalInvoice) {
+      throw new DocumentFlowError(
+        `Ce devis est déjà facturé en totalité${totalInvoice.number ? ` (${totalInvoice.number})` : ""} : pas de facture de solde.`,
         409,
       );
     }
