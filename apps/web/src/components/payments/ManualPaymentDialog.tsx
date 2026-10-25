@@ -1,15 +1,23 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { Button } from "@/components/ui/Button";
 import { Modal, ModalActions } from "@/components/ui/Modal";
-import { Field, Input, Select, Textarea } from "@/components/ui/Field";
+import { DateInput, Field, Input, Select, Textarea } from "@/components/ui/Field";
 
 export type ManualPaymentInput = {
   method: "BANK_TRANSFER" | "CHECK" | "CASH" | "OTHER";
   reference: string | null;
   notes: string | null;
+  /** Date du règlement (AAAA-MM-JJ) : virement reçu, chèque encaissé ; pas dans le futur. */
+  paidAt: string;
   /** Reçu du règlement et facture en PDF envoyés au client. */
   notifyClient: boolean;
 };
+
+/** Jour local au format AAAA-MM-JJ (valeur d'un champ date). */
+function todayIso(): string {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
 
 const METHODS: Array<{ value: ManualPaymentInput["method"]; label: string }> = [
   { value: "BANK_TRANSFER", label: "Virement" },
@@ -36,6 +44,7 @@ export function ManualPaymentDialog({
   const [reference, setReference] = useState("");
   const [notes, setNotes] = useState("");
   const [notifyClient, setNotifyClient] = useState(true);
+  const [paidAt, setPaidAt] = useState(todayIso);
 
   useEffect(() => {
     if (!open) return;
@@ -43,11 +52,12 @@ export function ManualPaymentDialog({
     setReference("");
     setNotes("");
     setNotifyClient(true);
+    setPaidAt(todayIso());
   }, [open]);
 
   function submit(e: FormEvent) {
     e.preventDefault();
-    onConfirm({ method, reference: reference.trim() || null, notes: notes.trim() || null, notifyClient });
+    onConfirm({ method, paidAt, reference: reference.trim() || null, notes: notes.trim() || null, notifyClient });
   }
 
   return (
@@ -66,6 +76,9 @@ export function ManualPaymentDialog({
               </option>
             ))}
           </Select>
+        </Field>
+        <Field label="Date du règlement" hint="Jour où le virement est arrivé ou le chèque encaissé.">
+          <DateInput required max={todayIso()} value={paidAt} onChange={setPaidAt} />
         </Field>
         <Field label="Référence" hint="Libellé du virement ou numéro de chèque (facultatif).">
           <Input maxLength={120} value={reference} onChange={(e) => setReference(e.target.value)} />

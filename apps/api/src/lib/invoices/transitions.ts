@@ -42,7 +42,6 @@ import {
 import {
   activateSubscriptionsFromDocument,
   shiftRevisedPeriod,
-  targetedRevisionsCutoff,
   notifyStripeSubscriptionSetup,
 } from "@/lib/subscriptions/activate-from-document.js";
 import { activationPoint } from "@/lib/subscriptions/start.js";
@@ -817,13 +816,12 @@ export async function convertQuoteToInvoice(quoteId: string) {
       include: { lines: true, client: true },
     });
 
-    // Avenant ciblé : la période révisée est facturée par cette facture ; l'échéance de l'abonnement avance maintenant,
-    // et non à la signature (audit du 25/10/2026). Devis antérieurs aux avenants ciblés : décalage déjà fait au rattachement.
-    const cutoff = await targetedRevisionsCutoff(tx);
-    if (!cutoff || quote.createdAt >= cutoff) {
-      const revised = new Set(invoicedLines.filter((l) => l.isSubscription && l.revisesSubscriptionId).map((l) => l.revisesSubscriptionId!));
-      for (const subscriptionId of revised) await shiftRevisedPeriod(subscriptionId, tx);
-    }
+    // Avenant : la période révisée est facturée par cette facture ; l'échéance avance maintenant, seulement pour les lignes
+    // dont la signature a reporté le décalage (marqueur), une seule fois. Un devis signé avant ce fonctionnement a été
+    // décalé à sa signature : aucun marqueur, aucun second décalage (audit du 25/10/2026).
+    const shiftLater = invoicedLines.filter((l) => l.isSubscription && l.revisesSubscriptionId && l.revisionShiftDeferred);
+    for (const subscriptionId of new Set(shiftLater.map((l) => l.revisesSubscriptionId!))) await shiftRevisedPeriod(subscriptionId, tx);
+    if (shiftLater.length) await tx.invoiceLine.updateMany({ where: { id: { in: shiftLater.map((l) => l.id) } }, data: { revisionShiftDeferred: false } });
 
     await ensureQuoteHasOfficialNumber(tx, quote.id);
     await tx.invoice.update({

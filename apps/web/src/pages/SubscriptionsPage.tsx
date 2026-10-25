@@ -7,6 +7,7 @@ import {
   faPause,
   faStop,
   faCalendarXmark,
+  faRotateLeft,
   faPen,
   faSync,
   faTrash,
@@ -541,6 +542,16 @@ export function SubscriptionsPage() {
     }
   }
 
+  async function unscheduleEnd(sub: Subscription) {
+    try {
+      await api(`/api/subscriptions/${sub.id}/cancel-scheduled-end`, { method: "POST" });
+      toast.success(sub.stripeSubscriptionId ? "Fin annulée : l'abonnement continue, prélèvement Stripe compris" : "Fin annulée : l'abonnement continue");
+      await load();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Erreur");
+    }
+  }
+
   async function resendStripeSetup(id: string) {
     try {
       await api(`/api/subscriptions/${id}/resend-setup`, { method: "POST", body: "{}" });
@@ -564,6 +575,7 @@ export function SubscriptionsPage() {
   }, [selectedId, params, setParams]);
   const [endTarget, setEndTarget] = useState<Subscription | null>(null);
   const [scheduleTarget, setScheduleTarget] = useState<Subscription | null>(null);
+  const [unscheduleTarget, setUnscheduleTarget] = useState<Subscription | null>(null);
   const selected = rows.find((r) => r.id === selectedId) ?? null;
 
   /** Ferme le panneau du contrat avant d'ouvrir une autre fenêtre. */
@@ -936,6 +948,12 @@ export function SubscriptionsPage() {
                   Programmer la fin
                 </Button>
               ) : null}
+              {selected.status !== "ENDED" && selected.endDate ? (
+                <Button variant="secondary" onClick={() => fromPanel(() => setUnscheduleTarget(selected))}>
+                  <FontAwesomeIcon icon={faRotateLeft} className="h-3.5 w-3.5" aria-hidden />
+                  Annuler la fin programmée
+                </Button>
+              ) : null}
               {selected.status !== "ENDED" ? (
                 <Button variant="danger-ghost" onClick={() => fromPanel(() => setEndTarget(selected))}>
                   <FontAwesomeIcon icon={faStop} className="h-3.5 w-3.5" aria-hidden />
@@ -974,6 +992,18 @@ export function SubscriptionsPage() {
           setScheduleTarget(null);
         }}
         onClose={() => setScheduleTarget(null)}
+      />
+
+      <ConfirmDialog
+        open={Boolean(unscheduleTarget)}
+        title="Annuler la fin programmée"
+        message={`« ${unscheduleTarget?.label ?? ""} » (${unscheduleTarget?.client.displayName ?? ""}) ne prend plus fin le ${unscheduleTarget?.endDate ? formatDate(unscheduleTarget.endDate) : ""} : il continue et se reconduit comme avant${unscheduleTarget?.stripeSubscriptionId ? ", prélèvement Stripe compris" : ""}.`}
+        confirmLabel="Annuler la fin"
+        onConfirm={() => {
+          if (unscheduleTarget) void unscheduleEnd(unscheduleTarget);
+          setUnscheduleTarget(null);
+        }}
+        onClose={() => setUnscheduleTarget(null)}
       />
 
       <ConfirmDialog

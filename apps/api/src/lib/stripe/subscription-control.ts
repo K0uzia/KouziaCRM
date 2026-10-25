@@ -10,7 +10,7 @@ export class StripeSubscriptionSyncError extends Error {
 }
 
 /** endAtPeriodEnd : fin à la fin de la période en cours (rachat signé, R2), sans nouveau prélèvement. */
-type Action = "cancel" | "pause" | "resume" | "endAtPeriodEnd" | "cancelAt";
+type Action = "cancel" | "pause" | "resume" | "endAtPeriodEnd" | "cancelAt" | "keepRenewing";
 
 const FAILURE: Record<Action, string> = {
   cancel: "Stripe n'a pas résilié le prélèvement : l'abonnement n'est pas clôturé.",
@@ -18,6 +18,7 @@ const FAILURE: Record<Action, string> = {
   resume: "Stripe n'a pas repris le prélèvement : l'abonnement reste suspendu.",
   endAtPeriodEnd: "Stripe n'a pas programmé la fin du prélèvement à la fin de la période en cours.",
   cancelAt: "Stripe n'a pas programmé la fin du prélèvement à la fin du terme : la fin n'est pas programmée.",
+  keepRenewing: "Stripe n'a pas annulé la fin programmée du prélèvement : la fin reste programmée.",
 };
 
 function isMissing(err: unknown): boolean {
@@ -40,7 +41,9 @@ export async function applyStripeSubscriptionAction(
   await assertSameMode(livemode, "Cet abonnement");
   try {
     const stripe = await getStripe();
-    if (action === "cancelAt") {
+    if (action === "keepRenewing") {
+      await stripe.subscriptions.update(stripeSubscriptionId, { cancel_at: "", cancel_at_period_end: false });
+    } else if (action === "cancelAt") {
       if (!at) throw new Error("date de fin manquante");
       await stripe.subscriptions.update(stripeSubscriptionId, { cancel_at: Math.floor(at.getTime() / 1000) });
     } else if (action === "cancel") {

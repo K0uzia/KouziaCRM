@@ -1,7 +1,10 @@
 import { LIST_CAP } from "@/lib/list-cap.js";
 import type { FastifyPluginAsync } from "fastify";
 import { z } from "zod";
-import { EmailDirection, InvoiceDocumentType, QuoteStatus } from "@prisma/client";
+import { EmailDirection, InvoiceDocumentType, InvoiceStatus, QuoteStatus } from "@prisma/client";
+import { BALANCE_INCLUDE, invoiceBalance } from "@/lib/invoices/balance.js";
+import { applySettledStatus, lockInvoice } from "@/lib/invoices/balance-status.js";
+import { formatEUR } from "@/lib/money.js";
 import { requireAuth } from "@/lib/auth.js";
 import { prisma } from "@/lib/prisma.js";
 import { getDashboardSnapshot } from "@/lib/finance/dashboard-service.js";
@@ -173,6 +176,58 @@ export const miscRoutes: FastifyPluginAsync = async (app) => {
         },
       },
     });
+  });
+
+  // Paiements reçus sans facture (paiement Stripe sans facture rattachable, audit du 25/10/2026) et factures émises
+  // encore dues auxquelles les rattacher.
+  app.get("/api/payments/unattached", async (request, reply) => {
+    await requireAuth(request, reply);
+    if (reply.sent) return;
+    const [payments, invoices] = await Promise.all([
+      prisma.payment.findMany({
+        where: { invoiceId: null, amountCents: { gt: 0 } },
+        orderBy: { paidAt: "asc" },
+        select: { id: true, amountCents: true, paidAt: true, method: true, reference: true, notes: true },
+      }),
+      prisma.invoice.findMany({
+        where: { documentType: InvoiceDocumentType.INVOICE, status: InvoiceStatus.ISSUED, number: { not: null } },
+        orderBy: { issueDate: "desc" },
+        take: 200,
+        include: { ...BALANCE_INCLUDE, client: { select: { displayName: true } } },
+      }),
+    ]);
+    return {
+      payments,
+      invoices: invoices
+        .map((i) => ({ id: i.id, number: i.number, clientName: i.client.displayName, dueCents: invoiceBalance(i).dueCents }))
+        .filter((i) => i.dueCents > 0),
+    };
+  });
+
+  app.post<{ Params: { id: string } }>("/api/payments/:id/attach", async (request, reply) => {
+    await requireAuth(request, reply);
+    if (reply.sent) return;
+    const body = z.strictObject({ invoiceId: z.string().min(1).max(64) }).safeParse(request.body ?? {});
+    if (!body.success) return reply.code(400).send({ error: "Facture à choisir." });
+    const outcome = await prisma.$transaction(async (tx) => {
+      const payment = await tx.payment.findUnique({ where: { id: request.params.id } });
+      if (!payment) return { status: 404 as const, error: "Paiement introuvable." };
+      if (payment.invoiceId) return { status: 409 as const, error: "Ce paiement est déjà rattaché à une facture." };
+      const invoice = await tx.invoice.findUnique({ where: { id: body.data.invoiceId }, select: { id: true, documentType: true, status: true, number: true } });
+      if (!invoice || invoice.documentType !== InvoiceDocumentType.INVOICE || !invoice.number || invoice.status !== InvoiceStatus.ISSUED) {
+        return { status: 409 as const, error: "Choisissez une facture émise et encore due." };
+      }
+      await lockInvoice(tx, invoice.id);
+      const due = invoiceBalance(await tx.invoice.findUniqueOrThrow({ where: { id: invoice.id }, include: BALANCE_INCLUDE })).dueCents;
+      if (payment.amountCents > due) {
+        return { status: 409 as const, error: `Le paiement (${formatEUR(payment.amountCents)}) dépasse le reste dû de ${invoice.number} (${formatEUR(due)}) : émettez la facture correspondante ou remboursez le client.` };
+      }
+      await tx.payment.update({ where: { id: payment.id }, data: { invoiceId: invoice.id, notes: payment.notes?.replace(/ : à régulariser$/, "") ?? null } });
+      const status = await applySettledStatus(tx, invoice.id);
+      return { status: 200 as const, invoiceId: invoice.id, invoiceStatus: status.after };
+    });
+    if (outcome.status !== 200) return reply.code(outcome.status).send({ error: outcome.error });
+    return { invoiceId: outcome.invoiceId, invoiceStatus: outcome.invoiceStatus };
   });
 
   app.get("/api/urssaf/declarations", async (request, reply) => {

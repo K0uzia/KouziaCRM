@@ -241,8 +241,14 @@ export async function activateSubscriptionsFromDocument(
       // Le document facture déjà la période (facture) : l'échéance suivante est décalée d'une période, sinon elle serait
       // facturée deux fois. Un devis signé ne facture rien tant qu'il n'est pas converti (audit du 25/10/2026 : décaler
       // à la signature sautait une période si le devis restait sans facture). Un prélèvement Stripe suit son calendrier.
-      if (!opts.firstPeriodNow && (opts.periodBilledNow ?? doc.documentType !== "QUOTE") && !target.stripeSubscriptionId) {
-        await shiftRevisedPeriod(target.id, db);
+      if (!opts.firstPeriodNow && !target.stripeSubscriptionId) {
+        if (opts.periodBilledNow ?? doc.documentType !== "QUOTE") {
+          await shiftRevisedPeriod(target.id, db);
+        } else if (opts.periodBilledNow === undefined) {
+          // Décalage reporté à la conversion en facture : marqueur de la ligne, pour ne décaler qu'une fois et jamais
+          // un devis signé avant ce fonctionnement (déjà décalé à sa signature).
+          await db.invoiceLine.update({ where: { id: line.id }, data: { revisionShiftDeferred: true } });
+        }
       }
       subId = target.id;
       updated += 1;
