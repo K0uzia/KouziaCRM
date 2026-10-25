@@ -29,6 +29,7 @@ import {
   syncMilestoneOnInvoicePaid,
   rejectQuote,
   QuoteDecisionError,
+  QUOTE_OPTIONS_NOT_ISSUABLE,
 } from "@/lib/invoices/transitions.js";
 import { CreditNoteReason, RefundMethod } from "@prisma/client";
 import { getCompanySettings } from "@/lib/company.js";
@@ -131,6 +132,22 @@ const recurringDiscountSchema = z
   .nullable()
   .optional();
 
+/** Devis à propositions (P1) : chaque proposition est complète (mode, offre de paiement, remise, lignes). */
+export const MAX_QUOTE_OPTIONS = 2;
+const optionSchema = z.object({
+  label: z.string().trim().min(1).max(120),
+  billingMode: z.enum(BILLING_MODES),
+  lines: z.array(lineSchema).min(1),
+  paymentPlanOffer: z.enum(["ONE", "TWO", "THREE", "CHOICE"]).optional(),
+  discountType: z.enum(["NONE", "PERCENT", "FIXED"]).optional().default("NONE"),
+  discountPercent: z.coerce.number().min(0).max(100).optional(),
+  discountEuros: z.coerce.number().min(0).optional(),
+  recurringDiscount: recurringDiscountSchema,
+  openingDiscount: z.boolean().optional(),
+  promoCode: z.string().trim().max(32).nullable().optional(),
+});
+const optionsSchema = z.array(optionSchema).length(MAX_QUOTE_OPTIONS);
+
 const createSchema = z.object({
   clientId: z.string().min(1),
   documentType: z.enum(["INVOICE", "QUOTE"]).default("INVOICE"),
@@ -139,7 +156,7 @@ const createSchema = z.object({
   serviceDate: z.string().optional().nullable(),
   purchaseOrderRef: z.string().max(80).optional().nullable(),
   validUntil: z.string().optional().nullable(),
-  lines: z.array(lineSchema).min(1),
+  lines: z.array(lineSchema).min(1).optional(),
   /** Facture libre rattachée à un devis signé du même client (facultatif). */
   sourceQuoteId: z.string().min(1).optional().nullable(),
   discountType: z.enum(["NONE", "PERCENT", "FIXED"]).optional().default("NONE"),
@@ -153,7 +170,13 @@ const createSchema = z.object({
   openingDiscount: z.boolean().optional(),
   /** Devis récurrent : code promo (R3), exclusif des deux autres remises ; null le retire. */
   promoCode: z.string().trim().max(32).nullable().optional(),
+  /** Devis à 2 propositions : à la place des lignes et des réglages de facturation du devis. */
+  options: optionsSchema.optional(),
   ...offlineQuoteFields,
+}).superRefine((d, ctx) => {
+  if (d.options && d.documentType !== "QUOTE") ctx.addIssue({ code: "custom", path: ["options"], message: "Propositions : réservées au devis" });
+  if (d.options && d.lines) ctx.addIssue({ code: "custom", path: ["lines"], message: "Devis à propositions : les lignes vont dans chaque proposition" });
+  if (!d.options && !d.lines) ctx.addIssue({ code: "custom", path: ["lines"], message: "Lignes requises" });
 });
 
 /** Aperçu d'un avoir : les champs de POST /api/invoices/:id/credit-note, avec la facture d'origine. */
@@ -186,6 +209,11 @@ const updateSchema = z.object({
   openingDiscount: z.boolean().optional(),
   /** Devis récurrent : code promo (R3), exclusif des deux autres remises ; null le retire. */
   promoCode: z.string().trim().max(32).nullable().optional(),
+  /** Devis à 2 propositions : remplace les propositions ; null revient au devis simple (lignes requises). */
+  options: optionsSchema.nullable().optional(),
+}).superRefine((d, ctx) => {
+  if (d.options && d.lines) ctx.addIssue({ code: "custom", path: ["lines"], message: "Devis à propositions : les lignes vont dans chaque proposition" });
+  if (d.options === null && !d.lines) ctx.addIssue({ code: "custom", path: ["lines"], message: "Lignes requises pour revenir à une seule proposition" });
 });
 
 function discountFromBody(data: {
@@ -206,6 +234,73 @@ function discountFromBody(data: {
   }
   return { discountType: "NONE", discountValue: 0 };
 }
+
+/**
+ * Propositions d'un devis, vérifiées comme un devis simple (lignes, mode, code promo, remise) et totalisées.
+ * BillingModeError ou Error avec un message pour l'écran.
+ */
+async function prepareQuoteOptions(options: z.output<typeof optionsSchema>, quote: { id?: string; clientId: string }) {
+  const defaultOffer = (await getCompanySettings()).paymentChoiceDefault ? "CHOICE" : "TWO";
+  const prepared = [];
+  for (const [position, o] of options.entries()) {
+    const lineInputs = lineInputsOf(o.lines);
+    assertSubscriptionLinesValid(lineInputs);
+    assertBillingModeLines(o.billingMode, lineInputs);
+    const promo = o.billingMode === "RECURRING" ? await resolvePromoForQuote(o, { ...quote, lines: lineInputs }, null) : null;
+    const recurringDiscount = resolveRecurringDiscount(o.billingMode, lineInputs, promo ? { recurringDiscount: promoAsDiscountInput(promo) } : o);
+    const totals = computeLineTotals(lineInputs, discountFromBody(o));
+    prepared.push({
+      option: {
+        position,
+        label: o.label,
+        billingMode: o.billingMode,
+        paymentPlanOffer: o.billingMode === "RECURRING" ? "NONE" : (o.paymentPlanOffer ?? defaultOffer),
+        discountType: totals.discountType,
+        discountValue: totals.discountValue,
+        ...recurringDiscount,
+        promoCodeId: promo?.id ?? null,
+        subtotalCents: totals.subtotalCents,
+        totalCents: totals.totalCents,
+      },
+      lines: totals.lines,
+    });
+  }
+  return prepared;
+}
+
+/**
+ * Champs du devis lui-même quand il a des propositions : facturation neutre (recopiée de la proposition retenue à la
+ * signature) et totaux de la moins chère, comptés dans les listes et le tableau de bord (décision du 25/10/2026).
+ */
+function quoteFieldsOfOptions(prepared: Awaited<ReturnType<typeof prepareQuoteOptions>>) {
+  const cheapest = prepared.reduce((min, p) => (p.option.totalCents < min.option.totalCents ? p : min));
+  return {
+    billingMode: null,
+    paymentPlanOffer: null,
+    discountType: "NONE",
+    discountValue: 0,
+    ...NO_RECURRING_DISCOUNT,
+    promoCodeId: null,
+    subtotalCents: cheapest.option.subtotalCents,
+    totalCents: cheapest.option.totalCents,
+  };
+}
+
+type OptionsTx = Pick<typeof prisma, "quoteOption" | "invoiceLine">;
+
+/** Remplace les propositions et toutes les lignes du devis ; lignes numérotées à la suite, A puis B. */
+async function writeQuoteOptions(tx: OptionsTx, quoteId: string, prepared: Awaited<ReturnType<typeof prepareQuoteOptions>>) {
+  await tx.quoteOption.deleteMany({ where: { quoteId } });
+  await tx.invoiceLine.deleteMany({ where: { invoiceId: quoteId } });
+  let position = 0;
+  for (const p of prepared) {
+    const option = await tx.quoteOption.create({ data: { ...p.option, quoteId } });
+    await tx.invoiceLine.createMany({ data: p.lines.map((l) => ({ ...l, position: ++position, invoiceId: quoteId, optionId: option.id })) });
+  }
+}
+
+/** Propositions renvoyées avec un devis : dans l'ordre, avec le code promo lisible. */
+const OPTIONS_INCLUDE = { orderBy: { position: "asc" }, include: { promoCode: { select: { code: true } } } } as const;
 
 /** Date saisie (« 2026-10-25 » ou ISO complète) : refusée si illisible, au lieu d'une Invalid Date en base. */
 const dateString = z.string().trim().min(1).refine((s) => !Number.isNaN(new Date(s).getTime()), { message: "Date invalide." });
@@ -368,8 +463,45 @@ export const invoicesRoutes: FastifyPluginAsync = async (app) => {
       const client = await prisma.client.findUnique({ where: { id: parsed.data.clientId } });
       if (!client) return reply.code(404).send({ error: "Client introuvable", code: "client_not_found" });
 
+      if (parsed.data.options) {
+        let prepared: Awaited<ReturnType<typeof prepareQuoteOptions>>;
+        try {
+          prepared = await prepareQuoteOptions(parsed.data.options, { clientId: parsed.data.clientId });
+        } catch (e) {
+          return reply.code(400).send({ error: e instanceof Error ? e.message : "Propositions invalides" });
+        }
+        const conflicts = clientRequestId ? await offlineConflicts(client, parsed.data) : [];
+        const created = await prisma
+          .$transaction(async (tx) => {
+            const quote = await tx.invoice.create({
+              data: {
+                documentType: InvoiceDocumentType.QUOTE,
+                ...quoteFieldsOfOptions(prepared),
+                ...(clientRequestId ? { clientRequestId, offlineReviewReason: offlineReviewReason(conflicts) } : {}),
+                quoteStatus: QuoteStatus.DRAFT,
+                clientId: parsed.data.clientId,
+                notes: parsed.data.notes ?? null,
+                paymentTerms: parsed.data.paymentTerms ?? "Devis valable 30 jours",
+                serviceDate: parsed.data.serviceDate ? new Date(parsed.data.serviceDate) : null,
+                purchaseOrderRef: parsed.data.purchaseOrderRef ?? null,
+                validUntil: parsed.data.validUntil ? new Date(parsed.data.validUntil) : defaultQuoteValidUntil(),
+              },
+            });
+            await writeQuoteOptions(tx, quote.id, prepared);
+            return tx.invoice.findUniqueOrThrow({ where: { id: quote.id }, include: { ...createdInclude, lines: { orderBy: { position: "asc" } }, options: OPTIONS_INCLUDE } });
+          })
+          .catch((e: unknown) => {
+            if ((e as { code?: string }).code === "P2002" && clientRequestId) return null;
+            throw e;
+          });
+        if (!created) return (await replay()) ?? reply.code(409).send({ error: "Brouillon déjà en cours de création" });
+        return reply
+          .code(201)
+          .send(clientRequestId ? { ...serializeInvoice(created), offline: { replayed: false, conflicts } } : serializeInvoice(created));
+      }
+
       const discount = discountFromBody(parsed.data);
-      const lineInputs = lineInputsOf(parsed.data.lines);
+      const lineInputs = lineInputsOf(parsed.data.lines!);
       const billingMode = parsed.data.documentType === "QUOTE" ? (parsed.data.billingMode ?? null) : null;
       let recurringDiscount: RecurringDiscountFields;
       let promo: Awaited<ReturnType<typeof resolvePromoForQuote>> = null;
@@ -500,7 +632,8 @@ export const invoicesRoutes: FastifyPluginAsync = async (app) => {
     if (!parsed.success) {
       return reply.code(400).send({ error: "Données invalides", details: parsed.error.flatten() });
     }
-    const lineInputs = lineInputsOf(parsed.data.lines);
+    if (parsed.data.options) return reply.code(400).send({ error: "Aperçu d'un devis à 2 propositions : pas encore disponible (PDF en préparation)." });
+    const lineInputs = lineInputsOf(parsed.data.lines!);
     let recurringDiscount: RecurringDiscountFields;
     let previewPromo: Awaited<ReturnType<typeof resolvePromoForQuote>> = null;
     try {
@@ -639,6 +772,7 @@ export const invoicesRoutes: FastifyPluginAsync = async (app) => {
         creditNotes: { include: { payments: { select: { amountCents: true } } } },
         quote: { select: { id: true, number: true, issueDate: true } },
         promoCode: { select: { code: true } },
+        options: OPTIONS_INCLUDE,
         milestones: { orderBy: { position: "asc" } },
       },
     });
@@ -675,7 +809,7 @@ export const invoicesRoutes: FastifyPluginAsync = async (app) => {
         error: "Le numéro de document est immuable après attribution",
       });
     }
-    const existing = await prisma.invoice.findUnique({ where: { id } });
+    const existing = await prisma.invoice.findUnique({ where: { id }, include: { options: { select: { id: true } } } });
     if (!existing) return reply.code(404).send({ error: "Introuvable" });
     if (existing.status !== InvoiceStatus.DRAFT) {
       return reply.code(400).send({ error: "Seuls les brouillons sont modifiables" });
@@ -695,6 +829,31 @@ export const invoicesRoutes: FastifyPluginAsync = async (app) => {
     if (!parsed.success) {
       return reply.code(400).send({ error: "Données invalides", details: parsed.error.flatten() });
     }
+    const withOptions = Boolean(parsed.data.options);
+    if (withOptions && existing.documentType !== InvoiceDocumentType.QUOTE) {
+      return reply.code(400).send({ error: "Propositions : réservées au devis" });
+    }
+    // Devis à propositions : la facturation se règle dans chaque proposition, pas sur le devis.
+    const billingFieldsSent =
+      parsed.data.billingMode !== undefined ||
+      parsed.data.paymentPlanOffer !== undefined ||
+      parsed.data.discountType !== undefined ||
+      parsed.data.discountPercent !== undefined ||
+      parsed.data.discountEuros !== undefined ||
+      parsed.data.recurringDiscount !== undefined ||
+      parsed.data.openingDiscount !== undefined ||
+      parsed.data.promoCode !== undefined;
+    if (billingFieldsSent && (withOptions || (existing.options.length > 0 && !parsed.data.lines))) {
+      return reply.code(400).send({ error: "Devis à propositions : mode, paiement et remise se règlent dans chaque proposition." });
+    }
+    let preparedOptions: Awaited<ReturnType<typeof prepareQuoteOptions>> | null = null;
+    if (parsed.data.options) {
+      try {
+        preparedOptions = await prepareQuoteOptions(parsed.data.options, { id, clientId: parsed.data.clientId ?? existing.clientId });
+      } catch (e) {
+        return reply.code(400).send({ error: e instanceof Error ? e.message : "Propositions invalides" });
+      }
+    }
 
     const data: {
       clientId?: string;
@@ -712,12 +871,12 @@ export const invoicesRoutes: FastifyPluginAsync = async (app) => {
       paymentPlanOffer?: string;
       billingMode?: string | null;
     } & Partial<RecurringDiscountFields> = {};
-    if (parsed.data.paymentPlanOffer && existing.documentType === InvoiceDocumentType.QUOTE) {
+    if (parsed.data.paymentPlanOffer && existing.documentType === InvoiceDocumentType.QUOTE && !preparedOptions) {
       data.paymentPlanOffer = parsed.data.paymentPlanOffer;
     }
     // Mode de facturation : vérifié sur les lignes envoyées, sinon sur celles du brouillon.
     const discountInputTouched = parsed.data.recurringDiscount !== undefined || parsed.data.openingDiscount !== undefined || parsed.data.promoCode !== undefined;
-    if (existing.documentType === InvoiceDocumentType.QUOTE && (parsed.data.billingMode !== undefined || parsed.data.lines || discountInputTouched)) {
+    if (existing.documentType === InvoiceDocumentType.QUOTE && !preparedOptions && (parsed.data.billingMode !== undefined || parsed.data.lines || discountInputTouched)) {
       const mode = parsed.data.billingMode !== undefined ? (parsed.data.billingMode ?? null) : parseBillingMode(existing.billingMode);
       const modeLines = parsed.data.lines
         ? lineInputsOf(parsed.data.lines)
@@ -790,7 +949,13 @@ export const invoicesRoutes: FastifyPluginAsync = async (app) => {
       parsed.data.discountPercent !== undefined ||
       parsed.data.discountEuros !== undefined;
 
-    if (parsed.data.lines || discountTouched) {
+    if (preparedOptions) {
+      const options = preparedOptions;
+      await prisma.$transaction(async (tx) => {
+        await writeQuoteOptions(tx, id, options);
+        await tx.invoice.update({ where: { id }, data: { ...data, ...quoteFieldsOfOptions(options) } });
+      });
+    } else if (parsed.data.lines || discountTouched) {
       const linesSource = parsed.data.lines
         ? await (async () => {
             const existingLines = await prisma.invoiceLine.findMany({
@@ -871,6 +1036,7 @@ export const invoicesRoutes: FastifyPluginAsync = async (app) => {
 
       if (parsed.data.lines) {
         await prisma.$transaction([
+          prisma.quoteOption.deleteMany({ where: { quoteId: id } }),
           prisma.invoiceLine.deleteMany({ where: { invoiceId: id } }),
           prisma.invoice.update({
             where: { id },
@@ -887,7 +1053,8 @@ export const invoicesRoutes: FastifyPluginAsync = async (app) => {
     const updated = await prisma.invoice.findUniqueOrThrow({
       where: { id },
       include: {
-        lines: true,
+        lines: { orderBy: { position: "asc" } },
+        options: OPTIONS_INCLUDE,
         client: { select: { id: true, displayName: true, clientNumber: true } },
       },
     });

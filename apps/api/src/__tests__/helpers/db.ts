@@ -18,6 +18,7 @@ const TABLES = [
   "StripePayout",
   "OwnerWithdrawal",
   "InvoiceLine",
+  "QuoteOption",
   "PaymentMilestone",
   "Invoice",
   "PromoCode",

@@ -12,9 +12,15 @@ export const normalizePromoCode = (code: string) => code.trim().toUpperCase();
 
 type Db = Pick<typeof prisma, "invoice" | "promoCode">;
 
-/** Devis émis vivants portant un code (hors celui qu'on enregistre ou qu'on émet). */
+/**
+ * Devis émis vivants portant un code (hors celui qu'on enregistre ou qu'on émet) : sur le devis, ou sur l'une de ses
+ * propositions (P1) tant qu'aucune n'est retenue ; à la signature, seule compte la proposition retenue.
+ */
 const liveQuotesWhere = (promoCodeId: string, excludeInvoiceId?: string) => ({
-  promoCodeId,
+  OR: [
+    { promoCodeId },
+    { AND: [{ options: { some: { promoCodeId } } }, { OR: [{ selectedOptionId: null }, { selectedOption: { promoCodeId } }] }] },
+  ],
   documentType: InvoiceDocumentType.QUOTE,
   number: { not: null },
   status: { not: InvoiceStatus.CANCELLED },

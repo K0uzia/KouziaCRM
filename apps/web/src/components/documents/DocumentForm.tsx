@@ -8,6 +8,7 @@ import { isLocalClientId, submitCreation, useRequestId } from "@/lib/offline/que
 import { euros } from "@/lib/format";
 import { Button } from "@/components/ui/Button";
 import { Modal, ModalActions } from "@/components/ui/Modal";
+import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { DocumentPreview } from "@/components/documents/DocumentPreview";
 import { useMediaQuery } from "@/lib/use-media-query";
 import { DateInput, Field, Input, Select, Textarea } from "@/components/ui/Field";
@@ -76,6 +77,20 @@ export type DocumentFormValues = {
   recurring: RecurringForm;
 };
 
+/** Devis à 2 propositions (P1) : partie du formulaire propre à chaque proposition ; client, dates et notes sont communs. */
+export type ProposalSlice = Pick<DocumentFormValues, "lines" | "discountType" | "discountPercent" | "discountEuros" | "paymentPlanOffer" | "billingMode" | "recurring">;
+export type ProposalsInit = { labels: [string, string]; other: Partial<DocumentFormValues> };
+const sliceOf = (f: ProposalSlice): ProposalSlice => ({
+  lines: f.lines,
+  discountType: f.discountType,
+  discountPercent: f.discountPercent,
+  discountEuros: f.discountEuros,
+  paymentPlanOffer: f.paymentPlanOffer,
+  billingMode: f.billingMode,
+  recurring: f.recurring,
+});
+const PROPOSAL_LETTERS = ["A", "B"] as const;
+
 type PlanSettings = PaymentSettings & { paymentChoiceDefault: boolean; annualFreeMonths?: number; installmentIntervalDays?: number };
 
 /** Prix annuel saisi (euros) ramené à la période, en euros avec deux décimales. */
@@ -136,6 +151,7 @@ export function DocumentFormEditor({
   documentType,
   documentId,
   initial,
+  initialProposals,
   clients,
   onSuccess,
   onCancel,
@@ -144,6 +160,8 @@ export function DocumentFormEditor({
   documentType: "INVOICE" | "QUOTE";
   documentId?: string;
   initial?: Partial<DocumentFormValues>;
+  /** Brouillon à 2 propositions : A dans initial, B ici, avec les deux noms. */
+  initialProposals?: ProposalsInit;
   clients: Array<{ id: string; displayName: string; clientNumber?: string | null; serviceNeeds?: ServiceNeed[]; needsDetails?: string; billingDay?: number | null; updatedAt?: string }>;
   /** queued : devis brouillon mis en file hors ligne (id = clientRequestId), pas encore créé. */
   onSuccess: (doc: { id: string; queued?: boolean; clientId?: string }) => void;
@@ -174,6 +192,43 @@ export function DocumentFormEditor({
     billingMode: initial?.billingMode ?? (documentType === "QUOTE" && mode === "create" ? "ONE_OFF" : ""),
     recurring: initial?.recurring ?? DEFAULT_RECURRING,
   });
+  // Proposition affichée dans le formulaire (active) ; l'autre est gardée à côté, telle quelle.
+  const [proposals, setProposals] = useState<{ active: 0 | 1; labels: [string, string]; other: ProposalSlice } | null>(() =>
+    initialProposals
+      ? {
+          active: 0,
+          labels: initialProposals.labels,
+          other: sliceOf({
+            discountType: "NONE",
+            discountPercent: "",
+            discountEuros: "",
+            paymentPlanOffer: "",
+            billingMode: "ONE_OFF",
+            recurring: DEFAULT_RECURRING,
+            ...initialProposals.other,
+            lines: initialProposals.other.lines?.length ? initialProposals.other.lines.map((l) => ({ ...emptyLine(), ...l })) : [emptyLine()],
+          }),
+        }
+      : null,
+  );
+  const [removingProposal, setRemovingProposal] = useState(false);
+  /** 2e proposition : copie de la première, à adapter (autre mode, autres prestations). */
+  function addProposal() {
+    setProposals({ active: 1, labels: ["Proposition A", "Proposition B"], other: sliceOf(form) });
+  }
+  function switchProposal(next: 0 | 1) {
+    if (!proposals || next === proposals.active) return;
+    const shown = sliceOf(form);
+    setForm((f) => ({ ...f, ...proposals.other }));
+    setProposals({ ...proposals, active: next, other: shown });
+  }
+  /** Retire la proposition affichée : l'autre redevient le devis. */
+  function removeProposal() {
+    if (!proposals) return;
+    setForm((f) => ({ ...f, ...proposals.other }));
+    setProposals(null);
+    setRemovingProposal(false);
+  }
   const [planSettings, setPlanSettings] = useState<PlanSettings | null>(null);
   useEffect(() => {
     api<PlanSettings>("/api/settings")
@@ -535,8 +590,9 @@ export function DocumentFormEditor({
     });
   }, [subscriptionOnly, form.billingMode]);
 
-  /** Corps de la création (et de l'aperçu, qui reçoit le même brouillon). */
-  function requestBody(lines: DocLine[]) {
+  /** Corps de la création (et de l'aperçu, qui reçoit le même brouillon) ; src : la proposition, le formulaire par défaut. */
+  function requestBody(lines: DocLine[], src: ProposalSlice = form) {
+    const quoteMode = documentType === "QUOTE" ? src.billingMode : "";
     return {
       clientId: form.clientId,
       documentType,
@@ -546,30 +602,30 @@ export function DocumentFormEditor({
       purchaseOrderRef: form.purchaseOrderRef || null,
       ...(documentType === "INVOICE" ? { sourceQuoteId: form.sourceQuoteId || null } : {}),
       // Mode récurrent : l'API fixe l'offre (frais en une fois) ; sans mode : règles par ligne d'avant.
-      ...(documentType === "QUOTE" && form.paymentPlanOffer && quoteMode !== "RECURRING" ? { paymentPlanOffer: form.paymentPlanOffer } : {}),
+      ...(documentType === "QUOTE" && src.paymentPlanOffer && quoteMode !== "RECURRING" ? { paymentPlanOffer: src.paymentPlanOffer } : {}),
       ...(quoteMode ? { billingMode: quoteMode } : {}),
       // Devis récurrent : la remise (case ou volontaire) ; null retire une remise enregistrée.
-      ...(documentType === "QUOTE" && quoteMode === "RECURRING" ? discountPayload(form.recurring.discount) : {}),
-      discountType: form.discountType,
+      ...(documentType === "QUOTE" && quoteMode === "RECURRING" ? discountPayload(src.recurring.discount) : {}),
+      discountType: src.discountType,
       discountPercent:
-        form.discountType === "PERCENT" ? Number(form.discountPercent) || 0 : undefined,
+        src.discountType === "PERCENT" ? Number(src.discountPercent) || 0 : undefined,
       discountEuros:
-        form.discountType === "FIXED" ? Number(form.discountEuros) || 0 : undefined,
+        src.discountType === "FIXED" ? Number(src.discountEuros) || 0 : undefined,
       lines: lines.map((l) =>
         quoteMode === "RECURRING" && l.isSubscription
           ? {
               // Récurrent : période, engagement, départ et jour du document, les mêmes sur chaque ligne.
               description: l.description,
               quantity: 1,
-              unitPriceEuros: Number(periodEuros(l.annualEuros, form.recurring.interval)),
+              unitPriceEuros: Number(periodEuros(l.annualEuros, src.recurring.interval)),
               isSubscription: true,
-              billingDay: Number(form.recurring.billingDay) || 1,
-              billingInterval: form.recurring.interval,
+              billingDay: Number(src.recurring.billingDay) || 1,
+              billingInterval: src.recurring.interval,
               serviceId: l.serviceId || null,
               groupTitle: null,
               isPackDiscount: false,
-              ...startPayload(form.recurring),
-              commitmentMonths: form.recurring.commitmentMonths ? Number(form.recurring.commitmentMonths) : null,
+              ...startPayload(src.recurring),
+              commitmentMonths: src.recurring.commitmentMonths ? Number(src.recurring.commitmentMonths) : null,
             }
           : {
               description: l.description,
@@ -589,17 +645,43 @@ export function DocumentFormEditor({
     };
   }
 
+  /**
+   * Corps envoyé : devis simple, ou partie commune et les 2 propositions dans l'ordre A, B (leurs réglages de facturation
+   * ne vont jamais sur le devis lui-même). Brouillon qui en avait : null les retire.
+   */
+  function submitBody() {
+    const body = requestBody(form.lines);
+    if (!proposals) return initialProposals && mode === "edit" ? { ...body, options: null } : body;
+    const { clientId, notes, paymentTerms, serviceDate, purchaseOrderRef } = body;
+    const slices = proposals.active === 0 ? [sliceOf(form), proposals.other] : [proposals.other, sliceOf(form)];
+    return {
+      clientId,
+      documentType,
+      notes,
+      paymentTerms,
+      serviceDate,
+      purchaseOrderRef,
+      options: slices.map((s, i) => {
+        // eslint-disable-next-line @typescript-eslint/no-unused-vars
+        const { clientId: _c, documentType: _t, notes: _n, paymentTerms: _p, serviceDate: _s, purchaseOrderRef: _o, ...billing } = requestBody(s.lines, s);
+        return { label: proposals.labels[i]!.trim() || `Proposition ${PROPOSAL_LETTERS[i]}`, ...billing };
+      }),
+    };
+  }
+
   // Aperçu (D3) : dans le récapitulatif dès 1280 px, où il garde une largeur lisible ; en dessous, fenêtre à la demande
   // (requêtes seulement si elle est ouverte).
   const widePreview = useMediaQuery("(min-width: 80rem)");
   const [previewOpen, setPreviewOpen] = useState(false);
   const previewLines = form.lines.filter((l) => l.description.trim() || l.unitPriceEuros.trim());
   const previewBody = useMemo(
-    () => (form.clientId && !isLocalClientId(form.clientId) && previewLines.length > 0 ? JSON.stringify(requestBody(previewLines)) : null),
+    () => (!proposals && form.clientId && !isLocalClientId(form.clientId) && previewLines.length > 0 ? JSON.stringify(requestBody(previewLines)) : null),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [form, documentType],
+    [form, documentType, proposals],
   );
-  const previewPaused = !form.clientId
+  const previewPaused = proposals
+    ? "Aperçu d'un devis à 2 propositions : il arrive avec leur PDF. Le devis reste en brouillon d'ici là."
+    : !form.clientId
     ? "Choisissez un client pour voir l'aperçu."
     : isLocalClientId(form.clientId)
       ? "Aperçu disponible une fois le client créé, au retour du réseau."
@@ -612,7 +694,7 @@ export function DocumentFormEditor({
       toast.error("Choisissez le client");
       return;
     }
-    for (const l of form.lines) {
+    for (const l of [...form.lines, ...(proposals?.other.lines ?? [])]) {
       if (l.isSubscription && !l.serviceId) {
         toast.error("Chaque ligne abonnement doit être liée à une prestation");
         return;
@@ -620,7 +702,7 @@ export function DocumentFormEditor({
     }
     setBusy(true);
     try {
-      const body = requestBody(form.lines);
+      const body = submitBody();
       if (mode === "create" && documentType === "QUOTE" && offlineEnabled()) {
         // Origine du hors ligne : devis brouillon mis en file hors ligne (jamais émis ni numéroté), sinon envoyé
         // directement ; ce que l'appareil a vu (fiche client, prix catalogue) permet de signaler un écart.
@@ -807,9 +889,48 @@ export function DocumentFormEditor({
       {isQuote ? (
         <section className="space-y-3" aria-labelledby="doc-mode">
           <h3 id="doc-mode" className={sectionTitle}>
-            Mode de facturation
+            {proposals ? "Propositions et mode de facturation" : "Mode de facturation"}
           </h3>
+          {proposals ? (
+            <div className="space-y-3" data-proposals>
+              <Segmented
+                label="Proposition affichée"
+                value={PROPOSAL_LETTERS[proposals.active]}
+                options={PROPOSAL_LETTERS.map((id) => ({ id, label: `Proposition ${id}` }))}
+                onChange={(id) => switchProposal(id === "A" ? 0 : 1)}
+              />
+              <div className="flex flex-wrap items-end gap-2">
+                <Field className="min-w-0 flex-[1_1_16rem]" label={`Nom de la proposition ${PROPOSAL_LETTERS[proposals.active]}`} hint="Vu par le client, ex. « Annuel avec engagement 3 ans ».">
+                  <Input
+                    maxLength={120}
+                    value={proposals.labels[proposals.active]}
+                    onChange={(e) =>
+                      setProposals({
+                        ...proposals,
+                        labels: proposals.active === 0 ? [e.target.value, proposals.labels[1]] : [proposals.labels[0], e.target.value],
+                      })
+                    }
+                  />
+                </Field>
+                <Button type="button" variant="ghost" onClick={() => setRemovingProposal(true)}>
+                  <FontAwesomeIcon icon={faTrashCan} aria-hidden />
+                  Retirer la proposition {PROPOSAL_LETTERS[proposals.active]}
+                </Button>
+              </div>
+              <p className="text-sm text-[var(--muted)]">
+                Le client choisit l'une des deux à la signature. Client et notes sont communs ; mode, prestations, paiement et
+                remise sont propres à chaque proposition. L'émission arrive avec le PDF des propositions : d'ici là, le devis
+                reste en brouillon.
+              </p>
+            </div>
+          ) : null}
           <BillingModeChoice value={form.billingMode} onChange={(next) => void switchBillingMode(next)} />
+          {proposals ? null : (
+            <Button type="button" variant="secondary" onClick={addProposal}>
+              <FontAwesomeIcon icon={faPlus} aria-hidden />
+              Ajouter une 2e proposition
+            </Button>
+          )}
         </section>
       ) : null}
 
@@ -1416,6 +1537,15 @@ export function DocumentFormEditor({
     >
       <DocumentPreview body={previewBody} pausedReason={previewPaused} active={previewOpen && !widePreview} kindLabel={previewKind} />
     </Modal>
+    <ConfirmDialog
+      open={removingProposal}
+      title={`Retirer la proposition ${proposals ? PROPOSAL_LETTERS[proposals.active] : ""}`}
+      message="Ses prestations, son mode et sa remise sont retirés du devis. L’autre proposition reste, seule."
+      confirmLabel="Retirer"
+      danger
+      onConfirm={removeProposal}
+      onClose={() => setRemovingProposal(false)}
+    />
     </>
   );
 }

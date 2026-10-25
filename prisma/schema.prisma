@@ -1171,6 +1171,11 @@ model Invoice {
   /// Code promo appliqué (R3) : remplit la remise ci-dessus, figée à l'émission ; exclusif des autres remises
   promoCodeId                  String?
   promoCode                    PromoCode?             @relation(fields: [promoCodeId], references: [id], onDelete: Restrict)
+  /// Devis à propositions (P1) : proposition retenue, remplie à la signature ; null sans proposition ou avant signature
+  selectedOptionId             String?
+  selectedOption               QuoteOption?           @relation("SelectedOption", fields: [selectedOptionId], references: [id], onDelete: Restrict)
+  /// Devis à propositions : 2 au plus, chacune complète ; vide pour un devis simple
+  options                      QuoteOption[]          @relation("QuoteOptions")
   /// Total du marché (devis) figé à l'émission d'un acompte/solde
   marketTotalCents             Int?
   /// Devis : base de l'acompte et de l'échéancier (partie ponctuelle, remise répartie), figée à
@@ -1370,8 +1375,12 @@ model InvoiceLine {
   groupTitle             String?
   /// Ligne « Remise pack » : prix du pack moins la somme de ses lignes ponctuelles (montant négatif)
   isPackDiscount         Boolean       @default(false)
+  /// Devis à propositions : proposition de la ligne (aucune ligne commune) ; null pour un devis simple
+  optionId               String?
+  option                 QuoteOption?  @relation(fields: [optionId], references: [id], onDelete: Cascade)
 
   @@index([invoiceId])
+  @@index([optionId])
   @@index([serviceId])
   @@index([subscriptionId])
   @@index([revisesSubscriptionId])
@@ -1665,6 +1674,10 @@ model QuoteAcceptanceAudit {
   expressExecution    Boolean?
   /// Fin du délai de rétractation (dernier jour inclus, fin de journée à Paris)
   withdrawalEndsAt    DateTime?
+  /// Devis à propositions : proposition retenue, copiée à la signature (identifiant, libellé, total), jamais modifiée
+  optionId            String?
+  optionLabel         String?
+  optionTotalCents    Int?
   createdAt           DateTime     @default(now())
 
   @@index([quoteId])
@@ -2127,4 +2140,43 @@ model PromoCode {
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
   invoices      Invoice[]
+  quoteOptions  QuoteOption[]
+}
+
+/// Proposition d'un devis (P1, 27/10/2026) : formule complète (mode, offre de paiement, remise, lignes, totaux).
+/// Le client en retient une à la signature ; ses réglages sont alors recopiés sur le devis.
+model QuoteOption {
+  id                      String         @id @default(cuid())
+  quoteId                 String
+  quote                   Invoice        @relation("QuoteOptions", fields: [quoteId], references: [id], onDelete: Cascade)
+  /// 0 = A, 1 = B
+  position                Int
+  label                   String
+  /// ONE_OFF | RECURRING
+  billingMode             String
+  /// ONE | TWO | THREE | CHOICE | NONE
+  paymentPlanOffer        String?
+  /// Remise ponctuelle, comme Invoice.discountType et discountValue
+  discountType            String         @default("NONE")
+  discountValue           Int            @default(0)
+  /// Remise récurrente, comme les champs du même nom sur Invoice (une par proposition)
+  recurringDiscountKind   String?
+  recurringDiscountValue  Int?
+  recurringDiscountMonths Int?
+  openingDiscount         Boolean        @default(false)
+  promoCodeId             String?
+  promoCode               PromoCode?     @relation(fields: [promoCodeId], references: [id], onDelete: Restrict)
+  subtotalCents           Int            @default(0)
+  totalCents              Int            @default(0)
+  depositBaseCents        Int?
+  /// Figés à l'émission, comme sur Invoice
+  legalClausesSnapshot    Json?
+  paymentScheduleSnapshot String?
+  createdAt               DateTime       @default(now())
+  updatedAt               DateTime       @updatedAt
+  lines                   InvoiceLine[]
+  selectedBy              Invoice[]      @relation("SelectedOption")
+
+  @@unique([quoteId, position])
+  @@index([promoCodeId])
 }

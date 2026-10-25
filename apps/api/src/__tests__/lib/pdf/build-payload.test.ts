@@ -90,6 +90,7 @@ describe("buildInvoicePdfPayload charte dynamique", () => {
         recurringDiscountMonths: null,
         openingDiscount: false,
         promoCodeId: null,
+        selectedOptionId: null,
         lines: [
           {
             id: "l1",
@@ -108,6 +109,7 @@ describe("buildInvoicePdfPayload charte dynamique", () => {
             revisionShiftDeferred: false,
             groupTitle: null,
             isPackDiscount: false,
+            optionId: null,
           subscriptionStart: null,
           subscriptionStartDate: null,
           subscriptionFreeMonths: null,
