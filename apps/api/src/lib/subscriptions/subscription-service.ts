@@ -452,6 +452,22 @@ export async function scheduleSubscriptionEnd(id: string, now = new Date()) {
   return scheduled;
 }
 
+/**
+ * « Annuler la fin programmée » (erreur de clic, client qui reste) : l'abonnement reprend sa reconduction ; sous Stripe,
+ * cancel_at est retiré d'abord (si Stripe échoue, rien ne change). Refusé après un rachat signé : la fin en découle.
+ */
+export async function cancelScheduledEnd(id: string) {
+  const sub = await findForStatusChange(id);
+  if (sub.status === SubscriptionStatus.ENDED) throw new SubscriptionError("Cet abonnement est déjà clôturé");
+  if (!sub.endDate) throw new SubscriptionError("Aucune fin n'est programmée");
+  const boughtOut = await prisma.invoice.count({
+    where: { buysOutSubscriptionId: id, documentType: InvoiceDocumentType.QUOTE, quoteStatus: QuoteStatus.ACCEPTED },
+  });
+  if (boughtOut) throw new SubscriptionError("Rachat signé : la fin de l'abonnement en découle et ne s'annule pas ici.");
+  if (sub.stripeSubscriptionId) await applyStripeSubscriptionAction(sub.stripeSubscriptionId, "keepRenewing", sub.stripeLivemode);
+  return prisma.subscription.update({ where: { id }, data: { endDate: null, ...(sub.stripeSubscriptionId ? { stripeCancelAt: null } : {}) } });
+}
+
 /** Worker : tout abonnement dont la fin programmée est passée (rachat, non-reconduction, date de fin) est clôturé. */
 export async function closeEndedSubscriptions(now = new Date()): Promise<number> {
   const closed = await prisma.subscription.updateMany({

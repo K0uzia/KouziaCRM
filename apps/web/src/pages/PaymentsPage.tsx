@@ -11,6 +11,7 @@ import { DataTable, type DataColumn } from "@/components/ui/DataTable";
 import { ListRow } from "@/components/ui/ListRow";
 import { DocumentNumberBadge } from "@/components/documents/DocumentNumberBadge";
 import { PaymentForm } from "@/components/payments/PaymentForm";
+import { UnattachedPayments } from "@/components/payments/UnattachedPayments";
 import { Field } from "@/components/ui/Field";
 import { Combobox } from "@/components/ui/Combobox";
 import { useCreateParam } from "@/lib/use-create-param";
@@ -209,6 +210,8 @@ export function PaymentsPage() {
           </Button>
         }
       />
+
+      <UnattachedPayments onChanged={() => void load()} />
 
       <StatStrip
         busy={loading}

@@ -77,6 +77,8 @@ type Doc = {
   number: string | null;
   /** Devis préparé hors ligne et créé avec un écart : motif court, jusqu'à relecture ou émission. */
   offlineReviewReason?: string | null;
+  /** Prélèvement SEPA lancé, résultat attendu (lien de paiement et relances suspendus). */
+  paymentProcessingAt?: string | null;
   status: string;
   quoteStatus?: string | null;
   quoteDecidedAt?: string | null;
@@ -620,6 +622,7 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
   const [linked, setLinked] = useState<Doc[]>([]);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [payingMilestoneId, setPayingMilestoneId] = useState<string | null>(null);
+  const [unlockTarget, setUnlockTarget] = useState<{ kind: "invoice" } | { kind: "milestone"; id: string } | null>(null);
   const [issueOpen, setIssueOpen] = useState(false);
   const [issueBusy, setIssueBusy] = useState(false);
   // « Vérifier l'e-mail » : document à renvoyer, relance à relire (E6c).
@@ -1013,6 +1016,20 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
     }
   }
 
+  async function unlockProcessing() {
+    if (!unlockTarget) return;
+    const target = unlockTarget;
+    setUnlockTarget(null);
+    try {
+      const url = target.kind === "invoice" ? `/api/invoices/${id}/clear-processing` : `/api/quotes/${id}/milestones/${target.id}/clear-processing`;
+      await api(url, { method: "POST" });
+      toast.success(target.kind === "invoice" ? "Prélèvement débloqué : la facture est de nouveau payable" : "Prélèvement débloqué : l'échéance est de nouveau payable");
+      await load();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Erreur");
+    }
+  }
+
   async function savePaymentLink(
     milestoneId: string,
     checkoutUrl: string,
@@ -1045,6 +1062,14 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
       <ReminderDialog documentId={reminderOpen ? (id ?? null) : null} onClose={() => setReminderOpen(false)} onDone={() => load()} />
       {id ? <MilestoneLinkDialog quoteId={id} milestoneId={milestoneEmailFor} onClose={() => setMilestoneEmailFor(null)} onDone={() => load()} /> : null}
       <ReceiptDialog invoiceId={receiptFor} onClose={() => setReceiptFor(null)} onDone={() => load()} />
+      <ConfirmDialog
+        open={Boolean(unlockTarget)}
+        title="Débloquer le prélèvement en cours"
+        message="À faire seulement après avoir vérifié dans Stripe que ce prélèvement n'aboutira pas (échoué, annulé ou introuvable). Le document redevient payable : lien de paiement et relances reprennent. Si le prélèvement réussit malgré tout, il sera enregistré à sa réception."
+        confirmLabel="Débloquer"
+        onConfirm={() => void unlockProcessing()}
+        onClose={() => setUnlockTarget(null)}
+      />
       <PageHeader
         title={
           doc.number ??
@@ -1384,6 +1409,7 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
               onGenerateAcompte={(mid) => openDepositBilling(mid)}
               onGenerateSolde={(force) => generateSolde(Boolean(force))}
               onManualPay={(mid) => setPayingMilestoneId(mid)}
+              onClearProcessing={(mid) => setUnlockTarget({ kind: "milestone", id: mid })}
               onSavePaymentLink={(mid, url, send) => savePaymentLink(mid, url, send)}
               signed={quoteSigned}
               lockedReason={lockedReason}
@@ -1497,6 +1523,20 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
               >
                 Trop-perçu de {formatEUR(overpaid)} : le client a payé plus que le net de la facture. Remboursez-le, puis
                 enregistrez le virement (ligne négative au livre des recettes).
+              </Banner>
+            ) : null}
+            {!isQuote && doc.status === "ISSUED" && doc.paymentProcessingAt ? (
+              <Banner
+                level="info"
+                className="mt-4"
+                action={
+                  <Button variant="secondary" onClick={() => setUnlockTarget({ kind: "invoice" })}>
+                    Débloquer
+                  </Button>
+                }
+              >
+                Prélèvement en cours depuis le {formatDate(doc.paymentProcessingAt)} : lien de paiement et relances suspendus
+                jusqu&apos;à son résultat. S&apos;il est bloqué (vérifié dans Stripe), débloquez-le pour rendre la facture payable.
               </Banner>
             ) : null}
             {isQuote && doc.quoteDecidedAt ? (

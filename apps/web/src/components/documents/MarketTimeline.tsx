@@ -83,6 +83,7 @@ export function MarketTimeline({
   onGenerateAcompte,
   onGenerateSolde,
   onManualPay,
+  onClearProcessing,
   onSavePaymentLink,
   busyId,
   allowManualLink = true,
@@ -93,6 +94,8 @@ export function MarketTimeline({
   onGenerateAcompte: (milestoneId: string) => void;
   onGenerateSolde: (force?: boolean) => void;
   onManualPay?: (milestoneId: string) => void;
+  /** « Débloquer » un prélèvement noté en cours (webhook perdu, vérifié dans Stripe). */
+  onClearProcessing?: (milestoneId: string) => void;
   onSavePaymentLink?: (
     milestoneId: string,
     checkoutUrl: string,
@@ -205,9 +208,16 @@ export function MarketTimeline({
                     </p>
                     <Badge tone={statusTone(m.status)}>{statusLabel(m.status)}</Badge>
                     {m.paymentProcessingAt && m.status !== "PAID" && m.status !== "CANCELLED" ? (
-                      <Badge tone="blue">
-                        Prélèvement en cours depuis le {new Date(m.paymentProcessingAt).toLocaleDateString("fr-FR")}
-                      </Badge>
+                      <>
+                        <Badge tone="blue">
+                          Prélèvement en cours depuis le {new Date(m.paymentProcessingAt).toLocaleDateString("fr-FR")}
+                        </Badge>
+                        {onClearProcessing ? (
+                          <Button variant="ghost" className="min-h-11" onClick={() => onClearProcessing(m.id)}>
+                            Débloquer
+                          </Button>
+                        ) : null}
+                      </>
                     ) : null}
                   </div>
                   <p className="mt-0.5 text-xs text-[var(--muted)]">

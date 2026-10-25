@@ -1345,6 +1345,9 @@ model InvoiceLine {
   /// Devis d'avenant : abonnement révisé par cette ligne (mis à jour à l'acceptation au lieu d'en créer un)
   revisesSubscriptionId  String?
   revisesSubscription    Subscription? @relation("SubscriptionRevisions", fields: [revisesSubscriptionId], references: [id], onDelete: SetNull)
+  /// Avenant signé sans décalage de l'échéance (posé à la signature) : décalée à la conversion en facture, une fois.
+  /// false pour un devis signé avant la migration 20261215090000 (décalé à la signature).
+  revisionShiftDeferred  Boolean       @default(false)
   /// Titre du pack sous lequel la ligne est groupée (PDF, e-mail, vue) ; null hors pack
   groupTitle             String?
   /// Ligne « Remise pack » : prix du pack moins la somme de ses lignes ponctuelles (montant négatif)

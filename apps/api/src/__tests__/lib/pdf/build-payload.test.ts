@@ -100,6 +100,7 @@ describe("buildInvoicePdfPayload charte dynamique", () => {
             serviceId: null,
             subscriptionId: null,
             revisesSubscriptionId: null,
+            revisionShiftDeferred: false,
             groupTitle: null,
             isPackDiscount: false,
           subscriptionStart: null,

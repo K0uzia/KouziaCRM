@@ -172,6 +172,8 @@ type Overview = DashboardData & {
   renewals?: Array<{ id: string; clientId: string; displayName: string; label: string; provider: string | null; renewsAt: string; notifyClient: boolean }>;
   /** Avenants acceptés, antérieurs aux abonnements multiples, dont l'abonnement révisé reste à choisir. */
   revisionsToAttach?: Array<{ lineId: string; quoteId: string; quoteNumber: string | null; displayName: string; description: string }>;
+  /** Paiements reçus sans facture (Stripe), à rattacher. */
+  unattachedPayments?: { count: number; totalCents: number } | null;
   /** Blocs secondaires en échec ou trop lents côté serveur : affichés comme indisponibles, pas comme vides. */
   indisponibles?: string[];
 };
@@ -344,6 +346,7 @@ export function DashboardPage() {
   const pendingStarts = data?.pendingStarts ?? [];
   const renewals = data?.renewals ?? [];
   const revisionsToAttach = data?.revisionsToAttach ?? [];
+  const unattached = data?.unattachedPayments ?? null;
   const deposit2Rows = [
     ...(data?.deposit2?.toInvoice ?? []).map((q) => ({ ...q, kind: "toInvoice" as const })),
     ...(data?.deposit2?.missingStep ?? []).map((q) => ({ ...q, kind: "missingStep" as const })),
@@ -740,7 +743,7 @@ export function DashboardPage() {
             <SectionTitle
               action={
                 <span className="rounded-full bg-[var(--surface-hover)] px-2 text-xs font-medium tabular-nums leading-6 text-[var(--muted)]">
-                  {ready ? obligationAlerts + (echeanceDue ? 1 : 0) + ((data?.drafts ?? 0) > 0 ? 1 : 0) + (mailStale ? 1 : 0) + (companyEmailAlert ? 1 : 0) + deposit2Rows.length + pendingStarts.length + renewals.length + revisionsToAttach.length : <Skeleton className="w-3" />}
+                  {ready ? obligationAlerts + (echeanceDue ? 1 : 0) + ((data?.drafts ?? 0) > 0 ? 1 : 0) + (mailStale ? 1 : 0) + (companyEmailAlert ? 1 : 0) + deposit2Rows.length + pendingStarts.length + renewals.length + revisionsToAttach.length + (unattached ? 1 : 0) : <Skeleton className="w-3" />}
                 </span>
               }
             >
@@ -748,7 +751,7 @@ export function DashboardPage() {
             </SectionTitle>
             {!ready ? (
               <SkeletonRows count={2} rowClass="flex min-h-15 items-center px-5 py-3" />
-            ) : obligationAlerts === 0 && !echeanceDue && (data?.drafts ?? 0) === 0 && !mailStale && !companyEmailAlert && deposit2Rows.length === 0 && pendingStarts.length === 0 && renewals.length === 0 && revisionsToAttach.length === 0 ? (
+            ) : obligationAlerts === 0 && !echeanceDue && (data?.drafts ?? 0) === 0 && !mailStale && !companyEmailAlert && deposit2Rows.length === 0 && pendingStarts.length === 0 && renewals.length === 0 && revisionsToAttach.length === 0 && !unattached ? (
               <p className="px-5 py-6 text-center text-sm text-[var(--muted)]">Rien en attente. Tout est à jour.</p>
             ) : (
               <ul className="divide-y divide-[var(--border)] px-5">
@@ -778,6 +781,19 @@ export function DashboardPage() {
                     action={
                       <Link to="/inbox" className="link inline-flex min-h-11 items-center gap-1 text-sm">
                         Voir <FontAwesomeIcon icon={faArrowRight} className="h-3 w-3" aria-hidden />
+                      </Link>
+                    }
+                  />
+                ) : null}
+                {unattached ? (
+                  <TodoRow
+                    icon={faLink}
+                    tone="danger"
+                    title={`${unattached.count} paiement${unattached.count > 1 ? "s" : ""} reçu${unattached.count > 1 ? "s" : ""} sans facture`}
+                    detail={`${formatEUR(unattached.totalCents)} encaissés à rattacher à une facture (ou à rembourser)`}
+                    action={
+                      <Link to="/payments?rattacher=1" className="link inline-flex min-h-11 items-center gap-1 text-sm">
+                        Rattacher <FontAwesomeIcon icon={faArrowRight} className="h-3 w-3" aria-hidden />
                       </Link>
                     }
                   />

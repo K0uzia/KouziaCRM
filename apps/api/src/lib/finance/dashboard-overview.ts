@@ -1,3 +1,4 @@
+import { prisma } from "@/lib/prisma.js";
 import { getDashboardSnapshot } from "@/lib/finance/dashboard-service.js";
 import type { CashflowScope } from "@/lib/finance/cashflow-service.js";
 import { getOwnerPaySummary } from "@/lib/finance/owner-pay.js";
@@ -47,7 +48,7 @@ async function optional<T>(label: string, run: () => Promise<T>, indisponibles: 
  */
 export async function getDashboardOverview(scope: CashflowScope) {
   const indisponibles: string[] = [];
-  const [snapshot, reminders, mrr, obligations, mail, mailSync, ownerPay, pendingStarts, renewals, revisionsToAttach] = await Promise.all([
+  const [snapshot, reminders, mrr, obligations, mail, mailSync, ownerPay, pendingStarts, renewals, revisionsToAttach, unattached] = await Promise.all([
     getDashboardSnapshot(scope),
     optional("relances", listPendingReminders, indisponibles),
     optional("abonnements", () => computeMrrCents(), indisponibles),
@@ -66,6 +67,12 @@ export async function getDashboardOverview(scope: CashflowScope) {
     optional("délais de rétractation", () => listPendingStarts(), indisponibles),
     optional("renouvellements chez l'hébergeur", () => listDueClientRenewals(), indisponibles),
     optional("avenants à rattacher", () => listRevisionsToAttach(), indisponibles),
+    // Paiements reçus sans facture (Stripe) : à rattacher, signalés tant qu'il en reste.
+    optional(
+      "paiements sans facture",
+      () => prisma.payment.aggregate({ where: { invoiceId: null, amountCents: { gt: 0 } }, _count: true, _sum: { amountCents: true } }),
+      indisponibles,
+    ),
   ]);
 
   const cfe = obligations?.items
@@ -86,6 +93,7 @@ export async function getDashboardOverview(scope: CashflowScope) {
     pendingStarts: pendingStarts ?? [],
     renewals: renewals ?? [],
     revisionsToAttach: (revisionsToAttach ?? []).map((r) => ({ lineId: r.lineId, quoteId: r.quoteId, quoteNumber: r.quoteNumber, displayName: r.displayName, description: r.description })),
+    unattachedPayments: unattached && unattached._count > 0 ? { count: unattached._count, totalCents: unattached._sum.amountCents ?? 0 } : null,
     indisponibles,
   };
 }
