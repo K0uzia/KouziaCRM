@@ -3,6 +3,7 @@ import { formatEUR } from "@/lib/money.js";
 import type { EmailBrand } from "@/lib/email/templates.js";
 import { renderEmailHtml } from "@/lib/email/layout.js";
 import { formatPlainTextSignature } from "@/lib/email/signature.js";
+import { templateText } from "@/lib/email/template-registry.js";
 
 export function buildEmailBrand(settings: CompanySettings): EmailBrand {
   return {
@@ -27,7 +28,7 @@ function greeting(name?: string | null): string {
   return n ? `Bonjour ${n},` : "Bonjour,";
 }
 
-export function renderDepositCheckoutEmail(opts: {
+export async function renderDepositCheckoutEmail(opts: {
   brand: EmailBrand;
   settings: Pick<CompanySettings, "emailSignatureHtml">;
   brandPrimaryColor: string;
@@ -43,21 +44,33 @@ export function renderDepositCheckoutEmail(opts: {
   const isSolde =
     opts.depositIndex === opts.depositTotal ||
     /solde/i.test(opts.label ?? "");
-  const subject = isSolde
-    ? `Devis validé : réglez le solde`
-    : `Devis validé : réglez l'acompte`;
-  const what = isSolde
-    ? `le solde (${fmtEur(opts.amountCents)})`
-    : `l'acompte (${fmtEur(opts.amountCents)})`;
-  const text = [
-    greeting(opts.clientFirstName ?? opts.clientName),
-    "",
-    `Votre devis ${opts.quoteNumber} est validé. Merci de régler ${what}.`,
-    "",
-    `Payer en ligne : ${opts.checkoutUrl}`,
-    "",
-    formatPlainTextSignature(opts.settings, opts.brand),
-  ].join("\n");
+  const original = {
+    subject: isSolde ? `Devis validé : réglez le solde` : `Devis validé : réglez l'acompte`,
+    body: [
+      greeting(opts.clientFirstName ?? opts.clientName),
+      "",
+      `Votre devis ${opts.quoteNumber} est validé. Merci de régler ${isSolde ? "le solde" : "l'acompte"} (${fmtEur(opts.amountCents)}).`,
+      "",
+      `Payer en ligne : ${opts.checkoutUrl}`,
+    ].join("\n"),
+  };
+  // Modèle modifié dans Réglages (M3a) : objet et texte remplis ; sinon le texte ci-dessus.
+  const content = await templateText(
+    "payment.deposit_link",
+    {
+      salutation: greeting(opts.clientFirstName ?? opts.clientName),
+      prenom: opts.clientFirstName?.trim() ?? "",
+      client: opts.clientName,
+      devis: opts.quoteNumber,
+      echeance: isSolde ? "le solde" : "l'acompte",
+      montant: fmtEur(opts.amountCents),
+      libelle_jalon: opts.label ?? "",
+      lien_paiement: opts.checkoutUrl,
+    },
+    original,
+  );
+  const subject = content.subject;
+  const text = [content.body, "", formatPlainTextSignature(opts.settings, opts.brand)].join("\n");
 
   const html = renderEmailHtml({
     text,
@@ -70,7 +83,7 @@ export function renderDepositCheckoutEmail(opts: {
   return { subject, text, html };
 }
 
-export function renderDepositPaidEmail(opts: {
+export async function renderDepositPaidEmail(opts: {
   brand: EmailBrand;
   settings: Pick<CompanySettings, "emailSignatureHtml">;
   clientFirstName?: string | null;
@@ -82,15 +95,28 @@ export function renderDepositPaidEmail(opts: {
 }) {
   const isSolde = /solde/i.test(opts.label ?? "");
   const kind = isSolde ? "solde" : "acompte";
-  const subject = `Paiement reçu : ${kind} - devis ${opts.quoteNumber}`;
-  const text = [
-    greeting(opts.clientFirstName ?? opts.clientName),
-    "",
-    `Nous avons bien reçu votre paiement de ${fmtEur(opts.amountCents)} (${kind} sur le devis ${opts.quoteNumber}).`,
-    "Merci pour votre confiance.",
-    "",
-    formatPlainTextSignature(opts.settings, opts.brand),
-  ].join("\n");
+  const content = await templateText(
+    "payment.deposit_paid",
+    {
+      salutation: greeting(opts.clientFirstName ?? opts.clientName),
+      prenom: opts.clientFirstName?.trim() ?? "",
+      client: opts.clientName,
+      devis: opts.quoteNumber,
+      nature: kind,
+      montant: fmtEur(opts.amountCents),
+    },
+    {
+      subject: `Paiement reçu : ${kind} - devis ${opts.quoteNumber}`,
+      body: [
+        greeting(opts.clientFirstName ?? opts.clientName),
+        "",
+        `Nous avons bien reçu votre paiement de ${fmtEur(opts.amountCents)} (${kind} sur le devis ${opts.quoteNumber}).`,
+        "Merci pour votre confiance.",
+      ].join("\n"),
+    },
+  );
+  const subject = content.subject;
+  const text = [content.body, "", formatPlainTextSignature(opts.settings, opts.brand)].join("\n");
 
   return { subject, text };
 }

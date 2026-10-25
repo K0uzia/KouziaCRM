@@ -117,6 +117,78 @@ export const TEMPLATE_REGISTRY: readonly TemplateDefinition[] = [
     subject: "Relance formelle : {{document}} {{numero}}",
     body: "{{salutation}}\n\nMalgré mes précédents rappels, le {{document}} {{numero}} demeure impayé.\nSans règlement sous huit jours, les conditions de retard de paiement suivantes pourront être appliquées : (clause des Réglages)\n\nRégler en ligne : {{lien_paiement}}",
   },
+  // M3a (paiements, 26/10/2026).
+  {
+    key: "payment.receipt",
+    family: "payment_receipt",
+    label: "Reçu de paiement",
+    recipient: "client",
+    variables: [
+      SALUTATION,
+      NUMERO,
+      { name: "montant", label: "Montant reçu", example: "450,00 €" },
+      { name: "document", label: "Facture réglée (nature, numéro, devis)", example: "la facture d'acompte F-2026-0042 (devis D-2026-0012)" },
+      { name: "facture_reglee", label: "« réglée » si la facture est soldée, sinon vide (objet)", example: "réglée" },
+      { name: "etat_reglement", label: "Facture soldée ou reste à régler", example: "La facture est entièrement réglée." },
+      { name: "pieces_jointes", label: "Pièces jointes (reçu et facture)", example: "Vous trouverez ci-joint le reçu de ce paiement et la facture F-2026-0042." },
+      { name: "suite_projet", label: "Démarrage du projet (acompte soldé ; retiré sinon)", example: "Le projet démarre : je reviens vers vous très vite pour les prochaines étapes." },
+    ],
+    required: ["montant", "etat_reglement"],
+    subject: "Paiement reçu : facture {{numero}} {{facture_reglee}}",
+    body: "{{salutation}}\n\nNous avons bien reçu votre paiement de {{montant}} pour {{document}}. Merci !\n{{etat_reglement}} {{pieces_jointes}}\n\n{{suite_projet}}",
+  },
+  {
+    key: "payment.deposit_link",
+    family: "payment_link",
+    label: "Lien de paiement d'un acompte ou du solde",
+    recipient: "client",
+    variables: [
+      ...COMMON,
+      { name: "devis", label: "Numéro du devis", example: "D-2026-0012" },
+      { name: "echeance", label: "« l'acompte » ou « le solde »", example: "l'acompte" },
+      { name: "montant", label: "Montant à régler", example: "450,00 €" },
+      { name: "libelle_jalon", label: "Libellé de l'échéance", example: "Acompte" },
+      { name: "lien_paiement", label: "Lien de paiement en ligne", example: "https://erp.kouzia.com/api/public/pay/abc" },
+    ],
+    required: ["montant", "lien_paiement"],
+    subject: "Devis validé : réglez {{echeance}}",
+    body: "{{salutation}}\n\nVotre devis {{devis}} est validé. Merci de régler {{echeance}} ({{montant}}).\n\nPayer en ligne : {{lien_paiement}}",
+  },
+  {
+    key: "payment.deposit_paid",
+    family: "payment_receipt",
+    label: "Acompte reçu (avant sa facture)",
+    recipient: "client",
+    variables: [
+      ...COMMON,
+      { name: "devis", label: "Numéro du devis", example: "D-2026-0012" },
+      { name: "nature", label: "« acompte » ou « solde »", example: "acompte" },
+      { name: "montant", label: "Montant reçu", example: "450,00 €" },
+    ],
+    required: ["montant"],
+    subject: "Paiement reçu : {{nature}} - devis {{devis}}",
+    body: "{{salutation}}\n\nNous avons bien reçu votre paiement de {{montant}} ({{nature}} sur le devis {{devis}}).\nMerci pour votre confiance.",
+  },
+  {
+    key: "payment.failed",
+    family: "payment_issue",
+    label: "Paiement non abouti (prélèvement refusé)",
+    recipient: "client",
+    variables: [
+      SALUTATION,
+      { name: "reference", label: "Référence (« devis D-… » ou numéro de facture)", example: "F-2026-0042" },
+      { name: "paiement", label: "Paiement concerné", example: "Le paiement de la facture F-2026-0042" },
+      { name: "montant", label: "Montant", example: "450,00 €" },
+      {
+        name: "bloc_reglement",
+        label: "Moyens de régler (lien en ligne, IBAN et référence)",
+        example: "Vous pouvez le régler à nouveau en ligne : https://erp.kouzia.com/api/public/pay/abc\n\nOu par virement sur l'IBAN FR76 …, en indiquant la référence F-2026-0042.",
+      },
+    ],
+    required: ["montant", "bloc_reglement"],
+    subject: "Paiement non abouti : {{reference}}",
+    body: "{{salutation}}\n\n{{paiement}} ({{montant}}) n'a pas abouti.\n\n{{bloc_reglement}}\n\nUne question ? Répondez simplement à cet e-mail.",
+  },
 ];
 
 const BY_KEY = new Map(TEMPLATE_REGISTRY.map((t) => [t.key, t]));
@@ -160,7 +232,8 @@ export function fillTemplate(text: string, values: Record<string, string | null 
   for (const line of text.split("\n")) {
     const names = variablesIn(line);
     if (names.length > 0 && names.every((n) => !values[n]?.trim())) continue;
-    kept.push(line.replace(VARIABLE, (_m, n: string) => values[n] ?? ""));
+    // Espaces de fin retirés : une variable facultative vide en fin de ligne (« réglée ») ne laisse pas d'espace.
+    kept.push(line.replace(VARIABLE, (_m, n: string) => values[n] ?? "").replace(/[ \t]+$/, ""));
   }
   const out: string[] = [];
   for (const line of kept.join("\n").split("\n")) {
@@ -169,6 +242,19 @@ export function fillTemplate(text: string, values: Record<string, string | null 
   }
   while (out.length && out[out.length - 1]!.trim() === "") out.pop();
   return out.join("\n");
+}
+
+/**
+ * Objet et texte (sans signature) d'un e-mail : le modèle modifié rempli avec ses variables, sinon le texte du code,
+ * inchangé. La signature et la mise en page restent à l'appelant.
+ */
+export async function templateText(
+  key: string,
+  values: Record<string, string | null | undefined>,
+  original: { subject: string; body: string },
+): Promise<{ subject: string; body: string }> {
+  const override = await templateOverride(key);
+  return override ? { subject: fillTemplate(override.subject, values), body: fillTemplate(override.body, values) } : original;
 }
 
 /** Modèle modifié d'une clé, ou null : sans modification (ou modèle verrouillé), le code d'origine construit l'e-mail. */
