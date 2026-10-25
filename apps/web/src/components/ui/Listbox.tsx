@@ -47,7 +47,7 @@ export function Listbox({
   const baseId = useId();
   const listId = `${baseId}-liste`;
   const optionId = (i: number) => `${baseId}-option-${i}`;
-  const position = useAnchoredPanel(open, triggerRef, { minWidth: 0, maxHeight: MAX_HEIGHT, flipBelow: 200 });
+  const position = useAnchoredPanel(open, triggerRef, { minWidth: 0, maxHeight: MAX_HEIGHT, flipBelow: 200, fitContent: listRef });
 
   // Nom de la liste : celui du champ (aria-label, sinon le libellé du <label> qui l'entoure, sans son aide).
   const [listName, setListName] = useState("");

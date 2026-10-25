@@ -44,6 +44,25 @@ export function ModalActions({ children }: { children: ReactNode }) {
   );
 }
 
+/**
+ * La page de l'ERP défile dans <main id="contenu"> (AppLayout), pas dans body : figée aussi pendant une modale, sinon
+ * sa barre reste visible et active derrière le voile. La gouttière garde la place de la barre (pas de saut de mise en page).
+ */
+function lockPageScroll() {
+  const main = document.getElementById("contenu");
+  if (!main || main.dataset.modalLock) return;
+  main.dataset.modalLock = "1";
+  if (main.scrollHeight > main.clientHeight) main.style.scrollbarGutter = "stable";
+  main.style.overflowY = "hidden";
+}
+function unlockPageScroll() {
+  const main = document.getElementById("contenu");
+  if (!main?.dataset.modalLock) return;
+  delete main.dataset.modalLock;
+  main.style.overflowY = "";
+  main.style.scrollbarGutter = "";
+}
+
 export function Modal({
   open,
   onClose,
@@ -113,10 +132,13 @@ export function Modal({
     };
     document.addEventListener("keydown", onKey);
     document.body.style.overflow = "hidden";
+    lockPageScroll();
     return () => {
       document.removeEventListener("keydown", onKey);
       // Une modale reste ouverte dessous : la page derrière ne défile toujours pas.
-      document.body.style.overflow = document.querySelector("[data-modal-panel]") ? "hidden" : "";
+      const stillOpen = Boolean(document.querySelector("[data-modal-panel]"));
+      document.body.style.overflow = stillOpen ? "hidden" : "";
+      if (!stillOpen) unlockPageScroll();
       previous?.focus?.();
     };
   }, [open]);
