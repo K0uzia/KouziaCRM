@@ -461,6 +461,49 @@ export const TEMPLATE_REGISTRY: readonly TemplateDefinition[] = [
 const BY_KEY = new Map(TEMPLATE_REGISTRY.map((t) => [t.key, t]));
 export const templateDefinition = (key: string) => BY_KEY.get(key) ?? null;
 
+/** Type technique d'un e-mail (EmailOutbox kind) et modèle qui en donne le texte ; absent : texte du code seul. */
+const KIND_TEMPLATE: Record<string, string> = {
+  quote: "document.quote",
+  invoice: "document.invoice",
+  invoice_acompte: "document.invoice_acompte",
+  invoice_solde: "document.invoice_solde",
+  credit_note: "document.credit_note",
+  reminder_soft: "reminder.soft",
+  reminder_firm: "reminder.firm",
+  reminder_formal: "reminder.formal",
+  deposit_checkout: "payment.deposit_link",
+  payment_received: "payment.deposit_paid",
+  payment_failed: "payment.failed",
+  subscription_setup: "subscription.setup",
+  subscription_payment_failed: "subscription.payment_failed",
+  subscription_payment_recovered: "subscription.payment_recovered",
+  subscription_suspended: "subscription.suspended",
+  subscription_action_required: "subscription.action_required",
+  subscription_action_reminder: "subscription.action_required",
+  subscription_cancel_scheduled: "subscription.cancel_scheduled",
+  subscription_cancel_revoked: "subscription.cancel_revoked",
+  subscription_cancel_request: "subscription.cancel_request",
+  subscription_renewal: "subscription.renewal",
+  subscription_term_end: "subscription.term_end",
+  subscription_term_end_buyout: "subscription.term_end_buyout",
+  subscription_first_charge: "subscription.first_charge",
+  subscription_card_expiring: "subscription.card_expiring",
+  access: "access.welcome",
+  onboarding: "onboarding.invite",
+  client_renewal: "client.renewal",
+  portal_alert: "access.new_device",
+};
+
+/**
+ * Modèle d'un e-mail d'après son type et sa famille de validation (« Modifier le modèle ») ; null s'il n'en a pas. Le reçu
+ * de paiement part sous le type de sa facture : la famille le distingue ; une confirmation de signature n'a pas de modèle.
+ */
+export function templateKeyFor(kind: string | null | undefined, family?: string | null): string | null {
+  if (family === "signature_confirmation" || family === "subscription_invoice" || family === "review_invite") return null;
+  if (family === "payment_receipt" && kind !== "payment_received") return "payment.receipt";
+  return (kind && KIND_TEMPLATE[kind]) || null;
+}
+
 const VARIABLE = /\{\{\s*([a-z_]+)\s*\}\}/g;
 
 /** Variables citées dans un texte (« {{numero}} »). */

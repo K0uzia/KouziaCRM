@@ -5,9 +5,11 @@ import type { ReviewOptions } from "@/lib/email/review.js";
 import { loadDocumentForPdf, renderLoadedDocumentPdf } from "@/lib/pdf/document-pdf.js";
 import { resolveClientPortalUrl } from "@/lib/email/portal-url.js";
 import { resolveInvoicePaymentUrl } from "@/lib/email/payment-url.js";
+import { templateKeyFor } from "@/lib/email/template-registry.js";
 
 /** E-mail tel que l'ERP l'enverrait, pour la fenêtre « Vérifier l'e-mail » (rien n'est envoyé ni préparé). */
-export type EmailDraft = { to: string; subject: string; text: string; attachments: string[] };
+/** templateKey : modèle qui donne le texte (« Modifier le modèle » de « Vérifier l'e-mail »), absent sans modèle. */
+export type EmailDraft = { to: string; subject: string; text: string; attachments: string[]; templateKey?: string | null };
 
 export type SendDocumentPdfResult = {
   sent: boolean;
@@ -130,7 +132,7 @@ export async function sendDocumentPdf(
     const attachKind = isQuote ? "Devis" : isCredit ? "Avoir" : "Facture";
     const filename = pdfAttachmentFilename(attachKind, invoice.number, clientName);
     if (opts.draft) {
-      return { sent: false, draft: { to: email, subject, text, attachments: [filename, ...(opts.extraAttachments ?? []).map((a) => a.filename)] } };
+      return { sent: false, draft: { to: email, subject, text, attachments: [filename, ...(opts.extraAttachments ?? []).map((a) => a.filename)], templateKey: templateKeyFor(kind) } };
     }
 
     // Facture ou avoir émis : le PDF archivé part en pièce jointe (jamais un nouveau rendu).

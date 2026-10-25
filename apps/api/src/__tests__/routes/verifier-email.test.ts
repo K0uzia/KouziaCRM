@@ -53,6 +53,7 @@ describe("Vérifier l'e-mail : accès à l'espace client", () => {
     const c = await clientWithEmail();
     const draft = await get(`/api/clients/${c.id}/portal/welcome/draft`);
     expect(draft.statusCode).toBe(200);
+    expect(draft.json().templateKey).toBe("access.welcome");
     expect(draft.json()).toMatchObject({ to: "lou@example.com", attachments: [] });
     expect(draft.json().text).toContain("Votre espace client est prêt");
     expect(await prisma.emailOutbox.count()).toBe(0);
@@ -70,6 +71,7 @@ describe("Vérifier l'e-mail : invitation à compléter la fiche", () => {
   it("brouillon avec {{lien}} ; à l'envoi, le lien personnel le remplace, ou s'ajoute s'il a été retiré", async () => {
     const draft = await get(`/api/onboarding/invite/draft?email=${encodeURIComponent("Prospect@Example.com")}`);
     expect(draft.statusCode).toBe(200);
+    expect(draft.json().templateKey).toBe("onboarding.invite");
     expect(draft.json()).toMatchObject({ to: "prospect@example.com" });
     expect(draft.json().text).toContain("{{lien}}");
     expect(await prisma.onboardingInvitation.count()).toBe(0);
@@ -119,6 +121,7 @@ describe("Vérifier l'e-mail : relance et renvoi du document", () => {
     await prisma.invoice.update({ where: { id: inv.id }, data: { checkoutUrl: null } });
     const draft = await get(`/api/invoices/${inv.id}/send-email/draft`);
     expect(draft.statusCode).toBe(200);
+    expect(draft.json().templateKey).toBe("document.invoice");
     expect(draft.json().subject).toContain(inv.number!);
     expect(draft.json().attachments).toHaveLength(1);
     expect(draft.json().attachments[0]).toMatch(/\.pdf$/);
@@ -159,6 +162,7 @@ describe("Vérifier l'e-mail (2e partie) : reçu, avoir, lien d'acompte", () => 
 
     const draft = await get(`/api/invoices/${inv.id}/receipt/draft?paymentId=${paymentId}`);
     expect(draft.statusCode).toBe(200);
+    expect(draft.json().templateKey).toBe("payment.receipt");
     expect(draft.json().text).toContain("Nous avons bien reçu votre paiement de 50,00");
     expect(draft.json().attachments).toHaveLength(2);
     expect(await prisma.emailOutbox.count()).toBe(0);
@@ -197,6 +201,7 @@ describe("Vérifier l'e-mail (2e partie) : reçu, avoir, lien d'acompte", () => 
     });
     const draft = await get(`/api/quotes/${quote.id}/milestones/${ms.id}/payment-link/draft`);
     expect(draft.statusCode).toBe(200);
+    expect(draft.json().templateKey).toBe("payment.deposit_link");
     expect(draft.json().text).toContain("https://paiement.example/abc");
     expect(await prisma.emailOutbox.count()).toBe(0);
     const sent = await post(`/api/quotes/${quote.id}/milestones/${ms.id}/payment-link/email`, { subject: "Votre acompte", text: "Bonjour Lou,\n\nLien : https://paiement.example/abc" });

@@ -5,6 +5,7 @@ import {
   faBuilding,
   faCreditCard,
   faEnvelope,
+  faEnvelopeOpenText,
   faGavel,
   faHashtag,
   faMobileScreenButton,
@@ -14,6 +15,7 @@ import {
 } from "@fortawesome/free-solid-svg-icons";
 import type { SettingsTabId } from "./types";
 import { SETTINGS_TABS } from "./types";
+import { Link, useNavigate } from "react-router-dom";
 import { Select } from "@/components/ui/Field";
 
 const GROUPS: Array<{ label: string; ids: SettingsTabId[] }> = [
@@ -36,6 +38,11 @@ const ICONS: Record<SettingsTabId, IconDefinition> = {
   security: faShieldHalved,
 };
 
+/** Écrans propres d'un groupe (lien, pas un onglet) : affichés après ses onglets. */
+const PAGES: Record<string, Array<{ to: string; label: string; icon: IconDefinition }>> = {
+  Communication: [{ to: "/settings/modeles-emails", label: "Modèles d'e-mails", icon: faEnvelopeOpenText }],
+};
+
 /** Navigation des réglages : liste groupée (bureau), liste déroulante (mobile). */
 export function SettingsTabNav({
   active,
@@ -44,16 +51,22 @@ export function SettingsTabNav({
   active: SettingsTabId;
   onChange: (id: SettingsTabId) => void;
 }) {
+  const navigate = useNavigate();
   return (
     <>
       <label className="block md:hidden">
         <span className="sr-only">Section des réglages</span>
-        <Select value={active} onChange={(e) => onChange(e.target.value as SettingsTabId)}>
+        <Select value={active} onChange={(e) => (e.target.value.startsWith("/") ? navigate(e.target.value) : onChange(e.target.value as SettingsTabId))}>
           {GROUPS.map((group) => (
             <optgroup key={group.label} label={group.label}>
               {group.ids.map((id) => (
                 <option key={id} value={id}>
                   {SETTINGS_TABS.find((t) => t.id === id)?.label ?? id}
+                </option>
+              ))}
+              {(PAGES[group.label] ?? []).map((p) => (
+                <option key={p.to} value={p.to}>
+                  {p.label}
                 </option>
               ))}
             </optgroup>
@@ -96,6 +109,17 @@ export function SettingsTabNav({
                   </li>
                 );
               })}
+              {(PAGES[group.label] ?? []).map((p) => (
+                <li key={p.to}>
+                  <Link
+                    to={p.to}
+                    className="flex min-h-10 w-full items-center gap-3 rounded-[var(--radius-sm)] px-3 text-left text-sm text-[var(--muted)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--text)]"
+                  >
+                    <FontAwesomeIcon icon={p.icon} className="h-3.5 w-3.5 shrink-0" aria-hidden />
+                    {p.label}
+                  </Link>
+                </li>
+              ))}
             </ul>
           </div>
         ))}

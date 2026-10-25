@@ -309,7 +309,7 @@ export const quotesMarketRoutes: FastifyPluginAsync = async (app) => {
     if (!milestone) return reply.code(404).send({ error: "Jalon introuvable" });
     const draft = await sendMilestoneLinkEmail(milestone.id, { draft: true });
     if (!draft) return reply.code(409).send({ error: "Pas de lien de paiement ou pas d'adresse e-mail client." });
-    return draft;
+    return "sent" in draft ? draft : { ...draft, templateKey: "payment.deposit_link" };
   });
 
   app.post<{ Params: { id: string; mid: string } }>("/api/quotes/:id/milestones/:mid/payment-link/email", async (request, reply) => {

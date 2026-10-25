@@ -16,6 +16,8 @@ export type ReviewItem = {
   origin: string | null;
   originLabel: string | null;
   clientWaiting: boolean;
+  /** Modèle qui donne le texte de cet e-mail (« Modifier le modèle ») ; null : texte du code seul. */
+  templateKey: string | null;
   attachments: Array<{ filename: string; bytes: number }>;
   createdAt: string;
   reviewedAt: string | null;
@@ -49,3 +51,6 @@ export function usePendingEmailReviews(): number {
   }, []);
   return count;
 }
+
+/** Adresse de la fiche d'un modèle d'e-mail (clé « groupe.nom » en deux segments, un point ferait croire à un fichier). */
+export const templatePath = (key: string) => `/settings/modeles-emails/${key.split(".").map(encodeURIComponent).join("/")}`;
