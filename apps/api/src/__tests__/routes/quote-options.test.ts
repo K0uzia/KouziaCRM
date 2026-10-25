@@ -5,7 +5,7 @@ import { hashPassword, SESSION_COOKIE } from "@/lib/auth.js";
 import { resetDb } from "../helpers/db.js";
 import { createClient, createService, seedCompanySettings } from "../helpers/factories.js";
 
-// Devis à 2 propositions (P1, 27/10/2026) : modèle et éditeur ; émission refusée tant que le PDF et la signature manquent.
+// Devis à 2 propositions (P1, 27/10/2026) : modèle et éditeur ; émission refusée tant que la signature manque (P3).
 const { buildApp } = await import("@/app.js");
 
 const ADMIN = "admin-propositions@kouzia.test";
@@ -113,7 +113,7 @@ describe("devis à 2 propositions (P1)", () => {
     expect(simple.json().lines.every((l: { optionId: string | null }) => l.optionId === null)).toBe(true);
   });
 
-  it("émission et aperçu refusés tant que le PDF et la signature des propositions manquent", async () => {
+  it("émission refusée tant que la signature d'une proposition manque ; aperçu rendu (P2)", async () => {
     const { clientId, serviceId } = await setup();
     const body = { clientId, documentType: "QUOTE", options: [oneOff(), recurring(serviceId)] };
     const q = (await call("POST", "/api/invoices", body)).json();
@@ -122,7 +122,7 @@ describe("devis à 2 propositions (P1)", () => {
     expect(issue.json().error).toMatch(/2 propositions/);
     expect(await prisma.invoice.findUniqueOrThrow({ where: { id: q.id } })).toMatchObject({ status: "DRAFT", number: null });
     const preview = await call("POST", "/api/invoices/preview.pdf", body);
-    expect(preview.statusCode).toBe(400);
+    expect(preview.statusCode, preview.body).toBe(200);
   });
 
   it("code promo sur une proposition : compté dès l'émission, libéré si une autre proposition est retenue", async () => {

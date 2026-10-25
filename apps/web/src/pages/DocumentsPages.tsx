@@ -168,6 +168,29 @@ type BillingSource = Pick<
   "paymentPlanOffer" | "billingMode" | "discountType" | "discountValue" | "openingDiscount" | "promoCode" | "recurringDiscountKind" | "recurringDiscountValue" | "recurringDiscountMonths"
 >;
 
+const PROPOSAL_LETTERS = ["A", "B"];
+const PERIOD_LABEL: Record<string, string> = { YEAR: "par an", QUARTER: "par trimestre", MONTH: "par mois" };
+
+/** Devis à propositions : le total de chacune (paiement unique) ou son prix par période (abonnement). */
+function ProposalTotals({ proposals, lines }: { proposals: NonNullable<Doc["options"]>; lines: NonNullable<Doc["lines"]> }) {
+  return (
+    <dl className="space-y-2" aria-label="Total de chaque proposition">
+      {proposals.map((o) => {
+        const sub = o.billingMode === "RECURRING" ? lines.find((l) => l.optionId === o.id && l.isSubscription) : undefined;
+        return (
+          <div key={o.id} className="flex items-baseline justify-between gap-3 border-t border-[var(--border)] pt-2 first:border-t-0 first:pt-0">
+            <dt className="min-w-0 font-medium">Proposition {PROPOSAL_LETTERS[o.position] ?? o.position + 1}</dt>
+            <dd className="text-right tabular-nums">
+              <span className="font-display text-lg font-semibold">{formatEUR(o.totalCents)}</span>
+              {sub ? <span className="block text-xs text-[var(--muted)]">{PERIOD_LABEL[sub.billingInterval ?? "MONTH"] ?? "par mois"}</span> : null}
+            </dd>
+          </div>
+        );
+      })}
+    </dl>
+  );
+}
+
 /** Partie « facturation » du formulaire (mode, offre, remises, lignes) tirée d'un devis ou d'une proposition. */
 function billingSliceOf(src: BillingSource, lines: NonNullable<Doc["lines"]>): Partial<DocumentFormValues> {
   const sub = lines.find((l) => l.isSubscription);
@@ -838,7 +861,9 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
   const quoteSigned = isQuote && Boolean(doc.number) && doc.quoteStatus === "ACCEPTED";
   // Devis d'abonnement seul (offre NONE figée à l'émission ; brouillon : déduit des lignes) :
   // ni acompte ni facture depuis le devis, l'abonnement facture chaque période.
-  const docLines = doc.lines ?? [];
+  // Devis à 2 propositions : lignes, totaux et paiement propres à chacune ; rien n'est déduit de toutes les lignes.
+  const proposals = isQuote && doc.options?.length ? [...doc.options].sort((a, b) => a.position - b.position) : null;
+  const docLines = proposals ? [] : (doc.lines ?? []);
   const subscriptionQuote =
     isQuote &&
     (doc.paymentPlanOffer === "NONE" ||
@@ -1140,7 +1165,7 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
                 <Button variant="secondary" onClick={() => setEditOpen(true)}>
                   Modifier
                 </Button>
-                <Button onClick={() => openIssueModal()}>Émettre</Button>
+                {proposals ? null : <Button onClick={() => openIssueModal()}>Émettre</Button>}
               </>
             ) : null}
             {doc.number ? (
@@ -1200,6 +1225,13 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
                 {reviewBusy ? "Enregistrement…" : "Marquer comme relu"}
               </Button>
             </Card>
+          ) : null}
+          {proposals && doc.status === "DRAFT" ? (
+            <p className="rounded-[var(--radius)] border border-[var(--border)] bg-[var(--bg-subtle)] px-4 py-3 text-sm text-[var(--muted)]" data-proposals-note>
+              <span className="font-medium text-[var(--text)]">Devis à {proposals.length} propositions</span> : le client en
+              choisira une à la signature. L&apos;émission arrive avec la signature d&apos;une proposition ; d&apos;ici là, ce
+              devis reste en brouillon (aperçu du PDF dans « Modifier »).
+            </p>
           ) : null}
           {/* Le document tel qu'il est émis */}
           <Card className="overflow-hidden">
@@ -1288,7 +1320,23 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
                   </tr>
                 </thead>
                 <tbody>
-                  {(doc.lines ?? []).map((l, i, all) => (
+                  {(proposals
+                    ? proposals.map((o) => ({
+                        key: o.id,
+                        title: `Proposition ${PROPOSAL_LETTERS[o.position] ?? o.position + 1} : ${o.label}`,
+                        lines: (doc.lines ?? []).filter((l) => l.optionId === o.id),
+                      }))
+                    : [{ key: "document", title: null, lines: doc.lines ?? [] }]
+                  ).map((group) => (
+                    <Fragment key={group.key}>
+                    {group.title ? (
+                      <tr className="border-t border-[var(--border)] bg-[var(--bg-subtle)]">
+                        <th scope="rowgroup" colSpan={4} className="px-5 py-2.5 text-left font-semibold text-[var(--text)] sm:px-6">
+                          {group.title}
+                        </th>
+                      </tr>
+                    ) : null}
+                  {group.lines.map((l, i, all) => (
                     <Fragment key={i}>
                     {/* Pack : titre au-dessus de ses lignes. */}
                     {l.groupTitle && l.groupTitle !== all[i - 1]?.groupTitle ? (
@@ -1329,13 +1377,15 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
                     </tr>
                     </Fragment>
                   ))}
+                    </Fragment>
+                  ))}
                 </tbody>
               </table>
             </div>
 
             <div className="flex flex-col gap-4 border-t border-[var(--border)] p-5 sm:flex-row sm:justify-between sm:p-6">
               <div className="min-w-0 space-y-3 text-sm sm:max-w-md">
-              {(doc.lines ?? []).some((l) => l.isSubscription) ? (
+              {!proposals && (doc.lines ?? []).some((l) => l.isSubscription) ? (
                 <div className="rounded-[var(--radius)] border border-[var(--border)] bg-[var(--bg)] p-3 text-sm">
                   <p className="font-medium">
                     {(doc.lines ?? []).every((l) => !l.isSubscription || l.billingInterval === "YEAR")
@@ -1400,7 +1450,9 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
                 {doc.notes ? <p className="whitespace-pre-wrap text-[var(--muted)]">{doc.notes}</p> : null}
               </div>
               <div className="w-full shrink-0 space-y-1.5 text-sm sm:w-64">
-                {mixedQuote ? (
+                {proposals ? (
+                  <ProposalTotals proposals={proposals} lines={doc.lines ?? []} />
+                ) : mixedQuote ? (
                   <MixedQuoteTotals doc={doc} lines={docLines} />
                 ) : (
                 <>

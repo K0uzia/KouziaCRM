@@ -86,6 +86,9 @@ function createStyles(primary: string, secondary: string) {
       color: secondary,
     },
     section: { marginTop: 18 },
+    proposalIntro: { marginTop: 4, fontFamily: "Helvetica-Bold", color: INK },
+    proposal: { marginTop: 16, paddingTop: 10, borderTopWidth: 1, borderColor: LINE },
+    proposalTitle: { marginBottom: 6, fontSize: 12, fontFamily: "Helvetica-Bold", color: INK },
     box: { padding: 12, borderWidth: 1, borderColor: LINE, backgroundColor: SOFT },
     table: { marginTop: 4 },
     groupRow: {
@@ -422,13 +425,37 @@ export type InvoicePdfData = {
       isPackDiscount?: boolean;
     }>;
     legalClauses?: Array<{ title: string; body: string }>;
+    /** Devis à propositions (P2) : corps de chaque proposition (lignes, totaux, abonnement, échéancier), dans l'ordre. */
+    proposals?: Array<{ heading: string; invoice: InvoicePdfData["invoice"] }> | null;
+    /** Devis signé à propositions : « A : Paiement unique ». */
+    selectedProposal?: string | null;
   };
 };
 
-export function InvoiceDocument({ company, client, invoice, specimen, draft }: InvoicePdfData) {
-  const { primary, secondary } = resolveBrandColors(company);
-  const styles = createStyles(primary, secondary);
+type PdfInvoice = InvoicePdfData["invoice"];
 
+/**
+ * Règlements : facture acquittée (vaut reçu) ou reste dû, avoirs compris (net = total - avoirs, encaissé net des
+ * remboursements). Une facture archivée à l'émission n'a ni règlement ni avoir : ce bloc sert au rendu de secours.
+ */
+function settlementOf(invoice: PdfInvoice) {
+  const isQuote = invoice.documentType === "QUOTE";
+  const isCredit = invoice.documentType === "CREDIT_NOTE";
+  const creditedCents = invoice.creditedCents ?? 0;
+  const paidCents = (invoice.payments ?? []).reduce((s, p) => s + p.amountCents, 0) - (invoice.refundedCents ?? 0);
+  const netCents = Math.max(0, invoice.totalCents - creditedCents);
+  const dueCents = Math.max(0, netCents - paidCents);
+  const showSettlement = !isQuote && !isCredit && (paidCents > 0 || creditedCents > 0);
+  const settled = showSettlement && dueCents === 0;
+  const lastPaidAt = (invoice.payments ?? []).reduce<Date | null>((d, p) => (!d || p.paidAt > d ? p.paidAt : d), null);
+  return { creditedCents, paidCents, dueCents, showSettlement, settled, lastPaidAt };
+}
+
+/**
+ * Corps d'un document : lignes, totaux, encadré d'abonnement et échéancier. Une fois pour un document, une fois par
+ * proposition pour un devis à propositions (chacune a son mode, ses prestations, sa remise et son échéancier).
+ */
+function DocumentBody({ company, invoice, styles }: { company: PdfCompanySettings; invoice: PdfInvoice; styles: ReturnType<typeof createStyles> }) {
   const isCredit = invoice.documentType === "CREDIT_NOTE";
   const isQuote = invoice.documentType === "QUOTE";
   // Clauses de l'encadré d'un devis récurrent : engagement pour les lignes engagées, périodicité pour les autres.
@@ -443,197 +470,10 @@ export function InvoiceDocument({ company, client, invoice, specimen, draft }: I
           : []),
       ]
     : [];
-  const isAcompte = invoice.invoiceType === "ACOMPTE";
-  const isSolde = invoice.invoiceType === "SOLDE";
-  const title = isCredit
-    ? "AVOIR"
-    : isQuote
-      ? "DEVIS"
-      : isAcompte
-        ? "FACTURE D'ACOMPTE"
-        : isSolde
-          ? "FACTURE DE SOLDE"
-          : "FACTURE";
-  // Titre des métadonnées, annoncé par les lecteurs d'écran : casse normale, les capitales pouvant être épelées.
-  const docTitle = title.charAt(0) + title.slice(1).toLowerCase();
-  const brandName = company.tradeName ?? company.legalName;
-
-  const legalFormLine = [
-    company.legalName,
-    company.legalForm ? company.legalForm : "Entrepreneur individuel",
-    company.rcsMention,
-  ]
-    .filter(Boolean)
-    .join(" - ");
-
-  const meta: Array<[string, string]> = [["Date d'émission", fmtDate(invoice.issueDate)]];
-  if (!isQuote && invoice.serviceDate) meta.push(["Date de la prestation", fmtDate(invoice.serviceDate)]);
-  if (isQuote && invoice.validUntil) meta.push(["Valable jusqu'au", fmtDate(invoice.validUntil)]);
-  if (!isQuote && invoice.dueDate) meta.push(["Échéance", fmtDate(invoice.dueDate)]);
-  if (invoice.purchaseOrderRef) meta.push(["Bon de commande", invoice.purchaseOrderRef]);
-  if (invoice.quoteNumber) {
-    meta.push([
-      "Réf. devis",
-      `${invoice.quoteNumber}${invoice.quoteIssueDate ? ` du ${fmtDate(invoice.quoteIssueDate)}` : ""}`,
-    ]);
-  }
-  if (invoice.creditedInvoiceNumber) {
-    meta.push([
-      "Facture d'origine",
-      `${invoice.creditedInvoiceNumber}${invoice.creditedInvoiceIssueDate ? ` du ${fmtDate(invoice.creditedInvoiceIssueDate)}` : ""}`,
-    ]);
-  }
-
-  // Règlements : facture acquittée (vaut reçu) ou reste dû, avoirs compris (net = total - avoirs, encaissé net des
-  // remboursements). Une facture archivée à l'émission n'a ni règlement ni avoir : ce bloc sert au rendu de secours.
-  const creditedCents = invoice.creditedCents ?? 0;
-  const paidCents = (invoice.payments ?? []).reduce((s, p) => s + p.amountCents, 0) - (invoice.refundedCents ?? 0);
-  const netCents = Math.max(0, invoice.totalCents - creditedCents);
-  const dueCents = Math.max(0, netCents - paidCents);
-  const showSettlement = !isQuote && !isCredit && (paidCents > 0 || creditedCents > 0);
-  const settled = showSettlement && dueCents === 0;
-  const lastPaidAt = (invoice.payments ?? []).reduce<Date | null>(
-    (d, p) => (!d || p.paidAt > d ? p.paidAt : d),
-    null,
-  );
-
-  // Aperçu avant émission : aucun numéro encore, jamais un blanc à sa place.
-  const shownNumber = draft ? "APERÇU" : invoice.number;
-
-  const hasDiscount =
-    invoice.discountType &&
-    invoice.discountType !== "NONE" &&
-    invoice.subtotalCents !== invoice.totalCents;
-
+  const { creditedCents, paidCents, dueCents, showSettlement, settled, lastPaidAt } = settlementOf(invoice);
+  const hasDiscount = invoice.discountType && invoice.discountType !== "NONE" && invoice.subtotalCents !== invoice.totalCents;
   return (
-    <Document title={`${docTitle} ${draft ? "(aperçu)" : shownNumber}`} author={brandName} creator={brandName} language="fr">
-      <Page size="A4" style={styles.page}>
-        <View style={styles.accent} fixed />
-        {specimen || draft ? (
-          <Text style={styles.specimen} fixed>
-            {draft ? "APERÇU" : "EXEMPLE"}
-          </Text>
-        ) : null}
-
-        <View style={styles.header}>
-          <Readable as="issuer">
-          <View style={{ flex: 1 }}>
-            {company.brandLogoDataUrl ? (
-              <Image src={company.brandLogoDataUrl} style={styles.logo} />
-            ) : null}
-            <Text style={styles.brand}>{brandName}</Text>
-            <Text style={styles.muted}>{legalFormLine}</Text>
-            <Text style={styles.muted}>
-              {company.addressLine1}
-              {company.addressLine2 ? `, ${company.addressLine2}` : ""}
-            </Text>
-            <Text style={styles.muted}>
-              {company.postalCode} {company.city} - {company.country}
-            </Text>
-            <Text style={styles.muted}>
-              SIRET {company.siret} · APE {company.apeCode}
-            </Text>
-            {company.vatIntraNumber ? (
-              <Text style={styles.muted}>TVA intra : {company.vatIntraNumber}</Text>
-            ) : null}
-            {[company.email, company.phone, company.website].filter(Boolean).length > 0 ? (
-              <Text style={styles.muted}>
-                {[company.email, company.phone, company.website].filter(Boolean).join(" · ")}
-              </Text>
-            ) : null}
-          </View>
-          </Readable>
-          <View style={styles.docBlock}>
-            <Readable as="heading">
-            <Text style={styles.docKind}>{title}</Text>
-            {draft ? (
-              <>
-                <Text style={styles.docNumber}>APERÇU</Text>
-                <Text style={styles.muted}>Numéro attribué à l&apos;émission</Text>
-              </>
-            ) : (
-              <Text style={styles.docNumber}>N° {invoice.number}</Text>
-            )}
-            </Readable>
-            <View style={styles.docMeta}>
-              {meta.map(([label, value]) => (
-                <Readable key={label} as="detail">
-                <View style={styles.metaRow}>
-                  <Text style={styles.metaLabel}>{label}</Text>
-                  <Text style={styles.metaValue}>{value}</Text>
-                </View>
-                </Readable>
-              ))}
-            </View>
-          </View>
-        </View>
-
-        <View style={styles.parties}>
-          <Readable as="recipient">
-          <View style={styles.party}>
-            <Text style={styles.partyTitle}>{isQuote ? "DESTINATAIRE" : "FACTURÉ À"}</Text>
-            <Text style={styles.partyName}>{client.displayName}</Text>
-            {client.addressLine1 ? <Text>{client.addressLine1}</Text> : null}
-            {client.postalCode || client.city ? (
-              <Text>{[client.postalCode, client.city].filter(Boolean).join(" ")}</Text>
-            ) : null}
-            {client.siret ? <Text style={styles.muted}>SIRET {client.siret}</Text> : null}
-            {client.email ? <Text style={styles.muted}>{client.email}</Text> : null}
-          </View>
-          </Readable>
-          {(isAcompte && invoice.milestoneTrigger) || invoice.paymentTerms || (isCredit && invoice.nothingToPay) ? (
-            <Readable as="section" heading>
-            <View style={styles.party}>
-              <Text style={styles.partyTitle}>CONDITIONS</Text>
-              {invoice.paymentTerms ? <Text>{invoice.paymentTerms}</Text> : null}
-              {isAcompte && invoice.milestoneTriggerStep ? (
-                <Text style={{ marginTop: 2 }}>
-                  Déclencheur : étape « {invoice.milestoneTriggerStep.label} » validée
-                  {invoice.milestoneTriggerStep.at ? ` le ${fmtDate(invoice.milestoneTriggerStep.at)}` : ""}
-                </Text>
-              ) : isAcompte && invoice.milestoneTrigger && invoice.milestoneTrigger !== invoice.paymentTerms ? (
-                <Text style={{ marginTop: 2 }}>Déclencheur : {invoice.milestoneTrigger}</Text>
-              ) : null}
-              {isCredit && invoice.nothingToPay ? (
-                <Text style={[styles.strong, { marginTop: 2 }]}>Vous n&apos;avez rien à payer.</Text>
-              ) : null}
-            </View>
-            </Readable>
-          ) : null}
-        </View>
-
-        {isSolde && invoice.balanceSummary ? (
-          <Readable as="section" heading>
-          <View style={[styles.box, { marginBottom: 16 }]}>
-            <Text style={styles.h2}>Récapitulatif du marché</Text>
-            <Readable as="pair">
-            <View style={styles.totalLine}>
-              <Text>Total du marché (devis {invoice.balanceSummary.quoteNumber ?? "?"})</Text>
-              <Text>{fmtMoney(invoice.balanceSummary.marketTotalCents)}</Text>
-            </View>
-            </Readable>
-            {invoice.balanceSummary.acomptes.map((a, i) => (
-              <Readable key={i} as="pair">
-              <View style={styles.totalLine}>
-                <Text style={{ flex: 1, paddingRight: 10 }}>
-                  {a.paid
-                    ? `Acompte facturé et réglé (${a.number})`
-                    : `Acompte facturé non réglé (${a.number}), à encaisser sur cette facture`}
-                </Text>
-                <Text>- {fmtMoney(a.amountCents)}</Text>
-              </View>
-              </Readable>
-            ))}
-            <Readable as="pair">
-            <View style={[styles.totalLine, { borderTopWidth: 1, borderColor: LINE, marginTop: 4 }]}>
-              <Text style={styles.strong}>Solde restant dû (cette facture)</Text>
-              <Text style={styles.strong}>{fmtMoney(invoice.balanceSummary.balanceDueCents)}</Text>
-            </View>
-            </Readable>
-          </View>
-          </Readable>
-        ) : null}
-
+    <>
         <Readable as="table">
         <View style={styles.table}>
           <Readable as="headRow">
@@ -1005,6 +845,213 @@ export function InvoiceDocument({ company, client, invoice, specimen, draft }: I
           </View>
           </Readable>
         ) : null}
+    </>
+  );
+}
+
+export function InvoiceDocument({ company, client, invoice, specimen, draft }: InvoicePdfData) {
+  const { primary, secondary } = resolveBrandColors(company);
+  const styles = createStyles(primary, secondary);
+
+  const isCredit = invoice.documentType === "CREDIT_NOTE";
+  const isQuote = invoice.documentType === "QUOTE";
+  const isAcompte = invoice.invoiceType === "ACOMPTE";
+  const isSolde = invoice.invoiceType === "SOLDE";
+  const title = isCredit
+    ? "AVOIR"
+    : isQuote
+      ? "DEVIS"
+      : isAcompte
+        ? "FACTURE D'ACOMPTE"
+        : isSolde
+          ? "FACTURE DE SOLDE"
+          : "FACTURE";
+  // Titre des métadonnées, annoncé par les lecteurs d'écran : casse normale, les capitales pouvant être épelées.
+  const docTitle = title.charAt(0) + title.slice(1).toLowerCase();
+  const brandName = company.tradeName ?? company.legalName;
+
+  const legalFormLine = [
+    company.legalName,
+    company.legalForm ? company.legalForm : "Entrepreneur individuel",
+    company.rcsMention,
+  ]
+    .filter(Boolean)
+    .join(" - ");
+
+  const meta: Array<[string, string]> = [["Date d'émission", fmtDate(invoice.issueDate)]];
+  if (!isQuote && invoice.serviceDate) meta.push(["Date de la prestation", fmtDate(invoice.serviceDate)]);
+  if (isQuote && invoice.validUntil) meta.push(["Valable jusqu'au", fmtDate(invoice.validUntil)]);
+  if (!isQuote && invoice.dueDate) meta.push(["Échéance", fmtDate(invoice.dueDate)]);
+  if (invoice.purchaseOrderRef) meta.push(["Bon de commande", invoice.purchaseOrderRef]);
+  if (invoice.selectedProposal) meta.push(["Proposition retenue", invoice.selectedProposal]);
+  if (invoice.quoteNumber) {
+    meta.push([
+      "Réf. devis",
+      `${invoice.quoteNumber}${invoice.quoteIssueDate ? ` du ${fmtDate(invoice.quoteIssueDate)}` : ""}`,
+    ]);
+  }
+  if (invoice.creditedInvoiceNumber) {
+    meta.push([
+      "Facture d'origine",
+      `${invoice.creditedInvoiceNumber}${invoice.creditedInvoiceIssueDate ? ` du ${fmtDate(invoice.creditedInvoiceIssueDate)}` : ""}`,
+    ]);
+  }
+
+  const { dueCents, showSettlement, settled } = settlementOf(invoice);
+
+  // Aperçu avant émission : aucun numéro encore, jamais un blanc à sa place.
+  const shownNumber = draft ? "APERÇU" : invoice.number;
+
+  return (
+    <Document title={`${docTitle} ${draft ? "(aperçu)" : shownNumber}`} author={brandName} creator={brandName} language="fr">
+      <Page size="A4" style={styles.page}>
+        <View style={styles.accent} fixed />
+        {specimen || draft ? (
+          <Text style={styles.specimen} fixed>
+            {draft ? "APERÇU" : "EXEMPLE"}
+          </Text>
+        ) : null}
+
+        <View style={styles.header}>
+          <Readable as="issuer">
+          <View style={{ flex: 1 }}>
+            {company.brandLogoDataUrl ? (
+              <Image src={company.brandLogoDataUrl} style={styles.logo} />
+            ) : null}
+            <Text style={styles.brand}>{brandName}</Text>
+            <Text style={styles.muted}>{legalFormLine}</Text>
+            <Text style={styles.muted}>
+              {company.addressLine1}
+              {company.addressLine2 ? `, ${company.addressLine2}` : ""}
+            </Text>
+            <Text style={styles.muted}>
+              {company.postalCode} {company.city} - {company.country}
+            </Text>
+            <Text style={styles.muted}>
+              SIRET {company.siret} · APE {company.apeCode}
+            </Text>
+            {company.vatIntraNumber ? (
+              <Text style={styles.muted}>TVA intra : {company.vatIntraNumber}</Text>
+            ) : null}
+            {[company.email, company.phone, company.website].filter(Boolean).length > 0 ? (
+              <Text style={styles.muted}>
+                {[company.email, company.phone, company.website].filter(Boolean).join(" · ")}
+              </Text>
+            ) : null}
+          </View>
+          </Readable>
+          <View style={styles.docBlock}>
+            <Readable as="heading">
+            <Text style={styles.docKind}>{title}</Text>
+            {draft ? (
+              <>
+                <Text style={styles.docNumber}>APERÇU</Text>
+                <Text style={styles.muted}>Numéro attribué à l&apos;émission</Text>
+              </>
+            ) : (
+              <Text style={styles.docNumber}>N° {invoice.number}</Text>
+            )}
+            </Readable>
+            <View style={styles.docMeta}>
+              {meta.map(([label, value]) => (
+                <Readable key={label} as="detail">
+                <View style={styles.metaRow}>
+                  <Text style={styles.metaLabel}>{label}</Text>
+                  <Text style={styles.metaValue}>{value}</Text>
+                </View>
+                </Readable>
+              ))}
+            </View>
+          </View>
+        </View>
+
+        <View style={styles.parties}>
+          <Readable as="recipient">
+          <View style={styles.party}>
+            <Text style={styles.partyTitle}>{isQuote ? "DESTINATAIRE" : "FACTURÉ À"}</Text>
+            <Text style={styles.partyName}>{client.displayName}</Text>
+            {client.addressLine1 ? <Text>{client.addressLine1}</Text> : null}
+            {client.postalCode || client.city ? (
+              <Text>{[client.postalCode, client.city].filter(Boolean).join(" ")}</Text>
+            ) : null}
+            {client.siret ? <Text style={styles.muted}>SIRET {client.siret}</Text> : null}
+            {client.email ? <Text style={styles.muted}>{client.email}</Text> : null}
+          </View>
+          </Readable>
+          {(isAcompte && invoice.milestoneTrigger) || invoice.paymentTerms || (isCredit && invoice.nothingToPay) ? (
+            <Readable as="section" heading>
+            <View style={styles.party}>
+              <Text style={styles.partyTitle}>CONDITIONS</Text>
+              {invoice.paymentTerms ? <Text>{invoice.paymentTerms}</Text> : null}
+              {isAcompte && invoice.milestoneTriggerStep ? (
+                <Text style={{ marginTop: 2 }}>
+                  Déclencheur : étape « {invoice.milestoneTriggerStep.label} » validée
+                  {invoice.milestoneTriggerStep.at ? ` le ${fmtDate(invoice.milestoneTriggerStep.at)}` : ""}
+                </Text>
+              ) : isAcompte && invoice.milestoneTrigger && invoice.milestoneTrigger !== invoice.paymentTerms ? (
+                <Text style={{ marginTop: 2 }}>Déclencheur : {invoice.milestoneTrigger}</Text>
+              ) : null}
+              {isCredit && invoice.nothingToPay ? (
+                <Text style={[styles.strong, { marginTop: 2 }]}>Vous n&apos;avez rien à payer.</Text>
+              ) : null}
+            </View>
+            </Readable>
+          ) : null}
+        </View>
+
+        {isSolde && invoice.balanceSummary ? (
+          <Readable as="section" heading>
+          <View style={[styles.box, { marginBottom: 16 }]}>
+            <Text style={styles.h2}>Récapitulatif du marché</Text>
+            <Readable as="pair">
+            <View style={styles.totalLine}>
+              <Text>Total du marché (devis {invoice.balanceSummary.quoteNumber ?? "?"})</Text>
+              <Text>{fmtMoney(invoice.balanceSummary.marketTotalCents)}</Text>
+            </View>
+            </Readable>
+            {invoice.balanceSummary.acomptes.map((a, i) => (
+              <Readable key={i} as="pair">
+              <View style={styles.totalLine}>
+                <Text style={{ flex: 1, paddingRight: 10 }}>
+                  {a.paid
+                    ? `Acompte facturé et réglé (${a.number})`
+                    : `Acompte facturé non réglé (${a.number}), à encaisser sur cette facture`}
+                </Text>
+                <Text>- {fmtMoney(a.amountCents)}</Text>
+              </View>
+              </Readable>
+            ))}
+            <Readable as="pair">
+            <View style={[styles.totalLine, { borderTopWidth: 1, borderColor: LINE, marginTop: 4 }]}>
+              <Text style={styles.strong}>Solde restant dû (cette facture)</Text>
+              <Text style={styles.strong}>{fmtMoney(invoice.balanceSummary.balanceDueCents)}</Text>
+            </View>
+            </Readable>
+          </View>
+          </Readable>
+        ) : null}
+
+        {invoice.proposals?.length ? (
+          <>
+            <Text style={styles.proposalIntro}>
+              {`Ce devis propose ${invoice.proposals.length} formules : choisissez-en une à la signature.`}
+            </Text>
+            {invoice.proposals.map((p, i) => (
+              <Readable key={i} as="proposal">
+              <View style={styles.proposal}>
+                <Readable as="proposalHeading">
+                <Text style={styles.proposalTitle} minPresenceAhead={120}>
+                  {p.heading}
+                </Text>
+                </Readable>
+                <DocumentBody company={company} invoice={p.invoice} styles={styles} />
+              </View>
+              </Readable>
+            ))}
+          </>
+        ) : (
+          <DocumentBody company={company} invoice={invoice} styles={styles} />
+        )}
 
         {isQuote && invoice.acceptance?.mode ? (
           <Readable as="section" heading>
