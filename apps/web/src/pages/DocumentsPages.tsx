@@ -160,6 +160,8 @@ type Doc = {
   milestones?: Milestone[];
   /** Devis à 2 propositions (P1) : chacune complète ; vide pour un devis simple. */
   options?: Array<BillingSource & { id: string; position: number; label: string; totalCents: number }>;
+  /** Liste : nombre de propositions du devis. */
+  _count?: { options?: number };
   /** Devis à propositions signé : la proposition retenue. */
   selectedOptionId?: string | null;
 };
@@ -171,6 +173,12 @@ type BillingSource = Pick<
 >;
 
 const PROPOSAL_LETTERS = ["A", "B"];
+
+/** Montant affiché d'un document : devis à propositions non signé, celui de la moins chère, annoncé comme tel. */
+function amountLabel(d: Pick<Doc, "totalCents" | "selectedOptionId" | "options" | "_count">): string {
+  const count = d.options?.length ?? d._count?.options ?? 0;
+  return count > 0 && !d.selectedOptionId ? `${count} propositions, dès ${formatEUR(d.totalCents)}` : formatEUR(d.totalCents);
+}
 const PERIOD_LABEL: Record<string, string> = { YEAR: "par an", QUARTER: "par trimestre", MONTH: "par mois" };
 
 /** Devis à propositions : le total de chacune (paiement unique) ou son prix par période (abonnement). */
@@ -336,7 +344,7 @@ function DocumentsListPage({
       <ListRow
         to={isQuote ? `/quotes/${d.id}` : `/invoices/${d.id}`}
         title={d.client.displayName}
-        amount={formatEUR(d.totalCents)}
+        amount={amountLabel(d)}
         meta={
           <>
             <DocumentNumberBadge number={d.number} documentType={d.documentType} invoiceType={d.invoiceType} />
@@ -449,7 +457,7 @@ function DocumentsListPage({
       sortable: true,
       width: "8.5rem",
       right: true,
-      cell: (d) => <span className="font-semibold tabular-nums">{formatEUR(d.totalCents)}</span>,
+      cell: (d) => <span className="font-semibold tabular-nums">{amountLabel(d)}</span>,
     },
   ];
 
@@ -1581,7 +1589,9 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
           <Card className="p-5 text-sm">
             <div className="flex items-start justify-between gap-3">
               <div>
-                <p className="text-xs text-[var(--muted)]">{isQuote ? "Montant du devis" : "Montant de la facture"}</p>
+                <p className="text-xs text-[var(--muted)]">
+                  {proposals && !doc.selectedOptionId ? "Proposition la moins chère" : isQuote ? "Montant du devis" : "Montant de la facture"}
+                </p>
                 <p className="mt-1 font-display text-3xl font-semibold tabular-nums">{formatEUR(doc.totalCents)}</p>
               </div>
               <Badge tone={statusTone(st)}>{labels[st] ?? st}</Badge>

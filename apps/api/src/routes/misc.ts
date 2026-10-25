@@ -766,6 +766,7 @@ export const miscRoutes: FastifyPluginAsync = async (app) => {
         number: string | null;
         totalCents: number;
         issueDate: Date | null;
+        options: Array<{ id: string; position: number; label: string; totalCents: number }>;
       }> = [];
       if (thread.clientId) {
         pendingQuotes = await prisma.invoice.findMany({
@@ -780,6 +781,8 @@ export const miscRoutes: FastifyPluginAsync = async (app) => {
             number: true,
             totalCents: true,
             issueDate: true,
+            // Devis à propositions : la proposition retenue se choisit à la validation.
+            options: { orderBy: { position: "asc" }, select: { id: true, position: true, label: true, totalCents: true } },
           },
           take: 10,
         });
