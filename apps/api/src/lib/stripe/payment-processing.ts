@@ -91,6 +91,8 @@ export async function notifyMilestonePaymentFailed(pi: Stripe.PaymentIntent, was
     text: lines.join("\n"),
     clientId: client.id,
     kind: "payment_failed",
+    // Échéance concernée : l'e-mail est retiré s'il attend encore sa validation quand elle est réglée.
+    documentId: milestone.id,
   }, { review: { family: "payment_issue", origin: "WEBHOOK" } });
   return "échec signalé";
 }
@@ -137,6 +139,7 @@ export async function notifyInvoicePaymentFailed(pi: Stripe.PaymentIntent): Prom
       text: lines.join("\n"),
       clientId: invoice.clientId,
       kind: "payment_failed",
+      documentId: invoice.id,
     }, { review: { family: "payment_issue", origin: "WEBHOOK" } });
   }
   return "échec signalé";
@@ -167,4 +170,21 @@ export async function notifyMandateUpdated(mandate: Stripe.Mandate): Promise<str
     `Un mandat SEPA (${mandate.id}) est devenu inactif : les prochains prélèvements de ce client échoueront. Envoyez-lui un nouveau lien de mise en place du prélèvement depuis l'abonnement.`,
   );
   return "mandat inactif signalé";
+}
+
+/**
+ * « Débloquer » (administrateur) : le prélèvement noté « en cours » est abandonné après vérification dans Stripe. La
+ * facture et son échéance redeviennent payables (lien, relances). Ne touche pas Stripe. false : rien n'était en cours.
+ */
+export async function clearPaymentProcessingManually(target: { invoiceId?: string; milestoneId?: string }): Promise<boolean> {
+  const data = { paymentProcessingAt: null, paymentProcessingMethod: null };
+  let invoiceId = target.invoiceId ?? null;
+  let milestoneId = target.milestoneId ?? null;
+  if (invoiceId && !milestoneId) milestoneId = (await prisma.invoice.findUnique({ where: { id: invoiceId }, select: { milestoneId: true } }))?.milestoneId ?? null;
+  if (milestoneId && !invoiceId) invoiceId = (await prisma.paymentMilestone.findUnique({ where: { id: milestoneId }, select: { invoiceId: true } }))?.invoiceId ?? null;
+  const [inv, ms] = await Promise.all([
+    invoiceId ? prisma.invoice.updateMany({ where: { id: invoiceId, paymentProcessingAt: { not: null } }, data }) : { count: 0 },
+    milestoneId ? prisma.paymentMilestone.updateMany({ where: { id: milestoneId, paymentProcessingAt: { not: null } }, data }) : { count: 0 },
+  ]);
+  return inv.count + ms.count > 0;
 }

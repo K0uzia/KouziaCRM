@@ -224,6 +224,21 @@ export const quotesMarketRoutes: FastifyPluginAsync = async (app) => {
     },
   );
 
+  // « Débloquer » une échéance au prélèvement noté « en cours » (webhook perdu, vérifié dans Stripe).
+  app.post<{ Params: { id: string; mid: string } }>(
+    "/api/quotes/:id/milestones/:mid/clear-processing",
+    async (request, reply) => {
+      await requireAuth(request, reply);
+      if (reply.sent) return;
+      const milestone = await prisma.paymentMilestone.findFirst({ where: { id: request.params.mid, quoteId: request.params.id }, select: { id: true } });
+      if (!milestone) return reply.code(404).send({ error: "Jalon introuvable" });
+      const { clearPaymentProcessingManually } = await import("@/lib/stripe/payment-processing.js");
+      const cleared = await clearPaymentProcessingManually({ milestoneId: milestone.id });
+      if (!cleared) return reply.code(409).send({ error: "Aucun prélèvement en cours sur cette échéance." });
+      return { cleared: true };
+    },
+  );
+
   app.post<{ Params: { id: string; mid: string } }>(
     "/api/quotes/:id/milestones/:mid/pay-manual",
     async (request, reply) => {

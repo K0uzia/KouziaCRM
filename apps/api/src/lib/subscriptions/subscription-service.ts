@@ -16,6 +16,7 @@ import { getCompanySettings } from "@/lib/company.js";
 import { applyStripeSubscriptionAction } from "@/lib/stripe/subscription-control.js";
 import { billedSubscriptionIds } from "@/lib/subscriptions/renewal-reminder.js";
 import { formatDateFr } from "@/lib/format-fr.js";
+import { rejectObsoleteReviewEmails, SUBSCRIPTION_NOTICE_KINDS } from "@/lib/email/review.js";
 
 /** Périodicité d'un abonnement ; null en base vaut MONTH. QUARTER : trimestriel (mode récurrent, 24/10/2026). */
 export type BillingInterval = "MONTH" | "QUARTER" | "YEAR";
@@ -406,13 +407,15 @@ export async function endSubscription(id: string, endDate?: Date) {
     throw new SubscriptionError("Cet abonnement est déjà clôturé");
   }
   if (sub.stripeSubscriptionId) await applyStripeSubscriptionAction(sub.stripeSubscriptionId, "cancel", sub.stripeLivemode);
-  return prisma.subscription.update({
+  const ended = await prisma.subscription.update({
     where: { id },
     data: {
       status: SubscriptionStatus.ENDED,
       endDate: endDate ?? new Date(),
     },
   });
+  await rejectObsoleteReviewEmails(id, SUBSCRIPTION_NOTICE_KINDS, "Abonnement clôturé : avis sans objet.");
+  return ended;
 }
 
 /** Fin de la période de facturation en cours : la prochaine échéance, avancée d'une période tant qu'elle est passée. */
@@ -440,10 +443,13 @@ export async function scheduleSubscriptionEnd(id: string, now = new Date()) {
   const endDate = new Date(termEndsAt.getTime() - 1);
   if (sub.endDate && sub.endDate <= endDate) throw new SubscriptionError("Une fin plus proche est déjà programmée");
   if (sub.stripeSubscriptionId) await applyStripeSubscriptionAction(sub.stripeSubscriptionId, "cancelAt", sub.stripeLivemode, termEndsAt);
-  return prisma.subscription.update({
+  const scheduled = await prisma.subscription.update({
     where: { id },
     data: { endDate, ...(sub.stripeSubscriptionId ? { stripeCancelAt: termEndsAt } : {}) },
   });
+  // Plus de reconduction : l'information de reconduction et le rappel de fin de période n'ont plus d'objet.
+  await rejectObsoleteReviewEmails(id, ["subscription_renewal", "subscription_term_end", "subscription_term_end_buyout"], "Fin programmée : avis de reconduction sans objet.");
+  return scheduled;
 }
 
 /** Worker : tout abonnement dont la fin programmée est passée (rachat, non-reconduction, date de fin) est clôturé. */

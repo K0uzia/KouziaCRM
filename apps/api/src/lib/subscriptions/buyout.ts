@@ -259,7 +259,11 @@ export async function applyBuyoutSignature(tx: Tx, quoteId: string, now = new Da
 
 /** Après la signature : prélèvement Stripe arrêté à la fin de sa période. Un échec ne défait pas la signature : alerte. */
 export async function finishBuyoutSignature(signature: BuyoutSignature | null): Promise<void> {
-  if (!signature?.stripe) return;
+  if (!signature) return;
+  // Avis de reconduction ou de fin de période encore en attente de validation : sans objet après un rachat.
+  const { rejectObsoleteReviewEmails, SUBSCRIPTION_NOTICE_KINDS } = await import("@/lib/email/review.js");
+  await rejectObsoleteReviewEmails(signature.subscriptionId, SUBSCRIPTION_NOTICE_KINDS, "Rachat signé : avis d'abonnement sans objet.");
+  if (!signature.stripe) return;
   try {
     const { applyStripeSubscriptionAction } = await import("@/lib/stripe/subscription-control.js");
     await applyStripeSubscriptionAction(signature.stripe.id, "endAtPeriodEnd", signature.stripe.livemode);

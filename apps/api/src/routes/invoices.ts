@@ -1118,6 +1118,18 @@ export const invoicesRoutes: FastifyPluginAsync = async (app) => {
     },
   );
 
+  // « Débloquer » : prélèvement noté « en cours » abandonné après vérification dans Stripe (webhook perdu).
+  app.post<{ Params: { id: string } }>("/api/invoices/:id/clear-processing", async (request, reply) => {
+    await requireAuth(request, reply);
+    if (reply.sent) return;
+    const exists = await prisma.invoice.findUnique({ where: { id: request.params.id }, select: { id: true } });
+    if (!exists) return reply.code(404).send({ error: "Introuvable" });
+    const { clearPaymentProcessingManually } = await import("@/lib/stripe/payment-processing.js");
+    const cleared = await clearPaymentProcessingManually({ invoiceId: exists.id });
+    if (!cleared) return reply.code(409).send({ error: "Aucun prélèvement en cours sur cette facture." });
+    return { cleared: true };
+  });
+
   app.post<{ Params: { id: string } }>("/api/invoices/:id/pay", async (request, reply) => {
     await requireAuth(request, reply);
     if (reply.sent) return;

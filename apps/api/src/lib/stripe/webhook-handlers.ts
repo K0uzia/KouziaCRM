@@ -34,6 +34,22 @@ import {
   markPaidFromOnlinePayment,
 } from "@/lib/stripe/mark-paid.js";
 
+/**
+ * État actuel d'un abonnement Stripe : les événements n'arrivent pas toujours dans l'ordre, un « updated » ancien
+ * reçu après un plus récent écraserait l'état (audit du 25/10/2026). Stripe injoignable : l'état de l'événement.
+ */
+async function currentStripeSubscription(fromEvent: Stripe.Subscription): Promise<Stripe.Subscription> {
+  try {
+    const stripe = await getStripe();
+    const fresh = await stripe.subscriptions.retrieve(fromEvent.id);
+    // Réponse incomplète (autre abonnement, sans état) : l'état de l'événement reste la meilleure source.
+    return fresh?.id === fromEvent.id && fresh.status ? fresh : fromEvent;
+  } catch (err) {
+    console.warn(`[stripe] relecture de l'abonnement ${fromEvent.id} impossible : état de l'événement utilisé`, err instanceof Error ? err.message : err);
+    return fromEvent;
+  }
+}
+
 /** Événement déjà traité avec succès ? */
 async function alreadyProcessed(event: Stripe.Event): Promise<boolean> {
   return Boolean(await prisma.stripeWebhookEvent.findUnique({ where: { eventId: event.id } }));
@@ -226,7 +242,7 @@ async function handleEvent(event: Stripe.Event): Promise<string> {
     }
     case "customer.subscription.updated":
     case "customer.subscription.deleted": {
-      const result = await syncSubscriptionFromStripe(event.data.object as Stripe.Subscription);
+      const result = await syncSubscriptionFromStripe(await currentStripeSubscription(event.data.object as Stripe.Subscription));
       if (result) await notifySubscriptionSync(result);
       break;
     }
@@ -356,4 +372,58 @@ async function setDisputedCents(dispute: Stripe.Dispute, cents: number): Promise
   const piId = typeof dispute.payment_intent === "string" ? dispute.payment_intent : dispute.payment_intent?.id;
   if (!piId) return;
   await prisma.payment.updateMany({ where: { stripePaymentIntentId: piId }, data: { disputedCents: cents } });
+}
+
+const STUCK_AFTER_MS = 7 * 24 * 3_600_000;
+const stuckAlertAt = new Map<string, number>();
+
+/**
+ * Prélèvement « en cours » depuis plus de 7 jours (webhook perdu) : le worker relit le paiement chez Stripe et applique
+ * son issue comme le webhook l'aurait fait (réglé, ou refusé). Toujours en cours : rien. Introuvable : alerte, une par
+ * document et par jour ; l'administrateur peut « Débloquer » (audit du 25/10/2026).
+ */
+export async function recheckStuckPaymentProcessing(now = new Date()): Promise<number> {
+  const before = new Date(now.getTime() - STUCK_AFTER_MS);
+  const [invoices, milestones] = await Promise.all([
+    prisma.invoice.findMany({ where: { paymentProcessingAt: { lt: before } }, select: { id: true, number: true } }),
+    prisma.paymentMilestone.findMany({
+      where: { paymentProcessingAt: { lt: before }, status: { notIn: ["PAID", "CANCELLED"] } },
+      select: { id: true, label: true, quote: { select: { number: true } } },
+    }),
+  ]);
+  const targets = [
+    ...invoices.map((i) => ({ key: "erpInvoiceId", id: i.id, label: `la facture ${i.number ?? i.id}` })),
+    ...milestones.map((m) => ({ key: "erpMilestoneId", id: m.id, label: `l'échéance « ${m.label} » du devis ${m.quote.number ?? ""}`.trim() })),
+  ];
+  if (targets.length === 0) return 0;
+  let resolved = 0;
+  const stripe = await getStripe();
+  for (const t of targets) {
+    try {
+      const found = await stripe.paymentIntents.search({ query: `metadata['${t.key}']:'${t.id}'`, limit: 10 });
+      const pi = [...found.data].sort((a, b) => b.created - a.created)[0];
+      if (!pi) {
+        const last = stuckAlertAt.get(t.id) ?? 0;
+        if (now.getTime() - last >= 24 * 3_600_000) {
+          stuckAlertAt.set(t.id, now.getTime());
+          const { alertAdmin } = await import("@/lib/stripe/alert.js");
+          await alertAdmin(
+            "Prélèvement en cours depuis plus de 7 jours",
+            `Le prélèvement de ${t.label} est noté « en cours » depuis plus de 7 jours, et Stripe ne retrouve pas le paiement. Vérifiez dans Stripe, puis utilisez « Débloquer » sur la fiche pour le rendre à nouveau payable.`,
+          ).catch(() => undefined);
+        }
+        continue;
+      }
+      if (pi.status === "succeeded") {
+        await handleEvent({ type: "payment_intent.succeeded", data: { object: pi } } as Stripe.Event);
+        resolved += 1;
+      } else if (pi.status === "canceled" || pi.status === "requires_payment_method") {
+        await handleEvent({ type: "payment_intent.payment_failed", data: { object: pi } } as Stripe.Event);
+        resolved += 1;
+      }
+    } catch (err) {
+      console.error(`[stripe] revérification du prélèvement en cours impossible (${t.key} ${t.id})`, err instanceof Error ? err.message : err);
+    }
+  }
+  return resolved;
 }
