@@ -1,6 +1,7 @@
 import { primaryMethod } from "@/lib/stripe/payment-methods.js";
 import { balanceFields } from "@/lib/invoices/balance.js";
 import type { FastifyPluginAsync, FastifyReply, FastifyRequest } from "fastify";
+import { rateLimitKey } from "@/lib/client-ip.js";
 import { z } from "zod";
 import { InvoiceDocumentType, InvoiceStatus } from "@prisma/client";
 import { prisma } from "@/lib/prisma.js";
@@ -260,10 +261,15 @@ function safePayUrl(url: string | null): string | null {
 
 /** IBAN groupé par 4, comme sur le PDF de la facture. */
 const formatIban = (iban: string) => iban.replace(/\s+/g, "").toUpperCase().replace(/(.{4})/g, "$1 ").trim();
+// Message unique : « verrouillé » distinct d'« incorrect » révélait qu'une adresse est celle d'un client.
+const CODE_ERROR = "Code incorrect ou expiré. Après plusieurs essais, demandez un nouveau code.";
 const CODE_ERRORS: Record<Exclude<CodeCheck, "ok">, string> = {
-  invalid: "Code incorrect ou expiré.",
-  locked: "Trop d'essais : demandez un nouveau code.",
+  invalid: CODE_ERROR,
+  locked: CODE_ERROR,
 };
+
+/** Limites de débit des codes : une IPv6 compte pour son bloc /64 entier. */
+const byIpBlock = (request: FastifyRequest) => rateLimitKey(request.ip);
 
 /** « Jean DUPONT » : prénom tel que saisi, nom en capitales, espaces normalisés. */
 function formatSignerName(firstName: string, lastName: string): string {
@@ -381,7 +387,7 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
   // Réponse identique dans tous les cas : on ne peut pas tester qui est client.
   app.post(
     "/api/public/auth/code",
-    { config: { rateLimit: { max: 10, timeWindow: "15 minutes" } } },
+    { config: { rateLimit: { max: 10, timeWindow: "15 minutes", keyGenerator: byIpBlock } } },
     async (request, reply) => {
       const parsed = emailSchema.safeParse(request.body);
       if (!parsed.success) return reply.code(400).send({ error: "Adresse e-mail invalide." });
@@ -403,7 +409,7 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
   // Connexion, étape 2 : code valide = adresse confirmée et appareil reconnu 7 jours.
   app.post(
     "/api/public/auth/verify",
-    { config: { rateLimit: { max: 20, timeWindow: "15 minutes" } } },
+    { config: { rateLimit: { max: 20, timeWindow: "15 minutes", keyGenerator: byIpBlock } } },
     async (request, reply) => {
       const parsed = verifySchema.safeParse(request.body);
       if (!parsed.success) return reply.code(400).send({ error: "Code à 6 chiffres attendu." });
@@ -959,7 +965,7 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
   // Signature, étape 1 : code envoyé à l'adresse du client pour ce devis précis.
   app.post<{ Params: { id: string } }>(
     "/api/public/quotes/:id/sign-code",
-    { config: { rateLimit: { max: 10, timeWindow: "15 minutes" } } },
+    { config: { rateLimit: { max: 10, timeWindow: "15 minutes", keyGenerator: byIpBlock } } },
     async (request, reply) => {
       const client = await resolvePortalClient(request);
       if (!client) return reply.code(401).send(SESSION_EXPIRED);
@@ -995,6 +1001,7 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
         rateLimit: {
           max: 20,
           timeWindow: "15 minutes",
+          keyGenerator: byIpBlock,
         },
       },
     },

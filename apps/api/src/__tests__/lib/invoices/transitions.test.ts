@@ -214,7 +214,7 @@ describe("convertQuoteToInvoice", () => {
       clientId: client.id,
       lines: [{ description: "Mission", unitPriceCents: 100000 }],
     });
-    await issueQuote(quoteId, new Date(2026, 5, 15));
+    await issueQuote(quoteId, new Date());
     await acceptQuoteByClient(quoteId, "Camille Dupont");
 
     const result = await convertQuoteToInvoice(quoteId);
@@ -247,7 +247,7 @@ describe("convertQuoteToInvoice", () => {
         { description: "Setup", unitPriceCents: 80000, quantity: 1 },
       ],
     });
-    await issueQuote(quoteId, new Date(2026, 5, 15));
+    await issueQuote(quoteId, new Date());
     // Devis antérieur à la fonction (base absente) : la facture totale reprend tout le devis.
     // Devis mixte récent : voir mixed-quote.test.ts (abonnement à la livraison, hors facture).
     await prisma.invoice.update({ where: { id: quoteId }, data: { depositBaseCents: null } });
@@ -280,7 +280,7 @@ describe("convertQuoteToInvoice", () => {
       clientId: client.id,
       lines: [{ description: "Mission", unitPriceCents: 50000 }],
     });
-    await issueQuote(quoteId, new Date(2026, 5, 15));
+    await issueQuote(quoteId, new Date());
     await acceptQuoteByClient(quoteId, "Camille Dupont");
     await convertQuoteToInvoice(quoteId);
     await expect(convertQuoteToInvoice(quoteId)).rejects.toThrow(
@@ -296,7 +296,7 @@ describe("convertQuoteToInvoice", () => {
       lines: [{ description: "Site une page", unitPriceCents: 69000, quantity: 1 }],
     });
     await expect(convertQuoteToInvoice(draftId)).rejects.toThrow(/Émettez d.abord le devis/);
-    await issueQuote(draftId, new Date(2026, 5, 15));
+    await issueQuote(draftId, new Date());
     await expect(convertQuoteToInvoice(draftId)).rejects.toThrow(/pas encore signé/);
   });
 });
@@ -309,7 +309,7 @@ describe("décision du client sur un devis", () => {
       clientId: client.id,
       lines: [{ description: "Mission", unitPriceCents: 100000 }],
     });
-    await issueQuote(quoteId, new Date(2026, 5, 15));
+    await issueQuote(quoteId, new Date());
     return quoteId;
   }
 

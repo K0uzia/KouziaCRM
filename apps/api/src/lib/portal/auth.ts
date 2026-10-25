@@ -58,6 +58,22 @@ export async function issuePortalCode(
   purpose: CodePurpose,
   quoteId: string | null = null,
 ): Promise<string | null> {
+  // Compte puis création sans écriture entre deux demandes du même client : une rafale ne dépasse pas le plafond.
+  // Verrou en mémoire : une seule instance de l'API émet les codes (le worker n'en émet pas).
+  const key = `${clientId}:${purpose}`;
+  const previous = issueLocks.get(key) ?? Promise.resolve();
+  const run = previous.then(() => issuePortalCodeNow(clientId, purpose, quoteId));
+  const settled = run.then(() => undefined, () => undefined);
+  issueLocks.set(key, settled);
+  void settled.then(() => {
+    if (issueLocks.get(key) === settled) issueLocks.delete(key);
+  });
+  return run;
+}
+
+const issueLocks = new Map<string, Promise<void>>();
+
+async function issuePortalCodeNow(clientId: string, purpose: CodePurpose, quoteId: string | null): Promise<string | null> {
   const recent = await prisma.portalCode.count({
     where: { clientId, purpose, createdAt: { gt: new Date(Date.now() - 3_600_000) } },
   });
@@ -93,17 +109,24 @@ export async function checkPortalCode(
     orderBy: { createdAt: "desc" },
   });
   if (!row) return "invalid";
-  if (row.attempts >= CODE_MAX_ATTEMPTS) return "locked";
+
+  // Essai compté AVANT la comparaison, par une écriture conditionnelle : des requêtes parallèles comptent chacune,
+  // et aucune ne passe au-delà du plafond (audit du 25/10/2026).
+  const counted = await prisma.portalCode.updateMany({
+    where: { id: row.id, usedAt: null, attempts: { lt: CODE_MAX_ATTEMPTS } },
+    data: { attempts: { increment: 1 } },
+  });
+  if (counted.count === 0) return "locked";
 
   const expected = Buffer.from(row.codeHash, "hex");
   const given = Buffer.from(hashCode(code.replace(/\s/g, "")), "hex");
   if (!timingSafeEqual(expected, given)) {
-    const attempts = row.attempts + 1;
-    await prisma.portalCode.update({ where: { id: row.id }, data: { attempts } });
-    return attempts >= CODE_MAX_ATTEMPTS ? "locked" : "invalid";
+    const after = await prisma.portalCode.findUnique({ where: { id: row.id }, select: { attempts: true } });
+    return (after?.attempts ?? CODE_MAX_ATTEMPTS) >= CODE_MAX_ATTEMPTS ? "locked" : "invalid";
   }
-  await prisma.portalCode.update({ where: { id: row.id }, data: { usedAt: new Date() } });
-  return "ok";
+  // Consommation conditionnelle : un même code présenté deux fois en parallèle ne sert qu'une fois.
+  const consumed = await prisma.portalCode.updateMany({ where: { id: row.id, usedAt: null }, data: { usedAt: new Date() } });
+  return consumed.count === 1 ? "ok" : "invalid";
 }
 
 /**

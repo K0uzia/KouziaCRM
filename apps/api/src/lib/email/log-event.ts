@@ -21,7 +21,8 @@ export async function logClientEmailEvent(input: LogClientEmailInput): Promise<v
       data: {
         clientId: input.clientId,
         kind: input.kind,
-        subject: input.subject,
+        // Code de connexion ou de signature : utile dans l'objet de l'e-mail, jamais gardé en clair au journal.
+        subject: input.kind === "portal_code" ? input.subject.replace(/\d{6}/g, "******") : input.subject,
         // Adresse chiffrée au repos ; l'ancienne colonne en clair reste vide.
         toAddress: "",
         toAddressEncrypted: encrypt(input.toAddress),
