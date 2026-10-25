@@ -8,6 +8,7 @@ import { isSmtpConfigured } from "@/lib/email/smtp.js";
 import { mailEnqueue } from "@/lib/email/mailer/index.js";
 import { buildEmailBrand } from "@/lib/email/deposit-templates.js";
 import { renderEmailHtml } from "@/lib/email/layout.js";
+import { templateText } from "@/lib/email/template-registry.js";
 import { formatPlainTextSignature } from "@/lib/email/signature.js";
 import type { EmailBrand } from "@/lib/email/templates.js";
 import type { CompanySettings } from "@prisma/client";
@@ -67,7 +68,7 @@ export function nonRenewalDeadline(renewalDate: Date, noticeDays: number): Date 
   return new Date(renewalDate.getTime() - Math.max(0, noticeDays) * DAY_MS);
 }
 
-export function renderRenewalReminderEmail(opts: {
+export async function renderRenewalReminderEmail(opts: {
   brand: EmailBrand;
   settings: Pick<CompanySettings, "emailSignatureHtml" | "brandPrimaryColor" | "brandSecondaryColor">;
   clientName: string;
@@ -89,12 +90,10 @@ export function renderRenewalReminderEmail(opts: {
         opts.manageUrl,
       ]
     : ["Il vous suffit de répondre à cet e-mail."];
-  const subject = `Reconduction de votre abonnement annuel le ${date}`;
-  const text = [
-    name ? `Bonjour ${name},` : "Bonjour,",
-    "",
-    `Votre abonnement annuel « ${opts.label} » sera reconduit automatiquement le ${date}, pour un an, au prix de ${formatEUR(opts.amountCents)}.`,
-    "",
+  const salutation = name ? `Bonjour ${name},` : "Bonjour,";
+  const intro = `Votre abonnement annuel « ${opts.label} » sera reconduit automatiquement le ${date}, pour un an, au prix de ${formatEUR(opts.amountCents)}.`;
+  // Information de reconduction tacite : date limite, droit de refuser sans frais, démarche et conséquence (bloc fixe).
+  const notice = [
     callout,
     "",
     "Vous pouvez refuser cette reconduction, sans frais et sans justification, jusqu'à cette date.",
@@ -103,9 +102,14 @@ export function renderRenewalReminderEmail(opts: {
     opts.manageUrl
       ? `Sans démarche de votre part, l'abonnement sera reconduit et le prélèvement de ${formatEUR(opts.amountCents)} aura lieu le ${date}.`
       : `Sans démarche de votre part, l'abonnement sera reconduit et une facture de ${formatEUR(opts.amountCents)} vous sera adressée le ${date}.`,
-    "",
-    formatPlainTextSignature(opts.settings, opts.brand),
   ].join("\n");
+  const content = await templateText(
+    "subscription.renewal",
+    { salutation, prenom: opts.clientFirstName?.trim() ?? "", client: opts.clientName, abonnement: opts.label, montant: formatEUR(opts.amountCents), date_reconduction: date, bloc_echeance: notice },
+    { subject: `Reconduction de votre abonnement annuel le ${date}`, body: [salutation, "", intro, "", notice].join("\n") },
+  );
+  const subject = content.subject;
+  const text = [content.body, "", formatPlainTextSignature(opts.settings, opts.brand)].join("\n");
   const html = renderEmailHtml({
     text,
     brand: opts.brand,
@@ -165,7 +169,7 @@ export async function sendDueRenewalReminders(now: Date = new Date()): Promise<n
       console.warn(`[subscriptions] information de reconduction ignorée : client sans e-mail (${sub.id})`);
       continue;
     }
-    const content = renderRenewalReminderEmail({
+    const content = await renderRenewalReminderEmail({
       brand,
       settings,
       clientName: sub.client.displayName,
@@ -198,7 +202,7 @@ export async function sendDueRenewalReminders(now: Date = new Date()): Promise<n
   return queued;
 }
 
-export function renderTermEndReminderEmail(opts: {
+export async function renderTermEndReminderEmail(opts: {
   brand: EmailBrand;
   settings: Pick<CompanySettings, "emailSignatureHtml" | "brandPrimaryColor" | "brandSecondaryColor">;
   clientName: string;
@@ -220,38 +224,47 @@ export function renderTermEndReminderEmail(opts: {
   const callout = `Date limite pour demander la non-reconduction : ${fmtDate(opts.deadline)}`;
   // Rachat proposé (R3, texte accepté par Alexandre, relu dans « E-mails à valider » avant chaque envoi) : trois choix.
   const threeChoices = opts.commitmentEnd && opts.buyoutPriceCents != null;
-  const subject = opts.commitmentEnd
-    ? `Votre abonnement « ${opts.label} » : fin d'engagement le ${date}`
-    : `Votre abonnement « ${opts.label} » : reconduction le ${date}`;
-  const text = threeChoices
-    ? [
-        name ? `Bonjour ${name},` : "Bonjour,",
-        "",
-        `L'engagement de votre abonnement « ${opts.label} » prend fin le ${date}.`,
-        "Trois possibilités :",
-        `- Continuer : vous n'avez rien à faire. L'abonnement est reconduit pour un an au prix en vigueur (actuellement ${formatEUR(opts.amountCents)} par ${periodWord(opts.billingInterval)}).`,
-        `- Arrêter : demandez sa non-reconduction, sans frais ni justification, jusqu'au ${fmtDate(opts.deadline)} (préavis d'un mois), depuis votre espace client ou en répondant à cet e-mail. L'abonnement prendra fin le ${date}.`,
-        `- Racheter votre site : il devient le vôtre pour ${formatEUR(opts.buyoutPriceCents!)}, en une fois, sans abonnement ensuite. Répondez à cet e-mail pour le demander : je vous envoie le devis.`,
-        "",
-        callout,
-        "",
-        formatPlainTextSignature(opts.settings, opts.brand),
-      ].join("\n")
-    : [
-    name ? `Bonjour ${name},` : "Bonjour,",
-    "",
-    opts.commitmentEnd
+  const salutation = name ? `Bonjour ${name},` : "Bonjour,";
+  const common = { salutation, prenom: opts.clientFirstName?.trim() ?? "", client: opts.clientName, abonnement: opts.label };
+  let content: { subject: string; body: string };
+  if (threeChoices) {
+    // Les trois choix (continuer, arrêter, racheter) forment un bloc fixe : prix, date limite et démarche compris.
+    const choices = [
+      "Trois possibilités :",
+      `- Continuer : vous n'avez rien à faire. L'abonnement est reconduit pour un an au prix en vigueur (actuellement ${formatEUR(opts.amountCents)} par ${periodWord(opts.billingInterval)}).`,
+      `- Arrêter : demandez sa non-reconduction, sans frais ni justification, jusqu'au ${fmtDate(opts.deadline)} (préavis d'un mois), depuis votre espace client ou en répondant à cet e-mail. L'abonnement prendra fin le ${date}.`,
+      `- Racheter votre site : il devient le vôtre pour ${formatEUR(opts.buyoutPriceCents!)}, en une fois, sans abonnement ensuite. Répondez à cet e-mail pour le demander : je vous envoie le devis.`,
+    ].join("\n");
+    content = await templateText(
+      "subscription.term_end_buyout",
+      { ...common, date_fin: date, bloc_choix: choices, date_limite: callout },
+      {
+        subject: `Votre abonnement « ${opts.label} » : fin d'engagement le ${date}`,
+        body: [salutation, "", `L'engagement de votre abonnement « ${opts.label} » prend fin le ${date}.`, choices, "", callout].join("\n"),
+      },
+    );
+  } else {
+    const statement = opts.commitmentEnd
       ? `L'engagement de votre abonnement « ${opts.label} » prend fin le ${date}.`
-      : `L'année en cours de votre abonnement « ${opts.label} » prend fin le ${date}.`,
-    `Sans démarche de votre part, il sera reconduit pour un an au prix en vigueur (actuellement ${formatEUR(opts.amountCents)} par ${periodWord(opts.billingInterval)}).`,
-    "",
-    callout,
-    "",
-    "Vous pouvez demander sa non-reconduction, sans frais ni justification, jusqu'à cette date (préavis d'un mois) : depuis votre espace client, ou en répondant à cet e-mail. L'abonnement prendra alors fin le " +
-      `${date}.`,
-    "",
-    formatPlainTextSignature(opts.settings, opts.brand),
-  ].join("\n");
+      : `L'année en cours de votre abonnement « ${opts.label} » prend fin le ${date}.`;
+    // Reconduction tacite, date limite de préavis et droit de demander la non-reconduction (bloc fixe).
+    const notice = [
+      `Sans démarche de votre part, il sera reconduit pour un an au prix en vigueur (actuellement ${formatEUR(opts.amountCents)} par ${periodWord(opts.billingInterval)}).`,
+      "",
+      callout,
+      "",
+      "Vous pouvez demander sa non-reconduction, sans frais ni justification, jusqu'à cette date (préavis d'un mois) : depuis votre espace client, ou en répondant à cet e-mail. L'abonnement prendra alors fin le " +
+        `${date}.`,
+    ].join("\n");
+    const objet = opts.commitmentEnd ? `fin d'engagement le ${date}` : `reconduction le ${date}`;
+    content = await templateText(
+      "subscription.term_end",
+      { ...common, objet_echeance: objet, constat_echeance: statement, bloc_echeance: notice },
+      { subject: `Votre abonnement « ${opts.label} » : ${objet}`, body: [salutation, "", statement, notice].join("\n") },
+    );
+  }
+  const subject = content.subject;
+  const text = [content.body, "", formatPlainTextSignature(opts.settings, opts.brand)].join("\n");
   const html = renderEmailHtml({
     text,
     brand: opts.brand,
@@ -306,7 +319,7 @@ export async function sendDueTermEndReminders(now: Date = new Date()): Promise<n
     const commitmentEnd = term.termEndsAt.getTime() === sub.commitmentEndsAt!.getTime();
     // Fin du premier engagement seulement (Q5) : prix de rachat si l'offre en a un et qu'aucun rachat n'est signé.
     const buyoutPriceCents = commitmentEnd ? await buyoutOfferPriceCents(sub.id) : null;
-    const content = renderTermEndReminderEmail({
+    const content = await renderTermEndReminderEmail({
       brand,
       settings,
       clientName: sub.client.displayName,
@@ -338,7 +351,7 @@ export async function sendDueTermEndReminders(now: Date = new Date()): Promise<n
   return queued;
 }
 
-export function renderFirstChargeNoticeEmail(opts: {
+export async function renderFirstChargeNoticeEmail(opts: {
   brand: EmailBrand;
   settings: Pick<CompanySettings, "emailSignatureHtml" | "brandPrimaryColor" | "brandSecondaryColor">;
   clientName: string;
@@ -355,12 +368,11 @@ export function renderFirstChargeNoticeEmail(opts: {
   const date = fmtDate(opts.firstChargeDate);
   const period = `par ${periodWord(opts.billingInterval)}`;
   const callout = opts.stripe ? `1er prélèvement le ${date}` : `1re facture le ${date}`;
-  const subject = opts.stripe ? `Votre abonnement « ${opts.label} » : 1er prélèvement le ${date}` : `Votre abonnement « ${opts.label} » : 1re facture le ${date}`;
-  const text = [
-    name ? `Bonjour ${name},` : "Bonjour,",
-    "",
-    `La 1re échéance de votre abonnement « ${opts.label} », de ${formatEUR(opts.amountCents)} ${period}, aura lieu le ${date}.`,
-    "",
+  const salutation = name ? `Bonjour ${name},` : "Bonjour,";
+  const objet = callout;
+  const intro = `La 1re échéance de votre abonnement « ${opts.label} », de ${formatEUR(opts.amountCents)} ${period}, aura lieu le ${date}.`;
+  // Date, montant prélevé ou facturé, et comment gérer ou ne pas poursuivre (bloc fixe).
+  const notice = [
     callout,
     "",
     opts.stripe
@@ -369,9 +381,24 @@ export function renderFirstChargeNoticeEmail(opts: {
     ...(opts.manageUrl
       ? ["Vous pouvez gérer ou résilier votre abonnement depuis son espace de gestion, ou répondre à cet e-mail :", "", opts.manageUrl]
       : ["Pour toute question, ou pour ne pas poursuivre, répondez simplement à cet e-mail."]),
-    "",
-    formatPlainTextSignature(opts.settings, opts.brand),
   ].join("\n");
+  const content = await templateText(
+    "subscription.first_charge",
+    {
+      salutation,
+      prenom: opts.clientFirstName?.trim() ?? "",
+      client: opts.clientName,
+      abonnement: opts.label,
+      montant: formatEUR(opts.amountCents),
+      periode: period,
+      date_echeance: date,
+      objet_echeance: objet,
+      bloc_echeance: notice,
+    },
+    { subject: `Votre abonnement « ${opts.label} » : ${objet}`, body: [salutation, "", intro, "", notice].join("\n") },
+  );
+  const subject = content.subject;
+  const text = [content.body, "", formatPlainTextSignature(opts.settings, opts.brand)].join("\n");
   const html = renderEmailHtml({
     text,
     brand: opts.brand,
@@ -421,7 +448,7 @@ export async function sendDueFirstChargeNotices(now: Date = new Date()): Promise
       continue;
     }
     const stripe = sub.collectionMethod === SubscriptionCollectionMethod.STRIPE;
-    const content = renderFirstChargeNoticeEmail({
+    const content = await renderFirstChargeNoticeEmail({
       brand,
       settings,
       clientName: sub.client.displayName,

@@ -8,6 +8,7 @@ import { mailEnqueue } from "@/lib/email/mailer/index.js";
 import { buildEmailBrand } from "@/lib/email/deposit-templates.js";
 import { renderEmailHtml } from "@/lib/email/layout.js";
 import { formatPlainTextSignature } from "@/lib/email/signature.js";
+import { templateText } from "@/lib/email/template-registry.js";
 import type { EmailBrand } from "@/lib/email/templates.js";
 import { getStripe } from "@/lib/stripe/client.js";
 import { subscriptionCardUpdateUrl } from "@/lib/stripe/portal.js";
@@ -28,7 +29,7 @@ export function cardNeedsNotice(expiresAt: Date, nextInvoiceAt: Date, now: Date)
   return expiresAt <= nextInvoiceAt || expiresAt.getTime() <= now.getTime() + 31 * DAY_MS;
 }
 
-export function renderCardExpiryEmail(opts: {
+export async function renderCardExpiryEmail(opts: {
   brand: EmailBrand;
   settings: Pick<CompanySettings, "emailSignatureHtml" | "brandPrimaryColor" | "brandSecondaryColor">;
   clientName: string;
@@ -43,19 +44,26 @@ export function renderCardExpiryEmail(opts: {
   const name = (opts.clientFirstName ?? opts.clientName)?.trim();
   const expiry = `${String(opts.expMonth).padStart(2, "0")}/${opts.expYear}`;
   const card = `${opts.cardBrand.toUpperCase()} se terminant par ${opts.last4}`;
-  const text = [
-    name ? `Bonjour ${name},` : "Bonjour,",
-    "",
-    `La carte ${card}, utilisée pour votre abonnement « ${opts.label} », expire fin ${expiry}.`,
-    "",
-    "Pour que les prochains prélèvements passent sans interruption, mettez-la à jour :",
-    "",
-    opts.url,
-    "",
-    "Une question ? Répondez simplement à cet e-mail.",
-    "",
-    formatPlainTextSignature(opts.settings, opts.brand),
-  ].join("\n");
+  const salutation = name ? `Bonjour ${name},` : "Bonjour,";
+  const content = await templateText(
+    "subscription.card_expiring",
+    { salutation, prenom: opts.clientFirstName?.trim() ?? "", client: opts.clientName, abonnement: opts.label, carte: card, expiration: expiry, lien: opts.url },
+    {
+      subject: `Votre carte expire bientôt : ${opts.label}`,
+      body: [
+        salutation,
+        "",
+        `La carte ${card}, utilisée pour votre abonnement « ${opts.label} », expire fin ${expiry}.`,
+        "",
+        "Pour que les prochains prélèvements passent sans interruption, mettez-la à jour :",
+        "",
+        opts.url,
+        "",
+        "Une question ? Répondez simplement à cet e-mail.",
+      ].join("\n"),
+    },
+  );
+  const text = [content.body, "", formatPlainTextSignature(opts.settings, opts.brand)].join("\n");
   const html = renderEmailHtml({
     text,
     brand: opts.brand,
@@ -63,7 +71,7 @@ export function renderCardExpiryEmail(opts: {
     paymentUrl: opts.url,
     paymentLabel: "Mettre à jour ma carte",
   });
-  return { subject: `Votre carte expire bientôt : ${opts.label}`, text, html };
+  return { subject: content.subject, text, html };
 }
 
 function defaultCard(stripeSub: Stripe.Subscription): Stripe.PaymentMethod | null {
@@ -130,7 +138,7 @@ export async function checkExpiringCards(now: Date = new Date()): Promise<number
         console.warn(`[subscriptions] avis de carte expirée ignoré : client sans e-mail (${sub.id})`);
         continue;
       }
-      const content = renderCardExpiryEmail({
+      const content = await renderCardExpiryEmail({
         brand,
         settings,
         clientName: sub.client.displayName,
