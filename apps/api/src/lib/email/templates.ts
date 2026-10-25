@@ -3,7 +3,7 @@ import { formatEUR } from "@/lib/money.js";
 import { renderEmailHtml } from "@/lib/email/layout.js";
 import { resolveClientPortalUrl } from "@/lib/email/portal-url.js";
 import { formatPlainTextSignature } from "@/lib/email/signature.js";
-import { fillTemplate, templateOverride } from "@/lib/email/template-registry.js";
+import { fillTemplate, templateDefinition, templateOverride } from "@/lib/email/template-registry.js";
 
 export type EmailTemplateKind =
   | "quote"
@@ -265,17 +265,31 @@ export async function buildEmailContent(input: EmailContentInput): Promise<{
   const text = override
     ? [fillTemplate(override.body, values!), "", await resolveEmailSignature(input.brand)].join("\n")
     : await bodyTextFor(input);
+  const html = await renderHtml(text, input.brand, input.paymentUrl, input.brandPrimaryColor);
+  return { subject, text, html };
+}
+
+async function renderHtml(text: string, brand: EmailBrand, paymentUrl?: string | null, brandPrimaryColor?: string): Promise<string> {
   const settings = await getCompanySettings();
-  const html = renderEmailHtml({
+  return renderEmailHtml({
     text,
-    brand: { ...input.brand, website: input.brand.website ?? null },
+    brand: { ...brand, website: brand.website ?? null },
     colors: {
-      brandPrimaryColor: input.brandPrimaryColor ?? settings.brandPrimaryColor,
+      brandPrimaryColor: brandPrimaryColor ?? settings.brandPrimaryColor,
       brandSecondaryColor: settings.brandSecondaryColor,
     },
-    paymentUrl: input.paymentUrl,
+    paymentUrl,
   });
-  return { subject, text, html };
+}
+
+/** Aperçu d'un modèle (enregistré ou en cours de saisie) avec les données d'exemple du registre et la signature réelle. */
+export async function previewTemplate(key: string, subject: string, body: string): Promise<{ subject: string; text: string; html: string } | null> {
+  const def = templateDefinition(key);
+  if (!def) return null;
+  const values = Object.fromEntries(def.variables.map((v) => [v.name, v.example]));
+  const brand = await brandFromSettings();
+  const text = [fillTemplate(body, values), "", await resolveEmailSignature(brand)].join("\n");
+  return { subject: fillTemplate(subject, values), text, html: await renderHtml(text, brand, values.lien_paiement || null) };
 }
 
 export async function brandFromSettings(): Promise<EmailBrand> {
