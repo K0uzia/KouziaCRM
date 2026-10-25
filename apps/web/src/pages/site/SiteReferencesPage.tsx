@@ -99,6 +99,8 @@ export function SiteReferencesPage() {
     {
       name: "Référence",
       grow: 3,
+      // Nom lisible à 1280 px (tronqué à 104 px avant) : la colonne garde 14rem, « Emplacements » attend 1536 px.
+      minWidth: "14rem",
       cell: (r) => (
         <div className="flex min-w-0 items-center gap-3 py-2">
           <SiteImage path={r.logoPath} alt="" className="h-10 w-16 shrink-0 rounded-[var(--radius-sm)] object-contain" />
@@ -117,7 +119,7 @@ export function SiteReferencesPage() {
     {
       name: "Emplacements",
       width: "11rem",
-      showFrom: 1280,
+      showFrom: 1536,
       cell: (r) =>
         r.type === "USER"
           ? "-"

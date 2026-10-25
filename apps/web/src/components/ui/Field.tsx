@@ -1,4 +1,4 @@
-import { Children, cloneElement, isValidElement, useEffect, useId, useState } from "react";
+import { Children, cloneElement, isValidElement, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import type { ComponentPropsWithRef, SelectHTMLAttributes, ReactNode } from "react";
 import { useMediaQuery } from "@/lib/use-media-query";
 import { Listbox } from "@/components/ui/Listbox";
@@ -186,8 +186,48 @@ export function MonthField({
   );
 }
 
-export function Textarea({ className = "", ...props }: ComponentPropsWithRef<"textarea">) {
-  return <textarea className={`${control} min-h-24 resize-y py-2.5 ${className}`} {...props} />;
+/**
+ * Zone de texte. autoGrow : hauteur qui suit le texte et la largeur (dès une ligne, comme un champ), pour un texte court
+ * qu'un champ d'une ligne couperait ; noNewlines : un seul paragraphe (Entrée ne crée pas de retour à la ligne).
+ */
+export function Textarea({
+  className = "",
+  autoGrow = false,
+  noNewlines = false,
+  ref,
+  onKeyDown,
+  ...props
+}: ComponentPropsWithRef<"textarea"> & { autoGrow?: boolean; noNewlines?: boolean }) {
+  const inner = useRef<HTMLTextAreaElement | null>(null);
+  useLayoutEffect(() => {
+    const el = inner.current;
+    if (!autoGrow || !el) return;
+    const fit = () => {
+      el.style.height = "auto";
+      el.style.height = `${el.scrollHeight + el.offsetHeight - el.clientHeight}px`;
+    };
+    fit();
+    // Largeur changée (fenêtre, téléphone tourné) : le texte passe à la ligne autrement.
+    const observer = new ResizeObserver(fit);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [autoGrow, props.value]);
+  return (
+    <textarea
+      ref={(el) => {
+        inner.current = el;
+        if (typeof ref === "function") ref(el);
+        else if (ref) ref.current = el;
+      }}
+      className={`${control} ${autoGrow ? "min-h-[var(--field-h)] resize-none overflow-hidden" : "min-h-24 resize-y"} py-2.5 ${className}`}
+      rows={autoGrow ? 1 : props.rows}
+      onKeyDown={(e) => {
+        if (noNewlines && e.key === "Enter") e.preventDefault();
+        onKeyDown?.(e);
+      }}
+      {...props}
+    />
+  );
 }
 
 /** Case à cocher avec son libellé : toute la ligne est cliquable (44 px), la case suit --check-size. */

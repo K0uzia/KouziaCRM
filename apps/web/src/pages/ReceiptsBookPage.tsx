@@ -287,7 +287,7 @@ export function ReceiptsBookPage() {
                     <th scope="col" className="nowrap">Facture</th>
                     <th scope="col" className="nowrap">Type</th>
                     <th scope="col">Client</th>
-                    <th scope="col" className="w-full md:max-xl:hidden">Nature</th>
+                    <th scope="col" className="w-full md:max-2xl:hidden">Nature</th>
                     <th scope="col" className="nowrap">Règlement</th>
                     <th scope="col" className="nowrap text-right">Encaissé</th>
                     <th scope="col" className="nowrap text-right">Total facture</th>
@@ -322,9 +322,13 @@ export function ReceiptsBookPage() {
                           {r.clientNumber ? (
                             <span className="block font-mono text-[length:var(--text-ref)] text-[var(--muted)]">{r.clientNumber}</span>
                           ) : null}
+                          {/* De 768 à 1535 px, la colonne Nature est masquée (écrasée à 1280 px) : la nature sous le client, en entier. */}
+                          <span className="hidden max-w-[16rem] whitespace-normal text-[var(--muted)] md:block 2xl:hidden" title={r.nature}>
+                            {nature}
+                          </span>
                         </td>
                         {/* Une seule ligne, une ellipse : le texte légal complet est dans title et reste lu en entier. */}
-                        <td className="max-w-0 text-[var(--muted)] md:max-xl:hidden" title={r.nature}>
+                        <td className="max-w-0 text-[var(--muted)] md:max-2xl:hidden" title={r.nature}>
                           <span className="block truncate">{nature}</span>
                         </td>
                         <td className="nowrap">{r.paymentMethodLabel}</td>
@@ -341,7 +345,7 @@ export function ReceiptsBookPage() {
                     <th scope="row" colSpan={4} className="text-left text-[length:var(--text-table)] font-normal normal-case tracking-normal text-[var(--muted)]">
                       {data.rows.length} encaissement{data.rows.length > 1 ? "s" : ""}
                     </th>
-                    <td className="md:max-xl:hidden" />
+                    <td className="md:max-2xl:hidden" />
                     <th scope="row" className="text-right text-[length:var(--text-table)] normal-case tracking-normal text-[var(--text)]">
                       Total
                     </th>

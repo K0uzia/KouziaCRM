@@ -691,7 +691,7 @@ export function DashboardPage() {
                         className="flex min-h-12 items-center justify-between gap-3 px-5 py-2.5 text-sm hover:bg-[var(--surface-raised)]"
                       >
                         <span className="min-w-0">
-                          <span className="block truncate font-medium">{inv.displayName}</span>
+                          <span className="line-clamp-2 break-words font-medium" title={inv.displayName}>{inv.displayName}</span>
                           <span className="font-mono text-xs text-[var(--muted)]">{inv.number}</span>
                         </span>
                         <span className="shrink-0 font-semibold tabular-nums">{formatEUR(inv.remaining)}</span>
@@ -716,7 +716,7 @@ export function DashboardPage() {
                         to={r.documentType === "QUOTE" ? `/quotes/${r.id}` : `/invoices/${r.id}`}
                         className="flex min-h-11 min-w-0 flex-col justify-center hover:text-[var(--primary)]"
                       >
-                        <span className="block truncate font-medium">{r.client.displayName}</span>
+                        <span className="line-clamp-2 break-words font-medium" title={r.client.displayName}>{r.client.displayName}</span>
                         <span className="text-xs text-[var(--muted)]">
                           {r.documentType === "QUOTE" ? "Devis" : "Facture"} {r.number ?? ""} · {r.reminderCount} relance
                           {r.reminderCount > 1 ? "s" : ""}

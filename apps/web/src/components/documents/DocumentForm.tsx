@@ -1340,7 +1340,7 @@ export function DocumentFormEditor({
         ) : null}
 
         <Field label={isQuote ? "Conditions de règlement" : "Conditions de paiement"}>
-          <Input value={form.paymentTerms} onChange={(e) => setForm((f) => ({ ...f, paymentTerms: e.target.value }))} />
+          <Textarea autoGrow value={form.paymentTerms} onChange={(e) => setForm((f) => ({ ...f, paymentTerms: e.target.value }))} />
         </Field>
       </section>
 

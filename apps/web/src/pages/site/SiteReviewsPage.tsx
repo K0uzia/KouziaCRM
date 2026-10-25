@@ -275,7 +275,7 @@ function MethodCard() {
           {draft ? " Ce modèle n'est pas encore enregistré : le relire, l'ajuster puis l'enregistrer." : ""}
         </p>
         <Field label="Titre" error={errors.titre}>
-          <Input value={form.titre} maxLength={120} onChange={(e) => setForm({ ...form, titre: e.target.value })} />
+          <Textarea autoGrow noNewlines value={form.titre} maxLength={120} onChange={(e) => setForm({ ...form, titre: e.target.value })} />
         </Field>
         <Field label="Texte" error={errors.texte}>
           <Textarea rows={12} value={form.texte} onChange={(e) => setForm({ ...form, texte: e.target.value })} />
