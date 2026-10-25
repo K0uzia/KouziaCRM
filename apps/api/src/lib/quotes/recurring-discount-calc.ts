@@ -41,7 +41,14 @@ export function discountedPeriods(months: number | null | undefined, commitmentM
 
 /** Résumé d'un devis récurrent remisé (PDF, version lisible, /suivi) ; null sans remise. */
 export function recurringDiscountSummary(
-  fields: { recurringDiscountKind: string | null; recurringDiscountValue: number | null; recurringDiscountMonths: number | null; openingDiscount: boolean },
+  fields: {
+    recurringDiscountKind: string | null;
+    recurringDiscountValue: number | null;
+    recurringDiscountMonths: number | null;
+    openingDiscount: boolean;
+    /** Code promo appliqué (R3) : « Code promo X » à la place de « Remise », condition imprimée. */
+    promoCode?: { code: string; conditionText: string | null } | null;
+  },
   amountCents: number,
   interval: string | null | undefined,
   commitmentMonths: number | null | undefined,
@@ -55,6 +62,8 @@ export function recurringDiscountSummary(
     value: fields.recurringDiscountValue!,
     months: fields.recurringDiscountMonths,
     opening: fields.openingDiscount,
+    promoCode: fields.promoCode?.code ?? null,
+    condition: fields.promoCode?.conditionText?.trim() || null,
     periods,
     discountCentsPerPeriod: perPeriod,
     discountedAmountCents: amountCents - perPeriod,
@@ -80,7 +89,7 @@ export function discountSentence(
 ): string {
   const word = PERIOD_WORD[interval ?? "MONTH"] ?? "mois";
   const what = d.kind === "PERCENT" ? `${String(d.value / 100).replace(".", ",")} %` : `${euros(d.value)} par échéance`;
-  const head = `${d.opening ? "Remise d’ouverture" : "Remise"} : ${what}`;
+  const head = `${d.promoCode ? `Code promo ${d.promoCode}` : d.opening ? "Remise d’ouverture" : "Remise"} : ${what}`;
   if (d.months == null) return `${head} sur toute la durée de l’engagement, soit ${euros(d.discountedAmountCents)} par ${word}.`;
   const span = d.periods === 1 ? "sur la 1re échéance" : `sur les ${d.periods} premières échéances`;
   if (interval === "YEAR" && d.periods === 1) {

@@ -236,7 +236,7 @@ const commitmentInterval = (lines: ReadonlyArray<{ isSubscription?: boolean; com
 function discountWords(d: RecurringDiscountSummary) {
   const what = d.kind === "PERCENT" ? `${String(d.value / 100).replace(".", ",")} %` : `${fmtMoney(d.value)} par échéance`;
   const span = d.months == null ? "sur toute la durée de l’engagement" : d.periods === 1 ? "sur la 1re échéance" : `sur les ${d.periods} premières échéances`;
-  const label = d.opening ? `Remise d’ouverture : ${what} sur les ${d.months} premiers mois` : `Remise : ${what} ${span}`;
+  const label = d.promoCode ? `Code promo ${d.promoCode} : ${what} ${span}` : d.opening ? `Remise d’ouverture : ${what} sur les ${d.months} premiers mois` : `Remise : ${what} ${span}`;
   return { what, span, label };
 }
 
@@ -733,6 +733,7 @@ export function InvoiceDocument({ company, client, invoice, specimen, draft }: I
                     ? [
                         discountSentence(d, r.amountCents, r.period, fmtMoney),
                         ...(d.opening ? ["Remise d’ouverture : structure créée il y a moins de 12 mois."] : []),
+                        ...(d.promoCode && d.condition ? [`Code promo ${d.promoCode} : ${d.condition.replace(/\.$/, "")}.`] : []),
                       ]
                     : []),
                   `Facturé ${rhythm}.`,

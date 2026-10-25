@@ -14,8 +14,10 @@ import { equalInstallments, modePlansShown, PERIOD_WORD, periodsIn, type Period,
 export type BillingMode = "ONE_OFF" | "RECURRING";
 // Pas d'abonnement sans engagement (décision du 23/10/2026) : 12 mois au minimum, le rythme n'est qu'une façon de payer.
 /** Remise du devis récurrent (R1) : case « Remise d'ouverture », ou remise volontaire (pourcentage ou montant par échéance). */
-export type RecurringDiscountForm = { opening: boolean; kind: "" | "PERCENT" | "FIXED"; percent: string; euros: string; months: string };
-export const NO_DISCOUNT: RecurringDiscountForm = { opening: false, kind: "", percent: "", euros: "", months: "" };
+export type RecurringDiscountForm = { opening: boolean; kind: "" | "PERCENT" | "FIXED"; percent: string; euros: string; months: string; promoCode: string };
+/** Code promo proposé pour ce devis (client et offres) : GET /api/promo-codes/available. */
+export type PromoOption = { code: string; kind: "PERCENT" | "FIXED"; value: number; months: number | null; conditionText: string | null };
+export const NO_DISCOUNT: RecurringDiscountForm = { opening: false, kind: "", percent: "", euros: "", months: "", promoCode: "" };
 export type RecurringForm = StartFields & { interval: Period; commitmentMonths: "12" | "24" | "36"; billingDay: string; discount: RecurringDiscountForm };
 
 export const DEFAULT_RECURRING: RecurringForm = {
@@ -47,11 +49,13 @@ export function recurringFromLine(
 
 /** Remise d'un devis enregistré, pour le formulaire. */
 export function discountFromDoc(doc: {
+  promoCode?: { code: string } | null;
   openingDiscount?: boolean | null;
   recurringDiscountKind?: string | null;
   recurringDiscountValue?: number | null;
   recurringDiscountMonths?: number | null;
 }): RecurringDiscountForm {
+  if (doc.promoCode?.code) return { ...NO_DISCOUNT, promoCode: doc.promoCode.code };
   if (doc.openingDiscount) return { ...NO_DISCOUNT, opening: true };
   if (doc.recurringDiscountKind !== "PERCENT" && doc.recurringDiscountKind !== "FIXED") return NO_DISCOUNT;
   const value = (doc.recurringDiscountValue ?? 0) / 100;
@@ -61,14 +65,17 @@ export function discountFromDoc(doc: {
     percent: doc.recurringDiscountKind === "PERCENT" ? String(value) : "",
     euros: doc.recurringDiscountKind === "FIXED" ? value.toFixed(2) : "",
     months: doc.recurringDiscountMonths ? String(doc.recurringDiscountMonths) : "",
+    promoCode: "",
   };
 }
 
 /** Corps de la requête : la case, ou la remise volontaire, ou rien (null retire une remise enregistrée). */
 export function discountPayload(d: RecurringDiscountForm) {
-  if (d.opening) return { openingDiscount: true, recurringDiscount: null };
-  if (!d.kind) return { openingDiscount: false, recurringDiscount: null };
+  if (d.promoCode) return { promoCode: d.promoCode, openingDiscount: false, recurringDiscount: null };
+  if (d.opening) return { promoCode: null, openingDiscount: true, recurringDiscount: null };
+  if (!d.kind) return { promoCode: null, openingDiscount: false, recurringDiscount: null };
   return {
+    promoCode: null,
     openingDiscount: false,
     recurringDiscount: {
       kind: d.kind,
@@ -79,8 +86,13 @@ export function discountPayload(d: RecurringDiscountForm) {
 }
 
 /** Résumé de la remise (même calcul que l'API et le PDF) ; null sans remise ou incomplète. */
-export function discountSummaryOf(value: RecurringForm, periodCents: number): RecurringDiscountSummary | null {
+export function discountSummaryOf(value: RecurringForm, periodCents: number, promos: ReadonlyArray<PromoOption> = []): RecurringDiscountSummary | null {
   const d = value.discount;
+  const promo = d.promoCode ? promos.find((p) => p.code === d.promoCode) : undefined;
+  if (promo) {
+    const fields = { recurringDiscountKind: promo.kind, recurringDiscountValue: promo.value, recurringDiscountMonths: promo.months, openingDiscount: false, promoCode: { code: promo.code, conditionText: promo.conditionText } };
+    return recurringDiscountSummary(fields, periodCents, value.interval, Number(value.commitmentMonths) || null);
+  }
   const fields = d.opening
     ? { recurringDiscountKind: "PERCENT", recurringDiscountValue: OPENING_DISCOUNT.value, recurringDiscountMonths: OPENING_DISCOUNT.months, openingDiscount: true }
     : {
@@ -194,10 +206,12 @@ export function RecurringSettings({
   value,
   onChange,
   periodCents,
+  promos = [],
 }: {
   value: RecurringForm;
   onChange: (patch: Partial<RecurringForm>) => void;
   periodCents: number;
+  promos?: ReadonlyArray<PromoOption>;
 }) {
   const hasProject = value.subscriptionStart === "DELIVERY";
   const phrase = startPhrase(value, hasProject, periodCents, value.interval);
@@ -266,7 +280,7 @@ export function RecurringSettings({
           </Select>
         </Field>
       </div>
-      <DiscountSettings value={value} onChange={onChange} periodCents={periodCents} />
+      <DiscountSettings value={value} onChange={onChange} periodCents={periodCents} promos={promos} />
       <p className="text-sm text-[var(--muted)]" aria-live="polite">
         {phrase ? `Sur le devis : « ${phrase} »` : "Complétez la date ou le nombre de mois offerts."}
         {`, engagement de ${months} mois (${periodsIn(months, value.interval)} échéances), puis reconduit chaque année.`}
@@ -279,15 +293,31 @@ export function RecurringSettings({
  * Remise du devis récurrent (R1, décisions du 25/10/2026) : une seule par devis. La remise d'ouverture (30 % sur 12 mois)
  * n'existe qu'avec l'engagement de 36 mois et exclut la remise volontaire.
  */
-function DiscountSettings({ value, onChange, periodCents }: { value: RecurringForm; onChange: (patch: Partial<RecurringForm>) => void; periodCents: number }) {
+function DiscountSettings({ value, onChange, periodCents, promos }: { value: RecurringForm; onChange: (patch: Partial<RecurringForm>) => void; periodCents: number; promos: ReadonlyArray<PromoOption> }) {
   const d = value.discount;
   const set = (patch: Partial<RecurringDiscountForm>) => onChange({ discount: { ...d, ...patch } });
   const step = value.interval === "YEAR" ? 12 : value.interval === "QUARTER" ? 3 : 1;
   const engaged36 = value.commitmentMonths === "36";
-  const summary = discountSummaryOf(value, periodCents);
+  const summary = discountSummaryOf(value, periodCents, promos);
+  const promoChosen = Boolean(d.promoCode);
   return (
     <div className="space-y-3">
       <h4 className={blockTitle}>Remise</h4>
+      {promos.length || d.promoCode ? (
+        <Field label="Code promo" hint={promoChosen ? "Le code fixe la remise : pas de cumul avec une autre remise." : "Codes valables pour ce client et cette offre (Offre, Codes promo)."}>
+          <Select value={d.promoCode} onChange={(e) => set({ promoCode: e.target.value, ...(e.target.value ? { opening: false, kind: "" as const } : {}) })}>
+            <option value="">Aucun</option>
+            {d.promoCode && !promos.some((p) => p.code === d.promoCode) ? <option value={d.promoCode}>{d.promoCode}</option> : null}
+            {promos.map((p) => (
+              <option key={p.code} value={p.code}>
+                {p.code}
+              </option>
+            ))}
+          </Select>
+        </Field>
+      ) : null}
+      {promoChosen ? null : (
+      <>
       <Checkbox
         label="Remise d’ouverture : 30 % sur les 12 premiers mois"
         hint={engaged36 ? "Structure créée il y a moins de 12 mois : mention imprimée sur le devis. Pas de cumul avec une autre remise." : "Avec l'engagement de 36 mois seulement."}
@@ -321,6 +351,8 @@ function DiscountSettings({ value, onChange, periodCents }: { value: RecurringFo
           ) : null}
         </div>
       )}
+      </>
+      )}
       {summary ? (
         <p className="text-sm text-[var(--muted)]" aria-live="polite">
           {`Sur le devis : « ${discountPhrase(summary, periodCents, value.interval)} »`}
@@ -331,9 +363,9 @@ function DiscountSettings({ value, onChange, periodCents }: { value: RecurringFo
 }
 
 /** Récapitulatif d'un devis récurrent : montant par période, engagement et total sur la durée. */
-export function RecurringRecap({ value, periodCents }: { value: RecurringForm; periodCents: number }) {
+export function RecurringRecap({ value, periodCents, promos = [] }: { value: RecurringForm; periodCents: number; promos?: ReadonlyArray<PromoOption> }) {
   const months = Number(value.commitmentMonths) || 0;
-  const discount = discountSummaryOf(value, periodCents);
+  const discount = discountSummaryOf(value, periodCents, promos);
   const line = "flex items-baseline justify-between gap-3 text-sm";
   return (
     <div className="space-y-1.5">

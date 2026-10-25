@@ -50,6 +50,7 @@ const ReceiptsBookPage = lazy(() =>
   import("@/pages/ReceiptsBookPage").then((m) => ({ default: m.ReceiptsBookPage })),
 );
 const OutboxPage = lazy(() => import("@/pages/OutboxPage").then((m) => ({ default: m.OutboxPage })));
+const PromoCodesPage = lazy(() => import("@/pages/PromoCodesPage").then((m) => ({ default: m.PromoCodesPage })));
 const EmailReviewPage = lazy(() => import("@/pages/EmailReviewPage").then((m) => ({ default: m.EmailReviewPage })));
 const EmailTemplatesPage = lazy(() => import("@/pages/settings/EmailTemplatesPage").then((m) => ({ default: m.EmailTemplatesPage })));
 const EmailTemplatePage = lazy(() => import("@/pages/settings/EmailTemplatesPage").then((m) => ({ default: m.EmailTemplatePage })));
@@ -173,6 +174,7 @@ export default function App() {
           <Route path="inbox/compose" element={<ComposePage />} />
           <Route path="inbox/:threadId" element={<InboxPage />} />
           <Route path="emails-a-valider" element={<EmailReviewPage />} />
+          <Route path="codes-promo" element={<PromoCodesPage />} />
           <Route path="demandes-logiciel" element={<SoftwareRequestsPage />} />
           <Route path="demandes-logiciel/:id" element={<SoftwareRequestPage />} />
           <Route path="settings" element={<SettingsPage />} />

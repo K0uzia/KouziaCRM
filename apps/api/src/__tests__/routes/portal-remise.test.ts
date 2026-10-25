@@ -80,6 +80,14 @@ describe("contrat R4 : remise dans /suivi", () => {
     expect(t.subscriptions[0].discount).toEqual({ kind: "PERCENT", percentBps: 3000, remainingPeriods: 1, nextAmountCents: 105000 });
   });
 
+  it("code promo (R3) : promoCode et condition, comme le PDF", async () => {
+    const { quoteId, kz_portal } = await setup();
+    const code = await prisma.promoCode.create({ data: { code: "OUVERTURE30", kind: "PERCENT", value: 3000, months: 12, conditionText: "structure créée il y a moins de 12 mois" } });
+    await prisma.invoice.update({ where: { id: quoteId }, data: { promoCodeId: code.id, openingDiscount: false } });
+    const doc = (await tracking(kz_portal)).documents.find((d: { id: string }) => d.id === quoteId);
+    expect(doc.recurring.discount).toMatchObject({ promoCode: "OUVERTURE30", condition: "structure créée il y a moins de 12 mois", opening: false, percentBps: 3000 });
+  });
+
   it("montants masqués : pourcentage et durée seulement ; plus de discount une fois les échéances remisées facturées", async () => {
     const { quoteId, kz_portal } = await setup();
     await prisma.companySettings.updateMany({ data: { publicTrackingShowAmounts: false } });

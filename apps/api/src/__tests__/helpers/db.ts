@@ -20,6 +20,7 @@ const TABLES = [
   "InvoiceLine",
   "PaymentMilestone",
   "Invoice",
+  "PromoCode",
   "Subscription",
   "ServicePackItem",
   "ClientServiceNeed",

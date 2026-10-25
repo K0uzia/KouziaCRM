@@ -1168,6 +1168,9 @@ model Invoice {
   recurringDiscountMonths      Int?
   /// Case « Remise d'ouverture » : 30 % sur 12 mois, engagement de 36 mois seulement, mention sur le devis
   openingDiscount              Boolean                @default(false)
+  /// Code promo appliqué (R3) : remplit la remise ci-dessus, figée à l'émission ; exclusif des autres remises
+  promoCodeId                  String?
+  promoCode                    PromoCode?             @relation(fields: [promoCodeId], references: [id], onDelete: Restrict)
   /// Total du marché (devis) figé à l'émission d'un acompte/solde
   marketTotalCents             Int?
   /// Devis : base de l'acompte et de l'échéancier (partie ponctuelle, remise répartie), figée à
@@ -1267,6 +1270,7 @@ model Invoice {
   @@index([quoteStatus])
   @@index([nextReminderAt])
   @@index([subscriptionId])
+  @@index([promoCodeId])
   @@index([buysOutSubscriptionId])
   @@index([documentType, status])
   @@index([documentType, quoteStatus])
@@ -2098,4 +2102,29 @@ model EmailTemplate {
   subject   String?
   body      String?
   updatedAt DateTime @updatedAt
+}
+
+/// Code promo (R3, 26/10/2026) : saisi par l'admin sur un devis récurrent avant émission ; usages calculés (devis émis
+/// vivants avec ce code), jamais stockés. Code immuable après création (il figure sur les devis émis).
+model PromoCode {
+  id            String    @id @default(cuid())
+  /// Majuscules, lettres, chiffres et tiret, 3 à 32 caractères
+  code          String    @unique
+  /// PERCENT (value en points de base) | FIXED (value en centimes par échéance)
+  kind          String
+  value         Int
+  /// Durée en mois depuis la 1re échéance ; null = toute la durée de l'engagement
+  months        Int?
+  validFrom     DateTime?
+  validUntil    DateTime?
+  /// null = illimité
+  maxUses       Int?
+  /// Liste JSON des identifiants d'offres concernées ; null = toutes
+  serviceIds    String?
+  /// Condition imprimée sur le devis (ex. « structure créée il y a moins de 12 mois »)
+  conditionText String?
+  active        Boolean   @default(true)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  invoices      Invoice[]
 }

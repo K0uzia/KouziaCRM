@@ -4,6 +4,7 @@ import {
   faEnvelopeCircleCheck,
   faBook,
   faBoxOpen,
+  faTicket,
   faChartPie,
   faCircleQuestion,
   faGlobe,
@@ -82,6 +83,7 @@ export const NAV_SECTIONS: NavSection[] = [
     label: "Offre",
     items: [
       { id: "services", to: "/services", label: "Prestations", icon: faBoxOpen, match: starts("/services") },
+      { id: "promo-codes", to: "/codes-promo", label: "Codes promo", icon: faTicket, match: starts("/codes-promo") },
       {
         id: "subscriptions",
         to: "/abonnements",

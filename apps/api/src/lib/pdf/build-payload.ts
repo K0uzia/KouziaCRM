@@ -29,6 +29,8 @@ type InvoiceWithRelations = Invoice & {
   /** Avoirs émis sur la facture (et leurs remboursements) : reste dû du rendu de secours. */
   creditNotes?: Array<{ totalCents: number; payments?: Array<{ amountCents: number }> }>;
   creditedInvoice?: { number: string | null; issueDate: Date | null } | null;
+  /** Code promo du devis (R3). */
+  promoCode?: { code: string; conditionText: string | null } | null;
   quote?: { number: string | null; issueDate: Date | null } | null;
   sourceMilestone?: {
     triggerText: string | null;
