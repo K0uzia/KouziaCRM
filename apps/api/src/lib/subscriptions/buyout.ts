@@ -3,7 +3,7 @@ import { prisma } from "@/lib/prisma.js";
 import { formatDateFr } from "@/lib/format-fr.js";
 import { lineTotalCents } from "@/lib/money.js";
 import { commitmentEndOf } from "@/lib/subscriptions/commitment.js";
-import { normalizeInterval, periodMonths } from "@/lib/subscriptions/subscription-service.js";
+import { currentPeriodEndOf, normalizeInterval, periodMonths } from "@/lib/subscriptions/subscription-service.js";
 
 /**
  * Rachat du site (lots R1 à R3, décisions du 24/10/2026). L'offre d'abonnement porte sa prestation de rachat (catalogue,
@@ -27,13 +27,7 @@ const LIVE_QUOTE_STATUSES: readonly QuoteStatus[] = [QuoteStatus.DRAFT, QuoteSta
 
 type PeriodSub = { nextInvoiceAt: Date; billingInterval: string | null; commitmentEndsAt: Date | null };
 
-/** Fin de la période de facturation en cours : la prochaine échéance, avancée d'une période tant qu'elle est passée. */
-export function currentPeriodEndOf(sub: PeriodSub, now = new Date()): Date {
-  const months = periodMonths(sub.billingInterval);
-  let end = new Date(sub.nextInvoiceAt);
-  while (end.getTime() <= now.getTime()) end = commitmentEndOf(end, months);
-  return end;
-}
+export { currentPeriodEndOf };
 
 /** Périodes de l'engagement qui commencent après la période en cours (0 une fois l'engagement atteint). */
 export function remainingCommitmentPeriods(sub: PeriodSub, now = new Date()): { count: number; from: Date; until: Date | null } {
@@ -45,14 +39,22 @@ export function remainingCommitmentPeriods(sub: PeriodSub, now = new Date()): { 
   return { count, from, until: sub.commitmentEndsAt };
 }
 
-/** Prix d'une période au devis d'origine (figé à sa signature) ; abonnement créé à la main : son montant. */
-async function originalPeriodPriceCents(sub: { id: string; amountCents: number }): Promise<{ cents: number; quoteNumber: string | null }> {
-  const line = await prisma.invoiceLine.findFirst({
-    where: { subscriptionId: sub.id, isSubscription: true, invoice: { documentType: InvoiceDocumentType.QUOTE, number: { not: null } } },
+/**
+ * Prix d'une période au devis d'origine (figé à sa signature) : toutes ses lignes d'abonnement additionnées, comme à
+ * l'activation (un devis récurrent forme un seul abonnement). Abonnement créé à la main : son montant.
+ */
+async function originalPeriodPriceCents(sub: { id: string; amountCents: number }): Promise<{ cents: number; quoteNumber: string | null; interval: string | null }> {
+  const first = await prisma.invoiceLine.findFirst({
+    where: { subscriptionId: sub.id, isSubscription: true, revisesSubscriptionId: null, invoice: { documentType: InvoiceDocumentType.QUOTE, number: { not: null } } },
     orderBy: { invoice: { issueDate: "asc" } },
-    select: { unitPriceCents: true, invoice: { select: { number: true } } },
+    select: { invoiceId: true, billingInterval: true, invoice: { select: { number: true } } },
   });
-  return line ? { cents: line.unitPriceCents, quoteNumber: line.invoice.number } : { cents: sub.amountCents, quoteNumber: null };
+  if (!first) return { cents: sub.amountCents, quoteNumber: null, interval: null };
+  const lines = await prisma.invoiceLine.findMany({
+    where: { invoiceId: first.invoiceId, subscriptionId: sub.id, isSubscription: true, revisesSubscriptionId: null },
+    select: { unitPriceCents: true },
+  });
+  return { cents: lines.reduce((sum, l) => sum + l.unitPriceCents, 0), quoteNumber: first.invoice.number, interval: first.billingInterval };
 }
 
 const remainingLabel = (interval: string | null) =>
@@ -90,6 +92,8 @@ export async function buyoutStateOf(subscriptionId: string, now = new Date()) {
   const price = remaining.count > 0 ? await originalPeriodPriceCents(sub) : null;
   const live = quotes.find((q) => q.quoteStatus && LIVE_QUOTE_STATUSES.includes(q.quoteStatus));
   const signed = quotes.some((q) => q.quoteStatus === QuoteStatus.ACCEPTED);
+  // Avenant qui a changé la périodicité : le prix par période du devis d'origine ne s'applique plus.
+  const intervalChanged = Boolean(price?.interval) && normalizeInterval(price!.interval) !== normalizeInterval(sub.billingInterval);
   // Rachat signé : la fiche montre la fin de l'abonnement et le suivi du transfert, plus les périodes restantes.
   const blocked = signed
     ? "Rachat signé."
@@ -101,7 +105,9 @@ export async function buyoutStateOf(subscriptionId: string, now = new Date()) {
           ? "La prestation de rachat de l'offre est archivée."
           : live
             ? "Un devis de rachat est déjà en cours pour cet abonnement."
-            : null;
+            : intervalChanged
+              ? "La périodicité de l'abonnement a changé par avenant : le prix par période du devis d'origine ne s'applique plus. Établissez le rachat à la main."
+              : null;
   return {
     service,
     periodEndsAt: remaining.from,
@@ -161,6 +167,8 @@ export async function createBuyoutQuote(subscriptionId: string, now = new Date()
       paymentPlanOffer: "ONE",
       clientId: sub.clientId,
       buysOutSubscriptionId: sub.id,
+      // Fin de période figée : les lignes en dépendent ; la signature est refusée si elle a changé (audit du 25/10/2026).
+      buyoutPeriodEndsAt: state.periodEndsAt,
       paymentTerms: "Devis valable 30 jours",
       validUntil,
       subtotalCents: totalCents,
@@ -211,14 +219,24 @@ export type BuyoutSignature = { subscriptionId: string; endDate: Date; stripe: {
  * proche est gardée. Dans la transaction de la signature ; Stripe est prévenu après (finishBuyoutSignature).
  */
 export async function applyBuyoutSignature(tx: Tx, quoteId: string, now = new Date()): Promise<BuyoutSignature | null> {
-  const quote = await tx.invoice.findUnique({ where: { id: quoteId }, select: { documentType: true, buysOutSubscriptionId: true } });
+  const quote = await tx.invoice.findUnique({ where: { id: quoteId }, select: { documentType: true, buysOutSubscriptionId: true, buyoutPeriodEndsAt: true } });
   if (quote?.documentType !== InvoiceDocumentType.QUOTE || !quote.buysOutSubscriptionId) return null;
   const sub = await tx.subscription.findUnique({
     where: { id: quote.buysOutSubscriptionId },
     select: { id: true, status: true, endDate: true, nextInvoiceAt: true, billingInterval: true, commitmentEndsAt: true, stripeSubscriptionId: true, stripeLivemode: true },
   });
   if (!sub || sub.status === SubscriptionStatus.ENDED) return null;
-  const lastInstant = new Date(currentPeriodEndOf(sub, now).getTime() - 1);
+  const periodEnd = currentPeriodEndOf(sub, now);
+  // Période changée depuis le devis : ses lignes (périodes restantes) ne correspondent plus, la période en cours serait
+  // payée deux fois. Devis créé avant la migration (fin non figée) : comportement d'avant.
+  if (quote.buyoutPeriodEndsAt && quote.buyoutPeriodEndsAt.getTime() !== periodEnd.getTime()) {
+    const { QuoteDecisionError } = await import("@/lib/invoices/transitions.js");
+    throw new QuoteDecisionError(
+      "La période de l'abonnement a changé depuis ce devis de rachat : un nouveau devis de rachat est nécessaire.",
+      "EXPIRED",
+    );
+  }
+  const lastInstant = new Date(periodEnd.getTime() - 1);
   const endDate = sub.endDate && sub.endDate < lastInstant ? sub.endDate : lastInstant;
   await tx.subscription.update({ where: { id: sub.id }, data: { endDate } });
   return { subscriptionId: sub.id, endDate, stripe: sub.stripeSubscriptionId ? { id: sub.stripeSubscriptionId, livemode: sub.stripeLivemode } : null };

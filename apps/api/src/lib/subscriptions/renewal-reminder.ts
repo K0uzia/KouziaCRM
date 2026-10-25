@@ -384,7 +384,7 @@ export function renderFirstChargeNoticeEmail(opts: {
 /**
  * Avis à J-30 de la 1re échéance d'un abonnement à démarrage différé (jamais facturé, 1re échéance au moins 30 jours
  * après le début), quelle que soit sa périodicité. Ni pour un abonnement suspendu, ni pour une résiliation
- * programmée ou demandée. Idempotent par échéance (renewalReminderSentFor).
+ * programmée ou demandée. Idempotent par échéance (firstChargeNoticeSentFor, distinct du marqueur du rappel de fin de période).
  * @returns nombre d'e-mails enfilés.
  */
 export async function sendDueFirstChargeNotices(now: Date = new Date()): Promise<number> {
@@ -404,7 +404,7 @@ export async function sendDueFirstChargeNotices(now: Date = new Date()): Promise
     (s) =>
       !billed.has(s.id) &&
       s.nextInvoiceAt.getTime() - s.startDate.getTime() >= DEFERRED_MIN_MS &&
-      s.renewalReminderSentFor?.getTime() !== s.nextInvoiceAt.getTime() &&
+      s.firstChargeNoticeSentFor?.getTime() !== s.nextInvoiceAt.getTime() &&
       (!s.endDate || s.endDate >= s.nextInvoiceAt),
   );
   if (due.length === 0) return 0;
@@ -440,7 +440,7 @@ export async function sendDueFirstChargeNotices(now: Date = new Date()): Promise
       kind: "subscription_first_charge",
       bodyTextForMessage: content.text,
     }, { review: { family: "subscription_notice", origin: "WORKER" } });
-    await prisma.subscription.update({ where: { id: sub.id }, data: { renewalReminderSentFor: sub.nextInvoiceAt } });
+    await prisma.subscription.update({ where: { id: sub.id }, data: { firstChargeNoticeSentFor: sub.nextInvoiceAt } });
     queued += 1;
   }
   return queued;

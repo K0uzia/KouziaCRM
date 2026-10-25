@@ -1,4 +1,4 @@
-import { commitmentEndOf, isCommitmentMonths } from "@/lib/subscriptions/commitment.js";
+import { cancellableTermOf, commitmentEndOf, isCommitmentMonths } from "@/lib/subscriptions/commitment.js";
 import {
   InvoiceDocumentType,
   InvoiceStatus,
@@ -66,6 +66,11 @@ export type CreateSubscriptionInput = {
   commitmentMonths?: number | null;
   /** Début de l'engagement (signature du devis) ; absent : startDate. Fin = début + durée. */
   commitmentStart?: Date | null;
+  /**
+   * Début dans le passé : true facture chaque période passée (rattrapage voulu). Par défaut, la 1re échéance est la
+   * prochaine à partir d'aujourd'hui, jamais une facture antidatée par période passée.
+   */
+  catchUpPastPeriods?: boolean;
 };
 
 export class SubscriptionError extends Error {}
@@ -161,6 +166,15 @@ export async function createSubscription(
       0,
     );
   }
+  if (!data.firstInvoiceAt && !data.catchUpPastPeriods) {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    if (data.firstPeriodNow) {
+      if (nextInvoiceAt < today) nextInvoiceAt = new Date();
+    } else {
+      while (nextInvoiceAt < today) nextInvoiceAt = addMonths(nextInvoiceAt, periodMonths(billingInterval));
+    }
+  }
 
   return db.subscription.create({
     data: {
@@ -228,10 +242,13 @@ export async function listSubscriptions(status?: SubscriptionStatus) {
     },
     orderBy: { createdAt: "desc" },
   });
-  const pending = await pendingFirstInvoiceIds(rows, new Date());
+  const now = new Date();
+  const pending = await pendingFirstInvoiceIds(rows, now);
   return rows.map(({ _count, ...r }) => ({
     ...r,
     firstInvoicePending: pending.has(r.id),
+    /** « Programmer la fin » : date de fin si elle était programmée maintenant (affichée avant confirmation). */
+    scheduledEndAt: r.status === SubscriptionStatus.ENDED ? null : scheduledEndOf(r, now).toISOString(),
     /** Créé à la main, jamais facturé, sans Stripe : supprimable et montant modifiable directement. */
     draftLike: isDraftLike({ ...r, _count }),
   }));
@@ -381,6 +398,46 @@ export async function endSubscription(id: string, endDate?: Date) {
       endDate: endDate ?? new Date(),
     },
   });
+}
+
+/** Fin de la période de facturation en cours : la prochaine échéance, avancée d'une période tant qu'elle est passée. */
+export function currentPeriodEndOf(sub: { nextInvoiceAt: Date; billingInterval: string | null }, now = new Date()): Date {
+  const months = periodMonths(sub.billingInterval);
+  let end = new Date(sub.nextInvoiceAt);
+  while (end.getTime() <= now.getTime()) end = commitmentEndOf(end, months);
+  return end;
+}
+
+/** Date d'effet d'une fin programmée aujourd'hui (« Programmer la fin ») : fin du terme résiliable, sinon de la période. */
+export function scheduledEndOf(sub: { nextInvoiceAt: Date; billingInterval: string | null; commitmentEndsAt: Date | null }, now = new Date()): Date {
+  return sub.commitmentEndsAt ? cancellableTermOf(sub.commitmentEndsAt, now).termEndsAt : currentPeriodEndOf(sub, now);
+}
+
+/**
+ * « Programmer la fin » (non-reconduction) : l'abonnement reste actif jusqu'au dernier instant de son terme, sans frais
+ * ni échéance ensuite. Abonnement engagé : fin de l'engagement ou de l'année reconduite, préavis d'un mois compris
+ * (comme une demande du client) ; sans engagement : fin de la période en cours. Sous Stripe : cancel_at à cette date.
+ */
+export async function scheduleSubscriptionEnd(id: string, now = new Date()) {
+  const sub = await findForStatusChange(id);
+  if (sub.status === SubscriptionStatus.ENDED) throw new SubscriptionError("Cet abonnement est déjà clôturé");
+  const termEndsAt = scheduledEndOf(sub, now);
+  const endDate = new Date(termEndsAt.getTime() - 1);
+  if (sub.endDate && sub.endDate <= endDate) throw new SubscriptionError("Une fin plus proche est déjà programmée");
+  if (sub.stripeSubscriptionId) await applyStripeSubscriptionAction(sub.stripeSubscriptionId, "cancelAt", sub.stripeLivemode, termEndsAt);
+  return prisma.subscription.update({
+    where: { id },
+    data: { endDate, ...(sub.stripeSubscriptionId ? { stripeCancelAt: termEndsAt } : {}) },
+  });
+}
+
+/** Worker : tout abonnement dont la fin programmée est passée (rachat, non-reconduction, date de fin) est clôturé. */
+export async function closeEndedSubscriptions(now = new Date()): Promise<number> {
+  const closed = await prisma.subscription.updateMany({
+    where: { status: { not: SubscriptionStatus.ENDED }, endDate: { lt: now } },
+    data: { status: SubscriptionStatus.ENDED },
+  });
+  return closed.count;
 }
 
 /** Factures dues d'un abonnement pour son échéance courante. @returns true si une facture a été émise. */

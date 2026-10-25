@@ -63,6 +63,7 @@ describe("createSubscription", () => {
       amountCents: 30000,
       billingDay: 1,
       startDate: start,
+      catchUpPastPeriods: true,
     });
     expect(sub.status).toBe(SubscriptionStatus.ACTIVE);
     expect(sub.amountCents).toBe(30000);
@@ -81,6 +82,7 @@ describe("createSubscription", () => {
       amountCents: 30000,
       billingDay: 1,
       startDate: start,
+      catchUpPastPeriods: true,
       skipCurrentPeriod: true,
     });
     expect(sub.nextInvoiceAt.getFullYear()).toBe(2026);
@@ -167,6 +169,7 @@ describe("computeMrrCents", () => {
       amountCents: 30000,
       billingDay: 1,
       startDate: new Date(2026, 0, 1),
+      catchUpPastPeriods: true,
     });
     await createSubscription({
       clientId: c2.id,
@@ -175,6 +178,7 @@ describe("computeMrrCents", () => {
       amountCents: 50000,
       billingDay: 15,
       startDate: new Date(2026, 0, 1),
+      catchUpPastPeriods: true,
     });
     const snap = await computeMrrCents(new Date(2026, 2, 1));
     expect(snap.mrrCents).toBe(80000);
@@ -186,7 +190,7 @@ describe("computeMrrCents", () => {
   it("1re facture à venir (ex. une année offerte) : hors MRR et ARR, comptée à part ; incluse une fois facturée", async () => {
     const c = await createClient();
     const s = await createService();
-    await createSubscription({ clientId: c.id, serviceId: s.id, label: "Maintenance", amountCents: 3000, billingDay: 1, startDate: new Date(2026, 0, 1) });
+    await createSubscription({ clientId: c.id, serviceId: s.id, label: "Maintenance", amountCents: 3000, billingDay: 1, startDate: new Date(2026, 0, 1), catchUpPastPeriods: true });
     const inAYear = new Date();
     inAYear.setFullYear(inAYear.getFullYear() + 1);
     const offert = await createSubscription({
@@ -220,6 +224,7 @@ describe("computeMrrCents", () => {
       amountCents: 30000,
       billingDay: 1,
       startDate: new Date(2026, 0, 1),
+      catchUpPastPeriods: true,
       endDate: new Date(2026, 1, 1), // clôturé en février
     });
     const snap = await computeMrrCents(new Date(2026, 5, 1)); // juin
@@ -238,6 +243,7 @@ describe("computeMrrCents", () => {
       amountCents: 30000,
       billingDay: 1,
       startDate: new Date(2026, 0, 1),
+      catchUpPastPeriods: true,
     });
     const inAYear = new Date();
     inAYear.setFullYear(inAYear.getFullYear() + 1);
@@ -289,6 +295,7 @@ describe("generateDueSubscriptionInvoices", () => {
       amountCents: 30000,
       billingDay: 1,
       startDate: start,
+      catchUpPastPeriods: true,
     });
 
     const now = new Date(2026, 0, 1, 1, 0, 0); // 1 jan, après minuit
@@ -323,6 +330,7 @@ describe("generateDueSubscriptionInvoices", () => {
       amountCents: 30000,
       billingDay: 1,
       startDate: new Date(2026, 0, 1),
+      catchUpPastPeriods: true,
     });
     const now = new Date(2026, 0, 1, 1, 0, 0);
     const first = await generateDueSubscriptionInvoices(now);
