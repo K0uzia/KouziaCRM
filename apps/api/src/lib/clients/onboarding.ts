@@ -26,6 +26,7 @@ import { computeEmailHash } from "@/lib/clients/email-hash.js";
 import { syncPrimaryContact } from "@/lib/clients/contacts.js";
 import { AddressValidationError } from "@/lib/clients.js";
 import { maskEmail } from "@/lib/portal/auth.js";
+import { templateText } from "@/lib/email/template-registry.js";
 
 /** Bienvenue envoyée d'office après la fiche remplie : file « E-mails à valider » (famille portal_access), le client attend. */
 const WELCOME_REVIEW = { family: "portal_access", origin: "CLIENT_ACTION", clientWaiting: true } as const;
@@ -63,22 +64,20 @@ async function inviteContent(existingClientId: string | null, link: string) {
   const company = await getCompanySettings();
   const brand = company.tradeName ?? company.legalName;
   const ttl = getOnboardingTtlDays();
-  const text = [
-    "Bonjour,",
-    "",
-    existingClientId
-      ? "Pour mettre à jour vos informations de facturation, merci de compléter le formulaire sécurisé ci-dessous :"
-      : "Pour me permettre de vous facturer dans les meilleures conditions, j'ai besoin de quelques informations vous concernant. Merci de prendre 2 minutes pour compléter votre fiche via le lien sécurisé ci-dessous :",
-    "",
-    link,
-    "",
-    `Ce lien est personnel et expire dans ${ttl} jours. Vos données sont transmises directement à ${brand} et ne sont pas conservées sur le site public.`,
-    "",
-    // Signature des Réglages, comme les autres e-mails (défaut : « Cordialement, » et le nom commercial).
-    formatPlainTextSignature(company, buildEmailBrand(company)),
-  ].join("\n");
-  const subject = existingClientId ? `Mise à jour de votre fiche client - ${brand}` : `Complétez votre fiche client - ${brand}`;
-  return { subject, text };
+  const request = existingClientId
+    ? "Pour mettre à jour vos informations de facturation, merci de compléter le formulaire sécurisé ci-dessous :"
+    : "Pour me permettre de vous facturer dans les meilleures conditions, j'ai besoin de quelques informations vous concernant. Merci de prendre 2 minutes pour compléter votre fiche via le lien sécurisé ci-dessous :";
+  const validity = `Ce lien est personnel et expire dans ${ttl} jours. Vos données sont transmises directement à ${brand} et ne sont pas conservées sur le site public.`;
+  const object = existingClientId ? "Mise à jour de votre fiche client" : "Complétez votre fiche client";
+  // Modèle modifié dans Réglages (M3c) : le lien personnel et sa validité restent des blocs fixes.
+  const content = await templateText(
+    "onboarding.invite",
+    { salutation: "Bonjour,", marque: brand, objet_invitation: object, demande: request, lien: link, bloc_validite: validity },
+    { subject: `${object} - ${brand}`, body: ["Bonjour,", "", request, "", link, "", validity].join("\n") },
+  );
+  // Signature des Réglages, comme les autres e-mails (défaut : « Cordialement, » et le nom commercial).
+  const text = [content.body, "", formatPlainTextSignature(company, buildEmailBrand(company))].join("\n");
+  return { subject: content.subject, text };
 }
 
 /** « Vérifier l'e-mail » : l'invitation telle qu'elle partirait, avec {{lien}} à la place du lien personnel. */

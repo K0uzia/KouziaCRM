@@ -9,6 +9,7 @@ import { buildEmailBrand } from "@/lib/email/deposit-templates.js";
 import { renderEmailHtml } from "@/lib/email/layout.js";
 import { formatPlainTextSignature } from "@/lib/email/signature.js";
 import type { EmailBrand } from "@/lib/email/templates.js";
+import { templateText } from "@/lib/email/template-registry.js";
 
 /**
  * Renouvellements chez un tiers (hébergement et domaine en gestion autonome, au nom du client) : rien n'est
@@ -95,7 +96,7 @@ export async function listDueClientRenewals(now: Date = new Date()) {
   }));
 }
 
-export function renderClientRenewalEmail(opts: {
+export async function renderClientRenewalEmail(opts: {
   brand: EmailBrand;
   settings: Pick<CompanySettings, "emailSignatureHtml" | "brandPrimaryColor" | "brandSecondaryColor">;
   clientName: string;
@@ -106,19 +107,26 @@ export function renderClientRenewalEmail(opts: {
   const date = formatLongDate(opts.renewal.renewsAt);
   const chez = opts.renewal.provider ? ` chez ${opts.renewal.provider}` : " chez votre hébergeur";
   const callout = `Renouvellement le ${date}`;
-  const subject = `Pensez au renouvellement de « ${opts.renewal.label} » le ${date}`;
-  const text = [
-    name ? `Bonjour ${name},` : "Bonjour,",
-    "",
-    `« ${opts.renewal.label} » est à votre nom${chez} et arrive à échéance le ${date}.`,
-    "",
-    callout,
-    "",
-    "Pensez à vérifier le renouvellement depuis votre compte, pour que votre site et vos adresses e-mail restent en ligne.",
-    "Pour toute question, répondez simplement à cet e-mail.",
-    "",
-    formatPlainTextSignature(opts.settings, opts.brand),
-  ].join("\n");
+  const salutation = name ? `Bonjour ${name},` : "Bonjour,";
+  const content = await templateText(
+    "client.renewal",
+    { salutation, prenom: opts.clientFirstName?.trim() ?? "", client: opts.clientName, prestation: opts.renewal.label, chez, date, date_rappel: callout },
+    {
+      subject: `Pensez au renouvellement de « ${opts.renewal.label} » le ${date}`,
+      body: [
+        salutation,
+        "",
+        `« ${opts.renewal.label} » est à votre nom${chez} et arrive à échéance le ${date}.`,
+        "",
+        callout,
+        "",
+        "Pensez à vérifier le renouvellement depuis votre compte, pour que votre site et vos adresses e-mail restent en ligne.",
+        "Pour toute question, répondez simplement à cet e-mail.",
+      ].join("\n"),
+    },
+  );
+  const subject = content.subject;
+  const text = [content.body, "", formatPlainTextSignature(opts.settings, opts.brand)].join("\n");
   const html = renderEmailHtml({ text, brand: opts.brand, colors: { brandPrimaryColor: opts.settings.brandPrimaryColor, brandSecondaryColor: opts.settings.brandSecondaryColor }, callout });
   return { subject, text, html };
 }
@@ -139,7 +147,7 @@ export async function sendDueClientRenewalNotices(now: Date = new Date()): Promi
       console.warn(`[renouvellements] e-mail ignoré : client sans e-mail (${r.id})`);
       continue;
     }
-    const content = renderClientRenewalEmail({ brand, settings, clientName: r.client.displayName, clientFirstName: r.client.firstName, renewal: r });
+    const content = await renderClientRenewalEmail({ brand, settings, clientName: r.client.displayName, clientFirstName: r.client.firstName, renewal: r });
     await mailEnqueue({ to, subject: content.subject, text: content.text, html: content.html, clientId: r.clientId, kind: "client_renewal", bodyTextForMessage: content.text }, { review: { family: "subscription_notice", origin: "WORKER" } });
     await prisma.clientRenewal.update({ where: { id: r.id }, data: { noticeSentFor: r.renewsAt } });
     queued += 1;

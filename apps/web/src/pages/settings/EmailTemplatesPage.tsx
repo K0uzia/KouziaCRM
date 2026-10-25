@@ -10,7 +10,7 @@ import { Banner } from "@/components/ui/Banner";
 import { Button } from "@/components/ui/Button";
 import { Card, PageHeader } from "@/components/ui/Card";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
-import { Field, Input, Textarea } from "@/components/ui/Field";
+import { Field, Input, Select, Textarea } from "@/components/ui/Field";
 
 type TemplateSummary = {
   key: string;
@@ -30,6 +30,7 @@ type TemplateView = Omit<TemplateSummary, "subject"> & {
   current: { subject: string; body: string };
 };
 type Preview = { subject: string; text: string; html: string; templateIssues: TemplateIssue[] };
+type PreviewSource = { id: string; label: string };
 
 const LIST_PATH = "/settings/modeles-emails";
 const errorText = (e: unknown, fallback: string) => (e instanceof Error ? e.message : fallback);
@@ -134,6 +135,9 @@ export function EmailTemplatePage() {
   const [issues, setIssues] = useState<TemplateIssue[]>([]);
   const [preview, setPreview] = useState<Preview | null>(null);
   const [previewError, setPreviewError] = useState<string | null>(null);
+  // « Aperçu pour » : données d'exemple ("") ou une des 10 dernières données réelles du type du modèle.
+  const [sources, setSources] = useState<PreviewSource[]>([]);
+  const [sourceId, setSourceId] = useState("");
   const [busy, setBusy] = useState(false);
   const [confirmReset, setConfirmReset] = useState(false);
   const subjectRef = useRef<HTMLInputElement>(null);
@@ -157,12 +161,28 @@ export function EmailTemplatePage() {
     };
   }, [key, attempt]);
 
-  // Aperçu et contrôle à la saisie, après une courte pause : rien n'est enregistré.
+  // Sans donnée réelle (modèle verrouillé, aucune donnée) ou en erreur : le choix reste aux données d'exemple.
+  useEffect(() => {
+    let cancelled = false;
+    setSources([]);
+    setSourceId("");
+    api<{ sources: PreviewSource[] }>(`/api/email-templates/${encodeURIComponent(key)}/sources`)
+      .then((r) => !cancelled && setSources(r.sources))
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [key]);
+
+  // Aperçu et contrôle à la saisie, après une courte pause : rien n'est enregistré ni envoyé.
   useEffect(() => {
     if (!view) return;
     let cancelled = false;
     const timer = window.setTimeout(() => {
-      api<Preview>(`/api/email-templates/${encodeURIComponent(view.key)}/preview`, { method: "POST", body: JSON.stringify({ subject, body }) })
+      api<Preview>(`/api/email-templates/${encodeURIComponent(view.key)}/preview`, {
+        method: "POST",
+        body: JSON.stringify({ subject, body, ...(sourceId ? { sourceId } : {}) }),
+      })
         .then((p) => {
           if (cancelled) return;
           setPreview(p);
@@ -175,7 +195,7 @@ export function EmailTemplatePage() {
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [view, subject, body]);
+  }, [view, subject, body, sourceId]);
 
   const dirty = Boolean(view) && !view!.locked && (subject !== view!.current.subject || body !== view!.current.body);
   useUnsavedGuard(dirty);
@@ -341,7 +361,21 @@ export function EmailTemplatePage() {
 
         <Card className="space-y-3 border border-[var(--border)] p-5">
           <h2 className="text-base font-semibold">Aperçu</h2>
-          <p className="text-xs text-[var(--muted)]">Données d&apos;exemple, signature réelle de l&apos;onglet E-mail.</p>
+          {sources.length > 0 ? (
+            <Field label="Aperçu pour" hint="Valeurs calculées comme à l'envoi. Rien n'est envoyé ni enregistré.">
+              <Select value={sourceId} onChange={(e) => setSourceId(e.target.value)}>
+                <option value="">Données d&apos;exemple</option>
+                {sources.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.label}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+          ) : null}
+          <p className="text-xs text-[var(--muted)]">
+            {sourceId ? "Donnée réelle choisie" : "Données d'exemple"}, signature réelle de l&apos;onglet E-mail.
+          </p>
           {previewError ? (
             <Banner level="error" role="alert">
               {previewError}
@@ -357,7 +391,7 @@ export function EmailTemplatePage() {
                 {preview.subject}
               </p>
               <iframe
-                title="Aperçu de l'e-mail avec les données d'exemple"
+                title={sourceId ? "Aperçu de l'e-mail avec la donnée choisie" : "Aperçu de l'e-mail avec les données d'exemple"}
                 sandbox=""
                 srcDoc={preview.html}
                 className="block h-[32rem] w-full rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--apercu-logo-fond)]"
