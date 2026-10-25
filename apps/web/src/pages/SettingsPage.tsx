@@ -1555,8 +1555,9 @@ export function SettingsPage() {
                   />
                 </div>
                 <Field label="URL webhook (à coller dans Stripe)">
-                  <div className="flex gap-2">
-                    <Input readOnly value={form.stripeWebhookUrl} />
+                  <div className="flex items-start gap-2">
+                    {/* URL entière, sur plusieurs lignes au besoin : un champ d'une ligne la coupait au téléphone. */}
+                    <Textarea autoGrow readOnly className="break-all font-mono text-xs" value={form.stripeWebhookUrl} />
                     <Button type="button" variant="secondary" onClick={() => void copyWebhook()}>
                       Copier
                     </Button>
@@ -1678,7 +1679,9 @@ export function SettingsPage() {
                     />
                   </Field>
                   <Field label="Texte du 2e acompte sur le devis" className="sm:col-span-2">
-                    <Input
+                    <Textarea
+                      autoGrow
+                      noNewlines
                       maxLength={200}
                       value={form.split3Step2TriggerText}
                       onChange={(e) => setForm({ ...form, split3Step2TriggerText: e.target.value })}

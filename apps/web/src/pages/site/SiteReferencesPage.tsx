@@ -99,6 +99,8 @@ export function SiteReferencesPage() {
     {
       name: "Référence",
       grow: 3,
+      // Nom lisible à 1280 px (tronqué à 104 px avant) : la colonne garde 14rem, « Emplacements » attend 1536 px.
+      minWidth: "14rem",
       cell: (r) => (
         <div className="flex min-w-0 items-center gap-3 py-2">
           <SiteImage path={r.logoPath} alt="" className="h-10 w-16 shrink-0 rounded-[var(--radius-sm)] object-contain" />
@@ -113,11 +115,12 @@ export function SiteReferencesPage() {
         </div>
       ),
     },
-    { name: "Type", width: "8rem", cell: (r) => REFERENCE_TYPE_LABEL[r.type] },
+    // Tablette (800 px) : le nom passe avant le type, qui reste sur la fiche.
+    { name: "Type", width: "8rem", showFrom: 1024, cell: (r) => REFERENCE_TYPE_LABEL[r.type] },
     {
       name: "Emplacements",
       width: "11rem",
-      showFrom: 1280,
+      showFrom: 1536,
       cell: (r) =>
         r.type === "USER"
           ? "-"

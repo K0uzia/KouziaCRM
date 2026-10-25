@@ -194,7 +194,7 @@ export function ClientsPage() {
             onClick={(e) => e.stopPropagation()}
           >
             <span className="text-[var(--text)]">{formatDate(c.lastExchange.lastMessageAt)}</span>
-            <span className="mt-0.5 block truncate text-xs text-[var(--muted)]">{c.lastExchange.subject}</span>
+            <span className="mt-0.5 line-clamp-2 break-words text-xs text-[var(--muted)]">{c.lastExchange.subject}</span>
           </Link>
         ) : (
           <span className="text-sm text-[var(--muted)]">Aucun</span>
@@ -473,7 +473,7 @@ function PendingClientPage({ localId }: { localId: string }) {
         title={
           <span className="flex min-w-0 items-center gap-3">
             <Avatar name={client.displayName} size="lg" />
-            <span className="min-w-0 truncate">{client.displayName}</span>
+            <span className="line-clamp-2 min-w-0 break-words" title={client.displayName}>{client.displayName}</span>
           </span>
         }
         subtitle={
@@ -668,7 +668,7 @@ function ClientDetail({ id }: { id: string | undefined }) {
         title={
           <span className="flex min-w-0 items-center gap-3">
             <Avatar name={client.displayName} size="lg" />
-            <span className="min-w-0 truncate">{client.displayName}</span>
+            <span className="line-clamp-2 min-w-0 break-words" title={client.displayName}>{client.displayName}</span>
           </span>
         }
         subtitle={
