@@ -32,9 +32,7 @@ import {
 } from "@/lib/invoices/transitions.js";
 import { CreditNoteReason, RefundMethod } from "@prisma/client";
 import { getCompanySettings } from "@/lib/company.js";
-import { renderInvoicePdf } from "@/lib/pdf/render.js";
-import { buildInvoicePdfPayload, pdfSettingsOf } from "@/lib/pdf/build-payload.js";
-import { enrichCompanyForPdf } from "@/lib/pdf/brand-assets.js";
+import { loadDocumentForPdf, renderLoadedDocumentPdf } from "@/lib/pdf/document-pdf.js";
 import { decryptOptional } from "@/lib/crypto.js";
 import type { ClientSnapshot } from "@/lib/invoices/transitions.js";
 import { serializeInvoice } from "@/lib/invoices/serialize.js";
@@ -63,7 +61,7 @@ import { brandFromSettings } from "@/lib/email/templates.js";
 import { formatPlainTextSignature } from "@/lib/email/signature.js";
 import { renderEmailTextFooter } from "@/lib/email/layout.js";
 import { signDocumentToken } from "@/lib/documents/public-token.js";
-import { documentClauses, listActiveLegalClauses, subscriptionDateNoticeOf } from "@/lib/company/legal-clauses.js";
+import { subscriptionDateNoticeOf } from "@/lib/company/legal-clauses.js";
 import { FREE_MONTHS_MAX, SUBSCRIPTION_STARTS } from "@/lib/subscriptions/start.js";
 import { offlineConflicts, offlineQuoteFields, offlineReviewReason } from "@/lib/invoices/offline-review.js";
 import { renderCreditNotePreviewPdf, renderDraftPreviewPdf } from "@/lib/pdf/draft-preview.js";
@@ -1687,26 +1685,19 @@ export const invoicesRoutes: FastifyPluginAsync = async (app) => {
   app.get<{ Params: { id: string } }>("/api/invoices/:id/pdf", async (request, reply) => {
     await requireAuth(request, reply);
     if (reply.sent) return;
-    const invoice = await prisma.invoice.findUnique({
-      where: { id: request.params.id },
-      include: {
-        lines: { orderBy: { position: "asc" } },
-        client: true,
-        creditedInvoice: true,
-        quote: true,
-        sourceMilestone: true,
-        milestones: { orderBy: { position: "asc" } },
-        payments: { orderBy: { paidAt: "asc" } },
-        quoteAcceptanceAudits: { orderBy: { createdAt: "desc" }, take: 1 },
-      },
-    });
-    if (!invoice) return reply.code(404).send({ error: "Introuvable" });
-    if (invoice.status === InvoiceStatus.DRAFT || !invoice.number) {
+    // Même chargement que le PDF public, la version lisible et l'archive (P0 du 25/10/2026).
+    const doc = await loadDocumentForPdf(request.params.id);
+    const invoice = doc?.invoice;
+    if (!invoice) {
+      const exists = await prisma.invoice.findUnique({ where: { id: request.params.id }, select: { id: true } });
+      return exists ? reply.code(400).send({ error: "PDF disponible uniquement après émission" }) : reply.code(404).send({ error: "Introuvable" });
+    }
+    if (invoice.status === InvoiceStatus.DRAFT) {
       return reply.code(400).send({ error: "PDF disponible uniquement après émission" });
     }
     // Facture ou avoir émis : PDF archivé à l'émission, servi tel quel (document immuable).
     const { issuedDocumentPdf } = await import("@/lib/pdf/issued-archive.js");
-    const archived = await issuedDocumentPdf(invoice.id);
+    const archived = await issuedDocumentPdf(invoice.id, doc);
     if (archived) {
       return reply
         .header("Content-Type", "application/pdf")
@@ -1714,54 +1705,7 @@ export const invoicesRoutes: FastifyPluginAsync = async (app) => {
         .send(archived);
     }
 
-    const company = await enrichCompanyForPdf(await getCompanySettings());
-    const legalClauses = documentClauses(invoice, await listActiveLegalClauses());
-    const snapshot =
-      (invoice.clientSnapshot as ClientSnapshot | null) ??
-      ({
-        displayName: invoice.client.displayName,
-        type: invoice.client.type,
-        email: decryptOptional(invoice.client.emailEncrypted),
-        phone: decryptOptional(invoice.client.phoneEncrypted),
-        siret: decryptOptional(invoice.client.siretEncrypted),
-        addressLine1: invoice.client.addressLine1,
-        addressLine2: invoice.client.addressLine2,
-        postalCode: invoice.client.postalCode,
-        city: invoice.client.city,
-        country: invoice.client.country,
-      } satisfies ClientSnapshot);
-
-    let balanceSummary = null;
-    if (invoice.invoiceType === "SOLDE" && invoice.quoteId) {
-      const { computeBalanceSummary } = await import(
-        "@/lib/invoices/documentFlowService.js"
-      );
-      const s = await computeBalanceSummary(invoice.quoteId);
-      balanceSummary = {
-        marketTotalCents: s.marketTotalCents,
-        quoteNumber: s.quoteNumber,
-        acomptes: s.acomptes.map((a) => ({
-          number: a.number,
-          amountCents: a.amountCents,
-          paid: a.paid,
-          label: a.label,
-          deductedCents: a.deductedCents,
-        })),
-        balanceDueCents: invoice.totalCents,
-      };
-    }
-
-    const buffer = await renderInvoicePdf({
-      company,
-      invoice: buildInvoicePdfPayload({
-        invoice,
-        legalClauses,
-        clientType: snapshot.type,
-        balanceSummary,
-        ...(await pdfSettingsOf()),
-      }),
-      client: snapshot,
-    });
+    const buffer = await renderLoadedDocumentPdf(doc!);
 
     return reply
       .header("Content-Type", "application/pdf")

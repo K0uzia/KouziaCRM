@@ -6,6 +6,7 @@ import { rateLimitKey } from "@/lib/client-ip.js";
 import { z } from "zod";
 import { InvoiceDocumentType, InvoiceStatus } from "@prisma/client";
 import { prisma } from "@/lib/prisma.js";
+import { loadDocumentForPdf, pdfDataOfLoaded } from "@/lib/pdf/document-pdf.js";
 import { isBillableLine, proposalLetter, quoteFieldsOfOption } from "@/lib/quotes/quote-options.js";
 import { getCompanySettings } from "@/lib/company.js";
 import { buildPayUrl } from "@/lib/stripe/pay-urls.js";
@@ -55,10 +56,7 @@ import {
 } from "@/lib/clients/access-email.js";
 import { decryptOptional } from "@/lib/crypto.js";
 import { renderInvoicePdf } from "@/lib/pdf/render.js";
-import { buildInvoicePdfPayload, pdfSettingsOf } from "@/lib/pdf/build-payload.js";
-import { enrichCompanyForPdf } from "@/lib/pdf/brand-assets.js";
 import { resolveBrandColors } from "@/lib/brand.js";
-import { documentClauses, listActiveLegalClauses } from "@/lib/company/legal-clauses.js";
 import { CLIENT_TYPES, isOrganization } from "@/lib/clients/client-type.js";
 import {
   CancelRequestError,
@@ -66,7 +64,6 @@ import {
   portalSubscriptionFields,
   requestSubscriptionCancellation,
 } from "@/lib/subscriptions/self-service.js";
-import type { ClientSnapshot } from "@/lib/invoices/transitions.js";
 import {
   acceptQuoteByClient,
   deferredStartOf,
@@ -84,7 +81,7 @@ import {
 } from "@/lib/quotes/payment-plans.js";
 import { getPublicClientPreview, submitPublicClient } from "@/lib/clients/onboarding.js";
 import { signDocumentToken } from "@/lib/documents/public-token.js";
-import { parseReadable, readableAvailable, readableInvoice, snapshotFor } from "@/lib/pdf/readable-documents.js";
+import { parseReadable, readableInvoice, readableLinkAvailable, snapshotFor } from "@/lib/pdf/readable-documents.js";
 import type { InvoicePdfData } from "@/lib/pdf/invoice-document.js";
 import { replyEntrepriseLookup } from "@/lib/company/entreprise-route.js";
 import {
@@ -306,29 +303,21 @@ async function subscriptionSetupUrlOf(quoteId: string): Promise<{ subscriptionSe
   return { subscriptionSetupUrl: buildPayUrl("subscribe", sub.id) };
 }
 
-/** Document d'un lien public (PDF et version lisible) : null si inconnu, brouillon ou sans numéro. */
+/**
+ * Document d'un lien public (PDF et version lisible) : null si inconnu, brouillon ou sans numéro. Même chargement que le
+ * PDF admin et l'archive (loadDocumentForPdf) : propositions, code promo et récapitulatif du solde compris.
+ */
 async function loadPublicDocument(invoiceId: string) {
-  const invoice = await prisma.invoice.findUnique({
-    where: { id: invoiceId },
-    include: {
-      lines: { orderBy: { position: "asc" } },
-      client: true,
-      creditedInvoice: true,
-      quote: true,
-      sourceMilestone: true,
-      milestones: { orderBy: { position: "asc" } },
-      payments: { orderBy: { paidAt: "asc" } },
-      quoteAcceptanceAudits: { orderBy: { createdAt: "desc" }, take: 1 },
-    },
-  });
-  return invoice && invoice.status !== InvoiceStatus.DRAFT && invoice.number ? invoice : null;
+  const doc = await loadDocumentForPdf(invoiceId, { maskContacts: true });
+  return doc && doc.invoice.status !== InvoiceStatus.DRAFT ? doc : null;
 }
+type PublicDocument = NonNullable<Awaited<ReturnType<typeof loadPublicDocument>>>;
 
 /**
  * Devis signé : le PDF archivé dans la preuve de signature (décision du 25/10/2026), jamais un nouveau rendu ; null pour
  * un devis non signé ou une archive illisible (rendu du jour).
  */
-async function signedQuotePdf(invoice: NonNullable<Awaited<ReturnType<typeof loadPublicDocument>>>): Promise<Buffer | null> {
+async function signedQuotePdf(invoice: PublicDocument["invoice"]): Promise<Buffer | null> {
   const proof = invoice.quoteAcceptanceAudits[0];
   if (invoice.documentType !== InvoiceDocumentType.QUOTE || invoice.quoteStatus !== "ACCEPTED" || !proof?.pdfPath) return null;
   try {
@@ -341,33 +330,11 @@ async function signedQuotePdf(invoice: NonNullable<Awaited<ReturnType<typeof loa
   }
 }
 
-/** Données du PDF rendu à la demande (devis, facture sans archive) : une seule source pour le PDF et sa version lisible. */
-async function liveDocumentPdfData(invoice: NonNullable<Awaited<ReturnType<typeof loadPublicDocument>>>): Promise<InvoicePdfData> {
-  const company = await enrichCompanyForPdf(await getCompanySettings());
-  const legalClauses = documentClauses(invoice, await listActiveLegalClauses());
-  const snapshot = (invoice.clientSnapshot as ClientSnapshot | null) ?? {
-    displayName: invoice.client.displayName,
-    type: invoice.client.type,
-    email: null,
-    phone: null,
-    siret: null,
-    addressLine1: invoice.client.addressLine1,
-    addressLine2: invoice.client.addressLine2,
-    postalCode: invoice.client.postalCode,
-    city: invoice.client.city,
-    country: invoice.client.country,
-  };
-  return {
-    company,
-    client: snapshot,
-    invoice: buildInvoicePdfPayload({
-      invoice,
-      legalClauses,
-      clientType: snapshot.type,
-      ...(await pdfSettingsOf()),
-    }),
-  };
+/** Données du PDF rendu à la demande (devis, facture sans archive) : celles du PDF admin (pdfDataOfLoaded). */
+async function liveDocumentPdfData(doc: PublicDocument): Promise<InvoicePdfData> {
+  return pdfDataOfLoaded(doc);
 }
+
 
 /** En-têtes des routes lisibles (contrat B), réponse d'erreur comprise ; X-Robots-Tag noindex, nofollow posé pour toute l'API. */
 function readableHeaders(reply: FastifyReply): FastifyReply {
@@ -813,7 +780,7 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
             downloadToken: d.number ? signDocumentToken(d.id) : null,
             // Contrat B (version accessible) : devis rendu à la demande (signé : figé avec son PDF signé, masqué si indisponible),
             // facture et avoir figés avec leur PDF archivé.
-            ...(d.number && ((d.documentType === InvoiceDocumentType.QUOTE && !d.readableSnapshot) || readableAvailable(d.readableSnapshot))
+            ...(readableLinkAvailable(d)
               ? { readableAvailable: true as const }
               : {}),
             ...(isInvoice ? { milestoneId: d.milestoneId } : {}),
@@ -1261,10 +1228,11 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
       const invoiceId = verifyDocumentToken(request.params.token);
       if (!invoiceId) return reply.code(404).send({ error: "Lien invalide" });
 
-      const invoice = await loadPublicDocument(invoiceId);
-      if (!invoice) {
+      const doc = await loadPublicDocument(invoiceId);
+      if (!doc) {
         return reply.code(404).send({ error: "Document introuvable" });
       }
+      const invoice = doc.invoice;
       // Facture ou avoir émis : PDF archivé, servi tel quel.
       const { issuedDocumentPdf } = await import("@/lib/pdf/issued-archive.js");
       const archived = await issuedDocumentPdf(invoice.id);
@@ -1282,7 +1250,7 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
           .send(signed);
       }
 
-      const buffer = await renderInvoicePdf(await liveDocumentPdfData(invoice));
+      const buffer = await renderInvoicePdf(await liveDocumentPdfData(doc));
 
       return reply
         .header("Content-Type", "application/pdf")
@@ -1297,8 +1265,9 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
     { config: { rateLimit: { max: 30, timeWindow: "15 minutes" } } },
     async (request, reply) => {
       const invoiceId = verifyDocumentToken(request.params.token);
-      const invoice = invoiceId ? await loadPublicDocument(invoiceId) : null;
-      if (!invoice) return readableNotFound(reply);
+      const doc = invoiceId ? await loadPublicDocument(invoiceId) : null;
+      if (!doc) return readableNotFound(reply);
+      const invoice = doc.invoice;
       const { isArchivableDocument, issuedDocumentPdf } = await import("@/lib/pdf/issued-archive.js");
       if (!isArchivableDocument(invoice)) {
         // Devis signé : version lisible figée au 1er accès, seulement si son texte est celui du PDF signé archivé.
@@ -1306,14 +1275,14 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
         if (signed) {
           let frozen = invoice.readableSnapshot;
           if (!frozen) {
-            frozen = (await snapshotFor(signed, readableInvoice(await liveDocumentPdfData(invoice), "ARCHIVE"))).snapshot;
+            frozen = (await snapshotFor(signed, readableInvoice(await liveDocumentPdfData(doc), "ARCHIVE"))).snapshot;
             await prisma.invoice.updateMany({ where: { id: invoice.id, readableSnapshot: null }, data: { readableSnapshot: frozen } });
           }
-          const doc = parseReadable(frozen);
-          return doc ? readableHeaders(reply).send(doc) : readableNotFound(reply);
+          const readable = parseReadable(frozen);
+          return readable ? readableHeaders(reply).send(readable) : readableNotFound(reply);
         }
         // Devis : rendu à la demande, depuis les mêmes données que son PDF.
-        return readableHeaders(reply).send(readableInvoice(await liveDocumentPdfData(invoice), "LIVE").doc);
+        return readableHeaders(reply).send(readableInvoice(await liveDocumentPdfData(doc), "LIVE").doc);
       }
       let snapshot = invoice.readableSnapshot;
       if (!invoice.pdfPath) {
@@ -1321,8 +1290,8 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
         await issuedDocumentPdf(invoice.id);
         snapshot = (await prisma.invoice.findUnique({ where: { id: invoice.id }, select: { readableSnapshot: true } }))?.readableSnapshot ?? null;
       }
-      const doc = parseReadable(snapshot);
-      return doc ? readableHeaders(reply).send(doc) : readableNotFound(reply);
+      const readable = parseReadable(snapshot);
+      return readable ? readableHeaders(reply).send(readable) : readableNotFound(reply);
     },
   );
 

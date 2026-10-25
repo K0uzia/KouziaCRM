@@ -8,10 +8,12 @@ import { renderInvoicePdf } from "@/lib/pdf/render.js";
 import type { InvoicePdfData } from "@/lib/pdf/invoice-document.js";
 
 /**
- * Charge un document émis (devis, facture, avoir) avec tout ce qu'il faut pour son PDF.
- * Retourne null si le document n'existe pas ou n'a pas encore de numéro.
+ * Charge un document émis (devis, facture, avoir) avec tout ce qu'il faut pour son PDF et sa version lisible : seule
+ * source du PDF admin, du PDF et de la version lisible publics, de l'archive et du gel (P0 du 25/10/2026 : un chargement
+ * à part avait oublié les propositions et le code promo). Retourne null si le document n'existe pas ou n'a pas de numéro.
+ * maskContacts : lien public, contacts du client absents du repli sans instantané (comme avant).
  */
-export async function loadDocumentForPdf(documentId: string) {
+export async function loadDocumentForPdf(documentId: string, opts: { maskContacts?: boolean } = {}) {
   const [companyRaw, legalClauses, invoice] = await Promise.all([
     getCompanySettings(),
     listActiveLegalClauses(),
@@ -41,9 +43,9 @@ export async function loadDocumentForPdf(documentId: string) {
     ({
       displayName: invoice.client.displayName,
       type: invoice.client.type,
-      email,
-      phone: decryptOptional(invoice.client.phoneEncrypted),
-      siret: decryptOptional(invoice.client.siretEncrypted),
+      email: opts.maskContacts ? null : email,
+      phone: opts.maskContacts ? null : decryptOptional(invoice.client.phoneEncrypted),
+      siret: opts.maskContacts ? null : decryptOptional(invoice.client.siretEncrypted),
       addressLine1: invoice.client.addressLine1,
       addressLine2: invoice.client.addressLine2,
       postalCode: invoice.client.postalCode,
