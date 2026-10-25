@@ -375,6 +375,12 @@ CHECK_MOBILE_EMAIL=… CHECK_MOBILE_PASSWORD=… CHECK_MOBILE_TOTP=… npm run c
 active. Options : `CHECK_MOBILE_URL` (défaut `http://localhost:5173`), `CHECK_MOBILE_WIDTHS`
 (défaut `320,375,414`), `CHECK_MOBILE_REPORT` (rapport JSON).
 
+Sans `npm run dev`, sur le build de prod d'un checkout (son `.env` pointe vers une base de recette, `WEB_DIST`
+vers son build) : `node scripts/with-test-server.mjs -- npm run check:mobile`. Le lanceur démarre l'API le temps
+de la commande, garde un journal par passage (chemin affiché) et, si le serveur s'arrête pendant le contrôle,
+le signale aussitôt (code, signal, dernières lignes) et fait échouer la commande. L'API écrit elle-même, à
+l'arrêt, une ligne avec le code, le signal et la mémoire (`KOUZIA_MEMORY_LOG_MS` : relevé périodique).
+
 ## Docker (app + worker + Prisma Studio)
 
 ```bash
