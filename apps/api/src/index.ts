@@ -6,9 +6,13 @@ import { buildApp } from "@/app.js";
 import { startHubListener } from "@/lib/hub/server.js";
 import { hydrateSettingsFromEnv } from "@/lib/settings/service.js";
 import { checkPendingMigrations, checkPrismaClientUpToDate } from "@/lib/migration-check.js";
+import { installExitDiagnostics } from "@/lib/process-diagnostics.js";
 
 // Une promesse rejetée sans gestionnaire ne doit jamais arrêter l'ERP (Node le fait par défaut) :
 // on journalise, la requête concernée a déjà échoué de son côté.
+// Arrêt du processus toujours tracé (code, signal, mémoire) : un serveur qui s'arrête n'est plus muet.
+const diagnostics = installExitDiagnostics();
+
 process.on("unhandledRejection", (reason) => {
   console.error("[process] promesse rejetée non gérée (le serveur continue)", reason);
 });
@@ -71,6 +75,7 @@ async function main() {
   const shutdown = (signal: string) => {
     if (closing) return;
     closing = true;
+    diagnostics.noteSignal(signal);
     app.log.info(`[arrêt] ${signal}`);
     const force = setTimeout(() => process.exit(0), 3000);
     force.unref();
