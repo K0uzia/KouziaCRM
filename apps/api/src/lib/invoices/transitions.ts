@@ -32,6 +32,7 @@ import {
 import { assertBillingModeLines } from "@/lib/quotes/billing-mode.js";
 import { resolveRecurringDiscount, storedRecurringDiscount } from "@/lib/quotes/recurring-discount.js";
 import { assertPromoCodeApplicable } from "@/lib/quotes/promo-codes.js";
+import { BILLABLE_LINES_WHERE, proposalLetter, quoteFieldsOfOption } from "@/lib/quotes/quote-options.js";
 import {
   buildClientSnapshot,
   type ClientSnapshot,
@@ -138,8 +139,6 @@ export async function issueInvoice(invoiceId: string, issueDate = new Date(), du
 }
 
 /** Émet un devis (numéro D-YYYY-NNN, QuoteStatus SENT) et crée les jalons acompte / solde. */
-/** Devis à propositions : émission refusée tant que la signature d'une proposition n'existe pas (lot P3). */
-export const QUOTE_OPTIONS_NOT_ISSUABLE = "Devis à 2 propositions : l'émission n'est pas encore disponible (signature d'une proposition en préparation).";
 
 export async function issueQuote(
   quoteId: string,
@@ -152,10 +151,9 @@ export async function issueQuote(
   const updated = await prisma.$transaction(async (tx) => {
     const quote = await tx.invoice.findUniqueOrThrow({
       where: { id: quoteId },
-      include: { lines: true, options: { select: { id: true } } },
+      include: { lines: true, options: { orderBy: { position: "asc" } } },
     });
 
-    if (quote.options.length > 0) throw new Error(QUOTE_OPTIONS_NOT_ISSUABLE);
     if (quote.documentType !== InvoiceDocumentType.QUOTE) {
       throw new Error("Ce document n'est pas un devis");
     }
@@ -165,10 +163,29 @@ export async function issueQuote(
     if (quote.lines.length === 0) {
       throw new Error("Impossible d'émettre un devis sans lignes");
     }
+    // Devis à propositions : chacune vérifiée comme un devis (mode, remise, code promo) et figée ; le devis reste neutre.
+    const frozenOptions = [];
+    for (const o of quote.options) {
+      const lines = quote.lines.filter((l) => l.optionId === o.id);
+      if (lines.length === 0) throw new Error(`Proposition ${proposalLetter(o)} : aucune ligne.`);
+      const optionMode = parseBillingMode(o.billingMode);
+      assertBillingModeLines(optionMode, lines);
+      resolveRecurringDiscount(optionMode, lines, { recurringDiscount: storedRecurringDiscount(o), openingDiscount: o.openingDiscount });
+      if (o.promoCodeId) {
+        const code = await tx.promoCode.findUniqueOrThrow({ where: { id: o.promoCodeId } });
+        await assertPromoCodeApplicable(code, { id: quote.id, clientId: quote.clientId, serviceIds: lines.filter((l) => l.isSubscription).map((l) => l.serviceId) }, issueDate, tx);
+      }
+      const base = computeDepositBaseCents(lines, o.subtotalCents, o.totalCents);
+      const noOneOff = lines.some((l) => l.isSubscription) && base <= 0;
+      const optionOffer =
+        optionMode === "RECURRING" || isSubscriptionOnly(lines) || noOneOff ? "NONE" : effectiveOffer(parsePaymentPlanOffer(o.paymentPlanOffer), base, settings);
+      frozenOptions.push({ id: o.id, depositBaseCents: base, paymentPlanOffer: optionOffer });
+    }
+    const withOptions = frozenOptions.length > 0;
     // Brouillon antérieur à une règle du mode (engagement obligatoire en récurrent) : bloqué avant numérotation.
-    assertBillingModeLines(parseBillingMode(quote.billingMode), quote.lines);
+    if (!withOptions) assertBillingModeLines(parseBillingMode(quote.billingMode), quote.lines);
     // Remise du devis récurrent (R1) revérifiée sur les lignes émises (ex. remise d'ouverture sans engagement de 36 mois).
-    resolveRecurringDiscount(parseBillingMode(quote.billingMode), quote.lines, { recurringDiscount: storedRecurringDiscount(quote), openingDiscount: quote.openingDiscount });
+    if (!withOptions) resolveRecurringDiscount(parseBillingMode(quote.billingMode), quote.lines, { recurringDiscount: storedRecurringDiscount(quote), openingDiscount: quote.openingDiscount });
     // Code promo (R3) revérifié à l'émission : actif, valable ce jour, offres, usages restants, un usage par client.
     if (quote.promoCodeId) {
       const code = await tx.promoCode.findUniqueOrThrow({ where: { id: quote.promoCodeId } });
@@ -217,8 +234,9 @@ export async function issueQuote(
         // Échéancier figé à l'émission : la signature, le PDF et les dates d'échéance le relisent.
         paymentScheduleSnapshot: scheduleSnapshotOf(settings),
         nextReminderAt: addDays(issueDate, settings.reminderQuoteDays),
-        paymentPlanOffer: offer,
-        depositBaseCents,
+        // Devis à propositions : offre et base portées par chaque proposition, recopiées sur le devis à la signature.
+        paymentPlanOffer: withOptions ? null : offer,
+        depositBaseCents: withOptions ? null : depositBaseCents,
         // Émis : le devis préparé hors ligne a été relu.
         offlineReviewReason: null,
       },
@@ -227,6 +245,17 @@ export async function issueQuote(
 
     // Jalons créés pendant le brouillon (affichage de la fiche, offre encore 2 fois) : retirés,
     // un devis d'abonnement seul n'en a aucun. Un brouillon n'a jamais de jalon payé ni facturé.
+    if (withOptions) {
+      // L'échéancier dépend de la proposition retenue : créé à la signature, aucun jalon d'ici là.
+      for (const f of frozenOptions) {
+        await tx.quoteOption.update({
+          where: { id: f.id },
+          data: { depositBaseCents: f.depositBaseCents, paymentPlanOffer: f.paymentPlanOffer, paymentScheduleSnapshot: scheduleSnapshotOf(settings) },
+        });
+      }
+      await tx.paymentMilestone.deleteMany({ where: { quoteId, invoiceId: null } });
+      return updated;
+    }
     if (offer === "NONE") await tx.paymentMilestone.deleteMany({ where: { quoteId, invoiceId: null } });
     if (offer === null) await ensureQuoteMilestones(quoteId, depositBaseCents, tx);
     else if (offer !== "NONE") await applyPlanMilestones(tx, quoteId, depositBaseCents, initialPlan(offer), settings, { mode });
@@ -299,7 +328,9 @@ export class QuoteDecisionError extends Error {
       | "NOT_PENDING"
       | "ALREADY_INVOICED"
       | "DEPOSIT_REQUIRED"
-      | "EXPIRED",
+      | "EXPIRED"
+      | "OPTION_REQUIRED"
+      | "OPTION_INVALID",
   ) {
     super(message);
     this.name = "QuoteDecisionError";
@@ -356,6 +387,7 @@ async function logQuoteAcceptance(
     originalPdfSha256?: string | null;
     paymentPlan?: PaymentPlan | null;
     terms?: QuoteSignatureTerms;
+    option?: { id: string; label: string; totalCents: number } | null;
   } = {},
 ) {
   return db.quoteAcceptanceAudit.create({
@@ -382,6 +414,9 @@ async function logQuoteAcceptance(
       consumer: opts.terms?.consumer ?? null,
       expressExecution: opts.terms?.expressExecution ?? null,
       withdrawalEndsAt: opts.terms?.withdrawalEndsAt ?? null,
+      optionId: opts.option?.id ?? null,
+      optionLabel: opts.option?.label ?? null,
+      optionTotalCents: opts.option?.totalCents ?? null,
     },
   });
 }
@@ -492,8 +527,16 @@ export async function acceptQuoteByClient(
     cgvAccepted?: boolean;
     /** Espace client, consommateur : exécution demandée avant la fin du délai de rétractation. */
     expressExecution?: boolean;
+    /** Devis à propositions : la proposition retenue (obligatoire). */
+    optionId?: string | null;
   } = {},
 ) {
+  const options = await prisma.quoteOption.findMany({ where: { quoteId }, orderBy: { position: "asc" } });
+  const option = options.length ? (options.find((o) => o.id === audit.optionId) ?? null) : null;
+  if (options.length && !audit.optionId) throw new QuoteDecisionError("Choisissez l'une des propositions du devis.", "OPTION_REQUIRED");
+  if ((options.length && !option) || (!options.length && audit.optionId)) {
+    throw new QuoteDecisionError("Cette proposition n'existe pas sur ce devis.", "OPTION_INVALID");
+  }
   // Formule retenue, validée avant toute écriture.
   const pending = await prisma.invoice.findUniqueOrThrow({
     where: { id: quoteId },
@@ -503,10 +546,12 @@ export async function acceptQuoteByClient(
       billingMode: true,
       totalCents: true,
       depositBaseCents: true,
-      lines: { select: { id: true, isSubscription: true, subscriptionStart: true, subscriptionStartDate: true, subscriptionFreeMonths: true } },
+      lines: { select: { id: true, optionId: true, isSubscription: true, subscriptionStart: true, subscriptionStartDate: true, subscriptionFreeMonths: true } },
       client: { select: { type: true } },
     },
   });
+  // Devis à propositions : la proposition retenue tient lieu de devis (offre, mode, base, lignes).
+  if (option) Object.assign(pending, quoteFieldsOfOption(option), { lines: pending.lines.filter((l) => l.optionId === option.id) });
   const offer = parsePaymentPlanOffer(pending.paymentPlanOffer);
   // Devis mixte : l'abonnement démarre à la livraison (projet terminé), pas à la signature.
   const deferSubscription = isDeferredSubscriptionQuote(pending);
@@ -541,6 +586,8 @@ export async function acceptQuoteByClient(
   const updated = await prisma.$transaction(async (tx) => {
     await loadPendingQuote(tx, quoteId, { refuseExpired: (audit.source ?? "PORTAL") !== "ADMIN" });
     await ensureQuoteHasOfficialNumber(tx, quoteId);
+    // Avant toute facturation : seules les lignes de la proposition retenue deviennent facturables (BILLABLE_LINES_WHERE).
+    if (option) await tx.invoice.update({ where: { id: quoteId }, data: { ...quoteFieldsOfOption(option), selectedOptionId: option.id } });
     const result = await tx.invoice.update({
       where: { id: quoteId },
       data: {
@@ -588,6 +635,7 @@ export async function acceptQuoteByClient(
       originalPdfSha256: original?.sha256 ?? null,
       paymentPlan: plan,
       terms,
+      option: option ? { id: option.id, label: `${proposalLetter(option)} : ${option.label}`, totalCents: option.totalCents } : null,
     });
     return { result, subscriptionIds: subs.subscriptionIds, createdIds: subs.createdIds, buyout, acceptance };
   });
@@ -636,7 +684,7 @@ export function isDeferredSubscriptionQuote(quote: {
 export async function startDeferredSubscriptions(quoteId: string): Promise<string[]> {
   const quote = await prisma.invoice.findUnique({
     where: { id: quoteId },
-    select: { documentType: true, quoteStatus: true, depositBaseCents: true, paymentPlanOffer: true, billingMode: true, lines: true },
+    select: { documentType: true, quoteStatus: true, depositBaseCents: true, paymentPlanOffer: true, billingMode: true, lines: { where: BILLABLE_LINES_WHERE } },
   });
   if (!quote || quote.documentType !== InvoiceDocumentType.QUOTE || quote.quoteStatus !== QuoteStatus.ACCEPTED) return [];
   if (!isDeferredSubscriptionQuote(quote)) return [];
@@ -695,6 +743,7 @@ export async function acceptQuoteFromThread(
     threadId: string;
     actor: QuoteAcceptanceActor;
     paymentPlan?: PaymentPlan;
+    optionId?: string | null;
   },
 ) {
   const thread = await prisma.emailThread.findUnique({
@@ -721,6 +770,7 @@ export async function acceptQuoteFromThread(
     threadId: opts.threadId,
     actor: opts.actor,
     paymentPlan: opts.paymentPlan,
+    optionId: opts.optionId,
   });
 }
 
@@ -730,7 +780,7 @@ export async function convertQuoteToInvoice(quoteId: string) {
   const invoice = await prisma.$transaction(async (tx) => {
     const quote = await tx.invoice.findUniqueOrThrow({
       where: { id: quoteId },
-      include: { lines: { orderBy: { position: "asc" } } },
+      include: { lines: { where: BILLABLE_LINES_WHERE, orderBy: { position: "asc" } } },
     });
 
     if (quote.documentType !== InvoiceDocumentType.QUOTE) {

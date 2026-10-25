@@ -112,6 +112,7 @@ export const quotesMarketRoutes: FastifyPluginAsync = async (app) => {
       .object({
         signerName: z.string().trim().min(2, "Nom du signataire requis").max(120),
         paymentPlan: z.enum(["TWO", "THREE"]).optional(),
+        optionId: z.string().min(1).max(64).optional(),
       })
       .safeParse(request.body);
     if (!parsed.success) {
@@ -122,10 +123,12 @@ export const quotesMarketRoutes: FastifyPluginAsync = async (app) => {
         source: "ADMIN",
         actor: actorOf(request as { user?: { id: string; email: string } }),
         paymentPlan: parsed.data.paymentPlan,
+        optionId: parsed.data.optionId,
       });
       return { quoteStatus: quote.quoteStatus };
     } catch (e) {
-      if (e instanceof QuoteDecisionError) return reply.code(409).send({ error: e.message, code: e.code });
+      // Proposition absente ou étrangère au devis : erreur de saisie (400), pas un conflit d'état.
+      if (e instanceof QuoteDecisionError) return reply.code(e.code.startsWith("OPTION_") ? 400 : 409).send({ error: e.message, code: e.code });
       if (e instanceof PaymentPlanError) return reply.code(400).send({ error: e.message, code: e.code });
       throw e;
     }
@@ -406,6 +409,7 @@ export const quotesMarketRoutes: FastifyPluginAsync = async (app) => {
         threadId: z.string().min(1),
         signerName: z.string().min(2).max(120),
         paymentPlan: z.enum(["TWO", "THREE"]).optional(),
+        optionId: z.string().min(1).max(64).optional(),
       });
       const parsed = schema.safeParse(request.body ?? {});
       if (!parsed.success) {
@@ -418,6 +422,7 @@ export const quotesMarketRoutes: FastifyPluginAsync = async (app) => {
           signerName: parsed.data.signerName,
           actor: actorOf(request),
           paymentPlan: parsed.data.paymentPlan,
+          optionId: parsed.data.optionId,
         });
         return {
           ok: true,

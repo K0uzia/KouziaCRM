@@ -113,14 +113,18 @@ describe("devis à 2 propositions (P1)", () => {
     expect(simple.json().lines.every((l: { optionId: string | null }) => l.optionId === null)).toBe(true);
   });
 
-  it("émission refusée tant que la signature d'une proposition manque ; aperçu rendu (P2)", async () => {
+  it("émission (P3) : numéro, propositions figées (offre effective, base, échéancier), aucun jalon avant la signature ; aperçu rendu (P2)", async () => {
     const { clientId, serviceId } = await setup();
     const body = { clientId, documentType: "QUOTE", options: [oneOff(), recurring(serviceId)] };
     const q = (await call("POST", "/api/invoices", body)).json();
     const issue = await call("POST", `/api/invoices/${q.id}/issue`, { email: { send: false } });
-    expect(issue.statusCode).toBe(400);
-    expect(issue.json().error).toMatch(/2 propositions/);
-    expect(await prisma.invoice.findUniqueOrThrow({ where: { id: q.id } })).toMatchObject({ status: "DRAFT", number: null });
+    expect(issue.statusCode, issue.body).toBe(200);
+    expect(await prisma.invoice.findUniqueOrThrow({ where: { id: q.id } })).toMatchObject({ status: "ISSUED", quoteStatus: "SENT", paymentPlanOffer: null, depositBaseCents: null, selectedOptionId: null });
+    const [a, b] = await prisma.quoteOption.findMany({ where: { quoteId: q.id }, orderBy: { position: "asc" } });
+    expect(a).toMatchObject({ paymentPlanOffer: "TWO", depositBaseCents: 230000 });
+    expect(b).toMatchObject({ paymentPlanOffer: "NONE", depositBaseCents: 0 });
+    expect(a!.paymentScheduleSnapshot).toBeTruthy();
+    expect(await prisma.paymentMilestone.count({ where: { quoteId: q.id } })).toBe(0);
     const preview = await call("POST", "/api/invoices/preview.pdf", body);
     expect(preview.statusCode, preview.body).toBe(200);
   });

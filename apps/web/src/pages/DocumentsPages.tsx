@@ -160,6 +160,8 @@ type Doc = {
   milestones?: Milestone[];
   /** Devis à 2 propositions (P1) : chacune complète ; vide pour un devis simple. */
   options?: Array<BillingSource & { id: string; position: number; label: string; totalCents: number }>;
+  /** Devis à propositions signé : la proposition retenue. */
+  selectedOptionId?: string | null;
 };
 
 /** Réglages de facturation d'un devis ou d'une de ses propositions (mêmes champs). */
@@ -172,14 +174,17 @@ const PROPOSAL_LETTERS = ["A", "B"];
 const PERIOD_LABEL: Record<string, string> = { YEAR: "par an", QUARTER: "par trimestre", MONTH: "par mois" };
 
 /** Devis à propositions : le total de chacune (paiement unique) ou son prix par période (abonnement). */
-function ProposalTotals({ proposals, lines }: { proposals: NonNullable<Doc["options"]>; lines: NonNullable<Doc["lines"]> }) {
+function ProposalTotals({ proposals, lines, selectedOptionId }: { proposals: NonNullable<Doc["options"]>; lines: NonNullable<Doc["lines"]>; selectedOptionId: string | null }) {
   return (
     <dl className="space-y-2" aria-label="Total de chaque proposition">
       {proposals.map((o) => {
         const sub = o.billingMode === "RECURRING" ? lines.find((l) => l.optionId === o.id && l.isSubscription) : undefined;
         return (
           <div key={o.id} className="flex items-baseline justify-between gap-3 border-t border-[var(--border)] pt-2 first:border-t-0 first:pt-0">
-            <dt className="min-w-0 font-medium">Proposition {PROPOSAL_LETTERS[o.position] ?? o.position + 1}</dt>
+            <dt className="min-w-0 font-medium">
+              Proposition {PROPOSAL_LETTERS[o.position] ?? o.position + 1}
+              {selectedOptionId ? <span className="block text-xs font-normal text-[var(--muted)]">{o.id === selectedOptionId ? "Retenue" : "Non retenue"}</span> : null}
+            </dt>
             <dd className="text-right tabular-nums">
               <span className="font-display text-lg font-semibold">{formatEUR(o.totalCents)}</span>
               {sub ? <span className="block text-xs text-[var(--muted)]">{PERIOD_LABEL[sub.billingInterval ?? "MONTH"] ?? "par mois"}</span> : null}
@@ -707,8 +712,12 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
   const [signOpen, setSignOpen] = useState(false);
   const [signerName, setSignerName] = useState("");
   const [signPlan, setSignPlan] = useState<"TWO" | "THREE">("TWO");
+  const [signOptionId, setSignOptionId] = useState("");
   const [signBusy, setSignBusy] = useState(false);
 
+  // Devis à propositions : la formule proposée est celle de la proposition retenue.
+  const signProposals = doc?.documentType === "QUOTE" && doc.options?.length ? doc.options : null;
+  const signOffer = signProposals ? signProposals.find((o) => o.id === signOptionId)?.paymentPlanOffer : doc?.paymentPlanOffer;
   async function signOffline() {
     setSignBusy(true);
     try {
@@ -716,7 +725,8 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
         method: "POST",
         body: JSON.stringify({
           signerName: signerName.trim(),
-          ...(doc?.paymentPlanOffer === "CHOICE" ? { paymentPlan: signPlan } : {}),
+          ...(signProposals ? { optionId: signOptionId } : {}),
+          ...(signOffer === "CHOICE" ? { paymentPlan: signPlan } : {}),
         }),
       });
       toast.success("Signature enregistrée : vous pouvez facturer l'acompte");
@@ -1165,7 +1175,7 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
                 <Button variant="secondary" onClick={() => setEditOpen(true)}>
                   Modifier
                 </Button>
-                {proposals ? null : <Button onClick={() => openIssueModal()}>Émettre</Button>}
+                <Button onClick={() => openIssueModal()}>Émettre</Button>
               </>
             ) : null}
             {doc.number ? (
@@ -1226,11 +1236,22 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
               </Button>
             </Card>
           ) : null}
-          {proposals && doc.status === "DRAFT" ? (
+          {proposals ? (
             <p className="rounded-[var(--radius)] border border-[var(--border)] bg-[var(--bg-subtle)] px-4 py-3 text-sm text-[var(--muted)]" data-proposals-note>
-              <span className="font-medium text-[var(--text)]">Devis à {proposals.length} propositions</span> : le client en
-              choisira une à la signature. L&apos;émission arrive avec la signature d&apos;une proposition ; d&apos;ici là, ce
-              devis reste en brouillon (aperçu du PDF dans « Modifier »).
+              {(() => {
+                const kept = proposals.find((o) => o.id === doc.selectedOptionId);
+                return kept ? (
+                  <>
+                    <span className="font-medium text-[var(--text)]">Proposition retenue</span> : {PROPOSAL_LETTERS[kept.position] ?? kept.position + 1},{" "}
+                    {kept.label}. Seules ses prestations sont facturées.
+                  </>
+                ) : (
+                  <>
+                    <span className="font-medium text-[var(--text)]">Devis à {proposals.length} propositions</span> : le client en
+                    choisit une à la signature, dans son espace ou avec « Enregistrer la signature ».
+                  </>
+                );
+              })()}
             </p>
           ) : null}
           {/* Le document tel qu'il est émis */}
@@ -1451,7 +1472,7 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
               </div>
               <div className="w-full shrink-0 space-y-1.5 text-sm sm:w-64">
                 {proposals ? (
-                  <ProposalTotals proposals={proposals} lines={doc.lines ?? []} />
+                  <ProposalTotals proposals={proposals} lines={doc.lines ?? []} selectedOptionId={doc.selectedOptionId ?? null} />
                 ) : mixedQuote ? (
                   <MixedQuoteTotals doc={doc} lines={docLines} />
                 ) : (
@@ -1790,7 +1811,18 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
           <Field label="Nom du signataire" hint="Tel qu'il figure sur le devis signé ou dans l'email d'accord.">
             <Input required minLength={2} maxLength={120} value={signerName} onChange={(e) => setSignerName(e.target.value)} />
           </Field>
-          {doc.paymentPlanOffer === "CHOICE" ? (
+          {signProposals ? (
+            <fieldset className="space-y-1">
+              <legend className="text-sm font-medium">Proposition retenue par le client</legend>
+              {signProposals.map((o) => (
+                <label key={o.id} className="flex min-h-11 items-center gap-2 text-sm">
+                  <input type="radio" name="sign-option" required value={o.id} checked={signOptionId === o.id} onChange={() => setSignOptionId(o.id)} />
+                  Proposition {PROPOSAL_LETTERS[o.position] ?? o.position + 1} : {o.label}
+                </label>
+              ))}
+            </fieldset>
+          ) : null}
+          {signOffer === "CHOICE" ? (
             <fieldset className="space-y-1">
               <legend className="text-sm font-medium">Formule retenue par le client</legend>
               {(
@@ -1816,7 +1848,7 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
             <Button variant="secondary" disabled={signBusy} onClick={() => setSignOpen(false)}>
               Annuler
             </Button>
-            <Button type="submit" disabled={signBusy || signerName.trim().length < 2}>
+            <Button type="submit" disabled={signBusy || signerName.trim().length < 2 || Boolean(signProposals && !signOptionId)}>
               {signBusy ? "Enregistrement…" : "Enregistrer la signature"}
             </Button>
           </ModalActions>

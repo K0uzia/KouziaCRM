@@ -2,6 +2,7 @@ import { SubscriptionCollectionMethod, SubscriptionStatus } from "@prisma/client
 import { recurringDiscountSummary } from "@/lib/quotes/recurring-discount.js";
 import { lineFirstInvoiceAt } from "@/lib/subscriptions/start.js";
 import { prisma } from "@/lib/prisma.js";
+import { BILLABLE_LINES_WHERE } from "@/lib/quotes/quote-options.js";
 import {
   createSubscription,
   updateSubscription,
@@ -163,7 +164,8 @@ export async function activateSubscriptionsFromDocument(
   const doc = await db.invoice.findUnique({
     where: { id: documentId },
     include: {
-      lines: { orderBy: { position: "asc" } },
+      // Devis à propositions : seules les lignes de la proposition retenue créent un abonnement.
+      lines: { where: BILLABLE_LINES_WHERE, orderBy: { position: "asc" } },
     },
   });
   if (!doc) {

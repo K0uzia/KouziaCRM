@@ -29,7 +29,6 @@ import {
   syncMilestoneOnInvoicePaid,
   rejectQuote,
   QuoteDecisionError,
-  QUOTE_OPTIONS_NOT_ISSUABLE,
 } from "@/lib/invoices/transitions.js";
 import { CreditNoteReason, RefundMethod } from "@prisma/client";
 import { getCompanySettings } from "@/lib/company.js";
