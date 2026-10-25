@@ -191,6 +191,16 @@ export async function closePortalSession(request: FastifyRequest): Promise<void>
   });
 }
 
+/**
+ * Adresse e-mail principale changée (fiche client, formulaire d'onboarding) : les appareils connectés avec l'ancienne
+ * adresse sont déconnectés et les codes déjà envoyés à l'ancienne adresse expirent.
+ */
+export async function endPortalAccessAfterEmailChange(clientId: string): Promise<void> {
+  await revokeAllPortalSessions(clientId);
+  const now = new Date();
+  await prisma.portalCode.updateMany({ where: { clientId, usedAt: null, expiresAt: { gt: now } }, data: { expiresAt: now } });
+}
+
 /** Déconnecte tous les appareils d'un client (admin : appareil perdu, doute). */
 export async function revokeAllPortalSessions(clientId: string): Promise<number> {
   const res = await prisma.portalSession.updateMany({

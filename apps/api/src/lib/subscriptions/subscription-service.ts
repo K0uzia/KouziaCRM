@@ -126,10 +126,24 @@ function fmtDay(d: Date): string {
   return formatDateFr(d);
 }
 
-function addMonths(d: Date, months: number): Date {
-  const out = new Date(d);
+/**
+ * Échéance suivante, bornée au dernier jour du mois (31 janvier + 1 mois = 28 ou 29 février, jamais 3 mars) et
+ * ancrée sur le jour d'origine : après un 28 février, l'échéance revient au 31 mars (audit du 25/10/2026).
+ */
+export function nextPeriodDate(from: Date, months: number, anchorDay = from.getDate()): Date {
+  const out = new Date(from);
+  out.setDate(1);
   out.setMonth(out.getMonth() + months);
+  const last = new Date(out.getFullYear(), out.getMonth() + 1, 0).getDate();
+  out.setDate(Math.min(anchorDay, last));
   return out;
+}
+
+/** Jour d'ancrage des échéances : celui de l'échéance, ou celui du début s'il est plus tardif en fin de mois. */
+function anchorDayOf(sub: { nextInvoiceAt: Date; startDate: Date }): number {
+  const day = sub.nextInvoiceAt.getDate();
+  const start = sub.startDate.getDate();
+  return day >= 28 && start > day ? start : day;
 }
 
 export async function createSubscription(
@@ -172,7 +186,8 @@ export async function createSubscription(
     if (data.firstPeriodNow) {
       if (nextInvoiceAt < today) nextInvoiceAt = new Date();
     } else {
-      while (nextInvoiceAt < today) nextInvoiceAt = addMonths(nextInvoiceAt, periodMonths(billingInterval));
+      const anchor = nextInvoiceAt.getDate();
+      while (nextInvoiceAt < today) nextInvoiceAt = nextPeriodDate(nextInvoiceAt, periodMonths(billingInterval), anchor);
     }
   }
 
@@ -446,7 +461,7 @@ async function invoiceSubscriptionCycle(sub: Prisma.SubscriptionGetPayload<{ inc
   const interval = normalizeInterval(sub.billingInterval);
   // Annuel et trimestriel : la période couverte figure sur la ligne ; mensuel : le libellé seul.
   const dated = interval !== "MONTH";
-  const followingInvoiceAt = addMonths(issueDate, periodMonths(sub.billingInterval));
+  const followingInvoiceAt = nextPeriodDate(issueDate, periodMonths(sub.billingInterval), anchorDayOf(sub));
 
   // Idempotence : une facture existe déjà pour ce cycle ?
   // Toute facture non annulée datée dans ce cycle compte (une facture Stripe ou manuelle
@@ -560,8 +575,13 @@ export async function generateDueSubscriptionInvoices(now: Date = new Date()): P
   });
 
   let generated = 0;
+  // Un abonnement en erreur (client incomplet, numérotation) ne bloque pas les autres ; il est repris au passage suivant.
   for (const sub of due) {
-    if (await invoiceSubscriptionCycle(sub)) generated += 1;
+    try {
+      if (await invoiceSubscriptionCycle(sub)) generated += 1;
+    } catch (err) {
+      console.error(`[subscriptions] facture de l'abonnement ${sub.id} non émise`, err);
+    }
   }
 
   return generated;

@@ -217,9 +217,12 @@ async function creditNoteDateError(invoiceId: string, issueDate: Date): Promise<
   }
 }
 
+/** Montant saisi en euros : au moins un centime une fois arrondi (0,001 € donnait un règlement de 0). */
+const centsAmount = z.coerce.number().positive().refine((v) => eurosToCents(v) >= 1, { message: "Montant minimal : 0,01 €." });
+
 const paySchema = z.object({
-  amountEuros: z.coerce.number().positive(),
-  paidAt: z.string().optional(),
+  amountEuros: centsAmount,
+  paidAt: dateString.optional(),
   method: z.nativeEnum(PaymentMethod).optional(),
   reference: z.string().optional().nullable(),
   notes: z.string().optional().nullable(),
@@ -228,7 +231,7 @@ const paySchema = z.object({
 });
 
 const refundSchema = z.object({
-  amountEuros: z.coerce.number().positive(),
+  amountEuros: centsAmount,
   paidAt: z.iso.date().optional(),
   method: z.nativeEnum(PaymentMethod).optional(),
   reference: z.string().max(200).optional().nullable(),

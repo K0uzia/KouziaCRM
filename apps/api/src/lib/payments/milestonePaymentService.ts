@@ -26,6 +26,7 @@ import {
   type MilestoneTemplate,
 } from "@/lib/quotes/milestones.js";
 import { prisma } from "@/lib/prisma.js";
+import { applySettledStatus, lockInvoice } from "@/lib/invoices/balance-status.js";
 import type { ReviewOptions } from "@/lib/email/review.js";
 import {
   initialPlan,
@@ -466,6 +467,8 @@ export async function markMilestonePaidManually(opts: {
   notes?: string | null;
   /** Reçu envoyé au client. Par défaut : oui. */
   notifyClient?: boolean;
+  /** Date du règlement (virement reçu, chèque encaissé) ; par défaut : maintenant. */
+  paidAt?: Date;
 }) {
   const milestoneBefore = await prisma.paymentMilestone.findUniqueOrThrow({
     where: { id: opts.milestoneId },
@@ -474,6 +477,11 @@ export async function markMilestonePaidManually(opts: {
   if (milestoneBefore.status === MilestoneStatus.PAID) {
     throw new MilestonePaymentError("Jalon déjà payé", 409);
   }
+  if (milestoneBefore.status === MilestoneStatus.CANCELLED) {
+    throw new MilestonePaymentError("Jalon annulé : aucun paiement à y enregistrer", 409);
+  }
+  const paidAt = opts.paidAt ?? new Date();
+  let recorded: { id: string; amountCents: number } | null = null;
   // Ordre imposé : devis signé, puis facture d'acompte, puis paiement.
   await assertQuoteSigned(milestoneBefore.quoteId);
   assertMilestoneInvoiced(milestoneBefore);
@@ -488,6 +496,8 @@ export async function markMilestonePaidManually(opts: {
       throw new MilestonePaymentError("Facture d'acompte introuvable", 500);
     }
 
+    // Verrou puis reste dû relu : un autre règlement ou un avoir enregistré entre-temps est pris en compte.
+    await lockInvoice(tx, invoiceId);
     const invoice = await tx.invoice.findUniqueOrThrow({
       where: { id: invoiceId },
       include: BALANCE_INCLUDE,
@@ -495,28 +505,25 @@ export async function markMilestonePaidManually(opts: {
 
     const remaining = invoiceBalance(invoice).dueCents;
     if (remaining > 0) {
-      await tx.payment.create({
+      const payment = await tx.payment.create({
         data: {
           invoiceId: invoice.id,
           amountCents: remaining,
-          paidAt: new Date(),
+          paidAt,
           method: opts.method,
           reference: opts.reference?.trim() || null,
           notes: opts.notes?.trim() || "Paiement manuel",
         },
       });
-      await tx.invoice.update({
-        where: { id: invoice.id },
-        data: { status: InvoiceStatus.PAID },
-      });
-      await syncMilestoneOnInvoicePaid(invoice.id, tx);
+      recorded = { id: payment.id, amountCents: payment.amountCents };
+      await applySettledStatus(tx, invoice.id);
     }
 
     return tx.paymentMilestone.update({
       where: { id: milestone.id },
       data: {
         status: MilestoneStatus.PAID,
-        paidAt: new Date(),
+        paidAt,
         paymentMethod: opts.method,
         manualReference: opts.reference?.trim() || null,
         manualNotes: opts.notes?.trim() || null,
@@ -525,7 +532,7 @@ export async function markMilestonePaidManually(opts: {
     });
   });
 
-  await notifyDepositPaid(opts.milestoneId, { online: false, notifyClient: opts.notifyClient !== false });
+  await notifyDepositPaid(opts.milestoneId, { online: false, notifyClient: opts.notifyClient !== false, payment: recorded });
   const { startProjectForQuote } = await import("@/lib/projects/lifecycle.js");
   await startProjectForQuote(updated.quoteId);
   return updated;
@@ -537,7 +544,8 @@ export async function markMilestonePaidManually(opts: {
  */
 export async function notifyDepositPaid(
   milestoneId: string,
-  opts: { online?: boolean; notifyClient?: boolean } = {},
+  /** payment : le règlement réellement enregistré (montant et reçu), pas le montant prévu du jalon. */
+  opts: { online?: boolean; notifyClient?: boolean; payment?: { id: string; amountCents: number } | null } = {},
 ) {
   const milestone = await prisma.paymentMilestone.findUnique({
     where: { id: milestoneId },
@@ -554,7 +562,7 @@ export async function notifyDepositPaid(
   const receiptReview: ReviewOptions = { family: "payment_receipt", origin: opts.online ? "WEBHOOK" : "ADMIN_ACTION" };
   if (opts.notifyClient !== false && clientEmail && milestone.invoiceId) {
     const { sendPaymentReceipt } = await import("@/lib/email/payment-receipt.js");
-    await sendPaymentReceipt(milestone.invoiceId, milestone.amountCents, undefined, { review: receiptReview });
+    await sendPaymentReceipt(milestone.invoiceId, opts.payment?.amountCents ?? milestone.amountCents, opts.payment?.id, { review: receiptReview });
   } else if (opts.notifyClient !== false && clientEmail) {
     const content = renderDepositPaidEmail({
       brand,

@@ -6,7 +6,7 @@ import { renderToBuffer } from "@react-pdf/renderer";
 import React from "react";
 import { prisma } from "@/lib/prisma.js";
 import { getCompanySettings } from "@/lib/company.js";
-import { issuedPdfAbsolutePath } from "@/lib/pdf/issued-archive.js";
+import { alertArchivedFile, issuedPdfAbsolutePath } from "@/lib/pdf/issued-archive.js";
 import { loadBrandLogoDataUrl } from "@/lib/pdf/brand-assets.js";
 import { PaymentReceiptDocument, type PaymentReceiptPdfData } from "@/lib/pdf/payment-receipt-document.js";
 import type { ClientSnapshot } from "@/lib/invoices/transitions.js";
@@ -111,6 +111,12 @@ async function renderReceipt(data: PaymentReceiptPdfData): Promise<Buffer> {
   return Buffer.from(await renderToBuffer(React.createElement(PaymentReceiptDocument, data) as any));
 }
 
+const receiptFile = (row: { id: string; receiptPdfPath: string | null; invoice: { number: string | null } | null }) => ({
+  id: `receipt:${row.id}`,
+  label: `reçu du règlement de ${row.invoice?.number ?? "?"}`,
+  path: row.receiptPdfPath ?? "",
+});
+
 /** PDF du reçu d'un règlement : archivé au premier appel, puis lu tel quel ; null sans facture numérotée. */
 export async function paymentReceiptPdf(paymentId: string): Promise<Buffer | null> {
   const row = await prisma.payment.findUnique({
@@ -123,12 +129,15 @@ export async function paymentReceiptPdf(paymentId: string): Promise<Buffer | nul
     try {
       const pdf = await fs.readFile(issuedPdfAbsolutePath(row.receiptPdfPath));
       if (row.receiptPdfSha256 && sha256(pdf) !== row.receiptPdfSha256) {
+        // Jamais de réécriture silencieuse : l'écart est signalé, le fichier archivé reste servi.
         console.error(`[pdf] empreinte du reçu archivé différente (${row.receiptPdfPath})`);
+        await alertArchivedFile(receiptFile(row), "son empreinte SHA-256 ne correspond plus au fichier");
       }
       return pdf;
     } catch (err) {
       // Archive perdue : rendu du moment sans la remplacer (restauration depuis la sauvegarde).
       console.error(`[pdf] reçu archivé illisible (${row.receiptPdfPath})`, err);
+      await alertArchivedFile(receiptFile(row), "le fichier archivé est introuvable ou illisible");
       const data = await buildReceiptData(paymentId);
       return data ? renderReceipt(data) : null;
     }
@@ -161,7 +170,7 @@ export async function paymentReceiptPdf(paymentId: string): Promise<Buffer | nul
 /** Rattrapage (worker) : règlements de factures numérotées sans reçu archivé. */
 export async function archivePendingReceipts(limit = 50): Promise<number> {
   const pending = await prisma.payment.findMany({
-    where: { receiptPdfPath: null, invoice: { number: { not: null } } },
+    where: { receiptPdfPath: null, amountCents: { gt: 0 }, invoice: { number: { not: null } } },
     select: { id: true },
     orderBy: { paidAt: "asc" },
     take: limit,

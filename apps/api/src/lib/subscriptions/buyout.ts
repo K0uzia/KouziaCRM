@@ -127,6 +127,21 @@ export async function buyoutStateOf(subscriptionId: string, now = new Date()) {
  * avant la fin de l'engagement, une ligne pour les périodes restantes. Le devis garde le lien vers l'abonnement racheté.
  */
 export async function createBuyoutQuote(subscriptionId: string, now = new Date()) {
+  // Double clic : les demandes d'un même abonnement passent l'une après l'autre ; la seconde voit le devis de la
+  // première et reçoit le 409 « déjà en cours ». Une seule instance de l'API crée ces devis.
+  const previous = buyoutLocks.get(subscriptionId) ?? Promise.resolve();
+  const run = previous.then(() => createBuyoutQuoteNow(subscriptionId, now));
+  const settled = run.then(() => undefined, () => undefined);
+  buyoutLocks.set(subscriptionId, settled);
+  void settled.then(() => {
+    if (buyoutLocks.get(subscriptionId) === settled) buyoutLocks.delete(subscriptionId);
+  });
+  return run;
+}
+
+const buyoutLocks = new Map<string, Promise<void>>();
+
+async function createBuyoutQuoteNow(subscriptionId: string, now: Date) {
   const state = await buyoutStateOf(subscriptionId, now);
   if (!state) throw new BuyoutError("Cette offre n'a pas de prestation de rachat au catalogue.", 400);
   if (!state.canPropose) {
