@@ -6,6 +6,7 @@ import { getCompanySettings } from "@/lib/company.js";
 import { mailEnqueue } from "@/lib/email/mailer/index.js";
 import { buildEmailBrand } from "@/lib/email/deposit-templates.js";
 import { formatPlainTextSignature } from "@/lib/email/signature.js";
+import { templateText } from "@/lib/email/template-registry.js";
 import { getStripe } from "@/lib/stripe/client.js";
 import { alertAdmin } from "@/lib/stripe/alert.js";
 
@@ -70,31 +71,56 @@ export async function notifyMilestonePaymentFailed(pi: Stripe.PaymentIntent, was
   if (!milestone || milestone.status === "PAID" || milestone.status === "CANCELLED") return "ignoré (échéance réglée ou annulée)";
   const to = decryptOptional(milestone.quote.client.emailEncrypted);
   if (!to) return "échec signalé (client sans e-mail)";
-  const settings = await getCompanySettings();
   const client = milestone.quote.client;
-  const name = (client.firstName ?? client.displayName)?.trim();
   const label = `${milestone.label} du devis ${milestone.quote.number ?? ""}`.trim();
-  const lines = [
-    name ? `Bonjour ${name},` : "Bonjour,",
-    "",
-    `Le prélèvement pour ${label} (${formatEUR(milestone.amountCents)}) n'a pas abouti.`,
-    ...(milestone.checkoutUrl ? ["", `Vous pouvez le régler à nouveau en ligne : ${milestone.checkoutUrl}`] : []),
-    ...(settings.bankIban ? ["", `Ou par virement sur l'IBAN ${settings.bankIban}, en indiquant la référence ${milestone.quote.number ?? ""}.`] : []),
-    "",
-    "Une question ? Répondez simplement à cet e-mail.",
-    "",
-    formatPlainTextSignature(settings, buildEmailBrand(settings)),
-  ];
+  const content = await failedPaymentEmail({
+    name: (client.firstName ?? client.displayName)?.trim(),
+    reference: `devis ${milestone.quote.number ?? ""}`.trim(),
+    paiement: `Le prélèvement pour ${label}`,
+    amountCents: milestone.amountCents,
+    checkoutUrl: milestone.checkoutUrl,
+    ibanReference: milestone.quote.number ?? "",
+  });
   await mailEnqueue({
     to,
-    subject: `Paiement non abouti : devis ${milestone.quote.number ?? ""}`.trim(),
-    text: lines.join("\n"),
+    subject: content.subject,
+    text: content.text,
     clientId: client.id,
     kind: "payment_failed",
     // Échéance concernée : l'e-mail est retiré s'il attend encore sa validation quand elle est réglée.
     documentId: milestone.id,
   }, { review: { family: "payment_issue", origin: "WEBHOOK" } });
   return "échec signalé";
+}
+
+/**
+ * E-mail « Paiement non abouti » (échéance ou facture) : modèle payment.failed s'il a été modifié dans Réglages, sinon le
+ * texte d'origine. Le bloc des moyens de régler (lien en ligne, IBAN et référence) est calculé ici, jamais saisi.
+ */
+async function failedPaymentEmail(opts: {
+  name: string | null | undefined;
+  reference: string;
+  paiement: string;
+  amountCents: number;
+  checkoutUrl: string | null;
+  ibanReference: string;
+}): Promise<{ subject: string; text: string }> {
+  const settings = await getCompanySettings();
+  const salutation = opts.name ? `Bonjour ${opts.name},` : "Bonjour,";
+  const settle = [
+    ...(opts.checkoutUrl ? [`Vous pouvez le régler à nouveau en ligne : ${opts.checkoutUrl}`] : []),
+    ...(settings.bankIban ? [`Ou par virement sur l'IBAN ${settings.bankIban}, en indiquant la référence ${opts.ibanReference}.`] : []),
+  ].join("\n\n");
+  const amount = formatEUR(opts.amountCents);
+  const content = await templateText(
+    "payment.failed",
+    { salutation, reference: opts.reference, paiement: opts.paiement, montant: amount, bloc_reglement: settle },
+    {
+      subject: `Paiement non abouti : ${opts.reference}`,
+      body: [salutation, "", `${opts.paiement} (${amount}) n'a pas abouti.`, ...(settle ? ["", settle] : []), "", "Une question ? Répondez simplement à cet e-mail."].join("\n"),
+    },
+  );
+  return { subject: content.subject, text: [content.body, "", formatPlainTextSignature(settings, buildEmailBrand(settings))].join("\n") };
 }
 
 /**
@@ -120,23 +146,18 @@ export async function notifyInvoicePaymentFailed(pi: Stripe.PaymentIntent): Prom
   );
   const to = wasProcessing ? decryptOptional(invoice.client.emailEncrypted) : null;
   if (to) {
-    const settings = await getCompanySettings();
-    const name = (invoice.client.firstName ?? invoice.client.displayName)?.trim();
-    const lines = [
-      name ? `Bonjour ${name},` : "Bonjour,",
-      "",
-      `Le paiement de ${label} (${formatEUR(pi.amount)}) n'a pas abouti.`,
-      ...(invoice.checkoutUrl ? ["", `Vous pouvez le régler à nouveau en ligne : ${invoice.checkoutUrl}`] : []),
-      ...(settings.bankIban ? ["", `Ou par virement sur l'IBAN ${settings.bankIban}, en indiquant la référence ${invoice.number ?? ""}.`] : []),
-      "",
-      "Une question ? Répondez simplement à cet e-mail.",
-      "",
-      formatPlainTextSignature(settings, buildEmailBrand(settings)),
-    ];
+    const content = await failedPaymentEmail({
+      name: (invoice.client.firstName ?? invoice.client.displayName)?.trim(),
+      reference: invoice.number ?? "facture",
+      paiement: `Le paiement de ${label}`,
+      amountCents: pi.amount,
+      checkoutUrl: invoice.checkoutUrl,
+      ibanReference: invoice.number ?? "",
+    });
     await mailEnqueue({
       to,
-      subject: `Paiement non abouti : ${invoice.number ?? "facture"}`,
-      text: lines.join("\n"),
+      subject: content.subject,
+      text: content.text,
       clientId: invoice.clientId,
       kind: "payment_failed",
       documentId: invoice.id,

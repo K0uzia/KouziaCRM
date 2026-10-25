@@ -8,6 +8,7 @@ import { brandFromSettings } from "@/lib/email/templates.js";
 import { formatPlainTextSignature } from "@/lib/email/signature.js";
 import { sendDocumentPdf, type SendDocumentPdfResult } from "@/lib/email/send-document-pdf.js";
 import { paymentReceiptPdf, receiptFileName } from "@/lib/pdf/receipt-archive.js";
+import { templateText } from "@/lib/email/template-registry.js";
 
 /**
  * E-mail « Paiement reçu » : le REÇU de ce règlement (archivé) et la facture telle qu'émise (archivée).
@@ -55,21 +56,34 @@ export async function sendPaymentReceipt(
       ? "Vous trouverez ci-joint le reçu de ce paiement et la facture {{numero}}."
       : "Vous trouverez ci-joint la facture {{numero}}.";
     const signature = formatPlainTextSignature(await getCompanySettings(), await brandFromSettings());
-    const text = [
-      firstName ? `Bonjour ${firstName},` : "Bonjour,",
+    const salutation = firstName ? `Bonjour ${firstName},` : "Bonjour,";
+    const state = remaining === 0 ? "La facture est entièrement réglée." : `Il reste ${formatEUR(remaining)} à régler.`;
+    const nextStep = invoice.invoiceType === "ACOMPTE" && remaining === 0 ? "Le projet démarre : je reviens vers vous très vite pour les prochaines étapes." : "";
+    const body = [
+      salutation,
       "",
       `Nous avons bien reçu votre paiement de ${formatEUR(amountCents)} pour ${what}. Merci !`,
-      remaining === 0
-        ? `La facture est entièrement réglée. ${attached}`
-        : `Il reste ${formatEUR(remaining)} à régler. ${attached}`,
-      ...(invoice.invoiceType === "ACOMPTE" && remaining === 0
-        ? ["", "Le projet démarre : je reviens vers vous très vite pour les prochaines étapes."]
-        : []),
-      "",
-      signature,
+      `${state} ${attached}`,
+      ...(nextStep ? ["", nextStep] : []),
     ].join("\n");
+    // Modèle modifié dans Réglages (M3a) : objet et texte remplis ; sinon le texte ci-dessus.
+    const content = await templateText(
+      "payment.receipt",
+      {
+        salutation,
+        numero: invoice.number,
+        montant: formatEUR(amountCents),
+        document: what,
+        facture_reglee: remaining === 0 ? "réglée" : "",
+        etat_reglement: state,
+        pieces_jointes: attached,
+        suite_projet: nextStep,
+      },
+      { subject: remaining === 0 ? "Paiement reçu : facture {{numero}} réglée" : "Paiement reçu : facture {{numero}}", body },
+    );
+    const text = [content.body, "", signature].join("\n");
     return await sendDocumentPdf(invoice.id, {
-      subject: opts.subject?.trim() || (remaining === 0 ? "Paiement reçu : facture {{numero}} réglée" : "Paiement reçu : facture {{numero}}"),
+      subject: opts.subject?.trim() || content.subject,
       text: opts.text?.trim() || text,
       draft: opts.draft,
       review: opts.review,

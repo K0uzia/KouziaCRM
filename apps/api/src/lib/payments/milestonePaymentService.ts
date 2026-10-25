@@ -213,7 +213,7 @@ export async function activateMilestoneCheckout(
 
   if (opts.sendEmail !== false && checkoutUrl && clientEmail) {
     const brand = buildEmailBrand(settings);
-    const content = renderDepositCheckoutEmail({
+    const content = await renderDepositCheckoutEmail({
       brand,
       settings,
       brandPrimaryColor: settings.brandPrimaryColor,
@@ -259,7 +259,7 @@ export async function sendMilestoneLinkEmail(
   const settings = await getCompanySettings();
   const quoteRef = milestone.quote.number ?? "brouillon";
   const depositTotal = (await prisma.paymentMilestone.count({ where: { quoteId: milestone.quoteId } })) || 2;
-  const content = renderDepositCheckoutEmail({
+  const content = await renderDepositCheckoutEmail({
     brand: buildEmailBrand(settings),
     settings,
     brandPrimaryColor: settings.brandPrimaryColor,
@@ -564,7 +564,7 @@ export async function notifyDepositPaid(
     const { sendPaymentReceipt } = await import("@/lib/email/payment-receipt.js");
     await sendPaymentReceipt(milestone.invoiceId, opts.payment?.amountCents ?? milestone.amountCents, opts.payment?.id, { review: receiptReview });
   } else if (opts.notifyClient !== false && clientEmail) {
-    const content = renderDepositPaidEmail({
+    const content = await renderDepositPaidEmail({
       brand,
       settings,
       clientFirstName: milestone.quote.client.firstName,
