@@ -18,7 +18,7 @@ import {
   isSubscriptionOnly,
   type PlanSettings,
 } from "@/lib/quotes/payment-plans.js";
-import { startPhrase } from "@/lib/subscriptions/start.js";
+import { startFromPhrase, startPhrase } from "@/lib/subscriptions/start.js";
 import { normalizeInterval, periodMonths } from "@/lib/subscriptions/subscription-service.js";
 import { billedWithDocument } from "@/lib/invoices/totals.js";
 
@@ -299,5 +299,7 @@ function recurringSummaryOf(invoice: InvoiceWithRelations) {
     periods,
     totalCommitmentCents: periods ? amountCents * periods : null,
     startText: startPhrase(first, first.subscriptionStart === "DELIVERY", amountCents, period),
+    startFromText: startFromPhrase(first, first.subscriptionStart === "DELIVERY"),
+    billingDay: first.billingDay,
   };
 }

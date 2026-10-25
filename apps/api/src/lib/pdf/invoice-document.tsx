@@ -382,6 +382,9 @@ export type InvoicePdfData = {
       periods: number | null;
       totalCommitmentCents: number | null;
       startText: string;
+      /** Départ seul, sans le prix (absent d'un payload plus ancien : phrase complète startText). */
+      startFromText?: string;
+      billingDay?: number | null;
     } | null;
     /** Droit de rétractation et formulaire type : devis d'un client particulier. */
     withdrawalTerms?: string | null;
@@ -417,6 +420,18 @@ export function InvoiceDocument({ company, client, invoice, specimen, draft }: I
 
   const isCredit = invoice.documentType === "CREDIT_NOTE";
   const isQuote = invoice.documentType === "QUOTE";
+  // Clauses de l'encadré d'un devis récurrent : engagement pour les lignes engagées, périodicité pour les autres.
+  const subLines = invoice.lines.filter((l) => l.isSubscription);
+  const recurringClauses = invoice.recurringSummary
+    ? [
+        ...(["MONTH", "QUARTER", "YEAR"] as const)
+          .filter((iv) => subLines.some((l) => !l.commitmentMonths && intervalOf(l.billingInterval) === iv) && invoice.subscriptionTerms?.[iv])
+          .map((iv) => fillClauseVariables(invoice.subscriptionTerms![iv]!, company, iv)),
+        ...(invoice.subscriptionTerms?.COMMITMENT && subLines.some((l) => l.commitmentMonths)
+          ? [fillClauseVariables(invoice.subscriptionTerms.COMMITMENT, company, commitmentInterval(invoice.lines))]
+          : []),
+      ]
+    : [];
   const isAcompte = invoice.invoiceType === "ACOMPTE";
   const isSolde = invoice.invoiceType === "SOLDE";
   const title = isCredit
@@ -633,7 +648,9 @@ export function InvoiceDocument({ company, client, invoice, specimen, draft }: I
             >
               <View style={[styles.colDesc, line.groupTitle ? { paddingLeft: 8 } : {}]}>
                 <Text style={{ color: INK }}>{line.description}</Text>
-                {line.isSubscription ? (
+                {/* Devis récurrent : la ligne ne porte que la désignation ; rythme, départ, engagement et équivalent
+                    mensuel sont sous le total, une seule fois. */}
+                {line.isSubscription && !invoice.recurringSummary ? (
                   <Text style={styles.lineNote}>
                     {line.billingInterval === "YEAR"
                       ? "Abonnement annuel, facturé chaque année à la date anniversaire"
@@ -643,9 +660,7 @@ export function InvoiceDocument({ company, client, invoice, specimen, draft }: I
                     : {fmtMoney(line.unitPriceCents)}.{" "}
                     {line.startText
                       ? `Facturation : ${line.startText}.`
-                      : invoice.recurringSummary
-                        ? `Facturation : ${invoice.recurringSummary.startText}.`
-                        : invoice.subscriptionOnly
+                      : invoice.subscriptionOnly
                         ? "Facturé à partir de la signature, sans acompte."
                         : invoice.subscriptionFromDelivery
                           ? "Facturé à partir de la livraison, hors acompte et échéancier."
@@ -654,7 +669,7 @@ export function InvoiceDocument({ company, client, invoice, specimen, draft }: I
                 ) : null}
                 {/* Devis seulement : équivalent mensuel d'un prix annuel, en information. Le prix dû reste l'annuel
                     (colonnes et total) ; jamais sur la facture, dont le montant dû est l'annuel. */}
-                {isQuote && line.isSubscription && line.billingInterval === "YEAR" && line.unitPriceCents > 0 ? (
+                {isQuote && !invoice.recurringSummary && line.isSubscription && line.billingInterval === "YEAR" && line.unitPriceCents > 0 ? (
                   <Text style={styles.lineNote}>{`Soit ${fmtMoney(Math.round(line.unitPriceCents / 12))} par mois, à titre indicatif.`}</Text>
                 ) : null}
               </View>
@@ -680,12 +695,29 @@ export function InvoiceDocument({ company, client, invoice, specimen, draft }: I
                 </Text>
               </View>
               </Readable>
-              <Text style={styles.vat}>{`Facturation : ${invoice.recurringSummary.startText}.`}</Text>
-              <Text style={styles.vat}>
-                {invoice.recurringSummary.commitmentMonths && invoice.recurringSummary.periods && invoice.recurringSummary.totalCommitmentCents !== null
-                  ? `Engagement de ${invoice.recurringSummary.commitmentMonths} mois à compter de la signature, soit ${invoice.recurringSummary.periods} échéances et ${fmtMoney(invoice.recurringSummary.totalCommitmentCents)} sur la durée.`
-                  : "[Engagement à choisir : 12, 24 ou 36 mois]"}
-              </Text>
+              {(() => {
+                // Une information par phrase, une seule fois sur le document : rythme, départ, engagement, total sur la
+                // durée, puis l'équivalent mensuel indicatif d'un prix annuel ou trimestriel.
+                const r = invoice.recurringSummary;
+                const day = r.billingDay ? ` le ${r.billingDay}` : "";
+                const rhythm =
+                  r.period === "YEAR" ? "chaque année à la date anniversaire" : r.period === "QUARTER" ? `chaque trimestre${day}` : `chaque mois${day}`;
+                const engaged = r.commitmentMonths && r.periods && r.totalCommitmentCents !== null;
+                const sentences = [
+                  `Facturé ${rhythm}.`,
+                  r.startFromText ? `Départ de la facturation : ${r.startFromText}.` : `Facturation : ${r.startText}.`,
+                  engaged ? `Engagement de ${r.commitmentMonths} mois à compter de la signature.` : "[Engagement à choisir : 12, 24 ou 36 mois]",
+                  ...(engaged ? [`Total sur la durée de l'engagement : ${fmtMoney(r.totalCommitmentCents!)} (${r.periods} échéances).`] : []),
+                  ...(r.period !== "MONTH" && r.amountCents > 0
+                    ? [`Soit ${fmtMoney(Math.round(r.amountCents / (r.period === "YEAR" ? 12 : 3)))} par mois, à titre indicatif.`]
+                    : []),
+                ];
+                return sentences.map((s) => (
+                  <Text key={s} style={styles.vat}>
+                    {s}
+                  </Text>
+                ));
+              })()}
               {company.vatMention ? <Text style={styles.vat}>{company.vatMention}</Text> : null}
               {invoice.subscriptionDateNotice ? (
                 <Text style={[styles.vat, { marginTop: 6 }]}>{fillClauseVariables(invoice.subscriptionDateNotice, company)}</Text>
@@ -828,10 +860,20 @@ export function InvoiceDocument({ company, client, invoice, specimen, draft }: I
         </View>
         </Readable>
 
-        {invoice.lines.some((l) => l.isSubscription) ? (
+        {/* Devis récurrent : l'encadré ne porte que la clause (pack et facturation sont déjà dans le tableau et sous le
+            total) ; sans clause, pas d'encadré. */}
+        {invoice.lines.some((l) => l.isSubscription) && (!invoice.recurringSummary || recurringClauses.length > 0) ? (
           <Readable as="section" heading>
           <View style={[styles.box, styles.section]} wrap={false}>
             <Text style={styles.h2}>{subscriptionHeading(invoice.lines)}</Text>
+            {invoice.recurringSummary ? (
+              recurringClauses.map((c, i) => (
+                <Text key={i} style={[styles.muted, { marginTop: i ? 4 : 2 }]}>
+                  {c}
+                </Text>
+              ))
+            ) : (
+            <>
             {invoice.lines
               .filter((l) => l.isSubscription)
               .map((l, i) => (
@@ -870,6 +912,8 @@ export function InvoiceDocument({ company, client, invoice, specimen, draft }: I
             {invoice.subscriptionTerms?.COMMITMENT && invoice.lines.some((l) => l.isSubscription && l.commitmentMonths) ? (
               <Text style={[styles.muted, { marginTop: 4 }]}>{fillClauseVariables(invoice.subscriptionTerms.COMMITMENT, company, commitmentInterval(invoice.lines))}</Text>
             ) : null}
+            </>
+            )}
           </View>
           </Readable>
         ) : null}

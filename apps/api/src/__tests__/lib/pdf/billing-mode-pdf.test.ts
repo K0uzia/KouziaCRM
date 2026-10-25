@@ -69,12 +69,21 @@ describe("PDF du devis selon le mode de facturation", () => {
     // Départ « à la livraison » : le même partout (ligne, récapitulatif, encadré d'abonnement).
     expect(text).not.toContain("à partir de la signature");
     expect(text).toContain("375,00 € / trimestre");
-    expect(text).toContain("Engagement de 36 mois à compter de la signature, soit 12 échéances et 4 500,00 € sur la durée.");
-    expect(text).toContain("Abonnement trimestriel, facturé chaque trimestre");
-    expect(text).toContain("Abonnement avec engagement");
+    // Sous le total, une phrase par information ; ni la ligne ni l'encadré ne les répètent (demande du 25/10/2026).
+    const once = (s: string) => expect(text.split(s).length - 1, s).toBe(1);
+    once("Facturé chaque trimestre le 1.");
+    once("Départ de la facturation : à partir de la livraison du projet.");
+    once("Engagement de 36 mois à compter de la signature.");
+    once("Total sur la durée de l'engagement : 4 500,00 € (12 échéances).");
+    once("Soit 125,00 € par mois, à titre indicatif.");
+    expect(text).not.toContain("Abonnement trimestriel, facturé chaque trimestre");
+    expect(text).not.toContain("facturés automatiquement");
+    expect(text).not.toContain("Facturation :");
+    // Encadré : le titre puis la clause d'engagement seule, sans redire la désignation.
+    expect(text).toMatch(/Abonnement avec engagement \[BROUILLON[^\]]*\] Abonnement conclu pour la durée d'engagement/);
+    once("Site tout compris");
     expect(text).not.toContain("Total du projet");
     expect(text).not.toContain("hors acompte et échéancier");
-    expect(text).toContain("Départ de la facturation : 375,00 € par trimestre à partir de la livraison du projet.");
   });
 
   it("récurrent trimestriel engagé, proposition activée : {{periodicite}} et {{periode}} remplies, aucune clause « résiliable à tout moment »", async () => {

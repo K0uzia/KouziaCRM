@@ -95,8 +95,20 @@ export function publicStart(line: StartLine, hasProject: boolean): { startsAt: "
 export function startPhrase(line: StartLine, hasProject: boolean, amountCents: number, interval: "MONTH" | "QUARTER" | "YEAR"): string {
   const price = `${formatEUR(amountCents)} par ${periodWord(interval)}`;
   const p = publicStart(line, hasProject);
-  const from =
-    p.startsAt === "DATE" ? `à partir du ${formatLongDate(line.subscriptionStartDate!)}` : p.startsAt === "DELIVERY" ? "à partir de la livraison du projet" : "à partir de la signature";
+  const from = fromWords(line, p.startsAt);
   if (p.freeMonths) return `${p.freeMonths} mois offert${p.freeMonths > 1 ? "s" : ""} ${from}, puis ${price}`;
   return `${price} ${from}`;
+}
+
+const fromWords = (line: StartLine, startsAt: string) =>
+  startsAt === "DATE" ? `à partir du ${formatLongDate(line.subscriptionStartDate!)}` : startsAt === "DELIVERY" ? "à partir de la livraison du projet" : "à partir de la signature";
+
+/**
+ * Départ seul, sans le prix (sous le total d'un devis récurrent, où le prix figure déjà) : « à partir de la signature »,
+ * « après 3 mois offerts, comptés à partir de la signature ».
+ */
+export function startFromPhrase(line: StartLine, hasProject: boolean): string {
+  const p = publicStart(line, hasProject);
+  const from = fromWords(line, p.startsAt);
+  return p.freeMonths ? `après ${p.freeMonths} mois offert${p.freeMonths > 1 ? "s" : ""}, comptés ${from}` : from;
 }
