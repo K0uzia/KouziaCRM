@@ -11,7 +11,11 @@ type PendingQuote = {
   number: string | null;
   totalCents: number;
   issueDate: string | null;
+  /** Devis à propositions : le client en retient une. */
+  options?: Array<{ id: string; position: number; label: string; totalCents: number }>;
 };
+
+const LETTERS = ["A", "B"];
 
 type AcceptanceAudit = {
   id: string;
@@ -39,6 +43,7 @@ export function QuoteValidationBlock({
 }: Props) {
   const [confirmQuote, setConfirmQuote] = useState<PendingQuote | null>(null);
   const [signerName, setSignerName] = useState("");
+  const [optionId, setOptionId] = useState("");
   const [busy, setBusy] = useState(false);
 
   if (pendingQuotes.length === 0 && acceptanceAudits.length === 0) return null;
@@ -52,6 +57,7 @@ export function QuoteValidationBlock({
         body: JSON.stringify({
           threadId,
           signerName: signerName.trim(),
+          ...(confirmQuote.options?.length ? { optionId } : {}),
         }),
       });
       toast.success(`Devis ${confirmQuote.number ?? ""} validé. Demande d'acompte envoyée au client.`);
@@ -83,7 +89,7 @@ export function QuoteValidationBlock({
                 className="flex flex-wrap items-center justify-between gap-2 rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--surface-raised)] px-3 py-2 text-sm"
               >
                 <span>
-                  {q.number ?? "Sans numéro"} · {formatEUR(q.totalCents)}
+                  {q.number ?? "Sans numéro"} · {q.options?.length ? `${q.options.length} propositions` : formatEUR(q.totalCents)}
                   {q.issueDate ? ` · ${formatDate(q.issueDate)}` : ""}
                 </span>
                 <Button
@@ -92,6 +98,7 @@ export function QuoteValidationBlock({
                   onClick={() => {
                     setConfirmQuote(q);
                     setSignerName("");
+                    setOptionId("");
                   }}
                 >
                   Valider ce devis
@@ -138,13 +145,24 @@ export function QuoteValidationBlock({
             />
           </Field>
         </div>
+        {confirmQuote?.options?.length ? (
+          <fieldset className="mt-4 space-y-1">
+            <legend className="text-sm font-medium">Proposition retenue par le client</legend>
+            {confirmQuote.options.map((o) => (
+              <label key={o.id} className="flex min-h-11 items-center gap-2 text-sm">
+                <input type="radio" name="thread-option" value={o.id} checked={optionId === o.id} onChange={() => setOptionId(o.id)} />
+                Proposition {LETTERS[o.position] ?? o.position + 1} : {o.label} ({formatEUR(o.totalCents)})
+              </label>
+            ))}
+          </fieldset>
+        ) : null}
         <ModalActions>
           <Button type="button" variant="secondary" disabled={busy} onClick={() => setConfirmQuote(null)}>
             Annuler
           </Button>
           <Button
             type="button"
-            disabled={busy || !signerName.trim()}
+            disabled={busy || !signerName.trim() || Boolean(confirmQuote?.options?.length && !optionId)}
             onClick={() => void validateQuote()}
           >
             {busy ? "Validation…" : "Confirmer la validation"}

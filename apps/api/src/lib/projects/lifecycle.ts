@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma.js";
+import { BILLABLE_LINES_WHERE } from "@/lib/quotes/quote-options.js";
 
 /**
  * Parcours d'un projet né d'un devis :
@@ -51,7 +52,7 @@ export async function ensureProjectForQuote(quoteId: string) {
       number: true,
       clientId: true,
       quoteDecidedAt: true,
-      lines: { orderBy: { position: "asc" }, take: 1, select: { description: true } },
+      lines: { where: BILLABLE_LINES_WHERE, orderBy: { position: "asc" }, take: 1, select: { description: true } },
       project: true,
     },
   });

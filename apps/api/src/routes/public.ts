@@ -6,6 +6,7 @@ import { rateLimitKey } from "@/lib/client-ip.js";
 import { z } from "zod";
 import { InvoiceDocumentType, InvoiceStatus } from "@prisma/client";
 import { prisma } from "@/lib/prisma.js";
+import { isBillableLine, proposalLetter, quoteFieldsOfOption } from "@/lib/quotes/quote-options.js";
 import { getCompanySettings } from "@/lib/company.js";
 import { buildPayUrl } from "@/lib/stripe/pay-urls.js";
 import { billedWithDocument, depositBaseOf } from "@/lib/invoices/totals.js";
@@ -183,6 +184,8 @@ const quoteDecisionSchema = z.discriminatedUnion("decision", [
     code: codeSchema.optional(),
     /** Formule de paiement : obligatoire quand le devis propose le choix. */
     paymentPlan: z.enum(["TWO", "THREE"]).optional(),
+    /** Devis à propositions : la proposition retenue (obligatoire). */
+    optionId: z.string().min(1).max(64).optional(),
     /** CGV publiées : case cochée (true) et version lue, égale à la version en vigueur. */
     acceptCgv: z.literal(true).optional(),
     cgvVersion: z.string().trim().min(1).max(40).optional(),
@@ -498,6 +501,7 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
         orderBy: [{ issueDate: "desc" }, { createdAt: "desc" }],
         include: {
           promoCode: { select: { code: true, conditionText: true } },
+          options: { orderBy: { position: "asc" }, include: { promoCode: { select: { code: true, conditionText: true } } } },
           milestones: { orderBy: { position: "asc" } },
           payments: { orderBy: { paidAt: "asc" } },
           // 3 fois : étape du projet de CE devis qui déclenchera le 2e acompte.
@@ -510,6 +514,7 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
             where: { isSubscription: true },
             orderBy: { position: "asc" },
             select: {
+              optionId: true,
               description: true,
               billingInterval: true,
               unitPriceCents: true,
@@ -701,6 +706,90 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
           // Prélèvement en cours (SEPA, environ 6 jours ouvrés) : pas de bouton « Payer », l'état est affiché à la place.
           const processing = dueNow > 0 && d.paymentProcessingAt ? { since: d.paymentProcessingAt.toISOString(), method: d.paymentProcessingMethod ?? "sepa_debit" } : null;
           const payUrl = dueNow > 0 && !processing ? safePayUrl(d.checkoutUrl) : null;
+          const proposals = d.documentType === InvoiceDocumentType.QUOTE && d.options.length ? d.options : null;
+          /** Mode, abonnement, offre et échéanciers d'un devis ; aussi d'une proposition, construite comme un devis. */
+          const quoteBilling = (q: typeof d) => {
+            const offer = parsePaymentPlanOffer(q.paymentPlanOffer);
+            return {
+              // Mode de facturation (contrat F5) : null pour un devis antérieur ; récurrent : l'abonnement du devis.
+              ...(q.documentType === InvoiceDocumentType.QUOTE ? { billingMode: parseBillingMode(q.billingMode) } : {}),
+              ...(q.documentType === InvoiceDocumentType.QUOTE && recurringOf(q)
+                ? {
+                    recurring: (() => {
+                      const r = recurringOf(q)!;
+                      return {
+                        period: r.period,
+                        ...(showAmounts ? { amountCents: r.amountCents } : {}),
+                        commitmentMonths: r.commitmentMonths,
+                        periods: r.periods,
+                        // Avec remise : total remisé, le même que le PDF (contrat R4).
+                        ...(showAmounts && r.periods ? { totalCommitmentCents: r.discount?.totalCommitmentCents ?? r.amountCents * r.periods } : {}),
+                        ...(r.discount
+                          ? {
+                              discount: {
+                                kind: r.discount.kind,
+                                ...(r.discount.kind === "PERCENT" ? { percentBps: r.discount.value } : showAmounts ? { amountCents: r.discount.value } : {}),
+                                months: r.discount.months,
+                                periods: r.discount.periods,
+                                opening: r.discount.opening,
+                                // Code promo (R3) : « Code promo X » comme le PDF ; condition imprimée sur le devis.
+                                ...(r.discount.promoCode ? { promoCode: r.discount.promoCode } : {}),
+                                ...(r.discount.promoCode && r.discount.condition ? { condition: r.discount.condition } : {}),
+                                ...(showAmounts ? { discountedAmountCents: r.discount.discountedAmountCents } : {}),
+                              },
+                            }
+                          : {}),
+                        startsAt: r.startsAt,
+                        ...(r.startsOn ? { startsOn: r.startsOn } : {}),
+                        ...(r.freeMonths ? { freeMonths: r.freeMonths } : {}),
+                        billingDay: r.billingDay,
+                        ...(r.firstInvoiceOn ? { firstInvoiceOn: r.firstInvoiceOn } : {}),
+                      };
+                    })(),
+                  }
+                : {}),
+              // Paiement en 2 ou 3 fois : formules proposées (avant signature) et formule retenue.
+              ...(q.documentType === InvoiceDocumentType.QUOTE && offer
+                ? {
+                    paymentPlanOffer: offer,
+                    paymentPlan: parsePaymentPlan(q.paymentPlan),
+                    // Abonnement du devis : seul (NONE, qémarre à la signature) ou avec une partie ponctuelle
+                    // (qémarre à la livraison). L'échéancier ne porte que sur la partie ponctuelle.
+                    ...(q.lines.length > 0 && (offer === "NONE" || q.depositBaseCents !== null)
+                      ? {
+                          subscriptionBilling: {
+                            interval: recurringOf(q)?.period ?? (q.lines.some((l) => l.billingInterval === "YEAR") ? "YEAR" : "MONTH"),
+                            startsAt: recurringOf(q)?.startsAt ?? (offer === "NONE" ? "SIGNATURE" : "DELIVERY"),
+                            // Prélèvement Stripe : la 1re échéance est prélevée à sa mise en place. Sinon, facture.
+                            directDebit: settings.moduleStripeEnabled,
+                            ...(showAmounts ? { amountCents: q.lines.reduce((s, l) => s + l.unitPriceCents, 0) } : {}),
+                          },
+                          // Une entrée par ligne q'abonnement, dans l'ordre du devis (contrat KouziaWebsite, README
+                          // « Espace client ») : qépart de la facturation et mois offerts comptés depuis ce qépart.
+                          subscriptionLines: q.lines.map((l) => ({
+                            label: l.description,
+                            interval: normalizeInterval(l.billingInterval),
+                            ...(showAmounts ? { amountCents: l.unitPriceCents } : {}),
+                            // Mode récurrent : le qépart choisi fait foi (pas de projet hors « à la livraison »).
+                            ...publicStart(l, recurringOf(q) ? l.subscriptionStart === "DELIVERY" : offer !== "NONE"),
+                          })),
+                          ...(offer !== "NONE" && showAmounts ? { oneOffTotalCents: depositBaseOf(q) } : {}),
+                        }
+                      : {}),
+                    ...(quotePending && offer !== "NONE"
+                      ? {
+                          paymentPlans: describePlans(offer, depositBaseOf(q), planSettingsOf(q, settings), parseBillingMode(q.billingMode)).map((p) => ({
+                            plan: p.plan,
+                            milestones: p.milestones.map(({ amountCents, ...m }) =>
+                              showAmounts ? { ...m, amountCents } : m,
+                            ),
+                          })),
+                        }
+                      : {}),
+                  }
+                : {})
+            };
+          };
           return {
             id: d.id,
             ...(isNewDocument(d, seen.documents) ? { isNew: true as const } : {}),
@@ -794,81 +883,31 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
                     ...(showAmounts ? { amountCents: m.amountCents } : {}),
                   }))
                 : undefined,
-            // Mode de facturation (contrat F5) : null pour un devis antérieur ; récurrent : l'abonnement du devis.
-            ...(d.documentType === InvoiceDocumentType.QUOTE ? { billingMode: parseBillingMode(d.billingMode) } : {}),
-            ...(d.documentType === InvoiceDocumentType.QUOTE && recurringOf(d)
-              ? {
-                  recurring: (() => {
-                    const r = recurringOf(d)!;
-                    return {
-                      period: r.period,
-                      ...(showAmounts ? { amountCents: r.amountCents } : {}),
-                      commitmentMonths: r.commitmentMonths,
-                      periods: r.periods,
-                      // Avec remise : total remisé, le même que le PDF (contrat R4).
-                      ...(showAmounts && r.periods ? { totalCommitmentCents: r.discount?.totalCommitmentCents ?? r.amountCents * r.periods } : {}),
-                      ...(r.discount
-                        ? {
-                            discount: {
-                              kind: r.discount.kind,
-                              ...(r.discount.kind === "PERCENT" ? { percentBps: r.discount.value } : showAmounts ? { amountCents: r.discount.value } : {}),
-                              months: r.discount.months,
-                              periods: r.discount.periods,
-                              opening: r.discount.opening,
-                              // Code promo (R3) : « Code promo X » comme le PDF ; condition imprimée sur le devis.
-                              ...(r.discount.promoCode ? { promoCode: r.discount.promoCode } : {}),
-                              ...(r.discount.promoCode && r.discount.condition ? { condition: r.discount.condition } : {}),
-                              ...(showAmounts ? { discountedAmountCents: r.discount.discountedAmountCents } : {}),
-                            },
-                          }
-                        : {}),
-                      startsAt: r.startsAt,
-                      ...(r.startsOn ? { startsOn: r.startsOn } : {}),
-                      ...(r.freeMonths ? { freeMonths: r.freeMonths } : {}),
-                      billingDay: r.billingDay,
-                      ...(r.firstInvoiceOn ? { firstInvoiceOn: r.firstInvoiceOn } : {}),
-                    };
-                  })(),
-                }
+            // Devis à propositions (contrat P4) : avant signature, rien de facturable au niveau du devis (son total est celui
+            // de la proposition la moins chère) ; après, la proposition retenue, recopiée, et ses seules lignes.
+            ...(d.documentType === InvoiceDocumentType.QUOTE
+              ? proposals && !d.selectedOptionId
+                ? { billingMode: null, totalIsCheapestOption: true as const }
+                : quoteBilling(proposals ? { ...d, lines: d.lines.filter((l) => isBillableLine(l, d.selectedOptionId)) } : d)
               : {}),
-            // Paiement en 2 ou 3 fois : formules proposées (avant signature) et formule retenue.
-            ...(d.documentType === InvoiceDocumentType.QUOTE && offer
+            ...(proposals
               ? {
-                  paymentPlanOffer: offer,
-                  paymentPlan: parsePaymentPlan(d.paymentPlan),
-                  // Abonnement du devis : seul (NONE, démarre à la signature) ou avec une partie ponctuelle
-                  // (démarre à la livraison). L'échéancier ne porte que sur la partie ponctuelle.
-                  ...(d.lines.length > 0 && (offer === "NONE" || d.depositBaseCents !== null)
-                    ? {
-                        subscriptionBilling: {
-                          interval: recurringOf(d)?.period ?? (d.lines.some((l) => l.billingInterval === "YEAR") ? "YEAR" : "MONTH"),
-                          startsAt: recurringOf(d)?.startsAt ?? (offer === "NONE" ? "SIGNATURE" : "DELIVERY"),
-                          // Prélèvement Stripe : la 1re échéance est prélevée à sa mise en place. Sinon, facture.
-                          directDebit: settings.moduleStripeEnabled,
-                          ...(showAmounts ? { amountCents: d.lines.reduce((s, l) => s + l.unitPriceCents, 0) } : {}),
-                        },
-                        // Une entrée par ligne d'abonnement, dans l'ordre du devis (contrat KouziaWebsite, README
-                        // « Espace client ») : départ de la facturation et mois offerts comptés depuis ce départ.
-                        subscriptionLines: d.lines.map((l) => ({
-                          label: l.description,
-                          interval: normalizeInterval(l.billingInterval),
-                          ...(showAmounts ? { amountCents: l.unitPriceCents } : {}),
-                          // Mode récurrent : le départ choisi fait foi (pas de projet hors « à la livraison »).
-                          ...publicStart(l, recurringOf(d) ? l.subscriptionStart === "DELIVERY" : offer !== "NONE"),
-                        })),
-                        ...(offer !== "NONE" && showAmounts ? { oneOffTotalCents: depositBaseOf(d) } : {}),
-                      }
-                    : {}),
-                  ...(quotePending && offer !== "NONE"
-                    ? {
-                        paymentPlans: describePlans(offer, depositBaseOf(d), planSettingsOf(d, settings), parseBillingMode(d.billingMode)).map((p) => ({
-                          plan: p.plan,
-                          milestones: p.milestones.map(({ amountCents, ...m }) =>
-                            showAmounts ? { ...m, amountCents } : m,
-                          ),
-                        })),
-                      }
-                    : {}),
+                  selectedOptionId: d.selectedOptionId,
+                  options: proposals.map((o) => ({
+                    id: o.id,
+                    position: o.position,
+                    letter: proposalLetter(o),
+                    label: o.label,
+                    ...quoteBilling({
+                      ...d,
+                      ...quoteFieldsOfOption(o),
+                      paymentPlanOffer: o.paymentPlanOffer,
+                      promoCode: o.promoCode,
+                      paymentPlan: d.selectedOptionId === o.id ? d.paymentPlan : null,
+                      lines: d.lines.filter((l) => l.optionId === o.id),
+                    }),
+                    ...(showAmounts ? { totalCents: o.totalCents, subtotalCents: o.subtotalCents } : {}),
+                  })),
                 }
               : {}),
             // Devis signé par un particulier : fin du délai de rétractation et, sans demande
@@ -1072,7 +1111,7 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
 
       const quote = await prisma.invoice.findUnique({
         where: { id: request.params.id },
-        select: { id: true, clientId: true, paymentPlanOffer: true },
+        select: { id: true, clientId: true, paymentPlanOffer: true, options: { select: { id: true, paymentPlanOffer: true } } },
       });
       // Même réponse qu'un devis inexistant : le portail ne révèle pas les documents d'autrui.
       if (!quote || quote.clientId !== client.id) {
@@ -1089,8 +1128,16 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
         if (data.signatureMode === "DRAWN" && !data.signatureImage) {
           return reply.code(400).send({ error: "Tracez votre signature." });
         }
+        // Devis à propositions : la proposition retenue, de ce devis ; sa formule fait foi.
+        const option = quote.options.find((o) => o.id === data.optionId) ?? null;
+        if (quote.options.length && !data.optionId) {
+          return reply.code(400).send({ error: "Choisissez l'une des propositions du devis.", code: "option_required" });
+        }
+        if ((quote.options.length && !option) || (!quote.options.length && data.optionId)) {
+          return reply.code(400).send({ error: "Cette proposition n'existe pas sur ce devis.", code: "option_invalid" });
+        }
         // Formule, CGV et case vérifiées avant le code : un oubli ne consomme pas le code de signature.
-        resolveAcceptedPlan(parsePaymentPlanOffer(quote.paymentPlanOffer), data.paymentPlan, { requireChoice: true });
+        resolveAcceptedPlan(parsePaymentPlanOffer(option ? option.paymentPlanOffer : quote.paymentPlanOffer), data.paymentPlan, { requireChoice: true });
         const settings = await getCompanySettings();
         if (settings.cgvPublished) {
           if (data.acceptCgv !== true) {
@@ -1136,6 +1183,7 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
               codeVerifiedAt: auth.verifiedAt,
             },
             paymentPlan: data.paymentPlan,
+            optionId: option?.id ?? null,
             cgvAccepted: settings.cgvPublished && data.acceptCgv === true,
             expressExecution: data.expressExecution === true,
           },

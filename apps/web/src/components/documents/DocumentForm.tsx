@@ -297,9 +297,12 @@ export function DocumentFormEditor({
           subscriptionStartDate?: string | null;
           subscriptionFreeMonths?: number | null;
           commitmentMonths?: number | null;
+          optionId?: string | null;
         }>;
+        selectedOptionId?: string | null;
       }>(`/api/invoices/${quoteId}`);
-      const lines = (q.lines ?? []).map((l) => ({
+      // Devis à propositions : seules les prestations de la proposition retenue.
+      const lines = (q.lines ?? []).filter((l) => !l.optionId || l.optionId === q.selectedOptionId).map((l) => ({
         description: l.description,
         quantity: String(l.quantity),
         unitPriceEuros: (l.unitPriceCents / 100).toFixed(2),
@@ -922,8 +925,7 @@ export function DocumentFormEditor({
               </div>
               <p className="text-sm text-[var(--muted)]">
                 Le client choisit l'une des deux à la signature. Client et notes sont communs ; mode, prestations, paiement et
-                remise sont propres à chaque proposition. L'émission arrive avec la signature d'une proposition : d'ici là, le devis
-                reste en brouillon.
+                remise sont propres à chaque proposition ; seules les prestations de la proposition retenue sont facturées.
               </p>
             </div>
           ) : null}

@@ -29,7 +29,6 @@ import {
   syncMilestoneOnInvoicePaid,
   rejectQuote,
   QuoteDecisionError,
-  QUOTE_OPTIONS_NOT_ISSUABLE,
 } from "@/lib/invoices/transitions.js";
 import { CreditNoteReason, RefundMethod } from "@prisma/client";
 import { getCompanySettings } from "@/lib/company.js";
@@ -425,6 +424,8 @@ export const invoicesRoutes: FastifyPluginAsync = async (app) => {
         payments: { select: { id: true, amountCents: true, paidAt: true, method: true } },
         quote: { select: { id: true, number: true } },
         creditNotes: { select: { totalCents: true, payments: { select: { amountCents: true } } } },
+        // Devis à propositions : montant de la moins chère tant qu'aucune n'est retenue (annoncé dans la liste).
+        _count: { select: { options: true } },
       },
     });
     // Solde de chaque facture (avoirs compris) : reste dû, net, encaissé net ; les avoirs eux-mêmes ne sont pas renvoyés.
