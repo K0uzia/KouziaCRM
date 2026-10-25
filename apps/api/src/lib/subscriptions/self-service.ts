@@ -130,41 +130,12 @@ export async function requestSubscriptionCancellation(subscriptionId: string, no
 
   const to = decryptOptional(sub.client.emailEncrypted);
   if (to) {
-    const settings = await getCompanySettings();
-    const brand = buildEmailBrand(settings);
-    const name = (sub.client.firstName ?? sub.client.displayName)?.trim();
-    const salutation = name ? `Bonjour ${name},` : "Bonjour,";
-    const received = `Nous avons bien reçu, le ${formatLongDate(now)}, votre demande de résiliation de l'abonnement « ${sub.label} ».`;
-    // Abonnement engagé : la date de fin découle du contrat (fin de l'engagement ou de l'année reconduite).
-    const end = term
-      ? `Votre abonnement prendra fin le ${formatLongDate(term.termEndsAt)}, ${
-          sub.commitmentEndsAt!.getTime() === term.termEndsAt.getTime() ? "à la fin de votre engagement" : "à la fin de l'année en cours"
-        }. Les échéances jusqu'à cette date restent dues. Rien ne change d'ici là.`
-      : "Nous vous confirmerons par e-mail la date de fin de l'abonnement.";
-    const ack = "Cet e-mail vaut accusé de réception de votre demande. Conservez-le.";
-    // Modèle modifié dans Réglages (M3b) : date de fin et accusé restent des blocs fixes.
-    const content = await templateText(
-      "subscription.cancel_request",
-      {
-        salutation,
-        prenom: sub.client.firstName?.trim() ?? "",
-        client: sub.client.displayName,
-        abonnement: sub.label,
-        date_demande: formatLongDate(now),
-        bloc_fin: end,
-        bloc_accuse: ack,
-      },
-      {
-        subject: `Demande de résiliation reçue : ${sub.label}`,
-        body: [salutation, "", received, "", end, "", ack, "", "Une question ? Répondez simplement à cet e-mail."].join("\n"),
-      },
-    );
-    const text = [content.body, "", formatPlainTextSignature(settings, brand)].join("\n");
+    const { subject, text, html } = await cancelRequestContent(sub, now);
     await mailEnqueue({
       to,
-      subject: content.subject,
+      subject,
       text,
-      html: renderEmailHtml({ text, brand, colors: { brandPrimaryColor: settings.brandPrimaryColor, brandSecondaryColor: settings.brandSecondaryColor } }),
+      html,
       clientId: sub.clientId,
       kind: "subscription_cancel_request",
       bodyTextForMessage: text,
@@ -173,4 +144,44 @@ export async function requestSubscriptionCancellation(subscriptionId: string, no
     console.warn(`[subscriptions] accusé de résiliation non envoyé : client sans e-mail (${sub.id})`);
   }
   return now;
+}
+
+/** Accusé de la demande de résiliation (aussi l'aperçu des Réglages) : sans effet de bord. */
+export async function cancelRequestContent(
+  sub: { label: string; commitmentEndsAt: Date | null; client: { firstName: string | null; displayName: string } },
+  now = new Date(),
+): Promise<{ subject: string; text: string; html: string }> {
+  const term = sub.commitmentEndsAt ? cancellableTermOf(sub.commitmentEndsAt, now) : null;
+  const settings = await getCompanySettings();
+  const brand = buildEmailBrand(settings);
+  const name = (sub.client.firstName ?? sub.client.displayName)?.trim();
+  const salutation = name ? `Bonjour ${name},` : "Bonjour,";
+  const received = `Nous avons bien reçu, le ${formatLongDate(now)}, votre demande de résiliation de l'abonnement « ${sub.label} ».`;
+  // Abonnement engagé : la date de fin découle du contrat (fin de l'engagement ou de l'année reconduite).
+  const end = term
+    ? `Votre abonnement prendra fin le ${formatLongDate(term.termEndsAt)}, ${
+        sub.commitmentEndsAt!.getTime() === term.termEndsAt.getTime() ? "à la fin de votre engagement" : "à la fin de l'année en cours"
+      }. Les échéances jusqu'à cette date restent dues. Rien ne change d'ici là.`
+    : "Nous vous confirmerons par e-mail la date de fin de l'abonnement.";
+  const ack = "Cet e-mail vaut accusé de réception de votre demande. Conservez-le.";
+  // Modèle modifié dans Réglages (M3b) : date de fin et accusé restent des blocs fixes.
+  const content = await templateText(
+    "subscription.cancel_request",
+    {
+      salutation,
+      prenom: sub.client.firstName?.trim() ?? "",
+      client: sub.client.displayName,
+      abonnement: sub.label,
+      date_demande: formatLongDate(now),
+      bloc_fin: end,
+      bloc_accuse: ack,
+    },
+    {
+      subject: `Demande de résiliation reçue : ${sub.label}`,
+      body: [salutation, "", received, "", end, "", ack, "", "Une question ? Répondez simplement à cet e-mail."].join("\n"),
+    },
+  );
+  const text = [content.body, "", formatPlainTextSignature(settings, brand)].join("\n");
+  const html = renderEmailHtml({ text, brand, colors: { brandPrimaryColor: settings.brandPrimaryColor, brandSecondaryColor: settings.brandSecondaryColor } });
+  return { subject: content.subject, text, html };
 }

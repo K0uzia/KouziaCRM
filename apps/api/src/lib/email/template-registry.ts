@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from "node:async_hooks";
 import { prisma } from "@/lib/prisma.js";
 import type { ReviewFamily } from "@/lib/email/review.js";
 
@@ -17,6 +18,8 @@ export type TemplateDefinition = {
   recipient: "client" | "admin";
   /** Verrouillé : visible en lecture seule, jamais modifiable (codes, alertes, mise en demeure). */
   locked?: string;
+  /** Rubrique de la liste quand elle diffère de la famille (« Accès et sécurité »). */
+  section?: string;
   variables: TemplateVariable[];
   /** Variables que le corps doit garder (le serveur refuse un modèle qui les retire). */
   required: string[];
@@ -34,6 +37,7 @@ const DOCUMENT: TemplateVariable = { name: "document", label: "Nature du documen
 const INFOS: TemplateVariable = { name: "informations", label: "Informations du rappel (jalon, étape, échéance ; retirées s'il n'y en a pas)", example: "Jalon : Acompte de 30 %\nÉchéance : 01/11/2026" };
 
 const COMMON = [SALUTATION, PRENOM, CLIENT];
+const MARQUE: TemplateVariable = { name: "marque", label: "Nom commercial", example: "Kouzia" };
 const ABONNEMENT: TemplateVariable = { name: "abonnement", label: "Libellé de l'abonnement", example: "Site vitrine" };
 const MONTANT: TemplateVariable = { name: "montant", label: "Montant", example: "30,00 €" };
 const LIEN: TemplateVariable = { name: "lien", label: "Lien (paiement, gestion ou mise en place)", example: "https://erp.kouzia.com/api/public/manage/abc" };
@@ -364,6 +368,94 @@ export const TEMPLATE_REGISTRY: readonly TemplateDefinition[] = [
     subject: "Votre carte expire bientôt : {{abonnement}}",
     body: "{{salutation}}\n\nLa carte {{carte}}, utilisée pour votre abonnement « {{abonnement}} », expire fin {{expiration}}.\n\nPour que les prochains prélèvements passent sans interruption, mettez-la à jour :\n\n{{lien}}\n\nUne question ? Répondez simplement à cet e-mail.",
   },
+  // M3c (accès et divers, 26/10/2026).
+  {
+    key: "access.welcome",
+    family: "portal_access",
+    section: "Accès et sécurité",
+    label: "Accès à l'espace client",
+    recipient: "client",
+    variables: [
+      SALUTATION,
+      MARQUE,
+      { name: "lien", label: "Adresse de l'espace client", example: "https://kouzia.com/suivi/" },
+      { name: "bloc_connexion", label: "Comment se connecter (adresse e-mail et code à usage unique)", example: "Saisissez votre adresse e-mail (lou@example.com) : vous recevez aussitôt un code à 6 chiffres. Aucun mot de passe à retenir." },
+    ],
+    required: ["lien", "bloc_connexion"],
+    subject: "Votre espace client {{marque}}",
+    body: "{{salutation}}\n\nVotre espace client est prêt. Vous y retrouvez vos devis, factures et paiements, et l'avancement de votre projet.\n\nPour y entrer : {{lien}}\n{{bloc_connexion}}",
+  },
+  {
+    key: "onboarding.invite",
+    family: "portal_access",
+    section: "Accès et sécurité",
+    label: "Invitation à compléter sa fiche client",
+    recipient: "client",
+    variables: [
+      { name: "salutation", label: "Salutation (« Bonjour, » : le nom n'est pas encore connu)", example: "Bonjour," },
+      MARQUE,
+      { name: "objet_invitation", label: "« Complétez votre fiche client » ou « Mise à jour de votre fiche client »", example: "Complétez votre fiche client" },
+      { name: "demande", label: "Demande (nouvelle fiche ou mise à jour)", example: "Pour me permettre de vous facturer dans les meilleures conditions, j'ai besoin de quelques informations vous concernant. Merci de prendre 2 minutes pour compléter votre fiche via le lien sécurisé ci-dessous :" },
+      { name: "lien", label: "Lien personnel du formulaire", example: "https://kouzia.com/nouveau-client/?token=…" },
+      { name: "bloc_validite", label: "Validité du lien et destination des données", example: "Ce lien est personnel et expire dans 14 jours. Vos données sont transmises directement à Kouzia et ne sont pas conservées sur le site public." },
+    ],
+    required: ["lien", "bloc_validite"],
+    subject: "{{objet_invitation}} - {{marque}}",
+    body: "{{salutation}}\n\n{{demande}}\n\n{{lien}}\n\n{{bloc_validite}}",
+  },
+  {
+    key: "client.renewal",
+    family: "subscription_notice",
+    label: "Renouvellement chez l'hébergeur (domaine, hébergement)",
+    recipient: "client",
+    variables: [
+      ...COMMON,
+      { name: "prestation", label: "Ce qui se renouvelle", example: "kouzia.com" },
+      { name: "chez", label: "« chez … » (hébergeur)", example: " chez OVHcloud" },
+      { name: "date", label: "Date d'échéance", example: "1 décembre 2026" },
+      { name: "date_rappel", label: "Date mise en avant", example: "Renouvellement le 1 décembre 2026" },
+    ],
+    required: ["date"],
+    subject: "Pensez au renouvellement de « {{prestation}} » le {{date}}",
+    body: "{{salutation}}\n\n« {{prestation}} » est à votre nom{{chez}} et arrive à échéance le {{date}}.\n\n{{date_rappel}}\n\nPensez à vérifier le renouvellement depuis votre compte, pour que votre site et vos adresses e-mail restent en ligne.\nPour toute question, répondez simplement à cet e-mail.",
+  },
+  // Verrouillés (lecture seule) : codes à usage unique et alerte de sécurité, jamais modifiables.
+  {
+    key: "access.login_code",
+    family: null,
+    section: "Accès et sécurité",
+    label: "Code de connexion à l'espace client",
+    recipient: "client",
+    locked: "Code de connexion : texte verrouillé (sécurité de l'accès).",
+    variables: [SALUTATION, MARQUE, { name: "code", label: "Code à 6 chiffres", example: "482913" }],
+    required: [],
+    subject: "{{code}} : votre code de connexion {{marque}}",
+    body: "{{salutation}}\n\nVoici votre code de connexion à votre espace client {{marque}} :\n\n{{code}}\n\nIl est valable 15 minutes et ne sert qu'une fois. Une fois connecté, cet appareil est reconnu pendant 7 jours.\n\nVous n'avez rien demandé ? Ignorez cet e-mail : sans ce code, personne ne peut entrer dans votre espace.",
+  },
+  {
+    key: "access.sign_code",
+    family: null,
+    section: "Accès et sécurité",
+    label: "Code de signature d'un devis",
+    recipient: "client",
+    locked: "Code de signature : texte verrouillé (preuve de la signature).",
+    variables: [SALUTATION, MARQUE, { name: "code", label: "Code à 6 chiffres", example: "482913" }, { name: "devis", label: "Devis", example: "le devis D-2026-0012" }],
+    required: [],
+    subject: "{{code}} : code de signature {{marque}}",
+    body: "{{salutation}}\n\nVoici le code qui confirme votre signature pour {{devis}} :\n\n{{code}}\n\nIl est valable 15 minutes et ne sert qu'une fois.\n\nVous n'êtes pas en train de signer ce devis ? Ne communiquez ce code à personne et prévenez-moi en répondant à cet e-mail.",
+  },
+  {
+    key: "access.new_device",
+    family: null,
+    section: "Accès et sécurité",
+    label: "Alerte de connexion depuis un nouvel appareil",
+    recipient: "client",
+    locked: "Alerte de sécurité : texte verrouillé.",
+    variables: [SALUTATION, MARQUE, { name: "appareil", label: "Appareil, date et heure", example: "Firefox sur Windows, le 26 octobre 2026 à 10:42." }],
+    required: [],
+    subject: "Nouvelle connexion à votre espace client {{marque}}",
+    body: "{{salutation}}\n\nUne connexion à votre espace client {{marque}} vient d'avoir lieu depuis un nouvel appareil :\n\n{{appareil}}\n\nC'est vous ? Il n'y a rien à faire.\nCe n'est pas vous ? Répondez à cet e-mail : je déconnecte tous les appareils et nous vérifions ensemble l'accès à votre messagerie.",
+  },
 ];
 
 const BY_KEY = new Map(TEMPLATE_REGISTRY.map((t) => [t.key, t]));
@@ -432,10 +524,20 @@ export async function templateText(
   return override ? { subject: fillTemplate(override.subject, values), body: fillTemplate(override.body, values) } : original;
 }
 
+/** Aperçu (M3c) : texte en cours de saisie, utilisé à la place de la base le temps d'un rendu, sans rien enregistrer. */
+const draftStore = new AsyncLocalStorage<Map<string, { subject: string; body: string }>>();
+
+/** Exécute un rendu avec ce modèle en cours de saisie, comme s'il était enregistré (aperçu avec de vraies données). */
+export function withDraftTemplate<T>(key: string, draft: { subject: string; body: string }, run: () => Promise<T>): Promise<T> {
+  return draftStore.run(new Map([[key, draft]]), run);
+}
+
 /** Modèle modifié d'une clé, ou null : sans modification (ou modèle verrouillé), le code d'origine construit l'e-mail. */
 export async function templateOverride(key: string): Promise<{ subject: string; body: string } | null> {
   const def = templateDefinition(key);
   if (!def || def.locked) return null;
+  const draft = draftStore.getStore()?.get(key);
+  if (draft) return draft;
   const row = await prisma.emailTemplate.findUnique({ where: { key } });
   if (!row) return null;
   return { subject: row.subject ?? def.subject, body: row.body ?? def.body };

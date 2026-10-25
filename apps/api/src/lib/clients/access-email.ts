@@ -10,6 +10,7 @@ import { prisma } from "@/lib/prisma.js";
 import { CODE_TTL_MS, maskEmail } from "@/lib/portal/auth.js";
 import { formatDateTimeLongFr } from "@/lib/format-fr.js";
 import type { ReviewOptions } from "@/lib/email/review.js";
+import { templateText } from "@/lib/email/template-registry.js";
 
 /**
  * E-mails de l'espace client. Connexion par e-mail + code à usage unique :
@@ -155,17 +156,24 @@ export async function portalWelcomeDraft(clientId: string): Promise<{ to: string
   if (!client || !email) return null;
   const { brand, signature } = await signatureBlock();
   const portalUrl = await resolveClientPortalUrl();
-  const text = [
-    greeting(client),
-    "",
-    "Votre espace client est prêt. Vous y retrouvez vos devis, factures et paiements, et l'avancement de votre projet.",
-    "",
-    `Pour y entrer : ${portalUrl}`,
-    `Saisissez votre adresse e-mail (${email}) : vous recevez aussitôt un code à 6 chiffres. Aucun mot de passe à retenir.`,
-    "",
-    signature,
-  ].join("\n");
-  return { to: email, subject: `Votre espace client ${brand}`, text, attachments: [] };
+  const howTo = `Saisissez votre adresse e-mail (${email}) : vous recevez aussitôt un code à 6 chiffres. Aucun mot de passe à retenir.`;
+  // Modèle modifié dans Réglages (M3c) : le lien et la façon de se connecter restent des blocs fixes.
+  const content = await templateText(
+    "access.welcome",
+    { salutation: greeting(client), marque: brand, lien: portalUrl, bloc_connexion: howTo },
+    {
+      subject: `Votre espace client ${brand}`,
+      body: [
+        greeting(client),
+        "",
+        "Votre espace client est prêt. Vous y retrouvez vos devis, factures et paiements, et l'avancement de votre projet.",
+        "",
+        `Pour y entrer : ${portalUrl}`,
+        howTo,
+      ].join("\n"),
+    },
+  );
+  return { to: email, subject: content.subject, text: [content.body, "", signature].join("\n"), attachments: [] };
 }
 
 /**

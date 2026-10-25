@@ -97,7 +97,7 @@ export async function notifyMilestonePaymentFailed(pi: Stripe.PaymentIntent, was
  * E-mail « Paiement non abouti » (échéance ou facture) : modèle payment.failed s'il a été modifié dans Réglages, sinon le
  * texte d'origine. Le bloc des moyens de régler (lien en ligne, IBAN et référence) est calculé ici, jamais saisi.
  */
-async function failedPaymentEmail(opts: {
+export async function failedPaymentEmail(opts: {
   name: string | null | undefined;
   reference: string;
   paiement: string;

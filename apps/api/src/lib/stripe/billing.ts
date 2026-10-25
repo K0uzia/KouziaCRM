@@ -369,7 +369,25 @@ export async function sendSubscriptionSetupEmail(
   if (!sub) return;
   const email = decryptOptional(sub.client.emailEncrypted);
   if (!email) return;
+  const { subject, text, html } = await subscriptionSetupContent(sub);
+  await mailEnqueue({
+    to: email,
+    subject,
+    text,
+    html,
+    clientId: sub.clientId,
+    kind: "subscription_setup",
+    bodyTextForMessage: text,
+  }, { review });
+}
 
+/** Contenu de l'e-mail de mise en place du prélèvement (aussi l'aperçu des Réglages) : sans effet de bord. */
+export async function subscriptionSetupContent(sub: {
+  id: string;
+  label: string;
+  amountCents: number;
+  client: { firstName: string | null; displayName: string };
+}): Promise<{ subject: string; text: string; html: string }> {
   const settings = await getCompanySettings();
   const brand = buildEmailBrand(settings);
   const url = buildPayUrl("subscribe", sub.id);
@@ -393,14 +411,5 @@ export async function sendSubscriptionSetupEmail(
     paymentUrl: url,
     paymentLabel: "Activer le prélèvement",
   });
-
-  await mailEnqueue({
-    to: email,
-    subject: content.subject,
-    text,
-    html,
-    clientId: sub.clientId,
-    kind: "subscription_setup",
-    bodyTextForMessage: text,
-  }, { review });
+  return { subject: content.subject, text, html };
 }

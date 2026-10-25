@@ -5,16 +5,18 @@ import { prisma } from "@/lib/prisma.js";
 import { REVIEW_FAMILIES } from "@/lib/email/review.js";
 import { TEMPLATE_REGISTRY, templateDefinition, validateTemplate, type TemplateDefinition } from "@/lib/email/template-registry.js";
 import { previewTemplate } from "@/lib/email/templates.js";
+import { PreviewSourceError, previewSources, previewWithSource } from "@/lib/email/template-preview.js";
 
 const keyParams = z.object({ key: z.string().min(1).max(64) });
 // Retours chariot normalisés : le modèle d'origine et le texte enregistré se comparent ligne à ligne.
 const text = (max: number) => z.string().max(max).transform((s) => s.replace(/\r\n?/g, "\n"));
 const templateBody = z.strictObject({ subject: text(300), body: text(20_000) });
+const previewBody = templateBody.extend({ sourceId: z.string().min(1).max(64).optional() });
 
 const invalid = (reply: FastifyReply, error: z.ZodError) =>
   reply.code(400).send({ error: error.issues[0]?.message ?? "Données invalides", issues: error.issues.map((i) => ({ path: i.path.join("."), message: i.message })) });
 
-const familyLabel = (def: TemplateDefinition) => (def.family ? REVIEW_FAMILIES[def.family] : null);
+const familyLabel = (def: TemplateDefinition) => def.section ?? (def.family ? REVIEW_FAMILIES[def.family] : null);
 
 async function templateView(def: TemplateDefinition) {
   const row = def.locked ? null : await prisma.emailTemplate.findUnique({ where: { key: def.key } });
@@ -109,9 +111,23 @@ export const emailTemplatesRoutes: FastifyPluginAsync = async (app) => {
   app.post("/api/email-templates/:key/preview", async (request, reply) => {
     const def = resolve(request, reply);
     if (!def) return reply;
-    const body = templateBody.safeParse(request.body);
+    const body = previewBody.safeParse(request.body);
     if (!body.success) return invalid(reply, body.error);
-    const preview = await previewTemplate(def.key, body.data.subject, body.data.body);
-    return { ...preview, templateIssues: def.locked ? [] : validateTemplate(def.key, body.data.subject, body.data.body) };
+    const { subject, body: content, sourceId } = body.data;
+    let preview;
+    try {
+      // Donnée réelle choisie : valeurs calculées comme à l'envoi, rien n'est envoyé ni enregistré (M3c).
+      preview = sourceId ? await previewWithSource(def.key, { subject, body: content }, sourceId) : await previewTemplate(def.key, subject, content);
+    } catch (err) {
+      if (err instanceof PreviewSourceError) return reply.code(404).send({ error: err.message });
+      throw err;
+    }
+    return { ...preview, templateIssues: def.locked ? [] : validateTemplate(def.key, subject, content) };
+  });
+
+  app.get("/api/email-templates/:key/sources", async (request, reply) => {
+    const def = resolve(request, reply);
+    if (!def) return reply;
+    return { sources: await previewSources(def.key) };
   });
 };

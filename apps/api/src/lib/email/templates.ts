@@ -269,7 +269,7 @@ export async function buildEmailContent(input: EmailContentInput): Promise<{
   return { subject, text, html };
 }
 
-async function renderHtml(text: string, brand: EmailBrand, paymentUrl?: string | null, brandPrimaryColor?: string): Promise<string> {
+export async function renderHtml(text: string, brand: EmailBrand, paymentUrl?: string | null, brandPrimaryColor?: string): Promise<string> {
   const settings = await getCompanySettings();
   return renderEmailHtml({
     text,
