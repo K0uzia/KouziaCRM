@@ -40,6 +40,31 @@ function buildVersion(): Plugin {
   };
 }
 
+/**
+ * Modules de l'application chargés au démarrage (imports statiques depuis src/main.tsx), sauf l'entrée, le routeur et la
+ * mise en page (ils importent les pages à la demande : leur empreinte suit chaque page) et les écrans chargés d'office.
+ */
+let shell: Set<string> | null = null;
+type ModuleInfoOf = (id: string) => { importedIds: readonly string[] } | null;
+function shellModules(getModuleInfo: ModuleInfoOf): Set<string> {
+  if (shell) return shell;
+  const slash = (p: string) => p.split(String.fromCharCode(92)).join("/");
+  const entry = slash(path.resolve(__dirname, "src/main.tsx"));
+  const keep = new Set([entry, slash(path.resolve(__dirname, "src/App.tsx")), slash(path.resolve(__dirname, "src/components/AppLayout.tsx"))]);
+  const seen = new Set<string>();
+  const queue = [entry];
+  while (queue.length) {
+    const id = queue.pop()!;
+    if (seen.has(id)) continue;
+    seen.add(id);
+    for (const next of getModuleInfo(id)?.importedIds ?? []) if (!slash(next).includes("/node_modules/")) queue.push(next);
+  }
+  // Écrans chargés d'office par le routeur (tableau de bord, connexion) : restent avec lui dans l'entrée.
+  for (const id of getModuleInfo(slash(path.resolve(__dirname, "src/App.tsx")))?.importedIds ?? []) if (slash(id).includes("/src/pages/")) keep.add(slash(id));
+  shell = new Set([...seen].filter((id) => !keep.has(slash(id))));
+  return shell;
+}
+
 export default defineConfig(({ mode }) => ({
   envDir,
   plugins: [
@@ -84,9 +109,14 @@ export default defineConfig(({ mode }) => ({
       output: {
         // Dépendances stables dans leurs propres fichiers : chunk d'entrée sous 500 Ko, et cache
         // navigateur conservé d'un déploiement à l'autre tant qu'elles ne changent pas.
-        manualChunks(id) {
+        // Code commun chargé au démarrage dans « shell », hors de l'entrée : les pages l'importent de là, et non plus de
+        // l'entrée, dont l'empreinte change à chaque modification (mesuré : 50 fichiers sur 72 pour un seul libellé).
+        manualChunks(id, { getModuleInfo }) {
           const n = id.split(String.fromCharCode(92)).join("/");
-          if (!n.includes("/node_modules/")) return undefined;
+          if (n.includes("vite/preload-helper")) return "shell";
+          // Arborescence des écrans (libellés de menu) : importée par la mise en page et la palette seulement, à part du shell.
+          if (n.endsWith("/src/lib/navigation.ts")) return "navigation";
+          if (!n.includes("/node_modules/")) return shellModules(getModuleInfo).has(id) ? "shell" : undefined;
           if (/\/node_modules\/(react|react-dom|scheduler)\//.test(n)) return "react";
           if (n.includes("/node_modules/react-router")) return "router";
           if (n.includes("/node_modules/@fortawesome/")) return "icons";
