@@ -22,8 +22,11 @@ if (!command.length) {
 }
 
 const root = process.cwd();
+// Fichier d’environnement : .env du dossier, ou celui d’un autre worktree (TEST_SERVER_ENV_FILE) pour ne pas copier de secrets ;
+// les variables déjà exportées (DATABASE_URL, WEB_DIST...) priment, --env-file ne les remplace pas.
+const envFile = path.resolve(root, process.env.TEST_SERVER_ENV_FILE || ".env");
 const env = Object.fromEntries(
-  readFileSync(path.join(root, ".env"), "utf8")
+  readFileSync(envFile, "utf8")
     .split(/\r?\n/)
     .map((l) => l.match(/^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*"?(.*?)"?\s*$/))
     .filter(Boolean)
@@ -51,7 +54,7 @@ const keep = (chunk) => {
   }
 };
 
-const server = spawn(process.execPath, ["--env-file=.env", "--import", "tsx", "apps/api/src/index.ts"], {
+const server = spawn(process.execPath, [`--env-file=${envFile}`, "--import", "tsx", "apps/api/src/index.ts"], {
   cwd: root,
   env: { ...process.env, NODE_ENV: "production", TSX_TSCONFIG_PATH: "apps/api/tsconfig.json", KOUZIA_MEMORY_LOG_MS: "10000" },
   stdio: ["ignore", "pipe", "pipe"],

@@ -11,7 +11,7 @@ import {
 import { requireAuth } from "@/lib/auth.js";
 import { prisma } from "@/lib/prisma.js";
 import { computeLineTotals, assertSubscriptionLinesValid } from "@/lib/invoices/totals.js";
-import { BILLING_MODES, parseBillingMode } from "@/lib/quotes/payment-plans.js";
+import { BILLING_MODES, parseBillingMode, type PaymentPlanOffer } from "@/lib/quotes/payment-plans.js";
 import { assertBillingModeLines } from "@/lib/quotes/billing-mode.js";
 import { NO_RECURRING_DISCOUNT, resolveRecurringDiscount, storedRecurringDiscount, type RecurringDiscountFields } from "@/lib/quotes/recurring-discount.js";
 import { promoAsDiscountInput, resolvePromoForQuote } from "@/lib/quotes/promo-codes.js";
@@ -263,6 +263,10 @@ async function prepareQuoteOptions(options: z.output<typeof optionsSchema>, quot
         totalCents: totals.totalCents,
       },
       lines: totals.lines,
+      // Aperçu : totaux complets, remise et code tels que vérifiés.
+      totals,
+      recurringDiscount,
+      promo,
     });
   }
   return prepared;
@@ -632,7 +636,39 @@ export const invoicesRoutes: FastifyPluginAsync = async (app) => {
     if (!parsed.success) {
       return reply.code(400).send({ error: "Données invalides", details: parsed.error.flatten() });
     }
-    if (parsed.data.options) return reply.code(400).send({ error: "Aperçu d'un devis à 2 propositions : pas encore disponible (PDF en préparation)." });
+    if (parsed.data.options) {
+      // Devis à propositions : chacune vérifiée comme à l'enregistrement, rendue dans le même gabarit que le devis émis.
+      let prepared: Awaited<ReturnType<typeof prepareQuoteOptions>>;
+      try {
+        prepared = await prepareQuoteOptions(parsed.data.options, { clientId: parsed.data.clientId });
+      } catch (e) {
+        return reply.code(400).send({ error: e instanceof Error ? e.message : "Propositions invalides" });
+      }
+      const d = parsed.data;
+      const pdf = await renderDraftPreviewPdf({
+        documentType: "QUOTE",
+        clientId: d.clientId,
+        notes: d.notes ?? null,
+        paymentTerms: d.paymentTerms ?? null,
+        serviceDate: null,
+        purchaseOrderRef: d.purchaseOrderRef ?? null,
+        validUntil: d.validUntil ? new Date(d.validUntil) : null,
+        sourceQuoteId: null,
+        paymentPlanOffer: null,
+        billingMode: null,
+        totals: computeLineTotals([], discountFromBody({})),
+        options: prepared.map((p) => ({
+          label: p.option.label,
+          billingMode: p.option.billingMode,
+          paymentPlanOffer: p.option.paymentPlanOffer as PaymentPlanOffer,
+          totals: p.totals,
+          recurringDiscount: p.recurringDiscount,
+          promoCode: p.promo ? { id: p.promo.id, code: p.promo.code, conditionText: p.promo.conditionText } : null,
+        })),
+      });
+      if (!pdf) return reply.code(404).send({ error: "Client introuvable" });
+      return pdfReply(reply, pdf);
+    }
     const lineInputs = lineInputsOf(parsed.data.lines!);
     let recurringDiscount: RecurringDiscountFields;
     let previewPromo: Awaited<ReturnType<typeof resolvePromoForQuote>> = null;

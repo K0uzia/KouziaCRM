@@ -138,8 +138,8 @@ export async function issueInvoice(invoiceId: string, issueDate = new Date(), du
 }
 
 /** Émet un devis (numéro D-YYYY-NNN, QuoteStatus SENT) et crée les jalons acompte / solde. */
-/** Devis à propositions (P1) : le PDF et la signature d'une proposition arrivent avec les lots suivants. */
-export const QUOTE_OPTIONS_NOT_ISSUABLE = "Devis à 2 propositions : l'émission n'est pas encore disponible (PDF et signature en préparation).";
+/** Devis à propositions : émission refusée tant que la signature d'une proposition n'existe pas (lot P3). */
+export const QUOTE_OPTIONS_NOT_ISSUABLE = "Devis à 2 propositions : l'émission n'est pas encore disponible (signature d'une proposition en préparation).";
 
 export async function issueQuote(
   quoteId: string,

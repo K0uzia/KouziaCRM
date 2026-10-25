@@ -133,6 +133,7 @@ type PackLine = {
 const DEPOSIT_TERMS = "Acompte à la validation du devis, solde à la livraison (voir l'échéancier).";
 const SUBSCRIPTION_TERMS = "Abonnement sans acompte : chaque échéance est facturée, par prélèvement ou à réception de la facture.";
 const ONE_OFF_TERMS = "Paiement à la signature, ou en plusieurs fois à parts égales selon l'échéancier.";
+const PROPOSALS_TERMS = "Paiement selon la proposition retenue, détaillé dans chacune.";
 const RECURRING_TERMS = "Abonnement : chaque échéance est facturée, par prélèvement ou à réception de la facture.";
 
 const emptyLine = (): DocLine => ({
@@ -212,6 +213,7 @@ export function DocumentFormEditor({
       : null,
   );
   const [removingProposal, setRemovingProposal] = useState(false);
+  const withProposals = Boolean(proposals);
   /** 2e proposition : copie de la première, à adapter (autre mode, autres prestations). */
   function addProposal() {
     setProposals({ active: 1, labels: ["Proposition A", "Proposition B"], other: sliceOf(form) });
@@ -582,13 +584,13 @@ export function DocumentFormEditor({
   // Devis avec mode : texte propre au mode, remplacé seulement s'il est encore l'un des textes par défaut.
   useEffect(() => {
     setForm((f) => {
-      const defaults = [DEPOSIT_TERMS, SUBSCRIPTION_TERMS, ONE_OFF_TERMS, RECURRING_TERMS];
+      const defaults = [DEPOSIT_TERMS, SUBSCRIPTION_TERMS, ONE_OFF_TERMS, RECURRING_TERMS, PROPOSALS_TERMS];
       if (!defaults.includes(f.paymentTerms)) return f;
       const next =
-        f.billingMode === "ONE_OFF" ? ONE_OFF_TERMS : f.billingMode === "RECURRING" ? RECURRING_TERMS : subscriptionOnly ? SUBSCRIPTION_TERMS : DEPOSIT_TERMS;
+        withProposals ? PROPOSALS_TERMS : f.billingMode === "ONE_OFF" ? ONE_OFF_TERMS : f.billingMode === "RECURRING" ? RECURRING_TERMS : subscriptionOnly ? SUBSCRIPTION_TERMS : DEPOSIT_TERMS;
       return next === f.paymentTerms ? f : { ...f, paymentTerms: next };
     });
-  }, [subscriptionOnly, form.billingMode]);
+  }, [subscriptionOnly, form.billingMode, withProposals]);
 
   /** Corps de la création (et de l'aperçu, qui reçoit le même brouillon) ; src : la proposition, le formulaire par défaut. */
   function requestBody(lines: DocLine[], src: ProposalSlice = form) {
@@ -675,13 +677,14 @@ export function DocumentFormEditor({
   const [previewOpen, setPreviewOpen] = useState(false);
   const previewLines = form.lines.filter((l) => l.description.trim() || l.unitPriceEuros.trim());
   const previewBody = useMemo(
-    () => (!proposals && form.clientId && !isLocalClientId(form.clientId) && previewLines.length > 0 ? JSON.stringify(requestBody(previewLines)) : null),
+    () =>
+      form.clientId && !isLocalClientId(form.clientId) && (proposals || previewLines.length > 0)
+        ? JSON.stringify(proposals ? submitBody() : requestBody(previewLines))
+        : null,
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [form, documentType, proposals],
   );
-  const previewPaused = proposals
-    ? "Aperçu d'un devis à 2 propositions : il arrive avec leur PDF. Le devis reste en brouillon d'ici là."
-    : !form.clientId
+  const previewPaused = !form.clientId
     ? "Choisissez un client pour voir l'aperçu."
     : isLocalClientId(form.clientId)
       ? "Aperçu disponible une fois le client créé, au retour du réseau."
@@ -919,7 +922,7 @@ export function DocumentFormEditor({
               </div>
               <p className="text-sm text-[var(--muted)]">
                 Le client choisit l'une des deux à la signature. Client et notes sont communs ; mode, prestations, paiement et
-                remise sont propres à chaque proposition. L'émission arrive avec le PDF des propositions : d'ici là, le devis
+                remise sont propres à chaque proposition. L'émission arrive avec la signature d'une proposition : d'ici là, le devis
                 reste en brouillon.
               </p>
             </div>

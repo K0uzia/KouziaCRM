@@ -5,6 +5,7 @@ import type {
   Payment,
   PaymentMilestone,
   QuoteAcceptanceAudit,
+  QuoteOption,
 } from "@prisma/client";
 import type { ClientSnapshot } from "@/lib/invoices/transitions.js";
 import type { InvoicePdfData } from "@/lib/pdf/invoice-document.js";
@@ -16,12 +17,16 @@ import {
   parseBillingMode,
   parsePaymentPlanOffer,
   isSubscriptionOnly,
+  effectiveOffer,
+  initialPlan,
+  milestoneAmounts,
+  planTemplate,
   type PlanSettings,
 } from "@/lib/quotes/payment-plans.js";
 import { startFromPhrase, startPhrase } from "@/lib/subscriptions/start.js";
 import { recurringDiscountSummary } from "@/lib/quotes/recurring-discount.js";
 import { normalizeInterval, periodMonths } from "@/lib/subscriptions/subscription-service.js";
-import { billedWithDocument } from "@/lib/invoices/totals.js";
+import { billedWithDocument, computeDepositBaseCents } from "@/lib/invoices/totals.js";
 
 type InvoiceWithRelations = Invoice & {
   lines: InvoiceLine[];
@@ -40,6 +45,8 @@ type InvoiceWithRelations = Invoice & {
   milestones: PaymentMilestone[];
   /** Dernière acceptation en premier : alimente le bloc de signature du devis. */
   quoteAcceptanceAudits?: QuoteAcceptanceAudit[];
+  /** Devis à propositions (P1) : chacune avec son code promo ; lignes rattachées par optionId. */
+  options?: Array<QuoteOption & { promoCode?: { code: string; conditionText: string | null } | null }>;
 };
 
 type BalanceSummary = NonNullable<InvoicePdfData["invoice"]["balanceSummary"]>;
@@ -248,7 +255,67 @@ export function buildInvoicePdfPayload({
             invoice.quoteAcceptanceAudits?.[0],
           )
         : null,
+    ...(isQuote && invoice.options?.length ? proposalsOf({ invoice, legalClauses, clientType, balanceSummary, planSettings, cgv }) : {}),
   };
+}
+
+const PROPOSAL_LETTERS = ["A", "B"];
+
+/**
+ * Devis à propositions (P2) : un corps par proposition, construit comme un devis à part entière (ses lignes, son mode, son
+ * offre de paiement, sa remise, ses totaux et son échéancier), avec les mêmes calculs que l'émission. La proposition
+ * retenue à la signature garde l'échéancier enregistré ; l'autre est marquée « non retenue ».
+ */
+function proposalsOf(input: BuildPdfPayloadInput): Pick<InvoicePdfData["invoice"], "proposals" | "selectedProposal"> {
+  const { invoice, planSettings } = input;
+  const options = [...(invoice.options ?? [])].sort((a, b) => a.position - b.position);
+  const selected = options.find((o) => o.id === invoice.selectedOptionId) ?? null;
+  const letter = (o: QuoteOption) => PROPOSAL_LETTERS[o.position] ?? String(o.position + 1);
+  const proposals = options.map((o) => {
+    const lines = invoice.lines.filter((l) => l.optionId === o.id);
+    const isSelected = selected?.id === o.id;
+    const mode = parseBillingMode(o.billingMode);
+    const depositBaseCents = o.depositBaseCents ?? computeDepositBaseCents(lines, o.subtotalCents, o.totalCents);
+    const settings = planSettings ? planSettingsOf({ paymentScheduleSnapshot: o.paymentScheduleSnapshot ?? invoice.paymentScheduleSnapshot }, planSettings) : null;
+    const raw = parsePaymentPlanOffer(o.paymentPlanOffer);
+    const offer =
+      mode === "RECURRING" || isSubscriptionOnly(lines) ? "NONE" : settings ? effectiveOffer(raw ?? "TWO", depositBaseCents, settings) : raw;
+    const milestones = isSelected
+      ? invoice.milestones
+      : settings && offer && offer !== "NONE"
+        ? milestoneAmounts(depositBaseCents, planTemplate(initialPlan(offer), settings, mode), mode).map((m) => ({
+            ...m,
+            status: "PENDING",
+            dueDate: null,
+          }))
+        : [];
+    const record = {
+      ...invoice,
+      options: undefined,
+      billingMode: o.billingMode,
+      paymentPlanOffer: offer,
+      paymentPlan: isSelected ? invoice.paymentPlan : null,
+      discountType: o.discountType,
+      discountValue: o.discountValue,
+      recurringDiscountKind: o.recurringDiscountKind,
+      recurringDiscountValue: o.recurringDiscountValue,
+      recurringDiscountMonths: o.recurringDiscountMonths,
+      openingDiscount: o.openingDiscount,
+      promoCodeId: o.promoCodeId,
+      promoCode: o.promoCode ?? null,
+      subtotalCents: o.subtotalCents,
+      totalCents: o.totalCents,
+      depositBaseCents,
+      paymentScheduleSnapshot: o.paymentScheduleSnapshot ?? invoice.paymentScheduleSnapshot,
+      lines,
+      milestones,
+    } as InvoiceWithRelations;
+    return {
+      heading: `Proposition ${letter(o)} : ${o.label}${selected && !isSelected ? " (non retenue)" : ""}`,
+      invoice: buildInvoicePdfPayload({ ...input, invoice: record }),
+    };
+  });
+  return { proposals, selectedProposal: selected ? `${letter(selected)} : ${selected.label}` : null };
 }
 
 /** Bloc de signature : preuve complète si le devis a été signé depuis l'espace client. */

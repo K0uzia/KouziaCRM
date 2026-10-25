@@ -28,6 +28,15 @@ export type ReadableDocument = {
   sections: ReadableSection[];
   footer: string[];
   source: "ARCHIVE" | "LIVE";
+  /** Devis à 2 propositions (P2, contrat validé le 25/10/2026) : absent pour tout autre document. */
+  proposals?: Array<{
+    heading: string;
+    table: ReadableDocument["table"];
+    totals: ReadableDocument["totals"];
+    sections: ReadableSection[];
+  }>;
+  /** Avec proposals seulement : nombre de sections de sections[] imprimées avant les propositions (introduction comprise). */
+  proposalsAt?: number;
 };
 
 /** Texte du PDF dans l'ordre de l'arbre ; group : élément « fixed » répété sur chaque page (en-tête, pied). */
@@ -47,6 +56,8 @@ type MarkAs =
   | "pair"
   | "mainPair"
   | "item" // élément de liste : textes joints
+  | "proposal" // proposition d'un devis : son tableau, ses totaux et ses sections, à part
+  | "proposalHeading" // titre de la proposition
   | "footer";
 
 type MarkProps = { as: MarkAs; heading?: boolean; main?: boolean; children?: ReactNode };
@@ -262,6 +273,7 @@ export function readableFromElement(
     }
   };
 
+  let proposalHeading = "";
   const top = (node: ReactNode) => {
     for (const c of childrenOf(node)) {
       if (!isValidElement(c)) continue;
@@ -302,6 +314,25 @@ export function readableFromElement(
           break;
         case "footer":
           doc.footer.push(...w.collect(p.children));
+          break;
+        case "proposal": {
+          // Tableau, totaux et sections de la proposition recueillis à part, puis ceux du document rendus.
+          const outer = { table: doc.table, totals: doc.totals, sections: doc.sections };
+          // Place des propositions dans le flux du PDF : sections déjà lues à la première d'entre elles.
+          doc.proposalsAt ??= doc.sections.length;
+          doc.table = null;
+          doc.totals = [];
+          doc.sections = [];
+          lastWasLoose = false;
+          proposalHeading = "";
+          top(p.children);
+          (doc.proposals ??= []).push({ heading: proposalHeading, table: doc.table, totals: doc.totals, sections: doc.sections });
+          Object.assign(doc, outer);
+          lastWasLoose = false;
+          break;
+        }
+        case "proposalHeading":
+          proposalHeading = w.collect(p.children).join(" ");
           break;
         default:
           top(p.children);

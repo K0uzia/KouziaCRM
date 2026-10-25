@@ -50,6 +50,15 @@ export type DraftPreviewInput = {
   recurringDiscount?: RecurringDiscountFields;
   /** Code promo appliqué (R3), déjà vérifié. */
   promoCode?: { code: string; conditionText: string | null } | null;
+  /** Devis à 2 propositions (P2) : vérifiées par la route ; le devis lui-même reste neutre. */
+  options?: Array<{
+    label: string;
+    billingMode: BillingMode;
+    paymentPlanOffer: PaymentPlanOffer | null;
+    totals: ReturnType<typeof computeLineTotals>;
+    recurringDiscount: RecurringDiscountFields;
+    promoCode: { id: string; code: string; conditionText: string | null } | null;
+  }>;
 };
 
 /** null : client introuvable. */
@@ -142,6 +151,34 @@ export async function renderDraftPreviewPdf(input: DraftPreviewInput, now = new 
     quoteAcceptanceAudits: [],
     lines,
   } as unknown as Invoice & BuildPdfPayloadInput["invoice"];
+
+  // Propositions : lignes rattachées à chacune, réglages tels que la route les enregistrerait.
+  if (isQuote && input.options?.length) {
+    const optionLines = input.options.flatMap((o, i) => o.totals.lines.map((l) => ({ ...l, optionId: `apercu-${i}` })));
+    Object.assign(invoice, {
+      billingMode: null,
+      paymentPlanOffer: null,
+      depositBaseCents: null,
+      milestones: [],
+      lines: optionLines,
+      options: input.options.map((o, i) => ({
+        id: `apercu-${i}`,
+        position: i,
+        label: o.label,
+        billingMode: o.billingMode,
+        paymentPlanOffer: o.billingMode === "RECURRING" ? "NONE" : o.paymentPlanOffer,
+        discountType: o.totals.discountType,
+        discountValue: o.totals.discountValue,
+        ...o.recurringDiscount,
+        promoCodeId: o.promoCode?.id ?? null,
+        promoCode: o.promoCode ? { code: o.promoCode.code, conditionText: o.promoCode.conditionText } : null,
+        subtotalCents: o.totals.subtotalCents,
+        totalCents: o.totals.totalCents,
+        depositBaseCents: null,
+        paymentScheduleSnapshot: null,
+      })),
+    });
+  }
 
   return renderInvoicePdf({
     draft: true,
