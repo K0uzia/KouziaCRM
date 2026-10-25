@@ -138,6 +138,9 @@ export async function issueInvoice(invoiceId: string, issueDate = new Date(), du
 }
 
 /** Émet un devis (numéro D-YYYY-NNN, QuoteStatus SENT) et crée les jalons acompte / solde. */
+/** Devis à propositions (P1) : le PDF et la signature d'une proposition arrivent avec les lots suivants. */
+export const QUOTE_OPTIONS_NOT_ISSUABLE = "Devis à 2 propositions : l'émission n'est pas encore disponible (PDF et signature en préparation).";
+
 export async function issueQuote(
   quoteId: string,
   issueDate = new Date(),
@@ -149,9 +152,10 @@ export async function issueQuote(
   const updated = await prisma.$transaction(async (tx) => {
     const quote = await tx.invoice.findUniqueOrThrow({
       where: { id: quoteId },
-      include: { lines: true },
+      include: { lines: true, options: { select: { id: true } } },
     });
 
+    if (quote.options.length > 0) throw new Error(QUOTE_OPTIONS_NOT_ISSUABLE);
     if (quote.documentType !== InvoiceDocumentType.QUOTE) {
       throw new Error("Ce document n'est pas un devis");
     }

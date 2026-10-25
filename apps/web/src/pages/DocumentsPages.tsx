@@ -30,7 +30,7 @@ import { CREDIT_ISSUED, INVOICE_STATUS_SLUG, isOverdue, listStatus, QUOTE_STATUS
 import { useUrlFilters, withParam } from "@/lib/use-url-filters";
 import { StatStrip, type StatItem } from "@/components/ui/StatStrip";
 import { DataTable, type DataColumn } from "@/components/ui/DataTable";
-import { DocumentFormEditor } from "@/components/documents/DocumentForm";
+import { DocumentFormEditor, type DocumentFormValues } from "@/components/documents/DocumentForm";
 import { DocumentNumberBadge } from "@/components/documents/DocumentNumberBadge";
 import { ListRow } from "@/components/ui/ListRow";
 import { InvoiceTypeBadge } from "@/components/documents/InvoiceTypeBadge";
@@ -154,9 +154,47 @@ type Doc = {
     subscriptionStartDate?: string | null;
     subscriptionFreeMonths?: number | null;
     commitmentMonths?: number | null;
+    /** Devis à propositions : proposition de la ligne. */
+    optionId?: string | null;
   }>;
   milestones?: Milestone[];
+  /** Devis à 2 propositions (P1) : chacune complète ; vide pour un devis simple. */
+  options?: Array<BillingSource & { id: string; position: number; label: string; totalCents: number }>;
 };
+
+/** Réglages de facturation d'un devis ou d'une de ses propositions (mêmes champs). */
+type BillingSource = Pick<
+  Doc,
+  "paymentPlanOffer" | "billingMode" | "discountType" | "discountValue" | "openingDiscount" | "promoCode" | "recurringDiscountKind" | "recurringDiscountValue" | "recurringDiscountMonths"
+>;
+
+/** Partie « facturation » du formulaire (mode, offre, remises, lignes) tirée d'un devis ou d'une proposition. */
+function billingSliceOf(src: BillingSource, lines: NonNullable<Doc["lines"]>): Partial<DocumentFormValues> {
+  const sub = lines.find((l) => l.isSubscription);
+  return {
+    paymentPlanOffer:
+      src.paymentPlanOffer === "ONE" || src.paymentPlanOffer === "TWO" || src.paymentPlanOffer === "THREE" || src.paymentPlanOffer === "CHOICE" ? src.paymentPlanOffer : "",
+    billingMode: src.billingMode === "ONE_OFF" || src.billingMode === "RECURRING" ? src.billingMode : "",
+    ...(src.billingMode === "RECURRING" && sub ? { recurring: { ...recurringFromLine({ ...sub, ...startFromLine(sub) }), discount: discountFromDoc(src) } } : {}),
+    discountType: src.discountType === "PERCENT" || src.discountType === "FIXED" ? src.discountType : "NONE",
+    discountPercent: src.discountType === "PERCENT" ? String((src.discountValue ?? 0) / 100) : "",
+    discountEuros: src.discountType === "FIXED" ? String((src.discountValue ?? 0) / 100) : "",
+    lines: lines.map((l) => ({
+      description: l.description,
+      quantity: String(l.quantity),
+      unitPriceEuros: String(l.unitPriceCents / 100),
+      isSubscription: Boolean(l.isSubscription),
+      billingDay: String(l.billingDay ?? 1),
+      billingInterval: l.billingInterval === "YEAR" ? "YEAR" : "MONTH",
+      ...(src.billingMode === "RECURRING" && l.isSubscription ? { annualEuros: annualEurosOf(l.unitPriceCents, l.billingInterval) } : {}),
+      serviceId: l.serviceId ?? "",
+      groupTitle: l.groupTitle ?? "",
+      isPackDiscount: Boolean(l.isPackDiscount),
+      commitmentMonths: l.commitmentMonths ? String(l.commitmentMonths) : "",
+      ...startFromLine(l),
+    })),
+  };
+}
 
 // serviceNeeds et needsDetails : rappel des besoins du client dans le formulaire de devis.
 type ClientOpt = { id: string; displayName: string; clientNumber?: string | null; serviceNeeds?: ServiceNeed[]; needsDetails?: string };
@@ -1996,43 +2034,18 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
             serviceDate: doc.serviceDate ? doc.serviceDate.slice(0, 10) : "",
             purchaseOrderRef: doc.purchaseOrderRef ?? "",
             sourceQuoteId: doc.sourceQuoteId ?? doc.quoteId ?? "",
-            paymentPlanOffer:
-              doc.paymentPlanOffer === "ONE" || doc.paymentPlanOffer === "TWO" || doc.paymentPlanOffer === "THREE" || doc.paymentPlanOffer === "CHOICE"
-                ? doc.paymentPlanOffer
-                : "",
-            billingMode: doc.billingMode === "ONE_OFF" || doc.billingMode === "RECURRING" ? doc.billingMode : "",
-            ...(() => {
-              const sub = (doc.lines ?? []).find((l) => l.isSubscription);
-              return doc.billingMode === "RECURRING" && sub ? { recurring: { ...recurringFromLine({ ...sub, ...startFromLine(sub) }), discount: discountFromDoc(doc) } } : {};
-            })(),
             validUntil: doc.validUntil ? doc.validUntil.slice(0, 10) : "",
-            discountType:
-              doc.discountType === "PERCENT" || doc.discountType === "FIXED"
-                ? doc.discountType
-                : "NONE",
-            discountPercent:
-              doc.discountType === "PERCENT"
-                ? String((doc.discountValue ?? 0) / 100)
-                : "",
-            discountEuros:
-              doc.discountType === "FIXED"
-                ? String((doc.discountValue ?? 0) / 100)
-                : "",
-            lines: (doc.lines ?? []).map((l) => ({
-              description: l.description,
-              quantity: String(l.quantity),
-              unitPriceEuros: String(l.unitPriceCents / 100),
-              isSubscription: Boolean(l.isSubscription),
-              billingDay: String(l.billingDay ?? 1),
-              billingInterval: l.billingInterval === "YEAR" ? "YEAR" : "MONTH",
-              ...(doc.billingMode === "RECURRING" && l.isSubscription ? { annualEuros: annualEurosOf(l.unitPriceCents, l.billingInterval) } : {}),
-              serviceId: l.serviceId ?? "",
-              groupTitle: l.groupTitle ?? "",
-              isPackDiscount: Boolean(l.isPackDiscount),
-              commitmentMonths: l.commitmentMonths ? String(l.commitmentMonths) : "",
-              ...startFromLine(l),
-            })),
+            // Devis à propositions : la proposition A dans le formulaire, la B à côté (onglets).
+            ...billingSliceOf(doc.options?.[0] ?? doc, doc.options?.length ? (doc.lines ?? []).filter((l) => l.optionId === doc.options![0]!.id) : (doc.lines ?? [])),
           }}
+          initialProposals={
+            doc.options?.length === 2
+              ? {
+                  labels: [doc.options[0]!.label, doc.options[1]!.label],
+                  other: billingSliceOf(doc.options[1]!, (doc.lines ?? []).filter((l) => l.optionId === doc.options![1]!.id)),
+                }
+              : undefined
+          }
           onCancel={() => setEditOpen(false)}
           onSuccess={async () => {
             setEditOpen(false);
