@@ -143,7 +143,7 @@ describe("1re échéance différée (ex. une année offerte)", () => {
     expect(call.text).toContain("La 1re échéance de votre abonnement « Maintenance annuelle », de 3");
     expect(call.text).toContain("Une facture de 3");
     expect(call.text).not.toMatch(/reconduction/i);
-    expect((await prisma.subscription.findUniqueOrThrow({ where: { id: sub.id } })).renewalReminderSentFor).toEqual(new Date(2027, 0, 1));
+    expect((await prisma.subscription.findUniqueOrThrow({ where: { id: sub.id } })).firstChargeNoticeSentFor).toEqual(new Date(2027, 0, 1));
   });
 
   it("mensuel différé et prélèvement Stripe : « 1er prélèvement », lien de gestion", async () => {

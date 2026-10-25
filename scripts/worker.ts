@@ -46,9 +46,9 @@ async function runMaintenance() {
     // Version accessible des documents archivés avant elle : figée seulement si son texte est celui du PDF archivé.
     const { backfillReadableSnapshots } = await import("../apps/api/src/lib/pdf/readable-documents.js");
     const readable = await backfillReadableSnapshots();
-    // Rachat signé (R2) : l'abonnement passe à « Clôturé » une fois sa dernière période terminée.
-    const { closeBoughtOutSubscriptions } = await import("../apps/api/src/lib/subscriptions/buyout.js");
-    const boughtOutClosed = await closeBoughtOutSubscriptions();
+    // Fin programmée passée (rachat signé, non-reconduction, date de fin) : l'abonnement passe à « Clôturé ».
+    const { closeEndedSubscriptions } = await import("../apps/api/src/lib/subscriptions/subscription-service.js");
+    const endedClosed = await closeEndedSubscriptions();
     const remindersSent = await sendDueReminders();
     const depositRemindersSent = await sendDueDepositReminders();
     const obligationEmails = await sendDueObligationEmails();
@@ -56,7 +56,7 @@ async function runMaintenance() {
     const { remindStaleReviews } = await import("../apps/api/src/lib/email/review-reminder.js");
     const reviewReminders = await remindStaleReviews();
     console.log(
-      `[worker] maintenance: expired=${expired} remindersScheduled=${scheduled} subscriptionsInvoices=${subscriptions} renewalReminders=${renewalReminders} firstChargeNotices=${firstChargeNotices} termEndReminders=${termEndReminders} clientRenewalNotices=${clientRenewalNotices} actionReminders=${actionReminders} cardNotices=${cardNotices} pdfArchived=${pdfArchived} receiptsArchived=${receiptsArchived} readableFrozen=${readable.frozen} readableUnavailable=${readable.unavailable} boughtOutClosed=${boughtOutClosed} remindersSent=${remindersSent} depositReminders=${depositRemindersSent} obligationEmails=${obligationEmails} reviewReminders=${reviewReminders}`,
+      `[worker] maintenance: expired=${expired} remindersScheduled=${scheduled} subscriptionsInvoices=${subscriptions} renewalReminders=${renewalReminders} firstChargeNotices=${firstChargeNotices} termEndReminders=${termEndReminders} clientRenewalNotices=${clientRenewalNotices} actionReminders=${actionReminders} cardNotices=${cardNotices} pdfArchived=${pdfArchived} receiptsArchived=${receiptsArchived} readableFrozen=${readable.frozen} readableUnavailable=${readable.unavailable} endedClosed=${endedClosed} remindersSent=${remindersSent} depositReminders=${depositRemindersSent} obligationEmails=${obligationEmails} reviewReminders=${reviewReminders}`,
     );
   } catch (err) {
     console.error(`[worker] maintenance error`, err);

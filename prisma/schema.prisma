@@ -1078,6 +1078,8 @@ model Subscription {
   lastInvoiceId           String?
   /// Échéance (nextInvoiceAt) pour laquelle le rappel J-30 de renouvellement annuel est parti
   renewalReminderSentFor  DateTime?
+  /// Échéance (nextInvoiceAt) pour laquelle l'avis de 1re échéance est parti (marqueur propre, distinct du précédent)
+  firstChargeNoticeSentFor DateTime?
   /// Changement d'état venu de Stripe (ENDED | PAUSED | ACTIVE) : résiliation, impayés ou pause faits côté Stripe
   stripeStatusChange      String?
   stripeStatusChangedAt   DateTime?
@@ -1215,6 +1217,8 @@ model Invoice {
   readableSnapshot             String?
   /// Devis de rachat (et sa facture) : abonnement racheté
   buysOutSubscriptionId        String?
+  /// Devis de rachat : fin de la période en cours figée à sa création (signature refusée si elle a changé)
+  buyoutPeriodEndsAt           DateTime?
   /// Facture Stripe : dernière tentative (attempt_count) pour laquelle l'e-mail d'échec est parti
   stripeFailureNotifiedAttempt Int?
   /// Facture Stripe payée après un échec : e-mail de régularisation envoyé

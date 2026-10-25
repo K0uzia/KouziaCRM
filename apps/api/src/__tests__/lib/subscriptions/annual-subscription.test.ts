@@ -34,6 +34,7 @@ async function yearly(opts: { skipCurrentPeriod?: boolean; amountCents?: number 
     billingDay: 1,
     billingInterval: "YEAR",
     startDate: new Date(2026, 0, 1),
+    catchUpPastPeriods: true,
     skipCurrentPeriod: opts.skipCurrentPeriod,
   });
 }
@@ -74,6 +75,7 @@ describe("abonnement annuel", () => {
       amountCents: 30_000,
       billingDay: 1,
       startDate: new Date(2026, 0, 1),
+      catchUpPastPeriods: true,
     });
     const mrr = await computeMrrCents(new Date(2026, 0, 2));
     expect(mrr.mrrCents).toBe(25_000 + 30_000);

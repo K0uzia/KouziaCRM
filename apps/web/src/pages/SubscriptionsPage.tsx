@@ -6,6 +6,7 @@ import {
   faPlay,
   faPause,
   faStop,
+  faCalendarXmark,
   faPen,
   faSync,
   faTrash,
@@ -53,6 +54,8 @@ type Subscription = {
   /** Durée et fin d'engagement (offre tout compris) ; null = sans engagement. */
   commitmentMonths?: number | null;
   commitmentEndsAt?: string | null;
+  /** « Programmer la fin » : date de fin si elle était programmée maintenant (calculée par l'API). */
+  scheduledEndAt?: string | null;
   status: SubscriptionStatus;
   nextInvoiceAt: string;
   /** Dernière facture émise par l'abonnement : null tant que la 1re échéance n'est pas passée. */
@@ -133,6 +136,9 @@ type RevisionToAttach = {
 };
 
 /** Montant proposé (en euros, saisie) pour une offre et une périodicité. */
+/** Dernier jour actif d'une fin programmée : la veille de la fin du terme (l'API pose la fin au dernier instant). */
+const lastDayOf = (termEndsAt: string) => formatDate(new Date(new Date(termEndsAt).getTime() - 1).toISOString());
+
 function suggestEuros(svc: Service, interval: BillingInterval, freeMonths: number): string {
   return (suggestedAmountCents(svc.unitPriceCents, svc.billingInterval, interval, freeMonths) / 100).toFixed(2);
 }
@@ -524,6 +530,17 @@ export function SubscriptionsPage() {
     }
   }
 
+  async function scheduleEnd(sub: Subscription) {
+    try {
+      const updated = await api<{ endDate: string | null }>(`/api/subscriptions/${sub.id}/schedule-end`, { method: "POST" });
+      const day = updated.endDate ? formatDate(updated.endDate) : "";
+      toast.success(sub.stripeSubscriptionId ? `Fin programmée : actif jusqu'au ${day}, prélèvement Stripe arrêté ensuite` : `Fin programmée : actif jusqu'au ${day}`);
+      await load();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Erreur");
+    }
+  }
+
   async function resendStripeSetup(id: string) {
     try {
       await api(`/api/subscriptions/${id}/resend-setup`, { method: "POST", body: "{}" });
@@ -546,6 +563,7 @@ export function SubscriptionsPage() {
     setParams(next, { replace: true });
   }, [selectedId, params, setParams]);
   const [endTarget, setEndTarget] = useState<Subscription | null>(null);
+  const [scheduleTarget, setScheduleTarget] = useState<Subscription | null>(null);
   const selected = rows.find((r) => r.id === selectedId) ?? null;
 
   /** Ferme le panneau du contrat avant d'ouvrir une autre fenêtre. */
@@ -855,6 +873,12 @@ export function SubscriptionsPage() {
                 <dt className="text-xs text-[var(--muted)]">Offre</dt>
                 <dd className="mt-0.5">{selected.service.name}</dd>
               </div>
+              {selected.endDate && selected.status !== "ENDED" ? (
+                <div className="min-w-0">
+                  <dt className="text-xs text-[var(--muted)]">Fin programmée</dt>
+                  <dd className="mt-0.5">Actif jusqu'au {formatDate(selected.endDate)}</dd>
+                </div>
+              ) : null}
               {selected.commitmentEndsAt ? (
                 <div className="min-w-0">
                   <dt className="text-xs text-[var(--muted)]">Engagement</dt>
@@ -906,6 +930,12 @@ export function SubscriptionsPage() {
                   Reprendre
                 </Button>
               ) : null}
+              {selected.status !== "ENDED" && selected.scheduledEndAt && !selected.endDate ? (
+                <Button variant="secondary" onClick={() => fromPanel(() => setScheduleTarget(selected))}>
+                  <FontAwesomeIcon icon={faCalendarXmark} className="h-3.5 w-3.5" aria-hidden />
+                  Programmer la fin
+                </Button>
+              ) : null}
               {selected.status !== "ENDED" ? (
                 <Button variant="danger-ghost" onClick={() => fromPanel(() => setEndTarget(selected))}>
                   <FontAwesomeIcon icon={faStop} className="h-3.5 w-3.5" aria-hidden />
@@ -932,6 +962,18 @@ export function SubscriptionsPage() {
         busy={deleteBusy}
         onConfirm={() => deleteTarget && void deleteContract(deleteTarget)}
         onClose={() => setDeleteTarget(null)}
+      />
+
+      <ConfirmDialog
+        open={Boolean(scheduleTarget)}
+        title="Programmer la fin de cet abonnement"
+        message={`« ${scheduleTarget?.label ?? ""} » (${scheduleTarget?.client.displayName ?? ""}) reste actif jusqu'au ${scheduleTarget?.scheduledEndAt ? lastDayOf(scheduleTarget.scheduledEndAt) : ""}, fin de ${scheduleTarget?.commitmentEndsAt ? "son terme en cours" : "sa période en cours"}, puis prend fin sans frais : aucune facture${scheduleTarget?.stripeSubscriptionId ? " ni prélèvement Stripe" : ""} ensuite. Les factures déjà émises ne changent pas.`}
+        confirmLabel="Programmer la fin"
+        onConfirm={() => {
+          if (scheduleTarget) void scheduleEnd(scheduleTarget);
+          setScheduleTarget(null);
+        }}
+        onClose={() => setScheduleTarget(null)}
       />
 
       <ConfirmDialog

@@ -14,6 +14,7 @@ import {
   pauseSubscription,
   resumeSubscription,
   endSubscription,
+  scheduleSubscriptionEnd,
   computeMrrCents,
   generateDueSubscriptionInvoices,
   createSubscriptionRevision,
@@ -37,6 +38,8 @@ const createSchema = z.object({
   firstInvoiceAt: z.string().min(1).optional().nullable(),
   /** Virement (facture de l'ERP) ou prélèvement Stripe (carte ou SEPA, lien de mise en place envoyé au client). */
   collectionMethod: z.enum(["MANUAL_TRANSFER", "STRIPE"]).default("MANUAL_TRANSFER"),
+  /** Début dans le passé : facturer chaque période passée (rattrapage voulu). Défaut : 1re échéance à partir d'aujourd'hui. */
+  catchUpPastPeriods: z.boolean().optional(),
   /** Durée d'engagement en mois : pas d'abonnement sans engagement (décision du 23/10/2026), 12 mois par défaut. */
   commitmentMonths: z.union([z.literal(12), z.literal(24), z.literal(36)], { message: "Engagement : 12, 24 ou 36 mois." }).default(12),
 });
@@ -97,6 +100,7 @@ export const subscriptionsRoutes: FastifyPluginAsync = async (app) => {
         firstInvoiceAt: parseDate(parsed.data.firstInvoiceAt) ?? undefined,
         collectionMethod: parsed.data.collectionMethod,
         commitmentMonths: parsed.data.commitmentMonths ?? null,
+        catchUpPastPeriods: parsed.data.catchUpPastPeriods ?? false,
       });
       // Prélèvement Stripe : le client reçoit le lien de mise en place (mandat SEPA ou carte, 1er prélèvement à la 1re échéance).
       if (sub.collectionMethod === "STRIPE") {
@@ -178,7 +182,7 @@ export const subscriptionsRoutes: FastifyPluginAsync = async (app) => {
   // Suspendre, reprendre, clôturer : sous prélèvement Stripe, l'action est faite d'abord
   // dans Stripe ; si Stripe échoue, l'état ERP ne change pas (502 et message clair).
   const endSchema = z.object({ endDate: z.string().date().optional() }).nullable().optional();
-  for (const kind of ["pause", "resume", "end"] as const) {
+  for (const kind of ["pause", "resume", "end", "schedule-end"] as const) {
     app.post<{ Params: { id: string } }>(`/api/subscriptions/:id/${kind}`, async (request, reply) => {
       await requireAuth(request, reply);
       if (reply.sent) return;
@@ -188,6 +192,7 @@ export const subscriptionsRoutes: FastifyPluginAsync = async (app) => {
       try {
         if (kind === "pause") return await pauseSubscription(id);
         if (kind === "resume") return await resumeSubscription(id);
+        if (kind === "schedule-end") return await scheduleSubscriptionEnd(id);
         return await endSubscription(id, parsed.data?.endDate ? new Date(parsed.data.endDate) : undefined);
       } catch (err) {
         if (err instanceof SubscriptionError) return reply.code(400).send({ error: err.message });
