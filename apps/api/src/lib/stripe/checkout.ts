@@ -1,4 +1,5 @@
 import { BALANCE_INCLUDE, invoiceBalance } from "@/lib/invoices/balance.js";
+import { ensureSubscriptionCoupon } from "@/lib/stripe/subscription-discount.js";
 import {
   InvoiceDocumentType,
   InvoiceStatus,
@@ -275,12 +276,15 @@ export async function createSubscriptionCheckoutSession(
   const redirects = await portalRedirect();
 
   const timing = firstChargeTiming(sub.nextInvoiceAt);
+  // Remise du devis signé (R2) : coupon Stripe sur les échéances remisées restantes.
+  const coupon = await ensureSubscriptionCoupon(stripe, sub);
 
   const session = await createCheckoutSession(stripe, {
     mode: "subscription",
     customer: customerId,
     allowed_payment_method_types: subscriptionMethodTypes(sub.amountCents, await getCompanySettings()),
     line_items: [{ price_data: subscriptionPriceData(sub, await keyLivemode()), quantity: 1 }],
+    ...(coupon ? { discounts: [{ coupon }] } : {}),
     subscription_data: {
       metadata: { erpSubscriptionId: sub.id, erpClientId: sub.clientId },
       ...timing,

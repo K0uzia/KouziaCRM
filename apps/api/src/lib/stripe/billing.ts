@@ -1,4 +1,6 @@
 import { subscriptionMethodTypes, subscriptionMethodsSentence } from "@/lib/stripe/payment-methods.js";
+import { alertAdmin } from "@/lib/stripe/alert.js";
+import { stripeInvoiceDiscountCents } from "@/lib/stripe/subscription-discount.js";
 import {
   InvoiceDocumentType,
   InvoiceStatus,
@@ -130,6 +132,10 @@ export async function issueErpInvoiceFromStripeInvoice(
     ? `${sub.label} (${formatDateFr(periodStart)} - ${formatDateFr(periodEnd)})`
     : sub.label;
 
+  // Remise (R2) : facture Stripe remisée = ligne au tarif plein et ligne de remise ; l'échéance remisée est comptée.
+  const discountCents = stripeInvoiceDiscountCents(stripeInvoice);
+  const discountIndex = discountCents > 0 && sub.discountPeriods ? Math.min(sub.discountPeriodsBilled + 1, sub.discountPeriods) : 0;
+  let counted = false;
   const settings = await getCompanySettings();
   const issued = await prisma.$transaction(async (tx) => {
     const again = stripeInvoice.id
@@ -149,13 +155,20 @@ export async function issueErpInvoiceFromStripeInvoice(
         subtotalCents: amountCents,
         totalCents: amountCents,
         lines: {
-          create: {
-            position: 1,
-            description: label,
-            quantity: 1,
-            unitPriceCents: amountCents,
-            lineTotalCents: amountCents,
-          },
+          create: [
+            { position: 1, description: label, quantity: 1, unitPriceCents: amountCents + discountCents, lineTotalCents: amountCents + discountCents },
+            ...(discountCents > 0
+              ? [
+                  {
+                    position: 2,
+                    description: discountIndex ? `Remise (échéance ${discountIndex} sur ${sub.discountPeriods})` : "Remise",
+                    quantity: 1,
+                    unitPriceCents: -discountCents,
+                    lineTotalCents: -discountCents,
+                  },
+                ]
+              : []),
+          ],
         },
       },
     });
@@ -167,13 +180,27 @@ export async function issueErpInvoiceFromStripeInvoice(
       data: {
         lastInvoiceId: emitted.id,
         nextInvoiceAt: periodEnd ?? sub.nextInvoiceAt,
+        ...(discountIndex ? { discountPeriodsBilled: discountIndex } : {}),
         // Le montant de l'abonnement suit le prix Stripe (syncSubscriptionFromStripe), jamais une facture : une facture de
         // prorata ou créditée ne change pas le prix des échéances suivantes.
       },
     });
 
+    counted = discountIndex > 0;
     return emitted;
   });
+
+  // Dernière échéance remisée facturée : la remise est retirée de l'abonnement Stripe (l'ERP fait foi, pas la durée du coupon).
+  if (counted && sub.discountPeriods && discountIndex >= sub.discountPeriods && sub.stripeSubscriptionId) {
+    try {
+      await (await getStripe()).subscriptions.deleteDiscount(sub.stripeSubscriptionId);
+    } catch (err) {
+      await alertAdmin(
+        `Remise d'abonnement à retirer dans Stripe : ${sub.client.displayName}`,
+        `La dernière échéance remisée de « ${sub.label} » est facturée, mais la remise n'a pas pu être retirée de l'abonnement Stripe ${sub.stripeSubscriptionId} (${err instanceof Error ? err.message : String(err)}). Retirez-la dans Stripe avant la prochaine échéance.`,
+      );
+    }
+  }
 
   // Pas d'e-mail Stripe : l'ERP envoie sa facture (impayée tant que invoice.paid n'est pas reçu).
   await archiveIssuedDocument(issued.id);

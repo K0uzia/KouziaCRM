@@ -1,3 +1,4 @@
+import { nextPeriodAmountCents } from "@/lib/quotes/recurring-discount-calc.js";
 import { SubscriptionCollectionMethod, SubscriptionStatus } from "@prisma/client";
 import { prisma } from "@/lib/prisma.js";
 import { periodWord } from "@/lib/subscriptions/subscription-service.js";
@@ -454,7 +455,8 @@ export async function sendDueFirstChargeNotices(now: Date = new Date()): Promise
       clientName: sub.client.displayName,
       clientFirstName: sub.client.firstName,
       label: sub.label,
-      amountCents: sub.amountCents,
+      // 1re échéance remisée (R1) : le montant annoncé est celui qui sera facturé.
+      amountCents: nextPeriodAmountCents(sub),
       billingInterval: sub.billingInterval,
       firstChargeDate: sub.nextInvoiceAt,
       stripe,

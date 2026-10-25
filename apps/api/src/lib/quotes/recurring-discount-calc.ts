@@ -88,3 +88,15 @@ export function discountSentence(
   }
   return `${head} ${span}, soit ${euros(d.discountedAmountCents)} par ${word} pendant ${d.months} mois, puis ${euros(periodCents)} par ${word}.`;
 }
+
+/** Montant de la prochaine échéance d'un abonnement : remise déduite tant qu'il reste des échéances remisées. */
+export function nextPeriodAmountCents(sub: {
+  amountCents: number;
+  discountKind: string | null;
+  discountValue: number | null;
+  discountPeriods: number | null;
+  discountPeriodsBilled: number;
+}): number {
+  const remaining = sub.discountPeriods ? sub.discountPeriods - sub.discountPeriodsBilled : 0;
+  return remaining > 0 ? sub.amountCents - discountCentsPerPeriod(sub.discountKind, sub.discountValue, sub.amountCents) : sub.amountCents;
+}
