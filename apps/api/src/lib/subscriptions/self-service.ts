@@ -7,6 +7,7 @@ import { mailEnqueue } from "@/lib/email/mailer/index.js";
 import { buildEmailBrand } from "@/lib/email/deposit-templates.js";
 import { renderEmailHtml } from "@/lib/email/layout.js";
 import { formatPlainTextSignature } from "@/lib/email/signature.js";
+import { templateText } from "@/lib/email/template-registry.js";
 import { alertAdmin } from "@/lib/stripe/alert.js";
 import { nonRenewalDeadline, isRenewal } from "@/lib/subscriptions/renewal-reminder.js";
 import { CANCEL_NOTICE_MONTHS, cancellableTermOf, commitmentEndOf, currentTermEndOf } from "@/lib/subscriptions/commitment.js";
@@ -132,33 +133,36 @@ export async function requestSubscriptionCancellation(subscriptionId: string, no
     const settings = await getCompanySettings();
     const brand = buildEmailBrand(settings);
     const name = (sub.client.firstName ?? sub.client.displayName)?.trim();
-    const text = [
-      name ? `Bonjour ${name},` : "Bonjour,",
-      "",
-      // Abonnement engagé : la date de fin découle du contrat (fin de l'engagement ou de l'année reconduite).
-      ...(term
-        ? [
-            `Nous avons bien reçu, le ${formatLongDate(now)}, votre demande de résiliation de l'abonnement « ${sub.label} ».`,
-            "",
-            `Votre abonnement prendra fin le ${formatLongDate(term.termEndsAt)}, ${
-              sub.commitmentEndsAt!.getTime() === term.termEndsAt.getTime() ? "à la fin de votre engagement" : "à la fin de l'année en cours"
-            }. Les échéances jusqu'à cette date restent dues. Rien ne change d'ici là.`,
-          ]
-        : [
-            `Nous avons bien reçu, le ${formatLongDate(now)}, votre demande de résiliation de l'abonnement « ${sub.label} ».`,
-            "",
-            "Nous vous confirmerons par e-mail la date de fin de l'abonnement.",
-          ]),
-      "",
-      "Cet e-mail vaut accusé de réception de votre demande. Conservez-le.",
-      "",
-      "Une question ? Répondez simplement à cet e-mail.",
-      "",
-      formatPlainTextSignature(settings, brand),
-    ].join("\n");
+    const salutation = name ? `Bonjour ${name},` : "Bonjour,";
+    const received = `Nous avons bien reçu, le ${formatLongDate(now)}, votre demande de résiliation de l'abonnement « ${sub.label} ».`;
+    // Abonnement engagé : la date de fin découle du contrat (fin de l'engagement ou de l'année reconduite).
+    const end = term
+      ? `Votre abonnement prendra fin le ${formatLongDate(term.termEndsAt)}, ${
+          sub.commitmentEndsAt!.getTime() === term.termEndsAt.getTime() ? "à la fin de votre engagement" : "à la fin de l'année en cours"
+        }. Les échéances jusqu'à cette date restent dues. Rien ne change d'ici là.`
+      : "Nous vous confirmerons par e-mail la date de fin de l'abonnement.";
+    const ack = "Cet e-mail vaut accusé de réception de votre demande. Conservez-le.";
+    // Modèle modifié dans Réglages (M3b) : date de fin et accusé restent des blocs fixes.
+    const content = await templateText(
+      "subscription.cancel_request",
+      {
+        salutation,
+        prenom: sub.client.firstName?.trim() ?? "",
+        client: sub.client.displayName,
+        abonnement: sub.label,
+        date_demande: formatLongDate(now),
+        bloc_fin: end,
+        bloc_accuse: ack,
+      },
+      {
+        subject: `Demande de résiliation reçue : ${sub.label}`,
+        body: [salutation, "", received, "", end, "", ack, "", "Une question ? Répondez simplement à cet e-mail."].join("\n"),
+      },
+    );
+    const text = [content.body, "", formatPlainTextSignature(settings, brand)].join("\n");
     await mailEnqueue({
       to,
-      subject: `Demande de résiliation reçue : ${sub.label}`,
+      subject: content.subject,
       text,
       html: renderEmailHtml({ text, brand, colors: { brandPrimaryColor: settings.brandPrimaryColor, brandSecondaryColor: settings.brandSecondaryColor } }),
       clientId: sub.clientId,

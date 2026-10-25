@@ -22,6 +22,7 @@ import { decryptOptional } from "@/lib/crypto.js";
 import { buildEmailBrand } from "@/lib/email/deposit-templates.js";
 import { formatPlainTextSignature } from "@/lib/email/signature.js";
 import { renderEmailHtml } from "@/lib/email/layout.js";
+import { templateText } from "@/lib/email/template-registry.js";
 import { formatDateFr } from "@/lib/format-fr.js";
 
 /** Relie l'abonnement ERP à Stripe après Checkout mode=subscription. */
@@ -372,17 +373,18 @@ export async function sendSubscriptionSetupEmail(
   const settings = await getCompanySettings();
   const brand = buildEmailBrand(settings);
   const url = buildPayUrl("subscribe", sub.id);
-  const text = [
-    `Bonjour ${sub.client.firstName?.trim() || sub.client.displayName},`,
-    "",
-    `Pour activer le prélèvement de votre abonnement « ${sub.label} », cliquez sur le lien ci-dessous :`,
-    "",
-    url,
-    "",
-    subscriptionMethodsSentence(subscriptionMethodTypes(sub.amountCents, settings)),
-    "",
-    formatPlainTextSignature(settings, brand),
-  ].join("\n");
+  const salutation = `Bonjour ${sub.client.firstName?.trim() || sub.client.displayName},`;
+  const methods = subscriptionMethodsSentence(subscriptionMethodTypes(sub.amountCents, settings));
+  // Modèle modifié dans Réglages (M3b) : objet et texte remplis ; sinon le texte d'origine.
+  const content = await templateText(
+    "subscription.setup",
+    { salutation, prenom: sub.client.firstName?.trim() ?? "", client: sub.client.displayName, abonnement: sub.label, lien: url, moyens: methods },
+    {
+      subject: `Activer le prélèvement - ${sub.label}`,
+      body: [salutation, "", `Pour activer le prélèvement de votre abonnement « ${sub.label} », cliquez sur le lien ci-dessous :`, "", url, "", methods].join("\n"),
+    },
+  );
+  const text = [content.body, "", formatPlainTextSignature(settings, brand)].join("\n");
 
   const html = renderEmailHtml({
     text,
@@ -394,7 +396,7 @@ export async function sendSubscriptionSetupEmail(
 
   await mailEnqueue({
     to: email,
-    subject: `Activer le prélèvement - ${sub.label}`,
+    subject: content.subject,
     text,
     html,
     clientId: sub.clientId,

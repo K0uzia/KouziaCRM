@@ -10,6 +10,7 @@ import { isSmtpConfigured } from "@/lib/email/smtp.js";
 import { buildEmailBrand } from "@/lib/email/deposit-templates.js";
 import { renderEmailHtml } from "@/lib/email/layout.js";
 import { formatPlainTextSignature } from "@/lib/email/signature.js";
+import { templateText } from "@/lib/email/template-registry.js";
 import type { EmailBrand } from "@/lib/email/templates.js";
 import { alertAdmin } from "@/lib/stripe/alert.js";
 import { getStripe } from "@/lib/stripe/client.js";
@@ -37,8 +38,24 @@ function greeting(ctx: MailContext): string {
   return name ? `Bonjour ${name},` : "Bonjour,";
 }
 
-function finish(ctx: MailContext, subject: string, body: string[], button?: { url: string; label: string }) {
-  const text = [greeting(ctx), "", ...body, "", formatPlainTextSignature(ctx.settings, ctx.brand)].join("\n");
+/**
+ * Objet et texte : modèle modifié dans Réglages (M3b) s'il existe, rempli avec ses variables ; sinon le texte du code.
+ * Signature, bouton et pied légal restent ceux du système.
+ */
+async function finish(
+  ctx: MailContext,
+  template: { key: string; values: Record<string, string> },
+  subject: string,
+  body: string[],
+  button?: { url: string; label: string },
+) {
+  const content = await templateText(
+    template.key,
+    { salutation: greeting(ctx), prenom: ctx.clientFirstName?.trim() ?? "", client: ctx.clientName, ...template.values },
+    { subject, body: [greeting(ctx), "", ...body].join("\n") },
+  );
+  subject = content.subject;
+  const text = [content.body, "", formatPlainTextSignature(ctx.settings, ctx.brand)].join("\n");
   const html = renderEmailHtml({
     text,
     brand: ctx.brand,
@@ -51,7 +68,7 @@ function finish(ctx: MailContext, subject: string, body: string[], button?: { ur
 
 const QUESTION = "Une question ? Répondez simplement à cet e-mail.";
 
-export function renderPaymentFailedEmail(
+export async function renderPaymentFailedEmail(
   ctx: MailContext & {
     label: string;
     amountCents: number;
@@ -69,6 +86,7 @@ export function renderPaymentFailedEmail(
     : ["Aucune nouvelle tentative automatique n'est prévue. Pour régulariser, réglez l'échéance ou changez de moyen de paiement :"];
   return finish(
     ctx,
+    { key: "subscription.payment_failed", values: { abonnement: ctx.label, montant: formatEUR(ctx.amountCents), mention_facture: invoice, suite: next[0]!, lien: ctx.url } },
     `Prélèvement non abouti : ${ctx.label}`,
     [
       `Le prélèvement de ${formatEUR(ctx.amountCents)} pour votre abonnement « ${ctx.label} »${invoice} n'a pas abouti.`,
@@ -83,20 +101,21 @@ export function renderPaymentFailedEmail(
   );
 }
 
-export function renderPaymentRecoveredEmail(
+export async function renderPaymentRecoveredEmail(
   ctx: MailContext & { label: string; amountCents: number; invoiceNumber: string | null },
 ) {
   const invoice = ctx.invoiceNumber ? ` (facture ${ctx.invoiceNumber})` : "";
-  return finish(ctx, `Paiement reçu, merci : ${ctx.label}`, [
+  return finish(ctx, { key: "subscription.payment_recovered", values: { abonnement: ctx.label, montant: formatEUR(ctx.amountCents), mention_facture: invoice } }, `Paiement reçu, merci : ${ctx.label}`, [
     `Le paiement de ${formatEUR(ctx.amountCents)} pour votre abonnement « ${ctx.label} »${invoice} est bien arrivé : la situation est régularisée.`,
     "",
     "Votre abonnement continue normalement. Merci !",
   ]);
 }
 
-export function renderSuspendedEmail(ctx: MailContext & { label: string; url: string }) {
+export async function renderSuspendedEmail(ctx: MailContext & { label: string; url: string }) {
   return finish(
     ctx,
+    { key: "subscription.suspended", values: { abonnement: ctx.label, lien: ctx.url } },
     `Abonnement suspendu faute de paiement : ${ctx.label}`,
     [
       `Malgré les tentatives de prélèvement, une échéance de votre abonnement « ${ctx.label} » reste impayée. L'abonnement est suspendu jusqu'à son règlement.`,
@@ -114,9 +133,10 @@ export function renderSuspendedEmail(ctx: MailContext & { label: string; url: st
 /** Résiliation programmée ou annulée : famille des accusés de résiliation, pas des incidents de paiement. */
 const CANCELLATION_KINDS: ReadonlySet<string> = new Set(["subscription_cancel_scheduled", "subscription_cancel_revoked"]);
 
-export function renderCancelScheduledEmail(ctx: MailContext & { label: string; endsAt: Date }) {
+export async function renderCancelScheduledEmail(ctx: MailContext & { label: string; endsAt: Date }) {
   const date = fmtDate(ctx.endsAt);
-  return finish(ctx, `Résiliation enregistrée : ${ctx.label}`, [
+  const values = { abonnement: ctx.label, date_fin: date, bloc_accuse: "Cet e-mail vaut accusé de réception de votre demande. Conservez-le." };
+  return finish(ctx, { key: "subscription.cancel_scheduled", values }, `Résiliation enregistrée : ${ctx.label}`, [
     `Nous avons bien enregistré la résiliation de votre abonnement « ${ctx.label} ».`,
     "",
     `Il prendra fin le ${date} : aucun prélèvement ne sera fait après cette date.`,
@@ -127,8 +147,8 @@ export function renderCancelScheduledEmail(ctx: MailContext & { label: string; e
   ]);
 }
 
-export function renderCancelRevokedEmail(ctx: MailContext & { label: string }) {
-  return finish(ctx, `Résiliation annulée : ${ctx.label}`, [
+export async function renderCancelRevokedEmail(ctx: MailContext & { label: string }) {
+  return finish(ctx, { key: "subscription.cancel_revoked", values: { abonnement: ctx.label } }, `Résiliation annulée : ${ctx.label}`, [
     `La résiliation de votre abonnement « ${ctx.label} » a été annulée : il continue normalement.`,
     "",
     QUESTION,
@@ -152,7 +172,7 @@ async function mailContext(clientId: string) {
 async function send(
   clientId: string,
   kind: string,
-  build: (ctx: MailContext) => { subject: string; text: string; html: string },
+  build: (ctx: MailContext) => Promise<{ subject: string; text: string; html: string }>,
   documentId?: string,
 ): Promise<boolean> {
   const { to, ctx } = await mailContext(clientId);
@@ -160,7 +180,7 @@ async function send(
     console.warn(`[subscriptions] e-mail ${kind} non envoyé : client sans e-mail (${clientId})`);
     return false;
   }
-  const content = build(ctx);
+  const content = await build(ctx);
   await mailEnqueue({
     to,
     subject: content.subject,
@@ -226,13 +246,15 @@ export async function handleStripePaymentFailed(stripeInvoice: Stripe.Invoice): 
   return `échec signalé (tentative ${attempt})`;
 }
 
-export function renderActionRequiredEmail(
+export async function renderActionRequiredEmail(
   ctx: MailContext & { label: string; amountCents: number; invoiceNumber: string | null; url: string; reminder: boolean },
 ) {
   const invoice = ctx.invoiceNumber ? ` (facture ${ctx.invoiceNumber})` : "";
+  const start = ctx.reminder ? "Rappel : confirmation" : "Confirmation";
   return finish(
     ctx,
-    `${ctx.reminder ? "Rappel : confirmation" : "Confirmation"} de paiement requise : ${ctx.label}`,
+    { key: "subscription.action_required", values: { abonnement: ctx.label, montant: formatEUR(ctx.amountCents), mention_facture: invoice, debut_objet: start, lien: ctx.url } },
+    `${start} de paiement requise : ${ctx.label}`,
     [
       `Votre banque demande de confirmer le paiement de ${formatEUR(ctx.amountCents)} pour votre abonnement « ${ctx.label} »${invoice}.`,
       "",
