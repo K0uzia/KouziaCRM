@@ -177,7 +177,7 @@ export default function App() {
           <Route path="demandes-logiciel/:id" element={<SoftwareRequestPage />} />
           <Route path="settings" element={<SettingsPage />} />
           <Route path="settings/modeles-emails" element={<EmailTemplatesPage />} />
-          <Route path="settings/modeles-emails/:key" element={<EmailTemplatePage />} />
+          <Route path="settings/modeles-emails/:group/:name" element={<EmailTemplatePage />} />
           <Route path="site" element={<SiteOverviewPage />} />
           <Route path="site/realisations" element={<SiteProjectsPage />} />
           <Route path="site/realisations/:id" element={<SiteProjectPage />} />

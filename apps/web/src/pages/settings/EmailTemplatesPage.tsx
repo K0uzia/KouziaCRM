@@ -89,7 +89,7 @@ export function EmailTemplatesPage() {
                 {list.map((t) => (
                   <li key={t.key}>
                     <Link
-                      to={`${LIST_PATH}/${encodeURIComponent(t.key)}`}
+                      to={`${LIST_PATH}/${t.key.split(".").map(encodeURIComponent).join("/")}`}
                       className="flex min-h-11 items-center gap-3 rounded-[var(--radius-sm)] px-3 py-2.5 hover:bg-[var(--surface-hover)]"
                     >
                       <span className="min-w-0 flex-1">
@@ -123,7 +123,9 @@ export function EmailTemplatesPage() {
 
 /** Fiche d'un modèle : objet et texte, variables, contrôle et aperçu à la saisie, retour au texte d'origine. */
 export function EmailTemplatePage() {
-  const { key = "" } = useParams();
+  // Clé « document.invoice » en deux segments d'URL : un point ferait prendre l'adresse pour un fichier au rechargement.
+  const { group = "", name = "" } = useParams();
+  const key = `${group}.${name}`;
   const [view, setView] = useState<TemplateView | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [attempt, setAttempt] = useState(0);
