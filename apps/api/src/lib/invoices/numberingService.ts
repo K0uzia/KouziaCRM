@@ -7,6 +7,7 @@ import {
 } from "@prisma/client";
 import { prisma } from "@/lib/prisma.js";
 import { getCompanySettings } from "@/lib/company.js";
+import { formatDateFr, parisParts, parisYmd } from "@/lib/format-fr.js";
 
 function newCounterId(): string {
   return `c${randomBytes(12).toString("hex")}`;
@@ -127,7 +128,8 @@ export async function generateDocumentNumber(
   },
 ): Promise<AllocatedNumber> {
   const settings = opts.settings ?? (await getCompanySettings());
-  const sequenceYear = (opts.issueDate ?? new Date()).getFullYear();
+  // Année de la série à Paris : une pièce émise le 1er janvier à 0 h 30 (heure de Paris) est de la nouvelle année.
+  const sequenceYear = parisParts(opts.issueDate ?? new Date()).year;
   const width = settings.numberCounterWidth || 4;
   const template = templateFor(settings, series);
   const initial = legacyStartFor(settings, series, sequenceYear);
@@ -209,7 +211,7 @@ export async function previewNextNumbers(
   at = new Date(),
 ): Promise<NumberingPreview[]> {
   const s = settings ?? (await getCompanySettings());
-  const year = at.getFullYear();
+  const year = parisParts(at).year;
   const width = s.numberCounterWidth || 4;
   const out: NumberingPreview[] = [];
 
@@ -412,4 +414,35 @@ export function formatQuoteNumber(year: number, seq: number, width = 4): string 
     counter: seq,
     width,
   });
+}
+
+export class IssueDateError extends Error {
+  readonly statusCode = 400;
+}
+
+/**
+ * Date d'émission saisie (audit du 25/10/2026) : la numérotation suit la chronologie. Refusée si elle est dans le futur,
+ * antérieure à la dernière pièce numérotée de la même série, ou (avoir) antérieure à la facture créditée. Jour de Paris.
+ */
+export async function assertIssueDateAllowed(
+  documentType: InvoiceDocumentType,
+  issueDate: Date,
+  opts: { notBefore?: { date: Date; label: string } } = {},
+): Promise<void> {
+  if (Number.isNaN(issueDate.getTime())) throw new IssueDateError("Date d'émission invalide.");
+  const day = parisYmd(issueDate);
+  if (day > parisYmd(new Date())) throw new IssueDateError("La date d'émission ne peut pas être dans le futur.");
+  if (opts.notBefore && day < parisYmd(opts.notBefore.date)) {
+    throw new IssueDateError(`La date d'émission ne peut pas précéder celle ${opts.notBefore.label} (${formatDateFr(opts.notBefore.date)}).`);
+  }
+  const last = await prisma.invoice.findFirst({
+    where: { documentType, number: { not: null }, issueDate: { not: null } },
+    orderBy: [{ issueDate: "desc" }],
+    select: { number: true, issueDate: true },
+  });
+  if (last?.issueDate && day < parisYmd(last.issueDate)) {
+    throw new IssueDateError(
+      `La date d'émission ne peut pas précéder celle de la dernière pièce de la série (${last.number}, ${formatDateFr(last.issueDate)}) : la numérotation suit la chronologie.`,
+    );
+  }
 }

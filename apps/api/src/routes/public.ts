@@ -73,6 +73,7 @@ import {
 } from "@/lib/invoices/transitions.js";
 import {
   describePlans,
+  planSettingsOf,
   parsePaymentPlan,
   parseBillingMode,
   parsePaymentPlanOffer,
@@ -816,7 +817,7 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
                     : {}),
                   ...(quotePending && offer !== "NONE"
                     ? {
-                        paymentPlans: describePlans(offer, depositBaseOf(d), settings, parseBillingMode(d.billingMode)).map((p) => ({
+                        paymentPlans: describePlans(offer, depositBaseOf(d), planSettingsOf(d, settings), parseBillingMode(d.billingMode)).map((p) => ({
                           plan: p.plan,
                           milestones: p.milestones.map(({ amountCents, ...m }) =>
                             showAmounts ? { ...m, amountCents } : m,

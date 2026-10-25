@@ -50,6 +50,23 @@ export function parisParts(date: Date): ParisParts {
 const two = (n: number) => String(n).padStart(2, "0");
 
 /** « 19/10/2026 » (jour à Paris). */
+/** Écart (ms) entre l'heure de Paris et l'heure UTC à cet instant (heure d'été comprise). */
+function parisOffsetMs(at: number): number {
+  const p = parisParts(new Date(at));
+  return Date.UTC(p.year, p.month - 1, p.day, p.hour, p.minute) - Math.floor(at / 60_000) * 60_000;
+}
+
+/**
+ * Instant dont l'heure de Paris est celle donnée (mois de 1 à 12) ; secondes et millisecondes ajoutées telles quelles.
+ * Indépendant du fuseau du serveur (TZ), contrairement à new Date(année, mois, jour).
+ */
+export function parisWallTime(year: number, month: number, day: number, hour = 0, minute = 0, extraMs = 0): Date {
+  const wall = Date.UTC(year, month - 1, day, hour, minute) + extraMs;
+  let at = wall - parisOffsetMs(wall);
+  at = wall - parisOffsetMs(at);
+  return new Date(at);
+}
+
 export function formatDateFr(date: Date): string {
   const { year, month, day } = parisParts(date);
   return `${two(day)}/${two(month)}/${year}`;

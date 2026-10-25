@@ -1136,6 +1136,9 @@ model Invoice {
   /// Devis : clauses légales retenues à l'émission (kind, title, body, audience, position), variables non remplies.
   /// null : brouillon, ou devis émis avant la migration 20261205090000 (clauses actives au rendu).
   legalClausesSnapshot         Json?
+  /// Devis : réglages d'échéancier figés à l'émission (JSON des champs de PlanSettings). null : brouillon, ou devis
+  /// émis avant la migration 20261214090000 (réglages actuels).
+  paymentScheduleSnapshot      String?
   issueDate                    DateTime?
   /// Date de réalisation de la prestation (mention obligatoire, distincte de l'émission)
   serviceDate                  DateTime?

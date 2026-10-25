@@ -3,6 +3,8 @@
  * résilie pas lui-même : il demande la résiliation, l'admin la traite. Elle prend effet à la fin de l'engagement ou
  * d'une année reconduite, avec un mois de préavis (cancellableTermOf, décision du 23/10/2026).
  */
+import { parisParts, parisWallTime } from "@/lib/format-fr.js";
+
 export const COMMITMENT_MONTHS = [12, 24, 36] as const;
 export type CommitmentMonths = (typeof COMMITMENT_MONTHS)[number];
 
@@ -10,15 +12,17 @@ export function isCommitmentMonths(value: unknown): value is CommitmentMonths {
   return (COMMITMENT_MONTHS as readonly unknown[]).includes(value);
 }
 
-/** Fin de l'engagement : départ du contrat + durée, même jour du mois (31 janvier + 1 mois : 28 ou 29 février). */
+/**
+ * Fin de l'engagement : départ du contrat + durée, même jour du mois (31 janvier + 1 mois : 28 ou 29 février), même
+ * heure. Calendrier de Paris, quel que soit le fuseau du serveur (audit du 25/10/2026).
+ */
 export function commitmentEndOf(start: Date, months: number): Date {
-  const end = new Date(start);
-  const day = end.getDate();
-  end.setDate(1);
-  end.setMonth(end.getMonth() + months);
-  const last = new Date(end.getFullYear(), end.getMonth() + 1, 0).getDate();
-  end.setDate(Math.min(day, last));
-  return end;
+  const p = parisParts(start);
+  const index = p.year * 12 + (p.month - 1) + months;
+  const year = Math.floor(index / 12);
+  const month = (index % 12) + 1;
+  const last = new Date(Date.UTC(year, month, 0)).getUTCDate();
+  return parisWallTime(year, month, Math.min(p.day, last), p.hour, p.minute, start.getTime() % 60_000);
 }
 
 /** Abonnement encore engagé à cette date. */

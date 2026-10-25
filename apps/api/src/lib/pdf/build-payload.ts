@@ -11,6 +11,7 @@ import type { InvoicePdfData } from "@/lib/pdf/invoice-document.js";
 import { clausesForClient, DEDICATED_CLAUSE_KINDS, type ClauseText } from "@/lib/company/legal-clauses.js";
 import {
   describePlans,
+  planSettingsOf,
   parsePaymentPlan,
   parseBillingMode,
   parsePaymentPlanOffer,
@@ -143,7 +144,7 @@ export function buildInvoicePdfPayload({
     // Devis au choix non signé : les deux échéanciers ; devis signé : la formule retenue.
     paymentPlanChoice:
       isQuote && offer === "CHOICE" && !retained && planSettings
-        ? describePlans(offer, invoice.depositBaseCents ?? invoice.totalCents, planSettings, parseBillingMode(invoice.billingMode)).map((p) => ({
+        ? describePlans(offer, invoice.depositBaseCents ?? invoice.totalCents, planSettingsOf(invoice, planSettings), parseBillingMode(invoice.billingMode)).map((p) => ({
             title: PLAN_TITLE[p.plan],
             milestones: p.milestones,
           }))
