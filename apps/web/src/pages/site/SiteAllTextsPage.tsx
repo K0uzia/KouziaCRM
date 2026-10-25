@@ -24,6 +24,7 @@ import {
   type SchemaNode,
 } from "@/lib/site-editor";
 import { ImageField, LoadState } from "./shared";
+import { ResyncDialog } from "./ResyncDialog";
 import { useUnsavedGuard } from "@/lib/unsaved";
 
 /**
@@ -55,6 +56,7 @@ export function SiteAllTextsPage() {
   const [saving, setSaving] = useState(false);
   const [params, setParams] = useSearchParams();
   const [query, setQuery] = useState("");
+  const [resyncOpen, setResyncOpen] = useState(false);
 
   const load = useCallback(async (force = false) => {
     setLoading(true);
@@ -139,6 +141,21 @@ export function SiteAllTextsPage() {
       <PageHeader
         title="Tous les textes"
         subtitle="Chaque texte de kouzia.com, rangé par page et par section. Un champ vide garde le texte actuel du site ; le site change à la prochaine publication."
+        actions={
+          data ? (
+            <Button variant="secondary" disabled={dirty.size > 0} title={dirty.size > 0 ? "Enregistrez d'abord vos modifications" : undefined} onClick={() => setResyncOpen(true)}>
+              Resynchroniser depuis le site
+            </Button>
+          ) : undefined
+        }
+      />
+      <ResyncDialog
+        open={resyncOpen}
+        onClose={() => setResyncOpen(false)}
+        onApplied={() => {
+          setResyncOpen(false);
+          void load(true);
+        }}
       />
       <LoadState loading={loading} error={loadError} onRetry={() => void load(true)}>
         {data ? (
@@ -197,17 +214,22 @@ export function SiteAllTextsPage() {
                     <h2 className="font-display text-base font-semibold">{section}</h2>
                     <WhereItAppears page={p} section={section} cibles={data.cibles} siteUrls={data.siteUrls} />
                     <div className="mt-4 space-y-5">
-                      {list.map((f) => (
-                        <FieldControl
-                          key={`${f.doc}:${f.path.join(".")}`}
-                          editeur={f.editeur}
-                          node={f.node}
-                          value={getAt(drafts[f.doc], f.path)}
-                          defaultValue={getAt(docOf(f.doc).defaults, f.path)}
-                          errors={issuesOf(f)}
-                          onChange={(v) => change(f, v)}
-                        />
-                      ))}
+                      {list.map((f) => {
+                        const value = getAt(drafts[f.doc], f.path);
+                        const defaultValue = getAt(docOf(f.doc).defaults, f.path);
+                        // Texte de l'ERP : il ne suit plus le texte par défaut du site ; le vider l'y ramène (listes : bouton de la liste).
+                        const revert = value !== undefined && defaultValue !== undefined && f.editeur.type !== "listeObjets" && f.editeur.type !== "objet";
+                        return (
+                          <div key={`${f.doc}:${f.path.join(".")}`} className="space-y-1">
+                            <FieldControl editeur={f.editeur} node={f.node} value={value} defaultValue={defaultValue} errors={issuesOf(f)} onChange={(v) => change(f, v)} />
+                            {revert ? (
+                              <Button variant="ghost" aria-label={`Revenir au texte par défaut du site : ${f.editeur.libelle}`} onClick={() => change(f, undefined)}>
+                                Revenir au texte par défaut du site
+                              </Button>
+                            ) : null}
+                          </div>
+                        );
+                      })}
                     </div>
                   </Card>
                 );
