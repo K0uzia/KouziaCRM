@@ -186,3 +186,41 @@ describe("rattrapage des documents archivés avant la version lisible (QB1 a)", 
     expect(alertAdmin).toHaveBeenCalledTimes(1);
   }, 30_000);
 });
+
+describe("devis signé : le document signé, jamais un nouveau rendu (décision du 25/10/2026)", () => {
+  async function signedQuote(number: string) {
+    const client = await createClient({ type: "B2C", displayName: "Lou Martin" });
+    const quote = await invoiceOf(InvoiceDocumentType.QUOTE, number, client.id);
+    await prisma.invoice.update({ where: { id: quote.id }, data: { quoteStatus: "ACCEPTED" } });
+    const audit = await prisma.quoteAcceptanceAudit.create({ data: { quoteId: quote.id, signerName: "Lou Martin", source: "PORTAL" } });
+    const { recordQuoteAcceptanceProof, signedQuoteAbsolutePath } = await import("@/lib/invoices/acceptance-proof.js");
+    await recordQuoteAcceptanceProof(audit.id, quote.id, { sendConfirmation: false });
+    const { pdfPath } = await prisma.quoteAcceptanceAudit.findUniqueOrThrow({ where: { id: audit.id } });
+    return { quote, client, archive: await fs.readFile(signedQuoteAbsolutePath(pdfPath!)) };
+  }
+  const changeCity = async () => {
+    await prisma.companySettings.updateMany({ data: { city: "Brest" } });
+    (await import("@/lib/company.js")).invalidateCompanySettingsCache();
+  };
+
+  it("PDF : l'archive de la preuve, même après un réglage changé ; version lisible figée au 1er accès", async () => {
+    const { quote, archive } = await signedQuote("D-2026-0980");
+    const readable = await get(`/api/public/documents/${signDocumentToken(quote.id)}/lisible`);
+    expect(readable.statusCode, readable.body).toBe(200);
+    expect(readable.json()).toMatchObject({ kind: "QUOTE", number: "D-2026-0980", source: "ARCHIVE" });
+    await changeCity();
+    const pdf = await get(`/api/public/documents/${signDocumentToken(quote.id)}`);
+    expect(pdf.statusCode).toBe(200);
+    expect(Buffer.compare(pdf.rawPayload, archive)).toBe(0);
+    expect((await get(`/api/public/documents/${signDocumentToken(quote.id)}/lisible`)).json()).toEqual(readable.json());
+  }, 60_000);
+
+  it("texte du rendu du jour différent du PDF signé : version lisible indisponible et plus annoncée", async () => {
+    const { quote, client } = await signedQuote("D-2026-0981");
+    await changeCity();
+    expect((await get(`/api/public/documents/${signDocumentToken(quote.id)}/lisible`)).statusCode).toBe(404);
+    const { token } = await openPortalSession({ clientId: client.id, deviceId: "appareil-signe", ipAddress: "203.0.113.9", userAgent: "Test" });
+    const t = (await get("/api/public/tracking", { cookie: `${PORTAL_COOKIE}=${token}` })).json() as { documents: Array<Record<string, unknown>> };
+    expect("readableAvailable" in t.documents.find((d) => d.number === "D-2026-0981")!).toBe(false);
+  }, 60_000);
+});
