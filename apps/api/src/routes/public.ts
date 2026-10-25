@@ -1,4 +1,5 @@
 import { primaryMethod } from "@/lib/stripe/payment-methods.js";
+import { nextPeriodAmountCents, recurringDiscountSummary } from "@/lib/quotes/recurring-discount-calc.js";
 import { balanceFields } from "@/lib/invoices/balance.js";
 import type { FastifyPluginAsync, FastifyReply, FastifyRequest } from "fastify";
 import { rateLimitKey } from "@/lib/client-ip.js";
@@ -206,6 +207,10 @@ const ymdOf = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padSta
 function recurringOf(d: {
   billingMode: string | null;
   depositBaseCents: number | null;
+  recurringDiscountKind: string | null;
+  recurringDiscountValue: number | null;
+  recurringDiscountMonths: number | null;
+  openingDiscount: boolean;
   lines: Array<
     StartLine & {
       billingInterval: string | null;
@@ -222,10 +227,13 @@ function recurringOf(d: {
   const start = publicStart(first, first.subscriptionStart === "DELIVERY");
   const sub = first.subscription;
   const firstInvoice = sub ? (sub.invoices[0]?.issueDate ?? sub.nextInvoiceAt) : null;
+  const amountCents = d.lines.reduce((sum, l) => sum + l.unitPriceCents, 0);
   return {
     period,
-    amountCents: d.lines.reduce((sum, l) => sum + l.unitPriceCents, 0),
+    amountCents,
     commitmentMonths: first.commitmentMonths ?? null,
+    // Remise du devis (R1, contrat R4) : même calcul que le PDF.
+    discount: recurringDiscountSummary(d, amountCents, period, first.commitmentMonths ?? null),
     periods: first.commitmentMonths ? Math.ceil(first.commitmentMonths / periodMonths(period)) : null,
     ...start,
     billingDay: first.billingDay ?? 1,
@@ -795,7 +803,20 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
                       ...(showAmounts ? { amountCents: r.amountCents } : {}),
                       commitmentMonths: r.commitmentMonths,
                       periods: r.periods,
-                      ...(showAmounts && r.periods ? { totalCommitmentCents: r.amountCents * r.periods } : {}),
+                      // Avec remise : total remisé, le même que le PDF (contrat R4).
+                      ...(showAmounts && r.periods ? { totalCommitmentCents: r.discount?.totalCommitmentCents ?? r.amountCents * r.periods } : {}),
+                      ...(r.discount
+                        ? {
+                            discount: {
+                              kind: r.discount.kind,
+                              ...(r.discount.kind === "PERCENT" ? { percentBps: r.discount.value } : showAmounts ? { amountCents: r.discount.value } : {}),
+                              months: r.discount.months,
+                              periods: r.discount.periods,
+                              opening: r.discount.opening,
+                              ...(showAmounts ? { discountedAmountCents: r.discount.discountedAmountCents } : {}),
+                            },
+                          }
+                        : {}),
                       startsAt: r.startsAt,
                       ...(r.startsOn ? { startsOn: r.startsOn } : {}),
                       ...(r.freeMonths ? { freeMonths: r.freeMonths } : {}),
@@ -875,6 +896,17 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
           commitmentMonths: s.commitmentMonths ?? null,
           nextInvoiceAt: s.nextInvoiceAt,
           ...(showAmounts ? { amountCents: s.amountCents } : {}),
+          // Remise (contrat R4) : tant qu'il reste des échéances remisées ; nextAmountCents = prochaine échéance, remise déduite.
+          ...(s.discountKind && s.discountValue && s.discountPeriods && s.discountPeriods > s.discountPeriodsBilled
+            ? {
+                discount: {
+                  kind: s.discountKind,
+                  ...(s.discountKind === "PERCENT" ? { percentBps: s.discountValue } : showAmounts ? { amountCents: s.discountValue } : {}),
+                  remainingPeriods: s.discountPeriods - s.discountPeriodsBilled,
+                  ...(showAmounts ? { nextAmountCents: nextPeriodAmountCents(s) } : {}),
+                },
+              }
+            : {}),
           // Moyen enregistré dans Stripe (ajout du 19/10/2026) : type et 4 derniers chiffres seulement.
           ...(s.paymentMethodType ? { paymentMethod: { type: s.paymentMethodType, last4: s.paymentMethodLast4 ?? null } } : {}),
           // Prélèvement Stripe pas encore en place : lien pour le mettre en place (SEPA ou carte).
