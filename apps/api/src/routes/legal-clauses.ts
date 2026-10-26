@@ -4,6 +4,7 @@ import { LegalClauseAudience, LegalClauseKind } from "@prisma/client";
 import { requireAuth } from "@/lib/auth.js";
 import { prisma } from "@/lib/prisma.js";
 import {
+  clauseUsageCount,
   ensureDefaultLegalClauses,
   listAllLegalClauses,
 } from "@/lib/company/legal-clauses.js";
@@ -47,7 +48,7 @@ export const legalClausesRoutes: FastifyPluginAsync = async (app) => {
     await requireAuth(request, reply);
     if (reply.sent) return;
     const existing = await prisma.legalClause.findUnique({ where: { id: request.params.id } });
-    if (!existing) return reply.code(404).send({ error: "Introuvable" });
+    if (!existing || existing.deletedAt) return reply.code(404).send({ error: "Introuvable" });
     const parsed = clauseSchema.safeParse(request.body);
     if (!parsed.success) {
       return reply.code(400).send({ error: "Données invalides" });
@@ -65,15 +66,34 @@ export const legalClausesRoutes: FastifyPluginAsync = async (app) => {
     });
   });
 
+  // Interrupteur « Active » de la liste : seul champ changé, sans renvoyer le texte.
+  app.patch<{ Params: { id: string } }>("/api/legal-clauses/:id/active", async (request, reply) => {
+    await requireAuth(request, reply);
+    if (reply.sent) return;
+    const parsed = z.object({ active: z.boolean() }).safeParse(request.body);
+    if (!parsed.success) return reply.code(400).send({ error: "Données invalides" });
+    const existing = await prisma.legalClause.findUnique({ where: { id: request.params.id } });
+    if (!existing || existing.deletedAt) return reply.code(404).send({ error: "Introuvable" });
+    return prisma.legalClause.update({ where: { id: existing.id }, data: { active: parsed.data.active } });
+  });
+
   app.delete<{ Params: { id: string } }>("/api/legal-clauses/:id", async (request, reply) => {
     await requireAuth(request, reply);
     if (reply.sent) return;
     const existing = await prisma.legalClause.findUnique({ where: { id: request.params.id } });
-    if (!existing) return reply.code(404).send({ error: "Introuvable" });
+    if (!existing || existing.deletedAt) return reply.code(404).send({ error: "Introuvable" });
     if (existing.required) {
-      return reply.code(400).send({ error: "Clause légale obligatoire : désactivez-la plutôt" });
+      return reply.code(400).send({ error: "Clause légale obligatoire : désactivez-la plutôt.", code: "required" });
     }
-    await prisma.legalClause.delete({ where: { id: existing.id } });
+    // Figée sur des devis émis : elle s'y imprime toujours ; la désactiver suffit pour les prochains documents.
+    const used = await clauseUsageCount(existing);
+    if (used > 0) {
+      return reply
+        .code(409)
+        .send({ error: `Utilisée sur ${used} devis émis : désactivez-la plutôt.`, code: "in_use", count: used });
+    }
+    // Gardée (deletedAt) et inactive : jamais imprimée, jamais recréée comme clause par défaut.
+    await prisma.legalClause.update({ where: { id: existing.id }, data: { deletedAt: new Date(), active: false } });
     return { ok: true };
   });
 };

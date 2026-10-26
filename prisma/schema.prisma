@@ -562,6 +562,8 @@ model LegalClause {
   /// ALL : tous les documents ; B2B ou B2C : seulement pour ce type de client
   audience  LegalClauseAudience @default(ALL)
   position  Int                 @default(0)
+  /// Supprimée par l'admin (migration 20261219090000) : gardée pour ne jamais recréer une clause par défaut ; toujours inactive
+  deletedAt DateTime?
   createdAt DateTime            @default(now())
   updatedAt DateTime            @updatedAt
 

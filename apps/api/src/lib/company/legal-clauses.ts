@@ -231,7 +231,8 @@ export async function ensureDefaultLegalClauses() {
     return;
   }
 
-  // Bases déjà seedées : ajouter les clauses manquantes par titre (sans doublon).
+  // Bases déjà seedées : ajouter les clauses manquantes par titre (sans doublon). Une clause supprimée par l'admin
+  // reste en base (deletedAt) et compte comme présente : elle ne revient jamais (bug du 26/10/2026).
   for (const { seedOnly, active, ...clause } of DEFAULT_LEGAL_CLAUSES) {
     if (seedOnly) continue;
     const existing = await prisma.legalClause.findFirst({
@@ -270,6 +271,22 @@ export function clausesForClient<T extends Pick<LegalClause, "audience">>(clause
   return clauses.filter((c) => c.audience === LegalClauseAudience.ALL || c.audience === clientType);
 }
 
+/**
+ * Devis émis qui ont figé cette clause (même type et même titre) : elle s'y imprime toujours, la suppression est refusée
+ * (« désactivez-la »). Comptés dans legalClausesSnapshot, texte JSON sans clé étrangère.
+ */
+export async function clauseUsageCount(clause: { kind: string; title: string }): Promise<number> {
+  const quotes = await prisma.invoice.findMany({
+    where: { documentType: "QUOTE", number: { not: null } },
+    select: { legalClausesSnapshot: true },
+  });
+  return quotes.filter((q) => {
+    if (q.legalClausesSnapshot == null) return false;
+    const parsed = clauseSnapshotSchema.safeParse(q.legalClausesSnapshot);
+    return parsed.success && parsed.data.some((c) => c.kind === clause.kind && c.title === clause.title);
+  }).length;
+}
+
 export async function listActiveLegalClauses() {
   await ensureDefaultLegalClauses();
   return prisma.legalClause.findMany({
@@ -281,6 +298,7 @@ export async function listActiveLegalClauses() {
 export async function listAllLegalClauses() {
   await ensureDefaultLegalClauses();
   return prisma.legalClause.findMany({
+    where: { deletedAt: null },
     orderBy: [{ position: "asc" }, { createdAt: "asc" }],
   });
 }
