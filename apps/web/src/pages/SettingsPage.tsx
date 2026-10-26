@@ -2149,12 +2149,12 @@ export function SettingsPage() {
                           setClauseModal(target);
                         }}
                       >
-                        Régler « {target.title} »
+                        Régler la clause
                       </Button>
                     ) : null;
                   })()}
                 >
-                  Les devis et factures des associations n&apos;ont aucune clause de retard de paiement : choisissez « Associations et particuliers » pour la clause du Code civil.
+                  Les devis et factures des associations n&apos;ont aucune clause de retard de paiement : pour la clause « Retard de paiement (particuliers) », choisissez « Associations et particuliers ».
                 </Banner>
               ) : null}
               {/293\s*B/i.test(form.vatMention) ? (
