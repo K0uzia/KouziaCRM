@@ -39,6 +39,7 @@ beforeEach(async () => {
   invalidateCompanySettingsCache();
 });
 afterEach(async () => {
+  vi.useRealTimers();
   await resetDb();
 });
 
@@ -127,6 +128,9 @@ describe("espace client : devis d'abonnement seul", () => {
 
     await prisma.emailOutbox.deleteMany();
     await app.inject({ method: "POST", url: `/api/public/quotes/${quoteId}/sign-code`, cookies: { kz_portal } });
+    // Horloge figée : le lien de prélèvement est signé à la signature puis de nouveau par /tracking ; sans cela, son
+    // expiration (à la seconde) différait quand une seconde s'écoulait entre les deux (dette P2 du 26/10/2026).
+    vi.useFakeTimers({ toFake: ["Date"] });
     const signed = await app.inject({
       method: "POST",
       url: `/api/public/quotes/${quoteId}/decision`,
