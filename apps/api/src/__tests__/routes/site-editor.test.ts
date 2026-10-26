@@ -13,6 +13,10 @@ const contract = JSON.parse(CONTRACT) as { defauts: Record<string, Record<string
 let unreachable = false;
 vi.mock("@/lib/site/github.js", async (orig) => ({
   ...(await orig<typeof import("@/lib/site/github.js")>()),
+  readSiteHeadSha: vi.fn(async () => {
+    if (unreachable) throw new (await import("@/lib/site/github.js")).GithubError("GitHub injoignable", 502);
+    return "0123abcd";
+  }),
   readRepoFileAt: vi.fn(async () => {
     if (unreachable) throw new (await import("@/lib/site/github.js")).GithubError("GitHub injoignable", 502);
     return CONTRACT;

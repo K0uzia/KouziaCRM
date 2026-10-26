@@ -21,6 +21,8 @@ import { secretMeta } from "@/lib/settings/secrets.js";
 import { archiveMonth, archiveUrl, httpsUrl, imagePath, SITE_FILES, SITE_OPTIONAL_FILES, siteText, slug } from "@/lib/site/contract.js";
 import { detailBlocker, detailStarted, parseJsonList, parseTech, type ProjectBeforeAfter, type ProjectCapture, type ProjectLink } from "@/lib/site/mapping.js";
 import { readSiteText, writeSiteText, isSiteTextKey } from "@/lib/site/texts.js";
+import { readSiteContract } from "@/lib/site/editor.js";
+import type { SiteContract } from "@/lib/site/editeur-rules.js";
 import { buildSiteSnapshot } from "@/lib/site/snapshot.js";
 import { itemHash, lastPublishedFiles, pendingChanges, publicationState as itemPublicationState, publishedProjectPage, textHash, type SiteCollection } from "@/lib/site/changes.js";
 import { previewPublication, publicationOut, publishSite, PublishError, sitePublicUrl } from "@/lib/site/publish.js";
@@ -356,13 +358,26 @@ async function publicationState(digest: string) {
 
 const nextPosition = (max: { _max: { position: number | null } }) => (max._max.position ?? -1) + 1;
 
+/**
+ * Contrat du contrôle avant publication : celui du dépôt du site, comme l'éditeur et la resynchronisation. GitHub
+ * indisponible : undefined, les documents décrits par le contrat sont signalés « non vérifiés » (la publication le relit).
+ */
+async function contractForCheck(): Promise<SiteContract | undefined> {
+  try {
+    return await readSiteContract();
+  } catch (e) {
+    if (e instanceof GithubError || e instanceof SyntaxError) return undefined;
+    throw e;
+  }
+}
+
 export const siteRoutes: FastifyPluginAsync = async (app) => {
   // --- État de l'espace Site -------------------------------------------------------------------
   app.get(
     "/api/site/status",
     admin(async () => {
       const settings = await getCompanySettings();
-      const [snapshot, withdrawals] = await Promise.all([buildSiteSnapshot(), withdrawalsOnSite()]);
+      const [snapshot, withdrawals] = await Promise.all([buildSiteSnapshot(await contractForCheck()), withdrawalsOnSite()]);
       return {
         imagesAvailable: Boolean(await loadSharp()),
         github: {
@@ -391,7 +406,7 @@ export const siteRoutes: FastifyPluginAsync = async (app) => {
     "/api/site/changes",
     admin(async () => {
       const settings = await getCompanySettings();
-      const snapshot = await buildSiteSnapshot();
+      const snapshot = await buildSiteSnapshot(await contractForCheck());
       const [{ changes }, publication] = await Promise.all([pendingChanges(snapshot), publicationState(snapshot.digest)]);
       return {
         changes,
@@ -1062,9 +1077,11 @@ export const siteRoutes: FastifyPluginAsync = async (app) => {
       if (await siteContentExists()) {
         return reply.code(409).send({ error: "L'espace Site contient déjà du contenu : import refusé." });
       }
+      let contract: unknown;
       try {
-        const { files, optional } = await readSiteRepoFiles();
-        await importSiteFiles(files, new Date(), optional);
+        const site = await readSiteRepoFiles();
+        contract = site.contract;
+        await importSiteFiles(site.files, new Date(), site.optional, contract);
         // Images déjà publiées : copiées depuis le dépôt, sinon « Image absente de l'ERP » bloquerait la publication.
         await adoptMissingMedia(readSiteRepoBinary).catch((e) => {
           console.error("[site] Reprise des images publiées incomplète :", e instanceof Error ? e.message : e);
@@ -1076,7 +1093,7 @@ export const siteRoutes: FastifyPluginAsync = async (app) => {
         }
         throw e;
       }
-      const snapshot = await buildSiteSnapshot();
+      const snapshot = await buildSiteSnapshot(contract);
       return { digest: snapshot.digest, issues: snapshot.issues };
     }),
   );

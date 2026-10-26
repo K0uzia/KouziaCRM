@@ -1,0 +1,50 @@
+{
+  "schemaVersion": 1,
+  "pages": {
+    "accueil": {
+      "services": {
+        "surTitre": "Services",
+        "titre": "Deux métiers, un seul interlocuteur",
+        "intro": "Un site pour être trouvé et contacté, un logiciel pour mieux travailler. Et la maintenance en option, pour que tout continue de fonctionner."
+      },
+      "realisations": {
+        "surTitre": "Réalisations",
+        "titre": "Des projets en ligne, à visiter",
+        "intro": "Sites internet et logiciels en service pour des structures du pays de Morlaix et du Finistère. Chaque carte mène au site ou à la démo."
+      },
+      "maintenanceOption": {
+        "titre": "Maintenance en option",
+        "texte": "pour un site comme pour un logiciel : surveillance 24 h/24, sauvegardes, mises à jour et retouches."
+      },
+      "zone": {
+        "titre": "Zone d’intervention",
+        "texte": "Basé à {ville}, au cœur des monts d’Arrée, je viens vous rencontrer autour de Huelgoat, Morlaix et Carhaix. Pour le reste du Finistère et partout en France, votre projet de site web, d’application ou de logiciel avance très bien par téléphone, e‑mail et visio."
+      },
+      "contact": {
+        "titre": "Un projet en tête ? *Parlons-en.*",
+        "intro": "Quelques lignes suffisent : votre activité, ce qui vous freine, ce que vous aimeriez. Le devis est gratuit et sans engagement."
+      }
+    },
+    "sitesWeb": {
+      "hero": {
+        "surTitre": "Création de site internet · Finistère",
+        "titre": "Un site web qui vous rend visible, et qui donne envie de vous appeler",
+        "intro": "Un bon site fait trois choses : il apparaît sur Google, il rassure en quelques secondes et il donne envie de vous contacter. Je m’occupe de tout pour qu’il y arrive."
+      }
+    },
+    "logiciels": {
+      "hero": {
+        "surTitre": "Logiciels et applications sur mesure · Finistère",
+        "titre": "Un logiciel fait pour votre façon de travailler, pas l’inverse",
+        "intro": "Je regarde d’abord comment votre structure fonctionne vraiment, puis je construis l’outil qui supprime les doubles saisies, les oublis et les fichiers éparpillés."
+      }
+    },
+    "aPropos": {
+      "titre": "Un seul interlocuteur, du premier échange à la maintenance",
+      "histoire": "Développeur à Huelgoat, j’ai créé Kouzia pour les associations, les restaurants et les indépendants qui veulent un numérique à leur mesure. Je comprends votre activité avant d’écrire une ligne de code, je conçois des sites et des outils légers, éco-conçus et à un prix juste, puis je vous explique comment les faire vivre et je reste joignable."
+    },
+    "faq": {
+      "intro": "Prix, délais, maintenance, référencement ou logiciel sur mesure : les réponses aux questions que l’on me pose le plus souvent."
+    }
+  }
+}
