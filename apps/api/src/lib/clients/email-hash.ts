@@ -1,10 +1,11 @@
 import { createHmac } from "node:crypto";
+import { encryptionKey } from "@/lib/crypto.js";
 
 /** HMAC-SHA256 de l'email normalise (lookup indexe sans decrypt). */
 export function computeEmailHash(email: string | null | undefined): string | null {
   const normalized = email?.trim().toLowerCase();
   if (!normalized) return null;
-  const hex = process.env.ENCRYPTION_KEY;
-  if (!hex || hex.length !== 64) return null;
-  return createHmac("sha256", Buffer.from(hex, "hex")).update(normalized).digest("hex");
+  // Hachage historique avec la clé elle-même : le changer obligerait à recalculer tous les emailHash en base.
+  if (!process.env.ENCRYPTION_KEY) return null;
+  return createHmac("sha256", encryptionKey()).update(normalized).digest("hex");
 }

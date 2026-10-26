@@ -2,7 +2,7 @@ import { createHash, createHmac, randomBytes, randomInt } from "node:crypto";
 import type { FastifyReply, FastifyRequest } from "fastify";
 import type { User } from "@prisma/client";
 import { prisma } from "@/lib/prisma.js";
-import { decrypt, encrypt } from "@/lib/crypto.js";
+import { decrypt, derivedKey, encrypt, encryptionKey } from "@/lib/crypto.js";
 import { getCookieSecure } from "@/lib/env.js";
 import { generateTotpSecret, matchTotpStep } from "@/lib/admin/totp.js";
 
@@ -141,10 +141,14 @@ function normalizeRecoveryCode(code: string): string {
   return code.toUpperCase().replace(/[^A-Z0-9]/g, "");
 }
 
+/** Codes de secours hachés avec une sous-clé dédiée (27/10/2026), jamais avec la clé de chiffrement elle-même. */
 function hashRecoveryCode(code: string): string {
-  const hex = process.env.ENCRYPTION_KEY;
-  if (!hex || hex.length !== 64) throw new Error("ENCRYPTION_KEY must be a 64-char hex string (32 bytes)");
-  return createHmac("sha256", Buffer.from(hex, "hex")).update(normalizeRecoveryCode(code)).digest("hex");
+  return createHmac("sha256", derivedKey("recovery-codes")).update(normalizeRecoveryCode(code)).digest("hex");
+}
+
+/** Format d'avant le 27/10/2026 (clé de chiffrement) : encore accepté, chaque code étant consommé à son seul usage. */
+function legacyRecoveryHash(code: string): string {
+  return createHmac("sha256", encryptionKey()).update(normalizeRecoveryCode(code)).digest("hex");
 }
 
 /** Remplace tous les codes de secours : 10 codes « XXXXX-XXXXX » (50 bits chacun), affichés une seule fois. */
@@ -165,7 +169,7 @@ export async function regenerateRecoveryCodes(userId: string): Promise<string[]>
 export async function consumeRecoveryCode(userId: string, code: string): Promise<boolean> {
   if (normalizeRecoveryCode(code).length !== 10) return false;
   const { count } = await prisma.adminRecoveryCode.updateMany({
-    where: { userId, codeHash: hashRecoveryCode(code), usedAt: null },
+    where: { userId, codeHash: { in: [hashRecoveryCode(code), legacyRecoveryHash(code)] }, usedAt: null },
     data: { usedAt: new Date() },
   });
   return count === 1;
