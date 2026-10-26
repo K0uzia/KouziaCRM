@@ -546,10 +546,14 @@ enum LegalClauseKind {
 }
 
 /// Clients auxquels une clause s'imprime (type du client du document)
+/// ASSOCIATION et NON_PROFESSIONAL (associations et particuliers) ajoutés le 26/10/2026 : aucune migration, une énumération
+/// est un TEXT sans contrainte sous SQLite (prisma migrate diff vide).
 enum LegalClauseAudience {
   ALL
   B2B
   B2C
+  ASSOCIATION
+  NON_PROFESSIONAL
 }
 
 /// Conditions / mentions légales gérables (comme le catalogue prestations)

@@ -50,13 +50,17 @@ type LegalClause = {
   audience: ClauseAudience;
 };
 
-type ClauseAudience = "ALL" | "B2B" | "B2C";
+type ClauseAudience = "ALL" | "B2B" | "B2C" | "ASSOCIATION" | "NON_PROFESSIONAL";
 
 const AUDIENCE_LABEL: Record<ClauseAudience, string> = {
   ALL: "Tous les clients",
   B2B: "Clients professionnels",
   B2C: "Clients particuliers",
+  ASSOCIATION: "Associations",
+  NON_PROFESSIONAL: "Associations et particuliers",
 };
+/** Publics qui impriment une clause pour un client association (comme clausesForClient de l'API). */
+const REACHES_ASSOCIATIONS: ReadonlySet<ClauseAudience> = new Set(["ALL", "ASSOCIATION", "NON_PROFESSIONAL"]);
 
 type NumberingPreview = {
   series: string;
@@ -2127,6 +2131,32 @@ export function SettingsPage() {
                   Ajouter
                 </Button>
               </div>
+              {clauses && !clauses.some((c) => c.active && c.kind === "PENALTY" && REACHES_ASSOCIATIONS.has(c.audience)) ? (
+                <Banner
+                  level="warning"
+                  action={(() => {
+                    // Clause de retard des particuliers (Code civil) : à étendre aux associations, jamais modifiée sans clic.
+                    const target =
+                      clauses.find((c) => c.kind === "PENALTY" && c.title === "Retard de paiement (particuliers)") ??
+                      clauses.find((c) => c.kind === "PENALTY" && c.audience === "B2C");
+                    return target ? (
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        className="px-3 text-xs"
+                        onClick={() => {
+                          setClauseForm({ title: target.title, body: target.body, kind: target.kind, audience: "NON_PROFESSIONAL" });
+                          setClauseModal(target);
+                        }}
+                      >
+                        Régler la clause
+                      </Button>
+                    ) : null;
+                  })()}
+                >
+                  Les devis et factures des associations n&apos;ont aucune clause de retard de paiement : pour la clause « Retard de paiement (particuliers) », choisissez « Associations et particuliers ».
+                </Banner>
+              ) : null}
               {/293\s*B/i.test(form.vatMention) ? (
                 <Banner level="warning">
                   La mention de TVA cite l&apos;{OLD_VAT_REFERENCE}. Depuis la recodification du CIBS, la référence devient art. L. 233-3 du CIBS (ancienne mention admise jusqu&apos;au 30/06/2028) ; en cas de doute, demandez à votre service des impôts des entreprises.
