@@ -1,6 +1,6 @@
 import { prisma } from "@/lib/prisma.js";
 import { SITE_SCHEMA_VERSION } from "@/lib/site/contract.js";
-import { readRepoFileAt, siteBranch, SITE_CONTENT_DIR } from "@/lib/site/github.js";
+import { readRepoFileAt, readSiteHeadSha, SITE_CONTENT_DIR } from "@/lib/site/github.js";
 import { contractFileIssues, fileSchema, type FieldIssue, type SiteContract } from "@/lib/site/editeur-rules.js";
 
 /**
@@ -23,14 +23,17 @@ export type EditorDocId = keyof typeof EDITOR_DOCS;
 export const EDITOR_DOC_IDS = Object.keys(EDITOR_DOCS) as EditorDocId[];
 export const isEditorDocId = (id: string): id is EditorDocId => Object.hasOwn(EDITOR_DOCS, id);
 
-const CACHE_MS = 10 * 60_000;
-let cache: { at: number; value: SiteContract } | null = null;
+let cache: { sha: string; value: SiteContract } | null = null;
 
-/** Contrat du site lu sur sa branche (10 min de cache). Erreur GitHub : propagée à l'appelant. */
+/**
+ * Seule source du contrat (P0 du 26/10/2026) : contenu.schema.json au commit de tête de la branche du site, relu dès
+ * que ce commit change. Éditeur, resynchronisation et contrôle avant publication le partagent. Erreur GitHub : propagée.
+ */
 export async function readSiteContract(force = false): Promise<SiteContract> {
-  if (!force && cache && Date.now() - cache.at < CACHE_MS) return cache.value;
-  const value = JSON.parse(await readRepoFileAt(`${SITE_CONTENT_DIR}/contenu.schema.json`, siteBranch())) as SiteContract;
-  cache = { at: Date.now(), value };
+  const sha = await readSiteHeadSha();
+  if (!force && cache?.sha === sha) return cache.value;
+  const value = JSON.parse(await readRepoFileAt(`${SITE_CONTENT_DIR}/contenu.schema.json`, sha)) as SiteContract;
+  cache = { sha, value };
   return value;
 }
 

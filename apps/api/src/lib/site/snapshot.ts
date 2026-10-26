@@ -116,6 +116,13 @@ export async function buildSiteSnapshot(contract?: unknown): Promise<SiteSnapsho
   if (menus && allowed.has("menus")) optional.menus = { schemaVersion: SITE_SCHEMA_VERSION, ...menus };
   if (espaceClient && allowed.has("espace-client")) optional["espace-client"] = { schemaVersion: SITE_SCHEMA_VERSION, ...espaceClient };
   issues.push(...validateOptionalSiteFiles(optional, contract));
+  if (contract === undefined) {
+    for (const name of SITE_OPTIONAL_FILES) {
+      if (optional[name] !== undefined) {
+        warnings.push({ file: name, path: "(racine)", message: "non vérifié : contrat du site illisible (GitHub), vérifié à la publication" });
+      }
+    }
+  }
   // Contrôles du build du site sur les valeurs finales (variables remplacées, valeurs actuelles comprises), dès que le
   // site les applique : même sans seo.json, un délai de réponse plus long peut faire dépasser une description actuelle.
   if (contract !== undefined && allowed.has("seo")) {
