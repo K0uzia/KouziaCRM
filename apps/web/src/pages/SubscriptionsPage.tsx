@@ -1,4 +1,5 @@
 import { useEffect, useState, type FormEvent } from "react";
+import { toIsoDate } from "@/components/ui/DatePicker";
 import { Navigate, useNavigate, useSearchParams } from "react-router-dom";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import {
@@ -116,7 +117,7 @@ const emptyForm = {
   billingDay: "1",
   // Annuel par défaut : Stripe prélève des frais à chaque transaction (une par an plutôt que douze).
   billingInterval: "YEAR" as BillingInterval,
-  startDate: new Date().toISOString().slice(0, 10),
+  startDate: toIsoDate(new Date()),
   /** Vide : 1re facture au prochain jour de prélèvement. Rempli : 1re échéance différée (ex. une année offerte). */
   firstInvoiceAt: "",
   collectionMethod: "MANUAL_TRANSFER" as "MANUAL_TRANSFER" | "STRIPE",

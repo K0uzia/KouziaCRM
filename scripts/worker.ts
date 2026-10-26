@@ -1,3 +1,5 @@
+// En premier : bornes calendaires à Paris, quel que soit le fuseau de la machine.
+import "../apps/api/src/lib/business-tz.js";
 import cron from "node-cron";
 import { isImapConfigured } from "../apps/api/src/lib/email/imap-config.js";
 import { runMailPollFallback, startIdleWorker, stopIdleWorker } from "../apps/api/src/lib/email/sync/idle-worker.js";

@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma.js";
+import { parisIsoDate } from "@/lib/format-fr.js";
 import { BILLABLE_LINES_WHERE } from "@/lib/quotes/quote-options.js";
 
 /**
@@ -11,7 +12,7 @@ type Step = { label: string; status: "done" | "current" | "todo"; date: string |
 export const PROJECT_STEPS = ["Devis validé", "Acompte facturé", "Acompte payé", "Réalisation", "Livraison"] as const;
 
 function today(): string {
-  return new Date().toISOString().slice(0, 10);
+  return parisIsoDate();
 }
 
 function progressOf(steps: Step[]): number {
@@ -57,7 +58,7 @@ export async function ensureProjectForQuote(quoteId: string) {
     },
   });
   if (!quote) return null;
-  const decided = quote.quoteDecidedAt ? quote.quoteDecidedAt.toISOString().slice(0, 10) : null;
+  const decided = quote.quoteDecidedAt ? parisIsoDate(quote.quoteDecidedAt) : null;
 
   if (quote.project) {
     const prev = parseSteps(quote.project.steps);

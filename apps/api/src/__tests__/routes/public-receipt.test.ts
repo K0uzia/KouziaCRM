@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { parisIsoDate } from "@/lib/format-fr.js";
 import type { FastifyInstance } from "fastify";
 import { createHash } from "node:crypto";
 import { InvoiceDocumentType, InvoiceStatus, InvoiceType, PaymentMethod } from "@prisma/client";
@@ -43,7 +44,7 @@ describe("GET /api/public/receipts/:token", () => {
     expect(ok.statusCode).toBe(200);
     expect(ok.headers["content-type"]).toBe("application/pdf");
     expect(ok.headers["content-disposition"]).toBe(
-      `inline; filename="Recu-F-2026-0950-${payment.paidAt.toISOString().slice(0, 10)}-${payment.id.slice(-6)}.pdf"`,
+      `inline; filename="Recu-F-2026-0950-${parisIsoDate(payment.paidAt)}-${payment.id.slice(-6)}.pdf"`,
     );
     const row = await prisma.payment.findUniqueOrThrow({ where: { id: payment.id } });
     expect(createHash("sha256").update(ok.rawPayload).digest("hex")).toBe(row.receiptPdfSha256);

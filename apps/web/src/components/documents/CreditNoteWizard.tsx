@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { toIsoDate } from "@/components/ui/DatePicker";
 import { fetchSettings } from "@/lib/settings-request";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
@@ -89,7 +90,7 @@ export function CreditNoteWizard({
   const [refundMethod, setRefundMethod] = useState("BANK_TRANSFER");
   const [cgvRefundable, setCgvRefundable] = useState<"" | "yes" | "no">("");
   const [issueDate, setIssueDate] = useState(
-    new Date().toISOString().slice(0, 10),
+    toIsoDate(new Date()),
   );
   const [registerRefund, setRegisterRefund] = useState(true);
   const [monthReceiptsEuros, setMonthReceiptsEuros] = useState("");
