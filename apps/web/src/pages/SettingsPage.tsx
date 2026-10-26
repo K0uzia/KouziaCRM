@@ -2129,7 +2129,7 @@ export function SettingsPage() {
               </div>
               {/293\s*B/i.test(form.vatMention) ? (
                 <Banner level="warning">
-                  La mention de TVA cite l&apos;{OLD_VAT_REFERENCE} : vérifiez la nouvelle référence avec votre comptable avant de la changer.
+                  La mention de TVA cite l&apos;{OLD_VAT_REFERENCE}. Depuis la recodification du CIBS, la référence devient art. L. 233-3 du CIBS (ancienne mention admise jusqu&apos;au 30/06/2028) ; en cas de doute, demandez à votre service des impôts des entreprises.
                 </Banner>
               ) : null}
               {clauses?.some((c) => c.kind === "VAT" && !c.body.includes("{{mention_tva}}")) ? (
@@ -2141,7 +2141,7 @@ export function SettingsPage() {
                 <h3 className="text-sm font-semibold">Mention de TVA</h3>
                 <Field
                   label="Mention imprimée"
-                  hint="Sous les totaux des devis, factures, avoirs et reçus, et dans la clause {{mention_tva}}. Utilisez la mention que confirme votre comptable. Un devis déjà émis garde la sienne."
+                  hint="Mention à porter sur vos factures. Depuis la recodification du CIBS, la référence devient art. L. 233-3 du CIBS (ancienne mention admise jusqu'au 30/06/2028) ; en cas de doute, demandez à votre service des impôts des entreprises."
                 >
                   <Input
                     maxLength={400}
