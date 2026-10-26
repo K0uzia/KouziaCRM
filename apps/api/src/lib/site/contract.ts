@@ -282,16 +282,24 @@ export function contractOptionalFiles(contract: unknown): Set<SiteOptionalFileNa
   return new Set(SITE_OPTIONAL_FILES.filter((n) => Object.hasOwn(declared, `${n}.json`)));
 }
 
-/** Valide les fichiers facultatifs produits : règles de l'ERP, puis le schéma déclaré par le site, s'il est fourni. */
+/**
+ * Valide les fichiers facultatifs produits contre le contrat du site, seule source de leur forme (P0 du 26/10/2026 :
+ * la copie de l'ERP, plus ancienne, refusait les clés écrites par la resynchronisation). Sans contrat : rien à vérifier
+ * ici, l'appelant le signale ; la publication relit toujours le contrat. Les règles locales ne servent qu'à un contrat
+ * antérieur à l'éditeur généré (sans « editeur »), dont elles sont la copie.
+ */
 export function validateOptionalSiteFiles(files: Partial<Record<SiteOptionalFileName, unknown>>, contract?: unknown): SiteIssue[] {
   const issues: SiteIssue[] = [];
+  if (contract === undefined) return issues;
   const declared = (contract as { fichiersFacultatifs?: Record<string, unknown> } | null)?.fichiersFacultatifs ?? {};
   for (const name of SITE_OPTIONAL_FILES) {
     if (files[name] === undefined) continue;
     const js = declared[`${name}.json`];
-    // Contrat avec « editeur » (éditeur généré) : il fait foi, JSON Schema et règles des champs ; un champ nouveau du
-    // site n'est pas refusé par la copie ancienne de l'ERP. Contrat plus ancien ou absent : règles locales d'abord.
-    if (js && (contract as SiteContract).editeur) {
+    if ((contract as SiteContract | null)?.editeur) {
+      if (!js) {
+        issues.push({ file: name, path: "(racine)", message: `Contrat du site : ${name}.json non déclaré` });
+        continue;
+      }
       for (const i of contractFileIssues(contract as SiteContract, `${name}.json`, files[name])) {
         issues.push({ file: name, path: i.path, message: `Contrat du site : ${i.message}` });
       }

@@ -5,7 +5,6 @@ import {
   SITE_FILES,
   SITE_OPTIONAL_FILES,
   siteFileSchemas,
-  siteOptionalSchemas,
   validateOptionalSiteFiles,
   validateSiteFiles,
   type realisationValue,
@@ -84,6 +83,7 @@ export async function importSiteFiles(
   raw: Record<SiteFileName, string>,
   now = new Date(),
   optionalRaw: Partial<Record<SiteOptionalFileName, string>> = {},
+  contract?: unknown,
 ): Promise<void> {
   if (await siteContentExists()) {
     throw new SiteImportError("L'espace Site contient déjà du contenu : import refusé.", "NOT_EMPTY");
@@ -106,7 +106,7 @@ export async function importSiteFiles(
       throw new SiteImportError(`${name}.json illisible`, "INVALID");
     }
   }
-  const issues = [...validateSiteFiles(json), ...validateOptionalSiteFiles(optional)];
+  const issues = [...validateSiteFiles(json, contract), ...validateOptionalSiteFiles(optional, contract)];
   if (issues.length) {
     throw new SiteImportError(
       "Contenu du site non conforme",
@@ -124,7 +124,7 @@ export async function importSiteFiles(
   // Documents facultatifs : la valeur sans schemaVersion, comme les écrans Textes des pages, Référencement et Menus.
   const optionalTexts = SITE_OPTIONAL_FILES.flatMap((name) => {
     if (optional[name] === undefined) return [];
-    const { schemaVersion: _v, ...value } = siteOptionalSchemas[name].parse(optional[name]) as { schemaVersion: number } & Record<string, unknown>;
+    const { schemaVersion: _v, ...value } = optional[name] as { schemaVersion: number } & Record<string, unknown>;
     return [prisma.siteText.create({ data: { key: name, valueJson: JSON.stringify(value) } })];
   });
 

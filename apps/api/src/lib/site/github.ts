@@ -190,6 +190,14 @@ export async function readSiteRepoBinary(path: string): Promise<Buffer | null> {
   }
 }
 
+/** Commit de tête de la branche du site : clé du cache du contrat. */
+export async function readSiteHeadSha(): Promise<string> {
+  const ref = await githubJson<{ object?: { sha?: unknown } }>("GET", `/repos/${siteRepo()}/git/ref/heads/${siteBranch()}`);
+  const sha = ref?.object?.sha;
+  if (typeof sha !== "string" || !sha) throw new GithubError("Réponse de GitHub illisible (branche du site).", 502);
+  return sha;
+}
+
 /** Fichier brut du dépôt à un commit donné (lecture du contrat au moment de publier). */
 export async function readRepoFileAt(path: string, ref: string): Promise<string> {
   const res = await call(await githubToken(), `/repos/${siteRepo()}/contents/${path}?ref=${ref}`, "application/vnd.github.raw+json");

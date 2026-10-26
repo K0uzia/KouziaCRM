@@ -205,9 +205,9 @@ describe("publication des fichiers facultatifs", () => {
     expect(snap.mediaExt[sha]).toBe("jpg");
   });
 
-  it("reprise : fichier facultatif non conforme refusé, rien d'importé", async () => {
+  it("reprise : fichier facultatif non conforme au contrat du dépôt refusé, rien d'importé", async () => {
     const bad = { schemaVersion: 1, entete: [{ cible: "espaceClient" }] };
-    await expect(importSiteFiles(raw, new Date(), { menus: JSON.stringify(bad) })).rejects.toThrow(/non conforme/);
+    await expect(importSiteFiles(raw, new Date(), { menus: JSON.stringify(bad) }, contract)).rejects.toThrow(/non conforme/);
     expect(await prisma.siteText.count()).toBe(0);
   });
 

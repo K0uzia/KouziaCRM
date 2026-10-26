@@ -14,6 +14,7 @@ const contract = JSON.parse(CONTRACT) as { defauts: Record<string, Record<string
 let publishedPages: Record<string, unknown> | null = null;
 vi.mock("@/lib/site/github.js", async (orig) => ({
   ...(await orig<typeof import("@/lib/site/github.js")>()),
+  readSiteHeadSha: vi.fn(async () => "0123abcd"),
   readRepoFileAt: vi.fn(async () => CONTRACT),
   readSiteRepoFiles: vi.fn(async () => ({
     files: Object.fromEntries(["infos", "textes", "faq", "realisations", "avis", "references"].map((n) => [n, fixture(`${n}.json`)])),
