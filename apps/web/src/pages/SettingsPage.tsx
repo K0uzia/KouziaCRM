@@ -115,6 +115,9 @@ const IDENTITY_FIELDS: Record<string, { label: string; section: IdentitySection 
   decennaleCoverageZone: { label: "Zone de couverture", section: "extra" },
 };
 
+// Ancienne référence de la franchise : seule occurrence permise par check:tva, pour le bandeau de Mentions légales.
+const OLD_VAT_REFERENCE = "art. 293 B du CGI"; // check:tva autorisé
+
 function isTab(v: string | null): v is SettingsTabId {
   return SETTINGS_TABS.some((t) => t.id === v);
 }
@@ -559,6 +562,11 @@ export function SettingsPage() {
       brandSecondaryColor: form.brandSecondaryColor,
       pdfFooterText: form.pdfFooterText,
     });
+  }
+
+  async function saveVatMention() {
+    if (!form) return;
+    await save("/api/settings/identity", { vatMention: form.vatMention.trim() });
   }
 
   async function saveMediation() {
@@ -2119,6 +2127,31 @@ export function SettingsPage() {
                   Ajouter
                 </Button>
               </div>
+              {/293\s*B/i.test(form.vatMention) ? (
+                <Banner level="warning">
+                  La mention de TVA cite l&apos;{OLD_VAT_REFERENCE} : vérifiez la nouvelle référence avec votre comptable avant de la changer.
+                </Banner>
+              ) : null}
+              {clauses?.some((c) => c.kind === "VAT" && !c.body.includes("{{mention_tva}}")) ? (
+                <Banner level="info">
+                  La clause « Franchise en base de TVA » a son propre texte : remplacez-le par {"{{mention_tva}}"} pour qu&apos;elle suive la mention de TVA ci-dessous.
+                </Banner>
+              ) : null}
+              <Card className="space-y-3 border border-[var(--border)] p-5">
+                <h3 className="text-sm font-semibold">Mention de TVA</h3>
+                <Field
+                  label="Mention imprimée"
+                  hint="Sous les totaux des devis, factures, avoirs et reçus, et dans la clause {{mention_tva}}. Utilisez la mention que confirme votre comptable. Un devis déjà émis garde la sienne."
+                >
+                  <Input
+                    maxLength={400}
+                    required
+                    value={form.vatMention}
+                    onChange={(e) => setForm({ ...form, vatMention: e.target.value })}
+                  />
+                </Field>
+                {saveBar(saveVatMention)}
+              </Card>
               <Card className="divide-y divide-[var(--border)] border border-[var(--border)]" aria-busy={clauses === null || undefined}>
                 {clauses === null ? <p className="p-4 text-sm text-[var(--muted)]">Chargement des clauses…</p> : null}
                 {(clauses ?? []).map((c) => (
@@ -2264,7 +2297,7 @@ export function SettingsPage() {
           </Field>
           <Field
             label="Texte"
-            hint="Variables remplacées sur les PDF : {{nom_commercial}}, {{raison_sociale}}, {{adresse}}, {{email}}. Clauses d'abonnement seulement, selon la périodicité : {{periode}} (« mois », « trimestre », « an ») et {{periodicite}} (« chaque mois », « chaque trimestre », « chaque année à la date anniversaire »). Une seule clause active par type d'abonnement s'imprime : la première de la liste."
+            hint="Variables remplacées sur les PDF : {{nom_commercial}}, {{raison_sociale}}, {{adresse}}, {{email}}, {{mention_tva}} (mention de TVA, figée à l'émission d'un devis). Clauses d'abonnement seulement, selon la périodicité : {{periode}} (« mois », « trimestre », « an ») et {{periodicite}} (« chaque mois », « chaque trimestre », « chaque année à la date anniversaire »). Une seule clause active par type d'abonnement s'imprime : la première de la liste."
           >
             <Textarea
               required

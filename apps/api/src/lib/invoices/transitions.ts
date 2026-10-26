@@ -194,7 +194,7 @@ export async function issueQuote(
     // Émis = signable en ligne : un particulier exige un médiateur de la consommation déclaré (L612-1).
     const client = await tx.client.findUniqueOrThrow({ where: { id: quote.clientId }, select: { type: true } });
     assertMediatorFor(client.type, settings);
-    const legalClausesSnapshot = snapshotOfClauses(activeClauses, client.type);
+    const legalClausesSnapshot = snapshotOfClauses(activeClauses, client.type, settings.vatMention);
 
     const allocated = await allocateQuoteNumber(issueDate, tx);
     const snapshot = await buildClientSnapshot(quote.clientId, tx);

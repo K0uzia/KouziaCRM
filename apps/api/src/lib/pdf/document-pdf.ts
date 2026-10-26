@@ -1,7 +1,8 @@
 import { prisma } from "@/lib/prisma.js";
 import { decryptOptional } from "@/lib/crypto.js";
 import { getCompanySettings } from "@/lib/company.js";
-import { documentClauses, listActiveLegalClauses } from "@/lib/company/legal-clauses.js";
+import { LegalClauseKind } from "@prisma/client";
+import { documentClauses, fillClauseVariables, listActiveLegalClauses, VAT_MENTION_VARIABLE } from "@/lib/company/legal-clauses.js";
 import { buildInvoicePdfPayload, type ClientSnapshot } from "@/lib/pdf/build-payload.js";
 import { enrichCompanyForPdf } from "@/lib/pdf/brand-assets.js";
 import { renderInvoicePdf } from "@/lib/pdf/render.js";
@@ -79,12 +80,18 @@ export type LoadedDocumentForPdf = NonNullable<Awaited<ReturnType<typeof loadDoc
 
 /** Données du gabarit : une seule source pour le PDF et sa version lisible. */
 export async function pdfDataOfLoaded(doc: LoadedDocumentForPdf): Promise<InvoicePdfData> {
+  const company = await enrichCompanyForPdf(doc.companyRaw);
+  const isQuote = doc.invoice.documentType === "QUOTE";
+  // Devis aux clauses figées : la mention de TVA sous les totaux est celle figée à l'émission, pas le réglage du jour.
+  const frozenVat = isQuote && doc.invoice.legalClausesSnapshot != null ? doc.legalClauses.find((c) => c.kind === LegalClauseKind.VAT) : undefined;
+  // Facture ou avoir qui reprend les clauses du devis : la mention de TVA est celle du réglage à la date du document.
+  const legalClauses = isQuote ? doc.legalClauses : doc.legalClauses.map((c) => (c.kind === LegalClauseKind.VAT ? { ...c, body: VAT_MENTION_VARIABLE } : c));
   return {
-    company: await enrichCompanyForPdf(doc.companyRaw),
+    company: frozenVat ? { ...company, vatMention: fillClauseVariables(frozenVat.body, company) } : company,
     client: doc.snapshot,
     invoice: buildInvoicePdfPayload({
       invoice: doc.invoice,
-      legalClauses: doc.legalClauses,
+      legalClauses,
       clientType: doc.snapshot.type,
       balanceSummary: doc.balanceSummary,
       planSettings: doc.companyRaw,

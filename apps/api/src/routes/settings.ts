@@ -365,7 +365,7 @@ export const settingsRoutes: FastifyPluginAsync = async (app) => {
       brandPrimaryColor: hexColor.optional(),
       brandSecondaryColor: hexColor.optional(),
       pdfFooterText: z.string().max(2000).optional().nullable(),
-      vatMention: z.string().max(400).optional(),
+      vatMention: z.string().trim().min(1, "Mention de TVA obligatoire").max(400).optional(),
       latePenaltiesText: z.string().max(500).optional(),
       earlyPaymentDiscountText: z.string().max(300).optional(),
       paymentConditions: z.string().max(300).optional(),

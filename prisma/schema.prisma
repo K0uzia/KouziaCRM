@@ -284,6 +284,8 @@ model CompanySettings {
   phone                     String?
   website                   String?
   vatRegime                 String            @default("FRANCHISE_BASE_293B")
+  /// Mention de TVA (seule source, Réglages > Mentions légales). DEFAULT SQL jamais utilisé, gardé sans migration (une
+  /// reconstruction de la table sous SQLite) : la ligne unique est créée avec la valeur de seed-company.ts.
   vatMention                String            @default("TVA non applicable, art. 293 B du CGI")
   /// Enveloppe trésorerie / frais (budget perso, pas légal)
   treasuryRateBps           Int               @default(1420)

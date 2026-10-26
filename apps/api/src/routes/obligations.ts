@@ -245,6 +245,7 @@ export const obligationsRoutes: FastifyPluginAsync = async (app) => {
         addressLine1: company.addressLine1,
         postalCode: company.postalCode,
         city: company.city,
+        vatMention: company.vatMention,
       },
       rows,
       totalCents: rows.reduce((s, r) => s + r.amountCents, 0),

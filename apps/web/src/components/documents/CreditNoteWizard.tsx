@@ -272,7 +272,7 @@ export function CreditNoteWizard({
       open={open}
       onClose={onClose}
       title={`Avoir · ${stepTitle}`}
-      description="Procédure micro-entreprise (franchise TVA art. 293 B)"
+      description="Procédure micro-entreprise (franchise en base de TVA)"
       wide
       extraWide={previewStep}
     >

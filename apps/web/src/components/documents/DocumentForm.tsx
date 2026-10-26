@@ -91,7 +91,7 @@ const sliceOf = (f: ProposalSlice): ProposalSlice => ({
 });
 const PROPOSAL_LETTERS = ["A", "B"] as const;
 
-type PlanSettings = PaymentSettings & { paymentChoiceDefault: boolean; annualFreeMonths?: number; installmentIntervalDays?: number };
+type PlanSettings = PaymentSettings & { vatMention?: string; paymentChoiceDefault: boolean; annualFreeMonths?: number; installmentIntervalDays?: number };
 
 /** Prix annuel saisi (euros) ramené à la période, en euros avec deux décimales. */
 const periodEuros = (annualEuros: string | undefined, period: RecurringForm["interval"]) =>
@@ -1434,7 +1434,7 @@ export function DocumentFormEditor({
           <span className="font-display text-2xl font-semibold tabular-nums">{eur(mixedQuote ? oneOffPreview : totalPreview)}</span>
         </p>
         )}
-        <p className="mt-1 text-xs text-[var(--muted)]">TVA non applicable, art. 293 B du CGI.</p>
+        {planSettings?.vatMention ? <p className="mt-1 text-xs text-[var(--muted)]">{planSettings.vatMention}</p> : null}
       </div>
       {quoteMode === "ONE_OFF" && planSettings && totalPreview > 0 ? (
         <div className="space-y-1 border-t border-[var(--border)] pt-3">
