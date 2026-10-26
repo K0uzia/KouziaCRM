@@ -8,7 +8,7 @@ import { api } from "@/lib/api";
 import { formatDate } from "@/lib/format";
 import { Button, ButtonLink } from "@/components/ui/Button";
 import { Card, PageHeader } from "@/components/ui/Card";
-import { DateInput, Field, Input, Select, Textarea } from "@/components/ui/Field";
+import { Checkbox, DateInput, Field, Input, Select, Textarea } from "@/components/ui/Field";
 import { Modal, ModalActions } from "@/components/ui/Modal";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { AddressAutocomplete, type AddressValue } from "@/components/forms/AddressAutocomplete";
@@ -786,6 +786,18 @@ export function SettingsPage() {
       setClauses(await api("/api/legal-clauses"));
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Erreur");
+    }
+  }
+
+  /** Interrupteur « Active » : mis à jour tout de suite, état rétabli si l'enregistrement échoue. */
+  async function toggleClause(c: LegalClause, active: boolean) {
+    setClauses((list) => list?.map((x) => (x.id === c.id ? { ...x, active } : x)) ?? list);
+    try {
+      await api(`/api/legal-clauses/${c.id}/active`, { method: "PATCH", body: JSON.stringify({ active }) });
+      toast.success(active ? `« ${c.title} » activée` : `« ${c.title} » désactivée : elle ne s'imprime plus sur les nouveaux documents`);
+    } catch (e) {
+      setClauses((list) => list?.map((x) => (x.id === c.id ? { ...x, active: c.active } : x)) ?? list);
+      toast.error(e instanceof Error ? e.message : "Enregistrement impossible");
     }
   }
 
@@ -2117,6 +2129,9 @@ export function SettingsPage() {
                         {c.required ? (
                           <span className="ml-2 text-xs text-[var(--muted)]">obligatoire</span>
                         ) : null}
+                        {c.active ? null : (
+                          <span className="ml-2 rounded-[var(--radius-sm)] border border-[var(--border)] px-1.5 py-0.5 text-xs text-[var(--muted)]">inactive</span>
+                        )}
                       </p>
                       {c.audience !== "ALL" ? (
                         <p className="mt-0.5 text-xs font-medium text-[var(--primary)]">
@@ -2128,7 +2143,13 @@ export function SettingsPage() {
                       ) : null}
                       <p className="mt-1 whitespace-pre-wrap text-xs text-[var(--muted)]">{c.body}</p>
                     </div>
-                    <div className="flex gap-2">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Checkbox
+                        label="Active"
+                        aria-label={`${c.title} : active`}
+                        checked={c.active}
+                        onChange={(e) => void toggleClause(c, e.target.checked)}
+                      />
                       <Button
                         type="button"
                         variant="ghost"
@@ -2276,7 +2297,7 @@ export function SettingsPage() {
       <ConfirmDialog
         open={clauseToDelete !== null}
         title="Supprimer la clause ?"
-        message={`« ${clauseToDelete?.title ?? ""} » ne s'imprimera plus sur les PDF des devis et factures.`}
+        message={`« ${clauseToDelete?.title ?? ""} » ne s'imprimera plus sur les nouveaux devis et factures. Si des devis émis l'ont déjà figée, la suppression est refusée : désactivez-la.`}
         confirmLabel="Supprimer"
         danger
         busy={clauseDeleting}
