@@ -17,17 +17,20 @@ describe("type de client « Association »", () => {
     expect(isAssociationCategory(null)).toBe(false);
   });
 
-  // Défaut du 26/10/2026 : l'association n'avait aucune clause de retard. Non-professionnel : la clause de retard des
-  // particuliers (Code civil), jamais l'indemnité de 40 € des professionnels ni les autres mentions de consommateur.
-  it("clauses : une association reçoit celles pour tous et le retard de paiement des particuliers, rien d'autre", () => {
+  // Défaut du 26/10/2026 : aucun public ne couvrait les associations. Publics « Associations » et « Associations et
+  // particuliers » ; jamais les clauses des particuliers seuls (rétractation) ni celles des professionnels (40 €).
+  it("clauses : une association reçoit « tous », « associations » et « associations et particuliers », rien d'autre", () => {
     const list = [
-      { audience: "ALL" as const, kind: "VAT" as const, title: "TVA" },
-      { audience: "B2B" as const, kind: "PENALTY" as const, title: "Pénalités" },
-      { audience: "B2C" as const, kind: "PENALTY" as const, title: "Intérêts" },
-      { audience: "B2C" as const, kind: "WITHDRAWAL" as const, title: "Rétractation" },
-      { audience: "B2C" as const, kind: "CUSTOM" as const, title: "Mention consommateur" },
+      { audience: "ALL" as const, title: "TVA" },
+      { audience: "B2B" as const, title: "Pénalités" },
+      { audience: "B2C" as const, title: "Rétractation" },
+      { audience: "ASSOCIATION" as const, title: "Mention associations" },
+      { audience: "NON_PROFESSIONAL" as const, title: "Intérêts" },
     ];
-    expect(clausesForClient(list, "ASSOCIATION").map((c) => c.title)).toEqual(["TVA", "Intérêts"]);
+    expect(clausesForClient(list, "ASSOCIATION").map((c) => c.title)).toEqual(["TVA", "Mention associations", "Intérêts"]);
+    expect(clausesForClient(list, "B2C").map((c) => c.title)).toEqual(["TVA", "Rétractation", "Intérêts"]);
+    expect(clausesForClient(list, "B2B").map((c) => c.title)).toEqual(["TVA", "Pénalités"]);
+    expect(clausesForClient(list, null).map((c) => c.title)).toEqual(["TVA"]);
   });
 
   it("fiche admin : nom de l'association obligatoire, nom affiché = nom de l'association", () => {

@@ -65,6 +65,24 @@ describe("clauses de retard selon le type de client", () => {
     });
   }
 
+  it("base existante (clause des particuliers en B2C) : rien d'automatique ; couverte dès qu'Alexandre choisit « Associations et particuliers »", async () => {
+    const civil = await prisma.legalClause.findFirstOrThrow({ where: { kind: "PENALTY", audience: "NON_PROFESSIONAL" } });
+    await prisma.legalClause.update({ where: { id: civil.id }, data: { audience: "B2C" } });
+    expect(await penaltyClauseText("ASSOCIATION")).toBeNull();
+    expect((await documentText("ASSOCIATION", "INVOICE")).text.includes("1231-6")).toBe(false);
+    expect((await penaltyClauseText("B2C"))!.includes("1231-6")).toBe(true);
+
+    await prisma.legalClause.update({ where: { id: civil.id }, data: { audience: "NON_PROFESSIONAL" } });
+    expect((await penaltyClauseText("ASSOCIATION"))!.includes("1231-6")).toBe(true);
+  });
+
+  it("public « Associations » : seulement les associations", async () => {
+    await prisma.legalClause.create({ data: { kind: "CUSTOM", title: "Mention associations", body: "Texte réservé aux associations.", audience: "ASSOCIATION", position: 50 } });
+    expect((await documentText("ASSOCIATION", "QUOTE")).text).toContain("Texte réservé aux associations.");
+    expect((await documentText("B2C", "QUOTE")).text).not.toContain("Texte réservé aux associations.");
+    expect((await documentText("B2B", "QUOTE")).text).not.toContain("Texte réservé aux associations.");
+  });
+
   it("association : jamais les clauses de consommateur (rétractation)", async () => {
     for (const type of ["ASSOCIATION", "B2B", "B2C"] as const) {
       expect((await documentText(type, "QUOTE")).withdrawal, type).toBe(EXPECTED[type].withdrawal);

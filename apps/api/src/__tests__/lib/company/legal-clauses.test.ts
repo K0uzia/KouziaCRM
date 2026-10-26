@@ -29,14 +29,14 @@ describe("clauses légales par type de client", () => {
   it("base neuve : pénalités et 40 € pour les professionnels, intérêts au taux légal pour les particuliers", async () => {
     await ensureDefaultLegalClauses();
     const penalties = await prisma.legalClause.findMany({ where: { kind: LegalClauseKind.PENALTY }, orderBy: { audience: "asc" } });
-    expect(penalties.map((c) => c.audience)).toEqual([LegalClauseAudience.B2B, LegalClauseAudience.B2C]);
+    expect(penalties.map((c) => c.audience)).toEqual([LegalClauseAudience.B2B, LegalClauseAudience.NON_PROFESSIONAL]);
     expect(penalties[1]!.body).toContain("article 1231-6 du Code civil");
     expect(penalties[1]!.required).toBe(false);
   });
 
   it("clause des particuliers supprimée par l'admin : pas recréée au démarrage suivant", async () => {
     await ensureDefaultLegalClauses();
-    const penalty = { audience: LegalClauseAudience.B2C, kind: LegalClauseKind.PENALTY };
+    const penalty = { audience: LegalClauseAudience.NON_PROFESSIONAL, kind: LegalClauseKind.PENALTY };
     await prisma.legalClause.deleteMany({ where: penalty });
     await ensureDefaultLegalClauses();
     expect(await prisma.legalClause.count({ where: penalty })).toBe(0);

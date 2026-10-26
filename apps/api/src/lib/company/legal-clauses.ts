@@ -83,7 +83,8 @@ export const DEFAULT_LEGAL_CLAUSES: Array<{
     body: "En cas de retard de paiement, des intérêts au taux légal pourront être appliqués après mise en demeure (article 1231-6 du Code civil).",
     required: false,
     position: 2,
-    audience: LegalClauseAudience.B2C,
+    // Non-professionnels : particuliers et associations (titre gardé : il identifie la clause par défaut en base).
+    audience: LegalClauseAudience.NON_PROFESSIONAL,
     seedOnly: true,
   },
   {
@@ -280,17 +281,16 @@ export async function subscriptionDateNoticeOf(
   return body ? fillClauseVariables(body, company) : null;
 }
 
-/**
- * Clauses à imprimer pour un client de ce type ; type inconnu : clauses « tous » seulement. Association (non-professionnel,
- * défaut du 26/10/2026) : la clause de retard des particuliers (Code civil), jamais l'indemnité de 40 € des professionnels
- * ni les autres clauses de consommateur.
- */
-export function clausesForClient<T extends Pick<LegalClause, "audience" | "kind">>(clauses: T[], clientType: string | null | undefined): T[] {
+/** Public « associations et particuliers » : les non-professionnels (défaut du 26/10/2026, clause de retard du Code civil). */
+const NON_PROFESSIONAL_TYPES: ReadonlySet<string> = new Set([ClientType.B2C, ClientType.ASSOCIATION]);
+
+/** Clauses à imprimer pour un client de ce type, selon le public choisi dans Réglages ; type inconnu : « tous » seulement. */
+export function clausesForClient<T extends Pick<LegalClause, "audience">>(clauses: T[], clientType: string | null | undefined): T[] {
   return clauses.filter(
     (c) =>
       c.audience === LegalClauseAudience.ALL ||
       c.audience === clientType ||
-      (clientType === ClientType.ASSOCIATION && c.audience === LegalClauseAudience.B2C && c.kind === LegalClauseKind.PENALTY),
+      (c.audience === LegalClauseAudience.NON_PROFESSIONAL && clientType != null && NON_PROFESSIONAL_TYPES.has(clientType)),
   );
 }
 
