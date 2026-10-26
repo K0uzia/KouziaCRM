@@ -17,13 +17,17 @@ describe("type de client « Association »", () => {
     expect(isAssociationCategory(null)).toBe(false);
   });
 
-  it("clauses : une association ne reçoit que celles pour tous (ni pénalités B2B, ni mentions B2C)", () => {
+  // Défaut du 26/10/2026 : l'association n'avait aucune clause de retard. Non-professionnel : la clause de retard des
+  // particuliers (Code civil), jamais l'indemnité de 40 € des professionnels ni les autres mentions de consommateur.
+  it("clauses : une association reçoit celles pour tous et le retard de paiement des particuliers, rien d'autre", () => {
     const list = [
-      { audience: "ALL" as const, title: "TVA" },
-      { audience: "B2B" as const, title: "Pénalités" },
-      { audience: "B2C" as const, title: "Intérêts" },
+      { audience: "ALL" as const, kind: "VAT" as const, title: "TVA" },
+      { audience: "B2B" as const, kind: "PENALTY" as const, title: "Pénalités" },
+      { audience: "B2C" as const, kind: "PENALTY" as const, title: "Intérêts" },
+      { audience: "B2C" as const, kind: "WITHDRAWAL" as const, title: "Rétractation" },
+      { audience: "B2C" as const, kind: "CUSTOM" as const, title: "Mention consommateur" },
     ];
-    expect(clausesForClient(list, "ASSOCIATION").map((c) => c.title)).toEqual(["TVA"]);
+    expect(clausesForClient(list, "ASSOCIATION").map((c) => c.title)).toEqual(["TVA", "Intérêts"]);
   });
 
   it("fiche admin : nom de l'association obligatoire, nom affiché = nom de l'association", () => {

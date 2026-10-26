@@ -1,4 +1,4 @@
-import { LegalClauseAudience, LegalClauseKind, type LegalClause } from "@prisma/client";
+import { ClientType, LegalClauseAudience, LegalClauseKind, type LegalClause } from "@prisma/client";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma.js";
 
@@ -280,9 +280,18 @@ export async function subscriptionDateNoticeOf(
   return body ? fillClauseVariables(body, company) : null;
 }
 
-/** Clauses à imprimer pour un client de ce type (B2B ou B2C) ; type inconnu : clauses « tous » seulement. */
-export function clausesForClient<T extends Pick<LegalClause, "audience">>(clauses: T[], clientType: string | null | undefined): T[] {
-  return clauses.filter((c) => c.audience === LegalClauseAudience.ALL || c.audience === clientType);
+/**
+ * Clauses à imprimer pour un client de ce type ; type inconnu : clauses « tous » seulement. Association (non-professionnel,
+ * défaut du 26/10/2026) : la clause de retard des particuliers (Code civil), jamais l'indemnité de 40 € des professionnels
+ * ni les autres clauses de consommateur.
+ */
+export function clausesForClient<T extends Pick<LegalClause, "audience" | "kind">>(clauses: T[], clientType: string | null | undefined): T[] {
+  return clauses.filter(
+    (c) =>
+      c.audience === LegalClauseAudience.ALL ||
+      c.audience === clientType ||
+      (clientType === ClientType.ASSOCIATION && c.audience === LegalClauseAudience.B2C && c.kind === LegalClauseKind.PENALTY),
+  );
 }
 
 /**

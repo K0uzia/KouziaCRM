@@ -16,7 +16,7 @@ afterEach(async () => {
   await resetDb();
 });
 
-const clause = (audience: LegalClauseAudience, title: string) => ({ audience, title });
+const clause = (audience: LegalClauseAudience, title: string) => ({ audience, kind: LegalClauseKind.CUSTOM, title });
 
 describe("clauses légales par type de client", () => {
   it("tous : partout ; B2B ou B2C : seulement ce type ; type inconnu : « tous » seulement", () => {

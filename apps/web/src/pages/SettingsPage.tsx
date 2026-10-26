@@ -2168,7 +2168,8 @@ export function SettingsPage() {
                       </p>
                       {c.audience !== "ALL" ? (
                         <p className="mt-0.5 text-xs font-medium text-[var(--primary)]">
-                          {AUDIENCE_LABEL[c.audience]} seulement
+                          {/* Retard de paiement des particuliers : imprimé aussi pour les associations (non-professionnels). */}
+                          {c.kind === "PENALTY" && c.audience === "B2C" ? "Clients particuliers et associations" : AUDIENCE_LABEL[c.audience]} seulement
                         </p>
                       ) : null}
                       {c.kind === "BUYOUT_TRANSFER" ? (
