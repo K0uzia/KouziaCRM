@@ -1,4 +1,5 @@
 import { useFeatures } from "@/lib/features";
+import { toIsoDate } from "@/components/ui/DatePicker";
 import { Fragment, useCallback, useEffect, useState } from "react";
 import { mixedQuoteTotals, subscriptionsTotalText } from "@/lib/quote-totals";
 import type { ServiceNeed } from "@/components/clients/ServiceNeedsEditor";
@@ -1639,7 +1640,7 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
                     variant="secondary"
                     onClick={() => {
                       setRefundEuros((overpaid / 100).toFixed(2));
-                      setRefundDate(new Date().toISOString().slice(0, 10));
+                      setRefundDate(toIsoDate(new Date()));
                       setRefundRef("");
                       setRefundOpen(true);
                     }}

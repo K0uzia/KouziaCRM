@@ -13,6 +13,7 @@
     "dev:worker": "wait-on -t 180000 http-get://127.0.0.1:3001/api/health && npm run worker",
     "dev": "node scripts/dev.mjs",
     "check:lockfile": "node scripts/check-lockfile.mjs",
+    "check:dates": "node scripts/check-dates.mjs",
     "check:mobile": "tsx scripts/check-mobile.ts",
     "check:desktop": "tsx scripts/check-desktop.ts",
     "qa:mesure": "tsx scripts/qa/mesure-pages.ts",

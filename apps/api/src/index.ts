@@ -1,3 +1,5 @@
+// En premier : bornes calendaires à Paris, quel que soit le fuseau de la machine.
+import "@/lib/business-tz.js";
 import { assertSecurityEnv, getApiPort, getTrustedProxies } from "@/lib/env.js";
 import { getAdminPublicHost } from "@/lib/tunnel-hosts.js";
 import { enableWal, prisma } from "@/lib/prisma.js";

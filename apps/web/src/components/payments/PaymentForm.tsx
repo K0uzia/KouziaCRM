@@ -1,4 +1,5 @@
 import { useState, type FormEvent } from "react";
+import { toIsoDate } from "@/components/ui/DatePicker";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { Button } from "@/components/ui/Button";
@@ -19,7 +20,7 @@ export function PaymentForm({
   onCancel: () => void;
 }) {
   const [amount, setAmount] = useState(defaultAmountEuros ?? "");
-  const [paidAt, setPaidAt] = useState(new Date().toISOString().slice(0, 10));
+  const [paidAt, setPaidAt] = useState(toIsoDate(new Date()));
   const [method, setMethod] = useState("BANK_TRANSFER");
   const [reference, setReference] = useState("");
   const [notes, setNotes] = useState("");

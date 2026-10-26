@@ -5,6 +5,7 @@ import path from "node:path";
 import { renderToBuffer } from "@react-pdf/renderer";
 import React from "react";
 import { prisma } from "@/lib/prisma.js";
+import { parisIsoDate } from "@/lib/format-fr.js";
 import { getCompanySettings } from "@/lib/company.js";
 import { alertArchivedFile, issuedPdfAbsolutePath } from "@/lib/pdf/issued-archive.js";
 import { loadBrandLogoDataUrl } from "@/lib/pdf/brand-assets.js";
@@ -31,7 +32,7 @@ const INVOICE_LABEL: Record<string, string> = { ACOMPTE: "Facture d'acompte", SO
 /** Nom de fichier du reçu, unique par règlement : deux règlements du même jour ne s'écrasent pas. */
 export function receiptFileName(invoiceNumber: string, paidAt: Date, paymentId: string): string {
   const safe = invoiceNumber.replace(/[^A-Za-z0-9_-]/g, "_");
-  return `Recu-${safe}-${paidAt.toISOString().slice(0, 10)}-${paymentId.slice(-6)}.pdf`;
+  return `Recu-${safe}-${parisIsoDate(paidAt)}-${paymentId.slice(-6)}.pdf`;
 }
 
 const sha256 = (buf: Buffer) => createHash("sha256").update(buf).digest("hex");

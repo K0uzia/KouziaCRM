@@ -1,6 +1,8 @@
 // S'assure que les variables d'env de test sont positionnées avant
 // l'import des modules (Prisma lit DATABASE_URL à l'instanciation).
 process.env.NODE_ENV = "test";
+// Fuseau de l'entreprise, comme l'API et le worker (lib/business-tz.ts) : tests identiques sur toute machine.
+process.env.TZ = "Europe/Paris";
 process.env.DATABASE_URL = "file:./test.db";
 if (!process.env.SESSION_SECRET)
   process.env.SESSION_SECRET = "test-session-secret-32chars-min";

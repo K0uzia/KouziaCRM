@@ -27,6 +27,8 @@ RUN mkdir -p /app/data \
 FROM node:22-bookworm-slim AS runner
 WORKDIR /app
 ENV NODE_ENV=production
+# Fuseau de l'entreprise (aussi imposé par le code : lib/business-tz.ts).
+ENV TZ=Europe/Paris
 ENV API_PORT=3000
 ENV WEB_DIST=/app/apps/web/dist
 ENV DATABASE_URL="file:/app/data/kouziacrm.db"

@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { parisIsoDate } from "@/lib/format-fr.js";
 import { createHash } from "node:crypto";
 import { InvoiceDocumentType, InvoiceStatus, InvoiceType, PaymentMethod } from "@prisma/client";
 import { prisma } from "@/lib/prisma.js";
@@ -84,7 +85,7 @@ describe("e-mail « Paiement reçu » : le texte correspond aux pièces jointes 
     // Reçu : le PDF archivé de ce règlement, avec le montant, le reste dû et sans « acquittée ».
     const row = await prisma.payment.findUniqueOrThrow({ where: { id: p.id } });
     expect(sha(recu!.pdf)).toBe(row.receiptPdfSha256);
-    expect(recu!.name).toBe(`Recu-${invoice.number}-${p.paidAt.toISOString().slice(0, 10)}-${p.id.slice(-6)}.pdf`);
+    expect(recu!.name).toBe(`Recu-${invoice.number}-${parisIsoDate(p.paidAt)}-${p.id.slice(-6)}.pdf`);
     const recuText = pdfText(recu!.pdf);
     expect(recuText).toContain("Reçu de paiement");
     expect(recuText).toContain("400,00");

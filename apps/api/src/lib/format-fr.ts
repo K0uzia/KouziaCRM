@@ -49,6 +49,12 @@ export function parisParts(date: Date): ParisParts {
 
 const two = (n: number) => String(n).padStart(2, "0");
 
+/** Jour à Paris au format « AAAA-MM-JJ » (jamais toISOString, qui donne le jour UTC : la veille entre minuit et 1 ou 2 h). */
+export function parisIsoDate(date: Date = new Date()): string {
+  const p = parisParts(date);
+  return `${p.year}-${two(p.month)}-${two(p.day)}`;
+}
+
 /** « 19/10/2026 » (jour à Paris). */
 /** Écart (ms) entre l'heure de Paris et l'heure UTC à cet instant (heure d'été comprise). */
 function parisOffsetMs(at: number): number {
