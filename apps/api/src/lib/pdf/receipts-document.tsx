@@ -91,6 +91,8 @@ export type ReceiptsPdfData = {
     addressLine1: string;
     postalCode: string;
     city: string;
+    /** Mention de TVA des réglages (seule source), imprimée après « franchise en base de TVA ». */
+    vatMention?: string | null;
   };
   rows: ReceiptsPdfRow[];
   totalCents: number;
@@ -153,9 +155,9 @@ export function ReceiptsDocument(data: ReceiptsPdfData) {
         </View>
 
         <Text style={styles.legal}>
-          Registre chronologique des recettes (micro-entreprise). Montants hors TVA
-          (franchise en base de TVA, art. 293 B du CGI). Conservez ce document
-          avec vos justificatifs pour le contrôle fiscal.
+          {`Registre chronologique des recettes (micro-entreprise). Montants hors TVA (franchise en base de TVA).${
+            data.company.vatMention?.trim() ? ` ${data.company.vatMention.trim()}.` : ""
+          } Conservez ce document avec vos justificatifs pour le contrôle fiscal.`}
         </Text>
       </Page>
     </Document>

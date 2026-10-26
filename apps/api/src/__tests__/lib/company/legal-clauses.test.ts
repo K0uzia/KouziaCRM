@@ -68,7 +68,8 @@ describe("clauses légales par type de client", () => {
       });
       const doc = (await loadDocumentForPdf(invoice.id))!;
       const payload = buildInvoicePdfPayload({ invoice: doc.invoice, legalClauses, clientType: doc.snapshot.type });
-      const text = (payload.legalClauses ?? []).map((c) => c.body).join("\n");
+      // Variables remplies comme au rendu du PDF ({{mention_tva}} depuis le réglage).
+      const text = (payload.legalClauses ?? []).map((c) => fillClauseVariables(c.body, doc.companyRaw)).join("\n");
       expect(text.includes("40 €")).toBe(expected);
       expect(text.includes("1231-6")).toBe(!expected);
       expect(text).toContain("TVA non applicable");

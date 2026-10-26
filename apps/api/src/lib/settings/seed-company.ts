@@ -13,7 +13,7 @@ export const INITIAL_COMPANY_SETTINGS = {
   country: "FRANCE",
   website: "kouzia.com",
   vatRegime: "FRANCHISE_BASE_293B",
-  vatMention: "TVA non applicable, art. 293 B du CGI",
+  vatMention: "TVA non applicable, art. L. 233-3 du CIBS",
   treasuryRateBps: 1420,
   placementRateBps: 1000,
   urssafPeriodicity: "MONTHLY",

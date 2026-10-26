@@ -15,9 +15,21 @@ const clauseSnapshotSchema = z.array(
   }),
 );
 
-/** Instantané figé à l'émission d'un devis : clauses actives pour le type du client, texte brut (variables non remplies). */
-export function snapshotOfClauses(clauses: ReadonlyArray<ClauseText>, clientType: string | null | undefined): ClauseText[] {
-  return clausesForClient([...clauses], clientType).map(({ kind, title, body, audience, position }) => ({ kind, title, body, audience, position }));
+/** Variable de la mention de TVA (réglage vatMention, seule source de la mention). */
+export const VAT_MENTION_VARIABLE = "{{mention_tva}}";
+
+/**
+ * Instantané figé à l'émission d'un devis : clauses actives pour le type du client, texte brut, sauf la mention de TVA,
+ * figée avec la valeur du réglage à l'émission (un devis déjà envoyé garde sa mention si le réglage change).
+ */
+export function snapshotOfClauses(clauses: ReadonlyArray<ClauseText>, clientType: string | null | undefined, vatMention: string): ClauseText[] {
+  return clausesForClient([...clauses], clientType).map(({ kind, title, body, audience, position }) => ({
+    kind,
+    title,
+    body: body.replaceAll(VAT_MENTION_VARIABLE, vatMention),
+    audience,
+    position,
+  }));
 }
 
 /**
@@ -45,7 +57,7 @@ export const DEFAULT_LEGAL_CLAUSES: Array<{
   {
     kind: LegalClauseKind.VAT,
     title: "Franchise en base de TVA",
-    body: "TVA non applicable, art. 293 B du CGI",
+    body: VAT_MENTION_VARIABLE,
     required: true,
     position: 0,
   },
@@ -89,7 +101,7 @@ export const DEFAULT_LEGAL_CLAUSES: Array<{
     position: 4,
   },
   // Imprimées dans l'encadré d'abonnement du devis (CGV art. 7.1 à 7.3), selon la périodicité.
-  // {{nom_commercial}}, {{email}}, {{adresse}} : remplacés par les réglages au rendu du PDF.
+  // {{nom_commercial}}, {{email}}, {{adresse}}, {{mention_tva}} : remplacés par les réglages au rendu du PDF.
   {
     kind: LegalClauseKind.SUBSCRIPTION_MONTHLY,
     title: "Abonnement mensuel",
@@ -203,6 +215,7 @@ export function fillClauseVariables(
     addressLine2: string | null;
     postalCode: string;
     city: string;
+    vatMention?: string | null;
   },
   interval?: "MONTH" | "QUARTER" | "YEAR",
 ): string {
@@ -216,7 +229,8 @@ export function fillClauseVariables(
     .replaceAll("{{nom_commercial}}", company.tradeName ?? company.legalName)
     .replaceAll("{{raison_sociale}}", company.legalName)
     .replaceAll("{{adresse}}", address)
-    .replaceAll("{{email}}", email);
+    .replaceAll("{{email}}", email)
+    .replaceAll(VAT_MENTION_VARIABLE, company.vatMention?.trim() ?? "");
 }
 
 export async function ensureDefaultLegalClauses() {
