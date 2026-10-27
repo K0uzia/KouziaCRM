@@ -22,6 +22,7 @@ import {
 } from "@/lib/invoices/documentFlowService.js";
 import {
   DEFAULT_MILESTONE_TEMPLATE,
+  awaitsProposalChoice,
   computeMilestoneAmounts,
   type MilestoneTemplate,
 } from "@/lib/quotes/milestones.js";
@@ -83,6 +84,7 @@ export async function ensureQuoteMilestonesFromSettings(
     });
   }
 
+  if (await awaitsProposalChoice(quoteId, db)) return [];
   // Formule du devis (retenue, sinon celle de l'émission) ; devis historique : réglages 2 fois.
   const quote = await db.invoice.findUnique({
     where: { id: quoteId },

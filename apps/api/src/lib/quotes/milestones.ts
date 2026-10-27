@@ -41,6 +41,15 @@ export function computeMilestoneAmounts(
   });
 }
 
+/**
+ * Devis à propositions sans proposition retenue : aucun échéancier (audit du 27/10/2026). Créé sur l'offre nulle de
+ * l'émission, il aurait suivi les réglages par défaut et la proposition la moins chère, puis été exigé du client.
+ */
+export async function awaitsProposalChoice(quoteId: string, db: Prisma.TransactionClient | typeof prisma = prisma): Promise<boolean> {
+  const quote = await db.invoice.findUnique({ where: { id: quoteId }, select: { selectedOptionId: true, _count: { select: { options: true } } } });
+  return Boolean(quote && quote._count.options > 0 && !quote.selectedOptionId);
+}
+
 export async function ensureQuoteMilestones(
   quoteId: string,
   totalCents: number,
@@ -51,6 +60,7 @@ export async function ensureQuoteMilestones(
     where: { quoteId },
     orderBy: { position: "asc" },
   });
+  if (await awaitsProposalChoice(quoteId, db)) return [];
   // Abonnement seul : aucun jalon, ni à l'émission ni plus tard.
   const quote = await db.invoice.findUnique({
     where: { id: quoteId },
