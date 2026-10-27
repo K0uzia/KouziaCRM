@@ -1,4 +1,5 @@
 import { BlockList, isIP } from "node:net";
+import type { IncomingHttpHeaders } from "node:http";
 import type { FastifyInstance } from "fastify";
 
 /**
@@ -67,10 +68,25 @@ export function trustProxyFn(list: BlockList | null): ((addr: string, hop: numbe
  */
 export function registerClientIpHook(app: FastifyInstance, list: BlockList | null): void {
   app.decorateRequest("viaTunnel", false);
+  const tunnelHosts = publicTunnelHosts();
+  /**
+   * Fermé par défaut (audit du 27/10/2026) : sans proxy de confiance (TRUST_PROXY=false alors que cloudflared tourne,
+   * Docker sans le sous-réseau), une requête d'Internet était vue comme venant du LAN : mot de passe seul, admin sur
+   * api.kouzia.com. Hôte public demandé ou en-tête posé par Cloudflare : traitée comme venue du tunnel (2FA, hôtes
+   * filtrés). Au pire un refus ; l'IP reste celle de la socket, jamais lue dans un en-tête non fiable.
+   */
+  const looksLikeTunnel = (headers: IncomingHttpHeaders) => {
+    const host = headers.host?.toLowerCase();
+    return Boolean((host && tunnelHosts.has(host)) || headers["cf-connecting-ip"] || headers["cf-ray"]);
+  };
   app.addHook("onRequest", async (request) => {
     const headers = request.raw.headers;
     if (!isTrustedProxy(list, request.raw.socket.remoteAddress)) {
       delete headers["x-forwarded-for"];
+      if (looksLikeTunnel(headers)) {
+        delete headers["x-forwarded-host"];
+        request.viaTunnel = true;
+      }
       return;
     }
     const cf = headers["cf-connecting-ip"];
@@ -83,8 +99,27 @@ export function registerClientIpHook(app: FastifyInstance, list: BlockList | nul
     } else {
       // Proxy de confiance sans CF-Connecting-IP : un X-Forwarded-For présent viendrait du client.
       delete headers["x-forwarded-for"];
+      // Hôte public demandé quand même (Tailscale Serve en 127.0.0.1, autre proxy local) : traité comme le tunnel.
+      if (looksLikeTunnel(headers)) {
+        delete headers["x-forwarded-host"];
+        request.viaTunnel = true;
+      }
     }
   });
+}
+
+/** Hôtes publics servis par le tunnel (erp et api), en minuscules ; absents du .env : aucun. */
+function publicTunnelHosts(): Set<string> {
+  const hosts = new Set<string>();
+  for (const origin of [process.env.ADMIN_PUBLIC_ORIGIN, process.env.PUBLIC_API_ORIGIN]) {
+    if (!origin?.trim()) continue;
+    try {
+      hosts.add(new URL(origin.trim()).host.toLowerCase());
+    } catch {
+      // Origine illisible : signalée au démarrage par tunnel-hosts (getAdminPublicHost)
+    }
+  }
+  return hosts;
 }
 
 declare module "fastify" {
