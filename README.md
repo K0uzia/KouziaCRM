@@ -619,6 +619,9 @@ kouziactl restore --check /var/backup/kouzia/….db.gpg
 La base remplacée est gardée à côté, avec ses fichiers `-wal` et `-shm`
 (`data/kouziacrm.db.avant-restauration-<date>`).
 
+Sur un CT neuf, le jeton du tunnel n'est pas dans les sauvegardes (il n'est plus dans le `.env`, ni dans la sauvegarde
+« meta ») : le reprendre dans le tableau de bord Cloudflare (Zero Trust, Tunnels) puis lancer `kouziactl cloudflare`.
+
 Docker :
 
 ```bash
