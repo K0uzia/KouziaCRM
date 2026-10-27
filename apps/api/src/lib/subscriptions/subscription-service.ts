@@ -422,9 +422,10 @@ export async function endSubscription(id: string, endDate?: Date) {
 /** Fin de la période de facturation en cours : la prochaine échéance, avancée d'une période tant qu'elle est passée. */
 export function currentPeriodEndOf(sub: { nextInvoiceAt: Date; billingInterval: string | null }, now = new Date()): Date {
   const months = periodMonths(sub.billingInterval);
-  let end = new Date(sub.nextInvoiceAt);
-  while (end.getTime() <= now.getTime()) end = commitmentEndOf(end, months);
-  return end;
+  // Depuis l'échéance prévue, par multiples de la période (pas en chaîne : le jour 29 à 31 glissait au 28).
+  let k = 0;
+  while (commitmentEndOf(sub.nextInvoiceAt, months * k).getTime() <= now.getTime()) k += 1;
+  return k === 0 ? new Date(sub.nextInvoiceAt) : commitmentEndOf(sub.nextInvoiceAt, months * k);
 }
 
 /** Date d'effet d'une fin programmée aujourd'hui (« Programmer la fin ») : fin du terme résiliable, sinon de la période. */
