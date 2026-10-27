@@ -34,6 +34,7 @@ function oneOffDiscountOf(d: {
 }
 import { verifyDocumentToken } from "@/lib/documents/public-token.js";
 import {
+  VERIFY_FAILURE_FLOOR_MS,
   checkPortalCode,
   clearPortalCookie,
   closePortalSession,
@@ -408,6 +409,7 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
     "/api/public/auth/verify",
     { config: { rateLimit: { max: 20, timeWindow: "15 minutes", keyGenerator: byIpBlock } } },
     async (request, reply) => {
+      const startedAt = Date.now();
       const parsed = verifySchema.safeParse(request.body);
       if (!parsed.success) return reply.code(400).send({ error: "Code à 6 chiffres attendu." });
 
@@ -416,6 +418,9 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
         ? await checkPortalCode(client.id, "LOGIN", parsed.data.code)
         : "invalid";
       if (!client || check !== "ok") {
+        // Même durée minimale pour tout refus : le temps de réponse ne dit pas si l'adresse est celle d'un client.
+        const wait = VERIFY_FAILURE_FLOOR_MS - (Date.now() - startedAt);
+        if (wait > 0) await new Promise((r) => setTimeout(r, wait));
         return reply.code(401).send({ error: CODE_ERRORS[check === "ok" ? "invalid" : check] });
       }
 
