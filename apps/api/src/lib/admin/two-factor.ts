@@ -28,18 +28,29 @@ export function isLocked(user: Pick<User, "lockedUntil">, request: FastifyReques
   return request.viaTunnel && !!user.lockedUntil && user.lockedUntil.getTime() > Date.now();
 }
 
+/** Verrouillage le plus long (allongement progressif). */
+export const LOCK_MAX_DURATION_MS = 24 * 3_600_000;
+
+/**
+ * Échec venu du tunnel. Verrouillage progressif (audit du 27/10/2026) : le compteur n'est remis à zéro que par une
+ * connexion réussie ; chaque série de LOCK_AFTER_FAILURES échecs verrouille 15 min, puis 30, 60… (24 h au plus) et
+ * prévient le titulaire du compte par e-mail.
+ */
 export async function registerFailure(userId: string, request: FastifyRequest): Promise<void> {
   if (!request.viaTunnel) return;
   const user = await prisma.user.update({
     where: { id: userId },
     data: { failedLogins: { increment: 1 } },
   });
-  if (user.failedLogins >= LOCK_AFTER_FAILURES) {
-    await prisma.user.update({
-      where: { id: userId },
-      data: { failedLogins: 0, lockedUntil: new Date(Date.now() + LOCK_DURATION_MS) },
-    });
-  }
+  if (user.failedLogins % LOCK_AFTER_FAILURES !== 0) return;
+  const series = user.failedLogins / LOCK_AFTER_FAILURES;
+  const duration = Math.min(LOCK_DURATION_MS * 2 ** (series - 1), LOCK_MAX_DURATION_MS);
+  const lockedUntil = new Date(Date.now() + duration);
+  await prisma.user.update({ where: { id: userId }, data: { lockedUntil } });
+  const { sendAdminLockAlert } = await import("@/lib/admin/alerts.js");
+  await sendAdminLockAlert(user.email, request, { failures: user.failedLogins, lockedUntil }).catch((err) =>
+    request.log?.error?.({ err }, "alerte de verrouillage admin échouée"),
+  );
 }
 
 export async function clearFailures(userId: string): Promise<void> {
