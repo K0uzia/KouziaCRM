@@ -5,6 +5,7 @@ import { pipeline } from "node:stream/promises";
 import type { FastifyPluginAsync } from "fastify";
 import { z } from "zod";
 import { requireAuth } from "@/lib/auth.js";
+import { contentDisposition } from "@/lib/http.js";
 import {
   confirmObligation,
   getOrCreateChecklist,
@@ -109,13 +110,9 @@ export const obligationsRoutes: FastifyPluginAsync = async (app) => {
         obl.attachmentPath,
       );
       const buf = await fs.readFile(full);
-      const safeName = (obl.attachmentName ?? "justificatif.pdf").replace(
-        /["\r\n\\]/g,
-        "_",
-      );
       return reply
         .header("Content-Type", obl.attachmentMime ?? "application/pdf")
-        .header("Content-Disposition", `inline; filename="${safeName}"`)
+        .header("Content-Disposition", contentDisposition("inline", obl.attachmentName ?? "justificatif.pdf"))
         .send(buf);
     },
   );
