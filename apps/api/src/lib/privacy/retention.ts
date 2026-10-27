@@ -4,6 +4,8 @@ import { prisma } from "@/lib/prisma.js";
 import { attachmentAbsPath } from "@/lib/email/attachments.js";
 import { signedQuoteAbsolutePath } from "@/lib/invoices/acceptance-proof.js";
 import { eraseClient } from "@/lib/clients/erasure.js";
+import { issuedPdfAbsolutePath } from "@/lib/pdf/issued-archive.js";
+import { accountingCutoff } from "@/lib/privacy/retention-period.js";
 
 // Durées de conservation (RGPD, documentées dans le README, section « Conservation des données ») :
 // purge par le worker, chaque heure. Les pièces comptables et les clients qui en ont ne sont jamais touchés.
@@ -73,13 +75,29 @@ async function purgeOldMail(now: Date): Promise<number> {
   return purged;
 }
 
+export { accountingCutoff };
+
 /**
- * Pièces comptables et preuves : 10 ans à compter de la clôture de l'exercice (art. L123-22 du code de commerce), soit
- * jusqu'au 31 décembre de l'année + 10 ; purgées à partir du 1er janvier suivant. Rend le début de l'année dont les
- * documents sont encore gardés.
+ * PDF archivés des documents (factures, avoirs, devis) et des reçus d'un exercice clos depuis plus de 10 ans (demande du
+ * 27/10/2026, même règle que les preuves) : fichier et version lisible supprimés ; la ligne comptable reste (numéro,
+ * montants, paiements) et le PDF n'est plus jamais réarchivé ni rendu (lib/privacy/retention-period).
  */
-export function accountingCutoff(now: Date): Date {
-  return new Date(now.getFullYear() - 10, 0, 1);
+async function purgeOldDocumentPdfs(now: Date): Promise<number> {
+  const cutoff = accountingCutoff(now);
+  let purged = 0;
+  const docs = await prisma.invoice.findMany({ where: { issueDate: { lt: cutoff }, pdfPath: { not: null } }, select: { id: true, pdfPath: true }, take: 200 });
+  for (const doc of docs) {
+    await fs.rm(issuedPdfAbsolutePath(doc.pdfPath!), { force: true });
+    await prisma.invoice.update({ where: { id: doc.id }, data: { pdfPath: null, readableSnapshot: null } });
+    purged += 1;
+  }
+  const receipts = await prisma.payment.findMany({ where: { paidAt: { lt: cutoff }, receiptPdfPath: { not: null } }, select: { id: true, receiptPdfPath: true }, take: 200 });
+  for (const r of receipts) {
+    await fs.rm(issuedPdfAbsolutePath(r.receiptPdfPath!), { force: true });
+    await prisma.payment.update({ where: { id: r.id }, data: { receiptPdfPath: null, receiptReadableSnapshot: null } });
+    purged += 1;
+  }
+  return purged;
 }
 
 /** Preuves de signature d'un devis signé il y a plus de 10 ans (exercice clos) : ligne et PDF archivés supprimés. */
@@ -196,11 +214,13 @@ export async function purgeRetention(now: Date = new Date()) {
   const mailThreads = await purgeOldMail(now);
   const webhookPayloads = await purgeWebhookPayloads(now);
   const acceptanceProofs = await purgeOldAcceptanceProofs(now);
+  const documentPdfs = await purgeOldDocumentPdfs(now);
   const expiredClients = await anonymizeExpiredClients(now);
   return {
     mailThreads,
     webhookPayloads,
     acceptanceProofs,
+    documentPdfs,
     expiredClients,
     invitations: invitations.count,
     outbox: outbox.count,

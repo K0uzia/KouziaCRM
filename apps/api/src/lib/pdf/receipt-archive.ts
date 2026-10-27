@@ -1,3 +1,4 @@
+import { accountingCutoff, isPastRetention } from "@/lib/privacy/retention-period.js";
 import { readArchiveFile, writeArchiveFile } from "@/lib/pdf/archive-file.js";
 import { invoiceBalance } from "@/lib/invoices/balance.js";
 import { createHash, randomBytes } from "node:crypto";
@@ -124,9 +125,11 @@ const receiptFile = (row: { id: string; receiptPdfPath: string | null; invoice: 
 export async function paymentReceiptPdf(paymentId: string): Promise<Buffer | null> {
   const row = await prisma.payment.findUnique({
     where: { id: paymentId },
-    select: { id: true, receiptPdfPath: true, receiptPdfSha256: true, invoice: { select: { number: true } } },
+    select: { id: true, paidAt: true, receiptPdfPath: true, receiptPdfSha256: true, invoice: { select: { number: true } } },
   });
   if (!row?.invoice?.number) return null;
+  // Règlement d'un exercice clos depuis plus de 10 ans : reçu purgé, jamais réarchivé (demande du 27/10/2026).
+  if (isPastRetention(row.paidAt)) return null;
 
   if (row.receiptPdfPath) {
     try {
@@ -173,7 +176,7 @@ export async function paymentReceiptPdf(paymentId: string): Promise<Buffer | nul
 /** Rattrapage (worker) : règlements de factures numérotées sans reçu archivé. */
 export async function archivePendingReceipts(limit = 50): Promise<number> {
   const pending = await prisma.payment.findMany({
-    where: { receiptPdfPath: null, amountCents: { gt: 0 }, invoice: { number: { not: null } } },
+    where: { receiptPdfPath: null, amountCents: { gt: 0 }, paidAt: { gte: accountingCutoff() }, invoice: { number: { not: null } } },
     select: { id: true },
     orderBy: { paidAt: "asc" },
     take: limit,

@@ -38,6 +38,7 @@ import { loadDocumentForPdf, renderLoadedDocumentPdf } from "@/lib/pdf/document-
 import { decryptOptional } from "@/lib/crypto.js";
 import type { ClientSnapshot } from "@/lib/invoices/transitions.js";
 import { readClientSnapshot } from "@/lib/invoices/client-snapshot.js";
+import { isPastRetention } from "@/lib/privacy/retention-period.js";
 import { serializeInvoice } from "@/lib/invoices/serialize.js";
 import { invoiceListSummary } from "@/lib/invoices/list-summary.js";
 import { adminBalanceFields, BALANCE_INCLUDE, invoiceBalance, overpaidCents } from "@/lib/invoices/balance.js";
@@ -1730,7 +1731,10 @@ export const invoicesRoutes: FastifyPluginAsync = async (app) => {
     const doc = await loadDocumentForPdf(request.params.id);
     const invoice = doc?.invoice;
     if (!invoice) {
-      const exists = await prisma.invoice.findUnique({ where: { id: request.params.id }, select: { id: true } });
+      const exists = await prisma.invoice.findUnique({ where: { id: request.params.id }, select: { id: true, issueDate: true } });
+      if (exists && isPastRetention(exists.issueDate)) {
+        return reply.code(410).send({ error: "Document de plus de 10 ans : PDF supprimé à la fin de la durée de conservation (la ligne comptable reste)." });
+      }
       return exists ? reply.code(400).send({ error: "PDF disponible uniquement après émission" }) : reply.code(404).send({ error: "Introuvable" });
     }
     if (invoice.status === InvoiceStatus.DRAFT) {

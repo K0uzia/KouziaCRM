@@ -1,3 +1,4 @@
+import { accountingCutoff, isPastRetention } from "@/lib/privacy/retention-period.js";
 import { readArchiveFile, writeArchiveFile } from "@/lib/pdf/archive-file.js";
 import { createHash, randomBytes } from "node:crypto";
 import fs from "node:fs/promises";
@@ -25,6 +26,7 @@ type ArchiveState = {
   documentType: InvoiceDocumentType;
   status: InvoiceStatus;
   quoteStatus: QuoteStatus | null;
+  issueDate?: Date | null;
   number: string | null;
   pdfPath: string | null;
   pdfSha256: string | null;
@@ -59,7 +61,7 @@ const sha256 = (buf: Buffer) => createHash("sha256").update(buf).digest("hex");
 async function stateOf(id: string): Promise<ArchiveState | null> {
   return prisma.invoice.findUnique({
     where: { id },
-    select: { id: true, documentType: true, status: true, quoteStatus: true, number: true, pdfPath: true, pdfSha256: true },
+    select: { id: true, documentType: true, status: true, quoteStatus: true, number: true, pdfPath: true, pdfSha256: true, issueDate: true },
   });
 }
 
@@ -139,6 +141,8 @@ async function archiveNow(state: ArchiveState, loaded?: LoadedDocumentForPdf | n
 export async function issuedDocumentPdf(id: string, loaded?: LoadedDocumentForPdf | null): Promise<Buffer | null> {
   const state = await stateOf(id);
   if (!state || !(isArchivableDocument(state) || isFrozenQuote(state))) return null;
+  // Exercice clos depuis plus de 10 ans : PDF purgé, jamais réarchivé (demande du 27/10/2026).
+  if (isPastRetention(state.issueDate)) return null;
   if (state.pdfPath) {
     const archived = await readArchived(state);
     if (archived) return archived;
@@ -166,6 +170,7 @@ export async function archivePendingIssuedPdfs(limit = 50): Promise<number> {
       status: { not: InvoiceStatus.DRAFT },
       number: { not: null },
       pdfPath: null,
+      issueDate: { gte: accountingCutoff() },
     },
     select: { id: true },
     orderBy: { issuedAt: "asc" },
