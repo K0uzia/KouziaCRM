@@ -19,6 +19,8 @@ const REMINDER_KINDS = ["reminder_soft", "reminder_firm", "reminder_formal"];
 const OPEN_STATUSES = [EmailOutboxStatus.REVIEW, EmailOutboxStatus.PENDING, EmailOutboxStatus.SENDING];
 
 function reminderKind(invoice: PendingInvoice): EmailTemplateKind {
+  // Un devis n'est jamais « impayé » : ni relance de règlement ni mise en demeure avec pénalités (audit du 27/10/2026).
+  if (invoice.documentType === InvoiceDocumentType.QUOTE) return "reminder_soft";
   const count = invoice.reminderCount ?? 0;
   if (count >= 2) return "reminder_formal";
   if (count >= 1) return "reminder_firm";

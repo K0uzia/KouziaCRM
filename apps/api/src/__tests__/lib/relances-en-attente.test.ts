@@ -67,6 +67,28 @@ describe("relance en attente de validation : une seule, jamais recopiée", () =>
     expect(after.status).toBe(EmailOutboxStatus.REJECTED);
   });
 
+  it("devis déjà relancé deux fois : relance douce, jamais une mise en demeure avec pénalités", async () => {
+    const c = await createClient({ displayName: "Eli Durand", type: "B2B" });
+    await prisma.client.update({ where: { id: c.id }, data: { emailEncrypted: encrypt("eli@example.com") } });
+    const q = await prisma.invoice.create({
+      data: {
+        clientId: c.id,
+        documentType: InvoiceDocumentType.QUOTE,
+        status: InvoiceStatus.ISSUED,
+        quoteStatus: QuoteStatus.SENT,
+        number: "D-2026-0102",
+        subtotalCents: 50_000,
+        totalCents: 50_000,
+        issueDate: new Date("2026-09-01T10:00:00Z"),
+        issuedAt: new Date("2026-09-01T10:00:00Z"),
+        reminderCount: 2,
+      },
+    });
+    await hourlyPass(new Date("2026-10-20T09:00:00Z"));
+    const row = await prisma.emailOutbox.findFirstOrThrow({ where: { documentId: q.id } });
+    expect(row.reviewKind).toBe("reminder_soft");
+  });
+
   it("devis envoyé : trois passages horaires, une seule relance à valider", async () => {
     const c = await createClient({ displayName: "Noa Dupont", type: "B2B" });
     await prisma.client.update({ where: { id: c.id }, data: { emailEncrypted: encrypt("noa@example.com") } });
