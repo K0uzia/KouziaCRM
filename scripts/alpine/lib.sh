@@ -345,6 +345,90 @@ env_file_unset() {
   env_fix_perms
 }
 
+# --- Clé de chiffrement (ENCRYPTION_KEY) : export de secours et restauration sur un CT neuf (27/10/2026) ---
+# Les valeurs passent par des variables et l'environnement, jamais en argument de commande (visible dans ps) ni à
+# l'écran, sauf dans kouziactl cle-export qui les affiche une fois, à la demande.
+
+# Valeur d'une variable d'un fichier .env (guillemets retirés). Vide si absente.
+env_file_value() {
+  local file="$1" key="$2"
+  [[ -f "$file" ]] || return 0
+  grep -E "^${key}=" "$file" | tail -1 | cut -d= -f2- | tr -d '"'"'"'\r' || true
+}
+
+# Remplace (ou ajoute) une variable du .env ; la valeur passe par l'environnement d'awk, jamais par ses arguments.
+env_file_set() {
+  local file="$1" key="$2" tmp
+  tmp="$(mktemp "${file}.XXXXXX")"
+  KEY="$key" VAL="$3" awk '
+    BEGIN { k = ENVIRON["KEY"]; line = k "=\"" ENVIRON["VAL"] "\""; done = 0 }
+    index($0, k "=") == 1 { if (!done) print line; done = 1; next }
+    { print }
+    END { if (!done) print line }
+  ' "$file" > "$tmp"
+  cat "$tmp" > "$file"
+  rm -f "$tmp"
+  env_fix_perms
+}
+
+# Valeur d'une variable du .env contenu dans une archive « meta » chiffrée de la sauvegarde. Vide si illisible.
+meta_env_value() {
+  local meta="$1" key="$2"
+  gpg --batch --yes --decrypt --passphrase-file "$KOUZIA_PASSPHRASE_FILE" --output - "$meta" 2>/dev/null \
+    | tar -xzOf - ./dotenv 2>/dev/null \
+    | grep -E "^${key}=" | tail -1 | cut -d= -f2- | tr -d '"'"'"'\r' || true
+}
+
+# Une donnée chiffrée de la base se déchiffre-t-elle avec cette clé ? 0 : oui ; 1 : non ; 2 : rien de chiffré à contrôler.
+key_reads_db() {
+  local db="$1" key="$2" sample="" q
+  for q in \
+    "SELECT emailEncrypted FROM Client WHERE emailEncrypted IS NOT NULL LIMIT 1;" \
+    "SELECT phoneEncrypted FROM Client WHERE phoneEncrypted IS NOT NULL LIMIT 1;" \
+    "SELECT notepadEncrypted FROM Client WHERE notepadEncrypted IS NOT NULL LIMIT 1;" \
+    "SELECT clientSnapshotEncrypted FROM Invoice WHERE clientSnapshotEncrypted IS NOT NULL LIMIT 1;"; do
+    sample="$(run_as_app_argv sqlite3 "$db" "$q" 2>/dev/null || true)"
+    [[ -n "$sample" ]] && break
+  done
+  [[ -n "$sample" ]] || return 2
+  printf '%s' "$sample" | KEY="$key" node "$(dirname "${BASH_SOURCE[0]}")/check-key.mjs"
+}
+
+# Clé à utiliser pour une base restaurée : « current » (la clé en place la lit), « meta » (seule celle de l'archive meta
+# la lit : CT neuf), « unchecked » (rien de chiffré à contrôler, clé en place gardée), « missing-meta » (la clé en place
+# ne la lit pas et aucune archive meta n'est fournie), « no-key » (aucune des deux ne la lit).
+restore_key_plan() {
+  local db="$1" meta="${2:-}" current saved rc=0
+  current="$(env_file_value "${KOUZIA_APP_DIR}/.env" ENCRYPTION_KEY)"
+  key_reads_db "$db" "$current" || rc=$?
+  if [[ "$rc" -eq 0 ]]; then echo current; return 0; fi
+  if [[ -z "$meta" ]]; then
+    [[ "$rc" -eq 2 ]] && echo unchecked || echo missing-meta
+    return 0
+  fi
+  saved="$(meta_env_value "$meta" ENCRYPTION_KEY)"
+  if [[ -z "$saved" ]]; then echo no-key; return 0; fi
+  if [[ "$rc" -eq 2 ]]; then
+    [[ "$saved" == "$current" ]] && echo unchecked || echo meta
+    return 0
+  fi
+  rc=0
+  key_reads_db "$db" "$saved" || rc=$?
+  [[ "$rc" -eq 0 ]] && echo meta || echo no-key
+}
+
+# Remet dans le .env la clé de l'archive meta (jamais affichée) ; l'ancien .env est gardé à côté, lisible par root seul.
+restore_key_from_meta() {
+  local meta="$1" env="${KOUZIA_APP_DIR}/.env" saved keep
+  saved="$(meta_env_value "$meta" ENCRYPTION_KEY)"
+  [[ -n "$saved" ]] || die "ENCRYPTION_KEY absente de l'archive meta : $meta"
+  keep="${env}.avant-restauration-$(date +%Y%m%d%H%M%S)"
+  ( umask 077; cp "$env" "$keep" )
+  env_file_set "$env" ENCRYPTION_KEY "$saved"
+  saved=""
+  ok "Clé de chiffrement reprise de la sauvegarde (non affichée) ; ancien .env gardé : ${keep}"
+}
+
 # Jeton du tunnel Cloudflare : fichier à part, lisible par root seul (lu par le service OpenRC, passé à cloudflared
 # par l'environnement), jamais dans le .env (décision du 27/10/2026).
 CLOUDFLARE_TOKEN_PATH="${KOUZIA_ETC_DIR}/cloudflare-tunnel.token"

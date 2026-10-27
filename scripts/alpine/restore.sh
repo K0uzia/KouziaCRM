@@ -5,6 +5,7 @@
 #   kouziactl restore /var/backup/kouzia/kouziacrm-2026-09-03.db.gpg
 #   kouziactl restore /var/backup/kouzia/kouziacrm-….db.gpg --uploads /var/backup/kouzia/kouziacrm-….uploads.tar.gz.gpg
 #   kouziactl restore --check /var/backup/kouzia/kouziacrm-….db.gpg [--uploads …]   contrôle seul, rien n'est modifié
+#   CT neuf : ajouter --meta /var/backup/kouzia/kouziacrm-….meta.tar.gz.gpg (clé de chiffrement de la sauvegarde)
 # Option : --yes (sans question).
 #
 # Étapes : contrôle (déchiffrement, intégrité), arrêt de l'app vérifié, base actuelle déplacée à côté avec
@@ -18,6 +19,7 @@ source "${SCRIPT_DIR}/lib.sh"
 
 ORIG_ARGS=("$@")
 RESTORE_UPLOADS=""
+RESTORE_META=""
 BACKUP_FILE=""
 CHECK_ONLY=0
 YES=0
@@ -25,10 +27,11 @@ YES=0
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --uploads) RESTORE_UPLOADS="${2:-}"; shift 2 ;;
+    --meta) RESTORE_META="${2:-}"; shift 2 ;;
     --check) CHECK_ONLY=1; shift ;;
     --yes) YES=1; shift ;;
     -h|--help)
-      echo "Usage: restore.sh [--check] [--yes] <fichier.db.gpg> [--uploads fichier.uploads.tar.gz.gpg]"
+      echo "Usage: restore.sh [--check] [--yes] <fichier.db.gpg> [--uploads fichier.uploads.tar.gz.gpg] [--meta fichier.meta.tar.gz.gpg]"
       exit 0
       ;;
     -*) die "Option inconnue: $1" ;;
@@ -46,6 +49,7 @@ done
 [[ -n "$BACKUP_FILE" ]] || die "Fichier backup requis. Exemple: kouziactl restore /var/backup/kouzia/kouziacrm-DATE.db.gpg"
 [[ -f "$BACKUP_FILE" ]] || die "Fichier introuvable: $BACKUP_FILE"
 [[ -z "$RESTORE_UPLOADS" || -f "$RESTORE_UPLOADS" ]] || die "Uploads introuvables: $RESTORE_UPLOADS"
+[[ -z "$RESTORE_META" || -f "$RESTORE_META" ]] || die "Archive meta introuvable: $RESTORE_META"
 [[ -f "$KOUZIA_PASSPHRASE_FILE" ]] || die "Passphrase absente: $KOUZIA_PASSPHRASE_FILE"
 require_root
 ops_lock 0 "${SCRIPT_DIR}/restore.sh" ${ORIG_ARGS[@]+"${ORIG_ARGS[@]}"}
@@ -68,6 +72,15 @@ if [[ -n "$RESTORE_UPLOADS" ]]; then
   [[ "$N_FILES" =~ ^[0-9]+$ && "$N_FILES" -gt 0 ]] || die "Archive des pièces jointes illisible ou vide : $RESTORE_UPLOADS"
   ok "Pièces jointes lisibles (${N_FILES} fichier(s))"
 fi
+# Clé de chiffrement : celle en place lit-elle les données de la sauvegarde ? Sinon (CT neuf), celle de l'archive meta.
+KEY_PLAN="$(restore_key_plan "${CHECK_DIR}/db" "$RESTORE_META")"
+case "$KEY_PLAN" in
+  current) ok "Clé de chiffrement compatible : la clé en place lit cette sauvegarde" ;;
+  unchecked) ok "Clé de chiffrement : aucune donnée chiffrée à contrôler, clé en place gardée" ;;
+  meta) ok "Clé de chiffrement : celle de l'archive meta lit cette sauvegarde, elle sera remise dans le .env" ;;
+  missing-meta) warn "Clé de chiffrement NON compatible : la clé en place ne lit pas cette sauvegarde (CT neuf ?). Relancer avec --meta /var/backup/kouzia/<même date>.meta.tar.gz.gpg" ;;
+  *) warn "Clé de chiffrement : ni la clé en place ni celle de l'archive meta ne lit cette sauvegarde. Reprendre la clé exportée (kouziactl cle-export) dans le .env." ;;
+esac
 if [[ "$CHECK_ONLY" -eq 1 ]]; then
   ok "Contrôle terminé, rien n'a été modifié."
   exit 0
@@ -82,6 +95,11 @@ if [[ "$YES" -ne 1 && -t 0 ]]; then
   read -r ans || ans=""
   [[ "$ans" =~ ^([oOyY]|oui|Oui|OUI)$ ]] || { echo "  Annulé, rien n'a changé."; exit 0; }
 fi
+
+case "$KEY_PLAN" in
+  missing-meta|no-key) die "Clé de chiffrement incompatible : données illisibles après restauration. Rien n'a été modifié." ;;
+esac
+[[ "$KEY_PLAN" == "meta" ]] && restore_key_from_meta "$RESTORE_META"
 
 if ! restore_backup "$BACKUP_FILE" "$RESTORE_UPLOADS"; then
   warn "Restauration faite mais l'API ne répond pas ou une étape a échoué : kouziactl logs app."
