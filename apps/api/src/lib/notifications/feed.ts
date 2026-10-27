@@ -16,7 +16,9 @@ export type NotificationKind =
   | "testimonial"
   | "software_request"
   | "email_review"
-  | "buyout_offer";
+  | "buyout_offer"
+  | "stripe_credit"
+  | "urssaf_to_check";
 
 export type NotificationItem = {
   /** Identifiant stable (type + id source) : sert à dédoublonner côté interface. */
@@ -280,6 +282,42 @@ export async function listNotifications(since: Date): Promise<NotificationItem[]
       at: e.createdAt.toISOString(),
     })),
   ];
+
+  // Avoir automatique du crédit client Stripe (27/10/2026) : jamais envoyé au client d'office, Alexandre décide.
+  const stripeCredits = await prisma.invoice.findMany({
+    where: { documentType: "CREDIT_NOTE", creditReason: "STRIPE_CUSTOMER_CREDIT", createdAt: { gt: since } },
+    orderBy: { createdAt: "desc" },
+    take: MAX_ITEMS,
+    select: { id: true, number: true, totalCents: true, createdAt: true, client: { select: { displayName: true } }, creditedInvoice: { select: { number: true } } },
+  });
+  for (const cn of stripeCredits) {
+    items.push({
+      id: `stripe_credit:${cn.id}`,
+      kind: "stripe_credit" as const,
+      title: `Avoir ${cn.number ?? ""} : crédit client Stripe appliqué`,
+      body: `${cn.client.displayName}, facture ${cn.creditedInvoice?.number ?? ""} : ${eur(Math.abs(cn.totalCents))} réglés par le crédit du client chez Stripe. Avoir non envoyé, à envoyer si besoin.`,
+      href: `/invoices/${cn.id}`,
+      at: cn.createdAt.toISOString(),
+    });
+  }
+
+  // Déclarations URSSAF ajoutées au rattrapage (27/10/2026) : une seule notification groupée, jamais une par période.
+  const urssafToCheck = await prisma.obligation.findMany({
+    where: { type: "URSSAF_DECLARATION", status: "TO_CHECK", createdAt: { gt: since } },
+    orderBy: { createdAt: "desc" },
+    select: { id: true, createdAt: true },
+  });
+  if (urssafToCheck.length > 0) {
+    const n = urssafToCheck.length;
+    items.push({
+      id: `urssaf_to_check:${urssafToCheck[0]!.id}`,
+      kind: "urssaf_to_check" as const,
+      title: `${n} déclaration${n > 1 ? "s" : ""} URSSAF à vérifier`,
+      body: `Période${n > 1 ? "s" : ""} passée${n > 1 ? "s" : ""} absente${n > 1 ? "s" : ""} de l'ERP, ajoutée${n > 1 ? "s" : ""} pour vérification : déjà déclarée${n > 1 ? "s" : ""} ? À marquer dans Démarches.`,
+      href: "/obligations",
+      at: urssafToCheck[0]!.createdAt.toISOString(),
+    });
+  }
 
   // Rachat (R3) : rappel de fin du premier engagement mis en file avec le rachat proposé.
   const buyoutReminders = await prisma.emailOutbox.findMany({

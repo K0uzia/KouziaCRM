@@ -39,6 +39,7 @@ const REASON_LABEL: Record<CreditNoteReason, string> = {
   REFUND_DEPOSIT: "Remboursement d'acompte suite à annulation",
   COMMERCIAL_GESTURE: "Geste commercial",
   AMOUNT_CORRECTION: "Correction d'erreur de montant",
+  STRIPE_CUSTOMER_CREDIT: "Crédit client Stripe appliqué",
 };
 
 const REFUND_LABEL: Record<RefundMethod, string> = {
@@ -137,6 +138,7 @@ export function creditNoteContent(
 
 export async function assessCreditNoteEligibility(
   invoiceId: string,
+  opts: { stripeCustomerCredit?: boolean } = {},
 ): Promise<CreditNoteEligibility> {
   const invoice = await prisma.invoice.findUnique({
     where: { id: invoiceId },
@@ -213,7 +215,8 @@ export async function assessCreditNoteEligibility(
 
   // Échéance prélevée par Stripe (abonnement) et pas encore payée : Stripe prélèverait quand même le montant initial.
   // L'avoir se fait après le prélèvement, en remboursement.
-  if (invoice.stripeInvoiceId && balance.dueCents > 0) {
+  // Sauf l'avoir du crédit client Stripe : Stripe a déjà réglé cette part avec le solde du client, rien ne sera prélevé.
+  if (invoice.stripeInvoiceId && balance.dueCents > 0 && !opts.stripeCustomerCredit) {
     return {
       ...base,
       code: "BAD_STATUS",
@@ -273,7 +276,8 @@ export async function createCreditNote(
   invoiceId: string,
   input: CreateCreditNoteInput,
 ) {
-  const eligibility = await assessCreditNoteEligibility(invoiceId);
+  const stripeCustomerCredit = input.reason === CreditNoteReason.STRIPE_CUSTOMER_CREDIT;
+  const eligibility = await assessCreditNoteEligibility(invoiceId, { stripeCustomerCredit });
   if (!eligibility.allowed) {
     throw new CreditNoteError(
       eligibility.message ?? "Avoir non autorisé",
@@ -319,6 +323,10 @@ export async function createCreditNote(
         payments: true,
       },
     });
+    // Avoir du crédit client Stripe : un seul par facture, même si le webhook est rejoué (vérifié sous le verrou).
+    if (stripeCustomerCredit && original.creditNotes.some((cn) => cn.creditReason === CreditNoteReason.STRIPE_CUSTOMER_CREDIT)) {
+      throw new CreditNoteError("Crédit client Stripe déjà appliqué à cette facture.", "ALREADY_CREDITED");
+    }
     const fresh = invoiceBalance(original);
     const locked = validateCreditNoteAmount({ maxCreditCents: creditNoteCaps(fresh).maxCents, dueCents: fresh.dueCents }, input.amountCents, input.refundMethod);
     if (locked.deductedCents !== split.deductedCents) {

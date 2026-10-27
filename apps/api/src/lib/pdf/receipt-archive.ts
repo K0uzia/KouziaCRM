@@ -1,3 +1,5 @@
+import { accountingCutoff, isPastRetention } from "@/lib/privacy/retention-period.js";
+import { readArchiveFile, writeArchiveFile } from "@/lib/pdf/archive-file.js";
 import { invoiceBalance } from "@/lib/invoices/balance.js";
 import { createHash, randomBytes } from "node:crypto";
 import fs from "node:fs/promises";
@@ -123,13 +125,15 @@ const receiptFile = (row: { id: string; receiptPdfPath: string | null; invoice: 
 export async function paymentReceiptPdf(paymentId: string): Promise<Buffer | null> {
   const row = await prisma.payment.findUnique({
     where: { id: paymentId },
-    select: { id: true, receiptPdfPath: true, receiptPdfSha256: true, invoice: { select: { number: true } } },
+    select: { id: true, paidAt: true, receiptPdfPath: true, receiptPdfSha256: true, invoice: { select: { number: true } } },
   });
   if (!row?.invoice?.number) return null;
+  // Règlement d'un exercice clos depuis plus de 10 ans : reçu purgé, jamais réarchivé (demande du 27/10/2026).
+  if (isPastRetention(row.paidAt)) return null;
 
   if (row.receiptPdfPath) {
     try {
-      const pdf = await fs.readFile(issuedPdfAbsolutePath(row.receiptPdfPath));
+      const pdf = await readArchiveFile(issuedPdfAbsolutePath(row.receiptPdfPath));
       if (row.receiptPdfSha256 && sha256(pdf) !== row.receiptPdfSha256) {
         // Jamais de réécriture silencieuse : l'écart est signalé, le fichier archivé reste servi.
         console.error(`[pdf] empreinte du reçu archivé différente (${row.receiptPdfPath})`);
@@ -155,7 +159,7 @@ export async function paymentReceiptPdf(paymentId: string): Promise<Buffer | nul
   const pdfPath = `${RECEIPTS_DIR}/${safeNumber}-${paymentId}-${digest.slice(0, 12)}-${randomBytes(3).toString("hex")}.pdf`;
   const abs = issuedPdfAbsolutePath(pdfPath);
   await fs.mkdir(path.dirname(abs), { recursive: true });
-  await fs.writeFile(abs, pdf, { flag: "wx" });
+  await writeArchiveFile(abs, pdf, "wx");
   const claimed = await prisma.payment.updateMany({
     where: { id: paymentId, receiptPdfPath: null },
     data: { receiptPdfPath: pdfPath, receiptPdfSha256: digest, receiptArchivedAt: new Date(), receiptReadableSnapshot: readable.snapshot },
@@ -172,7 +176,7 @@ export async function paymentReceiptPdf(paymentId: string): Promise<Buffer | nul
 /** Rattrapage (worker) : règlements de factures numérotées sans reçu archivé. */
 export async function archivePendingReceipts(limit = 50): Promise<number> {
   const pending = await prisma.payment.findMany({
-    where: { receiptPdfPath: null, amountCents: { gt: 0 }, invoice: { number: { not: null } } },
+    where: { receiptPdfPath: null, amountCents: { gt: 0 }, paidAt: { gte: accountingCutoff() }, invoice: { number: { not: null } } },
     select: { id: true },
     orderBy: { paidAt: "asc" },
     take: limit,

@@ -1,3 +1,4 @@
+import { openReadable, readArchiveFile } from "@/lib/pdf/archive-file.js";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import type { FastifyInstance } from "fastify";
 import { prisma } from "@/lib/prisma.js";
@@ -99,7 +100,7 @@ describe("devis à 2 propositions : PDF et version lisible (P2)", () => {
     const { ok, snapshot } = await snapshotFor(await renderInvoicePdf(data), built);
     expect(ok).toBe(true);
     // Contrat du site : proposalsAt obligatoire avec proposals ; sections imprimées avant les propositions.
-    const frozen = JSON.parse(snapshot);
+    const frozen = JSON.parse(openReadable(snapshot));
     expect(frozen.proposalsAt).toBe(2);
     expect(frozen.sections.slice(0, frozen.proposalsAt).map((s: { heading: string | null }) => s.heading)).toEqual(["Conditions", null]);
     expect(frozen.sections[frozen.proposalsAt].heading).toBe("Notes");

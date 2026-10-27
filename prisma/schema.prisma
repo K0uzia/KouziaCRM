@@ -137,6 +137,8 @@ enum ObligationStatus {
   PENDING
   DONE
   LATE
+  /// Période close jamais créée, ajoutée au rattrapage : à vérifier (déclarée hors ERP ?), jamais affichée en retard
+  TO_CHECK
 }
 
 enum ServiceUnit {
@@ -159,6 +161,8 @@ enum CreditNoteReason {
   REFUND_DEPOSIT
   COMMERCIAL_GESTURE
   AMOUNT_CORRECTION
+  /// Avoir automatique du webhook Stripe : part d'une facture réglée par le crédit du client Stripe (27/10/2026)
+  STRIPE_CUSTOMER_CREDIT
 }
 
 enum RefundMethod {

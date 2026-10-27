@@ -1,3 +1,4 @@
+import { readArchiveFile } from "@/lib/pdf/archive-file.js";
 import type { FastifyPluginAsync } from "fastify";
 import { z } from "zod";
 import { InvoiceDocumentType, PaymentMethod } from "@prisma/client";
@@ -173,7 +174,7 @@ export const quotesMarketRoutes: FastifyPluginAsync = async (app) => {
       });
       if (!audit?.pdfPath) return reply.code(404).send({ error: "PDF signé introuvable" });
       try {
-        const pdf = await fs.readFile(signedQuoteAbsolutePath(audit.pdfPath));
+        const pdf = await readArchiveFile(signedQuoteAbsolutePath(audit.pdfPath));
         return reply
           .header("Content-Type", "application/pdf")
           .header("Content-Disposition", `inline; filename="${audit.pdfPath.split("/").pop()}"`)

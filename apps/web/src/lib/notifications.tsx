@@ -27,7 +27,9 @@ export type NotificationKind =
   | "testimonial"
   | "software_request"
   | "email_review"
-  | "buyout_offer";
+  | "buyout_offer"
+  | "stripe_credit"
+  | "urssaf_to_check";
 
 export type NotificationItem = {
   id: string;

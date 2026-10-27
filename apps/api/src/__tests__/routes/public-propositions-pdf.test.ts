@@ -91,7 +91,7 @@ describe("devis à propositions : PDF public et version lisible (P0)", () => {
     expect(doc.proposals.map((p: { heading: string }) => p.heading)).toEqual(["Proposition A : Paiement unique (non retenue)", "Proposition B : Abonnement 3 ans"]);
     expect(doc.source).toBe("ARCHIVE");
     // Figée à la signature, pas au premier accès.
-    expect((await prisma.invoice.findUniqueOrThrow({ where: { id: q.id } })).readableSnapshot).toMatch(/^\{"version":1/);
+    expect((await prisma.invoice.findUniqueOrThrow({ where: { id: q.id } })).readableSnapshot).toMatch(/^enc1:/);
   });
 
   it("PDF du bouton « PDF » de l'ERP : même document que le PDF public", async () => {

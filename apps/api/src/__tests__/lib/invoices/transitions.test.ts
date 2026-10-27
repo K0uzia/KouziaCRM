@@ -1,3 +1,4 @@
+import { openReadable, readArchiveFile } from "@/lib/pdf/archive-file.js";
 import { createHash } from "node:crypto";
 import fs from "node:fs/promises";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -373,7 +374,7 @@ describe("décision du client sur un devis", () => {
 
     const { signedQuoteAbsolutePath } = await import("@/lib/invoices/acceptance-proof.js");
     const abs = signedQuoteAbsolutePath(audit.pdfPath!);
-    const pdf = await fs.readFile(abs);
+    const pdf = await readArchiveFile(abs);
     expect(createHash("sha256").update(pdf).digest("hex")).toBe(audit.pdfSha256);
     await fs.rm(abs, { force: true });
   });
@@ -404,7 +405,7 @@ describe("décision du client sur un devis", () => {
     expect(audit.originalPdfPath).toMatch(/avant-signature\.pdf$/);
 
     const { signedQuoteAbsolutePath } = await import("@/lib/invoices/acceptance-proof.js");
-    const original = await fs.readFile(signedQuoteAbsolutePath(audit.originalPdfPath!));
+    const original = await readArchiveFile(signedQuoteAbsolutePath(audit.originalPdfPath!));
     expect(createHash("sha256").update(original).digest("hex")).toBe(audit.originalPdfSha256);
 
     // Le PDF signé reprend la preuve dans son bloc « Bon pour accord ».

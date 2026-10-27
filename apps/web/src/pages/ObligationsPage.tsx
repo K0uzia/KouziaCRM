@@ -25,7 +25,7 @@ export type ObligationItem = {
   dueDate: string;
   windowStart: string;
   windowEnd: string;
-  displayStatus: "UPCOMING" | "OPEN" | "LATE" | "URGENT" | "DONE";
+  displayStatus: "UPCOMING" | "OPEN" | "LATE" | "URGENT" | "DONE" | "TO_CHECK";
   completedAt: string | null;
   amountCents: number | null;
   notes: string | null;
@@ -93,6 +93,9 @@ function statusLabel(item: ObligationItem): string {
       return `Ouverture dans ${item.daysUntilOpen ?? 0} j`;
     case "DONE":
       return `Confirmé le ${formatDate(item.completedAt)}`;
+    case "TO_CHECK":
+      // Période passée ajoutée au rattrapage : peut-être déjà déclarée hors de l'ERP, jamais affichée en retard.
+      return "À vérifier : déjà déclarée ?";
     default:
       return "À venir";
   }

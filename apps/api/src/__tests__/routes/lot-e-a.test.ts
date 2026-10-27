@@ -136,7 +136,8 @@ describe("reçu archivé", () => {
     await fs.appendFile(issuedPdfAbsolutePath(row.receiptPdfPath!), "altéré");
     await paymentReceiptPdf(payment.id);
     expect(alertAdmin).toHaveBeenCalledTimes(1);
-    expect(String(alertAdmin.mock.calls[0]![1])).toMatch(/SHA-256/);
+    // Reçu chiffré au repos (27/10/2026) : l'altération fait échouer l'authentification, le fichier est dit illisible.
+    expect(String(alertAdmin.mock.calls[0]![1])).toMatch(/illisible/);
   });
 
   it("remboursement : ni règlement dans /suivi, ni reçu archivé", async () => {

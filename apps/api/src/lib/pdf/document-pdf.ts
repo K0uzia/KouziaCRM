@@ -1,3 +1,4 @@
+import { isPastRetention } from "@/lib/privacy/retention-period.js";
 import { prisma } from "@/lib/prisma.js";
 import { decryptOptional } from "@/lib/crypto.js";
 import { readClientSnapshot } from "@/lib/invoices/client-snapshot.js";
@@ -38,6 +39,8 @@ export async function loadDocumentForPdf(documentId: string, opts: { maskContact
     }),
   ]);
   if (!invoice || !invoice.number) return null;
+  // Exercice clos depuis plus de 10 ans : plus de PDF ni de version lisible, ni archivés ni rendus (27/10/2026).
+  if (isPastRetention(invoice.issueDate)) return null;
 
   const email = decryptOptional(invoice.client.emailEncrypted);
   const snapshot =

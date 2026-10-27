@@ -61,7 +61,7 @@ export type ObligationView = {
   windowEnd: string;
   status: ObligationStatus;
   /** UPCOMING avant ouverture, OPEN pendant la fenêtre, URGENT (<7 j), LATE après clôture */
-  displayStatus: "UPCOMING" | "OPEN" | "LATE" | "URGENT" | "DONE";
+  displayStatus: "UPCOMING" | "OPEN" | "LATE" | "URGENT" | "DONE" | "TO_CHECK";
   completedAt: string | null;
   amountCents: number | null;
   notes: string | null;
@@ -84,6 +84,8 @@ export type ObligationsDashboard = {
     open: number;
     upcoming: number;
     pending: number;
+    /** Périodes ajoutées au rattrapage, à vérifier (jamais en retard). */
+    toCheck: number;
     nextDue: ObligationView | null;
   };
   alerts: Array<{ kind: string; message: string }>;
@@ -166,35 +168,26 @@ type UrssafPeriodPlan = {
 };
 
 /**
- * Périodes URSSAF à afficher : à partir du 1er mois/trimestre d'activité,
- * jusqu'à URSSAF_OPEN_PERIODS_AHEAD échéances encore pertinentes (pas trop anciennes).
+ * Toutes les périodes URSSAF de la périodicité en vigueur, du 1er mois/trimestre d'activité jusqu'à `until`, sans
+ * plafond de nombre (défaut du 27/10/2026 : 18 mois ou 16 trimestres seulement, puis plus aucune déclaration).
  */
-function planUrssafPeriods(
-  settings: CompanySettings,
-  now: Date,
-): UrssafPeriodPlan[] {
+function urssafPeriodsUntil(settings: CompanySettings, until: Date): UrssafPeriodPlan[] {
   const activityStart = getBusinessStartLocal(settings.businessStartDate)!;
   const out: UrssafPeriodPlan[] = [];
-  const horizon = addDays(now, 400);
-  const staleBefore = addDays(now, -45);
-
   if (settings.urssafPeriodicity === UrssafPeriodicity.QUARTERLY) {
     let year = activityStart.getFullYear();
     let quarter = Math.floor(activityStart.getMonth() / 3) + 1;
-    for (let i = 0; i < 16 && out.length < URSSAF_OPEN_PERIODS_AHEAD; i += 1) {
+    for (;;) {
       const q = quarterBoundsOfficial(year, quarter);
+      if (q.start.getTime() > until.getTime()) break;
       const clipped = clipPeriodToActivity(q.start, q.end, settings.businessStartDate);
-      if (clipped && q.deadline.getTime() >= staleBefore.getTime() && q.start.getTime() <= horizon.getTime()) {
-        const isFirstPeriod =
-          out.length === 0 && q.start.getTime() <= activityStart.getTime();
-        const label = isFirstPeriod
-          ? `Déclaration URSSAF : ${q.label} (1re période)`
-          : `Déclaration URSSAF : ${q.label}`;
+      if (clipped) {
+        const isFirstPeriod = out.length === 0 && q.start.getTime() <= activityStart.getTime();
         out.push({
           periodKey: q.periodKey,
           periodStart: clipped.start,
           periodEnd: clipped.end,
-          label,
+          label: isFirstPeriod ? `Déclaration URSSAF : ${q.label} (1re période)` : `Déclaration URSSAF : ${q.label}`,
           baseDueDate: q.deadline,
         });
       }
@@ -206,29 +199,21 @@ function planUrssafPeriods(
     }
     return out;
   }
-
   let year = activityStart.getFullYear();
   let month = activityStart.getMonth() + 1;
-  for (let i = 0; i < 18 && out.length < URSSAF_OPEN_PERIODS_AHEAD; i += 1) {
+  for (;;) {
     const start = new Date(year, month - 1, 1, 0, 0, 0, 0);
+    if (start.getTime() > until.getTime()) break;
     const end = new Date(year, month, 0, 23, 59, 59, 999);
     const clipped = clipPeriodToActivity(start, end, settings.businessStartDate);
     if (clipped) {
-      const periodKey = `${year}-${String(month).padStart(2, "0")}`;
-      const baseDueDate = urssafDeadlineForPeriod(end);
-      const isFirst = out.length === 0;
-      const label = isFirst
-        ? `Déclaration URSSAF : ${monthLabelFr(year, month)} (1re période)`
-        : `Déclaration URSSAF : ${monthLabelFr(year, month)}`;
-      if (baseDueDate.getTime() >= staleBefore.getTime()) {
-        out.push({
-          periodKey,
-          periodStart: clipped.start,
-          periodEnd: clipped.end,
-          label,
-          baseDueDate,
-        });
-      }
+      out.push({
+        periodKey: `${year}-${String(month).padStart(2, "0")}`,
+        periodStart: clipped.start,
+        periodEnd: clipped.end,
+        label: out.length === 0 ? `Déclaration URSSAF : ${monthLabelFr(year, month)} (1re période)` : `Déclaration URSSAF : ${monthLabelFr(year, month)}`,
+        baseDueDate: urssafDeadlineForPeriod(end),
+      });
     }
     month += 1;
     if (month > 12) {
@@ -239,6 +224,80 @@ function planUrssafPeriods(
   return out;
 }
 
+/** Échéance passée depuis plus de 45 jours : période close, hors des périodes « ouvertes » affichées. */
+const staleBeforeOf = (now: Date) => addDays(now, -45);
+
+/**
+ * Périodes URSSAF à afficher : à partir du 1er mois/trimestre d'activité,
+ * jusqu'à URSSAF_OPEN_PERIODS_AHEAD échéances encore pertinentes (pas trop anciennes).
+ */
+function planUrssafPeriods(
+  settings: CompanySettings,
+  now: Date,
+): UrssafPeriodPlan[] {
+  const staleBefore = staleBeforeOf(now);
+  return urssafPeriodsUntil(settings, addDays(now, 400))
+    .filter((p) => p.baseDueDate.getTime() >= staleBefore.getTime())
+    .slice(0, URSSAF_OPEN_PERIODS_AHEAD);
+}
+
+/** Mois couverts par une période URSSAF (« 2025-03 » ou « 2025-Q1 »), en clés mensuelles. */
+function monthsOfPeriodKey(key: string): string[] {
+  const q = /^(\d{4})-Q([1-4])$/.exec(key);
+  if (q) {
+    const first = (Number(q[2]) - 1) * 3 + 1;
+    return [first, first + 1, first + 2].map((m) => `${q[1]}-${String(m).padStart(2, "0")}`);
+  }
+  return /^\d{4}-\d{2}$/.test(key) ? [key] : [];
+}
+
+/**
+ * Rattrapage des périodes closes jamais créées (conditions de github-2b du 27/10/2026) : chaque période de la périodicité
+ * en vigueur, depuis le début d'activité, dont aucun mois n'a de déclaration (quelle que soit sa périodicité et son état)
+ * est créée « à vérifier » : jamais en retard, à confirmer par Alexandre (notification groupée). Une période dont une
+ * partie des mois est déjà déclarée (changement de périodicité en cours d'année) est créée « à vérifier » avec la liste de
+ * ces mois. Idempotent : clé (type, période) unique et mois déjà couverts sautés.
+ */
+async function catchUpMissingUrssafPeriods(settings: CompanySettings, now: Date): Promise<number> {
+  const staleBefore = staleBeforeOf(now);
+  const closed = urssafPeriodsUntil(settings, now).filter((p) => p.baseDueDate.getTime() < staleBefore.getTime());
+  if (closed.length === 0) return 0;
+  const existing = await prisma.obligation.findMany({ where: { type: ObligationType.URSSAF_DECLARATION }, select: { period: true } });
+  const keys = new Set(existing.map((o) => o.period));
+  const covered = new Set(existing.flatMap((o) => monthsOfPeriodKey(o.period)));
+  let created = 0;
+  for (const p of closed) {
+    if (keys.has(p.periodKey)) continue;
+    const monthsOfPeriod = monthsOfPeriodKey(p.periodKey);
+    const already = monthsOfPeriod.filter((m) => covered.has(m));
+    if (monthsOfPeriod.length > 0 && already.length === monthsOfPeriod.length) continue;
+    const encaisse = await sumEncaisseBetween(p.periodStart, p.periodEnd);
+    const { totalCents } = computeSocialChargesForEncaisse(encaisse, p.periodStart);
+    const notes = [
+      "Période ajoutée au rattrapage : vérifier si elle a déjà été déclarée à l'URSSAF, puis la marquer déclarée.",
+      already.length > 0 ? `Mois déjà présents dans l'ERP (autre périodicité) : ${already.join(", ")}.` : null,
+      encaisse === 0 ? "CA encaissé de la période : 0 €" : null,
+    ].filter(Boolean).join("\n");
+    await prisma.obligation.upsert({
+      where: { type_period: { type: ObligationType.URSSAF_DECLARATION, period: p.periodKey } },
+      update: {},
+      create: {
+        type: ObligationType.URSSAF_DECLARATION,
+        period: p.periodKey,
+        dueDate: p.baseDueDate,
+        label: p.label,
+        amountCents: totalCents,
+        notes,
+        status: ObligationStatus.TO_CHECK,
+      },
+    });
+    for (const m of monthsOfPeriod) covered.add(m);
+    keys.add(p.periodKey);
+    created += 1;
+  }
+  return created;
+}
+
 /** Déclarations URSSAF ouvertes (mensuel ou trimestriel) selon calendrier officiel. */
 async function ensureUrssafObligation(settings: CompanySettings, now = new Date()) {
   if (!settings.businessStartDate) return null;
@@ -247,11 +306,14 @@ async function ensureUrssafObligation(settings: CompanySettings, now = new Date(
   if (plans.length === 0) return null;
 
   const keepKeys = plans.map((p) => p.periodKey);
+  // Seules les périodes encore ouvertes d'une autre périodicité sont retirées (changement de périodicité) : une période
+  // close, déclarée ou non, reste visible (avant : supprimée 45 jours après son échéance, donc oubliée).
   const toDrop = await prisma.obligation.findMany({
     where: {
       type: ObligationType.URSSAF_DECLARATION,
-      status: { not: ObligationStatus.DONE },
+      status: { notIn: [ObligationStatus.DONE, ObligationStatus.TO_CHECK] },
       period: { notIn: keepKeys },
+      dueDate: { gte: staleBeforeOf(now) },
     },
     select: {
       id: true,
@@ -281,7 +343,7 @@ async function ensureUrssafObligation(settings: CompanySettings, now = new Date(
       settings.urssafPeriodicity,
     );
     const encaisse = await sumEncaisseBetween(plan.periodStart, plan.periodEnd);
-    const { totalCents } = computeSocialChargesForEncaisse(encaisse);
+    const { totalCents } = computeSocialChargesForEncaisse(encaisse, plan.periodStart);
     last = await upsertObligation({
       type: ObligationType.URSSAF_DECLARATION,
       period: plan.periodKey,
@@ -289,8 +351,11 @@ async function ensureUrssafObligation(settings: CompanySettings, now = new Date(
       label,
       amountCents: totalCents,
       notes: encaisse === 0 ? "CA encaissé de la période : 0 €" : null,
+      missingPastAsToCheck: true,
+      now,
     });
   }
+  await catchUpMissingUrssafPeriods(settings, now);
   return last;
 }
 
@@ -306,6 +371,10 @@ export function computeDisplayStatus(
       daysRemaining: null,
       daysUntilOpen: null,
     };
+  }
+  // Période ajoutée au rattrapage : à vérifier, jamais comptée en retard.
+  if (obl.status === ObligationStatus.TO_CHECK) {
+    return { displayStatus: "TO_CHECK", daysLate: null, daysRemaining: null, daysUntilOpen: null };
   }
 
   const { opensAt, closesAt } = window;
@@ -411,12 +480,17 @@ async function upsertObligation(data: {
   label: string;
   amountCents?: number | null;
   notes?: string | null;
+  /** Déclaration URSSAF jamais créée et dont l'échéance est déjà passée (rattrapage) : « à vérifier », pas en retard. */
+  missingPastAsToCheck?: boolean;
+  /** Date de référence (synchronisation datée) ; par défaut maintenant. */
+  now?: Date;
 }): Promise<Obligation> {
   const existing = await prisma.obligation.findUnique({
     where: { type_period: { type: data.type, period: data.period } },
   });
   if (existing) {
-    if (existing.status === ObligationStatus.DONE) return existing;
+    // Déclarée, ou à vérifier (rattrapage) : jamais repassée en attente ou en retard par une mise à jour.
+    if (existing.status === ObligationStatus.DONE || existing.status === ObligationStatus.TO_CHECK) return existing;
     return prisma.obligation.update({
       where: { id: existing.id },
       data: {
@@ -425,7 +499,7 @@ async function upsertObligation(data: {
         amountCents: data.amountCents ?? existing.amountCents,
         notes: data.notes ?? existing.notes,
         status:
-          data.dueDate < new Date() ? ObligationStatus.LATE
+          data.dueDate < (data.now ?? new Date()) ? ObligationStatus.LATE
             : ObligationStatus.PENDING,
       },
     });
@@ -438,7 +512,12 @@ async function upsertObligation(data: {
       label: data.label,
       amountCents: data.amountCents ?? null,
       notes: data.notes ?? null,
-      status: data.dueDate < new Date() ? ObligationStatus.LATE : ObligationStatus.PENDING,
+      status:
+        data.dueDate < (data.now ?? new Date())
+          ? data.missingPastAsToCheck
+            ? ObligationStatus.TO_CHECK
+            : ObligationStatus.LATE
+          : ObligationStatus.PENDING,
     },
   });
 }
@@ -462,7 +541,7 @@ async function ensureNextUrssafAfter(
     const clipped = clipPeriodToActivity(next.start, next.end, settings.businessStartDate);
     if (!clipped) return null;
     const encaisse = await sumEncaisseBetween(clipped.start, clipped.end);
-    const { totalCents } = computeSocialChargesForEncaisse(encaisse);
+    const { totalCents } = computeSocialChargesForEncaisse(encaisse, clipped.start);
     return upsertObligation({
       type: ObligationType.URSSAF_DECLARATION,
       period: next.periodKey,
@@ -487,7 +566,7 @@ async function ensureNextUrssafAfter(
   const period = `${year}-${String(month).padStart(2, "0")}`;
   const dueDate = urssafDeadlineForPeriod(clipped.end);
   const encaisse = await sumEncaisseBetween(clipped.start, clipped.end);
-  const { totalCents } = computeSocialChargesForEncaisse(encaisse);
+  const { totalCents } = computeSocialChargesForEncaisse(encaisse, clipped.start);
   return upsertObligation({
     type: ObligationType.URSSAF_DECLARATION,
     period,
@@ -802,9 +881,9 @@ export async function syncObligationsLocal(now = new Date()) {
   await ensureActivityQuestionnaire(settings);
   await normalizeOpenUrssafDueDates(settings);
 
-  // Recalcule LATE vs PENDING pour les non DONE
+  // Recalcule LATE vs PENDING pour les non DONE (une période « à vérifier » garde son état jusqu'à sa confirmation)
   const open = await prisma.obligation.findMany({
-    where: { status: { not: ObligationStatus.DONE } },
+    where: { status: { notIn: [ObligationStatus.DONE, ObligationStatus.TO_CHECK] } },
   });
   for (const o of open) {
     const window = resolveObligationWindow(o, settings);
@@ -905,7 +984,7 @@ export async function listObligationsDashboard(now = new Date()): Promise<Obliga
     .filter((v) => v.displayStatus !== "DONE")
     .sort((a, b) => {
       const rank = (s: string) =>
-        s === "LATE" ? 0 : s === "URGENT" ? 1 : s === "OPEN" ? 2 : 3;
+        s === "LATE" ? 0 : s === "URGENT" ? 1 : s === "OPEN" ? 2 : s === "TO_CHECK" ? 4 : 3;
       const dr = rank(a.displayStatus) - rank(b.displayStatus);
       if (dr !== 0) return dr;
       return new Date(a.windowEnd).getTime() - new Date(b.windowEnd).getTime();
@@ -953,7 +1032,12 @@ export async function listObligationsDashboard(now = new Date()): Promise<Obliga
       upcoming: active.filter((i) => i.displayStatus === "UPCOMING").length,
       pending: active.filter((i) => i.displayStatus === "OPEN" || i.displayStatus === "URGENT")
         .length,
-      nextDue: active.find((i) => i.displayStatus !== "UPCOMING") ?? active[0] ?? null,
+      toCheck: active.filter((i) => i.displayStatus === "TO_CHECK").length,
+      // Une période « à vérifier » n'est jamais la prochaine échéance.
+      nextDue:
+        active.find((i) => i.displayStatus !== "UPCOMING" && i.displayStatus !== "TO_CHECK") ??
+        active.find((i) => i.displayStatus !== "TO_CHECK") ??
+        null,
     },
     alerts,
     links,
