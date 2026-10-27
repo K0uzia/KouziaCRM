@@ -9,6 +9,7 @@ import {
   faFileInvoiceDollar,
   faFileSignature,
   faKey,
+  faLinkSlash,
   faEnvelopeCircleCheck,
   faRotate,
   faUserPlus,
@@ -33,6 +34,7 @@ export const NOTIFICATION_KIND_STYLE: Record<NotificationKind, { icon: IconDefin
   buyout_offer: { icon: faFileSignature, tone: "bg-[var(--info-soft)] text-[var(--info)]" },
   stripe_credit: { icon: faFileInvoiceDollar, tone: "bg-[var(--info-soft)] text-[var(--info)]" },
   urssaf_to_check: { icon: faCalendarXmark, tone: "bg-[var(--info-soft)] text-[var(--info)]" },
+  payment_link_foreign: { icon: faLinkSlash, tone: "bg-[var(--warning-soft)] text-[var(--warning)]" },
 };
 
 /**

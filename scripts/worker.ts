@@ -24,6 +24,7 @@ import { purgeTestimonialProofs } from "../apps/api/src/lib/site/testimonials.js
 import { followSitePublications } from "../apps/api/src/lib/site/publish.js";
 import { backfillEncryptedArchives, backfillEncryptedEmails } from "../apps/api/src/lib/privacy/at-rest.js";
 import { backfillLegacyNotes } from "../apps/api/src/lib/clients/notepad.js";
+import { reportForeignPaymentLinks } from "../apps/api/src/lib/invoices/foreign-payment-links.js";
 import { purgeRetention } from "../apps/api/src/lib/privacy/retention.js";
 import { installNoBrotliFetch } from "../apps/api/src/lib/http/no-brotli-fetch.js";
 import { encryptionKey } from "../apps/api/src/lib/crypto.js";
@@ -217,6 +218,13 @@ async function runHourly() {
     if (notes > 0) console.log(`[worker] anciennes notes reprises dans le bloc-notes=${notes}`);
   } catch (err) {
     console.error("[worker] reprise des anciennes notes error", err);
+  }
+  try {
+    // Liens de paiement hors Stripe enregistrés avant la règle (27/10/2026) : signalés une fois, jamais modifiés.
+    const foreign = await reportForeignPaymentLinks();
+    if (foreign > 0) console.log(`[worker] liens de paiement hors Stripe signalés=${foreign}`);
+  } catch (err) {
+    console.error("[worker] contrôle des liens de paiement error", err);
   }
   try {
     // Conservation des données (README, « Conservation des données ») : prospects, invitations, file, journal, sessions.

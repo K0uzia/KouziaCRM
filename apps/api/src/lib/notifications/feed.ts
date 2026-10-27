@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma.js";
 import { REVIEW_FAMILIES, type ReviewFamily } from "@/lib/email/review.js";
 import { formatEUR } from "@/lib/money.js";
 import { formatDateFr } from "@/lib/format-fr.js";
+import { FOREIGN_LINK_KIND, linkHost } from "@/lib/invoices/foreign-payment-links.js";
 
 export type NotificationKind =
   | "mail"
@@ -18,7 +19,8 @@ export type NotificationKind =
   | "email_review"
   | "buyout_offer"
   | "stripe_credit"
-  | "urssaf_to_check";
+  | "urssaf_to_check"
+  | "payment_link_foreign";
 
 export type NotificationItem = {
   /** Identifiant stable (type + id source) : sert à dédoublonner côté interface. */
@@ -341,6 +343,37 @@ export async function listNotifications(since: Date): Promise<NotificationItem[]
         title: `Fin d'engagement de ${s.client.displayName}${s.commitmentEndsAt ? ` le ${formatDateFr(s.commitmentEndsAt)}` : ""} : proposer le rachat ?`,
         body: `Abonnement « ${s.label} » : le rappel au client propose le rachat.`,
         href: `/abonnements?tab=contrats&contrat=${s.id}`,
+        at: r.createdAt.toISOString(),
+      });
+    }
+  }
+
+  // Liens de paiement hors Stripe enregistrés avant la règle (27/10/2026) : une notification par document signalé.
+  const foreignLinks = await prisma.emailOutbox.findMany({
+    where: { reviewKind: FOREIGN_LINK_KIND, createdAt: { gt: since }, documentId: { not: null } },
+    orderBy: { createdAt: "desc" },
+    take: MAX_ITEMS,
+    select: { id: true, documentId: true, createdAt: true },
+  });
+  if (foreignLinks.length) {
+    const ids = foreignLinks.map((r) => r.documentId!);
+    const [invs, ms] = await Promise.all([
+      prisma.invoice.findMany({ where: { id: { in: ids } }, select: { id: true, number: true, checkoutUrl: true } }),
+      prisma.paymentMilestone.findMany({ where: { id: { in: ids } }, select: { id: true, label: true, checkoutUrl: true, quote: { select: { id: true, number: true } } } }),
+    ]);
+    const docs = new Map<string, { title: string; url: string | null; href: string }>([
+      ...invs.map((i) => [i.id, { title: `facture ${i.number ?? ""}`.trim(), url: i.checkoutUrl, href: `/invoices/${i.id}` }] as const),
+      ...ms.map((m) => [m.id, { title: `échéance « ${m.label} » du devis ${m.quote.number ?? ""}`.trim(), url: m.checkoutUrl, href: `/quotes/${m.quote.id}` }] as const),
+    ]);
+    for (const r of foreignLinks) {
+      const d = docs.get(r.documentId!);
+      if (!d?.url) continue;
+      items.push({
+        id: `payment_link_foreign:${r.id}`,
+        kind: "payment_link_foreign" as const,
+        title: `Lien de paiement hors Stripe : ${d.title}`,
+        body: `Le lien enregistré pointe vers ${linkHost(d.url)} : il n'est pas affiché dans l'espace client. À remplacer par un lien Stripe ou à retirer.`,
+        href: d.href,
         at: r.createdAt.toISOString(),
       });
     }
