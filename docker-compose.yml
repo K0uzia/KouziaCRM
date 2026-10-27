@@ -65,9 +65,18 @@ services:
   # cloudflared tourne alors dans un autre conteneur : renseigner TRUST_PROXY dans .env avec le
   # sous-réseau Docker (ex. "172.18.0.0/16"), sinon l'API ne lit pas CF-Connecting-IP et toutes
   # les requêtes du tunnel partagent l'IP du conteneur (limites de débit communes).
+  # Jeton du tunnel lu dans un fichier, jamais dans le .env (comme sur le CT Alpine, 27/10/2026) :
+  #   install -m 600 -o 65532 -g 65532 /dev/null /etc/kouzia/cloudflare-tunnel.token, puis y coller le jeton
+  #   (65532 : compte « nonroot » de l'image cloudflared, seul lecteur du fichier) ; CLOUDFLARE_TUNNEL="1" dans le .env.
   # cloudflared:
   #   image: cloudflare/cloudflared:latest
   #   container_name: kouzia-erp-tunnel
   #   restart: unless-stopped
-  #   command: tunnel --no-autoupdate run --token ${CLOUDFLARE_TUNNEL_TOKEN}
-  #   env_file: .env
+  #   command: tunnel --no-autoupdate run --token-file /run/secrets/cloudflare_tunnel_token
+  #   secrets:
+  #     - cloudflare_tunnel_token
+
+# Avec le service cloudflared ci-dessus (au niveau racine du fichier) :
+# secrets:
+#   cloudflare_tunnel_token:
+#     file: /etc/kouzia/cloudflare-tunnel.token
