@@ -619,8 +619,24 @@ kouziactl restore --check /var/backup/kouzia/….db.gpg
 La base remplacée est gardée à côté, avec ses fichiers `-wal` et `-shm`
 (`data/kouziacrm.db.avant-restauration-<date>`).
 
-Sur un CT neuf, le jeton du tunnel n'est pas dans les sauvegardes (il n'est plus dans le `.env`, ni dans la sauvegarde
-« meta ») : le reprendre dans le tableau de bord Cloudflare (Zero Trust, Tunnels) puis lancer `kouziactl cloudflare`.
+La restauration contrôle d'abord la clé de chiffrement (`ENCRYPTION_KEY`) : si la clé du CT ne lit pas les données
+de la sauvegarde, elle s'arrête sans rien modifier, sauf avec `--meta`, qui reprend la clé de l'archive meta de la même
+sauvegarde (jamais affichée ; l'ancien `.env` est gardé en `.env.avant-restauration-<date>`). `--check` dit si la clé
+est compatible.
+
+**Clés de secours.** Sans la clé de chiffrement et la phrase des sauvegardes (`/etc/kouzia/backup-pass`), aucune
+sauvegarde n'est relisible si le CT est perdu. Une fois, depuis la console du CT dans Proxmox (CT > Console, root ;
+refusé par SSH), `kouziactl cle-export` les affiche avec la marche à suivre : les copier dans le gestionnaire de mots de
+passe, fiche « ERP Kouzia : clés de secours », puis Entrée efface l'écran. `kouziactl status` avertit tant que ce n'est
+pas fait, ou si elles ont changé depuis.
+
+**Restaurer sur un CT neuf** (après `install.sh`, sauvegardes recopiées dans `/var/backup/kouzia`) :
+
+1. Remettre la phrase des sauvegardes (console Proxmox, root) : `( umask 077; cat > /etc/kouzia/backup-pass )`, coller
+   la phrase depuis le gestionnaire de mots de passe, Entrée, puis Ctrl+D (rien dans l'historique du shell).
+2. `kouziactl restore /var/backup/kouzia/kouziacrm-<date>.db.gpg --uploads /var/backup/kouzia/kouziacrm-<date>.uploads.tar.gz.gpg --meta /var/backup/kouzia/kouziacrm-<date>.meta.tar.gz.gpg`
+3. `kouziactl cloudflare` : le jeton du tunnel n'est pas dans les sauvegardes (ni dans le `.env`, ni dans la
+   sauvegarde « meta ») ; le reprendre dans le tableau de bord Cloudflare (Zero Trust, Tunnels).
 
 Docker :
 
