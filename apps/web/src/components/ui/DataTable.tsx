@@ -13,7 +13,7 @@ import { matchesSearch } from "@/lib/list-search";
 createTheme(
   "kouzia",
   {
-    text: { primary: "var(--text)", secondary: "var(--muted)", disabled: "rgb(154 161 191 / 0.35)" },
+    text: { primary: "var(--text)", secondary: "var(--muted)", disabled: "var(--text-disabled)" },
     background: { default: "var(--surface)" },
     context: { background: "var(--primary-soft)", text: "var(--text)" },
     divider: { default: "var(--border)" },
@@ -21,7 +21,7 @@ createTheme(
       default: "var(--primary)",
       focus: "var(--primary-soft)",
       hover: "var(--surface-hover)",
-      disabled: "rgb(154 161 191 / 0.35)",
+      disabled: "var(--text-disabled)",
     },
     selected: { default: "var(--primary-soft)", text: "var(--text)" },
     highlightOnHover: { default: "var(--surface-raised)", text: "var(--text)" },
