@@ -29,6 +29,21 @@ beforeEach(async () => {
   await prisma.emailOutbox.deleteMany();
 });
 
+describe("e-mail resté « en cours d'envoi » après un arrêt du service", () => {
+  it("plus de 15 minutes : passé en échec avec son motif, jamais renvoyé ; récent : laissé tel quel", async () => {
+    const { outboxId: stale } = await enqueueEmail({ to: "client@example.com", subject: "Ancien", text: "x", kind: "reply" });
+    const { outboxId: fresh } = await enqueueEmail({ to: "client@example.com", subject: "Récent", text: "x", kind: "reply" });
+    await prisma.emailOutbox.update({ where: { id: stale }, data: { status: EmailOutboxStatus.SENDING, updatedAt: new Date(Date.now() - 20 * 60_000) } });
+    await prisma.emailOutbox.update({ where: { id: fresh }, data: { status: EmailOutboxStatus.SENDING } });
+    await processEmailOutbox();
+    const s = await prisma.emailOutbox.findUniqueOrThrow({ where: { id: stale } });
+    expect(s.status).toBe(EmailOutboxStatus.FAILED);
+    expect(s.lastError).toMatch(/Interrompu pendant l'envoi/);
+    expect((await prisma.emailOutbox.findUniqueOrThrow({ where: { id: fresh } })).status).toBe(EmailOutboxStatus.SENDING);
+    expect(sent).toEqual([]);
+  });
+});
+
 describe("e-mail envoyé : jamais renvoyé", () => {
   it("fil de discussion disparu après la mise en file : envoyé une fois, marqué envoyé, pas de renvoi", async () => {
     const { outboxId } = await enqueueEmail({ to: "client@example.com", subject: "Réponse", text: "Bonjour", kind: "reply", threadId: "fil-supprime-entre-temps" });

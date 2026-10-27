@@ -21,6 +21,7 @@ import {
 import {
   claimPendingOutbox,
   countSentSince,
+  failStaleSending,
   markOutboxFailed,
   markOutboxSent,
   parsePayload,
@@ -285,6 +286,7 @@ async function sendOutboxRow(outboxId: string, rawPayload: string): Promise<void
 }
 
 export async function processEmailOutbox(): Promise<{ processed: number; failed: number }> {
+  await failStaleSending();
   const settings = await getCompanySettings().catch(() => null);
   const throttle = Math.max(1, settings?.emailThrottlePerMinute ?? 30);
   const since = new Date(Date.now() - 60_000);

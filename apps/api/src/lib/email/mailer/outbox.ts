@@ -57,6 +57,19 @@ export async function claimPendingOutbox(limit: number) {
   return claimed;
 }
 
+/**
+ * Lignes restées « en cours d'envoi » plus de 15 minutes (service arrêté entre la réservation et l'envoi) : passées en
+ * échec, visibles, jamais renvoyées d'office puisque l'e-mail a pu partir (audit du 27/10/2026 : elles restaient en
+ * SENDING pour toujours, l'e-mail ne partait jamais et bloquait les rappels d'acompte suivants du même jalon).
+ */
+export async function failStaleSending(now = new Date(), staleMs = 15 * 60_000): Promise<number> {
+  const res = await prisma.emailOutbox.updateMany({
+    where: { status: EmailOutboxStatus.SENDING, updatedAt: { lt: new Date(now.getTime() - staleMs) } },
+    data: { status: EmailOutboxStatus.FAILED, lastError: "Interrompu pendant l'envoi (arrêt du service) : vérifier s'il est parti avant de le renvoyer." },
+  });
+  return res.count;
+}
+
 export async function markOutboxSent(id: string) {
   await prisma.emailOutbox.update({
     where: { id },
