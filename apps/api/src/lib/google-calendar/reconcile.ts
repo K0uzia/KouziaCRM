@@ -37,8 +37,9 @@ export async function reconcileObligationCalendarEvents(): Promise<ReconcileResu
     const settings = await getCompanySettings();
     const links = resolveOfficialLinks(settings.officialLinks);
 
+    // Période passée ajoutée « à vérifier » (rattrapage URSSAF) : pas d'événement dans l'agenda.
     const open = await prisma.obligation.findMany({
-      where: { status: { not: ObligationStatus.DONE } },
+      where: { status: { notIn: [ObligationStatus.DONE, ObligationStatus.TO_CHECK] } },
     });
     const doneWithEvent = await prisma.obligation.findMany({
       where: {
