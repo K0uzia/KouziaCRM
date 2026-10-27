@@ -1471,6 +1471,10 @@ model StripeWebhookEvent {
   eventType   String
   payload     Json
   processedAt DateTime @default(now())
+  /// PROCESSING (réservé au début du traitement) | DONE (traité) ; migration 20261220090000
+  status      String   @default("DONE")
+  /// Réservation du traitement : une ligne PROCESSING plus ancienne que 15 min (arrêt brutal) est reprise
+  claimedAt   DateTime?
 
   @@index([eventType])
   @@index([processedAt])
