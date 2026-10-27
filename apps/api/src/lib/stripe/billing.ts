@@ -173,7 +173,11 @@ export async function issueErpInvoiceFromStripeInvoice(
       },
     });
 
-    const emitted = await issueInvoiceWithin(tx, invoice.id, periodStart, periodStart, settings);
+    // Facture en retard (webhook rejoué, panne) : datée du jour de son émission, jamais dans le passé, pour une
+    // numérotation chronologique ; la période facturée figure sur la ligne (décision du 27/10/2026).
+    const now = new Date();
+    const issueDate = periodStart < new Date(now.getFullYear(), now.getMonth(), now.getDate()) ? now : periodStart;
+    const emitted = await issueInvoiceWithin(tx, invoice.id, issueDate, issueDate, settings);
 
     await tx.subscription.update({
       where: { id: sub.id },

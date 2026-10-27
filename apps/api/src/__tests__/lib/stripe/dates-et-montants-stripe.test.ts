@@ -91,3 +91,14 @@ describe("date d'encaissement Stripe", () => {
     expect(payment.paidAt.toISOString()).toBe(PAID_AT.toISOString());
   });
 });
+
+describe("facture Stripe en retard", () => {
+  it("datée du jour de son émission, période sur la ligne", async () => {
+    await stripeSubscription();
+    const { invoiceId } = await issueErpInvoiceFromStripeInvoice(stripeInvoice());
+    const inv = await prisma.invoice.findUniqueOrThrow({ where: { id: invoiceId }, include: { lines: true } });
+    const today = new Date();
+    expect([inv.issueDate!.getFullYear(), inv.issueDate!.getMonth(), inv.issueDate!.getDate()]).toEqual([today.getFullYear(), today.getMonth(), today.getDate()]);
+    expect(inv.lines[0]!.description).toContain("01/01/2026");
+  });
+});
