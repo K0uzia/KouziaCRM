@@ -37,6 +37,7 @@ import { ClientContactsCard } from "@/components/clients/ClientContactsCard";
 import { ClientProjects } from "@/components/clients/ClientProjects";
 import { ClientNeedsCard } from "@/components/clients/ClientNeedsCard";
 import { ClientRenewalsCard } from "@/components/clients/ClientRenewalsCard";
+import { ClientPrivacyCard } from "@/components/clients/ClientPrivacyCard";
 import { ClientMessagesTab } from "@/pages/messaging/ClientMessagesTab";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { useCreateParam } from "@/lib/use-create-param";
@@ -971,6 +972,9 @@ function ClientDetail({ id }: { id: string | undefined }) {
           </p>
         ) : null}
       </Card>
+          </OfflineGuard>
+          <OfflineGuard>
+            <ClientPrivacyCard clientId={client.id} clientName={client.displayName} onErased={refresh} />
           </OfflineGuard>
         </aside>
       </div>
