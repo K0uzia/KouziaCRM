@@ -7,6 +7,7 @@ import {
   InvoiceType,
   PaymentMethod,
   QuoteStatus,
+  type Prisma,
 } from "@prisma/client";
 import { requireAuth } from "@/lib/auth.js";
 import { prisma } from "@/lib/prisma.js";
@@ -382,6 +383,22 @@ class PaymentAmountError extends Error {
 
 /** Objet et texte relus dans « Vérifier l'e-mail » (envois sur clic). Absents : texte de l'ERP. */
 const emailEditsSchema = z.object({ subject: z.string().trim().max(300).optional(), text: z.string().trim().max(20000).optional() });
+
+class DraftChangedError extends Error {
+  constructor() {
+    super("Ce document vient d'être émis : il n'est plus modifiable.");
+  }
+}
+
+/**
+ * Brouillon encore brouillon au moment d'écrire (audit du 27/10/2026) : le statut était vérifié hors transaction, puis
+ * lignes et totaux réécrits sans condition ; une émission concurrente (deux onglets, double envoi) laissait réécrire
+ * un document numéroté. Écriture conditionnelle dans la transaction : refus si l'émission est passée entre-temps.
+ */
+async function lockDraft(tx: Prisma.TransactionClient, id: string): Promise<void> {
+  const locked = await tx.invoice.updateMany({ where: { id, status: InvoiceStatus.DRAFT }, data: { updatedAt: new Date() } });
+  if (locked.count !== 1) throw new DraftChangedError();
+}
 
 export const invoicesRoutes: FastifyPluginAsync = async (app) => {
   app.get("/api/invoices", async (request, reply) => {
@@ -984,9 +1001,11 @@ export const invoicesRoutes: FastifyPluginAsync = async (app) => {
       parsed.data.discountPercent !== undefined ||
       parsed.data.discountEuros !== undefined;
 
+    try {
     if (preparedOptions) {
       const options = preparedOptions;
       await prisma.$transaction(async (tx) => {
+        await lockDraft(tx, id);
         await writeQuoteOptions(tx, id, options);
         await tx.invoice.update({ where: { id }, data: { ...data, ...quoteFieldsOfOptions(options) } });
       });
@@ -1070,19 +1089,30 @@ export const invoicesRoutes: FastifyPluginAsync = async (app) => {
       data.discountValue = computed.discountValue;
 
       if (parsed.data.lines) {
-        await prisma.$transaction([
-          prisma.quoteOption.deleteMany({ where: { quoteId: id } }),
-          prisma.invoiceLine.deleteMany({ where: { invoiceId: id } }),
-          prisma.invoice.update({
+        await prisma.$transaction(async (tx) => {
+          await lockDraft(tx, id);
+          await tx.quoteOption.deleteMany({ where: { quoteId: id } });
+          await tx.invoiceLine.deleteMany({ where: { invoiceId: id } });
+          await tx.invoice.update({
             where: { id },
             data: { ...data, lines: { create: computed.lines } },
-          }),
-        ]);
+          });
+        });
       } else {
-        await prisma.invoice.update({ where: { id }, data });
+        await prisma.$transaction(async (tx) => {
+          await lockDraft(tx, id);
+          await tx.invoice.update({ where: { id }, data });
+        });
       }
     } else {
-      await prisma.invoice.update({ where: { id }, data });
+      await prisma.$transaction(async (tx) => {
+        await lockDraft(tx, id);
+        await tx.invoice.update({ where: { id }, data });
+      });
+    }
+    } catch (e) {
+      if (e instanceof DraftChangedError) return reply.code(409).send({ error: e.message });
+      throw e;
     }
 
     const updated = await prisma.invoice.findUniqueOrThrow({
