@@ -170,4 +170,26 @@ describe("aperçu du brouillon", () => {
     const admin = await app.inject({ method: "GET", url: "/api/clients", headers: { origin: SITE } });
     expect(admin.headers["access-control-allow-origin"]).toBeUndefined();
   });
+
+  it("CORS en production : le site seulement, jamais le site local (audit du site, 27/10/2026)", async () => {
+    const env = process.env.NODE_ENV;
+    process.env.NODE_ENV = "production";
+    let prod: FastifyInstance | undefined;
+    try {
+      prod = await buildApp({ serveStatic: false, silent: true });
+      const preflight = (origin: string) =>
+        prod!.inject({
+          method: "OPTIONS",
+          url: "/api/public/preview/realisation",
+          headers: { origin, "access-control-request-method": "GET", "access-control-request-headers": "authorization" },
+        });
+      expect((await preflight(SITE)).headers["access-control-allow-origin"]).toBe(SITE);
+      for (const origin of ["http://localhost:4321", "http://127.0.0.1:4321"]) {
+        expect((await preflight(origin)).headers["access-control-allow-origin"], origin).toBeUndefined();
+      }
+    } finally {
+      process.env.NODE_ENV = env;
+      await prod?.close();
+    }
+  });
 });

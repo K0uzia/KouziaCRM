@@ -15,6 +15,16 @@ export function previewWebOrigin(): string | null {
   return process.env.PUBLIC_WEB_ORIGIN?.trim().replace(/\/+$/, "") || null;
 }
 
+/**
+ * Origines admises par le CORS de l'aperçu : la page /apercu du site ; le site local (Astro, port 4321) seulement hors
+ * production (audit du site, 27/10/2026 : localhost était admis en production).
+ */
+export function previewCorsOrigins(): string[] {
+  const site = previewWebOrigin();
+  const local = process.env.NODE_ENV === "production" ? [] : ["http://localhost:4321", "http://127.0.0.1:4321"];
+  return [...(site ? [site] : []), ...local];
+}
+
 const noTrace = (reply: FastifyReply) => reply.header("Cache-Control", "no-store").header("X-Robots-Tag", "noindex, nofollow").header("Referrer-Policy", "no-referrer");
 
 /**
