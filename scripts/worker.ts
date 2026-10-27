@@ -32,46 +32,61 @@ installNoBrotliFetch();
 // Clé de chiffrement vérifiée au démarrage (hexadécimal strict), comme l'API : refus clair plutôt qu'une clé affaiblie.
 encryptionKey();
 
-async function runMaintenance() {
+/** Étape de maintenance isolée : une erreur est journalisée et n'empêche pas les suivantes (audit du 27/10/2026). */
+async function step<T>(name: string, run: () => Promise<T>, fallback: T): Promise<T> {
   try {
-    const expired = await expireQuotes();
-    const scheduled = await scheduleReminders();
-    const subscriptions = await generateDueSubscriptionInvoices();
-    const renewalReminders = await sendDueRenewalReminders();
-    const firstChargeNotices = await sendDueFirstChargeNotices();
-    const termEndReminders = await sendDueTermEndReminders();
-    // Renouvellements chez un tiers : date passée avancée d'une période, puis e-mail au client à J-30 s'il est demandé.
-    await advancePastClientRenewals();
-    const clientRenewalNotices = await sendDueClientRenewalNotices();
-    const actionReminders = await sendDueActionReminders();
-    const cardNotices = await checkExpiringCards();
-    // Factures et avoirs émis sans PDF archivé (émission sans accès, ou antérieurs à l'archivage).
-    const pdfArchived = await archivePendingIssuedPdfs();
-    const receiptsArchived = await archivePendingReceipts();
-    // Version accessible des documents archivés avant elle : figée seulement si son texte est celui du PDF archivé.
-    const { backfillReadableSnapshots } = await import("../apps/api/src/lib/pdf/readable-documents.js");
-    const readable = await backfillReadableSnapshots();
-    // Fin programmée passée (rachat signé, non-reconduction, date de fin) : l'abonnement passe à « Clôturé ».
-    const { closeEndedSubscriptions } = await import("../apps/api/src/lib/subscriptions/subscription-service.js");
-    const endedClosed = await closeEndedSubscriptions();
-    // Prélèvement « en cours » depuis plus de 7 jours (webhook perdu) : issue relue chez Stripe.
-    const { recheckStuckPaymentProcessing } = await import("../apps/api/src/lib/stripe/webhook-handlers.js");
-    const stuckResolved = await recheckStuckPaymentProcessing().catch((err) => {
-      console.error("[worker] revérification des prélèvements en cours impossible", err instanceof Error ? err.message : err);
-      return 0;
-    });
-    const remindersSent = await sendDueReminders();
-    const depositRemindersSent = await sendDueDepositReminders();
-    const obligationEmails = await sendDueObligationEmails();
-    // E-mails à valider depuis plus de 24 h : un rappel groupé, jamais la nuit.
-    const { remindStaleReviews } = await import("../apps/api/src/lib/email/review-reminder.js");
-    const reviewReminders = await remindStaleReviews();
-    console.log(
-      `[worker] maintenance: expired=${expired} remindersScheduled=${scheduled} subscriptionsInvoices=${subscriptions} renewalReminders=${renewalReminders} firstChargeNotices=${firstChargeNotices} termEndReminders=${termEndReminders} clientRenewalNotices=${clientRenewalNotices} actionReminders=${actionReminders} cardNotices=${cardNotices} pdfArchived=${pdfArchived} receiptsArchived=${receiptsArchived} readableFrozen=${readable.frozen} readableUnavailable=${readable.unavailable} endedClosed=${endedClosed} stuckProcessingResolved=${stuckResolved} remindersSent=${remindersSent} depositReminders=${depositRemindersSent} obligationEmails=${obligationEmails} reviewReminders=${reviewReminders}`,
-    );
+    return await run();
   } catch (err) {
-    console.error(`[worker] maintenance error`, err);
+    console.error(`[worker] maintenance : étape ${name} en échec`, err instanceof Error ? err.message : err);
+    return fallback;
   }
+}
+
+async function runMaintenance() {
+  const expired = await step("expireQuotes", () => expireQuotes(), 0);
+  const scheduled = await step("scheduleReminders", () => scheduleReminders(), 0);
+  const subscriptions = await step("generateDueSubscriptionInvoices", () => generateDueSubscriptionInvoices(), 0);
+  const renewalReminders = await step("sendDueRenewalReminders", () => sendDueRenewalReminders(), 0);
+  const firstChargeNotices = await step("sendDueFirstChargeNotices", () => sendDueFirstChargeNotices(), 0);
+  const termEndReminders = await step("sendDueTermEndReminders", () => sendDueTermEndReminders(), 0);
+  // Renouvellements chez un tiers : date passée avancée d'une période, puis e-mail au client à J-30 s'il est demandé.
+  await step("advancePastClientRenewals", () => advancePastClientRenewals(), undefined);
+  const clientRenewalNotices = await step("sendDueClientRenewalNotices", () => sendDueClientRenewalNotices(), 0);
+  const actionReminders = await step("sendDueActionReminders", () => sendDueActionReminders(), 0);
+  const cardNotices = await step("checkExpiringCards", () => checkExpiringCards(), 0);
+  // Factures et avoirs émis sans PDF archivé (émission sans accès, ou antérieurs à l'archivage).
+  const pdfArchived = await step("archivePendingIssuedPdfs", () => archivePendingIssuedPdfs(), 0);
+  const receiptsArchived = await step("archivePendingReceipts", () => archivePendingReceipts(), 0);
+  // Version accessible des documents archivés avant elle : figée seulement si son texte est celui du PDF archivé.
+  const readable = await step(
+    "backfillReadableSnapshots",
+    async () => (await import("../apps/api/src/lib/pdf/readable-documents.js")).backfillReadableSnapshots(),
+    { frozen: 0, unavailable: 0 },
+  );
+  // Fin programmée passée (rachat signé, non-reconduction, date de fin) : l'abonnement passe à « Clôturé ».
+  const endedClosed = await step(
+    "closeEndedSubscriptions",
+    async () => (await import("../apps/api/src/lib/subscriptions/subscription-service.js")).closeEndedSubscriptions(),
+    0,
+  );
+  // Prélèvement « en cours » depuis plus de 7 jours (webhook perdu) : issue relue chez Stripe.
+  const stuckResolved = await step(
+    "recheckStuckPaymentProcessing",
+    async () => (await import("../apps/api/src/lib/stripe/webhook-handlers.js")).recheckStuckPaymentProcessing(),
+    0,
+  );
+  const remindersSent = await step("sendDueReminders", () => sendDueReminders(), 0);
+  const depositRemindersSent = await step("sendDueDepositReminders", () => sendDueDepositReminders(), 0);
+  const obligationEmails = await step("sendDueObligationEmails", () => sendDueObligationEmails(), 0);
+  // E-mails à valider depuis plus de 24 h : un rappel groupé, jamais la nuit.
+  const reviewReminders = await step(
+    "remindStaleReviews",
+    async () => (await import("../apps/api/src/lib/email/review-reminder.js")).remindStaleReviews(),
+    0,
+  );
+  console.log(
+    `[worker] maintenance: expired=${expired} remindersScheduled=${scheduled} subscriptionsInvoices=${subscriptions} renewalReminders=${renewalReminders} firstChargeNotices=${firstChargeNotices} termEndReminders=${termEndReminders} clientRenewalNotices=${clientRenewalNotices} actionReminders=${actionReminders} cardNotices=${cardNotices} pdfArchived=${pdfArchived} receiptsArchived=${receiptsArchived} readableFrozen=${readable.frozen} readableUnavailable=${readable.unavailable} endedClosed=${endedClosed} stuckProcessingResolved=${stuckResolved} remindersSent=${remindersSent} depositReminders=${depositRemindersSent} obligationEmails=${obligationEmails} reviewReminders=${reviewReminders}`,
+  );
 }
 
 /** Obligations et Google Calendar : hors requête de l'interface (un GET n'attend jamais Google). */
