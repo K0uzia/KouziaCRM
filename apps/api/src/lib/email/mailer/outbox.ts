@@ -70,7 +70,8 @@ export async function markOutboxSent(id: string) {
 
 export async function markOutboxFailed(id: string, error: string, retryAt?: Date) {
   const row = await prisma.emailOutbox.findUnique({ where: { id } });
-  if (!row) return;
+  // Déjà parti : jamais remis en file (un renvoi au client), quelle que soit l'erreur survenue après l'envoi.
+  if (!row || row.status === EmailOutboxStatus.SENT) return;
   const attempts = row.attempts + 1;
   if (attempts >= row.maxAttempts || !retryAt) {
     await prisma.emailOutbox.update({

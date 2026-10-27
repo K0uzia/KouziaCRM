@@ -257,24 +257,30 @@ async function sendOutboxRow(outboxId: string, rawPayload: string): Promise<void
   }
 
   await markOutboxSent(outboxId);
-  await recordOutboundMessage({
-    outboxId,
-    payload,
-    smtpMessageId: info.messageId,
-    fromFormatted,
-  });
-  await recordClientEvent({ outboxId, payload, success: true });
-
-  if (payload.reminderInvoiceId) {
-    const { markReminderSent } = await import("@/lib/reminders.js");
-    await markReminderSent(payload.reminderInvoiceId, new Date());
-  }
-  await persistOutboundAttachments(outboxId, payload);
-  if (payload.markAccessEmailSent && payload.clientId) {
-    await prisma.client.update({
-      where: { id: payload.clientId },
-      data: { accessEmailSentAt: new Date() },
+  // Envoyé : une erreur dans les suites (fil supprimé entre-temps, base occupée) est journalisée et ne remet jamais
+  // l'e-mail en file (audit du 27/10/2026 : le catch de processEmailOutbox le renvoyait jusqu'à 3 fois au client).
+  try {
+    await recordOutboundMessage({
+      outboxId,
+      payload,
+      smtpMessageId: info.messageId,
+      fromFormatted,
     });
+    await recordClientEvent({ outboxId, payload, success: true });
+
+    if (payload.reminderInvoiceId) {
+      const { markReminderSent } = await import("@/lib/reminders.js");
+      await markReminderSent(payload.reminderInvoiceId, new Date());
+    }
+    await persistOutboundAttachments(outboxId, payload);
+    if (payload.markAccessEmailSent && payload.clientId) {
+      await prisma.client.update({
+        where: { id: payload.clientId },
+        data: { accessEmailSentAt: new Date() },
+      });
+    }
+  } catch (err) {
+    console.error(`[mail] envoyé (${outboxId}), suites en échec`, err instanceof Error ? err.message : err);
   }
 }
 
