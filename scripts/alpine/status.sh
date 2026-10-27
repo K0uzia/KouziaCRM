@@ -105,6 +105,15 @@ else
 fi
 load_rsync_conf
 echo "  Rsync target : ${KOUZIA_RSYNC_TARGET:-non configuré}"
+# Sans la clé de chiffrement et la phrase des sauvegardes rangées hors du CT, une sauvegarde est illisible s'il est perdu.
+EXPORTED_AT="$(ops_state_get keys-exported-at)"
+if [[ -z "$EXPORTED_AT" ]]; then
+  warn "Clés de secours jamais exportées : kouziactl cle-export depuis la console Proxmox du CT"
+elif [[ -r "$KOUZIA_PASSPHRASE_FILE" && "$(ops_state_get keys-exported-fp)" != "$(keys_fingerprint)" ]]; then
+  warn "Clés de secours changées depuis l'export du ${EXPORTED_AT} : kouziactl cle-export"
+else
+  echo "  Clés de secours : exportées le ${EXPORTED_AT}"
+fi
 echo ""
 
 echo "${C_BOLD}Dernière update${C_RESET}"

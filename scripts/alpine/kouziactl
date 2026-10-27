@@ -109,7 +109,10 @@ Services / data :
   start | stop | restart | logs [app|worker|backup|reprise|tailscale]
   selftest-respawn [worker|app]   tue le processus node et vérifie la relance par supervise-daemon
   repair-service app|worker       service « unsupervised » : zap, arrêt des orphelins, démarrage
-  backup | restore <f.db.gpg> [--uploads <f>] | restore --check <f.db.gpg> | migrate
+  backup | restore <f.db.gpg> [--uploads <f>] [--meta <f>] | restore --check <f.db.gpg> [--meta <f>] | migrate
+                    --meta : archive meta de la même sauvegarde ; sur un CT neuf, reprend sa clé de chiffrement
+  cle-export        affiche une fois la clé de chiffrement et la phrase des sauvegardes, à ranger dans le
+                    gestionnaire de mots de passe (console Proxmox du CT, refusé par SSH)
   catalog [--dry-run] [--update] [--stripe]   importe le catalogue des prestations (sans doublon) ; --stripe : aussi les prestations liées à Stripe
   archive-pdfs   archive le PDF des factures et avoirs émis qui n'en ont pas (rendu du moment)
   reprise [--dry-run]   reprend les anciennes données (bloc-notes, contacts, besoins) ; --dry-run : comptes à blanc, rien n'est écrit
@@ -156,6 +159,9 @@ run_cmd() {
       ;;
     backup)
       bash "${SCRIPT_DIR}/backup.sh" "$@"
+      ;;
+    cle-export)
+      bash "${SCRIPT_DIR}/cle-export.sh"
       ;;
     restore)
       bash "${SCRIPT_DIR}/restore.sh" "$@"
