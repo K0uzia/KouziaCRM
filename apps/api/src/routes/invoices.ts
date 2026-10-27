@@ -1,6 +1,7 @@
 import type { FastifyPluginAsync, FastifyReply } from "fastify";
 import { z } from "zod";
 import { assertIssueDateAllowed, IssueDateError } from "@/lib/invoices/numberingService.js";
+import { parisWallTime } from "@/lib/format-fr.js";
 import {
   InvoiceDocumentType,
   InvoiceStatus,
@@ -384,6 +385,15 @@ class PaymentAmountError extends Error {
 /** Objet et texte relus dans « Vérifier l'e-mail » (envois sur clic). Absents : texte de l'ERP. */
 const emailEditsSchema = z.object({ subject: z.string().trim().max(300).optional(), text: z.string().trim().max(20000).optional() });
 
+/**
+ * Validité de devis saisie « AAAA-MM-JJ » : jusqu'à la fin de ce jour à Paris (audit du 27/10/2026). new Date() la
+ * plaçait à minuit UTC, soit 1 h ou 2 h du matin : le devis expirait au début de son dernier jour affiché.
+ */
+function validityEnd(value: string): Date {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  return m ? parisWallTime(Number(m[1]), Number(m[2]), Number(m[3]), 23, 59, 59_999) : new Date(value);
+}
+
 class DraftChangedError extends Error {
   constructor() {
     super("Ce document vient d'être émis : il n'est plus modifiable.");
@@ -504,7 +514,7 @@ export const invoicesRoutes: FastifyPluginAsync = async (app) => {
                 paymentTerms: parsed.data.paymentTerms ?? "Devis valable 30 jours",
                 serviceDate: parsed.data.serviceDate ? new Date(parsed.data.serviceDate) : null,
                 purchaseOrderRef: parsed.data.purchaseOrderRef ?? null,
-                validUntil: parsed.data.validUntil ? new Date(parsed.data.validUntil) : defaultQuoteValidUntil(),
+                validUntil: parsed.data.validUntil ? validityEnd(parsed.data.validUntil) : defaultQuoteValidUntil(),
               },
             });
             await writeQuoteOptions(tx, quote.id, prepared);
@@ -557,10 +567,10 @@ export const invoicesRoutes: FastifyPluginAsync = async (app) => {
       const validUntil =
         documentType === InvoiceDocumentType.QUOTE
           ? parsed.data.validUntil
-            ? new Date(parsed.data.validUntil)
+            ? validityEnd(parsed.data.validUntil)
             : defaultQuoteValidUntil()
           : parsed.data.validUntil
-            ? new Date(parsed.data.validUntil)
+            ? validityEnd(parsed.data.validUntil)
             : null;
 
       // Mode récurrent : rien à régler au titre du devis, l'abonnement facture chaque période.
@@ -993,7 +1003,7 @@ export const invoicesRoutes: FastifyPluginAsync = async (app) => {
       data.purchaseOrderRef = parsed.data.purchaseOrderRef || null;
     }
     if (parsed.data.validUntil !== undefined) {
-      data.validUntil = parsed.data.validUntil ? new Date(parsed.data.validUntil) : null;
+      data.validUntil = parsed.data.validUntil ? validityEnd(parsed.data.validUntil) : null;
     }
 
     const discountTouched =
@@ -1151,7 +1161,7 @@ export const invoicesRoutes: FastifyPluginAsync = async (app) => {
     let validUntil: Date | undefined;
     if (body.issueDate) issueDate = new Date(body.issueDate);
     if (body.dueDate) dueDate = new Date(body.dueDate);
-    if (body.validUntil) validUntil = new Date(body.validUntil);
+    if (body.validUntil) validUntil = validityEnd(body.validUntil);
     try {
       const doc = await prisma.invoice.findUnique({ where: { id: request.params.id } });
       if (!doc) return reply.code(404).send({ error: "Introuvable" });
