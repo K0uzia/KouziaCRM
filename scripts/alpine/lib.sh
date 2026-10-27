@@ -429,6 +429,13 @@ restore_key_from_meta() {
   ok "Clé de chiffrement reprise de la sauvegarde (non affichée) ; ancien .env gardé : ${keep}"
 }
 
+# Empreinte courte des deux clés de secours (kouziactl cle-export, status) : dit si elles ont changé depuis l'export,
+# sans rien garder qui permette de les retrouver (valeurs aléatoires de 256 bits).
+keys_fingerprint() {
+  { env_file_value "${KOUZIA_APP_DIR}/.env" ENCRYPTION_KEY; tr -d '\r\n' < "$KOUZIA_PASSPHRASE_FILE"; } 2>/dev/null \
+    | sha256sum | cut -c1-16
+}
+
 # Jeton du tunnel Cloudflare : fichier à part, lisible par root seul (lu par le service OpenRC, passé à cloudflared
 # par l'environnement), jamais dans le .env (décision du 27/10/2026).
 CLOUDFLARE_TOKEN_PATH="${KOUZIA_ETC_DIR}/cloudflare-tunnel.token"
