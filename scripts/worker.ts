@@ -23,6 +23,7 @@ import { purgePortalData } from "../apps/api/src/lib/portal/auth.js";
 import { purgeTestimonialProofs } from "../apps/api/src/lib/site/testimonials.js";
 import { followSitePublications } from "../apps/api/src/lib/site/publish.js";
 import { backfillEncryptedEmails } from "../apps/api/src/lib/privacy/at-rest.js";
+import { backfillLegacyNotes } from "../apps/api/src/lib/clients/notepad.js";
 import { purgeRetention } from "../apps/api/src/lib/privacy/retention.js";
 import { installNoBrotliFetch } from "../apps/api/src/lib/http/no-brotli-fetch.js";
 import { encryptionKey } from "../apps/api/src/lib/crypto.js";
@@ -193,11 +194,20 @@ async function runHourly() {
   try {
     // Lignes antérieures au chiffrement des e-mails : recopie chiffrée par lots (idempotente).
     const copied = await backfillEncryptedEmails();
-    if (copied.events + copied.invitations + copied.outbox > 0) {
-      console.log(`[worker] e-mails chiffrés au repos événements=${copied.events} invitations=${copied.invitations} file=${copied.outbox}`);
+    if (Object.values(copied).some((n) => n > 0)) {
+      console.log(
+        `[worker] chiffrement au repos événements=${copied.events} invitations=${copied.invitations} file=${copied.outbox} copiesClient=${copied.clientSnapshots} messages=${copied.messages} iban=${copied.ibans}`,
+      );
     }
   } catch (err) {
     console.error("[worker] chiffrement des e-mails error", err);
+  }
+  try {
+    // Ancien champ Client.notes en clair : recopié dans le bloc-notes chiffré puis vidé (décision du 27/10/2026).
+    const notes = await backfillLegacyNotes();
+    if (notes > 0) console.log(`[worker] anciennes notes reprises dans le bloc-notes=${notes}`);
+  } catch (err) {
+    console.error("[worker] reprise des anciennes notes error", err);
   }
   try {
     // Conservation des données (README, « Conservation des données ») : prospects, invitations, file, journal, sessions.

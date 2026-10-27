@@ -145,3 +145,36 @@ export function serializeNotepad(view: NotepadView) {
     conflictAt: view.conflictAt?.toISOString() ?? null,
   };
 }
+
+/**
+ * Rattrapage de l'ancien champ Client.notes, en clair (décision d'Alexandre du 27/10/2026) : son texte est recopié dans
+ * le bloc-notes chiffré, PUIS le champ est vidé, seulement après relecture du bloc-notes qui le contient. Fiche jamais
+ * reprise : la reprise (notes et notes de rendez-vous) est matérialisée. Bloc-notes déjà écrit qui ne contient plus ce
+ * texte : il est ajouté à la fin, daté, plutôt que perdu. Idempotent : une fiche vidée n'est plus relue.
+ * @returns nombre de fiches dont l'ancien champ a été vidé.
+ */
+export async function backfillLegacyNotes(batch = 200): Promise<number> {
+  const rows = await prisma.client.findMany({ where: { notes: { not: null } }, select: { id: true, notes: true }, take: batch });
+  let cleared = 0;
+  for (const row of rows) {
+    const legacy = row.notes?.trim() ?? "";
+    if (legacy) {
+      await writeNotepad(row.id, (current, state) => {
+        if (current.includes(legacy)) return state.notepadVersion === 0 ? { text: current, conflict: false } : null;
+        const block = `Ancien champ « Notes internes », repris le ${formatDateTimeShortFr(new Date())} :\n${legacy}`;
+        return { text: current.trim() ? `${current}\n\n${block}` : block, conflict: false };
+      });
+      const check = await prisma.client.findUnique({ where: { id: row.id }, select: { notepadEncrypted: true, notepadVersion: true } });
+      if (!check || check.notepadVersion === 0 || !(decryptOptional(check.notepadEncrypted) ?? "").includes(legacy)) {
+        console.error(`[bloc-notes] reprise des anciennes notes non vérifiée pour le client ${row.id} : champ gardé`);
+        continue;
+      }
+    }
+    const fresh = await prisma.client.findUnique({ where: { id: row.id }, select: { updatedAt: true } });
+    if (!fresh) continue;
+    // Date de la fiche gardée, comme pour une note : la reprise n'est pas une modification du client.
+    const { count } = await prisma.client.updateMany({ where: { id: row.id, notes: row.notes }, data: { notes: null, updatedAt: fresh.updatedAt } });
+    cleared += count;
+  }
+  return cleared;
+}
