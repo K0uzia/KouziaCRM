@@ -224,7 +224,7 @@ describe("onboarding d'un client existant", () => {
     await prisma.onboardingInvitation.create({ data: { email, token: jti, jti, expiresAt, existingClientId: client.id } });
     const res = await app.inject({
       method: "POST", url: "/api/public/clients",
-      payload: { token, type: "B2C", firstName: "Camille", lastName: "Dupont", website: "", country: "FRANCE", addressLine1: CAUCETEY.name, postalCode: CAUCETEY.postcode, city: CAUCETEY.city },
+      payload: { token, type: "B2B", firstName: "Camille", lastName: "Dupont", companyName: "Atelier Exemple", website: "", country: "FRANCE", addressLine1: CAUCETEY.name, postalCode: CAUCETEY.postcode, city: CAUCETEY.city },
     });
     expect(res.statusCode).toBeLessThan(300);
     expect(await prisma.portalSession.count({ where: { clientId: client.id, revokedAt: null } })).toBe(0);

@@ -45,7 +45,7 @@ async function send(address: Record<string, unknown>, existingClientId: string |
   return app.inject({
     method: "POST",
     url: "/api/public/clients",
-    payload: { token, type: "B2C", firstName: "Camille", lastName: "Dupont", website: "", country: "FRANCE", ...address },
+    payload: { token, type: "B2B", firstName: "Camille", lastName: "Dupont", companyName: "Atelier Exemple", website: "", country: "FRANCE", ...address },
   });
 }
 

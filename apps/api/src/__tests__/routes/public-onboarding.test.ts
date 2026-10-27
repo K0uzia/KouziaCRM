@@ -32,9 +32,10 @@ async function invite(email = "prospect@example.com") {
 
 const body = (token: string, extra: Record<string, unknown> = {}) => ({
   token,
-  type: "B2C",
+  type: "B2B",
   firstName: "Camille",
   lastName: "Dupont",
+  companyName: "Atelier Exemple",
   website: "",
   ...extra,
 });

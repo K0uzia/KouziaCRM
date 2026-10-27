@@ -1363,6 +1363,15 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
         });
         return reply.code(201).send({ ok: true });
       }
+      // Kouzia ne travaille qu'avec des professionnels et des associations (décision du 27/10/2026) : un particulier
+      // est refusé avant tout enregistrement. Les clients particuliers déjà en base restent tels quels.
+      if (parsed.data.type === "B2C") {
+        request.log.info({ event: "public_client_submit", status: 422, ipTrunc: truncateIp(request.ip), reason: "particulier" });
+        return reply.code(422).send({
+          error: "Kouzia travaille uniquement avec les professionnels et les associations : ce formulaire n'accepte pas les particuliers.",
+          code: "particulier_refuse",
+        });
+      }
       const token = parsed.data.token?.trim() ?? "";
       if (!token) {
         return reply.code(400).send({ error: "Token requis" });
