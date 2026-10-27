@@ -16,6 +16,7 @@ import { Segmented } from "@/components/ui/Segmented";
 import { Combobox } from "@/components/ui/Combobox";
 import { catalogGroups } from "@/lib/catalog-options";
 import { Tabs, useTabParam } from "@/components/ui/Tabs";
+import { LoadState } from "@/pages/site/shared";
 import { useCreateParam } from "@/lib/use-create-param";
 import { eurosInputToCents, INTERVAL_OPTIONS, monthlyEquivalentText, type BillingInterval } from "@/lib/billing-interval";
 
@@ -107,6 +108,8 @@ export function ServicesPage() {
   const { moduleStripeEnabled, moduleSubscriptionsEnabled } = useFeatures();
   const [rows, setRows] = useState<Service[]>([]);
   const [loading, setLoading] = useState(true);
+  // Échec du chargement : message et « Réessayer », jamais « Aucun service » (audit du 27/10/2026).
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<Service | null>(null);
   const [deleting, setDeleting] = useState<Service | null>(null);
@@ -133,10 +136,16 @@ export function ServicesPage() {
     setRows(all.filter((s) => !s.isSubscription));
   }
 
-  useEffect(() => {
+  function reload() {
+    setLoading(true);
+    setLoadError(null);
     load()
-      .catch((e: Error) => toast.error(e.message))
+      .catch((e: Error) => setLoadError(e.message || "Chargement du catalogue impossible"))
       .finally(() => setLoading(false));
+  }
+
+  useEffect(() => {
+    reload();
   }, []);
 
   /** « Créer » : sans type, demande lequel ; avec un type, ouvre directement le bon formulaire. */
@@ -385,6 +394,10 @@ export function ServicesPage() {
 
         {loading ? (
           <div className="h-40 animate-pulse" aria-busy="true" />
+        ) : loadError ? (
+          <LoadState loading={false} error={loadError} onRetry={reload}>
+            {null}
+          </LoadState>
         ) : visible.length === 0 ? (
           <EmptyState
             title={

@@ -27,6 +27,7 @@ import {
 } from "@/pages/settings/types";
 import { useFeatures } from "@/lib/features";
 import { fetchSettings } from "@/lib/settings-request";
+import { LoadState } from "@/pages/site/shared";
 
 type Checklist = {
   id: string;
@@ -212,7 +213,8 @@ export function SettingsPage() {
     // numérotation et Google Agenda (autres onglets) arrivent en parallèle sans retenir la page.
     const fail = (e: Error) => toast.error(e.message, { id: "settings-load" });
     api<Checklist>("/api/checklist").then(setChecklist).catch(fail);
-    api<LegalClause[]>("/api/legal-clauses").then(setClauses).catch(fail);
+    setClausesError(null);
+    api<LegalClause[]>("/api/legal-clauses").then(setClauses).catch((e: Error) => setClausesError(e.message || "Chargement des clauses impossible"));
     api<{ previews: NumberingPreview[] }>("/api/numbering/preview").then((p) => setPreviews(p.previews)).catch(fail);
     void loadGoogleStatus();
     const s = await fetchSettings<PublicSettings>({ complete: true });
@@ -240,8 +242,16 @@ export function SettingsPage() {
     }
   }
 
+  // Échec du chargement : message et « Réessayer » au lieu d'un « Chargement… » sans fin (audit du 27/10/2026).
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [clausesError, setClausesError] = useState<string | null>(null);
+  function reload() {
+    setLoadError(null);
+    load().catch((e: Error) => setLoadError(e.message || "Chargement des réglages impossible"));
+  }
+
   useEffect(() => {
-    load().catch((e: Error) => toast.error(e.message));
+    reload();
   }, []);
 
   useEffect(() => {
@@ -838,7 +848,11 @@ export function SettingsPage() {
   }
 
   if (!form || !settings) {
-    return <p className="text-sm text-[var(--muted)]">Chargement…</p>;
+    return (
+      <LoadState loading={!loadError} error={loadError} onRetry={reload}>
+        {null}
+      </LoadState>
+    );
   }
 
   // Appelée comme une fonction, pas comme un composant déclaré dans le rendu : le bouton n'est pas
@@ -2183,7 +2197,16 @@ export function SettingsPage() {
                 {saveBar(saveVatMention)}
               </Card>
               <Card className="divide-y divide-[var(--border)] border border-[var(--border)]" aria-busy={clauses === null || undefined}>
-                {clauses === null ? <p className="p-4 text-sm text-[var(--muted)]">Chargement des clauses…</p> : null}
+                {clauses === null && clausesError ? (
+                  <div className="flex flex-col items-start gap-3 p-4" role="alert">
+                    <p className="text-sm text-[var(--danger)]">{clausesError}</p>
+                    <Button type="button" variant="secondary" onClick={reload}>
+                      Réessayer
+                    </Button>
+                  </div>
+                ) : clauses === null ? (
+                  <p className="p-4 text-sm text-[var(--muted)]">Chargement des clauses…</p>
+                ) : null}
                 {(clauses ?? []).map((c) => (
                   <div key={c.id} className="flex flex-col gap-3 p-4 sm:flex-row sm:items-start sm:justify-between">
                     <div className="min-w-0 flex-1">

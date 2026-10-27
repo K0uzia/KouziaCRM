@@ -16,6 +16,7 @@ import { api, formatEUR, formatDate } from "@/lib/api";
 import { Button } from "@/components/ui/Button";
 import { StatStrip } from "@/components/ui/StatStrip";
 import { Card, PageHeader } from "@/components/ui/Card";
+import { LoadState } from "@/pages/site/shared";
 
 export type ObligationItem = {
   id: string;
@@ -213,8 +214,15 @@ export function ObligationsPage() {
     setData(await api<ObligationsPayload>("/api/obligations"));
   }
 
+  // Échec du chargement : message et « Réessayer » au lieu d'un « Chargement… » sans fin (audit du 27/10/2026).
+  const [loadError, setLoadError] = useState<string | null>(null);
+  function reload() {
+    setLoadError(null);
+    load().catch((e: Error) => setLoadError(e.message || "Chargement des démarches impossible"));
+  }
+
   useEffect(() => {
-    load().catch((e: Error) => toast.error(e.message));
+    reload();
   }, []);
 
   async function confirm(id: string) {
@@ -231,7 +239,11 @@ export function ObligationsPage() {
   }
 
   if (!data) {
-    return <p className="text-sm text-[var(--muted)]">Chargement…</p>;
+    return (
+      <LoadState loading={!loadError} error={loadError} onRetry={reload}>
+        {null}
+      </LoadState>
+    );
   }
 
   return (
