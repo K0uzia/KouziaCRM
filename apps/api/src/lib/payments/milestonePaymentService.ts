@@ -20,6 +20,7 @@ import {
   generateMilestoneInvoice,
   syncMilestoneOnInvoicePaid,
 } from "@/lib/invoices/documentFlowService.js";
+import { PAYMENT_LINK_REFUSED, isAllowedPaymentUrl } from "@/lib/invoices/payment-link.js";
 import {
   DEFAULT_MILESTONE_TEMPLATE,
   awaitsProposalChoice,
@@ -306,6 +307,7 @@ export async function setManualMilestonePaymentLink(
   if (url.protocol !== "https:") {
     throw new MilestonePaymentError("Le lien doit être en https://", 400);
   }
+  if (!isAllowedPaymentUrl(checkoutUrl)) throw new MilestonePaymentError(PAYMENT_LINK_REFUSED, 400);
 
   const milestone = await prisma.paymentMilestone.findUniqueOrThrow({
     where: { id: milestoneId },

@@ -35,7 +35,7 @@ import { webhooksSiteRoutes } from "@/routes/webhooks-site.js";
 import { siteRoutes } from "@/routes/site.js";
 import { softwareRequestsRoutes } from "@/routes/software-requests.js";
 import { siteEditorRoutes } from "@/routes/site-editor.js";
-import { previewWebOrigin, sitePreviewRoutes } from "@/routes/site-preview.js";
+import { previewCorsOrigins, sitePreviewRoutes } from "@/routes/site-preview.js";
 import { emailReviewRoutes } from "@/routes/email-review.js";
 import { emailTemplatesRoutes } from "@/routes/email-templates.js";
 import { promoCodesRoutes } from "@/routes/promo-codes.js";
@@ -181,8 +181,7 @@ export async function buildApp(opts: BuildAppOptions = {}): Promise<FastifyInsta
   const adminCors = corsFor(getAdminOrigins());
   // Aperçu du brouillon (lot 5b, contrat du site) : page /apercu du site seulement (et le site local en développement),
   // GET, jeton en en-tête Authorization (préflight), sans cookie.
-  const previewOrigins = [previewWebOrigin(), "http://localhost:4321", "http://127.0.0.1:4321"].filter((o): o is string => Boolean(o));
-  const previewCors = { origin: previewOrigins, credentials: false, methods: ["GET"], allowedHeaders: ["authorization"] };
+  const previewCors = { origin: previewCorsOrigins(), credentials: false, methods: ["GET"], allowedHeaders: ["authorization"] };
   await app.register(cors, {
     delegator: (request, cb) => {
       const path = routePath(request);

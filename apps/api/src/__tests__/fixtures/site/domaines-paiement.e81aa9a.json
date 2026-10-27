@@ -1,0 +1,11 @@
+{
+  "domainesPaiement": {
+    "protocole": "https:",
+    "hotes": [
+      "checkout.stripe.com",
+      "billing.stripe.com",
+      "buy.stripe.com"
+    ],
+    "origineApiErp": true
+  }
+}

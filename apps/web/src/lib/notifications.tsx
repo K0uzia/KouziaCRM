@@ -29,7 +29,8 @@ export type NotificationKind =
   | "email_review"
   | "buyout_offer"
   | "stripe_credit"
-  | "urssaf_to_check";
+  | "urssaf_to_check"
+  | "payment_link_foreign";
 
 export type NotificationItem = {
   id: string;

@@ -289,7 +289,7 @@ export function MarketTimeline({
                     inputMode="url"
                     aria-label={`Lien de paiement : ${m.label}`}
                     className="py-2 text-xs"
-                    placeholder="https://… (lien de paiement)"
+                    placeholder="https://buy.stripe.com/… (lien Stripe)"
                     value={draft}
                     onChange={(e) =>
                       setDrafts((prev) => ({ ...prev, [m.id]: e.target.value }))

@@ -47,6 +47,7 @@ import { WorkflowError } from "@/lib/invoices/workflow.js";
 import {
   applyPaymentLinkChoice,
   assertQuoteLinkable,
+  manualPaymentUrlSchema,
   setInvoicePaymentLink,
 } from "@/lib/invoices/payment-link.js";
 import { serializeClient } from "@/lib/clients.js";
@@ -318,7 +319,7 @@ const issueBodySchema = z.object({
   payment: z
     .discriminatedUnion("mode", [
       z.object({ mode: z.literal("none") }),
-      z.object({ mode: z.literal("manual"), url: z.string().max(2048) }),
+      z.object({ mode: z.literal("manual"), url: manualPaymentUrlSchema }),
       z.object({ mode: z.literal("auto") }),
     ])
     .optional(),
@@ -1229,13 +1230,13 @@ export const invoicesRoutes: FastifyPluginAsync = async (app) => {
       .object({
         payment: z.discriminatedUnion("mode", [
           z.object({ mode: z.literal("none") }),
-          z.object({ mode: z.literal("manual"), url: z.string().min(1).max(2000) }),
+          z.object({ mode: z.literal("manual"), url: manualPaymentUrlSchema }),
           z.object({ mode: z.literal("auto") }),
         ]),
         sendEmail: z.boolean().optional(),
       })
       .safeParse(request.body ?? {});
-    if (!parsed.success) return reply.code(400).send({ error: "Lien de paiement invalide" });
+    if (!parsed.success) return reply.code(400).send({ error: parsed.error.issues[0]?.message ?? "Lien de paiement invalide" });
     try {
       const url =
         parsed.data.payment.mode === "none"

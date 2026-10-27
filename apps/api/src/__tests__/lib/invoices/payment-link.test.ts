@@ -57,8 +57,8 @@ describe("lien de paiement d'une facture", () => {
     const inv = await generateMilestoneInvoice(deposit.id);
 
     await expect(setInvoicePaymentLink(inv.id, "http://pas-securise.test")).rejects.toThrow(/https/);
-    const url = await setInvoicePaymentLink(inv.id, "https://checkout.revolut.com/pay/abc");
-    expect(url).toBe("https://checkout.revolut.com/pay/abc");
+    const url = await setInvoicePaymentLink(inv.id, "https://checkout.stripe.com/c/pay/cs_abc");
+    expect(url).toBe("https://checkout.stripe.com/c/pay/cs_abc");
     expect((await prisma.invoice.findUniqueOrThrow({ where: { id: inv.id } })).checkoutUrl).toBe(url);
     const m = await prisma.paymentMilestone.findUniqueOrThrow({ where: { id: deposit.id } });
     expect(m.checkoutUrl).toBe(url);
