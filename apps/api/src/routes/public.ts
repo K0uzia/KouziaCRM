@@ -1,3 +1,4 @@
+import { readArchiveFile } from "@/lib/pdf/archive-file.js";
 import { primaryMethod } from "@/lib/stripe/payment-methods.js";
 import { nextPeriodAmountCents, recurringDiscountSummary } from "@/lib/quotes/recurring-discount-calc.js";
 import { balanceFields } from "@/lib/invoices/balance.js";
@@ -324,7 +325,7 @@ async function signedQuotePdf(invoice: PublicDocument["invoice"]): Promise<Buffe
   try {
     const { signedQuoteAbsolutePath } = await import("@/lib/invoices/acceptance-proof.js");
     const fs = await import("node:fs/promises");
-    return await fs.readFile(signedQuoteAbsolutePath(proof.pdfPath));
+    return await readArchiveFile(signedQuoteAbsolutePath(proof.pdfPath));
   } catch (err) {
     console.error(`[public] devis signé illisible pour ${invoice.id}`, err);
     return null;

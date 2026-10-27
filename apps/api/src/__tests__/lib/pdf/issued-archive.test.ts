@@ -1,3 +1,4 @@
+import { openReadable, readArchiveFile } from "@/lib/pdf/archive-file.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createHash } from "node:crypto";
 import fs from "node:fs/promises";
@@ -59,7 +60,7 @@ describe("PDF archivé des factures et avoirs émis", () => {
     await issueInvoice(draft.id, new Date(2026, 9, 1));
     const issued = await prisma.invoice.findUniqueOrThrow({ where: { id: draft.id } });
     expect(issued.pdfPath).toMatch(/^issued-documents\/F-/);
-    const onDisk = await fs.readFile(issuedPdfAbsolutePath(issued.pdfPath!));
+    const onDisk = await readArchiveFile(issuedPdfAbsolutePath(issued.pdfPath!));
     expect(sha(onDisk)).toBe(issued.pdfSha256);
 
     await prisma.legalClause.updateMany({ data: { body: "Texte modifié après émission" } });
@@ -113,10 +114,13 @@ describe("PDF archivé des factures et avoirs émis", () => {
     const row = await prisma.invoice.findUniqueOrThrow({ where: { id: draft.id } });
     const abs = issuedPdfAbsolutePath(row.pdfPath!);
 
+    // Archive chiffrée (27/10/2026) : un octet ajouté fait échouer l'authentification du chiffrement ; le fichier est
+    // signalé illisible et le rendu du moment est servi, jamais le fichier altéré.
     await fs.appendFile(abs, "x");
     const tampered = await issuedDocumentPdf(draft.id);
-    expect(tampered!.toString("latin1").endsWith("x")).toBe(true);
+    expect(tampered!.subarray(0, 4).toString()).toBe("%PDF");
     expect(alertAdmin.mock.calls.at(-1)![0]).toContain("PDF archivé à vérifier");
+    expect(String(alertAdmin.mock.calls.at(-1)![1])).toMatch(/illisible/);
     // Rechargements : pas d'alerte de plus dans les 24 h.
     await issuedDocumentPdf(draft.id);
     await issuedDocumentPdf(draft.id);

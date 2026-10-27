@@ -1,3 +1,4 @@
+import { writeArchiveFile } from "@/lib/pdf/archive-file.js";
 import { createHash } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
@@ -50,7 +51,7 @@ export async function archiveOriginalQuote(
     const originalPdfPath = `${SIGNED_QUOTES_DIR}/${safeNumber}-${auditId}-avant-signature.pdf`;
     const abs = signedQuoteAbsolutePath(originalPdfPath);
     await fs.mkdir(path.dirname(abs), { recursive: true });
-    await fs.writeFile(abs, original.pdf);
+    await writeArchiveFile(abs, original.pdf);
     await prisma.quoteAcceptanceAudit.update({ where: { id: auditId }, data: { originalPdfPath } });
   } catch (err) {
     console.error(`[quote] archive du devis avant signature impossible (${auditId})`, err);
@@ -85,7 +86,7 @@ export async function recordQuoteAcceptanceProof(
     const pdfPath = `${SIGNED_QUOTES_DIR}/${safeNumber}-${auditId}.pdf`;
     const abs = signedQuoteAbsolutePath(pdfPath);
     await fs.mkdir(path.dirname(abs), { recursive: true });
-    await fs.writeFile(abs, pdf);
+    await writeArchiveFile(abs, pdf);
 
     await prisma.quoteAcceptanceAudit.update({
       where: { id: auditId },

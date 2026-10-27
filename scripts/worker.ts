@@ -22,7 +22,7 @@ import { prisma } from "../apps/api/src/lib/prisma.js";
 import { purgePortalData } from "../apps/api/src/lib/portal/auth.js";
 import { purgeTestimonialProofs } from "../apps/api/src/lib/site/testimonials.js";
 import { followSitePublications } from "../apps/api/src/lib/site/publish.js";
-import { backfillEncryptedEmails } from "../apps/api/src/lib/privacy/at-rest.js";
+import { backfillEncryptedArchives, backfillEncryptedEmails } from "../apps/api/src/lib/privacy/at-rest.js";
 import { backfillLegacyNotes } from "../apps/api/src/lib/clients/notepad.js";
 import { purgeRetention } from "../apps/api/src/lib/privacy/retention.js";
 import { installNoBrotliFetch } from "../apps/api/src/lib/http/no-brotli-fetch.js";
@@ -201,6 +201,15 @@ async function runHourly() {
     }
   } catch (err) {
     console.error("[worker] chiffrement des e-mails error", err);
+  }
+  try {
+    // PDF archivés et versions lisibles d'avant leur chiffrement (27/10/2026) : recopie chiffrée par lots.
+    const archives = await backfillEncryptedArchives();
+    if (archives.archives + archives.readables > 0) {
+      console.log(`[worker] archives chiffrées au repos pdf=${archives.archives} lisibles=${archives.readables}`);
+    }
+  } catch (err) {
+    console.error("[worker] chiffrement des archives error", err);
   }
   try {
     // Ancien champ Client.notes en clair : recopié dans le bloc-notes chiffré puis vidé (décision du 27/10/2026).

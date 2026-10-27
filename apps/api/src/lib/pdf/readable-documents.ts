@@ -2,6 +2,7 @@ import type { ReactElement } from "react";
 import fs from "node:fs/promises";
 import { InvoiceDocumentType, InvoiceStatus } from "@prisma/client";
 import { prisma } from "@/lib/prisma.js";
+import { isSealedReadable, openReadable, readArchiveFile, sealReadable } from "@/lib/pdf/archive-file.js";
 import { InvoiceDocument, type InvoicePdfData } from "@/lib/pdf/invoice-document.js";
 import { PaymentReceiptDocument, type PaymentReceiptPdfData } from "@/lib/pdf/payment-receipt-document.js";
 import {
@@ -57,14 +58,15 @@ export function readableReceipt(data: PaymentReceiptPdfData): Built {
 /** Instantané à enregistrer : le JSON si le texte du PDF est exactement le sien, sinon le marqueur d'indisponibilité. */
 export async function snapshotFor(pdf: Buffer, built: Built): Promise<{ snapshot: string; ok: boolean }> {
   const ok = sameTextAsPdf(await pdfReadingText(pdf), built.atoms);
-  return { snapshot: JSON.stringify(ok ? built.doc : { unavailable: "text-mismatch" }), ok };
+  // Chiffrée au repos : elle reprend les coordonnées du client (27/10/2026).
+  return { snapshot: sealReadable(JSON.stringify(ok ? built.doc : { unavailable: "text-mismatch" })), ok };
 }
 
-/** JSON lisible d'un instantané ; null si absent, indisponible ou illisible. */
+/** JSON lisible d'un instantané (chiffré, ou ancien en clair) ; null si absent, indisponible ou illisible. */
 export function parseReadable(snapshot: string | null | undefined): ReadableDocument | null {
   if (!snapshot) return null;
   try {
-    const parsed = JSON.parse(snapshot) as ReadableDocument;
+    const parsed = JSON.parse(openReadable(snapshot)) as ReadableDocument;
     return parsed?.version === 1 ? parsed : null;
   } catch {
     return null;
@@ -72,7 +74,8 @@ export function parseReadable(snapshot: string | null | undefined): ReadableDocu
 }
 
 /** Disponible sans tout analyser (liste /suivi) : seul un instantané valide commence ainsi. */
-export const readableAvailable = (snapshot: string | null | undefined) => Boolean(snapshot?.startsWith('{"version":1'));
+export const readableAvailable = (snapshot: string | null | undefined) =>
+  isSealedReadable(snapshot) || Boolean(snapshot?.startsWith('{"version":1'));
 
 /**
  * Lien « version lisible » annoncé dans /suivi seulement s'il peut être servi : devis non signé rendu à la demande ;
@@ -123,7 +126,7 @@ export async function backfillReadableSnapshots(limit = 50): Promise<{ frozen: n
   });
   for (const row of invoices) {
     try {
-      const pdf = await fs.readFile(issuedPdfAbsolutePath(row.pdfPath!));
+      const pdf = await readArchiveFile(issuedPdfAbsolutePath(row.pdfPath!));
       const loaded = await loadDocumentForPdf(row.id);
       if (!loaded) continue;
       const at = row.pdfArchivedAt ?? new Date();
@@ -156,7 +159,7 @@ export async function backfillReadableSnapshots(limit = 50): Promise<{ frozen: n
     const { signedQuoteAbsolutePath } = await import("@/lib/invoices/acceptance-proof.js");
     for (const row of signedQuotes) {
       try {
-        const pdf = await fs.readFile(signedQuoteAbsolutePath(row.quoteAcceptanceAudits[0]!.pdfPath!));
+        const pdf = await readArchiveFile(signedQuoteAbsolutePath(row.quoteAcceptanceAudits[0]!.pdfPath!));
         const loaded = await loadDocumentForPdf(row.id);
         if (!loaded) continue;
         const { snapshot, ok } = await snapshotFor(pdf, readableInvoice(await pdfDataOfLoaded(loaded), "ARCHIVE"));
@@ -177,7 +180,7 @@ export async function backfillReadableSnapshots(limit = 50): Promise<{ frozen: n
   });
   for (const row of receipts) {
     try {
-      const pdf = await fs.readFile(issuedPdfAbsolutePath(row.receiptPdfPath!));
+      const pdf = await readArchiveFile(issuedPdfAbsolutePath(row.receiptPdfPath!));
       const data = await buildReceiptData(row.id, row.receiptArchivedAt ?? new Date());
       if (!data) continue;
       const { snapshot, ok } = await snapshotFor(pdf, readableReceipt(data));

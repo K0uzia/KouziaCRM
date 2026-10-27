@@ -1,3 +1,4 @@
+import { readArchiveFile, writeArchiveFile } from "@/lib/pdf/archive-file.js";
 import { createHash, randomBytes } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
@@ -64,7 +65,7 @@ async function stateOf(id: string): Promise<ArchiveState | null> {
 
 async function readArchived(state: ArchiveState): Promise<Buffer | null> {
   try {
-    const pdf = await fs.readFile(issuedPdfAbsolutePath(state.pdfPath!));
+    const pdf = await readArchiveFile(issuedPdfAbsolutePath(state.pdfPath!));
     if (state.pdfSha256 && sha256(pdf) !== state.pdfSha256) {
       // Jamais de réécriture silencieuse : l'écart est signalé, le fichier archivé reste servi.
       console.error(`[pdf] empreinte du PDF archivé différente pour ${state.number} (${state.pdfPath})`);
@@ -115,7 +116,7 @@ async function archiveNow(state: ArchiveState, loaded?: LoadedDocumentForPdf | n
   const pdfPath = `${ISSUED_DIR}/${safeNumber}-${state.id}-${digest.slice(0, 12)}-${randomBytes(3).toString("hex")}.pdf`;
   const abs = issuedPdfAbsolutePath(pdfPath);
   await fs.mkdir(path.dirname(abs), { recursive: true });
-  await fs.writeFile(abs, pdf, { flag: "wx" });
+  await writeArchiveFile(abs, pdf, "wx");
 
   const claimed = await prisma.invoice.updateMany({
     where: { id: state.id, pdfPath: null },

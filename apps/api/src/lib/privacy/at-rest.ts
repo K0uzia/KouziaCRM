@@ -1,3 +1,4 @@
+import fs from "node:fs/promises";
 import { Prisma } from "@prisma/client";
 import { decrypt, encrypt } from "@/lib/crypto.js";
 import { prisma } from "@/lib/prisma.js";
@@ -30,6 +31,64 @@ async function assertKeyMatchesData() {
     (await prisma.clientEmailEvent.findFirst({ where: { toAddressEncrypted: { not: null } }, select: { toAddressEncrypted: true } }))?.toAddressEncrypted ??
     null;
   if (sample) decrypt(sample);
+}
+
+/** Les 4 premiers octets d'un fichier : « %PDF » pour un PDF archivé encore en clair. */
+async function startsAsPlainPdf(abs: string): Promise<boolean> {
+  let handle: fs.FileHandle | null = null;
+  try {
+    handle = await fs.open(abs, "r");
+    const head = Buffer.alloc(4);
+    await handle.read(head, 0, 4, 0);
+    return head.toString("latin1") === "%PDF";
+  } catch {
+    return false;
+  } finally {
+    await handle?.close();
+  }
+}
+
+/**
+ * Archives antérieures au chiffrement (27/10/2026) : PDF figés (factures, avoirs, devis, reçus, devis signés) recopiés
+ * chiffrés sur place (fichier temporaire puis renommage, après relecture), versions lisibles en base chiffrées. PDF servi
+ * et empreinte inchangés. Clé absente ou différente de celle des données : rien n'est touché.
+ */
+export async function backfillEncryptedArchives(batch = 100): Promise<{ archives: number; readables: number }> {
+  const done = { archives: 0, readables: 0 };
+  try {
+    await assertKeyMatchesData();
+  } catch (err) {
+    console.error(`[chiffrement] recopie des archives suspendue : clé de chiffrement absente ou différente (${err instanceof Error ? err.message : String(err)})`);
+    return done;
+  }
+  const { issuedPdfAbsolutePath } = await import("@/lib/pdf/issued-archive.js");
+  const { signedQuoteAbsolutePath } = await import("@/lib/invoices/acceptance-proof.js");
+  const { sealExistingArchiveFile, sealReadable } = await import("@/lib/pdf/archive-file.js");
+  const [invoices, receipts, proofs] = await Promise.all([
+    prisma.invoice.findMany({ where: { pdfPath: { not: null } }, select: { pdfPath: true } }),
+    prisma.payment.findMany({ where: { receiptPdfPath: { not: null } }, select: { receiptPdfPath: true } }),
+    prisma.quoteAcceptanceAudit.findMany({ select: { pdfPath: true, originalPdfPath: true } }),
+  ]);
+  const files = [
+    ...invoices.map((r) => issuedPdfAbsolutePath(r.pdfPath!)),
+    ...receipts.map((r) => issuedPdfAbsolutePath(r.receiptPdfPath!)),
+    ...proofs.flatMap((p) => [p.pdfPath, p.originalPdfPath].filter((x): x is string => Boolean(x)).map(signedQuoteAbsolutePath)),
+  ];
+  for (const abs of files) {
+    if (done.archives >= batch) break;
+    if (!(await startsAsPlainPdf(abs))) continue;
+    if (await sealExistingArchiveFile(abs)) done.archives += 1;
+  }
+  const plain = { startsWith: '{"version":1' };
+  for (const row of await prisma.invoice.findMany({ where: { readableSnapshot: plain }, select: { id: true, readableSnapshot: true }, take: batch })) {
+    await prisma.invoice.updateMany({ where: { id: row.id, readableSnapshot: row.readableSnapshot }, data: { readableSnapshot: sealReadable(row.readableSnapshot!) } });
+    done.readables += 1;
+  }
+  for (const row of await prisma.payment.findMany({ where: { receiptReadableSnapshot: plain }, select: { id: true, receiptReadableSnapshot: true }, take: batch })) {
+    await prisma.payment.updateMany({ where: { id: row.id, receiptReadableSnapshot: row.receiptReadableSnapshot }, data: { receiptReadableSnapshot: sealReadable(row.receiptReadableSnapshot!) } });
+    done.readables += 1;
+  }
+  return done;
 }
 
 /**

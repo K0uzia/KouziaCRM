@@ -1,3 +1,4 @@
+import { openReadable, readArchiveFile } from "@/lib/pdf/archive-file.js";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { FastifyInstance } from "fastify";
 import fs from "node:fs/promises";
@@ -72,7 +73,7 @@ describe("GET /api/public/documents/:token/lisible (contrat B)", () => {
     // Le premier accès a archivé le PDF et figé la version lisible avec lui.
     const row = await prisma.invoice.findUniqueOrThrow({ where: { id: inv.id } });
     expect(row.pdfPath).not.toBeNull();
-    expect(JSON.parse(row.readableSnapshot!)).toEqual(doc);
+    expect(JSON.parse(openReadable(row.readableSnapshot!))).toEqual(doc);
     // Figée : un réglage modifié ensuite ne la change pas, comme le PDF archivé.
     await prisma.companySettings.updateMany({ data: { city: "Brest" } });
     (await import("@/lib/company.js")).invalidateCompanySettingsCache();
@@ -162,7 +163,7 @@ describe("rattrapage des documents archivés avant la version lisible (QB1 a)", 
       data: { invoiceId: inv.id, amountCents: 30_000, paidAt: new Date(2026, 9, 3), method: PaymentMethod.CARD, createdAt: new Date(archivedAt.getTime() + 60_000) },
     });
     expect(await backfillReadableSnapshots()).toEqual({ frozen: 1, unavailable: 0 });
-    const doc = JSON.parse((await prisma.invoice.findUniqueOrThrow({ where: { id: inv.id } })).readableSnapshot!);
+    const doc = JSON.parse(openReadable((await prisma.invoice.findUniqueOrThrow({ where: { id: inv.id } })).readableSnapshot!));
     expect(doc).toMatchObject({ version: 1, number: "F-2026-0970" });
     expect(JSON.stringify(doc)).not.toContain("Règlements reçus");
     expect(alertAdmin).not.toHaveBeenCalled();
@@ -195,7 +196,7 @@ describe("devis signé : le document signé, jamais un nouveau rendu (décision 
     const { recordQuoteAcceptanceProof, signedQuoteAbsolutePath } = await import("@/lib/invoices/acceptance-proof.js");
     await recordQuoteAcceptanceProof(audit.id, quote.id, { sendConfirmation: false });
     const { pdfPath } = await prisma.quoteAcceptanceAudit.findUniqueOrThrow({ where: { id: audit.id } });
-    return { quote, client, archive: await fs.readFile(signedQuoteAbsolutePath(pdfPath!)) };
+    return { quote, client, archive: await readArchiveFile(signedQuoteAbsolutePath(pdfPath!)) };
   }
   const changeCity = async () => {
     await prisma.companySettings.updateMany({ data: { city: "Brest" } });
