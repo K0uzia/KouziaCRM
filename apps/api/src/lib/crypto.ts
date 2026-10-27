@@ -1,15 +1,26 @@
-import { createCipheriv, createDecipheriv, randomBytes } from "crypto";
+import { createCipheriv, createDecipheriv, hkdfSync, randomBytes } from "crypto";
 
 const ALGO = "aes-256-gcm";
 const IV_LENGTH = 12;
 
-function getKey(): Buffer {
+/**
+ * Seule lecture de ENCRYPTION_KEY (défaut du 27/10/2026) : 64 caractères hexadécimaux exactement. Buffer.from(…, "hex")
+ * s'arrête au premier caractère invalide sans erreur : une clé mal copiée serait devenue plus faible en silence.
+ */
+export function encryptionKey(): Buffer {
   const hex = process.env.ENCRYPTION_KEY;
-  if (!hex || hex.length !== 64) {
-    throw new Error("ENCRYPTION_KEY must be a 64-char hex string (32 bytes)");
+  if (!hex || !/^[0-9a-fA-F]{64}$/.test(hex)) {
+    throw new Error("ENCRYPTION_KEY invalide : 64 caractères hexadécimaux attendus (openssl rand -hex 32)");
   }
   return Buffer.from(hex, "hex");
 }
+
+/** Sous-clé dédiée à un usage (HKDF-SHA256) : la clé de chiffrement ne sert jamais telle quelle à un autre usage. */
+export function derivedKey(purpose: string): Buffer {
+  return Buffer.from(hkdfSync("sha256", encryptionKey(), Buffer.alloc(0), `kouzia-erp/${purpose}`, 32));
+}
+
+const getKey = encryptionKey;
 
 /** Encrypt plaintext → base64(iv + tag + ciphertext) */
 export function encrypt(plaintext: string): string {
