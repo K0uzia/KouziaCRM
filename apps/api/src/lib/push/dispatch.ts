@@ -17,6 +17,7 @@ export const PUSHED_KINDS: ReadonlySet<NotificationKind> = new Set<NotificationK
   "email_review",
   "buyout_offer",
   "stripe_credit",
+  "urssaf_to_check",
 ]);
 
 /**

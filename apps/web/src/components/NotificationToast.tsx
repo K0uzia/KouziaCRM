@@ -32,6 +32,7 @@ export const NOTIFICATION_KIND_STYLE: Record<NotificationKind, { icon: IconDefin
   email_review: { icon: faEnvelopeCircleCheck, tone: "bg-[var(--warning-soft)] text-[var(--warning)]" },
   buyout_offer: { icon: faFileSignature, tone: "bg-[var(--info-soft)] text-[var(--info)]" },
   stripe_credit: { icon: faFileInvoiceDollar, tone: "bg-[var(--info-soft)] text-[var(--info)]" },
+  urssaf_to_check: { icon: faCalendarXmark, tone: "bg-[var(--info-soft)] text-[var(--info)]" },
 };
 
 /**

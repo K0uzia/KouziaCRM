@@ -17,7 +17,8 @@ export type NotificationKind =
   | "software_request"
   | "email_review"
   | "buyout_offer"
-  | "stripe_credit";
+  | "stripe_credit"
+  | "urssaf_to_check";
 
 export type NotificationItem = {
   /** Identifiant stable (type + id source) : sert à dédoublonner côté interface. */
@@ -297,6 +298,24 @@ export async function listNotifications(since: Date): Promise<NotificationItem[]
       body: `${cn.client.displayName}, facture ${cn.creditedInvoice?.number ?? ""} : ${eur(Math.abs(cn.totalCents))} réglés par le crédit du client chez Stripe. Avoir non envoyé, à envoyer si besoin.`,
       href: `/invoices/${cn.id}`,
       at: cn.createdAt.toISOString(),
+    });
+  }
+
+  // Déclarations URSSAF ajoutées au rattrapage (27/10/2026) : une seule notification groupée, jamais une par période.
+  const urssafToCheck = await prisma.obligation.findMany({
+    where: { type: "URSSAF_DECLARATION", status: "TO_CHECK", createdAt: { gt: since } },
+    orderBy: { createdAt: "desc" },
+    select: { id: true, createdAt: true },
+  });
+  if (urssafToCheck.length > 0) {
+    const n = urssafToCheck.length;
+    items.push({
+      id: `urssaf_to_check:${urssafToCheck[0]!.id}`,
+      kind: "urssaf_to_check" as const,
+      title: `${n} déclaration${n > 1 ? "s" : ""} URSSAF à vérifier`,
+      body: `Période${n > 1 ? "s" : ""} passée${n > 1 ? "s" : ""} absente${n > 1 ? "s" : ""} de l'ERP, ajoutée${n > 1 ? "s" : ""} pour vérification : déjà déclarée${n > 1 ? "s" : ""} ? À marquer dans Démarches.`,
+      href: "/obligations",
+      at: urssafToCheck[0]!.createdAt.toISOString(),
     });
   }
 

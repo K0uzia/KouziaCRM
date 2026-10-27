@@ -137,6 +137,8 @@ enum ObligationStatus {
   PENDING
   DONE
   LATE
+  /// Période close jamais créée, ajoutée au rattrapage : à vérifier (déclarée hors ERP ?), jamais affichée en retard
+  TO_CHECK
 }
 
 enum ServiceUnit {
