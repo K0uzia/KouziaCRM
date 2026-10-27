@@ -1,7 +1,7 @@
 import { createHash, randomBytes } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
-import { InvoiceDocumentType, InvoiceStatus } from "@prisma/client";
+import { InvoiceDocumentType, InvoiceStatus, QuoteStatus } from "@prisma/client";
 import { prisma } from "@/lib/prisma.js";
 import { loadDocumentForPdf, pdfDataOfLoaded, renderLoadedDocumentPdf, type LoadedDocumentForPdf } from "@/lib/pdf/document-pdf.js";
 import { renderInvoicePdf } from "@/lib/pdf/render.js";
@@ -23,6 +23,7 @@ type ArchiveState = {
   id: string;
   documentType: InvoiceDocumentType;
   status: InvoiceStatus;
+  quoteStatus: QuoteStatus | null;
   number: string | null;
   pdfPath: string | null;
   pdfSha256: string | null;
@@ -37,12 +38,27 @@ export function isArchivableDocument(doc: Pick<ArchiveState, "documentType" | "s
   );
 }
 
+/**
+ * Devis émis, pas encore signé : son PDF est figé à l'émission, comme celui des factures (décision du 27/10/2026). Un
+ * changement d'adresse ou de SIRET ne modifie plus un devis envoyé ; c'est ce PDF que le client lit avant de signer.
+ * Signé, le devis est servi par la preuve de signature (PDF « Bon pour accord » archivé à l'acceptation).
+ */
+export function isFrozenQuote(doc: Pick<ArchiveState, "documentType" | "status" | "number" | "quoteStatus">): boolean {
+  return (
+    doc.documentType === InvoiceDocumentType.QUOTE &&
+    doc.status !== InvoiceStatus.DRAFT &&
+    doc.quoteStatus !== QuoteStatus.DRAFT &&
+    doc.quoteStatus !== QuoteStatus.ACCEPTED &&
+    Boolean(doc.number)
+  );
+}
+
 const sha256 = (buf: Buffer) => createHash("sha256").update(buf).digest("hex");
 
 async function stateOf(id: string): Promise<ArchiveState | null> {
   return prisma.invoice.findUnique({
     where: { id },
-    select: { id: true, documentType: true, status: true, number: true, pdfPath: true, pdfSha256: true },
+    select: { id: true, documentType: true, status: true, quoteStatus: true, number: true, pdfPath: true, pdfSha256: true },
   });
 }
 
@@ -116,12 +132,12 @@ async function archiveNow(state: ArchiveState, loaded?: LoadedDocumentForPdf | n
 }
 
 /**
- * PDF d'un document : archivé pour une facture ou un avoir émis (créé au premier appel), sinon null
- * (devis, brouillon : à rendre à la volée par l'appelant).
+ * PDF d'un document : archivé pour une facture, un avoir ou un devis émis non signé (créé au premier appel), sinon
+ * null (devis signé, brouillon : à servir ou rendre par l'appelant).
  */
 export async function issuedDocumentPdf(id: string, loaded?: LoadedDocumentForPdf | null): Promise<Buffer | null> {
   const state = await stateOf(id);
-  if (!state || !isArchivableDocument(state)) return null;
+  if (!state || !(isArchivableDocument(state) || isFrozenQuote(state))) return null;
   if (state.pdfPath) {
     const archived = await readArchived(state);
     if (archived) return archived;

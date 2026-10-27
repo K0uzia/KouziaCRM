@@ -262,6 +262,8 @@ export async function issueQuote(
     return updated;
   });
 
+  // PDF figé à l'émission, comme une facture (décision du 27/10/2026).
+  await archiveIssuedDocument(quoteId);
   return updated;
 }
 

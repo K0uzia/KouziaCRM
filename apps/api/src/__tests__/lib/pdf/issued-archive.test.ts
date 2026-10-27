@@ -78,12 +78,19 @@ describe("PDF archivé des factures et avoirs émis", () => {
     expect(sha(Buffer.from(attachment.contentBase64, "base64"))).toBe(pdfSha256);
   });
 
-  it("devis et brouillon : pas d'archive (rendu à la volée par l'appelant)", async () => {
+  it("brouillon et devis signé : pas d'archive (rendu ou preuve de signature servis par l'appelant)", async () => {
     const draft = await draftInvoice();
     expect(await issuedDocumentPdf(draft.id)).toBeNull();
-    await prisma.invoice.update({ where: { id: draft.id }, data: { documentType: InvoiceDocumentType.QUOTE, number: "D-2026-001", status: InvoiceStatus.ISSUED } });
+    await prisma.invoice.update({ where: { id: draft.id }, data: { documentType: InvoiceDocumentType.QUOTE, number: "D-2026-001", status: InvoiceStatus.ISSUED, quoteStatus: "ACCEPTED" } });
     expect(await issuedDocumentPdf(draft.id)).toBeNull();
     expect((await prisma.invoice.findUniqueOrThrow({ where: { id: draft.id } })).pdfPath).toBeNull();
+  });
+
+  it("devis émis non signé : PDF archivé, comme une facture (décision du 27/10/2026)", async () => {
+    const draft = await draftInvoice();
+    await prisma.invoice.update({ where: { id: draft.id }, data: { documentType: InvoiceDocumentType.QUOTE, number: "D-2026-002", status: InvoiceStatus.ISSUED, quoteStatus: "SENT" } });
+    const pdf = await issuedDocumentPdf(draft.id);
+    expect(sha(pdf!)).toBe((await prisma.invoice.findUniqueOrThrow({ where: { id: draft.id } })).pdfSha256);
   });
 
   it("deux premiers accès simultanés : une seule archive, un seul fichier", async () => {

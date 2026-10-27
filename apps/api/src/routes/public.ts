@@ -1268,8 +1268,8 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
       const doc = invoiceId ? await loadPublicDocument(invoiceId) : null;
       if (!doc) return readableNotFound(reply);
       const invoice = doc.invoice;
-      const { isArchivableDocument, issuedDocumentPdf } = await import("@/lib/pdf/issued-archive.js");
-      if (!isArchivableDocument(invoice)) {
+      const { isArchivableDocument, isFrozenQuote, issuedDocumentPdf } = await import("@/lib/pdf/issued-archive.js");
+      if (!isArchivableDocument(invoice) && !isFrozenQuote(invoice)) {
         // Devis signé : version lisible figée au 1er accès, seulement si son texte est celui du PDF signé archivé.
         const signed = await signedQuotePdf(invoice);
         if (signed) {
@@ -1286,12 +1286,15 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
       }
       let snapshot = invoice.readableSnapshot;
       if (!invoice.pdfPath) {
-        // Facture ou avoir jamais archivé : archivé maintenant, sa version lisible avec.
+        // Facture, avoir ou devis non signé jamais archivé : archivé maintenant, sa version lisible avec.
         await issuedDocumentPdf(invoice.id);
         snapshot = (await prisma.invoice.findUnique({ where: { id: invoice.id }, select: { readableSnapshot: true } }))?.readableSnapshot ?? null;
       }
       const readable = parseReadable(snapshot);
-      return readable ? readableHeaders(reply).send(readable) : readableNotFound(reply);
+      if (readable) return readableHeaders(reply).send(readable);
+      // Devis non signé dont la version lisible n'a pas pu être figée : rendu à la demande, comme avant le gel du PDF.
+      if (isFrozenQuote(invoice)) return readableHeaders(reply).send(readableInvoice(await liveDocumentPdfData(doc), "LIVE").doc);
+      return readableNotFound(reply);
     },
   );
 

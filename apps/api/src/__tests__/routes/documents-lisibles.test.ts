@@ -79,12 +79,12 @@ describe("GET /api/public/documents/:token/lisible (contrat B)", () => {
     expect((await get(`/api/public/documents/${signDocumentToken(inv.id)}/lisible`)).json()).toEqual(doc);
   }, 30_000);
 
-  it("devis : rendu à la demande (LIVE), comme son PDF", async () => {
+  it("devis émis non signé : version figée avec son PDF (ARCHIVE), décision du 27/10/2026", async () => {
     const quote = await invoiceOf(InvoiceDocumentType.QUOTE, "D-2026-0960");
     const res = await get(`/api/public/documents/${signDocumentToken(quote.id)}/lisible`);
     expect(res.statusCode).toBe(200);
-    expect(res.json()).toMatchObject({ kind: "QUOTE", title: "Devis D-2026-0960", source: "LIVE" });
-    expect((await prisma.invoice.findUniqueOrThrow({ where: { id: quote.id } })).readableSnapshot).toBeNull();
+    expect(res.json()).toMatchObject({ kind: "QUOTE", title: "Devis D-2026-0960", source: "ARCHIVE" });
+    expect((await prisma.invoice.findUniqueOrThrow({ where: { id: quote.id } })).readableSnapshot).not.toBeNull();
   }, 30_000);
 
   it("404 identique : jeton invalide, jeton de reçu, brouillon, version indisponible", async () => {
