@@ -474,7 +474,8 @@ export async function cancelScheduledEnd(id: string) {
 export async function closeEndedSubscriptions(now = new Date()): Promise<number> {
   const closed = await prisma.subscription.updateMany({
     where: { status: { not: SubscriptionStatus.ENDED }, endDate: { lt: now } },
-    data: { status: SubscriptionStatus.ENDED },
+    // Lien court du portail Stripe retiré avec l'abonnement : un ancien e-mail ne mène plus nulle part.
+    data: { status: SubscriptionStatus.ENDED, publicToken: null },
   });
   return closed.count;
 }

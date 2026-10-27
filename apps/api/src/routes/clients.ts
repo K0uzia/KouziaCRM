@@ -409,6 +409,9 @@ export const clientsRoutes: FastifyPluginAsync = async (app) => {
         select: { id: true },
       });
       if (!existing) return reply.code(404).send({ error: "Introuvable" });
+      // Accès compromis : les liens courts du portail Stripe envoyés par e-mail sont renouvelés aussi.
+      const { rotateSubscriptionTokens } = await import("@/lib/stripe/portal.js");
+      await rotateSubscriptionTokens(existing.id);
       return { revoked: await revokeAllPortalSessions(existing.id) };
     },
   );
