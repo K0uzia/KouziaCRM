@@ -336,6 +336,46 @@ env_fix_perms() {
   "${pre[@]}" chmod 640 "$env"
 }
 
+# Retire une variable du .env (toutes ses lignes), sans jamais afficher sa valeur. 0 si une ligne a été retirée.
+env_file_unset() {
+  local file="$1" key="$2"
+  [[ -f "$file" ]] || return 1
+  grep -qE "^${key}=" "$file" || return 1
+  sed -i "/^${key}=/d" "$file"
+  env_fix_perms
+}
+
+# Jeton du tunnel Cloudflare : fichier à part, lisible par root seul (lu par le service OpenRC, passé à cloudflared
+# par l'environnement), jamais dans le .env (décision du 27/10/2026).
+CLOUDFLARE_TOKEN_PATH="${KOUZIA_ETC_DIR}/cloudflare-tunnel.token"
+
+write_tunnel_token() {
+  local token="$1"
+  mkdir -p "$KOUZIA_ETC_DIR"
+  ( umask 077; printf '%s\n' "$token" > "$CLOUDFLARE_TOKEN_PATH" )
+  chown root:root "$CLOUDFLARE_TOKEN_PATH"
+  chmod 600 "$CLOUDFLARE_TOKEN_PATH"
+}
+
+# Mise à jour d'une installation existante : mot de passe admin de départ et jeton du tunnel sortis du .env.
+# Idempotent ; aucune valeur n'est affichée. Le compte admin en base n'en dépend pas (le seed ne le remplace que sur
+# « kouziactl configure admin »).
+migrate_env_secrets() {
+  local env="${KOUZIA_APP_DIR}/.env" token
+  [[ -f "$env" ]] || return 0
+  if env_file_unset "$env" ADMIN_PASSWORD; then
+    ok "Mot de passe admin de départ retiré du .env (le compte admin est inchangé ; le changer : kouziactl configure admin)."
+  fi
+  token="$(grep -E '^CLOUDFLARE_TUNNEL_TOKEN=' "$env" | tail -1 | cut -d= -f2- | tr -d '"'"'"' \r\n' || true)"
+  if [[ -n "$token" ]]; then
+    [[ -s "$CLOUDFLARE_TOKEN_PATH" ]] || write_tunnel_token "$token"
+    grep -qE '^CLOUDFLARE_TUNNEL=' "$env" || printf 'CLOUDFLARE_TUNNEL="1"\n' >> "$env"
+    env_file_unset "$env" CLOUDFLARE_TUNNEL_TOKEN || true
+    ok "Jeton du tunnel Cloudflare retiré du .env : ${CLOUDFLARE_TOKEN_PATH} (600, root), lu par le service cloudflared."
+  fi
+  token=""
+}
+
 # Crée les chemins du compte du service (sous des parents à root) et les lui donne, sans récursion.
 ensure_app_dirs() {
   local app="$KOUZIA_APP_DIR" rel p pre=()
