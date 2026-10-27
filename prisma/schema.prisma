@@ -262,6 +262,9 @@ model Session {
   createdAt  DateTime  @default(now())
   /// Dernière requête authentifiée : session close après 24 h d'inactivité (null : session antérieure)
   lastSeenAt DateTime?
+  /// Connexion passée par la double authentification (ou activation de la 2FA) ; seule une session vérifiée est
+  /// acceptée par le tunnel (migration 20261222090000)
+  mfaVerified Boolean  @default(false)
 
   @@index([userId])
   @@index([expiresAt])

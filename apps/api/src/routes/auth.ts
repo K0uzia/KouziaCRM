@@ -7,7 +7,9 @@ import {
   attachUser,
   createSession,
   destroySession,
+  destroySessionOfToken,
   hashPassword,
+  SESSION_COOKIE,
   requireAuth,
   setSessionCookie,
   upgradePasswordHashIfNeeded,
@@ -69,12 +71,12 @@ async function openSession(
   user: { id: string; email: string; name: string | null },
   request: FastifyRequest,
   reply: FastifyReply,
+  mfaVerified: boolean,
 ) {
   await prisma.session.deleteMany({ where: { userId: user.id, expiresAt: { lt: new Date() } } });
-  // Rotation : la session éventuelle du navigateur est remplacée.
-  await attachUser(request);
-  if (request.sessionId) await destroySession(request.sessionId);
-  const session = await createSession(user.id);
+  // Rotation : la session éventuelle du navigateur est remplacée (même non vérifiée, refusée par le tunnel).
+  await destroySessionOfToken(request.cookies[SESSION_COOKIE]);
+  const session = await createSession(user.id, mfaVerified);
   setSessionCookie(request, reply, session.token, session.expiresAt);
   await clearFailures(user.id);
   const newDevice = await rememberAdminDevice(user.id, request, reply);
@@ -122,7 +124,7 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
       if (request.viaTunnel) {
         return reply.code(403).send(TUNNEL_NEEDS_2FA);
       }
-      return openSession(user, request, reply);
+      return openSession(user, request, reply, false);
     },
   );
 
@@ -152,7 +154,7 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
       }
 
       await closeLoginChallenge(user.id, request, reply);
-      return openSession(user, request, reply);
+      return openSession(user, request, reply, true);
     },
   );
 
@@ -211,10 +213,11 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
       const userId = request.user!.id;
       const recoveryCodes = await confirmEnrollment(userId, parsed.data.code);
       if (!recoveryCodes) return reply.code(400).send(BAD_CODE);
-      // Les autres sessions ont été ouvertes sans second facteur : elles sont fermées.
+      // Les autres sessions ont été ouvertes sans second facteur : elles sont fermées. Celle-ci vient de prouver le code.
       await prisma.session.deleteMany({
         where: { userId, ...(request.sessionId ? { id: { not: request.sessionId } } : {}) },
       });
+      if (request.sessionId) await prisma.session.update({ where: { id: request.sessionId }, data: { mfaVerified: true } });
       return { recoveryCodes };
     },
   );
