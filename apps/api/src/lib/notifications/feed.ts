@@ -16,7 +16,8 @@ export type NotificationKind =
   | "testimonial"
   | "software_request"
   | "email_review"
-  | "buyout_offer";
+  | "buyout_offer"
+  | "stripe_credit";
 
 export type NotificationItem = {
   /** Identifiant stable (type + id source) : sert à dédoublonner côté interface. */
@@ -280,6 +281,24 @@ export async function listNotifications(since: Date): Promise<NotificationItem[]
       at: e.createdAt.toISOString(),
     })),
   ];
+
+  // Avoir automatique du crédit client Stripe (27/10/2026) : jamais envoyé au client d'office, Alexandre décide.
+  const stripeCredits = await prisma.invoice.findMany({
+    where: { documentType: "CREDIT_NOTE", creditReason: "STRIPE_CUSTOMER_CREDIT", createdAt: { gt: since } },
+    orderBy: { createdAt: "desc" },
+    take: MAX_ITEMS,
+    select: { id: true, number: true, totalCents: true, createdAt: true, client: { select: { displayName: true } }, creditedInvoice: { select: { number: true } } },
+  });
+  for (const cn of stripeCredits) {
+    items.push({
+      id: `stripe_credit:${cn.id}`,
+      kind: "stripe_credit" as const,
+      title: `Avoir ${cn.number ?? ""} : crédit client Stripe appliqué`,
+      body: `${cn.client.displayName}, facture ${cn.creditedInvoice?.number ?? ""} : ${eur(Math.abs(cn.totalCents))} réglés par le crédit du client chez Stripe. Avoir non envoyé, à envoyer si besoin.`,
+      href: `/invoices/${cn.id}`,
+      at: cn.createdAt.toISOString(),
+    });
+  }
 
   // Rachat (R3) : rappel de fin du premier engagement mis en file avec le rachat proposé.
   const buyoutReminders = await prisma.emailOutbox.findMany({

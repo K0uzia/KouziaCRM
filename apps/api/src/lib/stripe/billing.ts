@@ -2,10 +2,12 @@ import { subscriptionMethodTypes, subscriptionMethodsSentence } from "@/lib/stri
 import { alertAdmin } from "@/lib/stripe/alert.js";
 import { stripeInvoiceDiscountCents } from "@/lib/stripe/subscription-discount.js";
 import {
+  CreditNoteReason,
   InvoiceDocumentType,
   InvoiceStatus,
   InvoiceType,
   PaymentMethod,
+  RefundMethod,
   SubscriptionCollectionMethod,
   SubscriptionStatus,
 } from "@prisma/client";
@@ -272,6 +274,8 @@ export async function handleStripeInvoicePaid(
     }
   }
 
+  // Crédit client d'abord : le reçu envoyé au client après le prélèvement montre la facture soldée.
+  await applyStripeCustomerCredit(erp.id, stripeInvoice);
   await markInvoicePaidFromStripeBilling({
     erpInvoiceId: erp.id,
     paymentIntentId,
@@ -280,6 +284,35 @@ export async function handleStripeInvoicePaid(
     method,
     paidAt: stripeInvoice.status_transitions?.paid_at ? new Date(stripeInvoice.status_transitions.paid_at * 1000) : eventPaidAt,
   });
+}
+
+/**
+ * Part de la facture réglée par le crédit du client Stripe (baisse de formule proratisée, ajustement) : total moins
+ * montant à prélever. Ce n'est pas un nouvel encaissement (déjà compté) : avoir automatique « Crédit client Stripe
+ * appliqué » sur la facture ERP, qui garde le total Stripe et passe Payée, sans recette en double (décision du
+ * 27/10/2026, option A). L'avoir n'est pas envoyé au client : il apparaît dans les notifications de l'ERP.
+ */
+async function applyStripeCustomerCredit(erpInvoiceId: string, stripeInvoice: Stripe.Invoice): Promise<void> {
+  const total = stripeInvoice.total ?? 0;
+  const due = stripeInvoice.amount_due ?? total;
+  const credit = total - due;
+  if (total <= 0 || credit <= 0) return;
+  const already = await prisma.invoice.count({ where: { creditedInvoiceId: erpInvoiceId, creditReason: CreditNoteReason.STRIPE_CUSTOMER_CREDIT } });
+  if (already > 0) return;
+  const { createCreditNote, CreditNoteError } = await import("@/lib/invoices/credit-note-service.js");
+  try {
+    await createCreditNote(erpInvoiceId, {
+      amountCents: credit,
+      reason: CreditNoteReason.STRIPE_CUSTOMER_CREDIT,
+      reasonDetail: `Facture Stripe ${stripeInvoice.id ?? ""}`.trim(),
+      refundMethod: RefundMethod.DEDUCT_FROM_BALANCE,
+      registerRefundPayment: false,
+    });
+  } catch (err) {
+    // Webhook rejoué en même temps : l'avoir existe déjà, rien à faire.
+    if (err instanceof CreditNoteError && err.code === "ALREADY_CREDITED") return;
+    throw err;
+  }
 }
 
 /**

@@ -27,7 +27,8 @@ export type NotificationKind =
   | "testimonial"
   | "software_request"
   | "email_review"
-  | "buyout_offer";
+  | "buyout_offer"
+  | "stripe_credit";
 
 export type NotificationItem = {
   id: string;
