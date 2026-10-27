@@ -1,4 +1,5 @@
 import { BlockList, isIP } from "node:net";
+import type { IncomingHttpHeaders } from "node:http";
 import type { FastifyInstance } from "fastify";
 
 /**
@@ -67,10 +68,22 @@ export function trustProxyFn(list: BlockList | null): ((addr: string, hop: numbe
  */
 export function registerClientIpHook(app: FastifyInstance, list: BlockList | null): void {
   app.decorateRequest("viaTunnel", false);
+  /**
+   * Fermé par défaut (audit du 27/10/2026) : sans proxy de confiance (TRUST_PROXY=false alors que cloudflared tourne,
+   * Docker sans le sous-réseau), une requête d'Internet était vue comme venant du LAN : mot de passe seul, admin sur
+   * api.kouzia.com. En-tête posé par l'edge Cloudflare (toujours transmis par cloudflared) : traitée comme venue du
+   * tunnel (2FA, hôtes filtrés, cookie Secure). Jamais par l'hôte seul : un .env où l'hôte public sert aussi le LAN
+   * (HTTP) aurait cassé la connexion locale. Au pire un refus ; l'IP reste celle de la socket.
+   */
+  const looksLikeTunnel = (headers: IncomingHttpHeaders) => Boolean(headers["cf-connecting-ip"] || headers["cf-ray"]);
   app.addHook("onRequest", async (request) => {
     const headers = request.raw.headers;
     if (!isTrustedProxy(list, request.raw.socket.remoteAddress)) {
       delete headers["x-forwarded-for"];
+      if (looksLikeTunnel(headers)) {
+        delete headers["x-forwarded-host"];
+        request.viaTunnel = true;
+      }
       return;
     }
     const cf = headers["cf-connecting-ip"];
@@ -83,6 +96,11 @@ export function registerClientIpHook(app: FastifyInstance, list: BlockList | nul
     } else {
       // Proxy de confiance sans CF-Connecting-IP : un X-Forwarded-For présent viendrait du client.
       delete headers["x-forwarded-for"];
+      // CF-Ray sans CF-Connecting-IP valide : venue de Cloudflare quand même, traitée comme le tunnel.
+      if (looksLikeTunnel(headers)) {
+        delete headers["x-forwarded-host"];
+        request.viaTunnel = true;
+      }
     }
   });
 }

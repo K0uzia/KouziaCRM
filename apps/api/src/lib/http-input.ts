@@ -1,5 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
+import { routePath } from "@/lib/route-path.js";
 
 // Entrées de l'URL validées par zod pour TOUTES les routes /api, avant leur code : paramètres de route
 // (identifiants, jetons signés, SIREN, noms de fichier de média) et valeurs de la requête. Chaque route
@@ -16,7 +17,7 @@ const queryValues = z.record(z.string(), z.string().max(2000).regex(/^[^\u0000-\
 
 export function registerInputGuards(app: FastifyInstance): void {
   app.addHook("preValidation", async (request, reply) => {
-    if (!request.url.startsWith("/api/")) return;
+    if (!routePath(request).startsWith("/api/")) return;
     if (request.params && Object.keys(request.params).length > 0 && !routeParams.safeParse(request.params).success) {
       // Même réponse qu'une route ou une ressource inconnue : rien sur ce qui existe.
       return reply.code(404).send({ error: "Not found" });

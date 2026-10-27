@@ -31,6 +31,7 @@ import { Combobox } from "@/components/ui/Combobox";
 import { catalogOption } from "@/lib/catalog-options";
 import { DataTable, type DataColumn } from "@/components/ui/DataTable";
 import { BuyoutSection } from "@/components/subscriptions/BuyoutSection";
+import { LoadState } from "@/pages/site/shared";
 import {
   eurosInputToCents,
   INTERVAL_OPTIONS,
@@ -212,6 +213,8 @@ export function SubscriptionsPage() {
   const [reviseBusy, setReviseBusy] = useState(false);
   const [freeMonths, setFreeMonths] = useState(2);
   const [loaded, setLoaded] = useState(false);
+  // Échec du chargement : affiché à la place de la liste, avec « Réessayer » (une erreur ne passe plus pour « Aucun contrat »).
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   async function load() {
     const [subs, cls, svcs, catalog, settings, ponctuelles] = await Promise.all([
@@ -231,8 +234,13 @@ export function SubscriptionsPage() {
     setLoaded(true);
   }
 
+  function reload() {
+    setLoadError(null);
+    load().catch((e: Error) => setLoadError(e.message || "Chargement des contrats impossible"));
+  }
+
   useEffect(() => {
-    load().catch((e: Error) => toast.error(e.message));
+    reload();
   }, []);
 
   function openEditOffer(s: Service) {
@@ -728,6 +736,9 @@ export function SubscriptionsPage() {
             <DataTable
               columns={contractColumns}
               data={rows}
+              loading={!loaded && !loadError}
+              error={loadError}
+              onRetry={reload}
               searchable={["client.displayName", "label", "service.name"]}
               searchPlaceholder="Rechercher un contrat…"
               countLabel={rows.length > 1 ? "contrats" : "contrat"}
@@ -766,7 +777,11 @@ export function SubscriptionsPage() {
             />
         ) : (
             <Card className="overflow-hidden">
-              {activeOffers.length === 0 ? (
+              {loadError || !loaded ? (
+                <LoadState loading={!loadError} error={loadError} onRetry={reload}>
+                  {null}
+                </LoadState>
+              ) : activeOffers.length === 0 ? (
                 <EmptyState
                   title="Aucun abonnement."
                   hint="Hébergement, maintenance… : l'offre que vos contrats reprennent ensuite."

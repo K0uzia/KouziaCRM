@@ -58,10 +58,14 @@ function toCents(euros: number): number {
   return Math.round(euros * 100);
 }
 
+/**
+ * Date saisie « AAAA-MM-JJ » : minuit à Paris (audit du 27/10/2026). new Date("2026-12-01") donnait 1 h du matin, d'où
+ * une 1re échéance repoussée d'une période quand le jour de départ égale le jour de prélèvement.
+ */
 function parseDate(value: string | undefined | null): Date | null | undefined {
   if (value === undefined) return undefined;
   if (value === null || value === "") return null;
-  return new Date(value);
+  return new Date(/^\d{4}-\d{2}-\d{2}$/.test(value) ? `${value}T00:00:00` : value);
 }
 
 export const subscriptionsRoutes: FastifyPluginAsync = async (app) => {
@@ -96,7 +100,7 @@ export const subscriptionsRoutes: FastifyPluginAsync = async (app) => {
         amountCents: toCents(parsed.data.amountEuros),
         billingDay: parsed.data.billingDay,
         billingInterval: parsed.data.billingInterval,
-        startDate: parsed.data.startDate ? new Date(parsed.data.startDate) : new Date(),
+        startDate: parseDate(parsed.data.startDate) ?? new Date(),
         endDate: parseDate(parsed.data.endDate),
         firstInvoiceAt: parseDate(parsed.data.firstInvoiceAt) ?? undefined,
         collectionMethod: parsed.data.collectionMethod,

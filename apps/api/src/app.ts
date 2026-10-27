@@ -9,7 +9,8 @@ import compress from "@fastify/compress";
 import { constants as zlibConstants } from "node:zlib";
 import fastifyStatic from "@fastify/static";
 import multipart from "@fastify/multipart";
-import { getAllowedOrigins, getCookieSecure, getTrustedProxies } from "@/lib/env.js";
+import { getAdminOrigins, getAllowedOrigins, getCookieSecure, getTrustedProxies, isPublicApiPath } from "@/lib/env.js";
+import { routePath } from "@/lib/route-path.js";
 import { registerClientIpHook, trustProxyFn } from "@/lib/client-ip.js";
 import { registerTunnelHostGuard } from "@/lib/tunnel-hosts.js";
 import { pendingMigrationCount } from "@/lib/migration-check.js";
@@ -163,8 +164,7 @@ export async function buildApp(opts: BuildAppOptions = {}): Promise<FastifyInsta
     },
   });
 
-  const origins = getAllowedOrigins();
-  const appCors = {
+  const corsFor = (origins: string[]) => ({
     origin: (origin: string | undefined, cb: (err: Error | null, allow: boolean) => void) => {
       if (!origin || origins.includes(origin)) {
         cb(null, true);
@@ -175,13 +175,19 @@ export async function buildApp(opts: BuildAppOptions = {}): Promise<FastifyInsta
     credentials: true,
     // Défaut de @fastify/cors : GET, HEAD, POST. PUT et DELETE servent au témoignage depuis /suivi (kouzia.com).
     methods: ["GET", "HEAD", "POST", "PUT", "DELETE"],
-  };
+  });
+  // Site public admis sur /api/public/* seulement ; l'admin n'accepte que ses propres origines (audit du 27/10/2026).
+  const publicCors = corsFor(getAllowedOrigins());
+  const adminCors = corsFor(getAdminOrigins());
   // Aperçu du brouillon (lot 5b, contrat du site) : page /apercu du site seulement (et le site local en développement),
   // GET, jeton en en-tête Authorization (préflight), sans cookie.
   const previewOrigins = [previewWebOrigin(), "http://localhost:4321", "http://127.0.0.1:4321"].filter((o): o is string => Boolean(o));
   const previewCors = { origin: previewOrigins, credentials: false, methods: ["GET"], allowedHeaders: ["authorization"] };
   await app.register(cors, {
-    delegator: (request, cb) => cb(null, request.url.startsWith("/api/public/preview/") ? previewCors : appCors),
+    delegator: (request, cb) => {
+      const path = routePath(request);
+      cb(null, path.startsWith("/api/public/preview/") ? previewCors : isPublicApiPath(path) ? publicCors : adminCors);
+    },
   });
 
   await app.register(cookie, {
@@ -209,11 +215,12 @@ export async function buildApp(opts: BuildAppOptions = {}): Promise<FastifyInsta
   // ancienne que le serveur le voit à la première réponse et propose (ou impose) le rechargement.
   const buildId = opts.serveStatic === false ? null : await readWebBuildId();
   app.addHook("onSend", async (request, reply, payload) => {
-    if (request.url.startsWith("/api/")) {
+    const api = routePath(request).startsWith("/api/");
+    if (api) {
       reply.header(CONTRACT_HEADER, String(API_CONTRACT));
       if (buildId) reply.header(BUILD_HEADER, buildId);
     }
-    if (request.url.startsWith("/api/") && !reply.hasHeader("cache-control")) reply.header("Cache-Control", "no-store");
+    if (api && !reply.hasHeader("cache-control")) reply.header("Cache-Control", "no-store");
     reply.header("Permissions-Policy", "camera=(), microphone=(), geolocation=(), payment=()");
     reply.header("X-Robots-Tag", "noindex, nofollow");
     return payload;

@@ -391,7 +391,7 @@ docker compose up -d --build
 |---------|------|--------|
 | App | `127.0.0.1:3000` | SPA + API |
 | Worker |  -  | IMAP en IDLE (arrivée immédiate), repli chaque minute si IDLE est muet, file des e-mails toutes les 30 s |
-| Prisma Studio | `127.0.0.1:5555` | SSH tunnel uniquement |
+| Prisma Studio | `127.0.0.1:5555` | Arrêté par défaut ; à la demande : `docker compose --profile studio up prisma-studio`, par tunnel SSH, puis arrêté |
 
 Volume persistant : `./data/kouziacrm.db` (sur l'hôte Proxmox, **pas dans l'image Docker**).
 

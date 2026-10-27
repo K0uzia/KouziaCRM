@@ -162,8 +162,12 @@ describe("aperçu du brouillon", () => {
     }
     expect((await preflight("https://ailleurs.example")).headers["access-control-allow-origin"]).toBeUndefined();
 
-    const admin = await app.inject({ method: "GET", url: "/api/health", headers: { origin: SITE } });
-    expect(admin.headers["access-control-allow-origin"]).toBe(SITE);
-    expect(admin.headers["access-control-allow-credentials"]).toBe("true");
+    // Hors aperçu : CORS avec cookies du site sur l'API publique seulement ; l'admin ne l'accepte plus (audit du
+    // 27/10/2026 : même site que erp.kouzia.com, le cookie de session admin aurait accompagné l'appel).
+    const pub = await app.inject({ method: "GET", url: "/api/public/tracking", headers: { origin: SITE } });
+    expect(pub.headers["access-control-allow-origin"]).toBe(SITE);
+    expect(pub.headers["access-control-allow-credentials"]).toBe("true");
+    const admin = await app.inject({ method: "GET", url: "/api/clients", headers: { origin: SITE } });
+    expect(admin.headers["access-control-allow-origin"]).toBeUndefined();
   });
 });

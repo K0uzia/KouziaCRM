@@ -12,6 +12,7 @@ import {
 import { api } from "@/lib/api";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/Button";
+import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import type { ClientPrefill } from "@/components/clients/ClientForm";
 import { MessageBody } from "@/pages/messaging/MessageBody";
 import { AttachmentList } from "@/pages/messaging/AttachmentList";
@@ -38,6 +39,8 @@ type Props = {
   }) => void;
   onRefresh: () => void;
   onRead?: (messageIds: string[]) => void;
+  /** Corbeille affichée : la suppression est définitive, elle passe par une confirmation (audit du 27/10/2026). */
+  permanentDelete?: boolean;
 };
 
 type MessageBodyPayload = {
@@ -109,8 +112,10 @@ export function ReadingPane({
   onReply,
   onRefresh,
   onRead,
+  permanentDelete = false,
 }: Props) {
   const [thread, setThread] = useState<ThreadDetail | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState(false);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [bodies, setBodies] = useState<Record<string, MessageBodyPayload>>({});
   const [bodyError, setBodyError] = useState<string | null>(null);
@@ -292,8 +297,49 @@ export function ReadingPane({
     });
   };
 
+  const deleteLatest = () => {
+    if (!latest) return;
+    void api<{ restoreFolderId: string | null }>(`/api/emails/messages/${latest.id}`, { method: "DELETE" })
+      .then((res) => {
+        onRefresh();
+        onBack();
+        const folderId = res?.restoreFolderId;
+        toast.success(folderId ? "Message mis à la corbeille" : "Message supprimé", {
+          action: folderId
+            ? {
+                label: "Annuler",
+                onClick: () =>
+                  void api(`/api/emails/messages/${latest.id}/move`, {
+                    method: "POST",
+                    body: JSON.stringify({ folderId }),
+                  })
+                    .then(() => {
+                      onRefresh();
+                      toast.success("Message remis dans son dossier");
+                    })
+                    .catch((e: Error) => toast.error(e.message)),
+              }
+            : undefined,
+        });
+      })
+      .catch((e: Error) => toast.error(e.message));
+  };
+
   return (
     <div className="flex h-full flex-col">
+      {/* Corbeille : suppression définitive (serveur de messagerie compris), confirmée comme la suppression groupée. */}
+      <ConfirmDialog
+        open={confirmDelete}
+        title="Supprimer définitivement ?"
+        message="Ce message sera supprimé du serveur de messagerie. Cette action est irréversible."
+        confirmLabel="Supprimer définitivement"
+        danger
+        onClose={() => setConfirmDelete(false)}
+        onConfirm={() => {
+          setConfirmDelete(false);
+          deleteLatest();
+        }}
+      />
       {/* En-tête collant : retour, favori, suppression ; « Répondre » ici sur grand écran. */}
       <div className="sticky top-0 z-10 flex min-w-0 items-center gap-2 border-b border-[var(--border)] bg-[var(--bg)] p-2 md:p-3">
         {backButton}
@@ -337,32 +383,7 @@ export function ReadingPane({
             <Button
               variant="ghost"
               aria-label="Supprimer le message"
-              onClick={() =>
-                void api<{ restoreFolderId: string | null }>(`/api/emails/messages/${latest.id}`, { method: "DELETE" })
-                  .then((res) => {
-                    onRefresh();
-                    onBack();
-                    const folderId = res?.restoreFolderId;
-                    toast.success(folderId ? "Message mis à la corbeille" : "Message supprimé", {
-                      action: folderId
-                        ? {
-                            label: "Annuler",
-                            onClick: () =>
-                              void api(`/api/emails/messages/${latest.id}/move`, {
-                                method: "POST",
-                                body: JSON.stringify({ folderId }),
-                              })
-                                .then(() => {
-                                  onRefresh();
-                                  toast.success("Message remis dans son dossier");
-                                })
-                                .catch((e: Error) => toast.error(e.message)),
-                          }
-                        : undefined,
-                    });
-                  })
-                  .catch((e: Error) => toast.error(e.message))
-              }
+              onClick={() => (permanentDelete ? setConfirmDelete(true) : deleteLatest())}
             >
               <FontAwesomeIcon icon={faTrash} className="h-4 w-4" aria-hidden />
             </Button>

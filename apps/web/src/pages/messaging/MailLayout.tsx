@@ -550,6 +550,7 @@ export function MailLayout() {
                 });
               }}
               onRefresh={() => void refresh()}
+              permanentDelete={isTrashFolder}
               onRead={(ids) => {
                 notifyMailChanged();
                 const idSet = new Set(ids);

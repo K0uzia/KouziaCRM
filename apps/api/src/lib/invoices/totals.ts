@@ -56,6 +56,9 @@ export function computeDiscountCents(
   subtotalCents: number,
   discount: DiscountInput = {},
 ): number {
+  // Base nulle ou négative (lignes à prix négatif) : aucune remise. Math.min(base, …) rendait sinon une remise négative
+  // qui gonflait le total sans remise affichée (audit du 27/10/2026).
+  if (subtotalCents <= 0) return 0;
   const type = (discount.discountType ?? "NONE").toUpperCase();
   const value = Math.max(0, Math.floor(Number(discount.discountValue) || 0));
   if (type === "PERCENT") {

@@ -1,4 +1,4 @@
-import { InvoiceDocumentType, LegalClauseKind } from "@prisma/client";
+import { EmailOutboxStatus, InvoiceDocumentType, LegalClauseKind } from "@prisma/client";
 import { decryptOptional } from "@/lib/crypto.js";
 import { isSmtpConfigured } from "@/lib/email/smtp.js";
 import { mailEnqueue } from "@/lib/email/mailer/index.js";
@@ -15,7 +15,12 @@ import type { EmailOrigin } from "@/lib/email/review.js";
 
 type PendingInvoice = Awaited<ReturnType<typeof listPendingReminders>>[number];
 
+const REMINDER_KINDS = ["reminder_soft", "reminder_firm", "reminder_formal"];
+const OPEN_STATUSES = [EmailOutboxStatus.REVIEW, EmailOutboxStatus.PENDING, EmailOutboxStatus.SENDING];
+
 function reminderKind(invoice: PendingInvoice): EmailTemplateKind {
+  // Un devis n'est jamais « impayé » : ni relance de règlement ni mise en demeure avec pénalités (audit du 27/10/2026).
+  if (invoice.documentType === InvoiceDocumentType.QUOTE) return "reminder_soft";
   const count = invoice.reminderCount ?? 0;
   if (count >= 2) return "reminder_formal";
   if (count >= 1) return "reminder_firm";
@@ -50,6 +55,12 @@ export async function sendDueReminders(now: Date = new Date(), origin: EmailOrig
       skippedNoEmail += 1;
       continue;
     }
+    // Une relance déjà ouverte (à valider, en file, en cours d'envoi) : jamais de copie (audit du 27/10/2026 :
+    // scheduleReminders replanifiait la relance en attente, d'où une copie de plus à valider chaque heure).
+    const open = await prisma.emailOutbox.count({
+      where: { documentId: invoice.id, reviewKind: { in: REMINDER_KINDS }, status: { in: OPEN_STATUSES } },
+    });
+    if (open > 0) continue;
 
     try {
       const isQuote = invoice.documentType === InvoiceDocumentType.QUOTE;

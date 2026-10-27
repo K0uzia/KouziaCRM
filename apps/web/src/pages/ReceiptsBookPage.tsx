@@ -18,6 +18,7 @@ import { Modal } from "@/components/ui/Modal";
 import { ListRow } from "@/components/ui/ListRow";
 import { DocumentNumberBadge } from "@/components/documents/DocumentNumberBadge";
 import { shortNature } from "@/lib/receipt-nature";
+import { LoadState } from "@/pages/site/shared";
 
 const TYPE_TONE: Record<string, "teal" | "blue" | "violet" | "red" | "green" | "neutral"> = {
   Facture: "neutral",
@@ -74,6 +75,9 @@ export function ReceiptsBookPage() {
   const [month, setMonth] = useState("ALL");
   const [data, setData] = useState<ReceiptsData | null>(null);
   const [loading, setLoading] = useState(true);
+  // Échec du chargement : message et « Réessayer », jamais « Aucun encaissement » (audit du 27/10/2026).
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [retryKey, setRetryKey] = useState(0);
   const [pdfMenuOpen, setPdfMenuOpen] = useState(false);
   const [pdfBusy, setPdfBusy] = useState(false);
 
@@ -86,11 +90,12 @@ export function ReceiptsBookPage() {
 
   useEffect(() => {
     setLoading(true);
+    setLoadError(null);
     api<ReceiptsData>(`/api/receipts?${queryParams}`)
       .then(setData)
-      .catch((e: Error) => toast.error(e.message))
+      .catch((e: Error) => setLoadError(e.message || "Chargement du livre des recettes impossible"))
       .finally(() => setLoading(false));
-  }, [queryParams]);
+  }, [queryParams, retryKey]);
 
   async function exportCsv() {
     try {
@@ -257,6 +262,10 @@ export function ReceiptsBookPage() {
         </div>
         {loading ? (
           <p className="p-8 text-sm text-[var(--muted)]">Chargement…</p>
+        ) : loadError ? (
+          <LoadState loading={false} error={loadError} onRetry={() => setRetryKey((k) => k + 1)}>
+            {null}
+          </LoadState>
         ) : !data || data.rows.length === 0 ? (
           <EmptyState
             title="Aucun encaissement"

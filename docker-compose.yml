@@ -44,10 +44,13 @@ services:
       app:
         condition: service_healthy
 
+  # Prisma Studio lit et écrit toute la base sans authentification : jamais lancé par défaut (audit du 27/10/2026).
+  # À la demande seulement : docker compose --profile studio up prisma-studio, puis arrêter après usage.
   prisma-studio:
     image: kouzia-erp:latest
     container_name: kouzia-erp-studio
-    restart: unless-stopped
+    profiles: ["studio"]
+    restart: "no"
     command: ["npx", "prisma", "studio", "--hostname", "0.0.0.0", "--port", "5555"]
     ports:
       - "127.0.0.1:5555:5555"

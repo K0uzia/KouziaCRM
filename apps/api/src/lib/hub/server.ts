@@ -32,7 +32,7 @@ const LISTEN_ALLOWED = (() => {
 function normalizeHost(host: string): { addr: string; type: "ipv4" | "ipv6" } {
   if (isIP(host) === 4) return { addr: host, type: "ipv4" };
   const lower = host.toLowerCase();
-  const dotted = /^(?:0{0,4}:){0,5}(?:ffff:)?(d{1,3}(?:.d{1,3}){3})$/.exec(lower.replace(/^::/, "0:"));
+  const dotted = /^(?:0{0,4}:){0,5}(?:ffff:)?(\d{1,3}(?:\.\d{1,3}){3})$/.exec(lower.replace(/^::/, "0:"));
   if (dotted && isIP(dotted[1]!) === 4) return { addr: dotted[1]!, type: "ipv4" };
   const hex = /^::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/.exec(lower);
   if (hex) {

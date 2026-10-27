@@ -95,17 +95,30 @@ function addOrigins(set: Set<string>, raw: string | undefined): void {
   }
 }
 
-/** Origines autorisées (admin LAN, admin Tailscale, admin par le tunnel, site public). */
-export function getAllowedOrigins(): string[] {
+/** Origines de l'admin (LAN, Tailscale, tunnel) : les seules admises hors de /api/public/*. */
+export function getAdminOrigins(): string[] {
   const set = new Set<string>();
   addOrigins(set, getCorsOrigin());
-  addOrigins(set, process.env.PUBLIC_WEB_ORIGIN);
   addOrigins(set, process.env.TAILSCALE_ORIGIN);
   addOrigins(set, process.env.ADMIN_PUBLIC_ORIGIN);
   // Posée par scripts/dev.mjs --lan (admin de dev ouverte au téléphone), ignorée en production.
   if (process.env.NODE_ENV !== "production") addOrigins(set, process.env.DEV_LAN_ORIGIN);
   return Array.from(set);
 }
+
+/** Origines autorisées sur /api/public/* : celles de l'admin et le site public. */
+export function getAllowedOrigins(): string[] {
+  const set = new Set<string>(getAdminOrigins());
+  addOrigins(set, process.env.PUBLIC_WEB_ORIGIN);
+  return Array.from(set);
+}
+
+/**
+ * Le site public (PUBLIC_WEB_ORIGIN) n'est admis, en CORS avec cookies comme par la garde d'origine, que sur l'API
+ * publique (audit du 27/10/2026) : kouzia.com et erp.kouzia.com sont le même site, le cookie de session admin
+ * (SameSite=Lax) accompagnerait sinon un appel de kouzia.com vers toute l'admin.
+ */
+export const isPublicApiPath = (path: string) => path.startsWith("/api/public/");
 
 export function getApiPort(): number {
   return Number(process.env.API_PORT ?? 3001);

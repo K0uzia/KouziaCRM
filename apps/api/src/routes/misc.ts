@@ -6,6 +6,7 @@ import { BALANCE_INCLUDE, invoiceBalance } from "@/lib/invoices/balance.js";
 import { applySettledStatus, lockInvoice } from "@/lib/invoices/balance-status.js";
 import { formatEUR } from "@/lib/money.js";
 import { requireAuth } from "@/lib/auth.js";
+import { contentDisposition } from "@/lib/http.js";
 import { prisma } from "@/lib/prisma.js";
 import { getDashboardSnapshot } from "@/lib/finance/dashboard-service.js";
 import { getDashboardOverview } from "@/lib/finance/dashboard-overview.js";
@@ -511,7 +512,7 @@ export const miscRoutes: FastifyPluginAsync = async (app) => {
       if (!stream) return reply.code(404).send({ error: "Fichier absent" });
       return reply
         .header("Content-Type", att.mimeType)
-        .header("Content-Disposition", `attachment; filename="${att.filename.replace(/"/g, "")}"`)
+        .header("Content-Disposition", contentDisposition("attachment", att.filename))
         .send(stream);
     },
   );

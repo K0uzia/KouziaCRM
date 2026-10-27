@@ -34,6 +34,16 @@ async function main() {
     );
   }
 
+  // Tunnel configuré sans proxy de confiance (audit du 27/10/2026) : les requêtes d'Internet sont reconnues par leur
+  // hôte public (erp, api) et soumises à la 2FA, mais l'IP réelle et les limites de débit par client sont perdues.
+  // Avertissement seulement : un refus de démarrer couperait l'ERP sans personne pour le relancer.
+  if (process.env.CLOUDFLARE_TUNNEL_TOKEN?.trim() && !getTrustedProxies()) {
+    console.warn(
+      "[boot] ATTENTION : CLOUDFLARE_TUNNEL_TOKEN présent mais TRUST_PROXY absent ou false : IP des visiteurs du tunnel " +
+        'inconnue (limites de débit communes). Régler TRUST_PROXY="true" (cloudflared local) dans le .env.',
+    );
+  }
+
   // Client Prisma en retard sur le schéma (migrations appliquées sans prisma generate) :
   // les tables ou champs récents seraient absents et chaque requête dessus échouerait.
   const stale = checkPrismaClientUpToDate();

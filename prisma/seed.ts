@@ -48,11 +48,17 @@ async function main() {
   // Compte existant laissé tel quel : relancer l'installation ne remet jamais le mot de passe à celui
   // du .env. Seul « kouziactl admin » le remplace, explicitement (SEED_RESET_ADMIN_PASSWORD=1).
   const resetAdmin = process.env.SEED_RESET_ADMIN_PASSWORD === "1";
-  await prisma.user.upsert({
+  const admin = await prisma.user.upsert({
     where: { email },
     update: resetAdmin ? { name, passwordHash } : {},
     create: { email, name, passwordHash },
   });
+  // Mot de passe remplacé (souvent après une fuite) : sessions et défis de connexion en cours fermés, comme à la
+  // remise à zéro de la 2FA (audit du 27/10/2026 : les sessions restaient valables jusqu'à 7 jours).
+  if (resetAdmin) {
+    await prisma.session.deleteMany({ where: { userId: admin.id } });
+    await prisma.adminLoginChallenge.deleteMany({ where: { userId: admin.id } });
+  }
 
   // Réglages : créés sur une base neuve ; sur une base existante, seuls les champs vides sont complétés.
   await ensureCompanySettings(prisma);

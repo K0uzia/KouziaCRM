@@ -34,8 +34,10 @@ export function remainingCommitmentPeriods(sub: PeriodSub, now = new Date()): { 
   const from = currentPeriodEndOf(sub, now);
   if (!sub.commitmentEndsAt) return { count: 0, from, until: null };
   const months = periodMonths(sub.billingInterval);
+  // Échéances comptées depuis l'ancre (from + k périodes), jamais en chaîne : 31/01, 28/02, puis 31/03 (audit du
+  // 27/10/2026 : la chaîne faisait glisser au 28 et comptait une mensualité de trop).
   let count = 0;
-  for (let start = from; start.getTime() < sub.commitmentEndsAt.getTime(); start = commitmentEndOf(start, months)) count += 1;
+  while (commitmentEndOf(from, months * count).getTime() < sub.commitmentEndsAt.getTime()) count += 1;
   return { count, from, until: sub.commitmentEndsAt };
 }
 

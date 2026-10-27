@@ -132,13 +132,26 @@ export async function getReviewEmail(id: string) {
 
 /** Échecs de paiement : à revalider avant l'envoi (le paiement a pu être régularisé depuis). */
 const PAYMENT_FAILURE_KINDS: ReadonlySet<string> = new Set(["payment_failed", "subscription_payment_failed"]);
+const REMINDER_REVIEW_KINDS: ReadonlySet<string> = new Set(["reminder_soft", "reminder_firm", "reminder_formal"]);
 
 /** Avis d'abonnement devenus sans objet quand la fin est actée (rachat signé, fin programmée ou clôture). */
 export const SUBSCRIPTION_NOTICE_KINDS = ["subscription_renewal", "subscription_term_end", "subscription_term_end_buyout", "subscription_first_charge"] as const;
 
 /** Motif pour lequel un e-mail en attente ne doit plus partir ; null s'il reste valable. */
 async function obsoleteReason(row: { reviewKind: string | null; documentId: string | null }): Promise<string | null> {
-  if (!row.documentId || !row.reviewKind || !PAYMENT_FAILURE_KINDS.has(row.reviewKind)) return null;
+  if (!row.documentId || !row.reviewKind) return null;
+  // Relance validée après le règlement, l'annulation ou la réponse au devis (audit du 27/10/2026) : jamais envoyée.
+  if (REMINDER_REVIEW_KINDS.has(row.reviewKind)) {
+    const doc = await prisma.invoice.findUnique({ where: { id: row.documentId }, select: { documentType: true, status: true, quoteStatus: true } });
+    if (!doc) return null;
+    if (doc.documentType === "QUOTE") return doc.quoteStatus === "SENT" ? null : "Devis accepté, refusé ou expiré depuis : relance retirée.";
+    return doc.status === InvoiceStatus.ISSUED ? null : "Facture réglée ou annulée depuis : relance retirée.";
+  }
+  if (row.reviewKind.startsWith("deposit_reminder")) {
+    const milestone = await prisma.paymentMilestone.findUnique({ where: { id: row.documentId }, select: { status: true } });
+    return milestone && (milestone.status === "PAID" || milestone.status === "CANCELLED") ? "Acompte réglé ou annulé depuis : rappel retiré." : null;
+  }
+  if (!PAYMENT_FAILURE_KINDS.has(row.reviewKind)) return null;
   const [invoice, milestone] = await Promise.all([
     prisma.invoice.findUnique({ where: { id: row.documentId }, select: { status: true } }),
     prisma.paymentMilestone.findUnique({ where: { id: row.documentId }, select: { status: true } }),

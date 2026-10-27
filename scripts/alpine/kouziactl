@@ -245,8 +245,12 @@ run_cmd() {
     2fa-reset)
       require_root
       [[ -n "${1:-}" ]] || die "Usage : kouziactl 2fa-reset <email>"
-      [[ "$1" =~ ^[^[:space:]'\"]+@[^[:space:]'\"]+$ ]] || die "Email invalide : $1"
-      run_as_app "cd '$KOUZIA_APP_DIR' && npm run --silent admin:2fa-reset -- '$1'"
+      # Adresse stricte (lettres, chiffres, . _ % + - avant @) ; motif en variable : une apostrophe dans [[ =~ ]] ouvrait
+      # une chaîne citée et laissait passer « a'@b.c », injecté ensuite dans su -c (audit du 27/10/2026).
+      local email_re='^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$'
+      [[ "$1" =~ $email_re ]] || die "Email invalide : $1"
+      # Argument positionnel, jamais réinterprété par un shell.
+      run_as_app_argv sh -c 'cd "$1" && npm run --silent admin:2fa-reset -- "$2"' sh "$KOUZIA_APP_DIR" "$1"
       ;;
     menu) show_menu ;;
     help|-h|--help) usage ;;

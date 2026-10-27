@@ -422,9 +422,10 @@ export async function endSubscription(id: string, endDate?: Date) {
 /** Fin de la période de facturation en cours : la prochaine échéance, avancée d'une période tant qu'elle est passée. */
 export function currentPeriodEndOf(sub: { nextInvoiceAt: Date; billingInterval: string | null }, now = new Date()): Date {
   const months = periodMonths(sub.billingInterval);
-  let end = new Date(sub.nextInvoiceAt);
-  while (end.getTime() <= now.getTime()) end = commitmentEndOf(end, months);
-  return end;
+  // Depuis l'échéance prévue, par multiples de la période (pas en chaîne : le jour 29 à 31 glissait au 28).
+  let k = 0;
+  while (commitmentEndOf(sub.nextInvoiceAt, months * k).getTime() <= now.getTime()) k += 1;
+  return k === 0 ? new Date(sub.nextInvoiceAt) : commitmentEndOf(sub.nextInvoiceAt, months * k);
 }
 
 /** Date d'effet d'une fin programmée aujourd'hui (« Programmer la fin ») : fin du terme résiliable, sinon de la période. */
@@ -479,6 +480,9 @@ export async function closeEndedSubscriptions(now = new Date()): Promise<number>
 }
 
 /** Factures dues d'un abonnement pour son échéance courante. @returns true si une facture a été émise. */
+/** Cycle déjà réservé par un passage simultané : rien à émettre. */
+class CycleAlreadyClaimedError extends Error {}
+
 async function invoiceSubscriptionCycle(sub: Prisma.SubscriptionGetPayload<{ include: { client: true; service: true } }>): Promise<boolean> {
   const issueDate = sub.nextInvoiceAt;
   const interval = normalizeInterval(sub.billingInterval);
@@ -520,7 +524,14 @@ async function invoiceSubscriptionCycle(sub: Prisma.SubscriptionGetPayload<{ inc
     sub.discountKind === "PERCENT" && sub.discountValue
       ? `Remise de ${String(sub.discountValue / 100).replace(".", ",")} % (échéance ${discountIndex} sur ${sub.discountPeriods})`
       : `Remise (échéance ${discountIndex} sur ${sub.discountPeriods})`;
-  const issued = await prisma.$transaction(async (tx) => {
+  let issued;
+  try {
+  issued = await prisma.$transaction(async (tx) => {
+    // Réservation du cycle, première écriture : l'échéance n'avance que si elle vaut encore celle lue. Un passage
+    // simultané (worker et « Générer maintenant ») la trouve déjà avancée et annule tout, numéro compris (audit du
+    // 27/10/2026 : trois passages parallèles émettaient trois factures pour le même cycle).
+    const claimed = await tx.subscription.updateMany({ where: { id: sub.id, nextInvoiceAt: issueDate }, data: { nextInvoiceAt: followingInvoiceAt } });
+    if (claimed.count !== 1) throw new CycleAlreadyClaimedError();
     const invoice = await tx.invoice.create({
       data: {
         documentType: InvoiceDocumentType.INVOICE,
@@ -559,13 +570,16 @@ async function invoiceSubscriptionCycle(sub: Prisma.SubscriptionGetPayload<{ inc
       where: { id: sub.id },
       data: {
         lastInvoiceId: emitted.id,
-        nextInvoiceAt: followingInvoiceAt,
         ...(discountCents ? { discountPeriodsBilled: discountIndex } : {}),
       },
     });
 
     return emitted;
   });
+  } catch (e) {
+    if (e instanceof CycleAlreadyClaimedError) return false;
+    throw e;
+  }
 
   // Hors transaction : un envoi d'email raté ne doit pas défaire la facture.
   await archiveIssuedDocument(issued.id);

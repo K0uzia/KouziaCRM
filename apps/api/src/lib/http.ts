@@ -85,3 +85,15 @@ export function registerErrorHandler(app: {
     void reply.code(status).send({ error: message });
   });
 }
+
+/**
+ * Content-Disposition d'un fichier au nom venu de l'extérieur (pièce jointe reçue, justificatif envoyé) : repli ASCII
+ * et nom exact en UTF-8 (RFC 6266, filename*). Un nom hors latin-1 (apostrophe typographique, emoji) faisait refuser
+ * l'en-tête par Node, d'où une erreur 500 au téléchargement (audit du 27/10/2026).
+ */
+export function contentDisposition(type: "inline" | "attachment", name: string): string {
+  const clean = name.replace(/[\r\n"\\]/g, "_");
+  const ascii = clean.replace(/[^\x20-\x7e]/g, "_");
+  const encoded = encodeURIComponent(clean).replace(/['()*]/g, (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`);
+  return `${type}; filename="${ascii}"; filename*=UTF-8''${encoded}`;
+}

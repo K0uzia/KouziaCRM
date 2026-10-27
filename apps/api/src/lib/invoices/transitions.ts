@@ -588,6 +588,11 @@ export async function acceptQuoteByClient(
     await ensureQuoteHasOfficialNumber(tx, quoteId);
     // Avant toute facturation : seules les lignes de la proposition retenue deviennent facturables (BILLABLE_LINES_WHERE).
     if (option) await tx.invoice.update({ where: { id: quoteId }, data: { ...quoteFieldsOfOption(option), selectedOptionId: option.id } });
+    // Proposition sans échéancier (abonnement) : aucun jalon ponctuel ; ceux créés avant le choix (fiche ouverte avant
+    // le correctif du 27/10/2026) sont retirés tant qu'ils ne sont ni facturés ni payés.
+    if (option && parsePaymentPlanOffer(option.paymentPlanOffer) === "NONE") {
+      await tx.paymentMilestone.deleteMany({ where: { quoteId, status: MilestoneStatus.PENDING } });
+    }
     const result = await tx.invoice.update({
       where: { id: quoteId },
       data: {

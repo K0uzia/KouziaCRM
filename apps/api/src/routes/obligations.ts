@@ -5,6 +5,7 @@ import { pipeline } from "node:stream/promises";
 import type { FastifyPluginAsync } from "fastify";
 import { z } from "zod";
 import { requireAuth } from "@/lib/auth.js";
+import { contentDisposition } from "@/lib/http.js";
 import {
   confirmObligation,
   getOrCreateChecklist,
@@ -66,6 +67,11 @@ export const obligationsRoutes: FastifyPluginAsync = async (app) => {
       await requireAuth(request, reply);
       if (reply.sent) return;
 
+      // Obligation relue avant toute écriture ; nom de fichier tiré de l'identifiant en base, jamais du paramètre
+      // (audit du 27/10/2026 : « ..%2F » dans l'identifiant écrivait le fichier hors du dossier).
+      const obligation = await prisma.obligation.findUnique({ where: { id: request.params.id }, select: { id: true } });
+      if (!obligation) return reply.code(404).send({ error: "Not found" });
+
       const data = await request.file();
       if (!data) return reply.code(400).send({ error: "Fichier manquant" });
       if (data.mimetype !== "application/pdf") {
@@ -73,12 +79,13 @@ export const obligationsRoutes: FastifyPluginAsync = async (app) => {
       }
 
       await fs.mkdir(uploadsRoot, { recursive: true });
-      const safeName = `${request.params.id}-${Date.now()}.pdf`;
-      const dest = path.join(uploadsRoot, safeName);
+      const safeName = `${obligation.id}-${Date.now()}.pdf`;
+      const dest = path.resolve(uploadsRoot, safeName);
+      if (!dest.startsWith(uploadsRoot + path.sep)) return reply.code(404).send({ error: "Not found" });
       await pipeline(data.file, createWriteStream(dest));
 
       const updated = await prisma.obligation.update({
-        where: { id: request.params.id },
+        where: { id: obligation.id },
         data: {
           attachmentPath: path.join("obligations", safeName),
           attachmentName: data.filename || safeName,
@@ -103,13 +110,9 @@ export const obligationsRoutes: FastifyPluginAsync = async (app) => {
         obl.attachmentPath,
       );
       const buf = await fs.readFile(full);
-      const safeName = (obl.attachmentName ?? "justificatif.pdf").replace(
-        /["\r\n\\]/g,
-        "_",
-      );
       return reply
         .header("Content-Type", obl.attachmentMime ?? "application/pdf")
-        .header("Content-Disposition", `inline; filename="${safeName}"`)
+        .header("Content-Disposition", contentDisposition("inline", obl.attachmentName ?? "justificatif.pdf"))
         .send(buf);
     },
   );

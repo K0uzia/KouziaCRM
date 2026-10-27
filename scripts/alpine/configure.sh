@@ -116,7 +116,8 @@ let text = fs.readFileSync(file, "utf8");
 const line = `${key}=${JSON.stringify(val)}`;
 const re = new RegExp(`^#?\\s*${key.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}=.*$`, "m");
 if (re.test(text)) {
-  text = text.replace(re, line);
+  // Fonction de remplacement : une valeur contenant $& ou $1 (mot de passe) est écrite telle quelle (audit du 27/10/2026).
+  text = text.replace(re, () => line);
 } else {
   text = text.replace(/\s*$/, "") + "\n" + line + "\n";
 }

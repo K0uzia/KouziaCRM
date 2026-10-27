@@ -28,6 +28,7 @@ import { signedQuoteAbsolutePath } from "@/lib/invoices/acceptance-proof.js";
 import { WorkflowError } from "@/lib/invoices/workflow.js";
 import { applyPaymentLinkChoice } from "@/lib/invoices/payment-link.js";
 import { sendDocumentPdf } from "@/lib/email/send-document-pdf.js";
+import { assertIssueDateAllowed, IssueDateError } from "@/lib/invoices/numberingService.js";
 import fs from "node:fs/promises";
 
 function actorOf(request: { user?: { id: string; email: string } }) {
@@ -379,12 +380,25 @@ export const quotesMarketRoutes: FastifyPluginAsync = async (app) => {
       if (!parsed.success) {
         return reply.code(400).send({ error: "Données invalides" });
       }
+      // Audit du 27/10/2026 : date d'émission soumise à la même règle que /issue (ni future ni antérieure à la dernière
+      // pièce de la série : la numérotation suit la chronologie), et jalon du devis seulement.
+      const issueDate = parsed.data.issueDate ? new Date(parsed.data.issueDate) : undefined;
+      if (issueDate) {
+        try {
+          await assertIssueDateAllowed(InvoiceDocumentType.INVOICE, issueDate);
+        } catch (e) {
+          if (e instanceof IssueDateError) return reply.code(400).send({ error: e.message });
+          throw e;
+        }
+      }
+      if (parsed.data.milestoneId) {
+        const milestone = await prisma.paymentMilestone.findUnique({ where: { id: parsed.data.milestoneId }, select: { quoteId: true } });
+        if (milestone?.quoteId !== quote.id) return reply.code(404).send({ error: "Échéance introuvable" });
+      }
       try {
         const result = await generateBalanceInvoice(request.params.id, {
           force: parsed.data.force,
-          issueDate: parsed.data.issueDate
-            ? new Date(parsed.data.issueDate)
-            : undefined,
+          issueDate,
           milestoneId: parsed.data.milestoneId,
         });
         const billing = await finalizeBilling(result.invoice.id, parsed.data);
