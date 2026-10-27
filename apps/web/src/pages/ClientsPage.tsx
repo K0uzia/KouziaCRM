@@ -901,7 +901,7 @@ function ClientDetail({ id }: { id: string | undefined }) {
           <ConfirmDialog
             open={confirmRegen}
             title="Déconnecter tous ses appareils ?"
-            message="Le client devra se reconnecter avec un nouveau code reçu par e-mail. À utiliser en cas d'appareil perdu ou de connexion suspecte."
+            message="Le client devra se reconnecter avec un nouveau code reçu par e-mail, et les liens de gestion d'abonnement de ses anciens e-mails ne serviront plus. À utiliser en cas d'appareil perdu ou de connexion suspecte."
             confirmLabel="Déconnecter"
             danger
             busy={busyAccess}
