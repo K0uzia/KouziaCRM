@@ -1,6 +1,7 @@
 import fp from "fastify-plugin";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
-import { getAllowedOrigins } from "@/lib/env.js";
+import { getAdminOrigins, getAllowedOrigins, isPublicApiPath } from "@/lib/env.js";
+import { routePath } from "@/lib/route-path.js";
 
 const SAFE = new Set(["GET", "HEAD", "OPTIONS"]);
 
@@ -30,11 +31,13 @@ function hostOf(origin: string): string | null {
  * fastify-plugin : sans lui, le hook restait encapsulé dans ce plugin et ne s'appliquait à AUCUNE route.
  */
 async function originGuard(app: FastifyInstance): Promise<void> {
-  const allowed = new Set(getAllowedOrigins());
+  // Site public admis seulement sur /api/public/* ; l'admin n'accepte que ses origines (audit du 27/10/2026).
+  const allowedPublic = new Set(getAllowedOrigins());
+  const allowedAdmin = new Set(getAdminOrigins());
   const isProd = process.env.NODE_ENV === "production";
 
   const accepted = (request: FastifyRequest, origin: string) => {
-    if (allowed.has(origin)) return true;
+    if ((isPublicApiPath(routePath(request)) ? allowedPublic : allowedAdmin).has(origin)) return true;
     const host = hostOf(origin);
     // Hôte brut de la requête (par le tunnel aussi) : même hôte, même origine.
     return Boolean(host && request.headers.host && host === request.headers.host);
@@ -42,7 +45,7 @@ async function originGuard(app: FastifyInstance): Promise<void> {
 
   app.addHook("onRequest", async (request: FastifyRequest, reply: FastifyReply) => {
     if (SAFE.has(request.method)) return;
-    const path = request.url.split("?")[0] ?? "";
+    const path = routePath(request);
     if (ORIGIN_GUARD_EXEMPT.some((re) => re.test(path))) return;
 
     const origin = request.headers.origin;

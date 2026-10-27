@@ -67,8 +67,9 @@ async function view(code: PromoCode, now = new Date()) {
 }
 
 export const promoCodesRoutes: FastifyPluginAsync = async (app) => {
+  // Hook encapsulé dans ce plugin : il ne couvre que ses routes, toutes admin. Pas de test sur request.url (brute,
+  // contournable par « /api/%70romo-codes » : faille relevée par l'audit du 27/10/2026).
   app.addHook("preHandler", async (request, reply) => {
-    if (!request.url.startsWith("/api/promo-codes")) return;
     await requireAuth(request, reply);
     if (reply.sent) return reply;
   });
