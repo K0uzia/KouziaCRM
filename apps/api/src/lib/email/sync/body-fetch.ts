@@ -5,6 +5,7 @@ import { saveEmailAttachment } from "@/lib/email/attachments.js";
 import { resetRemindersForMatchedDocuments } from "@/lib/reminders.js";
 import { sanitizeEmailHtml, sanitizePlainText } from "@/lib/email/sanitize-html.js";
 import { withImapClient } from "@/lib/email/sync/imap-connection.js";
+import { messageBodyData, messageBodyHtml, messageBodyText } from "@/lib/email/message-body.js";
 
 export async function fetchMessageBody(
   messageId: string,
@@ -19,7 +20,9 @@ export async function fetchMessageBody(
     include: { folder: true, attachments: true },
   });
 
-  if (message.bodyFetched && (message.bodyText || message.bodyHtml)) {
+  const storedText = messageBodyText(message);
+  const storedHtml = messageBodyHtml(message);
+  if (message.bodyFetched && (storedText || storedHtml)) {
     const realHasAttachments = message.attachments.length > 0;
     if (message.hasAttachments !== realHasAttachments) {
       await prisma.emailMessage.update({
@@ -28,9 +31,9 @@ export async function fetchMessageBody(
       });
     }
     return {
-      bodyText: message.bodyText,
-      bodyHtml: message.bodyHtml
-        ? sanitizeEmailHtml(message.bodyHtml, opts)
+      bodyText: storedText,
+      bodyHtml: storedHtml
+        ? sanitizeEmailHtml(storedHtml, opts)
         : null,
       attachments: message.attachments.map((a) => ({
         id: a.id,
@@ -43,9 +46,9 @@ export async function fetchMessageBody(
 
   if (!message.folder || !message.imapUid) {
     return {
-      bodyText: message.bodyText,
-      bodyHtml: message.bodyHtml
-        ? sanitizeEmailHtml(message.bodyHtml, opts)
+      bodyText: storedText,
+      bodyHtml: storedHtml
+        ? sanitizeEmailHtml(storedHtml, opts)
         : null,
       attachments: message.attachments.map((a) => ({
         id: a.id,
@@ -131,8 +134,7 @@ export async function fetchMessageBody(
   await prisma.emailMessage.update({
     where: { id: message.id },
     data: {
-      bodyText,
-      bodyHtml: rawHtml,
+      ...messageBodyData(bodyText, rawHtml),
       snippet,
       fromName: message.fromName || parsedFromName,
       bodyFetched: true,

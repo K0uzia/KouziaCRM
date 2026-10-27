@@ -30,6 +30,7 @@ import {
   runMailSync,
 } from "@/lib/email/sync/index.js";
 import { fetchMessageBody } from "@/lib/email/sync/body-fetch.js";
+import { messageBodyData, messageBodyText, plainMessage } from "@/lib/email/message-body.js";
 import { formLeadForMessage, formSubmissionForThread } from "@/lib/email/web3forms.js";
 import { linkSenderToClient, SenderLinkError, senderSuggestionForThread } from "@/lib/email/sender-client.js";
 import { setBulkMessageFlags, setMessageFlags } from "@/lib/email/sync/flag-sync.js";
@@ -479,6 +480,7 @@ export const miscRoutes: FastifyPluginAsync = async (app) => {
             fromAddress: true,
             subject: true,
             bodyText: true,
+            bodyTextEncrypted: true,
             receivedAt: true,
             direction: true,
           },
@@ -492,7 +494,7 @@ export const miscRoutes: FastifyPluginAsync = async (app) => {
       unreadCount: t.unreadCount,
       hasAttachments: t.hasAttachments,
       client: t.client,
-      preview: t.messages[0]?.bodyText?.slice(0, 140) ?? "",
+      preview: (t.messages[0] ? messageBodyText(t.messages[0]) : null)?.slice(0, 140) ?? "",
       lastFrom: t.messages[0]?.fromAddress ?? "",
       direction: t.messages[0]?.direction ?? null,
     }));
@@ -610,7 +612,7 @@ export const miscRoutes: FastifyPluginAsync = async (app) => {
       });
       if (!message) return reply.code(404).send({ error: "Message introuvable" });
       return {
-        ...message,
+        ...plainMessage(message),
         toAddresses: JSON.parse(message.toAddresses || "[]"),
         ccAddresses: message.ccAddresses ? JSON.parse(message.ccAddresses) : [],
       };
@@ -727,7 +729,7 @@ export const miscRoutes: FastifyPluginAsync = async (app) => {
           thread: { select: { id: true, client: { select: { id: true, displayName: true } } } },
         },
       });
-      return { total: messages.length, messages };
+      return { total: messages.length, messages: messages.map(plainMessage) };
     } catch (e) {
       return reply.code(400).send({
         error: e instanceof Error ? e.message : "Recherche IMAP impossible",
@@ -811,7 +813,7 @@ export const miscRoutes: FastifyPluginAsync = async (app) => {
         Boolean(
           latestInbound &&
             detectQuoteConfirmationIntent(
-              latestInbound.bodyText ?? latestInbound.snippet,
+              messageBodyText(latestInbound) ?? latestInbound.snippet,
             ),
         );
 
@@ -831,7 +833,7 @@ export const miscRoutes: FastifyPluginAsync = async (app) => {
         formSubmission,
         senderSuggestion,
         messages: thread.messages.map((m) => ({
-          ...m,
+          ...plainMessage(m),
           toAddresses: JSON.parse(m.toAddresses || "[]"),
         })),
       };
@@ -1060,13 +1062,13 @@ export const miscRoutes: FastifyPluginAsync = async (app) => {
         fromName: extractDisplayName(fromFormatted),
         toAddresses: JSON.stringify([to]),
         subject,
-        bodyText: body,
+        ...messageBodyData(body, null),
         receivedAt: new Date(),
         isRead: true,
       },
     });
 
-    return reply.code(201).send({ threadId: resolvedThreadId, message, outboxId, queued: true });
+    return reply.code(201).send({ threadId: resolvedThreadId, message: plainMessage(message), outboxId, queued: true });
   });
 
   app.post("/api/emails/sync", async (request, reply) => {

@@ -27,6 +27,7 @@ import {
 import { computeEmailHash } from "@/lib/clients/email-hash.js";
 import { createClientNote, listClientNotes, noteInputSchema, serializeNote } from "@/lib/clients/notes.js";
 import { appendToNotepad, notepadInputSchema, readNotepad, saveNotepad, serializeNotepad } from "@/lib/clients/notepad.js";
+import { messageBodyText } from "@/lib/email/message-body.js";
 import {
   ContactConflictError,
   contactInputSchema,
@@ -618,7 +619,7 @@ export const clientsRoutes: FastifyPluginAsync = async (app) => {
             direction: m.direction,
             receivedAt: m.receivedAt.toISOString(),
             subject: m.subject,
-            bodyText: m.bodyText,
+            bodyText: messageBodyText(m),
           })),
         })),
       };

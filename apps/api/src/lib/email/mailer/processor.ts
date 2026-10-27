@@ -10,6 +10,7 @@ import {
   resolveFromAddress,
 } from "@/lib/email/smtp.js";
 import { saveEmailAttachment } from "@/lib/email/attachments.js";
+import { messageBodyData } from "@/lib/email/message-body.js";
 import { renderEmailHtml, renderEmailTextFooter, type EmailLayoutBrand } from "@/lib/email/layout.js";
 import {
   buildReferences,
@@ -62,8 +63,7 @@ async function recordOutboundMessage(opts: {
       fromName: extractDisplayName(fromFormatted),
       toAddresses: JSON.stringify(toList.map((t) => t.toLowerCase())),
       subject: payload.subject,
-      bodyText: payload.bodyTextForMessage ?? payload.text ?? null,
-      bodyHtml: payload.html ?? null,
+      ...messageBodyData(payload.bodyTextForMessage ?? payload.text ?? null, payload.html ?? null),
       receivedAt: new Date(),
       isRead: true,
     },

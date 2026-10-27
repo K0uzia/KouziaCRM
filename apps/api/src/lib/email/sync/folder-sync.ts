@@ -845,8 +845,8 @@ export function buildMessageListWhere(filter: MessageListFilter): Prisma.EmailMe
     where.OR = [
       { subject: { contains: q } },
       { fromAddress: { contains: q } },
+      // Corps chiffrés au repos (décision du 27/10/2026) : la recherche porte sur l'aperçu, pas sur tout le corps.
       { snippet: { contains: q } },
-      { bodyText: { contains: q } },
     ];
   }
 

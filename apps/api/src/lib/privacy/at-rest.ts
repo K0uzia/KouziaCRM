@@ -36,8 +36,10 @@ async function assertKeyMatchesData() {
  * Recopie chiffrée des lignes antérieures à la migration, par lots ; ancienne colonne vidée seulement
  * après relecture. Clé absente ou différente de celle des données : rien n'est touché, erreur journalisée.
  */
-export async function backfillEncryptedEmails(batch = 200): Promise<{ events: number; invitations: number; outbox: number; clientSnapshots: number }> {
-  const done = { events: 0, invitations: 0, outbox: 0, clientSnapshots: 0 };
+export async function backfillEncryptedEmails(
+  batch = 200,
+): Promise<{ events: number; invitations: number; outbox: number; clientSnapshots: number; messages: number; ibans: number }> {
+  const done = { events: 0, invitations: 0, outbox: 0, clientSnapshots: 0, messages: 0, ibans: 0 };
   try {
     await assertKeyMatchesData();
   } catch (err) {
@@ -68,6 +70,28 @@ export async function backfillEncryptedEmails(batch = 200): Promise<{ events: nu
       data: { clientSnapshotEncrypted: sealed(JSON.stringify(row.clientSnapshot)), clientSnapshot: Prisma.DbNull },
     });
     done.clientSnapshots += 1;
+  }
+  // Corps des e-mails de la messagerie (même migration) : chaque corps présent est chiffré, l'ancien vidé.
+  for (const row of await prisma.emailMessage.findMany({
+    where: { OR: [{ bodyText: { not: null } }, { bodyHtml: { not: null } }] },
+    select: { id: true, bodyText: true, bodyHtml: true, bodyTextEncrypted: true, bodyHtmlEncrypted: true },
+    take: batch,
+  })) {
+    await prisma.emailMessage.update({
+      where: { id: row.id },
+      data: {
+        bodyText: null,
+        bodyHtml: null,
+        bodyTextEncrypted: row.bodyText != null ? sealed(row.bodyText) : row.bodyTextEncrypted,
+        bodyHtmlEncrypted: row.bodyHtml != null ? sealed(row.bodyHtml) : row.bodyHtmlEncrypted,
+      },
+    });
+    done.messages += 1;
+  }
+  // IBAN de la contrepartie des opérations bancaires (même migration).
+  for (const row of await prisma.bankTransaction.findMany({ where: { counterpartyIban: { not: null } }, select: { id: true, counterpartyIban: true }, take: batch })) {
+    await prisma.bankTransaction.update({ where: { id: row.id }, data: { counterpartyIbanEncrypted: sealed(row.counterpartyIban!), counterpartyIban: null } });
+    done.ibans += 1;
   }
   return done;
 }
