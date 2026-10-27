@@ -102,3 +102,27 @@ describe("facture Stripe en retard", () => {
     expect(inv.lines[0]!.description).toContain("01/01/2026");
   });
 });
+
+describe("montant d'une facture Stripe", () => {
+  it("total et lignes Stripe, même si le solde client Stripe réduit le montant à prélever", async () => {
+    await stripeSubscription();
+    const start = sec(new Date(2026, 0, 1));
+    const end = sec(new Date(2027, 0, 1));
+    const { invoiceId } = await issueErpInvoiceFromStripeInvoice(
+      stripeInvoice({
+        total: 160000,
+        amount_due: 110000,
+        lines: {
+          data: [
+            { description: "1 × Site tout compris (at €1,500.00 / year)", amount: 150000, period: { start, end } },
+            { description: "Adresse e-mail supplémentaire", amount: 10000, period: { start, end } },
+          ],
+        },
+      }),
+    );
+    const inv = await prisma.invoice.findUniqueOrThrow({ where: { id: invoiceId }, include: { lines: { orderBy: { position: "asc" } } } });
+    expect(inv.totalCents).toBe(160000);
+    expect(inv.lines.map((l) => l.lineTotalCents)).toEqual([150000, 10000]);
+    expect(inv.lines[1]!.description).toBe("Adresse e-mail supplémentaire");
+  });
+});

@@ -76,6 +76,12 @@ async function erpSubscriptionIdOf(stripeInvoice: Stripe.Invoice, stripeSubId: s
   }
 }
 
+/** Ligne de prorata Stripe (changement d'offre en cours de période). */
+function isProrationLine(line: Stripe.InvoiceLineItem): boolean {
+  const parent = line.parent;
+  return Boolean(parent?.subscription_item_details?.proration || parent?.invoice_item_details?.proration);
+}
+
 /** Émet la facture ERP à partir d'une Invoice Stripe Billing finalisée. */
 export async function issueErpInvoiceFromStripeInvoice(
   stripeInvoice: Stripe.Invoice,
@@ -117,7 +123,10 @@ export async function issueErpInvoiceFromStripeInvoice(
     throw new Error(`Abonnement ERP introuvable pour ${stripeSubId}`);
   }
 
+  // Total de la facture Stripe (lignes moins remises), jamais amount_due : le solde client Stripe (crédit) réduit le
+  // montant prélevé, pas le montant facturé (décision du 27/10/2026).
   const amountCents =
+    stripeInvoice.total ??
     stripeInvoice.amount_due ??
     stripeInvoice.amount_paid ??
     sub.amountCents;
@@ -135,6 +144,15 @@ export async function issueErpInvoiceFromStripeInvoice(
   // Remise (R2) : facture Stripe remisée = ligne au tarif plein et ligne de remise ; l'échéance remisée est comptée.
   const discountCents = stripeInvoiceDiscountCents(stripeInvoice);
   const discountIndex = discountCents > 0 && sub.discountPeriods ? Math.min(sub.discountPeriodsBilled + 1, sub.discountPeriods) : 0;
+  // Lignes de la facture Stripe (abonnement, options, prorata), au montant avant remise : l'échéance de l'abonnement
+  // garde le libellé ERP et sa période, les autres le texte Stripe. Lignes absentes ou qui ne font pas le total : une
+  // seule ligne, comme avant.
+  const stripeLines = (stripeInvoice.lines?.data ?? []).filter((l) => typeof l.amount === "number" && l.amount !== 0);
+  const linesMatch = stripeLines.length > 0 && stripeLines.reduce((s, l) => s + l.amount, 0) - discountCents === amountCents;
+  const mainIndex = linesMatch ? Math.max(0, stripeLines.findIndex((l) => l.amount > 0 && !isProrationLine(l))) : 0;
+  const itemLines = linesMatch
+    ? stripeLines.map((l, i) => ({ description: i === mainIndex ? label : l.description?.trim() || sub.label, cents: l.amount }))
+    : [{ description: label, cents: amountCents + discountCents }];
   let counted = false;
   const settings = await getCompanySettings();
   const issued = await prisma.$transaction(async (tx) => {
@@ -156,11 +174,11 @@ export async function issueErpInvoiceFromStripeInvoice(
         totalCents: amountCents,
         lines: {
           create: [
-            { position: 1, description: label, quantity: 1, unitPriceCents: amountCents + discountCents, lineTotalCents: amountCents + discountCents },
+            ...itemLines.map((l, i) => ({ position: i + 1, description: l.description, quantity: 1, unitPriceCents: l.cents, lineTotalCents: l.cents })),
             ...(discountCents > 0
               ? [
                   {
-                    position: 2,
+                    position: itemLines.length + 1,
                     description: discountIndex ? `Remise (échéance ${discountIndex} sur ${sub.discountPeriods})` : "Remise",
                     quantity: 1,
                     unitPriceCents: -discountCents,
