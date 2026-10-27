@@ -1,5 +1,6 @@
 import type { Invoice, InvoiceLine, Payment, Client } from "@prisma/client";
 import { Prisma } from "@prisma/client";
+import { readClientSnapshot } from "@/lib/invoices/client-snapshot.js";
 
 function qty(value: Prisma.Decimal | number | string): number {
   return Number(value);
@@ -19,8 +20,11 @@ export function serializeInvoice<
     client?: Pick<Client, "id" | "displayName" | "clientNumber"> | Client | null;
   },
 >(invoice: T) {
+  // Copie du client chiffrée au repos : l'API la rend lisible, comme avant, sans le texte chiffré.
+  const { clientSnapshotEncrypted: _sealed, ...rest } = invoice;
   return {
-    ...invoice,
+    ...rest,
+    clientSnapshot: readClientSnapshot(invoice) as Prisma.JsonValue,
     lines: invoice.lines?.map(serializeInvoiceLine),
     quantity: undefined,
   };

@@ -90,7 +90,9 @@ describe("issueInvoice", () => {
     expect(issued.sequenceNumber).toBe(1);
     expect(issued.issueDate?.toISOString()).toBe(issueDate.toISOString());
     expect(issued.issuedAt).toBeTruthy();
-    expect(issued.clientSnapshot).toBeTruthy();
+    // Copie du client figée, chiffrée au repos (décision du 27/10/2026) : l'ancienne colonne en clair reste vide.
+    expect(issued.clientSnapshotEncrypted).toBeTruthy();
+    expect(issued.clientSnapshot).toBeNull();
     expect(issued.subscriptionsCreated).toBe(0);
   });
 

@@ -7,6 +7,7 @@ import {
   type Prisma,
 } from "@prisma/client";
 import { archiveIssuedDocument } from "@/lib/pdf/issued-archive.js";
+import { clientSnapshotData } from "@/lib/invoices/client-snapshot.js";
 import { prisma } from "@/lib/prisma.js";
 import { depositBaseOf } from "@/lib/invoices/totals.js";
 import { assertDepositsPaid, assertQuoteSigned, milestoneInvoiceKind } from "@/lib/invoices/workflow.js";
@@ -391,7 +392,7 @@ export async function generateMilestoneInvoice(
         invoiceType: InvoiceType.ACOMPTE,
         status: InvoiceStatus.ISSUED,
         clientId: milestone.quote.clientId,
-        clientSnapshot: snapshot as unknown as Prisma.InputJsonValue,
+        ...clientSnapshotData(snapshot),
         number: allocated.number,
         sequenceYear: allocated.sequenceYear,
         sequenceNumber: allocated.sequenceNumber,
@@ -528,7 +529,7 @@ export async function generateBalanceInvoice(
         invoiceType: InvoiceType.SOLDE,
         status: InvoiceStatus.ISSUED,
         clientId: quote.clientId,
-        clientSnapshot: snapshot as unknown as Prisma.InputJsonValue,
+        ...clientSnapshotData(snapshot),
         number: allocated.number,
         sequenceYear: allocated.sequenceYear,
         sequenceNumber: allocated.sequenceNumber,

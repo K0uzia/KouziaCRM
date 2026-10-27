@@ -1,3 +1,4 @@
+import { Prisma } from "@prisma/client";
 import { decrypt, encrypt } from "@/lib/crypto.js";
 import { prisma } from "@/lib/prisma.js";
 
@@ -35,8 +36,8 @@ async function assertKeyMatchesData() {
  * Recopie chiffrée des lignes antérieures à la migration, par lots ; ancienne colonne vidée seulement
  * après relecture. Clé absente ou différente de celle des données : rien n'est touché, erreur journalisée.
  */
-export async function backfillEncryptedEmails(batch = 200): Promise<{ events: number; invitations: number; outbox: number }> {
-  const done = { events: 0, invitations: 0, outbox: 0 };
+export async function backfillEncryptedEmails(batch = 200): Promise<{ events: number; invitations: number; outbox: number; clientSnapshots: number }> {
+  const done = { events: 0, invitations: 0, outbox: 0, clientSnapshots: 0 };
   try {
     await assertKeyMatchesData();
   } catch (err) {
@@ -54,6 +55,19 @@ export async function backfillEncryptedEmails(batch = 200): Promise<{ events: nu
   for (const row of await prisma.emailOutbox.findMany({ where: { payloadEncrypted: null, payload: { not: "" } }, select: { id: true, payload: true }, take: batch })) {
     await prisma.emailOutbox.update({ where: { id: row.id }, data: { payloadEncrypted: sealed(row.payload), payload: "" } });
     done.outbox += 1;
+  }
+  // Copie du client des documents émis (migration 20261221090000) : même contenu, chiffré ; le PDF ne change pas.
+  for (const row of await prisma.invoice.findMany({
+    where: { clientSnapshotEncrypted: null, NOT: { clientSnapshot: { equals: Prisma.DbNull } } },
+    select: { id: true, clientSnapshot: true },
+    take: batch,
+  })) {
+    if (row.clientSnapshot === null) continue;
+    await prisma.invoice.update({
+      where: { id: row.id },
+      data: { clientSnapshotEncrypted: sealed(JSON.stringify(row.clientSnapshot)), clientSnapshot: Prisma.DbNull },
+    });
+    done.clientSnapshots += 1;
   }
   return done;
 }

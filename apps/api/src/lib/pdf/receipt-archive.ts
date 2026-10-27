@@ -11,6 +11,7 @@ import { alertArchivedFile, issuedPdfAbsolutePath } from "@/lib/pdf/issued-archi
 import { loadBrandLogoDataUrl } from "@/lib/pdf/brand-assets.js";
 import { PaymentReceiptDocument, type PaymentReceiptPdfData } from "@/lib/pdf/payment-receipt-document.js";
 import type { ClientSnapshot } from "@/lib/invoices/transitions.js";
+import { readClientSnapshot } from "@/lib/invoices/client-snapshot.js";
 
 /**
  * Reçu d'un règlement : rendu une fois, archivé (fichier + SHA-256) sous data/uploads/receipts, puis
@@ -65,7 +66,7 @@ export async function buildReceiptData(paymentId: string, now = new Date()): Pro
     .map((cn) => ({ totalCents: cn.totalCents, payments: cn.payments.filter((p) => p.createdAt.getTime() <= at) }));
   const balance = invoiceBalance({ totalCents: invoice.totalCents, payments: upTo, creditNotes: before });
   const paidToDateCents = balance.cashInCents;
-  const snapshot = invoice.clientSnapshot as ClientSnapshot | null;
+  const snapshot = readClientSnapshot(invoice) as ClientSnapshot | null;
   const company = await getCompanySettings();
   return {
     company: {

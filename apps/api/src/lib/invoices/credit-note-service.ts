@@ -12,6 +12,7 @@ import { archiveIssuedDocument } from "@/lib/pdf/issued-archive.js";
 import { getCompanySettings } from "@/lib/company.js";
 import { allocateCreditNoteNumber } from "@/lib/invoices/numberingService.js";
 import { buildClientSnapshot, type ClientSnapshot } from "@/lib/invoices/documentFlowService.js";
+import { clientSnapshotData, readClientSnapshot } from "@/lib/invoices/client-snapshot.js";
 import { creditNoteCaps, invoiceBalance } from "@/lib/invoices/balance.js";
 import { applySettledStatus, lockInvoice } from "@/lib/invoices/balance-status.js";
 import { formatEUR } from "@/lib/money.js";
@@ -326,9 +327,7 @@ export async function createCreditNote(
 
     const settings = await getCompanySettings();
     const allocated = await allocateCreditNoteNumber(issueDate, tx, settings);
-    const snapshot =
-      (original.clientSnapshot as ClientSnapshot | null) ??
-      (await buildClientSnapshot(original.clientId, tx));
+    const snapshot: ClientSnapshot = readClientSnapshot(original) ?? (await buildClientSnapshot(original.clientId, tx));
 
     const amount = input.amountCents;
     const { description, notes } = creditNoteContent(original, input, split);
@@ -338,7 +337,7 @@ export async function createCreditNote(
         documentType: InvoiceDocumentType.CREDIT_NOTE,
         status: InvoiceStatus.ISSUED,
         clientId: original.clientId,
-        clientSnapshot: snapshot as unknown as Prisma.InputJsonValue,
+        ...clientSnapshotData(snapshot),
         number: allocated.number,
         sequenceYear: allocated.sequenceYear,
         sequenceNumber: allocated.sequenceNumber,
