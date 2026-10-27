@@ -54,10 +54,11 @@ export async function upgradePasswordHashIfNeeded(
 /** La base ne garde que le SHA-256 du jeton : une copie de la base ne donne pas de session valide. */
 const sessionIdOf = (token: string) => createHash("sha256").update(token).digest("hex");
 
-export async function createSession(userId: string): Promise<{ token: string; expiresAt: Date }> {
+/** @param mfaVerified connexion passée par la double authentification : seule une telle session sert par le tunnel. */
+export async function createSession(userId: string, mfaVerified = false): Promise<{ token: string; expiresAt: Date }> {
   const token = randomBytes(32).toString("base64url");
   const expiresAt = new Date(Date.now() + SESSION_TTL_MS);
-  await prisma.session.create({ data: { id: sessionIdOf(token), userId, expiresAt, lastSeenAt: new Date() } });
+  await prisma.session.create({ data: { id: sessionIdOf(token), userId, expiresAt, lastSeenAt: new Date(), mfaVerified } });
   return { token, expiresAt };
 }
 
@@ -65,9 +66,14 @@ export async function destroySession(sessionId: string): Promise<void> {
   await prisma.session.deleteMany({ where: { id: sessionId } });
 }
 
+/** Ferme la session du cookie, vérifiée ou non (rotation à la connexion, même par le tunnel). */
+export async function destroySessionOfToken(token: string | undefined): Promise<void> {
+  if (token) await destroySession(sessionIdOf(token));
+}
+
 export async function resolveSession(
   token: string | undefined,
-): Promise<{ user: AuthUser; sessionId: string } | null> {
+): Promise<{ user: AuthUser; sessionId: string; mfaVerified: boolean } | null> {
   if (!token) return null;
   const session = await prisma.session.findUnique({
     where: { id: sessionIdOf(token) },
@@ -90,6 +96,7 @@ export async function resolveSession(
   }
   return {
     sessionId: session.id,
+    mfaVerified: session.mfaVerified,
     user: {
       id: session.user.id,
       email: session.user.email,
@@ -128,6 +135,9 @@ export function clearSessionCookie(request: FastifyRequest, reply: FastifyReply)
 export async function attachUser(request: FastifyRequest): Promise<void> {
   const sid = request.cookies[SESSION_COOKIE];
   const resolved = await resolveSession(sid);
+  // Par le tunnel, une session ouverte sans double authentification (mot de passe seul, en LAN) ne vaut rien : la
+  // connexion avec le code est redemandée (décision d'Alexandre du 27/10/2026). En LAN, rien ne change.
+  if (resolved && request.viaTunnel && !resolved.mfaVerified) return;
   if (resolved) {
     request.user = resolved.user;
     request.sessionId = resolved.sessionId;

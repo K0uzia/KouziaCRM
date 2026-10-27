@@ -27,6 +27,9 @@ import {
 import { computeEmailHash } from "@/lib/clients/email-hash.js";
 import { createClientNote, listClientNotes, noteInputSchema, serializeNote } from "@/lib/clients/notes.js";
 import { appendToNotepad, notepadInputSchema, readNotepad, saveNotepad, serializeNotepad } from "@/lib/clients/notepad.js";
+import { messageBodyText } from "@/lib/email/message-body.js";
+import { clientEmailEventTo } from "@/lib/privacy/at-rest.js";
+import { ClientErasureError, eraseClient } from "@/lib/clients/erasure.js";
 import {
   ContactConflictError,
   contactInputSchema,
@@ -406,6 +409,9 @@ export const clientsRoutes: FastifyPluginAsync = async (app) => {
         select: { id: true },
       });
       if (!existing) return reply.code(404).send({ error: "Introuvable" });
+      // Accès compromis : les liens courts du portail Stripe envoyés par e-mail sont renouvelés aussi.
+      const { rotateSubscriptionTokens } = await import("@/lib/stripe/portal.js");
+      await rotateSubscriptionTokens(existing.id);
       return { revoked: await revokeAllPortalSessions(existing.id) };
     },
   );
@@ -512,17 +518,16 @@ export const clientsRoutes: FastifyPluginAsync = async (app) => {
     return { items };
   });
 
+  // Effacement à la demande de la personne (RGPD) : suppression, ou anonymisation d'un client facturé (lib/clients/erasure).
   app.delete<{ Params: { id: string } }>("/api/clients/:id", async (request, reply) => {
     await requireAuth(request, reply);
     if (reply.sent) return;
-    const invoices = await prisma.invoice.count({ where: { clientId: request.params.id } });
-    if (invoices > 0) {
-      return reply
-        .code(400)
-        .send({ error: "Impossible de supprimer un client avec des factures" });
+    try {
+      return await eraseClient(request.params.id);
+    } catch (err) {
+      if (err instanceof ClientErasureError) return reply.code(err.statusCode).send({ error: err.message });
+      throw err;
     }
-    await prisma.client.delete({ where: { id: request.params.id } });
-    return { ok: true };
   });
 
   app.get<{ Params: { id: string } }>(
@@ -551,6 +556,11 @@ export const clientsRoutes: FastifyPluginAsync = async (app) => {
           renewals: { orderBy: { renewsAt: "asc" } },
           appointmentNotes: { orderBy: { preparedAt: "asc" } },
           serviceNeeds: serviceNeedsInclude,
+          projects: { orderBy: { createdAt: "asc" } },
+          testimonials: { orderBy: { createdAt: "asc" } },
+          portalSessions: { orderBy: { createdAt: "asc" } },
+          emailEvents: { orderBy: { sentAt: "asc" } },
+          softwareRequests: { orderBy: { createdAt: "asc" } },
         },
       });
       if (!client) return reply.code(404).send({ error: "Introuvable" });
@@ -618,8 +628,45 @@ export const clientsRoutes: FastifyPluginAsync = async (app) => {
             direction: m.direction,
             receivedAt: m.receivedAt.toISOString(),
             subject: m.subject,
-            bodyText: m.bodyText,
+            bodyText: messageBodyText(m),
           })),
+        })),
+        // Export complet (décision du 27/10/2026) : projets, témoignages, connexions à l'espace client, e-mails envoyés,
+        // accords sur devis (preuve de signature) et demandes de logiciel.
+        projects: client.projects.map((p) => ({ name: p.name, progress: p.progress, createdAt: p.createdAt.toISOString() })),
+        testimonials: client.testimonials.map((t) => ({ authorName: t.authorName, body: t.body, status: t.status, createdAt: t.createdAt.toISOString() })),
+        portalSessions: client.portalSessions.map((s) => ({
+          createdAt: s.createdAt.toISOString(),
+          lastSeenAt: s.lastSeenAt.toISOString(),
+          ipAddress: s.ipAddress,
+          userAgent: s.userAgent,
+        })),
+        emailEvents: client.emailEvents.map((e) => ({
+          sentAt: e.sentAt.toISOString(),
+          kind: e.kind,
+          subject: e.subject,
+          to: clientEmailEventTo(e),
+          documentNumber: e.documentNumber,
+          success: e.success,
+        })),
+        quoteAcceptances: (
+          await prisma.quoteAcceptanceAudit.findMany({ where: { quote: { clientId: client.id } }, orderBy: { createdAt: "asc" }, include: { quote: { select: { number: true } } } })
+        ).map((a) => ({
+          quoteNumber: a.quote.number,
+          signerName: a.signerName,
+          signerCompany: a.signerCompany,
+          source: a.source,
+          signedAt: a.createdAt.toISOString(),
+          ipAddress: a.ipAddress,
+          userAgent: a.userAgent,
+          pdfSha256: a.pdfSha256,
+        })),
+        softwareRequests: client.softwareRequests.map((r) => ({
+          software: r.software,
+          status: r.status,
+          companyName: r.companyName,
+          need: r.need,
+          createdAt: r.createdAt.toISOString(),
         })),
       };
     },

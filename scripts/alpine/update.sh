@@ -371,6 +371,8 @@ if [[ -f "$ENV_PATH" ]]; then
     ok "ONBOARDING_HMAC_SECRET absent du .env : généré (les liens d'invitation déjà envoyés sont à renvoyer)."
   fi
 fi
+# Mot de passe admin de départ et jeton du tunnel : hors du .env (décision du 27/10/2026), une fois.
+migrate_env_secrets
 
 # --- 7. Scripts système, restart + health ---
 install_kouziactl_link "${KOUZIA_APP_DIR}/scripts/alpine/kouziactl" /usr/local/bin/kouziactl

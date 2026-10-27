@@ -18,6 +18,7 @@ import { buildInvoicePdfPayload, type BuildPdfPayloadInput, type ClientSnapshot 
 import { enrichCompanyForPdf } from "@/lib/pdf/brand-assets.js";
 import { renderInvoicePdf } from "@/lib/pdf/render.js";
 import { buildClientSnapshot } from "@/lib/invoices/documentFlowService.js";
+import { readClientSnapshot } from "@/lib/invoices/client-snapshot.js";
 import {
   assessCreditNoteEligibility,
   creditNoteContent,
@@ -222,7 +223,7 @@ export async function renderCreditNotePreviewPdf(input: CreditNotePreviewInput):
     }),
     prisma.legalClause.findMany({ where: { active: true }, orderBy: [{ position: "asc" }, { createdAt: "asc" }] }),
   ]);
-  const snapshot = (original.clientSnapshot as ClientSnapshot | null) ?? (await buildClientSnapshot(original.clientId));
+  const snapshot = (readClientSnapshot(original) as ClientSnapshot | null) ?? (await buildClientSnapshot(original.clientId));
   const { description, notes } = creditNoteContent(original, input, split);
   const amount = input.amountCents;
 

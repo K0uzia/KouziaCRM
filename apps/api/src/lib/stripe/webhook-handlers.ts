@@ -50,31 +50,46 @@ async function currentStripeSubscription(fromEvent: Stripe.Subscription): Promis
   }
 }
 
-/** Événement déjà traité avec succès ? */
-async function alreadyProcessed(event: Stripe.Event): Promise<boolean> {
-  return Boolean(await prisma.stripeWebhookEvent.findUnique({ where: { eventId: event.id } }));
-}
+/** Ligne « en cours » plus ancienne : traitement interrompu (arrêt brutal), repris par le renvoi suivant. */
+const STALE_CLAIM_MS = 15 * 60_000;
 
 /**
- * Marque l'événement traité, APRÈS le traitement : en cas d'échec, la route répond 500 et le renvoi
- * de Stripe est retraité (les traitements sont eux-mêmes idempotents : PaymentIntent, Invoice).
+ * Réserve l'événement AVANT son traitement (décision du 27/10/2026) : ligne PROCESSING sous la contrainte unique
+ * eventId. Une livraison simultanée du même événement échoue sur la contrainte et n'envoie ni e-mail ni alerte.
+ * @returns true si ce passage traite l'événement.
  */
-async function recordEvent(event: Stripe.Event): Promise<void> {
+async function claimEvent(event: Stripe.Event): Promise<boolean> {
   try {
     await prisma.stripeWebhookEvent.create({
-      data: {
-        eventId: event.id,
-        eventType: event.type,
-        payload: event as unknown as object,
-      },
+      data: { eventId: event.id, eventType: event.type, payload: event as unknown as object, status: "PROCESSING", claimedAt: new Date() },
     });
+    return true;
   } catch (err) {
-    // Deux livraisons simultanées du même événement : la seconde trouve la ligne déjà écrite.
     if ((err as { code?: string }).code !== "P2002") throw err;
   }
+  const retaken = await prisma.stripeWebhookEvent.updateMany({
+    where: { eventId: event.id, status: "PROCESSING", claimedAt: { lt: new Date(Date.now() - STALE_CLAIM_MS) } },
+    data: { claimedAt: new Date() },
+  });
+  return retaken.count === 1;
 }
 
-/** Facture Billing d'abonnement à 0 € (essai, alignement de la première échéance) : aucune facture ERP. */
+/** Traitement réussi : la ligne passe à DONE (processedAt = fin du traitement). */
+async function completeEvent(event: Stripe.Event): Promise<void> {
+  await prisma.stripeWebhookEvent.update({ where: { eventId: event.id }, data: { status: "DONE", processedAt: new Date() } });
+}
+
+/** Échec : la réservation est retirée, la route répond 500 et le renvoi de Stripe retraite l'événement. */
+async function releaseEvent(event: Stripe.Event): Promise<void> {
+  await prisma.stripeWebhookEvent.deleteMany({ where: { eventId: event.id, status: "PROCESSING" } });
+}
+
+/** Date de l'événement Stripe (création, en secondes) ; absente (revérification par le worker) : null, donc maintenant. */
+function eventDate(event: Stripe.Event): Date | null {
+  return typeof event.created === "number" && event.created > 0 ? new Date(event.created * 1000) : null;
+}
+
+/** Facture Billing d'abonnement à 0 €(essai, alignement de la première échéance) : aucune facture ERP. */
 function isZeroAmountInvoice(invoice: Stripe.Invoice): boolean {
   return (invoice.amount_due ?? 0) <= 0 && (invoice.total ?? 0) <= 0;
 }
@@ -115,17 +130,22 @@ export async function processStripeEvent(event: Stripe.Event): Promise<{
   duplicate: boolean;
   handled: string;
 }> {
-  if (await alreadyProcessed(event)) return { duplicate: true, handled: event.type };
-  // Événement de l'autre mode (clé test en production, ou l'inverse) : ignoré, il ne doit
-  // modifier ni le catalogue ni les abonnements.
-  const live = await keyLivemode();
-  if (typeof event.livemode === "boolean" && event.livemode !== live) {
-    await recordEvent(event);
-    return { duplicate: false, handled: `ignoré (événement ${modeLabel(event.livemode)}, clé ${modeLabel(live)})` };
+  if (!(await claimEvent(event))) return { duplicate: true, handled: event.type };
+  try {
+    // Événement de l'autre mode (clé test en production, ou l'inverse) : ignoré, il ne doit
+    // modifier ni le catalogue ni les abonnements.
+    const live = await keyLivemode();
+    if (typeof event.livemode === "boolean" && event.livemode !== live) {
+      await completeEvent(event);
+      return { duplicate: false, handled: `ignoré (événement ${modeLabel(event.livemode)}, clé ${modeLabel(live)})` };
+    }
+    const handled = await handleEvent(event);
+    await completeEvent(event);
+    return { duplicate: false, handled };
+  } catch (err) {
+    await releaseEvent(event).catch(() => undefined);
+    throw err;
   }
-  const handled = await handleEvent(event);
-  await recordEvent(event);
-  return { duplicate: false, handled };
 }
 
 async function handleEvent(event: Stripe.Event): Promise<string> {
@@ -144,6 +164,7 @@ async function handleEvent(event: Stripe.Event): Promise<string> {
         milestoneId: meta.erpMilestoneId || null,
         invoiceId: meta.erpInvoiceId || null,
         notes: "Paiement Stripe",
+        paidAt: eventDate(event),
       });
       await clearInvoiceProcessing(pi);
       break;
@@ -215,7 +236,7 @@ async function handleEvent(event: Stripe.Event): Promise<string> {
       const invoice = event.data.object as Stripe.Invoice;
       if (isZeroAmountInvoice(invoice)) return `${event.type}:ignoré (0 €)`;
       if (!isSubscriptionInvoice(invoice)) break;
-      await handleStripeInvoicePaid(invoice);
+      await handleStripeInvoicePaid(invoice, eventDate(event));
       const erp = invoice.id ? await prisma.invoice.findUnique({ where: { stripeInvoiceId: invoice.id } }) : null;
       if (erp && (await notifyStripePaymentRecovered(erp.id))) return `${event.type}:régularisation signalée`;
       break;

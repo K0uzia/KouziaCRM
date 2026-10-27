@@ -44,8 +44,9 @@ describe("conservation des données (worker, chaque heure)", () => {
     const res = await purgeRetention(NOW);
     expect(res.prospects).toBe(1);
     expect(await prisma.client.findUnique({ where: { id: stale.id } })).toBeNull();
-    // Le fil de la boîte (miroir IMAP) reste, sans lien vers la fiche.
-    expect(await prisma.emailThread.findFirstOrThrow({ where: { subject: "Demande" } })).toMatchObject({ clientId: null });
+    // Fil sans échange depuis plus de 3 ans : retiré lui aussi (messagerie, décision d'Alexandre du 27/10/2026).
+    expect(await prisma.emailThread.count({ where: { subject: "Demande" } })).toBe(0);
+    expect(res.mailThreads).toBe(1);
     for (const kept of [recentFile, recentMail, recentThread, draft, project, review]) {
       expect(await prisma.client.findUnique({ where: { id: kept.id } }), kept.displayName).not.toBeNull();
     }

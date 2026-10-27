@@ -1,5 +1,6 @@
 import { randomBytes } from "node:crypto";
 import type Stripe from "stripe";
+import { SubscriptionStatus } from "@prisma/client";
 import { prisma } from "@/lib/prisma.js";
 import { resolveClientPortalUrl } from "@/lib/email/portal-url.js";
 import { assertStripeEnabled, getStripe } from "@/lib/stripe/client.js";
@@ -21,11 +22,20 @@ async function publicTokenOf(subscriptionId: string): Promise<string> {
   return (await prisma.subscription.findUniqueOrThrow({ where: { id: subscriptionId } })).publicToken!;
 }
 
-/** Abonnement visé par un jeton court ; null si inconnu. */
+/** Abonnement visé par un jeton court ; null si inconnu ou abonnement clôturé (audit du 27/10/2026). */
 export async function subscriptionIdFromShortToken(token: string): Promise<string | null> {
   if (!SHORT_TOKEN.test(token)) return null;
-  const sub = await prisma.subscription.findUnique({ where: { publicToken: token }, select: { id: true } });
-  return sub?.id ?? null;
+  const sub = await prisma.subscription.findUnique({ where: { publicToken: token }, select: { id: true, status: true } });
+  return sub && sub.status !== SubscriptionStatus.ENDED ? sub.id : null;
+}
+
+/**
+ * Renouvelle les liens courts des abonnements d'un client (accès compromis : « Déconnecter tous ses appareils ») :
+ * les anciens liens d'e-mail ne servent plus, le prochain e-mail porte un nouveau jeton.
+ */
+export async function rotateSubscriptionTokens(clientId: string): Promise<number> {
+  const { count } = await prisma.subscription.updateMany({ where: { clientId, publicToken: { not: null } }, data: { publicToken: null } });
+  return count;
 }
 
 /**

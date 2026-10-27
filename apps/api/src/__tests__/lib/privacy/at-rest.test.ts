@@ -81,7 +81,7 @@ describe("e-mails chiffrés au repos (migration 20261109090000)", () => {
     expect(decrypt(e.toAddressEncrypted!)).toBe("ancien@exemple.fr");
     expect(decrypt(i.emailEncrypted!)).toBe("invite@exemple.fr");
     expect(JSON.parse(decrypt(o.payloadEncrypted!)).subject).toBe("En attente");
-    expect(await backfillEncryptedEmails()).toEqual({ events: 0, invitations: 0, outbox: 0 });
+    expect(await backfillEncryptedEmails()).toEqual({ events: 0, invitations: 0, outbox: 0, clientSnapshots: 0, messages: 0, ibans: 0 });
     // Après recopie, l'e-mail en attente part toujours.
     await sendOutboxNow(outbox.id);
     expect(sent.at(-1)?.to).toBe("ancien@exemple.fr");
@@ -95,7 +95,7 @@ describe("e-mails chiffrés au repos (migration 20261109090000)", () => {
     const errors = vi.spyOn(console, "error").mockImplementation(() => undefined);
     if (key === undefined) delete process.env.ENCRYPTION_KEY;
     else process.env.ENCRYPTION_KEY = key;
-    expect(await backfillEncryptedEmails()).toEqual({ events: 0, invitations: 0, outbox: 0 });
+    expect(await backfillEncryptedEmails()).toEqual({ events: 0, invitations: 0, outbox: 0, clientSnapshots: 0, messages: 0, ibans: 0 });
     process.env.ENCRYPTION_KEY = KEY;
     expect(errors.mock.calls.flat().join(" ")).toMatch(/recopie suspendue, aucune colonne vidée/);
     errors.mockRestore();

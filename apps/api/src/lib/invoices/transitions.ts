@@ -10,6 +10,7 @@ import {
 } from "@prisma/client";
 import { prisma } from "@/lib/prisma.js";
 import { archiveIssuedDocument } from "@/lib/pdf/issued-archive.js";
+import { clientSnapshotData } from "@/lib/invoices/client-snapshot.js";
 import { assertQuoteSigned } from "@/lib/invoices/workflow.js";
 import { getCompanySettings } from "@/lib/company.js";
 import { allocateInvoiceNumber, allocateQuoteNumber } from "@/lib/invoices/numberingService.js";
@@ -111,7 +112,7 @@ export async function issueInvoiceWithin(
       issueDate,
       dueDate: dueDate ?? issueDate,
       issuedAt: new Date(),
-      clientSnapshot: snapshot as unknown as Prisma.InputJsonValue,
+      ...clientSnapshotData(snapshot),
       // Facture miroir d'une échéance Stripe : Stripe retente et l'ERP écrit sur échec, pas de relance.
       nextReminderAt: invoice.stripeInvoiceId ? null : addDays(dueDate ?? issueDate, settings.reminderInvoiceDays),
     },
@@ -229,7 +230,7 @@ export async function issueQuote(
         validUntil: validity,
         dueDate: validity,
         issuedAt: new Date(),
-        clientSnapshot: snapshot as unknown as Prisma.InputJsonValue,
+        ...clientSnapshotData(snapshot),
         legalClausesSnapshot: legalClausesSnapshot as unknown as Prisma.InputJsonValue,
         // Échéancier figé à l'émission : la signature, le PDF et les dates d'échéance le relisent.
         paymentScheduleSnapshot: scheduleSnapshotOf(settings),
@@ -262,6 +263,8 @@ export async function issueQuote(
     return updated;
   });
 
+  // PDF figé à l'émission, comme une facture (décision du 27/10/2026).
+  await archiveIssuedDocument(quoteId);
   return updated;
 }
 
@@ -287,7 +290,7 @@ export async function ensureQuoteHasOfficialNumber(
     sequenceNumber: allocated.sequenceNumber,
     issueDate: quote.issueDate ?? issueDate,
     issuedAt: quote.issuedAt ?? new Date(),
-    clientSnapshot: snapshot as unknown as Prisma.InputJsonValue,
+    ...clientSnapshotData(snapshot),
   };
   if (quote.status === InvoiceStatus.DRAFT) {
     patch.status = InvoiceStatus.ISSUED;

@@ -126,6 +126,15 @@ NODE
   env_fix_perms
 }
 
+env_unset() {
+  env_file_unset "$ENV_FILE" "$1" || true
+}
+
+# Tunnel configuré : jeton dans son fichier (format actuel) ou encore dans le .env (avant la mise à jour du 27/10/2026).
+tunnel_configured() {
+  [[ -s "$CLOUDFLARE_TOKEN_PATH" ]] || [[ "$(env_get CLOUDFLARE_TUNNEL "")" == "1" ]] || [[ -n "$(env_get CLOUDFLARE_TUNNEL_TOKEN "")" ]]
+}
+
 ask() {
   local __var="$1" __prompt="$2" __def="${3:-}"
   local __ans
@@ -387,10 +396,9 @@ print_access() {
 }
 
 print_summary() {
-  local port admin_email tunnel_token rsync_target pub_api g_redirect
+  local port admin_email rsync_target pub_api g_redirect
   port="$(env_get API_PORT "$KOUZIA_API_PORT")"
   admin_email="$(env_get ADMIN_EMAIL "")"
-  tunnel_token="$(env_get CLOUDFLARE_TUNNEL_TOKEN "")"
   pub_api="$(env_get PUBLIC_API_ORIGIN "")"
   g_redirect="$(env_get GOOGLE_REDIRECT_URI "")"
   load_rsync_conf
@@ -406,8 +414,8 @@ print_summary() {
   echo "  Portail /suivi     : $(env_get CLIENT_PORTAL_URL)"
   echo "  SMTP               : $(env_get SMTP_HOST):$(env_get SMTP_PORT) ($(env_get SMTP_USER))"
   echo "  IMAP               : $(env_get IMAP_HOST) ($(env_get IMAP_USER))"
-  if [[ -n "$tunnel_token" ]]; then
-    echo "  Cloudflare Tunnel  : token présent"
+  if tunnel_configured; then
+    echo "  Cloudflare Tunnel  : jeton présent (${CLOUDFLARE_TOKEN_PATH})"
   else
     echo "  Cloudflare Tunnel  : non (API publique seulement si exposée autrement)"
   fi
@@ -522,7 +530,7 @@ configure_admin() {
   ask admin_name "Nom affiché" "$(env_get ADMIN_NAME "Alexandre Kouziaeff")"
 
   while true; do
-    ask_secret admin_pass "Mot de passe admin (>= 12 caractères)" "$(env_get ADMIN_PASSWORD "")"
+    ask_secret admin_pass "Mot de passe admin (>= 12 caractères)" ""
     if [[ ${#admin_pass} -lt 12 ]]; then
       warn "Trop court (${#admin_pass} < 12). Réessaie."
       continue
@@ -546,6 +554,8 @@ configure_admin() {
   else
     warn "Seed échoué. Vérifie les logs ; tu pourras relancer : kouziactl configure"
   fi
+  # Le mot de passe ne sert qu'au seed : jamais gardé dans le .env (décision du 27/10/2026).
+  env_unset ADMIN_PASSWORD
 }
 
 configure_public_site() {
@@ -635,7 +645,9 @@ configure_cloudflare() {
 
   local token=""
   local existing
-  existing="$(env_get CLOUDFLARE_TUNNEL_TOKEN "")"
+  existing=""
+  [[ -s "$CLOUDFLARE_TOKEN_PATH" ]] && existing="$(tr -d '\r\n' < "$CLOUDFLARE_TOKEN_PATH")"
+  [[ -n "$existing" ]] || existing="$(env_get CLOUDFLARE_TUNNEL_TOKEN "")"
   # IMPORTANT : pas de read -rs (le Ctrl+Shift+V ne colle souvent pas)
   if ! ask_paste_token token "Token Cloudflare (ou colle toute la commande cloudflared)" "$existing"; then
     warn "Pas de token, skip."
@@ -643,13 +655,12 @@ configure_cloudflare() {
   fi
   [[ -n "$token" ]] || { warn "Token vide, skip."; return 0; }
 
-  env_set CLOUDFLARE_TUNNEL_TOKEN "$token"
+  # Jeton dans son fichier (600, root), jamais dans le .env : le .env (lisible par le compte de l'application) et sa
+  # sauvegarde « meta » n'en gardent qu'un indicateur (décision du 27/10/2026).
+  write_tunnel_token "$token"
+  env_set CLOUDFLARE_TUNNEL "1"
+  env_unset CLOUDFLARE_TUNNEL_TOKEN
   env_set TRUST_PROXY "true"
-
-  # Fichier dédié (évite les soucis de quoting OpenRC avec un JWT long)
-  mkdir -p "$KOUZIA_ETC_DIR"
-  printf '%s\n' "$token" > "${KOUZIA_ETC_DIR}/cloudflare-tunnel.token"
-  chmod 600 "${KOUZIA_ETC_DIR}/cloudflare-tunnel.token"
 
   log "Installation cloudflared…"
   if ! command -v cloudflared >/dev/null 2>&1; then
@@ -981,7 +992,7 @@ configure_tailscale() {
     echo "  → TAILSCALE_ORIGIN sert au CORS téléphone uniquement (bon)."
   fi
 
-  if [[ -n "$(env_get CLOUDFLARE_TUNNEL_TOKEN "")" ]] || [[ "$(env_get TRUST_PROXY "false")" == "true" ]]; then
+  if tunnel_configured || [[ "$(env_get TRUST_PROXY "false")" == "true" ]]; then
     env_set TRUST_PROXY "true"
     echo "  → TRUST_PROXY=true (tunnel Cloudflare conservé)"
   fi
@@ -1268,7 +1279,7 @@ run_section() {
   case "$SECTION" in
     access)
       # Déduire un profil minimal pour COOKIE/TRUST defaults
-      if [[ "$(env_get TRUST_PROXY "false")" == "true" ]] || [[ -n "$(env_get CLOUDFLARE_TUNNEL_TOKEN "")" ]]; then
+      if [[ "$(env_get TRUST_PROXY "false")" == "true" ]] || tunnel_configured; then
         PROFILE="tunnel"
       else
         PROFILE="lan"

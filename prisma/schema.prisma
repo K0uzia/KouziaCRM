@@ -262,6 +262,9 @@ model Session {
   createdAt  DateTime  @default(now())
   /// Dernière requête authentifiée : session close après 24 h d'inactivité (null : session antérieure)
   lastSeenAt DateTime?
+  /// Connexion passée par la double authentification (ou activation de la 2FA) ; seule une session vérifiée est
+  /// acceptée par le tunnel (migration 20261222090000)
+  mfaVerified Boolean  @default(false)
 
   @@index([userId])
   @@index([expiresAt])
@@ -1146,7 +1149,10 @@ model Invoice {
   quoteSignerName              String?
   clientId                     String
   client                       Client                 @relation(fields: [clientId], references: [id])
+  /// Ancienne copie du client en clair : vide depuis la migration 20261221090000 (recopiée chiffrée par le worker)
   clientSnapshot               Json?
+  /// Copie du client figée à l'émission (e-mail, téléphone, SIRET, adresse), chiffrée au repos (lib/invoices/client-snapshot)
+  clientSnapshotEncrypted      String?
   /// Devis : clauses légales retenues à l'émission (kind, title, body, audience, position), variables non remplies.
   /// null : brouillon, ou devis émis avant la migration 20261205090000 (clauses actives au rendu).
   legalClausesSnapshot         Json?
@@ -1471,6 +1477,10 @@ model StripeWebhookEvent {
   eventType   String
   payload     Json
   processedAt DateTime @default(now())
+  /// PROCESSING (réservé au début du traitement) | DONE (traité) ; migration 20261220090000
+  status      String   @default("DONE")
+  /// Réservation du traitement : une ligne PROCESSING plus ancienne que 15 min (arrêt brutal) est reprise
+  claimedAt   DateTime?
 
   @@index([eventType])
   @@index([processedAt])
@@ -1506,7 +1516,10 @@ model BankTransaction {
   amountCents      Int
   currency         String              @default("EUR")
   counterpartyName String?
+  /// Ancien IBAN en clair : vide depuis la migration 20261221090000 (recopié chiffré par le worker)
   counterpartyIban String?
+  /// IBAN de la contrepartie, chiffré au repos
+  counterpartyIbanEncrypted String?
   reference        String?
   /// État brut Revolut (pending, completed, ...)
   revolutState     String?
@@ -1710,8 +1723,12 @@ model EmailMessage {
   ccAddresses      String? // JSON string[]
   subject          String
   snippet          String?
+  /// Anciens corps en clair : vides depuis la migration 20261221090000 (recopiés chiffrés par le worker)
   bodyText         String?
   bodyHtml         String?
+  /// Corps du message chiffrés au repos (lib/email/message-body)
+  bodyTextEncrypted String?
+  bodyHtmlEncrypted String?
   bodyFetched      Boolean           @default(false)
   receivedAt       DateTime
   rawHeaders       String?

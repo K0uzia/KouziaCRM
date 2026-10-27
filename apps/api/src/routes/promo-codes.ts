@@ -126,8 +126,13 @@ export const promoCodesRoutes: FastifyPluginAsync = async (app) => {
     if (!params.success) return reply.code(404).send({ error: "Code introuvable" });
     const existing = await prisma.promoCode.findUnique({ where: { id: params.data.id } });
     if (!existing) return reply.code(404).send({ error: "Code introuvable" });
-    const linked = await prisma.invoice.count({ where: { promoCodeId: existing.id } });
-    if (linked > 0) return reply.code(409).send({ error: `Code ${existing.code} utilisé sur ${linked} devis : désactivez-le plutôt.` });
+    // Devis, ou proposition d'un devis à 2 propositions (QuoteOption) : le lien interdit la suppression.
+    const [onQuotes, onOptions] = await Promise.all([
+      prisma.invoice.count({ where: { promoCodeId: existing.id } }),
+      prisma.quoteOption.count({ where: { promoCodeId: existing.id } }),
+    ]);
+    const linked = onQuotes + onOptions;
+    if (linked > 0) return reply.code(409).send({ error: `Code ${existing.code} utilisé sur ${linked} devis ou proposition${linked > 1 ? "s" : ""} : désactivez-le plutôt.` });
     await prisma.promoCode.delete({ where: { id: existing.id } });
     return reply.code(204).send();
   });

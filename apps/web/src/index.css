@@ -38,6 +38,9 @@
   --surface-hover: #202b47;
   --text: #e8eaf8;
   --muted: #9aa1bf;
+  /* Texte désactivé (tableaux) et survol d'une colonne de graphique : dérivés de --muted. */
+  --text-disabled: rgb(154 161 191 / 0.35);
+  --chart-cursor: rgb(154 161 191 / 0.08);
   --border: #232d47;
   --border-strong: #3a4566;
   --border-input: #64719c;

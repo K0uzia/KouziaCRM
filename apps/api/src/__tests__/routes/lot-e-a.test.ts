@@ -181,9 +181,9 @@ describe("abonnements : fins de mois et maintenance", () => {
         data: { clientId: client.id, serviceId: service.id, label: `Maintenance ${n}`, amountCents: 3_000, billingDay: 1, billingInterval: "MONTH", startDate: new Date(2026, 0, 1), nextInvoiceAt: new Date(2026, 0, 1) },
       });
     }
-    const real = prisma.invoice.findFirst.bind(prisma.invoice);
+    const real = prisma.invoice.findMany.bind(prisma.invoice);
     let calls = 0;
-    vi.spyOn(prisma.invoice, "findFirst").mockImplementation(((args: never) => {
+    vi.spyOn(prisma.invoice, "findMany").mockImplementation(((args: never) => {
       calls += 1;
       if (calls === 1) return Promise.reject(new Error("panne simulée"));
       return real(args);

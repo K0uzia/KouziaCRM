@@ -64,7 +64,7 @@ export default function FlowsChart({ flows }: { flows: MonthlyFlow[] }) {
             color: "var(--text)",
             fontSize: "12px",
           }}
-          cursor={{ fill: "rgb(139 92 246 / 0.08)" }}
+          cursor={{ fill: "var(--chart-cursor)" }}
         />
         {/* Ordre des séries (entrées puis sorties), pas l'ordre alphabétique par défaut. */}
         <Legend itemSorter={null} wrapperStyle={{ fontSize: 12, color: "var(--muted)", paddingTop: 8 }} />

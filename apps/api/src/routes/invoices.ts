@@ -37,6 +37,7 @@ import { getCompanySettings } from "@/lib/company.js";
 import { loadDocumentForPdf, renderLoadedDocumentPdf } from "@/lib/pdf/document-pdf.js";
 import { decryptOptional } from "@/lib/crypto.js";
 import type { ClientSnapshot } from "@/lib/invoices/transitions.js";
+import { readClientSnapshot } from "@/lib/invoices/client-snapshot.js";
 import { serializeInvoice } from "@/lib/invoices/serialize.js";
 import { invoiceListSummary } from "@/lib/invoices/list-summary.js";
 import { adminBalanceFields, BALANCE_INCLUDE, invoiceBalance, overpaidCents } from "@/lib/invoices/balance.js";
@@ -839,7 +840,7 @@ export const invoicesRoutes: FastifyPluginAsync = async (app) => {
       },
     });
     if (!invoice) return reply.code(404).send({ error: "Introuvable" });
-    const clientType = (invoice.clientSnapshot as ClientSnapshot | null)?.type ?? invoice.client.type;
+    const clientType = (readClientSnapshot(invoice) as ClientSnapshot | null)?.type ?? invoice.client.type;
     return {
       ...serializeInvoice(invoice),
       balance: adminBalanceFields(invoice),

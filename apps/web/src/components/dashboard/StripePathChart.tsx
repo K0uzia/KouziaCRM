@@ -57,7 +57,7 @@ export default function StripePathChart({ months }: { months: FluxMonth[] }) {
             color: "var(--text)",
             fontSize: "12px",
           }}
-          cursor={{ fill: "rgb(139 92 246 / 0.08)" }}
+          cursor={{ fill: "var(--chart-cursor)" }}
         />
         <Legend itemSorter={null} wrapperStyle={{ fontSize: 12, color: "var(--muted)", paddingTop: 8 }} />
         <Bar dataKey="stripe" stackId="flux" fill="var(--primary)" name="Stripe" maxBarSize={26} />

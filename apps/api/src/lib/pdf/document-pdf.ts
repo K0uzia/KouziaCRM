@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma.js";
 import { decryptOptional } from "@/lib/crypto.js";
+import { readClientSnapshot } from "@/lib/invoices/client-snapshot.js";
 import { getCompanySettings } from "@/lib/company.js";
 import { LegalClauseKind } from "@prisma/client";
 import { documentClauses, fillClauseVariables, listActiveLegalClauses, VAT_MENTION_VARIABLE } from "@/lib/company/legal-clauses.js";
@@ -40,7 +41,7 @@ export async function loadDocumentForPdf(documentId: string, opts: { maskContact
 
   const email = decryptOptional(invoice.client.emailEncrypted);
   const snapshot =
-    (invoice.clientSnapshot as ClientSnapshot | null) ??
+    (readClientSnapshot(invoice) as ClientSnapshot | null) ??
     ({
       displayName: invoice.client.displayName,
       type: invoice.client.type,

@@ -8,6 +8,25 @@ function fmtDateTime(d: Date): string {
   return formatDateTimeLongFr(d);
 }
 
+/** Compte admin verrouillé après des échecs de connexion par Internet (tunnel) : email au titulaire du compte. */
+export async function sendAdminLockAlert(
+  to: string,
+  request: FastifyRequest,
+  lock: { failures: number; lockedUntil: Date },
+): Promise<void> {
+  if (!(await isSmtpConfigured())) return;
+  const text = [
+    "Bonjour,",
+    "",
+    `${lock.failures} tentatives de connexion à l'administration de l'ERP ont échoué depuis Internet (tunnel) depuis la dernière connexion réussie.`,
+    `La connexion par Internet est bloquée jusqu'au ${fmtDateTime(lock.lockedUntil)}. Dernière tentative : adresse IP ${request.ip}.`,
+    "",
+    "C'est vous ? Patientez, ou connectez-vous depuis le réseau local ou Tailscale (non bloqués).",
+    "Ce n'est pas vous ? Changez le mot de passe depuis le réseau local, et vérifiez que la double authentification est active.",
+  ].join("\n");
+  await mailEnqueue({ to, subject: "Connexions refusées à l'administration de l'ERP", text, kind: "admin_alert" });
+}
+
 /** Connexion admin réussie depuis un appareil inconnu : email au titulaire du compte. */
 export async function sendAdminNewDeviceAlert(to: string, request: FastifyRequest): Promise<void> {
   if (!(await isSmtpConfigured())) return;

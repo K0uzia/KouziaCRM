@@ -27,7 +27,9 @@ export async function captureQuoteBeforeSignature(
   try {
     const doc = await loadDocumentForPdf(quoteId);
     if (!doc) return null;
-    const pdf = await renderLoadedDocumentPdf(doc);
+    // Devis émis : le PDF figé à l'émission, celui que le client a reçu ; sinon (devis jamais émis) le rendu du moment.
+    const { issuedDocumentPdf } = await import("@/lib/pdf/issued-archive.js");
+    const pdf = (await issuedDocumentPdf(quoteId, doc)) ?? (await renderLoadedDocumentPdf(doc));
     return {
       pdf,
       sha256: createHash("sha256").update(pdf).digest("hex"),

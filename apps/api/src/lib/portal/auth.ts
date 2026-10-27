@@ -14,6 +14,10 @@ export const CODE_TTL_MS = 15 * 60_000;
 export const CODE_MAX_ATTEMPTS = 5;
 /** Codes envoyés au plus par client, par usage et par heure (anti-harcèlement). */
 export const CODE_MAX_PER_HOUR = 5;
+/** Et par 24 h (audit du 27/10/2026) : 10 codes, soit 50 essais au plus par jour au lieu de 600. */
+export const CODE_MAX_PER_DAY = 10;
+/** Refus de vérification d'un code : jamais plus rapide (adresse inconnue ou code faux, même durée). */
+export const VERIFY_FAILURE_FLOOR_MS = 300;
 export const SESSION_TTL_MS = 7 * 86_400_000;
 
 export const PORTAL_COOKIE = "kz_portal";
@@ -74,10 +78,11 @@ export async function issuePortalCode(
 const issueLocks = new Map<string, Promise<void>>();
 
 async function issuePortalCodeNow(clientId: string, purpose: CodePurpose, quoteId: string | null): Promise<string | null> {
-  const recent = await prisma.portalCode.count({
-    where: { clientId, purpose, createdAt: { gt: new Date(Date.now() - 3_600_000) } },
-  });
-  if (recent >= CODE_MAX_PER_HOUR) return null;
+  const [recent, today] = await Promise.all([
+    prisma.portalCode.count({ where: { clientId, purpose, createdAt: { gt: new Date(Date.now() - 3_600_000) } } }),
+    prisma.portalCode.count({ where: { clientId, purpose, createdAt: { gt: new Date(Date.now() - 86_400_000) } } }),
+  ]);
+  if (recent >= CODE_MAX_PER_HOUR || today >= CODE_MAX_PER_DAY) return null;
 
   const now = new Date();
   await prisma.portalCode.updateMany({

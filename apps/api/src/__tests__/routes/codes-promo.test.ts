@@ -103,3 +103,16 @@ describe("codes promo (écran Offre)", () => {
     expect(doc).toContain("Code promo OUVERTURE30 : structure créée il y a moins de 12 mois.");
   });
 });
+
+describe("suppression d'un code utilisé", () => {
+  it("utilisé par une proposition d'un devis à 2 propositions : 409, jamais 500 (audit du 27/10/2026, P2)", async () => {
+    const promo = await prisma.promoCode.create({ data: { code: "PROPOSITION10", kind: "PERCENT", value: 1000 } });
+    const client = await createClient({ displayName: "Client Propositions" });
+    const quote = await prisma.invoice.create({ data: { clientId: client.id, documentType: "QUOTE", status: "DRAFT", subtotalCents: 0, totalCents: 0 } });
+    await prisma.quoteOption.create({ data: { quoteId: quote.id, position: 0, label: "Abonnement", billingMode: "RECURRING", promoCodeId: promo.id } });
+    const res = await call("DELETE", `/api/promo-codes/${promo.id}`);
+    expect(res.statusCode, res.body).toBe(409);
+    expect(res.json().error).toMatch(/PROPOSITION10/);
+    expect(await prisma.promoCode.count({ where: { id: promo.id } })).toBe(1);
+  });
+});

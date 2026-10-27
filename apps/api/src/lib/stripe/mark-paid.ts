@@ -35,6 +35,11 @@ export type OnlinePaymentInput = {
   /** Jalon d'acompte (sinon facture simple). */
   milestoneId?: string | null;
   invoiceId?: string | null;
+  /**
+   * Date du paiement chez Stripe (événement), pas l'heure de traitement du webhook : un paiement du 31/03 traité le
+   * 01/04 reste dans le livre des recettes et l'URSSAF de mars (décision du 27/10/2026). Absente : maintenant.
+   */
+  paidAt?: Date | null;
 };
 
 /**
@@ -118,7 +123,7 @@ export async function markPaidFromOnlinePayment(
         data: {
           invoiceId: invoice.id,
           amountCents: input.amountCents,
-          paidAt: new Date(),
+          paidAt: input.paidAt ?? new Date(),
           method: input.method,
           reference: input.paymentIntentId,
           notes: input.notes?.trim() || (before.dueCents > 0 ? "Paiement Stripe" : "Paiement Stripe (facture déjà soldée)"),
@@ -135,7 +140,7 @@ export async function markPaidFromOnlinePayment(
         where: { id: milestone.id },
         data: {
           status: MilestoneStatus.PAID,
-          paidAt: new Date(),
+          paidAt: input.paidAt ?? new Date(),
           paymentMethod: input.method,
           checkoutUrl: null,
         },
@@ -193,7 +198,7 @@ async function recordUnattachedPayment(
       data: {
         invoiceId: null,
         amountCents: input.amountCents,
-        paidAt: new Date(),
+        paidAt: input.paidAt ?? new Date(),
         method: input.method,
         reference: input.paymentIntentId,
         notes: "Paiement Stripe sans facture : à régulariser",
@@ -204,7 +209,7 @@ async function recordUnattachedPayment(
     if (milestoneId) {
       await tx.paymentMilestone.updateMany({
         where: { id: milestoneId, status: { notIn: [MilestoneStatus.PAID, MilestoneStatus.CANCELLED] } },
-        data: { status: MilestoneStatus.PAID, paidAt: new Date(), paymentMethod: input.method, checkoutUrl: null },
+        data: { status: MilestoneStatus.PAID, paidAt: input.paidAt ?? new Date(), paymentMethod: input.method, checkoutUrl: null },
       });
     }
     return true;
@@ -246,6 +251,8 @@ export async function markInvoicePaidFromStripeBilling(opts: {
   amountCents: number;
   feeCents?: number | null;
   method: PaymentMethod;
+  /** Date du paiement de la facture chez Stripe (voir OnlinePaymentInput.paidAt). */
+  paidAt?: Date | null;
 }): Promise<{ duplicate: boolean }> {
   if (opts.paymentIntentId) {
     const existing = await prisma.payment.findUnique({
@@ -273,7 +280,7 @@ export async function markInvoicePaidFromStripeBilling(opts: {
       data: {
         invoiceId: invoice.id,
         amountCents: opts.amountCents,
-        paidAt: new Date(),
+        paidAt: opts.paidAt ?? new Date(),
         method: opts.method,
         reference: opts.paymentIntentId ?? null,
         notes: due > 0 ? "Prélèvement Stripe Billing" : "Prélèvement Stripe Billing (facture déjà soldée)",

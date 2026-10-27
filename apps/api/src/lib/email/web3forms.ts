@@ -2,6 +2,7 @@ import { EmailDirection } from "@prisma/client";
 import { prisma } from "@/lib/prisma.js";
 import { findClientIdByEmail } from "@/lib/email/match-client.js";
 import { decryptOptional } from "@/lib/crypto.js";
+import { MESSAGE_BODY_SELECT, messageBodyHtml, messageBodyText } from "@/lib/email/message-body.js";
 
 /**
  * Formulaire du site relayé par Web3Forms (expéditeur notify+…@web3forms.com, « Site Kouzia ») :
@@ -102,6 +103,8 @@ type FormMessage = {
   replyToAddress: string | null;
   bodyText: string | null;
   bodyHtml: string | null;
+  bodyTextEncrypted: string | null;
+  bodyHtmlEncrypted: string | null;
   subject: string;
   receivedAt: Date;
   isRead: boolean;
@@ -114,7 +117,7 @@ type FormMessage = {
  */
 export async function linkFormMessageToClient(message: FormMessage): Promise<string | null> {
   if (!isWeb3FormsSender(message.fromAddress)) return null;
-  const email = formLeadEmail({ replyToAddress: message.replyToAddress, body: message.bodyText ?? message.bodyHtml });
+  const email = formLeadEmail({ replyToAddress: message.replyToAddress, body: messageBodyText(message) ?? messageBodyHtml(message) });
   if (!email) return null;
   const clientId = await findClientIdByEmail(email);
   if (!clientId) return null;
@@ -148,8 +151,7 @@ const FORM_SELECT = {
   threadId: true,
   fromAddress: true,
   replyToAddress: true,
-  bodyText: true,
-  bodyHtml: true,
+  ...MESSAGE_BODY_SELECT,
   subject: true,
   receivedAt: true,
   isRead: true,
@@ -191,8 +193,8 @@ export async function formLeadForMessage(messageId: string): Promise<Omit<FormLe
   });
   if (!m || m.direction !== EmailDirection.INBOUND || !isWeb3FormsSender(m.fromAddress) || m.thread.clientId) return null;
   if (await linkFormMessageToClient(m)) return null;
-  const lead = parseWeb3FormsBody(m.bodyText ?? m.bodyHtml);
-  const email = formLeadEmail({ replyToAddress: m.replyToAddress, body: m.bodyText ?? m.bodyHtml });
+  const lead = parseWeb3FormsBody(messageBodyText(m) ?? messageBodyHtml(m));
+  const email = formLeadEmail({ replyToAddress: m.replyToAddress, body: messageBodyText(m) ?? messageBodyHtml(m) });
   if (!email && !lead.name) return null;
   return { name: lead.name, email, phone: lead.phone, company: lead.company };
 }
@@ -220,10 +222,10 @@ export async function formSubmissionForThread(
   const candidate = await prisma.emailMessage.findFirst({
     where: { threadId, direction: EmailDirection.INBOUND, orphaned: false, fromAddress: { contains: "web3forms.com" } },
     orderBy: { receivedAt: "desc" },
-    select: { id: true, fromAddress: true, bodyText: true, bodyHtml: true },
+    select: { id: true, fromAddress: true, ...MESSAGE_BODY_SELECT },
   });
   if (!candidate || !isWeb3FormsSender(candidate.fromAddress)) return null;
-  if (!candidate.bodyText && !candidate.bodyHtml) await loadBody(candidate.id).catch(() => undefined);
+  if (!messageBodyText(candidate) && !messageBodyHtml(candidate)) await loadBody(candidate.id).catch(() => undefined);
   await formLeadForMessage(candidate.id).catch(() => null);
   const m = await prisma.emailMessage.findUnique({
     where: { id: candidate.id },
@@ -231,13 +233,12 @@ export async function formSubmissionForThread(
       id: true,
       receivedAt: true,
       replyToAddress: true,
-      bodyText: true,
-      bodyHtml: true,
+      ...MESSAGE_BODY_SELECT,
       thread: { select: { client: { select: { id: true, displayName: true, emailEncrypted: true } } } },
     },
   });
   if (!m) return null;
-  const body = m.bodyText ?? m.bodyHtml;
+  const body = messageBodyText(m) ?? messageBodyHtml(m);
   const lead = parseWeb3FormsBody(body);
   const email = formLeadEmail({ replyToAddress: m.replyToAddress, body });
   const client = m.thread.client;

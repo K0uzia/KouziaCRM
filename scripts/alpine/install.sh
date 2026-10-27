@@ -183,7 +183,7 @@ IMAP_MAILBOX="INBOX"
 
 # PUBLIC_WEB_ORIGIN / CLIENT_PORTAL_URL : site kouzia.com (assistant configure)
 # PUBLIC_API_ORIGIN : URL HTTPS Cloudflare (jamais LAN ni Tailscale)
-# CLOUDFLARE_TUNNEL_TOKEN=""
+# CLOUDFLARE_TUNNEL="1" : tunnel configuré (jeton dans /etc/kouzia/cloudflare-tunnel.token, posé par kouziactl cloudflare)
 # TAILSCALE_ORIGIN=""
 EOF
   env_fix_perms
@@ -222,7 +222,12 @@ if [[ "$SKIP_SEED" -eq 0 ]]; then
   if [[ -f "$KOUZIA_DB_PATH" ]] && [[ -s "$KOUZIA_DB_PATH" ]]; then
     log "Base existante détectée, seed (idempotent, mot de passe admin existant conservé)…"
   fi
-  run_as_app "cd '$KOUZIA_APP_DIR' && npm run db:seed" || warn "Seed échoué (compte admin déjà présent ?). Continuer."
+  if run_as_app "cd '$KOUZIA_APP_DIR' && npm run db:seed"; then
+    # Compte créé : le mot de passe de départ quitte le .env (il reste dans admin-password-initial, root seul).
+    env_file_unset "$ENV_FILE" ADMIN_PASSWORD && ok "Mot de passe admin de départ retiré du .env." || true
+  else
+    warn "Seed échoué (compte admin déjà présent ?). Continuer."
+  fi
 fi
 build_spa "$KOUZIA_APP_DIR"
 

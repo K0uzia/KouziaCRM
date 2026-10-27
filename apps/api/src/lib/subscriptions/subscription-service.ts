@@ -474,7 +474,8 @@ export async function cancelScheduledEnd(id: string) {
 export async function closeEndedSubscriptions(now = new Date()): Promise<number> {
   const closed = await prisma.subscription.updateMany({
     where: { status: { not: SubscriptionStatus.ENDED }, endDate: { lt: now } },
-    data: { status: SubscriptionStatus.ENDED },
+    // Lien court du portail Stripe retiré avec l'abonnement : un ancien e-mail ne mène plus nulle part.
+    data: { status: SubscriptionStatus.ENDED, publicToken: null },
   });
   return closed.count;
 }
@@ -483,26 +484,54 @@ export async function closeEndedSubscriptions(now = new Date()): Promise<number>
 /** Cycle déjà réservé par un passage simultané : rien à émettre. */
 class CycleAlreadyClaimedError extends Error {}
 
-async function invoiceSubscriptionCycle(sub: Prisma.SubscriptionGetPayload<{ include: { client: true; service: true } }>): Promise<boolean> {
-  const issueDate = sub.nextInvoiceAt;
-  const interval = normalizeInterval(sub.billingInterval);
-  // Annuel et trimestriel : la période couverte figure sur la ligne ; mensuel : le libellé seul.
-  const dated = interval !== "MONTH";
-  const followingInvoiceAt = nextPeriodDate(issueDate, periodMonths(sub.billingInterval), anchorDayOf(sub));
+/** Nombre de jours civils de `from` à `to` (minuit à minuit, heure de Paris), changement d'heure compris. */
+function calendarDaysBetween(from: Date, to: Date): number {
+  return Math.round((Date.UTC(to.getFullYear(), to.getMonth(), to.getDate()) - Date.UTC(from.getFullYear(), from.getMonth(), from.getDate())) / 86_400_000);
+}
 
-  // Idempotence : une facture existe déjà pour ce cycle ?
-  // Toute facture non annulée datée dans ce cycle compte (une facture Stripe ou manuelle
-  // n'est pas forcément datée du jour exact de l'échéance).
-  const existing = await prisma.invoice.findFirst({
+/** Début de la période facturée inscrit sur une ligne d'échéance (« … : période du 01/06/2026 au … »), sinon null. */
+function billedPeriodStartOf(description: string | undefined): Date | null {
+  const m = description?.match(/période du (\d{2})\/(\d{2})\/(\d{4})/);
+  return m ? new Date(Number(m[3]), Number(m[2]) - 1, Number(m[1])) : null;
+}
+
+async function invoiceSubscriptionCycle(sub: Prisma.SubscriptionGetPayload<{ include: { client: true; service: true } }>, now: Date = new Date()): Promise<boolean> {
+  const periodStart = sub.nextInvoiceAt;
+  // Échéance en retard (worker arrêté, rattrapage) : facture datée du jour de son émission, jamais dans le passé, pour
+  // une numérotation chronologique ; la période facturée figure sur la ligne (décision du 27/10/2026).
+  const today = startOfDay(now);
+  const issueDate = periodStart < today ? today : periodStart;
+  const interval = normalizeInterval(sub.billingInterval);
+  const followingInvoiceAt = nextPeriodDate(periodStart, periodMonths(sub.billingInterval), anchorDayOf(sub));
+  if (sub.endDate && sub.endDate < periodStart) return false;
+  // Période qui dépasse la fin du contrat : dernière facture au prorata des jours jusqu'à la date de fin incluse
+  // (décision d'Alexandre du 27/10/2026).
+  const periodDays = calendarDaysBetween(periodStart, followingInvoiceAt);
+  const lastDay = sub.endDate && sub.endDate < addDays(followingInvoiceAt, -1) ? startOfDay(sub.endDate) : addDays(followingInvoiceAt, -1);
+  const billedDays = calendarDaysBetween(periodStart, lastDay) + 1;
+  const prorated = billedDays < periodDays;
+  const prorate = (cents: number) => (prorated ? Math.round((cents * billedDays) / periodDays) : cents);
+  // Annuel et trimestriel, échéance en retard ou au prorata : la période couverte figure sur la ligne ; mensuel à
+  // l'heure : le libellé seul.
+  const dated = interval !== "MONTH" || issueDate.getTime() !== periodStart.getTime() || prorated;
+
+  // Idempotence : une facture existe déjà pour ce cycle ? Toute facture non annulée datée dans ce cycle compte (une
+  // facture Stripe ou manuelle n'est pas forcément datée du jour exact de l'échéance), sauf la facture en retard d'un
+  // cycle précédent, datée du jour de son émission : sa ligne porte une période antérieure à ce cycle.
+  const candidates = await prisma.invoice.findMany({
     where: {
       subscriptionId: sub.id,
       status: { not: InvoiceStatus.CANCELLED },
       issueDate: {
-        gte: new Date(issueDate.getFullYear(), issueDate.getMonth(), issueDate.getDate(), 0, 0, 0, 0),
+        gte: startOfDay(periodStart),
         lt: followingInvoiceAt,
       },
     },
-    select: { id: true },
+    select: { id: true, lines: { select: { description: true }, orderBy: { position: "asc" }, take: 1 } },
+  });
+  const existing = candidates.find((inv) => {
+    const billed = billedPeriodStartOf(inv.lines[0]?.description);
+    return !billed || billed >= startOfDay(periodStart);
   });
   if (existing) {
     // Cycle déjà facturé : on avance juste nextInvoiceAt pour ne pas boucler.
@@ -519,7 +548,8 @@ async function invoiceSubscriptionCycle(sub: Prisma.SubscriptionGetPayload<{ inc
   const settings = await getCompanySettings();
   // Remise du devis signé (R1) : sur les discountPeriods premières échéances facturées, puis tarif plein.
   const discountIndex = sub.discountPeriods && sub.discountPeriodsBilled < sub.discountPeriods ? sub.discountPeriodsBilled + 1 : 0;
-  const discountCents = discountIndex ? discountCentsPerPeriod(sub.discountKind, sub.discountValue, sub.amountCents) : 0;
+  const amountCents = prorate(sub.amountCents);
+  const discountCents = discountIndex ? prorate(discountCentsPerPeriod(sub.discountKind, sub.discountValue, sub.amountCents)) : 0;
   const discountLabel =
     sub.discountKind === "PERCENT" && sub.discountValue
       ? `Remise de ${String(sub.discountValue / 100).replace(".", ",")} % (échéance ${discountIndex} sur ${sub.discountPeriods})`
@@ -530,7 +560,7 @@ async function invoiceSubscriptionCycle(sub: Prisma.SubscriptionGetPayload<{ inc
     // Réservation du cycle, première écriture : l'échéance n'avance que si elle vaut encore celle lue. Un passage
     // simultané (worker et « Générer maintenant ») la trouve déjà avancée et annule tout, numéro compris (audit du
     // 27/10/2026 : trois passages parallèles émettaient trois factures pour le même cycle).
-    const claimed = await tx.subscription.updateMany({ where: { id: sub.id, nextInvoiceAt: issueDate }, data: { nextInvoiceAt: followingInvoiceAt } });
+    const claimed = await tx.subscription.updateMany({ where: { id: sub.id, nextInvoiceAt: periodStart }, data: { nextInvoiceAt: followingInvoiceAt } });
     if (claimed.count !== 1) throw new CycleAlreadyClaimedError();
     const invoice = await tx.invoice.create({
       data: {
@@ -545,16 +575,18 @@ async function invoiceSubscriptionCycle(sub: Prisma.SubscriptionGetPayload<{ inc
             : interval === "QUARTER"
               ? "Échéance trimestrielle : paiement à réception"
               : "Prélèvement mensuel : paiement à réception",
-        subtotalCents: sub.amountCents - discountCents,
-        totalCents: sub.amountCents - discountCents,
+        subtotalCents: amountCents - discountCents,
+        totalCents: amountCents - discountCents,
         lines: {
           create: [
             {
               position: 1,
-              description: dated ? `${sub.label} : période du ${fmtDay(issueDate)} au ${fmtDay(addDays(followingInvoiceAt, -1))}` : sub.label,
+              description: dated
+                ? `${sub.label} : période du ${fmtDay(periodStart)} au ${fmtDay(lastDay)}${prorated ? ` (prorata : ${billedDays} jours sur ${periodDays})` : ""}`
+                : sub.label,
               quantity: 1,
-              unitPriceCents: sub.amountCents,
-              lineTotalCents: sub.amountCents,
+              unitPriceCents: amountCents,
+              lineTotalCents: amountCents,
             },
             ...(discountCents
               ? [{ position: 2, description: discountLabel, quantity: 1, unitPriceCents: -discountCents, lineTotalCents: -discountCents }]
@@ -602,7 +634,7 @@ export async function invoiceSubscriptionNow(subscriptionId: string, now: Date =
     },
     include: { client: true, service: true },
   });
-  return sub ? invoiceSubscriptionCycle(sub) : false;
+  return sub ? invoiceSubscriptionCycle(sub, now) : false;
 }
 
 /**
@@ -628,7 +660,7 @@ export async function generateDueSubscriptionInvoices(now: Date = new Date()): P
   // Un abonnement en erreur (client incomplet, numérotation) ne bloque pas les autres ; il est repris au passage suivant.
   for (const sub of due) {
     try {
-      if (await invoiceSubscriptionCycle(sub)) generated += 1;
+      if (await invoiceSubscriptionCycle(sub, now)) generated += 1;
     } catch (err) {
       console.error(`[subscriptions] facture de l'abonnement ${sub.id} non émise`, err);
     }

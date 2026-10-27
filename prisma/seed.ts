@@ -28,7 +28,15 @@ async function main() {
     return WEAK_PASSWORDS.has(p.toLowerCase()) || /^change-me/i.test(p.trim()) || p.length < 12;
   }
 
-  if (!process.env.ADMIN_PASSWORD) {
+  // Compte existant sans remplacement demandé : le mot de passe n'est pas lu. Il quitte le .env une fois l'installation
+  // faite (décision du 27/10/2026) ; une réinstallation garde le compte tel quel.
+  const resetAdmin = process.env.SEED_RESET_ADMIN_PASSWORD === "1";
+  const existingAdmin = await prisma.user.findUnique({ where: { email }, select: { id: true } });
+  const needsPassword = !existingAdmin || resetAdmin;
+
+  if (!needsPassword) {
+    // Rien à vérifier : le compte en base garde son mot de passe.
+  } else if (!process.env.ADMIN_PASSWORD) {
     if (isProd) {
       throw new Error(
         "ADMIN_PASSWORD absent du .env en production. Définissez un mot de passe d'au moins 12 caractères.",
@@ -43,16 +51,18 @@ async function main() {
     );
   }
 
-  const passwordHash = await argon2.hash(password, { type: argon2.argon2id });
-
   // Compte existant laissé tel quel : relancer l'installation ne remet jamais le mot de passe à celui
   // du .env. Seul « kouziactl admin » le remplace, explicitement (SEED_RESET_ADMIN_PASSWORD=1).
-  const resetAdmin = process.env.SEED_RESET_ADMIN_PASSWORD === "1";
-  const admin = await prisma.user.upsert({
-    where: { email },
-    update: resetAdmin ? { name, passwordHash } : {},
-    create: { email, name, passwordHash },
-  });
+  const admin = needsPassword
+    ? await (async () => {
+        const passwordHash = await argon2.hash(password, { type: argon2.argon2id });
+        return prisma.user.upsert({
+          where: { email },
+          update: resetAdmin ? { name, passwordHash } : {},
+          create: { email, name, passwordHash },
+        });
+      })()
+    : await prisma.user.findUniqueOrThrow({ where: { email } });
   // Mot de passe remplacé (souvent après une fuite) : sessions et défis de connexion en cours fermés, comme à la
   // remise à zéro de la 2FA (audit du 27/10/2026 : les sessions restaient valables jusqu'à 7 jours).
   if (resetAdmin) {

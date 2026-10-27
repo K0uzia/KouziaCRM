@@ -7,6 +7,7 @@ import {
   type Prisma,
 } from "@prisma/client";
 import { archiveIssuedDocument } from "@/lib/pdf/issued-archive.js";
+import { clientSnapshotData } from "@/lib/invoices/client-snapshot.js";
 import { prisma } from "@/lib/prisma.js";
 import { depositBaseOf } from "@/lib/invoices/totals.js";
 import { assertDepositsPaid, assertQuoteSigned, milestoneInvoiceKind } from "@/lib/invoices/workflow.js";
@@ -111,23 +112,27 @@ export async function computeBalanceSummary(
       invoiceType: { in: [InvoiceType.ACOMPTE, InvoiceType.SOLDE] },
     },
     orderBy: [{ issueDate: "asc" }, { createdAt: "asc" }],
+    include: BALANCE_INCLUDE,
   });
 
+  // Avoir sur un acompte (décision d'Alexandre du 27/10/2026) : il corrige l'acompte seulement, le marché reste au prix
+  // signé ; l'acompte compte pour son net (total moins avoirs) et le solde absorbe la différence.
   const acomptes = marketInvoices
     .filter((i) => i.invoiceType === InvoiceType.ACOMPTE)
     .map((i) => {
       const paid = isPaidInvoice(i.status);
+      const netCents = invoiceBalance(i).netCents;
       return {
         invoiceId: i.id,
         number: i.number ?? "?",
-        amountCents: i.totalCents,
+        amountCents: netCents,
         status: i.status,
         paid,
         label: paid
           ? `Acompte facturé et réglé (${i.number})`
           : `Acompte facturé non réglé (${i.number})`,
-        /** Montant déjà facturé (déduit du solde, payé ou non) */
-        deductedCents: i.totalCents,
+        /** Montant déjà facturé net des avoirs (déduit du solde, payé ou non) */
+        deductedCents: netCents,
       };
     });
 
@@ -387,7 +392,7 @@ export async function generateMilestoneInvoice(
         invoiceType: InvoiceType.ACOMPTE,
         status: InvoiceStatus.ISSUED,
         clientId: milestone.quote.clientId,
-        clientSnapshot: snapshot as unknown as Prisma.InputJsonValue,
+        ...clientSnapshotData(snapshot),
         number: allocated.number,
         sequenceYear: allocated.sequenceYear,
         sequenceNumber: allocated.sequenceNumber,
@@ -524,7 +529,7 @@ export async function generateBalanceInvoice(
         invoiceType: InvoiceType.SOLDE,
         status: InvoiceStatus.ISSUED,
         clientId: quote.clientId,
-        clientSnapshot: snapshot as unknown as Prisma.InputJsonValue,
+        ...clientSnapshotData(snapshot),
         number: allocated.number,
         sequenceYear: allocated.sequenceYear,
         sequenceNumber: allocated.sequenceNumber,
