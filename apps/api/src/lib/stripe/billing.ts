@@ -208,8 +208,13 @@ export async function issueErpInvoiceFromStripeInvoice(
   return { invoiceId: issued.id, created: true };
 }
 
+/**
+ * @param eventPaidAt date de l'événement invoice.paid : date du paiement si la facture Stripe ne porte pas
+ * status_transitions.paid_at (décision du 27/10/2026, jamais l'heure de traitement du webhook).
+ */
 export async function handleStripeInvoicePaid(
   stripeInvoice: Stripe.Invoice,
+  eventPaidAt: Date | null = null,
 ): Promise<void> {
   if (!stripeInvoice.id) return;
   let erp = await prisma.invoice.findUnique({
@@ -251,6 +256,7 @@ export async function handleStripeInvoicePaid(
     amountCents: stripeInvoice.amount_paid ?? erp.totalCents,
     feeCents,
     method,
+    paidAt: stripeInvoice.status_transitions?.paid_at ? new Date(stripeInvoice.status_transitions.paid_at * 1000) : eventPaidAt,
   });
 }
 

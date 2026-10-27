@@ -74,7 +74,12 @@ async function recordEvent(event: Stripe.Event): Promise<void> {
   }
 }
 
-/** Facture Billing d'abonnement à 0 € (essai, alignement de la première échéance) : aucune facture ERP. */
+/** Date de l'événement Stripe (création, en secondes) ; absente (revérification par le worker) : null, donc maintenant. */
+function eventDate(event: Stripe.Event): Date | null {
+  return typeof event.created === "number" && event.created > 0 ? new Date(event.created * 1000) : null;
+}
+
+/** Facture Billing d'abonnement à 0 €(essai, alignement de la première échéance) : aucune facture ERP. */
 function isZeroAmountInvoice(invoice: Stripe.Invoice): boolean {
   return (invoice.amount_due ?? 0) <= 0 && (invoice.total ?? 0) <= 0;
 }
@@ -144,6 +149,7 @@ async function handleEvent(event: Stripe.Event): Promise<string> {
         milestoneId: meta.erpMilestoneId || null,
         invoiceId: meta.erpInvoiceId || null,
         notes: "Paiement Stripe",
+        paidAt: eventDate(event),
       });
       await clearInvoiceProcessing(pi);
       break;
@@ -215,7 +221,7 @@ async function handleEvent(event: Stripe.Event): Promise<string> {
       const invoice = event.data.object as Stripe.Invoice;
       if (isZeroAmountInvoice(invoice)) return `${event.type}:ignoré (0 €)`;
       if (!isSubscriptionInvoice(invoice)) break;
-      await handleStripeInvoicePaid(invoice);
+      await handleStripeInvoicePaid(invoice, eventDate(event));
       const erp = invoice.id ? await prisma.invoice.findUnique({ where: { stripeInvoiceId: invoice.id } }) : null;
       if (erp && (await notifyStripePaymentRecovered(erp.id))) return `${event.type}:régularisation signalée`;
       break;
