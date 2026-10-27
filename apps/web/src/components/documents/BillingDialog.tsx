@@ -49,7 +49,7 @@ export function PaymentLinkFields({
     {
       mode: "manual",
       label: "Coller un lien de paiement",
-      hint: "URL https de paiement (exception).",
+      hint: "Lien Stripe seulement (checkout.stripe.com, billing.stripe.com ou buy.stripe.com).",
     },
     { mode: "none", label: noneLabel },
   ];
@@ -88,7 +88,7 @@ export function PaymentLinkFields({
           <Input
             type="url"
             inputMode="url"
-            placeholder="https://…"
+            placeholder="https://buy.stripe.com/…"
             value={value.url}
             onChange={(e) => onChange({ ...value, url: e.target.value })}
             autoFocus

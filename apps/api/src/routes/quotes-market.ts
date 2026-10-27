@@ -27,7 +27,7 @@ import {
 import { PaymentPlanError } from "@/lib/quotes/payment-plans.js";
 import { signedQuoteAbsolutePath } from "@/lib/invoices/acceptance-proof.js";
 import { WorkflowError } from "@/lib/invoices/workflow.js";
-import { applyPaymentLinkChoice } from "@/lib/invoices/payment-link.js";
+import { applyPaymentLinkChoice, manualPaymentUrlSchema } from "@/lib/invoices/payment-link.js";
 import { sendDocumentPdf } from "@/lib/email/send-document-pdf.js";
 import { assertIssueDateAllowed, IssueDateError } from "@/lib/invoices/numberingService.js";
 import fs from "node:fs/promises";
@@ -53,7 +53,7 @@ export const billingOptionsSchema = z.object({
   payment: z
     .discriminatedUnion("mode", [
       z.object({ mode: z.literal("none") }),
-      z.object({ mode: z.literal("manual"), url: z.string().min(1).max(2000) }),
+      z.object({ mode: z.literal("manual"), url: manualPaymentUrlSchema }),
       z.object({ mode: z.literal("auto") }),
     ])
     .optional(),
@@ -218,7 +218,7 @@ export const quotesMarketRoutes: FastifyPluginAsync = async (app) => {
       });
       if (!milestone) return reply.code(404).send({ error: "Jalon introuvable" });
       const opts = billingOptionsSchema.safeParse(request.body ?? {});
-      if (!opts.success) return reply.code(400).send({ error: "Options de facturation invalides" });
+      if (!opts.success) return reply.code(400).send({ error: opts.error.issues[0]?.message ?? "Options de facturation invalides" });
       try {
         const invoice = await generateMilestoneInvoice(milestone.id);
         const billing = await finalizeBilling(invoice.id, opts.data);
@@ -340,12 +340,12 @@ export const quotesMarketRoutes: FastifyPluginAsync = async (app) => {
       if (!milestone) return reply.code(404).send({ error: "Jalon introuvable" });
 
       const schema = z.object({
-        checkoutUrl: z.string().url().max(2000),
+        checkoutUrl: manualPaymentUrlSchema,
         sendEmail: z.boolean().optional(),
       });
       const parsed = schema.safeParse(request.body ?? {});
       if (!parsed.success) {
-        return reply.code(400).send({ error: "URL de paiement invalide" });
+        return reply.code(400).send({ error: parsed.error.issues[0]?.message ?? "URL de paiement invalide" });
       }
       try {
         const updated = await setManualMilestonePaymentLink(
@@ -379,7 +379,7 @@ export const quotesMarketRoutes: FastifyPluginAsync = async (app) => {
       });
       const parsed = schema.safeParse(request.body ?? {});
       if (!parsed.success) {
-        return reply.code(400).send({ error: "Données invalides" });
+        return reply.code(400).send({ error: parsed.error.issues[0]?.message ?? "Données invalides" });
       }
       // Audit du 27/10/2026 : date d'émission soumise à la même règle que /issue (ni future ni antérieure à la dernière
       // pièce de la série : la numérotation suit la chronologie), et jalon du devis seulement.

@@ -5,9 +5,11 @@ import {
   MilestoneStatus,
   QuoteStatus,
 } from "@prisma/client";
+import { z } from "zod";
 import { prisma } from "@/lib/prisma.js";
 import { WorkflowError } from "@/lib/invoices/workflow.js";
 import { buildPayUrl } from "@/lib/stripe/pay-urls.js";
+import { publicApiBaseUrl } from "@/lib/settings/public.js";
 
 /**
  * Lien de paiement d'une facture émise (acompte, solde ou facture simple).
@@ -21,6 +23,27 @@ export type PaymentLinkChoice =
   | { mode: "manual"; url: string }
   | { mode: "auto" };
 
+/**
+ * Domaines de paiement (Stripe seulement, décision du 27/10/2026) : copie de « domainesPaiement » du contrat du site
+ * (contenu.schema.json), tenue par un test de parité ; le contrat est lu sur GitHub, un lien collé ne doit pas en dépendre.
+ */
+export const PAYMENT_LINK_HOSTS = ["checkout.stripe.com", "billing.stripe.com", "buy.stripe.com"] as const;
+export const PAYMENT_LINK_REFUSED =
+  "Lien refusé : seuls les liens Stripe (checkout.stripe.com, billing.stripe.com, buy.stripe.com) ou ceux de l'ERP sont acceptés.";
+
+/** Lien Stripe exact (https, sans port ni identifiants) ou de l'origine de l'API de l'ERP (liens /api/public/…). */
+export function isAllowedPaymentUrl(raw: string): boolean {
+  let url: URL;
+  try {
+    url = new URL(raw.trim());
+  } catch {
+    return false;
+  }
+  if (url.username || url.password) return false;
+  if (url.origin === new URL(publicApiBaseUrl()).origin) return true;
+  return url.protocol === "https:" && url.port === "" && (PAYMENT_LINK_HOSTS as readonly string[]).includes(url.hostname);
+}
+
 export function normalizePaymentUrl(raw: string): string {
   let url: URL;
   try {
@@ -31,8 +54,23 @@ export function normalizePaymentUrl(raw: string): string {
   if (url.protocol !== "https:") {
     throw new WorkflowError("Le lien de paiement doit commencer par https://", 400);
   }
+  if (!isAllowedPaymentUrl(raw)) throw new WorkflowError(PAYMENT_LINK_REFUSED, 400);
   return url.toString();
 }
+
+/** Lien collé à la main, validé à l'entrée des routes : refusé en 400 avant toute émission ou facturation. */
+export const manualPaymentUrlSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(2048)
+  .superRefine((value, ctx) => {
+    try {
+      normalizePaymentUrl(value);
+    } catch (e) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: e instanceof Error ? e.message : "Lien de paiement invalide." });
+    }
+  });
 
 async function loadPayable(invoiceId: string) {
   const invoice = await prisma.invoice.findUnique({
