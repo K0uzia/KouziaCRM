@@ -23,7 +23,15 @@ const AE_SITUATION_BASE = {
 } as const;
 
 let engine: Engine | null = null;
-const resultCache = new Map<number, SocialBreakdown>();
+const resultCache = new Map<string, SocialBreakdown>();
+
+/**
+ * Date de la période dans le format de modele-social (JJ/MM/AAAA, 1er du mois). Sans elle, le moteur prend sa date par
+ * défaut (fixée dans le paquet), donc le taux d'une autre période (audit du 27/10/2026).
+ */
+function periodSituationDate(periodStart: Date): string {
+  return `01/${String(periodStart.getMonth() + 1).padStart(2, "0")}/${periodStart.getFullYear()}`;
+}
 
 /** Coupe le spam console de modele-social (très coûteux en Node). */
 function silenceWarnings<T>(fn: () => T): T {
@@ -64,11 +72,17 @@ const ZERO: SocialBreakdown = {
  * Cotisations AE  -  cache par montant + une seule evaluate « total »
  * (pas d'impôt.montant, très lent / expérimental).
  */
-export function computeSocialChargesForEncaisse(caCents: number): SocialBreakdown {
+/**
+ * @param periodStart début de la période déclarée : le taux est celui de cette période (décembre 2025 déclaré en
+ * janvier 2026 : taux de 2025), jamais celui du jour du calcul. Par défaut : le mois en cours.
+ */
+export function computeSocialChargesForEncaisse(caCents: number, periodStart: Date = new Date()): SocialBreakdown {
   const ca = Math.max(0, Math.round(caCents));
   if (ca <= 0) return ZERO;
 
-  const hit = resultCache.get(ca);
+  const date = periodSituationDate(periodStart);
+  const key = `${ca}:${date}`;
+  const hit = resultCache.get(key);
   if (hit) return hit;
 
   const result = silenceWarnings(() => {
@@ -76,6 +90,7 @@ export function computeSocialChargesForEncaisse(caCents: number): SocialBreakdow
     const eng = getPublicodesEngine();
     eng.setSituation({
       ...AE_SITUATION_BASE,
+      date,
       "dirigeant . auto-entrepreneur . chiffre d'affaires": `${caEuros} €/mois`,
     } as never);
 
@@ -103,10 +118,10 @@ export function computeSocialChargesForEncaisse(caCents: number): SocialBreakdow
     } satisfies SocialBreakdown;
   });
 
-  resultCache.set(ca, result);
+  resultCache.set(key, result);
   return result;
 }
 
-export function computeUrssafDueCents(encaisseCents: number): number {
-  return computeSocialChargesForEncaisse(encaisseCents).totalCents;
+export function computeUrssafDueCents(encaisseCents: number, periodStart?: Date): number {
+  return computeSocialChargesForEncaisse(encaisseCents, periodStart).totalCents;
 }

@@ -208,7 +208,7 @@ export async function getDashboardSnapshot(
       : Promise.resolve(0),
   ]);
 
-  const breakdownDue = computeSocialChargesForEncaisse(encaisseDuePeriod);
+  const breakdownDue = computeSocialChargesForEncaisse(encaisseDuePeriod, declPeriod.periodStart);
   const amountDueFormal = existingDecl?.amountDueCents ?? breakdownDue.totalCents;
   const isPaid = existingDecl?.status === "PAID";
 
@@ -245,7 +245,7 @@ export async function getDashboardSnapshot(
       periodLabel: upcoming.label,
       deadline: upcoming.deadline.toISOString(),
       encaisseCents: encaisseEnCours,
-      estimatedDueCents: computeSocialChargesForEncaisse(encaisseEnCours).totalCents,
+      estimatedDueCents: computeSocialChargesForEncaisse(encaisseEnCours, clippedUpcoming?.start ?? now).totalCents,
     },
   };
 
@@ -294,7 +294,7 @@ export async function markUrssafPaid(opts: {
   );
   const periodKey = opts.periodKey ?? declPeriod.periodKey;
   const encaisse = await sumEncaisseCents(declPeriod.periodStart, declPeriod.periodEnd);
-  const amountDueCents = computeUrssafDueCents(encaisse);
+  const amountDueCents = computeUrssafDueCents(encaisse, declPeriod.periodStart);
 
   return prisma.urssafDeclaration.upsert({
     where: { periodKey },

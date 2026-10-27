@@ -294,7 +294,7 @@ export function buildCashflowFromEncaisse(
 ): ScopedCashflow {
   const now = meta.now ?? new Date();
   const encaisse = Math.max(0, Math.round(encaisseCents));
-  const social = computeSocialChargesForEncaisse(encaisse);
+  const social = computeSocialChargesForEncaisse(encaisse, now);
   const fraisCents = Math.round((encaisse * meta.treasuryRateBps) / 10_000);
   const placementsCents = Math.round((encaisse * meta.placementRateBps) / 10_000);
   const cfeCents = Math.max(0, meta.cfeCents ?? 0);

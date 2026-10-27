@@ -281,7 +281,7 @@ async function ensureUrssafObligation(settings: CompanySettings, now = new Date(
       settings.urssafPeriodicity,
     );
     const encaisse = await sumEncaisseBetween(plan.periodStart, plan.periodEnd);
-    const { totalCents } = computeSocialChargesForEncaisse(encaisse);
+    const { totalCents } = computeSocialChargesForEncaisse(encaisse, plan.periodStart);
     last = await upsertObligation({
       type: ObligationType.URSSAF_DECLARATION,
       period: plan.periodKey,
@@ -462,7 +462,7 @@ async function ensureNextUrssafAfter(
     const clipped = clipPeriodToActivity(next.start, next.end, settings.businessStartDate);
     if (!clipped) return null;
     const encaisse = await sumEncaisseBetween(clipped.start, clipped.end);
-    const { totalCents } = computeSocialChargesForEncaisse(encaisse);
+    const { totalCents } = computeSocialChargesForEncaisse(encaisse, clipped.start);
     return upsertObligation({
       type: ObligationType.URSSAF_DECLARATION,
       period: next.periodKey,
@@ -487,7 +487,7 @@ async function ensureNextUrssafAfter(
   const period = `${year}-${String(month).padStart(2, "0")}`;
   const dueDate = urssafDeadlineForPeriod(clipped.end);
   const encaisse = await sumEncaisseBetween(clipped.start, clipped.end);
-  const { totalCents } = computeSocialChargesForEncaisse(encaisse);
+  const { totalCents } = computeSocialChargesForEncaisse(encaisse, clipped.start);
   return upsertObligation({
     type: ObligationType.URSSAF_DECLARATION,
     period,
