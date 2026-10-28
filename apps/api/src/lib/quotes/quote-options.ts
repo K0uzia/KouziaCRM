@@ -49,6 +49,8 @@ export function quoteFieldsOfOption(o: QuoteOption) {
     totalCents: o.totalCents,
     ...(o.depositBaseCents !== null ? { depositBaseCents: o.depositBaseCents } : {}),
     ...(o.paymentScheduleSnapshot ? { paymentScheduleSnapshot: o.paymentScheduleSnapshot } : {}),
+    // Compris et non compris de la proposition retenue (28/10/2026) : le devis signé les porte comme un devis simple.
+    ...(o.scopeSnapshot ? { scopeSnapshot: o.scopeSnapshot as Prisma.InputJsonValue } : {}),
   };
 }
 

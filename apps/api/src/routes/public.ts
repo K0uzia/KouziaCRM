@@ -8,10 +8,11 @@ import { z } from "zod";
 import { InvoiceDocumentType, InvoiceStatus } from "@prisma/client";
 import { prisma } from "@/lib/prisma.js";
 import { loadDocumentForPdf, pdfDataOfLoaded } from "@/lib/pdf/document-pdf.js";
-import { isBillableLine, optionalChoicesError, optionalLinesSchema, proposalLetter, quoteFieldsOfOption } from "@/lib/quotes/quote-options.js";
+import { optionalChoicesError, optionalLinesSchema, proposalLetter, quoteFieldsOfOption } from "@/lib/quotes/quote-options.js";
 import { getCompanySettings } from "@/lib/company.js";
 import { buildPayUrl } from "@/lib/stripe/pay-urls.js";
-import { billedWithDocument, depositBaseOf } from "@/lib/invoices/totals.js";
+import { billedWithDocument, depositBaseOf, isCommittedLine } from "@/lib/invoices/totals.js";
+import { readScope } from "@/lib/quotes/scope.js";
 
 /**
  * Remise appliquée à la partie ponctuelle d'un document (contrat KouziaWebsite, README « Espace client »).
@@ -23,11 +24,12 @@ function oneOffDiscountOf(d: {
   subtotalCents: number;
   totalCents: number;
   depositBaseCents: number | null;
-  lines: Array<{ unitPriceCents: number; subscriptionStart: string | null }>;
+  lines: Array<{ unitPriceCents: number; subscriptionStart: string | null; isOptional: boolean; optionalAccepted: boolean | null }>;
 }): number {
   if (d.documentType === "QUOTE" && d.depositBaseCents !== null) {
+    // Option en attente ou non retenue : hors du sous-total, donc hors du calcul (28/10/2026).
     const billedSubs = d.lines
-      .filter((l) => billedWithDocument({ isSubscription: true, subscriptionStart: l.subscriptionStart }))
+      .filter((l) => isCommittedLine(l) && billedWithDocument({ isSubscription: true, subscriptionStart: l.subscriptionStart }))
       .reduce((s, l) => s + l.unitPriceCents, 0);
     return Math.max(0, d.subtotalCents - billedSubs - d.depositBaseCents);
   }
@@ -495,7 +497,11 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
             where: { isSubscription: true },
             orderBy: { position: "asc" },
             select: {
+              id: true,
               optionId: true,
+              // Option au choix du client (28/10/2026) : à part des abonnements engagés (optionalLines).
+              isOptional: true,
+              optionalAccepted: true,
               description: true,
               billingInterval: true,
               unitPriceCents: true,
@@ -689,9 +695,30 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
           const payUrl = dueNow > 0 && !processing ? safePayUrl(d.checkoutUrl) : null;
           const proposals = d.documentType === InvoiceDocumentType.QUOTE && d.options.length ? d.options : null;
           /** Mode, abonnement, offre et échéanciers d'un devis ; aussi d'une proposition, construite comme un devis. */
-          const quoteBilling = (q: typeof d) => {
-            const offer = parsePaymentPlanOffer(q.paymentPlanOffer);
+          const quoteBilling = (all: typeof d) => {
+            const offer = parsePaymentPlanOffer(all.paymentPlanOffer);
+            // Abonnements engagés seulement : une option en attente ou non retenue est décrite dans optionalLines.
+            const q = { ...all, lines: all.lines.filter(isCommittedLine) };
+            const optional = all.lines.filter((l) => l.isOptional);
+            const scope = all.documentType === InvoiceDocumentType.QUOTE ? readScope(all.scopeSnapshot) : null;
             return {
+              ...(scope ? { scope } : {}),
+              ...(optional.length
+                ? {
+                    optionalLines: optional.map((l) => {
+                      const months = l.commitmentMonths ?? 12;
+                      return {
+                        id: l.id,
+                        label: l.description,
+                        interval: normalizeInterval(l.billingInterval),
+                        ...(showAmounts ? { amountCents: l.unitPriceCents, totalCommitmentCents: Math.round((l.unitPriceCents * months) / 12) } : {}),
+                        commitmentMonths: months,
+                        startsAt: "DELIVERY" as const,
+                        accepted: l.optionalAccepted,
+                      };
+                    }),
+                  }
+                : {}),
               // Mode de facturation (contrat F5) : null pour un devis antérieur ; récurrent : l'abonnement du devis.
               ...(q.documentType === InvoiceDocumentType.QUOTE ? { billingMode: parseBillingMode(q.billingMode) } : {}),
               ...(q.documentType === InvoiceDocumentType.QUOTE && recurringOf(q)
@@ -869,7 +896,7 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
             ...(d.documentType === InvoiceDocumentType.QUOTE
               ? proposals && !d.selectedOptionId
                 ? { billingMode: null, totalIsCheapestOption: true as const }
-                : quoteBilling(proposals ? { ...d, lines: d.lines.filter((l) => isBillableLine(l, d.selectedOptionId)) } : d)
+                : quoteBilling(proposals ? { ...d, lines: d.lines.filter((l) => !l.optionId || l.optionId === d.selectedOptionId) } : d)
               : {}),
             ...(proposals
               ? {
@@ -884,6 +911,7 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
                       ...quoteFieldsOfOption(o),
                       paymentPlanOffer: o.paymentPlanOffer,
                       promoCode: o.promoCode,
+                      scopeSnapshot: o.scopeSnapshot,
                       paymentPlan: d.selectedOptionId === o.id ? d.paymentPlan : null,
                       lines: d.lines.filter((l) => l.optionId === o.id),
                     }),

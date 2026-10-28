@@ -209,3 +209,31 @@ describe("signature dans /suivi : choix de l'option", () => {
     expect(await prisma.invoice.findUniqueOrThrow({ where: { id: q.id } })).toMatchObject({ totalCents: 150000, depositBaseCents: 120000 });
   });
 });
+
+describe("GET /api/public/tracking : optionalLines et scope (contrat /suivi)", () => {
+  const tracked = async (kz_portal: string, id: string) =>
+    ((await app.inject({ method: "GET", url: "/api/public/tracking", cookies: { kz_portal } })).json().documents as Array<Record<string, unknown>>).find((d) => d.id === id)!;
+
+  it("avant signature : option à part, abonnements engagés vides ; après : choix et abonnement engagé", async () => {
+    await prisma.companySettings.updateMany({ data: { publicTrackingShowAmounts: true } });
+    const { invalidateCompanySettingsCache } = await import("@/lib/company.js");
+    invalidateCompanySettingsCache();
+    const { id, lineId } = await issuedQuote();
+    const kz_portal = await portalSession();
+    const before = await tracked(kz_portal, id);
+    expect(before.optionalLines).toEqual([
+      { id: lineId, label: "Maintenance annuelle", interval: "YEAR", amountCents: 30000, totalCommitmentCents: 60000, commitmentMonths: 24, startsAt: "DELIVERY", accepted: null },
+    ]);
+    expect(before).not.toHaveProperty("subscriptionLines");
+    expect(before).not.toHaveProperty("oneOffDiscountCents");
+    expect(before.totalCents).toBe(120000);
+    expect((before.scope as { kind: string; excluded: string[] }).excluded.length).toBe(4);
+
+    expect((await decide(kz_portal, id, { optionalLines: [{ id: lineId, accepted: true }] })).statusCode).toBe(200);
+    const after = await tracked(kz_portal, id);
+    expect((after.optionalLines as Array<{ accepted: boolean }>)[0]!.accepted).toBe(true);
+    expect((after.subscriptionLines as Array<{ label: string; startsAt: string }>).map((l) => [l.label, l.startsAt])).toEqual([["Maintenance annuelle", "DELIVERY"]]);
+    expect(after.totalCents).toBe(150000);
+    expect(after).not.toHaveProperty("oneOffDiscountCents");
+  });
+});
