@@ -41,8 +41,9 @@ describe("PDF du devis : abonnement, rétractation, CGV", () => {
     const p = buildInvoicePdfPayload({ invoice: quote("MONTH"), legalClauses: clauses, clientType: "B2C" });
     expect(p.withdrawalTerms).toMatch(/14 jours/);
     expect(p.withdrawalTerms).toMatch(/Formulaire de rétractation/);
-    expect(p.subscriptionTerms?.MONTH).toMatch(/Sans durée minimale/);
-    expect(p.subscriptionTerms?.YEAR).toMatch(/reconduite tacitement/);
+    // Clauses alignées sur les CGV du 28/10/2026 : un an, reconduction, un mois de préavis.
+    expect(p.subscriptionTerms?.MONTH).toMatch(/payable d'avance chaque mois/);
+    expect(p.subscriptionTerms?.YEAR).toMatch(/reconduit tacitement/);
     const titles = (p.legalClauses ?? []).map((c) => c.title);
     expect(titles).not.toContain("Droit de rétractation (particuliers)");
     expect(titles).not.toContain("Abonnement mensuel");

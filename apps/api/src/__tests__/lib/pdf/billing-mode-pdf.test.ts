@@ -81,20 +81,20 @@ describe("PDF du devis selon le mode de facturation", () => {
     expect(text).not.toContain("facturés automatiquement");
     expect(text).not.toContain("Facturation :");
     // Encadré : le titre puis la clause d'engagement seule, sans redire la désignation.
-    expect(text).toMatch(/Abonnement avec engagement \[BROUILLON[^\]]*\] Abonnement conclu pour la durée d'engagement/);
+    expect(text).toMatch(/Abonnement avec engagement Abonnement conclu pour la durée d'engagement/);
+    expect(text).not.toContain("[BROUILLON");
     once("Site tout compris");
     expect(text).not.toContain("Total du projet");
     expect(text).not.toContain("hors acompte et échéancier");
   });
 
-  it("récurrent trimestriel engagé, proposition activée : {{periodicite}} et {{periode}} remplies, aucune clause « résiliable à tout moment »", async () => {
-    await prisma.legalClause.updateMany({ where: { title: "Abonnement avec engagement" }, data: { active: false } });
-    await prisma.legalClause.updateMany({ where: { title: { startsWith: "Abonnement avec engagement (proposition" } }, data: { active: true } });
+  it("récurrent trimestriel engagé, clause d'engagement par défaut : {{periodicite}} et {{periode}} remplies, aucune clause « résiliable à tout moment »", async () => {
     const svc = await createService({ name: "Site tout compris", unitPriceCents: 150000 });
     const text = await quote("RECURRING", "ONE", [
       { description: "Site tout compris", unitPriceCents: 37500, isSubscription: true, billingInterval: "QUARTER", billingDay: 1, commitmentMonths: 12, serviceId: svc.id },
     ]);
     expect(text).toContain("payable d'avance chaque trimestre, par échéances d'un trimestre");
+    expect(text).toContain("à compter de la livraison");
     expect(text).not.toMatch(/\{\{/);
     expect(text).not.toContain("résiliable à tout moment");
     expect(text).not.toContain("Sans durée minimale");
