@@ -186,7 +186,8 @@ export const subscriptionsRoutes: FastifyPluginAsync = async (app) => {
 
   // Suspendre, reprendre, clôturer : sous prélèvement Stripe, l'action est faite d'abord
   // dans Stripe ; si Stripe échoue, l'état ERP ne change pas (502 et message clair).
-  const endSchema = z.object({ endDate: z.string().date().optional() }).nullable().optional();
+  // invoiceRemaining (clôture pendant l'engagement, 28/10/2026) : facturer d'abord les échéances restantes.
+  const endSchema = z.object({ endDate: z.string().date().optional(), invoiceRemaining: z.boolean().optional() }).nullable().optional();
   for (const kind of ["pause", "resume", "end", "schedule-end", "cancel-scheduled-end"] as const) {
     app.post<{ Params: { id: string } }>(`/api/subscriptions/:id/${kind}`, async (request, reply) => {
       await requireAuth(request, reply);
@@ -199,7 +200,7 @@ export const subscriptionsRoutes: FastifyPluginAsync = async (app) => {
         if (kind === "resume") return await resumeSubscription(id);
         if (kind === "schedule-end") return await scheduleSubscriptionEnd(id);
         if (kind === "cancel-scheduled-end") return await cancelScheduledEnd(id);
-        return await endSubscription(id, parsed.data?.endDate ? new Date(parsed.data.endDate) : undefined);
+        return await endSubscription(id, parsed.data?.endDate ? new Date(parsed.data.endDate) : undefined, { invoiceRemaining: parsed.data?.invoiceRemaining });
       } catch (err) {
         if (err instanceof SubscriptionError) return reply.code(400).send({ error: err.message });
         if (err instanceof StripeSubscriptionSyncError) return reply.code(502).send({ error: err.message });

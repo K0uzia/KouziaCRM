@@ -491,3 +491,49 @@ export async function cancelExpiredFirstCharge(subscriptionId: string, label: st
   }
   return cancelled;
 }
+
+/** Abonnement payé par virement : alerte après ce nombre de jours de retard sur une échéance (audit du 28/10/2026). */
+export const TRANSFER_OVERDUE_ALERT_DAYS = 15;
+
+/**
+ * Échéance d'abonnement réglée par virement (facture de l'ERP), impayée TRANSFER_OVERDUE_ALERT_DAYS jours après sa date
+ * d'échéance : une alerte à l'entreprise par facture, sans suspension automatique (décision d'Alexandre du 28/10/2026 :
+ * il décide de la suite). Les relances au client restent celles des factures.
+ * @returns nombre d'alertes envoyées.
+ */
+export async function alertOverdueTransferSubscriptions(now = new Date()): Promise<number> {
+  const limit = new Date(now.getTime() - TRANSFER_OVERDUE_ALERT_DAYS * 86_400_000);
+  const invoices = await prisma.invoice.findMany({
+    where: {
+      documentType: InvoiceDocumentType.INVOICE,
+      status: InvoiceStatus.ISSUED,
+      subscription: { collectionMethod: { not: "STRIPE" } },
+      OR: [{ dueDate: { lt: limit } }, { dueDate: null, issueDate: { lt: limit } }],
+    },
+    include: { ...BALANCE_INCLUDE, subscription: { select: { label: true } }, client: { select: { displayName: true } } },
+  });
+  if (invoices.length === 0) return 0;
+  const alerted = new Set(
+    (
+      await prisma.emailOutbox.findMany({
+        where: { reviewKind: "subscription_overdue_alert", documentId: { in: invoices.map((i) => i.id) } },
+        select: { documentId: true },
+      })
+    ).map((r) => r.documentId),
+  );
+  let sent = 0;
+  for (const inv of invoices) {
+    if (alerted.has(inv.id)) continue;
+    const due = invoiceBalance(inv).dueCents;
+    if (due <= 0) continue;
+    const since = inv.dueDate ?? inv.issueDate!;
+    const ok = await alertAdmin(
+      `Échéance d'abonnement impayée : ${inv.client.displayName}`,
+      `La facture ${inv.number ?? inv.id} de l'abonnement « ${inv.subscription?.label ?? ""} » (${formatEUR(due)} restant dus) est impayée depuis le ${fmtDate(since)}, plus de ${TRANSFER_OVERDUE_ALERT_DAYS} jours. ` +
+        "Règlement par virement : rien n'est suspendu automatiquement. Relancez le client, puis suspendez l'abonnement dans l'ERP si besoin (CGV, article « Retard de paiement et impayés »).",
+      { kind: "subscription_overdue_alert", documentId: inv.id },
+    );
+    if (ok) sent += 1;
+  }
+  return sent;
+}

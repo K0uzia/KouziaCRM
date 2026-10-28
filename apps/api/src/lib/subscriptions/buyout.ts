@@ -2,8 +2,7 @@ import { InvoiceDocumentType, InvoiceStatus, QuoteStatus, SubscriptionStatus, ty
 import { prisma } from "@/lib/prisma.js";
 import { formatDateFr } from "@/lib/format-fr.js";
 import { lineTotalCents } from "@/lib/money.js";
-import { commitmentEndOf } from "@/lib/subscriptions/commitment.js";
-import { currentPeriodEndOf, normalizeInterval, periodMonths } from "@/lib/subscriptions/subscription-service.js";
+import { currentPeriodEndOf, normalizeInterval, remainingCommitmentPeriods } from "@/lib/subscriptions/subscription-service.js";
 
 /**
  * Rachat du site (lots R1 à R3, décisions du 24/10/2026). L'offre d'abonnement porte sa prestation de rachat (catalogue,
@@ -25,21 +24,7 @@ export class BuyoutError extends Error {
 /** Devis de rachat encore valable ou signé : on n'en propose pas un second. */
 const LIVE_QUOTE_STATUSES: readonly QuoteStatus[] = [QuoteStatus.DRAFT, QuoteStatus.SENT, QuoteStatus.ACCEPTED];
 
-type PeriodSub = { nextInvoiceAt: Date; billingInterval: string | null; commitmentEndsAt: Date | null };
-
-export { currentPeriodEndOf };
-
-/** Périodes de l'engagement qui commencent après la période en cours (0 une fois l'engagement atteint). */
-export function remainingCommitmentPeriods(sub: PeriodSub, now = new Date()): { count: number; from: Date; until: Date | null } {
-  const from = currentPeriodEndOf(sub, now);
-  if (!sub.commitmentEndsAt) return { count: 0, from, until: null };
-  const months = periodMonths(sub.billingInterval);
-  // Échéances comptées depuis l'ancre (from + k périodes), jamais en chaîne : 31/01, 28/02, puis 31/03 (audit du
-  // 27/10/2026 : la chaîne faisait glisser au 28 et comptait une mensualité de trop).
-  let count = 0;
-  while (commitmentEndOf(from, months * count).getTime() < sub.commitmentEndsAt.getTime()) count += 1;
-  return { count, from, until: sub.commitmentEndsAt };
-}
+export { currentPeriodEndOf, remainingCommitmentPeriods };
 
 /**
  * Prix d'une période au devis d'origine (figé à sa signature) : toutes ses lignes d'abonnement additionnées, comme à

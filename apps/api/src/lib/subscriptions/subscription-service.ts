@@ -268,6 +268,12 @@ export async function listSubscriptions(status?: SubscriptionStatus) {
     scheduledEndAt: r.status === SubscriptionStatus.ENDED ? null : scheduledEndOf(r, now, r.client.type).toISOString(),
     /** Créé à la main, jamais facturé, sans Stripe : supprimable et montant modifiable directement. */
     draftLike: isDraftLike({ ...r, _count }),
+    /** Encore engagé : échéances restant à courir après la période en cours (clôture anticipée, 28/10/2026). */
+    remainingCommitment: (() => {
+      if (r.status === SubscriptionStatus.ENDED || !r.commitmentEndsAt || r.commitmentEndsAt <= now) return null;
+      const rest = remainingCommitmentPeriods(r, now);
+      return rest.count > 0 ? { count: rest.count, amountCents: rest.count * r.amountCents, from: rest.from.toISOString(), until: rest.until!.toISOString() } : null;
+    })(),
   }));
 }
 
@@ -391,23 +397,48 @@ export async function resumeSubscription(id: string, now: Date = new Date()) {
     throw new SubscriptionError("Seul un abonnement en pause peut être repris");
   }
   if (sub.stripeSubscriptionId) await applyStripeSubscriptionAction(sub.stripeSubscriptionId, "resume", sub.stripeLivemode);
-  // L'échéance prévue est gardée ; si elle est passée pendant la suspension, elle va à la
-  // prochaine date de facturation (aujourd'hui compris), sans facturer la période suspendue.
+  // L'échéance prévue est gardée ; si elle est passée pendant la suspension, elle avance de période en période, sur
+  // son ancrage (date anniversaire d'un annuel ou d'un trimestriel, audit du 28/10/2026), jusqu'à aujourd'hui compris,
+  // sans facturer la période suspendue.
   const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  const nextInvoiceAt =
-    sub.nextInvoiceAt >= today ? sub.nextInvoiceAt : computeNextInvoiceAt(sub.billingDay, today);
+  let nextInvoiceAt = sub.nextInvoiceAt;
+  const anchor = anchorDayOf(sub);
+  while (nextInvoiceAt < today) nextInvoiceAt = nextPeriodDate(nextInvoiceAt, periodMonths(sub.billingInterval), anchor);
   return prisma.subscription.update({
     where: { id },
     data: { status: SubscriptionStatus.ACTIVE, nextInvoiceAt },
   });
 }
 
-export async function endSubscription(id: string, endDate?: Date) {
+/** Périodes de l'engagement qui commencent après la période en cours (0 une fois l'engagement atteint). */
+export function remainingCommitmentPeriods(
+  sub: { nextInvoiceAt: Date; billingInterval: string | null; commitmentEndsAt: Date | null },
+  now = new Date(),
+): { count: number; from: Date; until: Date | null } {
+  const from = currentPeriodEndOf(sub, now);
+  if (!sub.commitmentEndsAt) return { count: 0, from, until: null };
+  const months = periodMonths(sub.billingInterval);
+  // Échéances comptées depuis l'ancre (from + k périodes), jamais en chaîne : 31/01, 28/02, puis 31/03 (audit du
+  // 27/10/2026 : la chaîne faisait glisser au 28 et comptait une mensualité de trop).
+  let count = 0;
+  while (commitmentEndOf(from, months * count).getTime() < sub.commitmentEndsAt.getTime()) count += 1;
+  return { count, from, until: sub.commitmentEndsAt };
+}
+
+/**
+ * Clôture immédiate par l'admin. Pendant l'engagement (audit du 28/10/2026) : invoiceRemaining facture d'abord les
+ * échéances restant à courir jusqu'à la fin de l'engagement, au tarif plein (CGV, « Départ anticipé »), sur une facture
+ * émise et envoyée au client ; sinon rien n'est facturé (geste laissé au choix de l'admin, prévenu par l'écran).
+ */
+export async function endSubscription(id: string, endDate?: Date, opts: { invoiceRemaining?: boolean } = {}) {
   const sub = await findForStatusChange(id);
   if (sub.status === SubscriptionStatus.ENDED) {
     throw new SubscriptionError("Cet abonnement est déjà clôturé");
   }
+  const remaining = opts.invoiceRemaining ? remainingCommitmentPeriods(sub) : null;
+  if (opts.invoiceRemaining && !remaining?.count) throw new SubscriptionError("Aucune échéance d'engagement ne reste à facturer.");
   if (sub.stripeSubscriptionId) await applyStripeSubscriptionAction(sub.stripeSubscriptionId, "cancel", sub.stripeLivemode);
+  if (remaining?.count) await invoiceRemainingCommitment(sub, remaining);
   const ended = await prisma.subscription.update({
     where: { id },
     data: {
@@ -417,6 +448,45 @@ export async function endSubscription(id: string, endDate?: Date) {
   });
   await rejectObsoleteReviewEmails(id, SUBSCRIPTION_NOTICE_KINDS, "Abonnement clôturé : avis sans objet.");
   return ended;
+}
+
+/** Facture des échéances restantes de l'engagement (clôture anticipée), émise, archivée et envoyée au client. */
+async function invoiceRemainingCommitment(
+  sub: { id: string; clientId: string; label: string; amountCents: number },
+  remaining: { count: number; from: Date; until: Date | null },
+) {
+  const settings = await getCompanySettings();
+  const totalCents = sub.amountCents * remaining.count;
+  const issued = await prisma.$transaction(async (tx) => {
+    const draft = await tx.invoice.create({
+      data: {
+        documentType: InvoiceDocumentType.INVOICE,
+        invoiceType: InvoiceType.SIMPLE,
+        status: InvoiceStatus.DRAFT,
+        clientId: sub.clientId,
+        subscriptionId: sub.id,
+        paymentTerms: "Paiement à réception",
+        subtotalCents: totalCents,
+        totalCents,
+        lines: {
+          create: [
+            {
+              position: 1,
+              description: `${sub.label} : échéances restantes de l'engagement (du ${fmtDay(remaining.from)} au ${fmtDay(remaining.until!)}), fin anticipée`,
+              quantity: remaining.count,
+              unitPriceCents: sub.amountCents,
+              lineTotalCents: totalCents,
+            },
+          ],
+        },
+      },
+    });
+    const today = new Date();
+    return issueInvoiceWithin(tx, draft.id, today, today, settings);
+  });
+  await archiveIssuedDocument(issued.id);
+  await sendDocumentPdf(issued.id, { review: { family: "document", origin: "ADMIN_ACTION" } });
+  return issued;
 }
 
 /** Fin de la période de facturation en cours : la prochaine échéance, avancée d'une période tant qu'elle est passée. */

@@ -21,7 +21,7 @@ import { useFeatures } from "@/lib/features";
 import { Button } from "@/components/ui/Button";
 import { Card, EmptyState, PageHeader, Badge } from "@/components/ui/Card";
 import { Modal, ModalActions } from "@/components/ui/Modal";
-import { DateInput, Field, Input, Select } from "@/components/ui/Field";
+import { Checkbox, DateInput, Field, Input, Select } from "@/components/ui/Field";
 import { useCreateParam } from "@/lib/use-create-param";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { StatStrip } from "@/components/ui/StatStrip";
@@ -78,6 +78,8 @@ type Subscription = {
   service: { id: string; name: string };
   /** Créé à la main, jamais facturé, sans Stripe : supprimable et montant corrigeable (sinon : avenant ou clôture). */
   draftLike?: boolean;
+  /** Encore engagé : échéances restant à courir après la période en cours (calculé par l'API). */
+  remainingCommitment?: { count: number; amountCents: number; from: string; until: string } | null;
 };
 
 type Client = { id: string; displayName: string; billingDay?: number | null };
@@ -527,12 +529,18 @@ export function SubscriptionsPage() {
     }
   }
 
-  async function action(id: string, kind: "pause" | "resume" | "end") {
+  async function action(id: string, kind: "pause" | "resume" | "end", opts: { invoiceRemaining?: boolean } = {}) {
     const viaStripe = Boolean(rows.find((r) => r.id === id)?.stripeSubscriptionId);
     try {
-      await api(`/api/subscriptions/${id}/${kind}`, { method: "POST" });
+      await api(`/api/subscriptions/${id}/${kind}`, { method: "POST", ...(opts.invoiceRemaining ? { body: JSON.stringify({ invoiceRemaining: true }) } : {}) });
       const done =
-        kind === "pause" ? "Abonnement suspendu" : kind === "resume" ? "Abonnement repris" : "Abonnement clôturé";
+        kind === "pause"
+          ? "Abonnement suspendu"
+          : kind === "resume"
+            ? "Abonnement repris"
+            : opts.invoiceRemaining
+              ? "Abonnement clôturé, échéances restantes facturées"
+              : "Abonnement clôturé";
       const stripeDone =
         kind === "pause" ? "prélèvement Stripe suspendu" : kind === "resume" ? "prélèvement Stripe repris" : "prélèvement Stripe résilié";
       toast.success(viaStripe ? `${done} (${stripeDone})` : done);
@@ -585,6 +593,8 @@ export function SubscriptionsPage() {
     setParams(next, { replace: true });
   }, [selectedId, params, setParams]);
   const [endTarget, setEndTarget] = useState<Subscription | null>(null);
+  /** Clôture pendant l'engagement : facturer les échéances restantes (coché par défaut, CGV « Départ anticipé »). */
+  const [invoiceRemaining, setInvoiceRemaining] = useState(true);
   const [scheduleTarget, setScheduleTarget] = useState<Subscription | null>(null);
   const [unscheduleTarget, setUnscheduleTarget] = useState<Subscription | null>(null);
   const selected = rows.find((r) => r.id === selectedId) ?? null;
@@ -1031,11 +1041,29 @@ export function SubscriptionsPage() {
         confirmLabel="Clôturer"
         danger
         onConfirm={() => {
-          if (endTarget) void action(endTarget.id, "end");
+          if (endTarget) void action(endTarget.id, "end", { invoiceRemaining: Boolean(endTarget.remainingCommitment) && invoiceRemaining });
           setEndTarget(null);
+          setInvoiceRemaining(true);
         }}
-        onClose={() => setEndTarget(null)}
-      />
+        onClose={() => {
+          setEndTarget(null);
+          setInvoiceRemaining(true);
+        }}
+      >
+        {endTarget?.remainingCommitment ? (
+          <div className="mt-3 space-y-2 rounded-[var(--radius)] border border-[var(--border)] p-3 text-sm">
+            <p className="text-[var(--text)]">
+              {`Encore engagé jusqu'au ${formatDate(endTarget.remainingCommitment.until)} : ${endTarget.remainingCommitment.count} échéance${endTarget.remainingCommitment.count > 1 ? "s" : ""} restent dues après la période en cours (CGV, départ anticipé).`}
+            </p>
+            <Checkbox
+              label={`Facturer les échéances restantes : ${endTarget.remainingCommitment.count} × ${formatEUR(endTarget.amountCents)}, soit ${formatEUR(endTarget.remainingCommitment.amountCents)}`}
+              hint="Une facture est émise et envoyée au client avant la clôture. Décochez pour clôturer sans rien facturer."
+              checked={invoiceRemaining}
+              onChange={(e) => setInvoiceRemaining(e.target.checked)}
+            />
+          </div>
+        ) : null}
+      </ConfirmDialog>
 
       <Modal open={toAttach !== null} onClose={closeAttach} title={`Rattacher l'avenant ${toAttach?.quoteNumber ?? ""}`}>
         {toAttach ? (

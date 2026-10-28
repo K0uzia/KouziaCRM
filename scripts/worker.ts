@@ -55,6 +55,12 @@ async function runMaintenance() {
   await step("advancePastClientRenewals", () => advancePastClientRenewals(), undefined);
   const clientRenewalNotices = await step("sendDueClientRenewalNotices", () => sendDueClientRenewalNotices(), 0);
   const actionReminders = await step("sendDueActionReminders", () => sendDueActionReminders(), 0);
+  // Abonnement par virement impayé depuis 15 jours : alerte à l'entreprise, sans suspension (28/10/2026).
+  await step(
+    "alertOverdueTransferSubscriptions",
+    async () => (await import("../apps/api/src/lib/subscriptions/dunning.js")).alertOverdueTransferSubscriptions(),
+    0,
+  );
   const cardNotices = await step("checkExpiringCards", () => checkExpiringCards(), 0);
   // Factures et avoirs émis sans PDF archivé (émission sans accès, ou antérieurs à l'archivage).
   const pdfArchived = await step("archivePendingIssuedPdfs", () => archivePendingIssuedPdfs(), 0);
