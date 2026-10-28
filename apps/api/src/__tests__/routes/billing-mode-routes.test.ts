@@ -71,7 +71,7 @@ describe("devis avec mode de facturation (API)", () => {
     expect((await call("PUT", `/api/invoices/${ok.json().id}`, { billingMode: "ONE_OFF" })).statusCode).toBe(400);
   });
 
-  it("pack : une ligne « Comprend : … », prix d'achat en paiement unique, prix annuel / période en récurrent", async () => {
+  it("pack : une ligne « Nom : contenu », prix d'achat en paiement unique, prix annuel / période en récurrent", async () => {
     const site = await createService({ name: "Site vitrine", unitPriceCents: 100000, isSubscription: false });
     const maint = await createService({ name: "Maintenance", unitPriceCents: 30000 });
     const pack = await call("POST", "/api/services", {
@@ -89,13 +89,16 @@ describe("devis avec mode de facturation (API)", () => {
     expect(oneOff).toEqual([
       expect.objectContaining({
         serviceId: id,
-        description: "Pack Vitrine : Tout pour démarrer. Comprend : Site vitrine, Maintenance",
+        // Paiement unique (28/10/2026) : sans la description du pack ni l'abonnement, qui n'est pas compris.
+        description: "Pack Vitrine : Site vitrine",
         unitPriceCents: 140000,
         isSubscription: false,
       }),
     ]);
     const quarterly = (await call("GET", `/api/services/${id}/pack-lines?mode=RECURRING&interval=QUARTER`)).json();
-    expect(quarterly).toEqual([expect.objectContaining({ unitPriceCents: 37500, isSubscription: true, billingInterval: "QUARTER" })]);
+    expect(quarterly).toEqual([
+      expect.objectContaining({ description: "Pack Vitrine : Site vitrine, Maintenance", unitPriceCents: 37500, isSubscription: true, billingInterval: "QUARTER" }),
+    ]);
     // Sans prix annuel : pas vendable en récurrent, message pour le catalogue.
     await prisma.service.update({ where: { id }, data: { annualPriceCents: null } });
     const none = await call("GET", `/api/services/${id}/pack-lines?mode=RECURRING&interval=YEAR`);

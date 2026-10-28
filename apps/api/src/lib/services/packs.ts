@@ -42,14 +42,15 @@ export async function validatePack(items: PackItemInput[], priceCents: number, p
   return resolved;
 }
 
-/** « Comprend : Site vitrine, Rédaction (2), Maintenance » : contenu d'un pack, dans l'ordre de la fiche. */
+/** « Site vitrine, Rédaction (2), Maintenance » : contenu d'un pack, dans l'ordre de la fiche. */
 export function packContents(items: Array<{ quantity: number; service: Pick<Service, "name"> }>): string {
-  return `Comprend : ${items.map((i) => (i.quantity > 1 ? `${i.service.name} (${i.quantity})` : i.service.name)).join(", ")}`;
+  return items.map((i) => (i.quantity > 1 ? `${i.service.name} (${i.quantity})` : i.service.name)).join(", ");
 }
 
 /**
- * Pack sur un devis avec mode (24/10/2026) : UNE ligne, titre = nom du pack, description = sa description puis son
- * contenu. Paiement unique : prix d'achat. Récurrent : prix annuel ramené à la période ; refusé sans prix annuel.
+ * Pack sur un devis avec mode (24/10/2026) : UNE ligne « Nom : contenu ». Paiement unique : prix d'achat, contenu sans
+ * les abonnements du pack, qui ne sont pas compris (28/10/2026). Récurrent : prix annuel ramené à la période, tout le
+ * contenu ; refusé sans prix annuel. La description du pack n'est pas reprise : le devis imprime ce qui est compris.
  */
 export async function packModeLine(packId: string, mode: BillingMode, interval: "MONTH" | "QUARTER" | "YEAR"): Promise<PackLine> {
   const pack = await prisma.service.findUnique({
@@ -57,8 +58,9 @@ export async function packModeLine(packId: string, mode: BillingMode, interval: 
     include: { packItems: { orderBy: { position: "asc" }, include: { service: true } } },
   });
   if (!pack || !pack.isPack) throw new PackError("Pack introuvable.");
-  const details = [pack.description?.trim().replace(/\.$/, ""), packContents(pack.packItems)].filter(Boolean).join(". ");
-  const base = { serviceId: pack.id, description: `${pack.name} : ${details}`, quantity: 1, groupTitle: "", isPackDiscount: false };
+  const items = mode === "ONE_OFF" ? pack.packItems.filter((i) => !i.service.isSubscription) : pack.packItems;
+  const description = items.length ? `${pack.name} : ${packContents(items)}` : pack.name;
+  const base = { serviceId: pack.id, description, quantity: 1, groupTitle: "", isPackDiscount: false };
   if (mode === "ONE_OFF") return { ...base, unitPriceCents: pack.unitPriceCents, isSubscription: false, billingInterval: null, billingDay: null };
   if (pack.annualPriceCents === null) {
     throw new PackError(`« ${pack.name} » n'a pas de prix annuel : renseignez-le dans le catalogue pour le vendre en abonnement.`);
