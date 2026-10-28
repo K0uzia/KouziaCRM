@@ -4,8 +4,6 @@ import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faChevronDown } from "@fortawesome/free-solid-svg-icons";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
-import { fetchSettings } from "@/lib/settings-request";
-import { Link } from "react-router-dom";
 import { formatPhoneFr } from "@/lib/format";
 import { Button } from "@/components/ui/Button";
 import { ModalActions } from "@/components/ui/Modal";
@@ -97,7 +95,7 @@ export function pendingClient(item: QueueItem): Client & { pending: true } {
   return {
     id: item.clientId,
     clientNumber: null,
-    type: (body.type as Client["type"]) ?? "B2C",
+    type: (body.type as Client["type"]) ?? "B2B",
     displayName: item.clientName,
     firstName: body.firstName ?? null,
     lastName: body.lastName ?? null,
@@ -124,7 +122,7 @@ export function prefillToForm(p: ClientPrefill): ClientFormData {
   const [firstName = "", ...rest] = (p.name ?? "").trim().split(/\s+/);
   return {
     ...emptyClientForm(),
-    type: p.company ? "B2B" : "B2C",
+    type: "B2B",
     firstName,
     lastName: rest.join(" "),
     companyName: p.company ?? "",
@@ -134,7 +132,7 @@ export function prefillToForm(p: ClientPrefill): ClientFormData {
 }
 
 export const emptyClientForm = (): ClientFormData => ({
-  type: "B2C",
+  type: "B2B",
   firstName: "",
   lastName: "",
   companyName: "",
@@ -228,13 +226,9 @@ export function ClientFormEditor({
   // rien ne part (ni e-mail d'accès ni Stripe) avant le retour du réseau.
   const { readOnly, canPrepare } = useReadOnly();
   const minimal = !clientId && readOnly && canPrepare;
-  // Médiateur de la consommation déclaré ? (null tant que les réglages ne sont pas lus)
-  const [hasMediator, setHasMediator] = useState<boolean | null>(null);
-  useEffect(() => {
-    fetchSettings<{ mediationClause?: string | null }>()
-      .then((s) => setHasMediator(Boolean(s.mediationClause?.trim())))
-      .catch(() => setHasMediator(null));
-  }, []);
+  // Professionnels et associations seulement (décision du 27/10/2026) : « Particulier » ne reste proposé que pour
+  // modifier une fiche particulier déjà en base, sans l'obliger à changer de type.
+  const types: ClientType[] = clientId && initial?.type === "B2C" ? ["B2C", "B2B", "ASSOCIATION"] : ["B2B", "ASSOCIATION"];
   const [busy, setBusy] = useState(false);
   const [addressError, setAddressError] = useState<string | null>(null);
   // Création seulement : envoi de l'accès à l'espace client, coché par défaut.
@@ -364,7 +358,7 @@ export function ClientFormEditor({
         </p>
       ) : null}
       <div className="flex gap-2 rounded-[var(--radius)] bg-[var(--bg)] p-1">
-        {(["B2C", "B2B", "ASSOCIATION"] as const).map((t) => (
+        {types.map((t) => (
           <button
             key={t}
             type="button"
@@ -380,17 +374,6 @@ export function ClientFormEditor({
           </button>
         ))}
       </div>
-
-      {!initial && form.type === "B2C" && hasMediator === false ? (
-        // Rappel non bloquant : la fiche se crée, mais aucun devis ne partira en signature sans médiateur.
-        <p role="note" className="rounded-[var(--radius-sm)] border border-[var(--warning)]/40 bg-[var(--warning-soft)] px-3 py-2 text-sm text-[var(--text)]">
-          Un médiateur de la consommation est obligatoire pour signer avec un particulier (L612-1). Renseignez-le dans{" "}
-          <Link to="/settings?tab=legal" className="font-medium text-[var(--primary)] underline underline-offset-2">
-            Réglages &gt; Mentions légales
-          </Link>
-          .
-        </p>
-      ) : null}
 
       {form.type === "B2C" ? (
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
@@ -434,6 +417,22 @@ export function ClientFormEditor({
           }
         />
       )}
+
+      {/* Création d'un professionnel ou d'une association : la personne à joindre devient le contact principal
+          (avec l'e-mail et le téléphone ci-dessous). Ensuite, elle se gère dans « Contacts » sur la fiche. */}
+      {!clientId && form.type !== "B2C" ? (
+        <fieldset className="space-y-2">
+          <legend className="text-sm font-semibold">Contact principal</legend>
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <Field label="Prénom">
+              <Input autoComplete="given-name" value={form.firstName} onChange={(e) => set("firstName", e.target.value)} />
+            </Field>
+            <Field label="Nom">
+              <Input autoComplete="family-name" value={form.lastName} onChange={(e) => set("lastName", e.target.value)} />
+            </Field>
+          </div>
+        </fieldset>
+      ) : null}
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
         <Field label="Email">
