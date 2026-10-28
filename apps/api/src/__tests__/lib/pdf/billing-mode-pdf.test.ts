@@ -81,8 +81,8 @@ describe("PDF du devis selon le mode de facturation", () => {
     expect(text).not.toContain("Abonnement trimestriel, facturé chaque trimestre");
     expect(text).not.toContain("facturés automatiquement");
     expect(text).not.toContain("Facturation :");
-    // Encadré : le titre puis la clause d'engagement seule, sans redire la désignation.
-    expect(text).toMatch(/Abonnement avec engagement Abonnement conclu pour la durée d'engagement/);
+    // Clause d'engagement dans le bloc de fin, sous « Conditions de l'abonnement » (29/10/2026).
+    expect(text).toMatch(/Conditions de l'abonnement Abonnement conclu pour la durée d'engagement/);
     expect(text).not.toContain("[BROUILLON");
     once("Site tout compris");
     expect(text).not.toContain("Total du projet");

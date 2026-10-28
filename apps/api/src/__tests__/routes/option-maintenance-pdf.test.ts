@@ -145,6 +145,11 @@ describe("PDF : option au choix et non compris", () => {
     expect(doc.proposals?.map((p) => p.heading)).toEqual(["Proposition A : Paiement unique", "Proposition B"]);
     expect(doc.proposals![0]!.sections.find((s) => s.heading === "Non compris")?.items.length).toBe(4);
     expect(doc.proposals![1]!.sections.find((s) => s.heading === "Compris dans l'abonnement")?.items).toEqual(["Création du site", "Hébergement et nom de domaine"]);
+    // Clause d'engagement : plus sous la proposition, dans le bloc de fin sous « Conditions de la proposition B » (29/10/2026).
+    expect(norm(doc.proposals![1])).not.toContain("Abonnement conclu pour la durée d'engagement");
+    const conditions = doc.sections.find((s) => s.heading === "Conditions de la proposition B");
+    expect(norm(conditions)).toContain("Abonnement conclu pour la durée d'engagement");
+    expect(doc.sections.some((s) => s.heading === "Conditions de la proposition A")).toBe(false);
   });
 
   it("phrase de la date de prélèvement : seulement avec un abonnement engagé qui ne démarre pas à la livraison", async () => {

@@ -364,6 +364,7 @@ function proposalsOf(input: BuildPdfPayloadInput): Pick<InvoicePdfData["invoice"
       milestones,
     } as InvoiceWithRelations;
     return {
+      letter: letter(o),
       heading: `${proposalTitle(letter(o), o.label)}${selected && !isSelected ? " (non retenue)" : ""}`,
       invoice: buildInvoicePdfPayload({ ...input, invoice: record }),
     };

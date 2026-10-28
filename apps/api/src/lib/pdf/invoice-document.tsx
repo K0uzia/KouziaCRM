@@ -469,7 +469,7 @@ export type InvoicePdfData = {
     } | null;
     legalClauses?: Array<{ title: string; body: string }>;
     /** Devis à propositions (P2) : corps de chaque proposition (lignes, totaux, abonnement, échéancier), dans l'ordre. */
-    proposals?: Array<{ heading: string; invoice: InvoicePdfData["invoice"] }> | null;
+    proposals?: Array<{ heading: string; letter?: string; invoice: InvoicePdfData["invoice"] }> | null;
     /** Devis signé à propositions : « A : Paiement unique ». */
     selectedProposal?: string | null;
   };
@@ -558,7 +558,7 @@ function OptionalOffers({ options, styles }: { options: NonNullable<PdfInvoice["
 function IntervalChoices({ choices, styles }: { choices: NonNullable<NonNullable<PdfInvoice["recurringSummary"]>["intervalChoices"]>; styles: ReturnType<typeof createStyles> }) {
   return (
     <Readable as="section" heading>
-    <View style={styles.section} wrap={false}>
+    <View style={[styles.box, styles.section]} wrap={false}>
       <Text style={styles.h2}>Rythme de paiement au choix</Text>
       <Text style={styles.muted}>Vous choisissez le rythme de paiement à la signature du devis.</Text>
       <View style={[styles.th, { marginTop: 6 }]}>
@@ -583,6 +583,23 @@ function IntervalChoices({ choices, styles }: { choices: NonNullable<NonNullable
 }
 
 /**
+ * Clauses d'abonnement d'un document : périodicité (lignes sans engagement) puis engagement, variables remplies, chacune
+ * une fois. Devis : imprimées dans le bloc de fin, sous « Conditions de la proposition A » (29/10/2026).
+ */
+function subscriptionClausesOf(invoice: PdfInvoice, company: PdfCompanySettings): string[] {
+  const subs = invoice.lines.filter((l) => l.isSubscription);
+  const out = (["MONTH", "QUARTER", "YEAR"] as const)
+    .filter((iv) => subs.some((l) => !l.commitmentMonths && intervalOf(l.billingInterval) === iv) && invoice.subscriptionTerms?.[iv])
+    .map((iv) => fillClauseVariables(invoice.subscriptionTerms![iv]!, company, iv));
+  if (invoice.subscriptionTerms?.COMMITMENT && subs.some((l) => l.commitmentMonths)) {
+    // Rythme au choix, devis non signé : variables de période neutres (« au rythme choisi à la signature »).
+    const choice = invoice.recurringSummary?.intervalChoices?.map((c) => c.period);
+    out.push(fillClauseVariables(invoice.subscriptionTerms.COMMITMENT, company, choice?.length ? choice : commitmentInterval(invoice.lines)));
+  }
+  return [...new Set(out)];
+}
+
+/**
  * Corps d'un document : lignes, totaux, encadré d'abonnement et échéancier. Une fois pour un document, une fois par
  * proposition pour un devis à propositions (chacune a son mode, ses prestations, sa remise et son échéancier).
  */
@@ -591,16 +608,8 @@ function DocumentBody({ company, invoice, styles }: { company: PdfCompanySetting
   const isQuote = invoice.documentType === "QUOTE";
   // Clauses de l'encadré d'un devis récurrent : engagement pour les lignes engagées, périodicité pour les autres.
   const subLines = invoice.lines.filter((l) => l.isSubscription);
-  const recurringClauses = invoice.recurringSummary
-    ? [
-        ...(["MONTH", "QUARTER", "YEAR"] as const)
-          .filter((iv) => subLines.some((l) => !l.commitmentMonths && intervalOf(l.billingInterval) === iv) && invoice.subscriptionTerms?.[iv])
-          .map((iv) => fillClauseVariables(invoice.subscriptionTerms![iv]!, company, iv)),
-        ...(invoice.subscriptionTerms?.COMMITMENT && subLines.some((l) => l.commitmentMonths)
-          ? [fillClauseVariables(invoice.subscriptionTerms.COMMITMENT, company, invoice.recurringSummary.intervalChoices?.map((c) => c.period) ?? commitmentInterval(invoice.lines))]
-          : []),
-      ]
-    : [];
+  // Devis : les clauses d'abonnement vont dans le bloc de fin (29/10/2026) ; facture : dans l'encadré, comme avant.
+  const clausesHere = isQuote ? [] : subscriptionClausesOf(invoice, company);
   const choices = invoice.recurringSummary?.intervalChoices?.length ? invoice.recurringSummary.intervalChoices : null;
   const { creditedCents, paidCents, dueCents, showSettlement, settled, lastPaidAt } = settlementOf(invoice);
   const hasDiscount = invoice.discountType && invoice.discountType !== "NONE" && invoice.subtotalCents !== invoice.totalCents;
@@ -875,23 +884,17 @@ function DocumentBody({ company, invoice, styles }: { company: PdfCompanySetting
         </View>
         </Readable>
 
-        {isQuote && invoice.optionalOffers ? <OptionalOffers options={invoice.optionalOffers} styles={styles} /> : null}
-
+        {/* Rythme au choix : encadré insécable sous le total, comme l'option au choix. */}
         {isQuote && choices ? <IntervalChoices choices={choices} styles={styles} /> : null}
 
-        {/* Devis récurrent : l'encadré ne porte que la clause (pack et facturation sont déjà dans le tableau et sous le
-            total) ; sans clause, pas d'encadré. */}
-        {invoice.lines.some((l) => l.isSubscription) && (!invoice.recurringSummary || recurringClauses.length > 0) ? (
+        {isQuote && invoice.optionalOffers ? <OptionalOffers options={invoice.optionalOffers} styles={styles} /> : null}
+
+        {/* Devis récurrent : pas d'encadré (pack, facturation et engagement sont dans le tableau et sous le total) ; sa
+            clause est dans le bloc de fin. */}
+        {invoice.lines.some((l) => l.isSubscription) && !invoice.recurringSummary ? (
           <Readable as="section" heading>
           <View style={[styles.box, styles.section]} wrap={false}>
             <Text style={styles.h2}>{subscriptionHeading(invoice.lines)}</Text>
-            {invoice.recurringSummary ? (
-              recurringClauses.map((c, i) => (
-                <Text key={i} style={[styles.muted, { marginTop: i ? 4 : 2 }]}>
-                  {c}
-                </Text>
-              ))
-            ) : (
             <>
             {invoice.lines
               .filter((l) => l.isSubscription)
@@ -915,24 +918,12 @@ function DocumentBody({ company, invoice, styles }: { company: PdfCompanySetting
                   }${l.commitmentMonths ? ` Engagement de ${l.commitmentMonths} mois à compter de ${l.isOption ? "la livraison" : "la signature du devis"}.` : ""}`}
                 </Text>
               ))}
-            {(["MONTH", "QUARTER", "YEAR"] as const)
-              .filter((iv) =>
-                invoice.lines.some(
-                  (l) => l.isSubscription && !l.commitmentMonths && (l.billingInterval === "YEAR" || l.billingInterval === "QUARTER" ? l.billingInterval : "MONTH") === iv,
-                ),
-              )
-              .map((iv) =>
-                invoice.subscriptionTerms?.[iv] ? (
-                  <Text key={iv} style={[styles.muted, { marginTop: 4 }]}>
-                    {fillClauseVariables(invoice.subscriptionTerms[iv]!, company, iv)}
-                  </Text>
-                ) : null,
-              )}
-            {invoice.subscriptionTerms?.COMMITMENT && invoice.lines.some((l) => l.isSubscription && l.commitmentMonths) ? (
-              <Text style={[styles.muted, { marginTop: 4 }]}>{fillClauseVariables(invoice.subscriptionTerms.COMMITMENT, company, commitmentInterval(invoice.lines))}</Text>
-            ) : null}
+            {clausesHere.map((c, i) => (
+              <Text key={i} style={[styles.muted, { marginTop: 4 }]}>
+                {c}
+              </Text>
+            ))}
             </>
-            )}
           </View>
           </Readable>
         ) : null}
@@ -1183,13 +1174,13 @@ export function InvoiceDocument({ company, client, invoice, specimen, draft, pro
             <Text style={styles.proposalIntro}>
               {`Ce devis propose ${invoice.proposals.length} formules : choisissez-en une à la signature.`}
             </Text>
-            {/* Pagination (retours d'Alexandre des 28 et 29/10/2026) : la 1re proposition suit l'en-tête si elle y tient en
-                entier, sinon elle passe entière à la page suivante ; chaque proposition suivante commence sur une nouvelle
-                page ; une proposition qui tient sur une page n'est jamais coupée (wrap={false}), une plus longue continue
-                seule sur la suivante. Les sections communes suivent la dernière, en blocs insécables. */}
+            {/* Pagination (retours d'Alexandre des 28 et 29/10/2026) : la 1re proposition commence toujours sous l'en-tête et
+                continue au besoin sur la suivante ; chaque proposition suivante commence sur une nouvelle page et, si elle
+                tient sur une page, n'est jamais coupée (wrap={false}) ; une plus longue continue seule. Dans une
+                proposition, chaque bloc (ligne, totaux, option, échéancier, clause, listes) est insécable. */}
             {invoice.proposals.map((p, i) => (
               <Readable key={i} as="proposal">
-              <View style={styles.proposal} break={i > 0 || measureProposals} wrap={measureProposals || proposalLayout?.[i] === "LONG"}>
+              <View style={styles.proposal} break={i > 0 || measureProposals} wrap={i === 0 || measureProposals || proposalLayout?.[i] === "LONG"}>
                 {onProposalPage ? <Text render={({ pageNumber }) => (onProposalPage(i, "start", pageNumber), "")} /> : null}
                 <Readable as="proposalHeading">
                 <Text style={styles.proposalTitle} minPresenceAhead={120}>
@@ -1206,6 +1197,10 @@ export function InvoiceDocument({ company, client, invoice, specimen, draft, pro
           <DocumentBody company={company} invoice={invoice} styles={styles} />
         )}
 
+        {/* Bloc de fin (signature, notes, conditions des propositions, mentions) : il suit la dernière proposition et se
+            coupe seulement entre deux blocs ; chaque clause ou mention est insécable, un intertitre n'est jamais seul en
+            bas de page (29/10/2026). */}
+        <View>
         {isQuote && invoice.acceptance?.mode ? (
           <Readable as="section" heading>
           <View style={styles.payBox} wrap={false}>
@@ -1295,7 +1290,7 @@ export function InvoiceDocument({ company, client, invoice, specimen, draft, pro
 
         {invoice.notes ? (
           <Readable as="section" heading>
-          <View style={styles.section}>
+          <View style={styles.section} wrap={false}>
             <Text style={styles.h2}>Notes</Text>
             <Text>{invoice.notes}</Text>
           </View>
@@ -1342,36 +1337,60 @@ export function InvoiceDocument({ company, client, invoice, specimen, draft, pro
           </Readable>
         ) : null}
 
+        {isQuote
+          ? (invoice.proposals?.length
+              ? invoice.proposals.map((p) => ({ title: `Conditions de la proposition ${p.letter ?? ""}`.trim(), clauses: subscriptionClausesOf(p.invoice, company) }))
+              : [{ title: "Conditions de l'abonnement", clauses: subscriptionClausesOf(invoice, company) }]
+            )
+              .filter((g) => g.clauses.length)
+              .map((g) => (
+                <Readable key={g.title} as="section" heading>
+                <View style={styles.section}>
+                  {/* Intertitre et 1re clause d'un bloc : l'intertitre ne reste jamais seul en bas de page. */}
+                  <View wrap={false}>
+                    <Text style={styles.h2}>{g.title}</Text>
+                    <Text style={styles.muted}>{g.clauses[0]}</Text>
+                  </View>
+                  {g.clauses.slice(1).map((c, i) => (
+                    <Text key={i} wrap={false} style={[styles.muted, { marginTop: 4 }]}>
+                      {c}
+                    </Text>
+                  ))}
+                </View>
+                </Readable>
+              ))
+          : null}
+
         <Readable as="section">
         <View style={styles.legal}>
           {isQuote && invoice.cgv ? (
-            <Text>
+            <Text wrap={false}>
               Conditions générales de vente applicables : version du {invoice.cgv.version}, {invoice.cgv.url}
             </Text>
           ) : null}
-          <Text>
+          <Text wrap={false}>
             {company.legalName}, {company.legalForm ?? "Entrepreneur individuel"}, SIREN{" "}
             {company.siren}, SIRET {company.siret}, code APE {company.apeCode}.
             {company.rcsMention ? ` ${company.rcsMention}.` : ""}
           </Text>
-          <Text>
+          <Text wrap={false}>
             Document émis dans le cadre de la micro-entreprise - activité libérale non
             réglementée (BNC).
           </Text>
           {!(invoice.legalClauses?.length) && company.vatMention ? (
-            <Text>{company.vatMention}</Text>
+            <Text wrap={false}>{company.vatMention}</Text>
           ) : null}
           {!(invoice.legalClauses?.length) && !isQuote && company.paymentConditions ? (
-            <Text>Conditions de paiement : {company.paymentConditions}</Text>
+            <Text wrap={false}>Conditions de paiement : {company.paymentConditions}</Text>
           ) : null}
           {!(invoice.legalClauses?.length) && !isQuote && company.latePenaltiesText ? (
-            <Text>{company.latePenaltiesText}</Text>
+            <Text wrap={false}>{company.latePenaltiesText}</Text>
           ) : null}
           {!(invoice.legalClauses?.length) && !isQuote && company.earlyPaymentDiscountText ? (
-            <Text>{company.earlyPaymentDiscountText}</Text>
+            <Text wrap={false}>{company.earlyPaymentDiscountText}</Text>
           ) : null}
           {company.decennaleInsurer ? (
-            <Text>
+            <Text wrap={false}>
               Assurance décennale : {company.decennaleInsurer}
               {company.decennalePolicyNumber
                 ? `, police n° ${company.decennalePolicyNumber}`
@@ -1383,26 +1402,27 @@ export function InvoiceDocument({ company, client, invoice, specimen, draft, pro
             </Text>
           ) : null}
           {(invoice.legalClauses ?? []).map((c, i) => (
-            <Text key={i} style={{ marginTop: 4 }}>
+            <Text key={i} wrap={false} style={{ marginTop: 4 }}>
               <Text style={{ fontFamily: "Helvetica-Bold" }}>{c.title} : </Text>
               {fillClauseVariables(c.body, company)}
             </Text>
           ))}
           {!(invoice.legalClauses?.length) && company.suspensionClause ? (
-            <Text>{company.suspensionClause}</Text>
+            <Text wrap={false}>{company.suspensionClause}</Text>
           ) : null}
           {!(invoice.legalClauses?.length) && company.legalMentions ? (
-            <Text>{company.legalMentions}</Text>
+            <Text wrap={false}>{company.legalMentions}</Text>
           ) : null}
           {/* Médiation de la consommation : obligatoire envers les particuliers (L616-1). */}
           {client.type === "B2C" && company.mediationClause?.trim() ? (
-            <Text style={{ marginTop: 4 }}>{company.mediationClause}</Text>
+            <Text wrap={false} style={{ marginTop: 4 }}>{company.mediationClause}</Text>
           ) : null}
           {company.pdfFooterText ? (
-            <Text style={{ marginTop: 6 }}>{company.pdfFooterText}</Text>
+            <Text wrap={false} style={{ marginTop: 6 }}>{company.pdfFooterText}</Text>
           ) : null}
         </View>
         </Readable>
+        </View>
 
         {/* Pas de lineHeight sur la page : hérité, il masque le numéro de page (bug react-pdf). */}
         <View style={styles.footerRule} fixed />
