@@ -29,6 +29,8 @@ import { normalizeInterval } from "@/lib/subscriptions/subscription-service.js";
 import { billedWithDocument, computeDepositBaseCents, isCommittedLine } from "@/lib/invoices/totals.js";
 import { proposalTitle } from "@/lib/quotes/quote-options.js";
 import { readScope } from "@/lib/quotes/scope.js";
+import { quoteIntervalOffer } from "@/lib/quotes/interval-offer.js";
+import { choiceDiscountSentence, INTERVAL_LABEL } from "@/lib/quotes/interval-choice.js";
 import { splitLineLabel, withoutFinalPeriod } from "@/lib/format-fr.js";
 
 type InvoiceWithRelations = Invoice & {
@@ -61,7 +63,7 @@ export type BuildPdfPayloadInput = {
   clientType: string | null;
   balanceSummary?: BalanceSummary | null;
   /** Réglages des formules : tableaux « au choix » d'un devis non encore signé. */
-  planSettings?: PlanSettings | null;
+  planSettings?: (PlanSettings & { annualFreeMonths?: number }) | null;
   /** CGV publiées (réglages) : lien et version imprimés sur le devis. */
   cgv?: { published: boolean; url: string | null; version: string | null } | null;
 };
@@ -181,7 +183,7 @@ export function buildInvoicePdfPayload({
     subscriptionFromDelivery: fromDelivery,
     // Devis mixte : total du projet (partie ponctuelle remisée, base de l'acompte) et abonnements à part.
     // Devis récurrent (mode de facturation) : frais à la signature puis l'abonnement, au lieu du « total du projet ».
-    recurringSummary: isQuote && recurringMode ? recurringSummaryOf(invoice, billingDayOf) : null,
+    recurringSummary: isQuote && recurringMode ? recurringSummaryOf(invoice, billingDayOf, planSettings?.annualFreeMonths) : null,
     mixedTotals: fromDelivery && parseBillingMode(invoice.billingMode) !== "RECURRING"
       ? (() => {
           const oneOffCents = committedLines.filter((l) => !l.isSubscription).reduce((s, l) => s + l.lineTotalCents, 0);
@@ -343,6 +345,7 @@ function proposalsOf(input: BuildPdfPayloadInput): Pick<InvoicePdfData["invoice"
       options: undefined,
       billingMode: o.billingMode,
       paymentPlanOffer: offer,
+      offeredIntervals: o.offeredIntervals,
       paymentPlan: isSelected ? invoice.paymentPlan : null,
       discountType: o.discountType,
       discountValue: o.discountValue,
@@ -407,6 +410,7 @@ export type { ClientSnapshot };
 function recurringSummaryOf(
   invoice: InvoiceWithRelations,
   billingDayOf: (l: InvoiceWithRelations["lines"][number]) => { billingDay: number | null; anchor: "SIGNATURE" | "DELIVERY" | null },
+  annualFreeMonths: number | undefined,
 ) {
   const subs = invoice.lines.filter((l) => l.isSubscription);
   const first = subs[0];
@@ -428,5 +432,27 @@ function recurringSummaryOf(
     startFromText: startFromPhrase(first, first.subscriptionStart === "DELIVERY"),
     billingDay: billingDayOf(first).billingDay,
     billingAnchor: billingDayOf(first).anchor,
+    ...intervalChoiceOf(invoice, annualFreeMonths),
+  };
+}
+
+/**
+ * Rythme au choix du client, devis non signé (28/10/2026) : un rang par rythme proposé (prix par échéance, total sur
+ * l'engagement), et la remise sans montant. Absent sans choix ; après la signature, les lignes portent le rythme retenu.
+ */
+function intervalChoiceOf(invoice: InvoiceWithRelations, annualFreeMonths: number | undefined) {
+  if (annualFreeMonths === undefined) return {};
+  const offer = quoteIntervalOffer(invoice, invoice.lines, { annualFreeMonths });
+  if (!offer) return {};
+  const discount = offer.rows.find((r) => r.discount)?.discount ?? null;
+  return {
+    intervalChoices: offer.rows.map((r) => ({
+      period: r.interval,
+      label: INTERVAL_LABEL[r.interval],
+      amountCents: r.amountCents,
+      periods: r.periods,
+      totalCommitmentCents: r.totalCommitmentCents,
+    })),
+    intervalChoiceDiscountText: discount ? choiceDiscountSentence(discount) : null,
   };
 }

@@ -10,6 +10,9 @@ import { formatPlainTextSignature } from "@/lib/email/signature.js";
 import { brandFromSettings } from "@/lib/email/templates.js";
 import { resolveClientPortalUrl } from "@/lib/email/portal-url.js";
 import { formatDateTimeLongFr, formatLongDateFr } from "@/lib/format-fr.js";
+import { formatEUR } from "@/lib/money.js";
+import { INTERVAL_LABEL, type BillingIntervalChoice } from "@/lib/quotes/interval-choice.js";
+import { periodWord } from "@/lib/subscriptions/subscription-service.js";
 
 const SIGNED_QUOTES_DIR = "signed-quotes";
 
@@ -118,6 +121,10 @@ export async function recordQuoteAcceptanceProof(
                 ? "Formule de paiement retenue : en 3 fois. Le 2e acompte sera demandé à l'étape du projet indiquée dans votre espace client."
                 : "Formule de paiement retenue : en 2 fois (acompte puis solde).",
           ]
+        : []),
+      // Rythme au choix (28/10/2026) : celui retenu à la signature, avec le montant d'une échéance.
+      ...(audit.billingInterval && audit.billingPeriodCents !== null
+        ? ["", `Rythme de paiement retenu : ${INTERVAL_LABEL[audit.billingInterval as BillingIntervalChoice]?.toLowerCase() ?? audit.billingInterval}, ${formatEUR(audit.billingPeriodCents)} par ${periodWord(audit.billingInterval)}.`]
         : []),
       ...(audit.cgvAccepted && audit.cgvUrl && audit.cgvVersion
         ? ["", `Conditions générales de vente acceptées : version du ${audit.cgvVersion}, ${audit.cgvUrl}`]

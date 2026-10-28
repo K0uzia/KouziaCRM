@@ -40,6 +40,7 @@ export function quoteFieldsOfOption(o: QuoteOption) {
   return {
     billingMode: o.billingMode,
     paymentPlanOffer: o.paymentPlanOffer,
+    offeredIntervals: o.offeredIntervals,
     discountType: o.discountType,
     discountValue: o.discountValue,
     recurringDiscountKind: o.recurringDiscountKind,

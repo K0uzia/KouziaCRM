@@ -244,6 +244,13 @@ const PERIOD_VARIABLES = {
   YEAR: { periode: "an", periodicite: "chaque année à la date anniversaire" },
 } as const;
 
+/** Rythme au choix : « au rythme choisi à la signature », « par échéances d'un an ou d'un mois, selon ce rythme ». */
+function choicePeriodVariables(list: ReadonlyArray<"MONTH" | "QUARTER" | "YEAR">) {
+  const words = (["YEAR", "QUARTER", "MONTH"] as const).filter((iv) => list.includes(iv)).map((iv) => PERIOD_VARIABLES[iv].periode);
+  const joined = words.length > 1 ? `${words.slice(0, -1).join(", ")} ou ${words[words.length - 1]}` : (words[0] ?? "");
+  return { periode: `${joined}, selon ce rythme`, periodicite: "au rythme choisi à la signature" };
+}
+
 /**
  * Variables des clauses, remplacées par les réglages de l'entreprise au rendu. E-mail : celui de
  * l'entreprise, à défaut l'adresse d'envoi des e-mails (celle à laquelle le client répond).
@@ -262,13 +269,14 @@ export function fillClauseVariables(
     city: string;
     vatMention?: string | null;
   },
-  interval?: "MONTH" | "QUARTER" | "YEAR",
+  /** Plusieurs rythmes : rythme au choix du client, pas encore retenu (devis non signé). */
+  interval?: "MONTH" | "QUARTER" | "YEAR" | ReadonlyArray<"MONTH" | "QUARTER" | "YEAR">,
 ): string {
   const address = [company.addressLine1, company.addressLine2, `${company.postalCode} ${company.city}`].filter(Boolean).join(", ");
   // Adresse d'envoi au format « Nom <adresse> » : seule l'adresse est imprimée.
   const smtpAddress = company.smtpFrom?.match(/<([^>]+)>/)?.[1] ?? company.smtpFrom;
   const email = company.email?.trim() || smtpAddress?.trim() || MISSING_CONTACT_EMAIL;
-  const period = interval ? PERIOD_VARIABLES[interval] : null;
+  const period = typeof interval === "string" ? PERIOD_VARIABLES[interval] : interval?.length ? choicePeriodVariables(interval) : null;
   const filled = period ? body.replaceAll("{{periode}}", period.periode).replaceAll("{{periodicite}}", period.periodicite) : body;
   return filled
     .replaceAll("{{nom_commercial}}", company.tradeName ?? company.legalName)

@@ -63,11 +63,14 @@ const scheduleSnapshotSchema = z.object({
   split3MinTotalCents: z.number().int(),
   split3Step2TriggerText: z.string(),
   installmentIntervalDays: z.number().int(),
+  /** Mois offerts de l'annuel (rythme au choix, 28/10/2026) : absent d'un devis émis avant. */
+  annualFreeMonths: z.number().int().optional(),
 });
 
 /** Réglages d'échéancier figés à l'émission d'un devis (Invoice.paymentScheduleSnapshot, audit du 25/10/2026). */
-export function scheduleSnapshotOf(s: PlanSettings): string {
+export function scheduleSnapshotOf(s: PlanSettings & { annualFreeMonths?: number }): string {
   return JSON.stringify({
+    ...(s.annualFreeMonths !== undefined ? { annualFreeMonths: s.annualFreeMonths } : {}),
     depositPercent1Bps: s.depositPercent1Bps,
     depositPercent2Bps: s.depositPercent2Bps,
     split3Percent1Bps: s.split3Percent1Bps,
@@ -76,7 +79,21 @@ export function scheduleSnapshotOf(s: PlanSettings): string {
     split3MinTotalCents: s.split3MinTotalCents,
     split3Step2TriggerText: s.split3Step2TriggerText,
     installmentIntervalDays: s.installmentIntervalDays,
-  } satisfies PlanSettings);
+  } satisfies PlanSettings & { annualFreeMonths?: number });
+}
+
+/**
+ * Mois offerts de l'annuel d'un devis (prix mensuel et trimestriel du rythme au choix) : figés à l'émission avec
+ * l'échéancier ; brouillon ou devis antérieur, le réglage actuel.
+ */
+export function annualFreeMonthsOf(doc: { paymentScheduleSnapshot?: string | null }, current: { annualFreeMonths: number }): number {
+  if (!doc.paymentScheduleSnapshot) return current.annualFreeMonths;
+  try {
+    const parsed = scheduleSnapshotSchema.safeParse(JSON.parse(doc.paymentScheduleSnapshot));
+    return parsed.success && parsed.data.annualFreeMonths !== undefined ? parsed.data.annualFreeMonths : current.annualFreeMonths;
+  } catch {
+    return current.annualFreeMonths;
+  }
 }
 
 /** Échéancier d'un devis émis : réglages figés à son émission ; sans instantané lisible, les réglages actuels. */

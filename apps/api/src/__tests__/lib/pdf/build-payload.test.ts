@@ -57,6 +57,7 @@ describe("buildInvoicePdfPayload charte dynamique", () => {
         cgvDepositRefundable: null,
         paymentPlanOffer: null,
         paymentPlan: null,
+        offeredIntervals: null,
         creditFollowUp: null,
         sourceQuoteId: null,
         milestoneId: null,

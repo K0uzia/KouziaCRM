@@ -91,7 +91,7 @@ export async function packModeLines(packId: string, mode: BillingMode, interval:
   return [
     {
       ...base,
-      unitPriceCents: periodAmountCents(pack.annualPriceCents, interval),
+      unitPriceCents: periodAmountCents(pack.annualPriceCents, interval, (await getCompanySettings()).annualFreeMonths),
       isSubscription: true,
       billingInterval: interval,
       billingDay: pack.defaultBillingDay,

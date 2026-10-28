@@ -13,3 +13,15 @@ export function annualPriceOfService(
   const monthsPerPeriod = svc.billingInterval === "QUARTER" ? 3 : 1;
   return Math.round((svc.unitPriceCents * paidMonths) / monthsPerPeriod);
 }
+
+/**
+ * Prix d'une échéance depuis le prix annuel (règle « l'annuel coûte moins cher », décision d'Alexandre du 28/10/2026) :
+ * annuel tel quel ; mensuel = annuel / (12 moins les mois offerts) ; trimestriel = 3 mensualités. Arrondi au centime une
+ * seule fois, sur le montant de la période (1 500 € par an, 1 mois offert : 136,36 € par mois, 409,09 € par trimestre).
+ * Seule fonction de conversion : éditeur, PDF, /suivi, signature, Stripe et factures de l'ERP la partagent.
+ */
+export function periodPriceOfAnnual(annualCents: number, interval: string | null | undefined, annualFreeMonths: number): number {
+  if (interval === "YEAR") return annualCents;
+  const paidMonths = 12 - Math.min(11, Math.max(0, Math.round(annualFreeMonths) || 0));
+  return Math.round((annualCents * (interval === "QUARTER" ? 3 : 1)) / paidMonths);
+}

@@ -4,6 +4,7 @@
  * Aperçu seulement : l'API garde le dernier mot à l'émission.
  */
 import { monthsFromSignature, periodsWithinCommitment } from "@kouzia-erp/recurring-discount";
+import { periodPriceOfAnnual } from "@kouzia-erp/annual-price";
 
 export type PaymentSettings = {
   depositPercent1Bps: number;
@@ -37,9 +38,12 @@ export function equalInstallments(plan: "ONE" | "TWO" | "THREE", totalCents: num
   }));
 }
 
-/** Montant par période d'un prix annuel : annuel, / 4 ou / 12, arrondi au centime (lib/quotes/billing-mode.ts). */
-export function periodAmountCents(annualCents: number, period: Period): number {
-  return period === "YEAR" ? annualCents : Math.round(annualCents / (period === "QUARTER" ? 4 : 12));
+/**
+ * Montant par période d'un prix annuel, règle unique de l'API (periodPriceOfAnnual, décision du 28/10/2026) : annuel tel
+ * quel, mensuel = annuel / (12 - mois offerts), trimestriel = 3 mensualités, arrondi au centime.
+ */
+export function periodAmountCents(annualCents: number, period: Period, annualFreeMonths: number): number {
+  return periodPriceOfAnnual(annualCents, period, annualFreeMonths);
 }
 
 /** Périodes comprises dans un engagement (36 mois au trimestre = 12). */
@@ -57,13 +61,21 @@ export function billedPeriodsIn(
   start: { subscriptionStart?: string | null; subscriptionStartDate?: string | null; subscriptionFreeMonths?: string | number | null },
   signedAt: Date = new Date(),
 ): number {
+  return periodsWithinCommitment(commitmentMonths, period, startOffsetMonths(start, signedAt)) ?? 0;
+}
+
+/** Mois de la signature (ici : aujourd'hui) à la 1re échéance : mois offerts ou date choisie, 0 sinon. */
+export function startOffsetMonths(
+  start: { subscriptionStart?: string | null; subscriptionStartDate?: string | null; subscriptionFreeMonths?: string | number | null },
+  signedAt: Date = new Date(),
+): number {
   let offset = 0;
   if (start.subscriptionStart === "FREE_MONTHS") offset = Number(start.subscriptionFreeMonths) || 0;
   if (start.subscriptionStart === "DATE" && start.subscriptionStartDate) {
     const first = new Date(`${start.subscriptionStartDate}T00:00:00`);
     if (!Number.isNaN(first.getTime()) && first > signedAt) offset = monthsFromSignature(signedAt, first);
   }
-  return periodsWithinCommitment(commitmentMonths, period, offset) ?? 0;
+  return offset;
 }
 
 export const PERIOD_WORD: Record<Period, string> = { MONTH: "mois", QUARTER: "trimestre", YEAR: "an" };

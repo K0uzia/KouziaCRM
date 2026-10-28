@@ -31,8 +31,11 @@ import {
   PaymentPlanError,
   resolveAcceptedPlan,
   type PaymentPlan,
+  annualFreeMonthsOf,
 } from "@/lib/quotes/payment-plans.js";
-import { assertBillingModeLines } from "@/lib/quotes/billing-mode.js";
+import { assertBillingModeLines, resolveOfferedIntervals } from "@/lib/quotes/billing-mode.js";
+import { INTERVAL_CHOICE_MESSAGES, intervalChoiceError, parseOfferedIntervals, type BillingIntervalChoice } from "@/lib/quotes/interval-choice.js";
+import { periodPriceOfAnnual } from "@/lib/services/annual-price.js";
 import { resolveRecurringDiscount, storedRecurringDiscount } from "@/lib/quotes/recurring-discount.js";
 import { assertPromoCodeApplicable } from "@/lib/quotes/promo-codes.js";
 import { BILLABLE_LINES_WHERE, optionalChoicesError, proposalLetter, quoteFieldsOfOption, type OptionalChoice } from "@/lib/quotes/quote-options.js";
@@ -209,7 +212,8 @@ export async function issueQuote(
       assertBillingModeLines(optionMode, lines);
       // Option au choix du client (28/10/2026) : hors de l'offre de paiement et de la base de l'acompte.
       const committed = lines.filter(isCommittedLine);
-      resolveRecurringDiscount(optionMode, committed, { recurringDiscount: storedRecurringDiscount(o), openingDiscount: o.openingDiscount });
+      resolveOfferedIntervals(optionMode, committed, o.offeredIntervals);
+      resolveRecurringDiscount(optionMode, committed, { recurringDiscount: storedRecurringDiscount(o), openingDiscount: o.openingDiscount }, parseOfferedIntervals(o.offeredIntervals));
       if (o.promoCodeId) {
         const code = await tx.promoCode.findUniqueOrThrow({ where: { id: o.promoCodeId } });
         await assertPromoCodeApplicable(code, { id: quote.id, clientId: quote.clientId, serviceIds: committed.filter((l) => l.isSubscription).map((l) => l.serviceId) }, issueDate, tx);
@@ -224,7 +228,10 @@ export async function issueQuote(
     // Brouillon antérieur à une règle du mode (engagement obligatoire en récurrent) : bloqué avant numérotation.
     if (!withOptions) assertBillingModeLines(parseBillingMode(quote.billingMode), quote.lines);
     // Remise du devis récurrent (R1) revérifiée sur les lignes émises (ex. remise d'ouverture sans engagement de 36 mois).
-    if (!withOptions) resolveRecurringDiscount(parseBillingMode(quote.billingMode), committedLines, { recurringDiscount: storedRecurringDiscount(quote), openingDiscount: quote.openingDiscount });
+    if (!withOptions) {
+      resolveOfferedIntervals(parseBillingMode(quote.billingMode), committedLines, quote.offeredIntervals);
+      resolveRecurringDiscount(parseBillingMode(quote.billingMode), committedLines, { recurringDiscount: storedRecurringDiscount(quote), openingDiscount: quote.openingDiscount }, parseOfferedIntervals(quote.offeredIntervals));
+    }
     // Code promo (R3) revérifié à l'émission : actif, valable ce jour, offres, usages restants, un usage par client.
     if (quote.promoCodeId) {
       const code = await tx.promoCode.findUniqueOrThrow({ where: { id: quote.promoCodeId } });
@@ -369,7 +376,9 @@ export class QuoteDecisionError extends Error {
       | "OPTION_REQUIRED"
       | "OPTION_INVALID"
       | "OPTIONAL_CHOICE_REQUIRED"
-      | "OPTIONAL_CHOICE_INVALID",
+      | "OPTIONAL_CHOICE_INVALID"
+      | "INTERVAL_CHOICE_REQUIRED"
+      | "INTERVAL_CHOICE_INVALID",
   ) {
     super(message);
     this.name = "QuoteDecisionError";
@@ -428,6 +437,8 @@ async function logQuoteAcceptance(
     terms?: QuoteSignatureTerms;
     option?: { id: string; label: string; totalCents: number } | null;
     optionalChoices?: Array<{ lineId: string; description: string; amountCents: number; interval: string; commitmentMonths: number | null; accepted: boolean }> | null;
+    /** Rythme retenu parmi plusieurs proposés, et le montant d'une échéance à ce rythme (hors remise). */
+    interval?: { billingInterval: string; periodCents: number } | null;
   } = {},
 ) {
   return db.quoteAcceptanceAudit.create({
@@ -458,6 +469,8 @@ async function logQuoteAcceptance(
       optionLabel: opts.option?.label ?? null,
       optionTotalCents: opts.option?.totalCents ?? null,
       ...(opts.optionalChoices?.length ? { optionalChoices: opts.optionalChoices } : {}),
+      billingInterval: opts.interval?.billingInterval ?? null,
+      billingPeriodCents: opts.interval?.periodCents ?? null,
     },
   });
 }
@@ -644,6 +657,39 @@ async function recordOptionalChoices(
 }
 
 /**
+ * Rythme retenu à la signature (28/10/2026) : les lignes d'abonnement de la formule signée passent du prix annuel au
+ * prix de l'échéance du rythme (periodPriceOfAnnual, mois offerts figés à l'émission), les totaux suivent et le choix
+ * est clos (offeredIntervals à null) : PDF signé, activation, Stripe et factures relisent un devis à un seul rythme.
+ * @returns le montant d'une échéance au rythme retenu (hors remise).
+ */
+async function applyIntervalChoice(
+  tx: Prisma.TransactionClient,
+  quoteId: string,
+  option: QuoteOption | null,
+  interval: BillingIntervalChoice,
+  annualFreeMonths: number,
+): Promise<number> {
+  const where = { invoiceId: quoteId, optionId: option?.id ?? null };
+  const subs = await tx.invoiceLine.findMany({ where: { ...where, isSubscription: true, isOptional: false } });
+  let periodCents = 0;
+  for (const l of subs) {
+    const unit = periodPriceOfAnnual(l.unitPriceCents, interval, annualFreeMonths);
+    periodCents += unit;
+    await tx.invoiceLine.update({ where: { id: l.id }, data: { billingInterval: interval === "MONTH" ? null : interval, unitPriceCents: unit, lineTotalCents: unit } });
+  }
+  const [quote, lines] = await Promise.all([
+    tx.invoice.findUniqueOrThrow({ where: { id: quoteId }, select: { discountType: true, discountValue: true } }),
+    tx.invoiceLine.findMany({ where, orderBy: { position: "asc" } }),
+  ]);
+  const discount = option ?? quote;
+  const totals = computeLineTotals(lines.map((l) => ({ ...l, quantity: Number(l.quantity) })), { discountType: discount.discountType, discountValue: discount.discountValue });
+  const data = { subtotalCents: totals.subtotalCents, totalCents: totals.totalCents, offeredIntervals: null };
+  if (option) await tx.quoteOption.update({ where: { id: option.id }, data });
+  await tx.invoice.update({ where: { id: quoteId }, data });
+  return periodCents;
+}
+
+/**
  * Acceptation d'un devis par le client depuis le portail de suivi.
  * Le nom saisi vaut bon pour accord. La facture reste à émettre par le dirigeant.
  */
@@ -666,6 +712,8 @@ export async function acceptQuoteByClient(
     optionId?: string | null;
     /** Lignes en option de la formule signée : un choix explicite pour chacune (obligatoire s'il y en a). */
     optionalLines?: OptionalChoice[] | null;
+    /** Devis récurrent à rythme au choix : le rythme retenu (obligatoire quand plusieurs sont proposés). */
+    billingInterval?: string | null;
   } = {},
 ) {
   const options = await prisma.quoteOption.findMany({ where: { quoteId }, orderBy: { position: "asc" } });
@@ -680,6 +728,7 @@ export async function acceptQuoteByClient(
     select: {
       paymentScheduleSnapshot: true,
       paymentPlanOffer: true,
+      offeredIntervals: true,
       billingMode: true,
       totalCents: true,
       depositBaseCents: true,
@@ -710,6 +759,12 @@ export async function acceptQuoteByClient(
   if (choiceError === "INVALID") throw new QuoteDecisionError("Ce choix d'option ne correspond pas à la formule signée.", "OPTIONAL_CHOICE_INVALID");
   if (choiceError === "REQUIRED") throw new QuoteDecisionError("Indiquez si l'option proposée est retenue ou non.", "OPTIONAL_CHOICE_REQUIRED");
   const optionChoices = new Map((audit.optionalLines ?? []).map((c) => [c.id, c.accepted]));
+  // Rythme au choix (28/10/2026) : obligatoire quand plusieurs sont proposés, toutes sources, vérifié avant toute écriture.
+  const offeredIntervals = parseOfferedIntervals(pending.offeredIntervals);
+  const intervalError = intervalChoiceError(offeredIntervals, audit.billingInterval, pending.lines.find((l) => l.isSubscription)?.billingInterval);
+  if (intervalError === "INVALID") throw new QuoteDecisionError(INTERVAL_CHOICE_MESSAGES.INVALID, "INTERVAL_CHOICE_INVALID");
+  if (intervalError === "REQUIRED") throw new QuoteDecisionError(INTERVAL_CHOICE_MESSAGES.REQUIRED, "INTERVAL_CHOICE_REQUIRED");
+  const chosenInterval = offeredIntervals.length > 1 ? (audit.billingInterval as BillingIntervalChoice) : null;
   // Option non retenue : ni facturée ni activée ; option retenue : un abonnement de plus, au départ « à la livraison ».
   pending.lines = pending.lines.filter((l) => !l.isOptional || optionChoices.get(l.id) === true);
   const offer = parsePaymentPlanOffer(pending.paymentPlanOffer);
@@ -754,6 +809,7 @@ export async function acceptQuoteByClient(
       await tx.paymentMilestone.deleteMany({ where: { quoteId, status: MilestoneStatus.PENDING } });
     }
     if (optionalLines.length) await recordOptionalChoices(tx, quoteId, option, optionChoices);
+    const intervalPeriodCents = chosenInterval ? await applyIntervalChoice(tx, quoteId, option, chosenInterval, annualFreeMonthsOf(pending, settings)) : null;
     const result = await tx.invoice.update({
       where: { id: quoteId },
       data: {
@@ -810,6 +866,7 @@ export async function acceptQuoteByClient(
         commitmentMonths: l.commitmentMonths,
         accepted: optionChoices.get(l.id) === true,
       })),
+      interval: chosenInterval && intervalPeriodCents !== null ? { billingInterval: chosenInterval, periodCents: intervalPeriodCents } : null,
     });
     return { result, subscriptionIds: subs.subscriptionIds, createdIds: subs.createdIds, buyout, acceptance };
   });
@@ -919,6 +976,7 @@ export async function acceptQuoteFromThread(
     paymentPlan?: PaymentPlan;
     optionId?: string | null;
     optionalLines?: OptionalChoice[] | null;
+    billingInterval?: string | null;
   },
 ) {
   const thread = await prisma.emailThread.findUnique({
@@ -947,6 +1005,7 @@ export async function acceptQuoteFromThread(
     paymentPlan: opts.paymentPlan,
     optionId: opts.optionId,
     optionalLines: opts.optionalLines,
+    billingInterval: opts.billingInterval,
   });
 }
 

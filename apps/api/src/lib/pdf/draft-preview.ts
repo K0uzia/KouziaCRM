@@ -50,11 +50,14 @@ export type DraftPreviewInput = {
   recurringDiscount?: RecurringDiscountFields;
   /** Code promo appliqué (R3), déjà vérifié. */
   promoCode?: { code: string; conditionText: string | null } | null;
+  /** Devis récurrent : rythmes au choix du client, déjà vérifiés (null : un seul rythme). */
+  offeredIntervals?: string | null;
   /** Devis à 2 propositions (P2) : vérifiées par la route ; le devis lui-même reste neutre. */
   options?: Array<{
     label: string;
     billingMode: BillingMode;
     paymentPlanOffer: PaymentPlanOffer | null;
+    offeredIntervals?: string | null;
     totals: ReturnType<typeof computeLineTotals>;
     recurringDiscount: RecurringDiscountFields;
     promoCode: { id: string; code: string; conditionText: string | null } | null;
@@ -138,6 +141,8 @@ export async function renderDraftPreviewPdf(input: DraftPreviewInput, now = new 
     paymentPlanOffer: offer,
     paymentPlan: null,
     billingMode: mode,
+    offeredIntervals: isQuote ? (input.offeredIntervals ?? null) : null,
+    paymentScheduleSnapshot: null,
     ...(isQuote ? (input.recurringDiscount ?? NO_RECURRING_DISCOUNT) : NO_RECURRING_DISCOUNT),
     promoCode: isQuote ? (input.promoCode ?? null) : null,
     depositBaseCents,
@@ -174,6 +179,7 @@ export async function renderDraftPreviewPdf(input: DraftPreviewInput, now = new 
         label: o.label,
         billingMode: o.billingMode,
         paymentPlanOffer: offerAtIssue(o.billingMode, committedOption, base, o.paymentPlanOffer, settings),
+        offeredIntervals: o.offeredIntervals ?? null,
         discountType: o.totals.discountType,
         discountValue: o.totals.discountValue,
         ...o.recurringDiscount,

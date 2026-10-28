@@ -37,6 +37,7 @@
       "@kouzia-erp/recurring-discount": ["../api/src/lib/quotes/recurring-discount-calc.ts"],
       "@kouzia-erp/line-amounts": ["../api/src/lib/invoices/line-amounts.ts"],
       "@kouzia-erp/annual-price": ["../api/src/lib/services/annual-price.ts"],
+      "@kouzia-erp/interval-choice": ["../api/src/lib/quotes/interval-choice.ts"],
       "@kouzia-erp/api-contract": [
         "../api/src/lib/api-contract.ts"
       ]

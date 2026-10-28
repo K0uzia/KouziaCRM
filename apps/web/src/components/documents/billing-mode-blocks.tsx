@@ -4,6 +4,8 @@ import { discountSentence, OPENING_DISCOUNT, recurringDiscountSummary, type Recu
 import { Segmented } from "@/components/ui/Segmented";
 import { FREE_MONTHS_MAX, startPhrase, type StartFields, type SubscriptionStart } from "@/lib/subscription-start";
 import { billedPeriodsIn, equalInstallments, modePlansShown, PERIOD_WORD, type Period, type PlanOffer } from "@/lib/payment-summary";
+import { choiceDiscountSentence, INTERVAL_LABEL, INTERVAL_ORDER, intervalChoiceRows, longestPeriodMonths, type IntervalChoiceRow } from "@kouzia-erp/interval-choice";
+import { startOffsetMonths } from "@/lib/payment-summary";
 
 /**
  * Mode de facturation d'un devis (24/10/2026) : paiement unique (comptant, 2 ou 3 fois en parts égales datées depuis
@@ -18,10 +20,15 @@ export type RecurringDiscountForm = { opening: boolean; kind: "" | "PERCENT" | "
 /** Code promo proposé pour ce devis (client et offres) : GET /api/promo-codes/available. */
 export type PromoOption = { code: string; kind: "PERCENT" | "FIXED"; value: number; months: number | null; conditionText: string | null };
 export const NO_DISCOUNT: RecurringDiscountForm = { opening: false, kind: "", percent: "", euros: "", months: "", promoCode: "" };
-export type RecurringForm = StartFields & { interval: Period; commitmentMonths: "12" | "24" | "36"; billingDay: string; discount: RecurringDiscountForm };
+/**
+ * intervals : rythmes proposés au client (28/10/2026), les trois par défaut ; plusieurs : le client choisit à la signature
+ * et les lignes portent le prix annuel (interval vaut alors YEAR). Un seul : interval, comme avant.
+ */
+export type RecurringForm = StartFields & { interval: Period; intervals: Period[]; commitmentMonths: "12" | "24" | "36"; billingDay: string; discount: RecurringDiscountForm };
 
 export const DEFAULT_RECURRING: RecurringForm = {
   interval: "YEAR",
+  intervals: [...INTERVAL_ORDER],
   commitmentMonths: "36",
   billingDay: "1",
   subscriptionStart: "",
@@ -33,12 +40,15 @@ export const DEFAULT_RECURRING: RecurringForm = {
 /** Brouillon récurrent rouvert : réglages du document repris de sa 1re ligne d'abonnement (les mêmes sur toutes). */
 export function recurringFromLine(
   line: { billingInterval?: string | null; billingDay?: number | null; commitmentMonths?: number | null } & StartFields,
+  offeredIntervals?: string | null,
 ): RecurringForm {
-  const interval: Period = line.billingInterval === "QUARTER" || line.billingInterval === "YEAR" ? line.billingInterval : "MONTH";
+  const offered = INTERVAL_ORDER.filter((iv) => (offeredIntervals ?? "").split(",").includes(iv));
+  const interval: Period = offered.length > 1 ? "YEAR" : line.billingInterval === "QUARTER" || line.billingInterval === "YEAR" ? line.billingInterval : "MONTH";
   const months = line.commitmentMonths;
   return {
     ...DEFAULT_RECURRING,
     interval,
+    intervals: offered.length > 1 ? offered : [interval],
     commitmentMonths: months === 12 || months === 24 || months === 36 ? (String(months) as RecurringForm["commitmentMonths"]) : "12",
     billingDay: String(line.billingDay ?? 1),
     subscriptionStart: line.subscriptionStart,
@@ -85,17 +95,12 @@ export function discountPayload(d: RecurringDiscountForm) {
   };
 }
 
-/** Résumé de la remise (même calcul que l'API et le PDF) ; null sans remise ou incomplète. */
-export function discountSummaryOf(value: RecurringForm, periodCents: number, promos: ReadonlyArray<PromoOption> = []): RecurringDiscountSummary | null {
+/** Champs de remise du formulaire, comme l'API les enregistrera (code promo, case d'ouverture ou remise volontaire). */
+function discountFieldsOf(value: RecurringForm, promos: ReadonlyArray<PromoOption>) {
   const d = value.discount;
   const promo = d.promoCode ? promos.find((p) => p.code === d.promoCode) : undefined;
-  // Échéances facturées pendant l'engagement (mois offerts, 1re facture à une date) : même règle que l'API.
-  const billed = billedPeriodsIn(Number(value.commitmentMonths) || 0, value.interval, value);
-  if (promo) {
-    const fields = { recurringDiscountKind: promo.kind, recurringDiscountValue: promo.value, recurringDiscountMonths: promo.months, openingDiscount: false, promoCode: { code: promo.code, conditionText: promo.conditionText } };
-    return recurringDiscountSummary(fields, periodCents, value.interval, Number(value.commitmentMonths) || null, billed);
-  }
-  const fields = d.opening
+  if (promo) return { recurringDiscountKind: promo.kind, recurringDiscountValue: promo.value, recurringDiscountMonths: promo.months, openingDiscount: false, promoCode: { code: promo.code, conditionText: promo.conditionText } };
+  return d.opening
     ? { recurringDiscountKind: "PERCENT", recurringDiscountValue: OPENING_DISCOUNT.value, recurringDiscountMonths: OPENING_DISCOUNT.months, openingDiscount: true }
     : {
         recurringDiscountKind: d.kind || null,
@@ -103,21 +108,47 @@ export function discountSummaryOf(value: RecurringForm, periodCents: number, pro
         recurringDiscountMonths: d.months ? Number(d.months) : null,
         openingDiscount: false,
       };
-  return recurringDiscountSummary(fields, periodCents, value.interval, Number(value.commitmentMonths) || null, billed);
+}
+
+/** Résumé de la remise (même calcul que l'API et le PDF) ; null sans remise ou incomplète. */
+export function discountSummaryOf(value: RecurringForm, periodCents: number, promos: ReadonlyArray<PromoOption> = []): RecurringDiscountSummary | null {
+  // Échéances facturées pendant l'engagement (mois offerts, 1re facture à une date) : même règle que l'API.
+  const billed = billedPeriodsIn(Number(value.commitmentMonths) || 0, value.interval, value);
+  return recurringDiscountSummary(discountFieldsOf(value, promos), periodCents, value.interval, Number(value.commitmentMonths) || null, billed);
 }
 
 /** Phrase de la remise : la même que le PDF (module partagé). */
 export const discountPhrase = (d: RecurringDiscountSummary, periodCents: number, interval: Period) => discountSentence(d, periodCents, interval, formatEUR);
 
-/** Prix annuel (euros) d'une ligne d'abonnement enregistrée au prix de sa période. */
-export const annualEurosOf = (unitPriceCents: number, interval: string | null | undefined) =>
-  ((unitPriceCents * (interval === "YEAR" ? 1 : interval === "QUARTER" ? 4 : 12)) / 100).toFixed(2);
+/** Prix annuel (euros) d'une ligne d'abonnement enregistrée au prix de sa période : réciproque de periodPriceOfAnnual. */
+export const annualEurosOf = (unitPriceCents: number, interval: string | null | undefined, annualFreeMonths: number) => {
+  const paid = 12 - Math.min(11, Math.max(0, annualFreeMonths));
+  return (Math.round(interval === "YEAR" ? unitPriceCents : interval === "QUARTER" ? (unitPriceCents * paid) / 3 : unitPriceCents * paid) / 100).toFixed(2);
+};
 
-const PERIOD_OPTIONS: ReadonlyArray<{ id: Period; label: string }> = [
-  { id: "MONTH", label: "Mensuel" },
-  { id: "QUARTER", label: "Trimestriel" },
-  { id: "YEAR", label: "Annuel" },
-];
+/** Corps de la requête : les rythmes proposés, null pour un seul (le rythme des lignes). */
+export const offeredIntervalsPayload = (value: Pick<RecurringForm, "intervals">): Period[] | null =>
+  value.intervals.length > 1 ? INTERVAL_ORDER.filter((iv) => value.intervals.includes(iv)) : null;
+
+/** Rythmes cochés : jamais aucun ; le rythme des lignes suit (annuel s'il y en a plusieurs). */
+export function toggleInterval(value: Pick<RecurringForm, "intervals">, iv: Period, on: boolean): Pick<RecurringForm, "intervals" | "interval"> {
+  const next = INTERVAL_ORDER.filter((x) => (x === iv ? on : value.intervals.includes(x)));
+  const intervals = next.length ? next : value.intervals;
+  return { intervals, interval: intervals.length === 1 ? intervals[0]! : "YEAR" };
+}
+
+/** Rangs du tableau des rythmes (mêmes calculs que le PDF et /suivi), quand plusieurs sont proposés. */
+export function intervalRowsOf(value: RecurringForm, annualLineCents: ReadonlyArray<number>, annualFreeMonths: number, promos: ReadonlyArray<PromoOption> = []): IntervalChoiceRow[] {
+  if (value.intervals.length < 2) return [];
+  return intervalChoiceRows({
+    offered: value.intervals,
+    annualLineCents,
+    annualFreeMonths,
+    commitmentMonths: Number(value.commitmentMonths) || null,
+    offsetMonths: startOffsetMonths(value),
+    discount: discountFieldsOf(value, promos),
+  });
+}
 
 const blockTitle = "text-sm font-semibold text-[var(--text)]";
 
@@ -209,13 +240,19 @@ export function RecurringSettings({
   onChange,
   periodCents,
   promos = [],
+  annualLineCents = [],
+  annualFreeMonths,
 }: {
   value: RecurringForm;
   onChange: (patch: Partial<RecurringForm>) => void;
   periodCents: number;
   promos?: ReadonlyArray<PromoOption>;
+  /** Prix annuel de chaque ligne d'abonnement : tableau des rythmes au choix. */
+  annualLineCents?: ReadonlyArray<number>;
+  annualFreeMonths: number;
 }) {
   const hasProject = value.subscriptionStart === "DELIVERY";
+  const rows = intervalRowsOf(value, annualLineCents, annualFreeMonths, promos);
   const phrase = startPhrase(value, hasProject, periodCents, value.interval);
   const months = Number(value.commitmentMonths) || 0;
   const startChoices: ReadonlyArray<{ id: SubscriptionStart; label: string }> = [
@@ -227,12 +264,33 @@ export function RecurringSettings({
   return (
     <div className="space-y-4">
       <h4 className={blockTitle}>Abonnement</h4>
-      <div className="flex flex-wrap items-center gap-3">
-        <Segmented label="Rythme de paiement" options={PERIOD_OPTIONS} value={value.interval} onChange={(interval) => onChange({ interval })} />
-        <span className="text-sm tabular-nums">
-          {formatEUR(periodCents)} par {PERIOD_WORD[value.interval]}
-        </span>
-      </div>
+      <fieldset className="space-y-1">
+        <legend className="text-sm font-medium text-[var(--text)]">Rythmes proposés au client</legend>
+        <p className="text-xs text-[var(--muted)]">
+          {value.intervals.length > 1
+            ? "Le client choisit à la signature. Prix saisi : l'annuel ; mensuel = annuel / " + (12 - annualFreeMonths) + ", trimestriel = 3 mensualités."
+            : "Un seul rythme : aucun choix à la signature."}
+        </p>
+        <div className="flex flex-wrap gap-x-5">
+          {INTERVAL_ORDER.map((iv) => (
+            <Checkbox
+              key={iv}
+              label={INTERVAL_LABEL[iv]}
+              checked={value.intervals.includes(iv)}
+              // Au moins un rythme : le dernier coché reste coché.
+              disabled={value.intervals.length === 1 && value.intervals[0] === iv}
+              onChange={(e) => onChange(toggleInterval(value, iv, e.target.checked))}
+            />
+          ))}
+        </div>
+        {rows.length ? (
+          <IntervalTable rows={rows} />
+        ) : (
+          <p className="text-sm tabular-nums">
+            {formatEUR(periodCents)} par {PERIOD_WORD[value.interval]}
+          </p>
+        )}
+      </fieldset>
       <div className="grid gap-4 sm:grid-cols-[repeat(auto-fit,minmax(min(100%,14rem),1fr))]">
         <Field label="Engagement" hint="Puis reconduit chaque année ; résiliable avec un préavis d'un mois avant l'échéance.">
           <Select value={value.commitmentMonths} onChange={(e) => {
@@ -272,7 +330,7 @@ export function RecurringSettings({
             />
           </Field>
         ) : null}
-        <Field label="Jour de prélèvement" hint={value.interval === "MONTH" ? "Chaque mois." : "Du mois d'échéance."}>
+        <Field label="Jour de prélèvement" hint={value.intervals.length > 1 ? "Du mois d'échéance, selon le rythme retenu." : value.interval === "MONTH" ? "Chaque mois." : "Du mois d'échéance."}>
           <Select value={value.billingDay} onChange={(e) => onChange({ billingDay: e.target.value })}>
             {Array.from({ length: 28 }, (_, d) => d + 1).map((d) => (
               <option key={d} value={String(d)}>
@@ -285,7 +343,9 @@ export function RecurringSettings({
       <DiscountSettings value={value} onChange={onChange} periodCents={periodCents} promos={promos} />
       <p className="text-sm text-[var(--muted)]" aria-live="polite">
         {phrase ? `Sur le devis : « ${phrase} »` : "Complétez la date ou le nombre de mois offerts."}
-        {`, engagement de ${months} mois (${billedPeriodsIn(months, value.interval, value)} échéances), puis reconduit chaque année.`}
+        {value.intervals.length > 1
+          ? `, engagement de ${months} mois, puis reconduit chaque année.`
+          : `, engagement de ${months} mois (${billedPeriodsIn(months, value.interval, value)} échéances), puis reconduit chaque année.`}
       </p>
     </div>
   );
@@ -298,7 +358,8 @@ export function RecurringSettings({
 function DiscountSettings({ value, onChange, periodCents, promos }: { value: RecurringForm; onChange: (patch: Partial<RecurringForm>) => void; periodCents: number; promos: ReadonlyArray<PromoOption> }) {
   const d = value.discount;
   const set = (patch: Partial<RecurringDiscountForm>) => onChange({ discount: { ...d, ...patch } });
-  const step = value.interval === "YEAR" ? 12 : value.interval === "QUARTER" ? 3 : 1;
+  const choice = value.intervals.length > 1;
+  const step = choice ? longestPeriodMonths(value.intervals) : value.interval === "YEAR" ? 12 : value.interval === "QUARTER" ? 3 : 1;
   const engaged36 = value.commitmentMonths === "36";
   const summary = discountSummaryOf(value, periodCents, promos);
   const promoChosen = Boolean(d.promoCode);
@@ -333,7 +394,8 @@ function DiscountSettings({ value, onChange, periodCents, promos }: { value: Rec
             <Select value={d.kind} onChange={(e) => set({ kind: e.target.value as RecurringDiscountForm["kind"] })}>
               <option value="">Aucune</option>
               <option value="PERCENT">Pourcentage</option>
-              <option value="FIXED">Montant par échéance</option>
+              {/* Plusieurs rythmes : un montant par échéance n'aurait pas le même poids d'un rythme à l'autre. */}
+              <option value="FIXED" disabled={choice}>{choice ? "Montant par échéance (un seul rythme)" : "Montant par échéance"}</option>
             </Select>
           </Field>
           {d.kind === "PERCENT" ? (
@@ -357,7 +419,7 @@ function DiscountSettings({ value, onChange, periodCents, promos }: { value: Rec
       )}
       {summary ? (
         <p className="text-sm text-[var(--muted)]" aria-live="polite">
-          {`Sur le devis : « ${discountPhrase(summary, periodCents, value.interval)} »`}
+          {`Sur le devis : « ${choice ? choiceDiscountSentence(summary) : discountPhrase(summary, periodCents, value.interval)} »`}
         </p>
       ) : null}
     </div>
@@ -365,10 +427,32 @@ function DiscountSettings({ value, onChange, periodCents, promos }: { value: Rec
 }
 
 /** Récapitulatif d'un devis récurrent : montant par période, engagement et total sur la durée. */
-export function RecurringRecap({ value, periodCents, promos = [] }: { value: RecurringForm; periodCents: number; promos?: ReadonlyArray<PromoOption> }) {
+export function RecurringRecap({
+  value,
+  periodCents,
+  promos = [],
+  annualLineCents = [],
+  annualFreeMonths,
+}: {
+  value: RecurringForm;
+  periodCents: number;
+  promos?: ReadonlyArray<PromoOption>;
+  annualLineCents?: ReadonlyArray<number>;
+  annualFreeMonths: number;
+}) {
   const months = Number(value.commitmentMonths) || 0;
   const discount = discountSummaryOf(value, periodCents, promos);
   const line = "flex items-baseline justify-between gap-3 text-sm";
+  const rows = intervalRowsOf(value, annualLineCents, annualFreeMonths, promos);
+  if (rows.length) {
+    return (
+      <div className="space-y-1.5">
+        <p className="text-sm font-semibold">Abonnement, rythme au choix du client</p>
+        <IntervalTable rows={rows} />
+        <p className="text-xs text-[var(--muted)]">{`Engagement ${months} mois, puis reconduit chaque année. Le client choisit le rythme à la signature.`}</p>
+      </div>
+    );
+  }
   return (
     <div className="space-y-1.5">
       <p className={line}>
@@ -383,5 +467,57 @@ export function RecurringRecap({ value, periodCents, promos = [] }: { value: Rec
         {`Engagement ${months} mois, soit ${formatEUR(discount?.totalCommitmentCents ?? periodCents * billedPeriodsIn(months, value.interval, value))} sur la durée, puis reconduit chaque année.`}
       </p>
     </div>
+  );
+}
+
+/** Tableau compact des rythmes proposés : prix par échéance et total sur l'engagement (remise comprise). */
+function IntervalTable({ rows }: { rows: ReadonlyArray<IntervalChoiceRow> }) {
+  return (
+    <table className="w-full text-sm tabular-nums">
+      <caption className="sr-only">Rythmes proposés au client</caption>
+      <thead>
+        <tr className="text-xs text-[var(--muted)]">
+          <th scope="col" className="py-1.5 pr-2 text-left font-medium">Rythme</th>
+          <th scope="col" className="px-2 py-1.5 text-right font-medium">Prix par échéance</th>
+          <th scope="col" className="py-1.5 pl-2 text-right font-medium">Total sur l'engagement</th>
+        </tr>
+      </thead>
+      <tbody>
+        {rows.map((r) => (
+          <tr key={r.interval} className="border-t border-[var(--border)]">
+            <th scope="row" className="py-1.5 pr-2 text-left font-normal">{INTERVAL_LABEL[r.interval]}</th>
+            {/* Le rythme dit la période : montant seul, sans retour à la ligne au téléphone. */}
+            <td className="whitespace-nowrap px-2 py-1.5 text-right">{formatEUR(r.amountCents)}</td>
+            <td className="whitespace-nowrap py-1.5 pl-2 text-right font-semibold">{r.totalCommitmentCents !== null ? formatEUR(r.totalCommitmentCents) : ""}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+}
+
+/** Rythmes au choix enregistrés sur un devis ou une proposition (« YEAR,MONTH ») : deux au moins, sinon aucun. */
+export function offeredIntervalsOf(value: string | null | undefined): Period[] {
+  const list = INTERVAL_ORDER.filter((iv) => (value ?? "").split(",").includes(iv));
+  return list.length > 1 ? list : [];
+}
+
+/**
+ * Signature hors ligne ou validée depuis la messagerie (28/10/2026) : le rythme retenu par le client, obligatoire quand
+ * plusieurs sont proposés, sans choix par défaut. Rien à afficher pour un seul rythme.
+ */
+export function IntervalChoiceFieldset({ offered, value, onChange, name }: { offered: string | null | undefined; value: Period | ""; onChange: (next: Period) => void; name: string }) {
+  const list = offeredIntervalsOf(offered);
+  if (!list.length) return null;
+  return (
+    <fieldset className="space-y-1">
+      <legend className="text-sm font-medium">Rythme de paiement retenu par le client</legend>
+      {list.map((iv) => (
+        <label key={iv} className="flex min-h-11 items-center gap-2 text-sm">
+          <input type="radio" name={name} required value={iv} checked={value === iv} onChange={() => onChange(iv)} />
+          {INTERVAL_LABEL[iv]}
+        </label>
+      ))}
+    </fieldset>
   );
 }

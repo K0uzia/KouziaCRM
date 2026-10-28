@@ -1,5 +1,7 @@
 import type { BillingMode } from "@/lib/quotes/payment-plans.js";
 import { isCommitmentMonths } from "@/lib/subscriptions/commitment.js";
+import { periodPriceOfAnnual } from "@/lib/services/annual-price.js";
+import { offeredIntervalsValue, parseOfferedIntervals } from "@/lib/quotes/interval-choice.js";
 
 /** Ligne vue par les règles du mode : champs d'abonnement tels qu'enregistrés. */
 export type ModeLine = {
@@ -17,12 +19,11 @@ export type ModeLine = {
 export class BillingModeError extends Error {}
 
 /**
- * Montant par période d'un prix annuel (24/10/2026) : annuel tel quel, / 4 au trimestre, / 12 au mois, arrondi au
- * centime, sans majoration ni remise. L'écart d'arrondi sur l'année (2 900 € / 12 = 241,67 €) est affiché tel quel.
+ * Montant par période d'un prix annuel : règle unique periodPriceOfAnnual (décision du 28/10/2026, l'annuel coûte moins
+ * cher) : annuel tel quel, mensuel = annuel / (12 - mois offerts des réglages), trimestriel = 3 mensualités.
  */
-export function periodAmountCents(annualCents: number, interval: string | null | undefined): number {
-  if (interval === "YEAR") return annualCents;
-  return Math.round(annualCents / (interval === "QUARTER" ? 4 : 12));
+export function periodAmountCents(annualCents: number, interval: string | null | undefined, annualFreeMonths: number): number {
+  return periodPriceOfAnnual(annualCents, interval, annualFreeMonths);
 }
 
 const day = (d: Date | string | null | undefined) => (d ? new Date(d).toISOString().slice(0, 10) : "");
@@ -78,4 +79,23 @@ export function assertBillingModeLines(mode: BillingMode | null, lines: Readonly
   if (new Set(subs.map(key)).size > 1) {
     throw new BillingModeError("Paiement récurrent : période, engagement, départ et jour de prélèvement sont les mêmes pour tout le devis.");
   }
+}
+
+/**
+ * Rythmes proposés au client (décision du 28/10/2026) : valeur à enregistrer, null pour un seul rythme (comportement
+ * d'avant). Deux au moins : devis récurrent seulement, lignes d'abonnement au prix annuel (YEAR), le client choisit à
+ * la signature.
+ */
+export function resolveOfferedIntervals(
+  mode: BillingMode | null,
+  lines: ReadonlyArray<ModeLine>,
+  offered: ReadonlyArray<string> | string | null | undefined,
+): string | null {
+  const value = offeredIntervalsValue(parseOfferedIntervals(offered ?? null));
+  if (!value) return null;
+  if (mode !== "RECURRING") throw new BillingModeError("Rythme au choix du client : réservé au devis en paiement récurrent.");
+  if (lines.some((l) => l.isSubscription && l.billingInterval !== "YEAR")) {
+    throw new BillingModeError("Rythme au choix du client : les lignes d'abonnement portent le prix annuel (périodicité annuelle).");
+  }
+  return value;
 }

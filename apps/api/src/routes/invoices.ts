@@ -14,7 +14,8 @@ import { requireAuth } from "@/lib/auth.js";
 import { prisma } from "@/lib/prisma.js";
 import { computeLineTotals, assertSubscriptionLinesValid, depositBaseOf } from "@/lib/invoices/totals.js";
 import { BILLING_MODES, parseBillingMode, type PaymentPlanOffer } from "@/lib/quotes/payment-plans.js";
-import { assertBillingModeLines } from "@/lib/quotes/billing-mode.js";
+import { assertBillingModeLines, resolveOfferedIntervals } from "@/lib/quotes/billing-mode.js";
+import { parseOfferedIntervals } from "@/lib/quotes/interval-choice.js";
 import { NO_RECURRING_DISCOUNT, resolveRecurringDiscount, storedRecurringDiscount, type RecurringDiscountFields } from "@/lib/quotes/recurring-discount.js";
 import { promoAsDiscountInput, resolvePromoForQuote } from "@/lib/quotes/promo-codes.js";
 import { eurosToCents, formatEUR } from "@/lib/money.js";
@@ -144,6 +145,9 @@ const recurringDiscountSchema = z
   .nullable()
   .optional();
 
+/** Devis récurrent : rythmes proposés au client (deux au moins, lignes au prix annuel) ; un seul ou null : sans choix. */
+const offeredIntervalsSchema = z.array(z.enum(["YEAR", "QUARTER", "MONTH"])).max(3).nullable().optional();
+
 /** Devis à propositions (P1) : chaque proposition est complète (mode, offre de paiement, remise, lignes). */
 export const MAX_QUOTE_OPTIONS = 2;
 const optionSchema = z.object({
@@ -157,6 +161,7 @@ const optionSchema = z.object({
   recurringDiscount: recurringDiscountSchema,
   openingDiscount: z.boolean().optional(),
   promoCode: z.string().trim().max(32).nullable().optional(),
+  offeredIntervals: offeredIntervalsSchema,
 });
 const optionsSchema = z.array(optionSchema).length(MAX_QUOTE_OPTIONS);
 
@@ -184,6 +189,7 @@ const createSchema = z.object({
   promoCode: z.string().trim().max(32).nullable().optional(),
   /** Devis à 2 propositions : à la place des lignes et des réglages de facturation du devis. */
   options: optionsSchema.optional(),
+  offeredIntervals: offeredIntervalsSchema,
   ...offlineQuoteFields,
 }).superRefine((d, ctx) => {
   if (d.options && d.documentType !== "QUOTE") ctx.addIssue({ code: "custom", path: ["options"], message: "Propositions : réservées au devis" });
@@ -224,6 +230,7 @@ const updateSchema = z.object({
   promoCode: z.string().trim().max(32).nullable().optional(),
   /** Devis à 2 propositions : remplace les propositions ; null revient au devis simple (lignes requises). */
   options: optionsSchema.nullable().optional(),
+  offeredIntervals: offeredIntervalsSchema,
 }).superRefine((d, ctx) => {
   if (d.options && d.lines) ctx.addIssue({ code: "custom", path: ["lines"], message: "Devis à propositions : les lignes vont dans chaque proposition" });
   if (d.options === null && !d.lines) ctx.addIssue({ code: "custom", path: ["lines"], message: "Lignes requises pour revenir à une seule proposition" });
@@ -259,8 +266,9 @@ async function prepareQuoteOptions(options: z.output<typeof optionsSchema>, quot
     const lineInputs = lineInputsOf(o.lines);
     assertSubscriptionLinesValid(lineInputs);
     assertBillingModeLines(o.billingMode, lineInputs);
+    const offeredIntervals = resolveOfferedIntervals(o.billingMode, lineInputs, o.offeredIntervals);
     const promo = o.billingMode === "RECURRING" ? await resolvePromoForQuote(o, { ...quote, lines: lineInputs }, null) : null;
-    const recurringDiscount = resolveRecurringDiscount(o.billingMode, lineInputs, promo ? { recurringDiscount: promoAsDiscountInput(promo) } : o);
+    const recurringDiscount = resolveRecurringDiscount(o.billingMode, lineInputs, promo ? { recurringDiscount: promoAsDiscountInput(promo) } : o, parseOfferedIntervals(offeredIntervals));
     const totals = computeLineTotals(lineInputs, discountFromBody(o));
     prepared.push({
       option: {
@@ -268,6 +276,7 @@ async function prepareQuoteOptions(options: z.output<typeof optionsSchema>, quot
         label: o.label,
         billingMode: o.billingMode,
         paymentPlanOffer: o.billingMode === "RECURRING" ? "NONE" : (o.paymentPlanOffer ?? defaultOffer),
+        offeredIntervals,
         discountType: totals.discountType,
         discountValue: totals.discountValue,
         ...recurringDiscount,
@@ -541,12 +550,14 @@ export const invoicesRoutes: FastifyPluginAsync = async (app) => {
       const lineInputs = lineInputsOf(parsed.data.lines!);
       const billingMode = parsed.data.documentType === "QUOTE" ? (parsed.data.billingMode ?? null) : null;
       let recurringDiscount: RecurringDiscountFields;
+      let offeredIntervals: string | null = null;
       let promo: Awaited<ReturnType<typeof resolvePromoForQuote>> = null;
       try {
         assertSubscriptionLinesValid(lineInputs);
         assertBillingModeLines(billingMode, lineInputs);
+        offeredIntervals = resolveOfferedIntervals(billingMode, lineInputs, parsed.data.offeredIntervals);
         promo = billingMode ? await resolvePromoForQuote(parsed.data, { clientId: parsed.data.clientId, lines: lineInputs }, null) : null;
-        recurringDiscount = resolveRecurringDiscount(billingMode, lineInputs, promo ? { recurringDiscount: promoAsDiscountInput(promo) } : parsed.data);
+        recurringDiscount = resolveRecurringDiscount(billingMode, lineInputs, promo ? { recurringDiscount: promoAsDiscountInput(promo) } : parsed.data, parseOfferedIntervals(offeredIntervals));
       } catch (e) {
         return reply.code(400).send({ error: e instanceof Error ? e.message : "Lignes invalides" });
       }
@@ -594,6 +605,7 @@ export const invoicesRoutes: FastifyPluginAsync = async (app) => {
           documentType,
           paymentPlanOffer,
           billingMode,
+          offeredIntervals,
           ...(clientRequestId ? { clientRequestId, offlineReviewReason: offlineReviewReason(conflicts) } : {}),
           quoteStatus: documentType === InvoiceDocumentType.QUOTE ? QuoteStatus.DRAFT : null,
           clientId: parsed.data.clientId,
@@ -694,6 +706,7 @@ export const invoicesRoutes: FastifyPluginAsync = async (app) => {
           label: p.option.label,
           billingMode: p.option.billingMode,
           paymentPlanOffer: p.option.paymentPlanOffer as PaymentPlanOffer,
+          offeredIntervals: p.option.offeredIntervals,
           totals: p.totals,
           recurringDiscount: p.recurringDiscount,
           promoCode: p.promo ? { id: p.promo.id, code: p.promo.code, conditionText: p.promo.conditionText } : null,
@@ -705,12 +718,14 @@ export const invoicesRoutes: FastifyPluginAsync = async (app) => {
     const lineInputs = lineInputsOf(parsed.data.lines!);
     let recurringDiscount: RecurringDiscountFields;
     let previewPromo: Awaited<ReturnType<typeof resolvePromoForQuote>> = null;
+    let previewIntervals: string | null = null;
     try {
       assertSubscriptionLinesValid(lineInputs);
       const promo = parsed.data.documentType === "QUOTE" && parsed.data.billingMode ? await resolvePromoForQuote(parsed.data, { clientId: parsed.data.clientId, lines: lineInputs }, null) : null;
+      previewIntervals = parsed.data.documentType === "QUOTE" ? resolveOfferedIntervals(parsed.data.billingMode ?? null, lineInputs, parsed.data.offeredIntervals) : null;
       recurringDiscount =
         parsed.data.documentType === "QUOTE"
-          ? resolveRecurringDiscount(parsed.data.billingMode ?? null, lineInputs, promo ? { recurringDiscount: promoAsDiscountInput(promo) } : parsed.data)
+          ? resolveRecurringDiscount(parsed.data.billingMode ?? null, lineInputs, promo ? { recurringDiscount: promoAsDiscountInput(promo) } : parsed.data, parseOfferedIntervals(previewIntervals))
           : NO_RECURRING_DISCOUNT;
       previewPromo = promo;
     } catch (e) {
@@ -731,6 +746,7 @@ export const invoicesRoutes: FastifyPluginAsync = async (app) => {
       totals: computeLineTotals(lineInputs, discountFromBody(d)),
       recurringDiscount,
       promoCode: previewPromo,
+      offeredIntervals: previewIntervals,
     });
     if (!pdf) return reply.code(404).send({ error: "Client introuvable" });
     return pdfReply(reply, pdf);
@@ -937,7 +953,8 @@ export const invoicesRoutes: FastifyPluginAsync = async (app) => {
       parsed.data.discountEuros !== undefined ||
       parsed.data.recurringDiscount !== undefined ||
       parsed.data.openingDiscount !== undefined ||
-      parsed.data.promoCode !== undefined;
+      parsed.data.promoCode !== undefined ||
+      parsed.data.offeredIntervals !== undefined;
     if (billingFieldsSent && (withOptions || (existing.options.length > 0 && !parsed.data.lines))) {
       return reply.code(400).send({ error: "Devis à propositions : mode, paiement et remise se règlent dans chaque proposition." });
     }
@@ -965,19 +982,22 @@ export const invoicesRoutes: FastifyPluginAsync = async (app) => {
       sourceQuoteId?: string | null;
       paymentPlanOffer?: string;
       billingMode?: string | null;
+      offeredIntervals?: string | null;
     } & Partial<RecurringDiscountFields> = {};
     if (parsed.data.paymentPlanOffer && existing.documentType === InvoiceDocumentType.QUOTE && !preparedOptions) {
       data.paymentPlanOffer = parsed.data.paymentPlanOffer;
     }
     // Mode de facturation : vérifié sur les lignes envoyées, sinon sur celles du brouillon.
     const discountInputTouched = parsed.data.recurringDiscount !== undefined || parsed.data.openingDiscount !== undefined || parsed.data.promoCode !== undefined;
-    if (existing.documentType === InvoiceDocumentType.QUOTE && !preparedOptions && (parsed.data.billingMode !== undefined || parsed.data.lines || discountInputTouched)) {
+    if (existing.documentType === InvoiceDocumentType.QUOTE && !preparedOptions && (parsed.data.billingMode !== undefined || parsed.data.lines || discountInputTouched || parsed.data.offeredIntervals !== undefined)) {
       const mode = parsed.data.billingMode !== undefined ? (parsed.data.billingMode ?? null) : parseBillingMode(existing.billingMode);
       const modeLines = parsed.data.lines
         ? lineInputsOf(parsed.data.lines)
         : await prisma.invoiceLine.findMany({ where: { invoiceId: id }, orderBy: { position: "asc" } });
       try {
         assertBillingModeLines(mode, modeLines);
+        // Rythmes au choix : ceux envoyés, sinon ceux du brouillon, revérifiés sur le mode et les lignes.
+        data.offeredIntervals = resolveOfferedIntervals(mode, modeLines, parsed.data.offeredIntervals !== undefined ? parsed.data.offeredIntervals : existing.offeredIntervals);
         // Remise du devis récurrent : celle envoyée, sinon celle du brouillon, revérifiée sur le mode et les lignes ;
         // passage en paiement unique sans remise envoyée : la remise du brouillon est retirée.
         // Code promo (R3) : celui envoyé, sinon celui du brouillon, revérifié (client, offres, usages) ; il fixe la remise.
@@ -998,6 +1018,7 @@ export const invoicesRoutes: FastifyPluginAsync = async (app) => {
                       recurringDiscount: parsed.data.recurringDiscount !== undefined ? parsed.data.recurringDiscount : storedRecurringDiscount(existing),
                       openingDiscount: parsed.data.openingDiscount ?? (parsed.data.recurringDiscount ? false : existing.openingDiscount),
                     },
+                parseOfferedIntervals(data.offeredIntervals),
               ),
           { promoCodeId: promo?.id ?? null },
         );

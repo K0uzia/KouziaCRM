@@ -9,6 +9,8 @@ import { InvoiceDocumentType, InvoiceStatus, QuoteStatus } from "@prisma/client"
 import { prisma } from "@/lib/prisma.js";
 import { loadDocumentForPdf, pdfDataOfLoaded } from "@/lib/pdf/document-pdf.js";
 import { optionalChoicesError, optionalLinesSchema, proposalLetter, quoteFieldsOfOption } from "@/lib/quotes/quote-options.js";
+import { INTERVAL_CHOICE_MESSAGES, intervalChoiceError, parseOfferedIntervals } from "@/lib/quotes/interval-choice.js";
+import { quoteIntervalOffer } from "@/lib/quotes/interval-offer.js";
 import { getCompanySettings } from "@/lib/company.js";
 import { buildPayUrl } from "@/lib/stripe/pay-urls.js";
 import { billedWithDocument, depositBaseOf, isCommittedLine } from "@/lib/invoices/totals.js";
@@ -181,6 +183,12 @@ const OPTIONAL_CHOICE_ERRORS = {
   INVALID: { error: "Ce choix d'option ne correspond pas à la formule signée.", code: "optional_choice_invalid" },
 } as const;
 
+/** Rythme de paiement manquant ou non proposé (28/10/2026) : codes du contrat /suivi. */
+const INTERVAL_CHOICE_ERRORS = {
+  REQUIRED: { error: INTERVAL_CHOICE_MESSAGES.REQUIRED, code: "interval_choice_required" },
+  INVALID: { error: INTERVAL_CHOICE_MESSAGES.INVALID, code: "interval_choice_invalid" },
+} as const;
+
 const quoteDecisionSchema = z.discriminatedUnion("decision", [
   z.object({
     decision: z.literal("ACCEPT"),
@@ -196,6 +204,8 @@ const quoteDecisionSchema = z.discriminatedUnion("decision", [
     optionId: z.string().min(1).max(64).optional(),
     /** Lignes en option de la formule signée : un choix explicite pour chacune (obligatoire s'il y en a). */
     optionalLines: optionalLinesSchema,
+    /** Devis récurrent à rythme au choix : le rythme retenu, parmi ceux proposés (obligatoire quand il y en a plusieurs). */
+    billingInterval: z.string().trim().max(16).optional(),
     /** CGV publiées : case cochée (true) et version lue, égale à la version en vigueur. */
     acceptCgv: z.literal(true).optional(),
     cgvVersion: z.string().trim().min(1).max(40).optional(),
@@ -219,6 +229,8 @@ const ymdOf = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padSta
  */
 function recurringOf(d: {
   billingMode: string | null;
+  offeredIntervals?: string | null;
+  paymentScheduleSnapshot?: string | null;
   depositBaseCents: number | null;
   recurringDiscountKind: string | null;
   recurringDiscountValue: number | null;
@@ -237,7 +249,7 @@ function recurringOf(d: {
       subscription: { nextInvoiceAt: Date; invoices: Array<{ issueDate: Date | null }> } | null;
     }
   >;
-}) {
+}, settings?: { annualFreeMonths: number }) {
   const first = d.lines[0];
   if (parseBillingMode(d.billingMode) !== "RECURRING" || !first) return null;
   const period = normalizeInterval(first.billingInterval);
@@ -265,6 +277,8 @@ function recurringOf(d: {
           signedAt: d.quoteStatus === "ACCEPTED" ? (d.quoteDecidedAt ?? null) : null,
         }).billingDay,
     firstInvoiceOn: firstInvoice ? ymdOf(firstInvoice) : null,
+    // Rythme au choix (28/10/2026) : lignes au prix annuel, un rang par rythme proposé tant que le devis n'est pas signé.
+    intervalOffer: settings ? quoteIntervalOffer(d, d.lines.map((l) => ({ ...l, isSubscription: true })), settings) : null,
   };
 }
 
@@ -751,7 +765,7 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
               ...(q.documentType === InvoiceDocumentType.QUOTE && recurringOf(q)
                 ? {
                     recurring: (() => {
-                      const r = recurringOf(q)!;
+                      const r = recurringOf(q, settings)!;
                       return {
                         period: r.period,
                         ...(showAmounts ? { amountCents: r.amountCents } : {}),
@@ -779,6 +793,31 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
                         ...(r.freeMonths ? { freeMonths: r.freeMonths } : {}),
                         billingDay: r.billingDay,
                         ...(r.firstInvoiceOn ? { firstInvoiceOn: r.firstInvoiceOn } : {}),
+                        // Rythme au choix du client (ajout du 28/10/2026) : billingInterval obligatoire à la signature, l'un de
+                        // ceux-ci. period et amountCents ci-dessus décrivent alors le prix annuel du devis.
+                        ...(r.intervalOffer
+                          ? {
+                              intervalChoiceRequired: true as const,
+                              intervalChoices: r.intervalOffer.rows.map((row) => ({
+                                interval: row.interval,
+                                periods: row.periods,
+                                ...(showAmounts
+                                  ? {
+                                      amountCents: row.amountCents,
+                                      ...(row.totalCommitmentCents !== null ? { totalCommitmentCents: row.totalCommitmentCents } : {}),
+                                    }
+                                  : {}),
+                                ...(row.discount
+                                  ? {
+                                      discount: {
+                                        periods: row.discount.periods,
+                                        ...(showAmounts ? { discountedAmountCents: row.discount.discountedAmountCents } : {}),
+                                      },
+                                    }
+                                  : {}),
+                              })),
+                            }
+                          : {}),
                       };
                     })(),
                   }
@@ -1153,8 +1192,9 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
           id: true,
           clientId: true,
           paymentPlanOffer: true,
-          options: { select: { id: true, paymentPlanOffer: true } },
-          lines: { where: { isOptional: true }, select: { id: true, optionId: true } },
+          offeredIntervals: true,
+          options: { select: { id: true, paymentPlanOffer: true, offeredIntervals: true } },
+          lines: { where: { OR: [{ isOptional: true }, { isSubscription: true }] }, select: { id: true, optionId: true, isOptional: true, isSubscription: true, billingInterval: true } },
         },
       });
       // Même réponse qu'un devis inexistant : le portail ne révèle pas les documents d'autrui.
@@ -1181,9 +1221,17 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
           return reply.code(400).send({ error: "Cette proposition n'existe pas sur ce devis.", code: "option_invalid" });
         }
         // Option au choix (28/10/2026) : une réponse pour chaque ligne en option de la formule signée, avant le code.
-        const optionalIds = quote.lines.filter((l) => (option ? l.optionId === option.id : !l.optionId)).map((l) => l.id);
+        const formulaLines = quote.lines.filter((l) => (option ? l.optionId === option.id : !l.optionId));
+        const optionalIds = formulaLines.filter((l) => l.isOptional).map((l) => l.id);
         const choiceError = optionalChoicesError(optionalIds, data.optionalLines);
         if (choiceError) return reply.code(400).send(OPTIONAL_CHOICE_ERRORS[choiceError]);
+        // Rythme au choix : obligatoire quand plusieurs sont proposés, l'un d'eux ; vérifié avant le code.
+        const intervalError = intervalChoiceError(
+          parseOfferedIntervals(option ? option.offeredIntervals : quote.offeredIntervals),
+          data.billingInterval,
+          formulaLines.find((l) => l.isSubscription && !l.isOptional)?.billingInterval,
+        );
+        if (intervalError) return reply.code(400).send(INTERVAL_CHOICE_ERRORS[intervalError]);
         // Formule, CGV et case vérifiées avant le code : un oubli ne consomme pas le code de signature.
         resolveAcceptedPlan(parsePaymentPlanOffer(option ? option.paymentPlanOffer : quote.paymentPlanOffer), data.paymentPlan, { requireChoice: true });
         const settings = await getCompanySettings();
@@ -1233,6 +1281,7 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
             paymentPlan: data.paymentPlan,
             optionId: option?.id ?? null,
             optionalLines: data.optionalLines,
+            billingInterval: data.billingInterval ?? null,
             cgvAccepted: settings.cgvPublished && data.acceptCgv === true,
             expressExecution: data.expressExecution === true,
           },
@@ -1242,6 +1291,8 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
         if (e instanceof QuoteDecisionError) {
           if (e.code === "OPTIONAL_CHOICE_REQUIRED") return reply.code(400).send(OPTIONAL_CHOICE_ERRORS.REQUIRED);
           if (e.code === "OPTIONAL_CHOICE_INVALID") return reply.code(400).send(OPTIONAL_CHOICE_ERRORS.INVALID);
+          if (e.code === "INTERVAL_CHOICE_REQUIRED") return reply.code(400).send(INTERVAL_CHOICE_ERRORS.REQUIRED);
+          if (e.code === "INTERVAL_CHOICE_INVALID") return reply.code(400).send(INTERVAL_CHOICE_ERRORS.INVALID);
           return reply.code(409).send({ error: e.message, code: e.code });
         }
         if (e instanceof PaymentPlanError) return reply.code(400).send({ error: e.message, code: e.code });

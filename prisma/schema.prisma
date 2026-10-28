@@ -1267,6 +1267,10 @@ model Invoice {
   paymentPlanOffer             String?
   /// Devis accepté : formule retenue, ONE | TWO | THREE.
   paymentPlan                  String?
+  /// Devis récurrent : rythmes de paiement proposés au client, choisi à la signature (YEAR, QUARTER, MONTH séparés par
+  /// des virgules, deux au moins) ; lignes d'abonnement alors au prix annuel (YEAR). null : un seul rythme, celui des
+  /// lignes. Remis à null à la signature, les lignes passant au rythme retenu.
+  offeredIntervals             String?
   /// Devis : mode de facturation de tout le document, ONE_OFF (paiement unique, parts égales datées) ou RECURRING
   /// (un abonnement, frais de mise en service possibles). Null = devis antérieur : règles par ligne.
   billingMode                  String?
@@ -1745,6 +1749,10 @@ model QuoteAcceptanceAudit {
   originalPdfSha256   String?
   /// Formule de paiement retenue à la signature (TWO | THREE)
   paymentPlan         String?
+  /// Rythme de paiement retenu à la signature parmi plusieurs proposés (YEAR | QUARTER | MONTH), et le montant d'une
+  /// échéance à ce rythme, hors remise ; null sans choix
+  billingInterval     String?
+  billingPeriodCents  Int?
   /// CGV acceptées en ligne (false : signature hors espace client ou CGV non publiées ; null : avant ce suivi)
   cgvAccepted         Boolean?
   cgvUrl              String?
@@ -2244,6 +2252,8 @@ model QuoteOption {
   billingMode             String
   /// ONE | TWO | THREE | CHOICE | NONE
   paymentPlanOffer        String?
+  /// Rythmes proposés au client, comme Invoice.offeredIntervals
+  offeredIntervals        String?
   /// Remise ponctuelle, comme Invoice.discountType et discountValue
   discountType            String         @default("NONE")
   discountValue           Int            @default(0)

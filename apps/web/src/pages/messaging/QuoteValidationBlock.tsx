@@ -6,6 +6,7 @@ import { proposalTitle, splitLineLabel } from "@/lib/quote-totals";
 import { Button } from "@/components/ui/Button";
 import { Field, Input } from "@/components/ui/Field";
 import { Modal, ModalActions } from "@/components/ui/Modal";
+import { IntervalChoiceFieldset, offeredIntervalsOf } from "@/components/documents/billing-mode-blocks";
 
 type PendingQuote = {
   id: string;
@@ -52,15 +53,24 @@ export function QuoteValidationBlock({
   // Options du devis à valider : lues à l'ouverture de la fenêtre, un choix explicite pour chacune (pas de défaut).
   const [optionalLines, setOptionalLines] = useState<OptionalLine[] | null>(null);
   const [optionalChoices, setOptionalChoices] = useState<Record<string, boolean>>({});
+  // Rythme au choix (28/10/2026) : rythmes du devis et de chaque proposition, lus avec les lignes ; choix sans défaut.
+  const [offered, setOffered] = useState<{ quote: string | null; options: Record<string, string | null> }>({ quote: null, options: {} });
+  const [chosenInterval, setChosenInterval] = useState<"" | "YEAR" | "QUARTER" | "MONTH">("");
   useEffect(() => {
     setOptionalChoices({});
+    setChosenInterval("");
     if (!confirmQuote) {
       setOptionalLines(null);
+      setOffered({ quote: null, options: {} });
       return;
     }
     let alive = true;
-    api<{ lines?: Array<OptionalLine & { isOptional?: boolean }> }>(`/api/invoices/${confirmQuote.id}`)
-      .then((q) => alive && setOptionalLines((q.lines ?? []).filter((l) => l.isOptional)))
+    api<{ lines?: Array<OptionalLine & { isOptional?: boolean }>; offeredIntervals?: string | null; options?: Array<{ id: string; offeredIntervals?: string | null }> }>(`/api/invoices/${confirmQuote.id}`)
+      .then((q) => {
+        if (!alive) return;
+        setOptionalLines((q.lines ?? []).filter((l) => l.isOptional));
+        setOffered({ quote: q.offeredIntervals ?? null, options: Object.fromEntries((q.options ?? []).map((o) => [o.id, o.offeredIntervals ?? null])) });
+      })
       .catch(() => alive && setOptionalLines([]));
     return () => {
       alive = false;
@@ -68,6 +78,8 @@ export function QuoteValidationBlock({
   }, [confirmQuote]);
   const shownOptional = (optionalLines ?? []).filter((l) => (confirmQuote?.options?.length ? l.optionId === optionId : !l.optionId));
   const optionalMissing = optionalLines === null || shownOptional.some((l) => optionalChoices[l.id] === undefined);
+  const shownOffered = confirmQuote?.options?.length ? (offered.options[optionId] ?? null) : offered.quote;
+  const intervalMissing = offeredIntervalsOf(shownOffered).length > 0 && !offeredIntervalsOf(shownOffered).includes(chosenInterval as "YEAR");
 
   if (pendingQuotes.length === 0 && acceptanceAudits.length === 0) return null;
 
@@ -82,6 +94,7 @@ export function QuoteValidationBlock({
           signerName: signerName.trim(),
           ...(confirmQuote.options?.length ? { optionId } : {}),
           ...(shownOptional.length ? { optionalLines: shownOptional.map((l) => ({ id: l.id, accepted: optionalChoices[l.id] })) } : {}),
+          ...(offeredIntervalsOf(shownOffered).length ? { billingInterval: chosenInterval } : {}),
         }),
       });
       toast.success(`Devis ${confirmQuote.number ?? ""} validé. Demande d'acompte envoyée au client.`);
@@ -203,13 +216,16 @@ export function QuoteValidationBlock({
             ))}
           </fieldset>
         ))}
+        <div className="mt-4">
+          <IntervalChoiceFieldset offered={shownOffered} value={chosenInterval} onChange={setChosenInterval} name="thread-interval" />
+        </div>
         <ModalActions>
           <Button type="button" variant="secondary" disabled={busy} onClick={() => setConfirmQuote(null)}>
             Annuler
           </Button>
           <Button
             type="button"
-            disabled={busy || !signerName.trim() || Boolean(confirmQuote?.options?.length && !optionId) || optionalMissing}
+            disabled={busy || !signerName.trim() || Boolean(confirmQuote?.options?.length && !optionId) || optionalMissing || intervalMissing}
             onClick={() => void validateQuote()}
           >
             {busy ? "Validation…" : "Confirmer la validation"}

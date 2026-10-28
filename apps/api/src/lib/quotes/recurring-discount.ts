@@ -1,6 +1,7 @@
 import type { BillingMode } from "@/lib/quotes/payment-plans.js";
 import { BillingModeError, type ModeLine } from "@/lib/quotes/billing-mode.js";
 import { periodMonths } from "@/lib/subscriptions/subscription-service.js";
+import { longestPeriodMonths, type BillingIntervalChoice } from "@/lib/quotes/interval-choice.js";
 
 /**
  * Remise d'un devis récurrent (R1, décisions du 25/10/2026) : une seule par devis, sur les premières échéances, puis tarif
@@ -18,7 +19,13 @@ type SubLine = ModeLine & { unitPriceCents: number };
 const periodAmountOf = (lines: ReadonlyArray<SubLine>) => lines.filter((l) => l.isSubscription).reduce((s, l) => s + l.unitPriceCents, 0);
 
 /** Champs à enregistrer sur le devis ; BillingModeError (message pour l'écran) si la remise n'est pas permise. */
-export function resolveRecurringDiscount(mode: BillingMode | null, lines: ReadonlyArray<SubLine>, input: RecurringDiscountInput): RecurringDiscountFields {
+export function resolveRecurringDiscount(
+  mode: BillingMode | null,
+  lines: ReadonlyArray<SubLine>,
+  input: RecurringDiscountInput,
+  /** Rythmes au choix du client (28/10/2026) : durée multiple de chaque période, pas de montant fixe par échéance. */
+  offered: ReadonlyArray<BillingIntervalChoice> = [],
+): RecurringDiscountFields {
   const manual = input.recurringDiscount ?? null;
   if (!manual && !input.openingDiscount) return NO_RECURRING_DISCOUNT;
   if (mode !== "RECURRING") throw new BillingModeError("Remise sur les échéances : réservée au devis en paiement récurrent.");
@@ -40,12 +47,15 @@ export function resolveRecurringDiscount(mode: BillingMode | null, lines: Readon
     value = Math.round((m.percent ?? 0) * 100);
     if (!(value > 0 && value < 10000)) throw new BillingModeError("Remise : un pourcentage entre 0 et 100 % (exclus).");
   } else {
+    if (offered.length > 1) {
+      throw new BillingModeError("Remise en montant par échéance : un seul rythme de paiement. Proposez un pourcentage, ou un seul rythme.");
+    }
     value = Math.round((m.euros ?? 0) * 100);
     if (!(value > 0 && value < amount)) throw new BillingModeError("Remise : un montant positif, inférieur au prix d'une échéance.");
   }
   const months = m.months ?? null;
   if (months !== null) {
-    const step = periodMonths(first?.billingInterval);
+    const step = offered.length > 1 ? longestPeriodMonths(offered) : periodMonths(first?.billingInterval);
     if (!Number.isInteger(months) || months < step || months % step !== 0) {
       throw new BillingModeError(`Remise : une durée en mois, multiple de ${step} (la période de paiement).`);
     }

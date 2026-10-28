@@ -32,7 +32,8 @@ import {
 } from "@/lib/billing-interval";
 import { commitmentTotalCents, equalInstallments, installments, modePlansShown, oneOffMeans, orList, PERIOD_WORD, periodAmountCents, plansShown, subscriptionMeans, type PaymentSettings } from "@/lib/payment-summary";
 import { oneOffOffer } from "@/lib/maintenance-offers";
-import { BillingModeChoice, DEFAULT_RECURRING, discountPayload, type PromoOption, OneOffSchedule, RecurringRecap, RecurringSettings, type BillingMode, type RecurringForm } from "@/components/documents/billing-mode-blocks";
+import { BillingModeChoice, DEFAULT_RECURRING, discountPayload, intervalRowsOf, offeredIntervalsPayload, type PromoOption, OneOffSchedule, RecurringRecap, RecurringSettings, type BillingMode, type RecurringForm } from "@/components/documents/billing-mode-blocks";
+import { INTERVAL_LABEL } from "@kouzia-erp/interval-choice";
 
 export type DocLine = {
   description: string;
@@ -106,8 +107,8 @@ const COMMITMENTS = ["12", "24", "36"] as const;
 type PlanSettings = PaymentSettings & { vatMention?: string; paymentChoiceDefault: boolean; annualFreeMonths?: number; installmentIntervalDays?: number };
 
 /** Prix annuel saisi (euros) ramené à la période, en euros avec deux décimales. */
-const periodEuros = (annualEuros: string | undefined, period: RecurringForm["interval"]) =>
-  (periodAmountCents(Math.round((Number(annualEuros) || 0) * 100), period) / 100).toFixed(2);
+const periodEuros = (annualEuros: string | undefined, period: RecurringForm["interval"], annualFreeMonths: number) =>
+  (periodAmountCents(Math.round((Number(annualEuros) || 0) * 100), period, annualFreeMonths) / 100).toFixed(2);
 const PERIOD_MONTHS: Record<string, number> = { MONTH: 1, QUARTER: 3, YEAR: 12 };
 
 type QuoteOpt = {
@@ -207,7 +208,8 @@ export function DocumentFormEditor({
     paymentPlanOffer: initial?.paymentPlanOffer ?? "",
     // Nouveau devis : paiement unique par défaut ; brouillon antérieur au mode : vide jusqu'au choix.
     billingMode: initial?.billingMode ?? (documentType === "QUOTE" && mode === "create" ? "ONE_OFF" : ""),
-    recurring: initial?.recurring ?? DEFAULT_RECURRING,
+    // Brouillon d'avant le rythme au choix (sans intervals) : son rythme seul.
+    recurring: initial?.recurring ? { ...DEFAULT_RECURRING, ...initial.recurring, intervals: (initial.recurring as Partial<RecurringForm>).intervals ?? [initial.recurring.interval] } : DEFAULT_RECURRING,
   });
   // Proposition affichée dans le formulaire (active) ; l'autre est gardée à côté, telle quelle.
   const [proposals, setProposals] = useState<{ active: 0 | 1; labels: [string, string]; other: ProposalSlice } | null>(() =>
@@ -249,6 +251,8 @@ export function DocumentFormEditor({
     setRemovingProposal(false);
   }
   const [planSettings, setPlanSettings] = useState<PlanSettings | null>(null);
+  // Mois offerts de l'annuel (Réglages) : prix mensuel et trimestriel d'un devis récurrent.
+  const freeMonths = planSettings?.annualFreeMonths ?? 2;
   useEffect(() => {
     api<PlanSettings>("/api/settings")
       .then((s) => {
@@ -407,21 +411,16 @@ export function DocumentFormEditor({
   }, [quoteMode, form.clientId, promoServices, documentId]);
 
   /**
-   * Prix annuel d'un abonnement du catalogue facturé à la période donnée. À l'année : règle unique de l'API (prix annuel
-   * du catalogue, sinon 12 mensualités moins les mois offerts). Au mois ou au trimestre : 12 fois le prix mensuel, pour
-   * que la période garde le prix du catalogue.
+   * Prix annuel d'un abonnement du catalogue, quel que soit le rythme (décision du 28/10/2026, l'annuel coûte moins cher) :
+   * règle unique de l'API (prix annuel du catalogue, sinon 12 mensualités moins les mois offerts) ; le prix de chaque
+   * échéance en découle (periodPriceOfAnnual).
    */
-  const annualOfService = (svc: ServiceOpt, period: string) =>
-    period === "YEAR"
-      ? annualPriceOfService(svc, planSettings?.annualFreeMonths ?? 2)
-      : svc.billingInterval === "YEAR"
-        ? svc.unitPriceCents
-        : svc.unitPriceCents * (svc.billingInterval === "QUARTER" ? 4 : 12);
+  const annualOfService = (svc: ServiceOpt, _period?: string) => annualPriceOfService(svc, freeMonths);
 
   /** Ligne d'abonnement d'un devis récurrent : prix annuel saisi, prix de la période en découle. */
   const recurringLine = (base: Omit<DocLine, "unitPriceEuros" | "isSubscription" | "billingInterval">, annualCents: number, period = form.recurring.interval): DocLine => {
     const annualEuros = (annualCents / 100).toFixed(2);
-    return { ...base, isSubscription: true, billingInterval: period as BillingInterval, annualEuros, unitPriceEuros: periodEuros(annualEuros, period) };
+    return { ...base, isSubscription: true, billingInterval: period as BillingInterval, annualEuros, unitPriceEuros: periodEuros(annualEuros, period, freeMonths) };
   };
 
   /**
@@ -562,7 +561,7 @@ export function DocumentFormEditor({
       const lines =
         patch.interval && patch.interval !== f.recurring.interval
           ? f.lines.map((l) =>
-              l.isSubscription ? { ...l, billingInterval: recurring.interval as BillingInterval, unitPriceEuros: periodEuros(l.annualEuros, recurring.interval) } : l,
+              l.isSubscription ? { ...l, billingInterval: recurring.interval as BillingInterval, unitPriceEuros: periodEuros(l.annualEuros, recurring.interval, freeMonths) } : l,
             )
           : f.lines;
       return { ...f, recurring, lines };
@@ -698,6 +697,8 @@ export function DocumentFormEditor({
       ...(quoteMode ? { billingMode: quoteMode } : {}),
       // Devis récurrent : la remise (case ou volontaire) ; null retire une remise enregistrée.
       ...(documentType === "QUOTE" && quoteMode === "RECURRING" ? discountPayload(src.recurring.discount) : {}),
+      // Rythmes au choix du client (28/10/2026) : plusieurs, le client choisit à la signature ; null pour un seul.
+      ...(documentType === "QUOTE" && quoteMode === "RECURRING" ? { offeredIntervals: offeredIntervalsPayload(src.recurring) } : {}),
       discountType: src.discountType,
       discountPercent:
         src.discountType === "PERCENT" ? Number(src.discountPercent) || 0 : undefined,
@@ -724,7 +725,7 @@ export function DocumentFormEditor({
               // Récurrent : période, engagement, départ et jour du document, les mêmes sur chaque ligne.
               description: l.description,
               quantity: 1,
-              unitPriceEuros: Number(periodEuros(l.annualEuros, src.recurring.interval)),
+              unitPriceEuros: Number(periodEuros(l.annualEuros, src.recurring.interval, freeMonths)),
               isSubscription: true,
               billingDay: Number(src.recurring.billingDay) || 1,
               billingInterval: src.recurring.interval,
@@ -890,6 +891,8 @@ export function DocumentFormEditor({
   // Devis avec mode : écart entre échéances et montant par période (toutes lignes).
   const intervalDays = planSettings?.installmentIntervalDays ?? 30;
   const recurringPeriodCents = subLines.reduce((sum, { line }) => sum + eurosInputToCents(line.unitPriceEuros), 0);
+  // Rythme au choix : prix annuel de chaque ligne d'abonnement, base du tableau des rythmes.
+  const annualLineCents = subLines.map(({ line }) => eurosInputToCents(line.annualEuros));
 
   // Clavier rapide (D2) : Entrée dans la quantité ou le prix passe à la désignation de la ligne suivante, et sur la
   // dernière ligne en ajoute une. Entrée dans la désignation reste un retour à la ligne.
@@ -1221,7 +1224,7 @@ export function DocumentFormEditor({
                         value={line.annualEuros ?? ""}
                         onKeyDown={onLineKeyDown(i)}
                         onChange={(e) =>
-                          updateLine(i, { annualEuros: e.target.value, unitPriceEuros: periodEuros(e.target.value, form.recurring.interval) })
+                          updateLine(i, { annualEuros: e.target.value, unitPriceEuros: periodEuros(e.target.value, form.recurring.interval, freeMonths) })
                         }
                       />
                     </label>
@@ -1271,8 +1274,11 @@ export function DocumentFormEditor({
                   </div>
                 ) : line.isSubscription && quoteMode === "RECURRING" ? (
                   <p className="mt-1.5 text-xs text-[var(--muted)]">
-                    Soit {formatEUR(eurosInputToCents(line.unitPriceEuros))} par {PERIOD_WORD[form.recurring.interval]} ; période, engagement et départ dans
-                    la section Paiement.
+                    {form.recurring.intervals.length > 1
+                      ? `Rythme au choix du client : ${form.recurring.intervals
+                          .map((iv) => `${formatEUR(periodAmountCents(eurosInputToCents(line.annualEuros), iv, freeMonths))} par ${PERIOD_WORD[iv]}`)
+                          .join(", ")} ; rythmes, engagement et départ dans la section Paiement.`
+                      : `Soit ${formatEUR(eurosInputToCents(line.unitPriceEuros))} par ${PERIOD_WORD[form.recurring.interval]} ; période, engagement et départ dans la section Paiement.`}
                   </p>
                 ) : line.isSubscription ? (
                   <p className="mt-1.5 text-xs text-[var(--muted)]">
@@ -1318,7 +1324,7 @@ export function DocumentFormEditor({
             split3MinTotalCents={planSettings.split3MinTotalCents}
           />
         ) : quoteMode === "RECURRING" ? (
-          <RecurringSettings value={form.recurring} onChange={setRecurring} periodCents={recurringPeriodCents} promos={promos} />
+          <RecurringSettings value={form.recurring} onChange={setRecurring} periodCents={recurringPeriodCents} promos={promos} annualLineCents={annualLineCents} annualFreeMonths={freeMonths} />
         ) : (
         <>
         {subscriptionOnly ? (
@@ -1436,10 +1442,19 @@ export function DocumentFormEditor({
             <ul className="space-y-1 text-sm text-[var(--muted)]">
               {quoteMode === "RECURRING" ? (
                 <>
+                  {form.recurring.intervals.length > 1 ? (
+                    // Rythme au choix : moyens selon le montant de l'échéance (carte sous le plafond, SEPA au-delà).
+                    intervalRowsOf(form.recurring, annualLineCents, freeMonths, promos).map((r) => (
+                      <li key={r.interval}>
+                        <span className="text-[var(--text)]">{INTERVAL_LABEL[r.interval]} :</span> {orList(subscriptionMeans(r.amountCents, planSettings))}.
+                      </li>
+                    ))
+                  ) : (
                   <li>
                     <span className="text-[var(--text)]">Abonnement :</span> {orList(subscriptionMeans(recurringPeriodCents, planSettings))}, chaque{" "}
                     {form.recurring.interval === "YEAR" ? "année" : form.recurring.interval === "QUARTER" ? "trimestre" : "mois"}.
                   </li>
+                  )}
                 </>
               ) : null}
               {quoteMode !== "RECURRING" && !subscriptionOnly ? (
@@ -1549,7 +1564,7 @@ export function DocumentFormEditor({
       )}
       <div className="border-t border-[var(--border)] pt-3">
         {quoteMode === "RECURRING" ? (
-          <RecurringRecap value={form.recurring} periodCents={recurringPeriodCents} promos={promos} />
+          <RecurringRecap value={form.recurring} periodCents={recurringPeriodCents} promos={promos} annualLineCents={annualLineCents} annualFreeMonths={freeMonths} />
         ) : (
         <>
         <p className={totalsLine}>
@@ -1648,7 +1663,7 @@ export function DocumentFormEditor({
           onClick={() => recapRef.current?.scrollIntoView({ block: "start" })}
         >
           <span className="text-xs text-[var(--muted)]">
-            {quoteMode === "RECURRING" ? `Par ${PERIOD_WORD[form.recurring.interval]}` : mixedQuote ? "Total du projet" : optionalLines.length ? "Total sans option" : "Total"}
+            {quoteMode === "RECURRING" ? (form.recurring.intervals.length > 1 ? "Prix annuel, rythme au choix" : `Par ${PERIOD_WORD[form.recurring.interval]}`) : mixedQuote ? "Total du projet" : optionalLines.length ? "Total sans option" : "Total"}
             <span className="lg:hidden"> (détail)</span>
           </span>
           <span className="font-display text-lg font-semibold tabular-nums">

@@ -418,6 +418,9 @@ export type InvoicePdfData = {
       billingAnchor?: "SIGNATURE" | "DELIVERY" | null;
       /** Remise sur les premières échéances (R1) ; absente sans remise. */
       discount?: RecurringDiscountSummary | null;
+      /** Rythme au choix du client, devis non signé : un rang par rythme proposé ; montants au rythme, remise comprise. */
+      intervalChoices?: Array<{ period: "MONTH" | "QUARTER" | "YEAR"; label: string; amountCents: number; periods: number | null; totalCommitmentCents: number | null }>;
+      intervalChoiceDiscountText?: string | null;
     } | null;
     /** Droit de rétractation et formulaire type : devis d'un client particulier. */
     withdrawalTerms?: string | null;
@@ -551,6 +554,34 @@ function OptionalOffers({ options, styles }: { options: NonNullable<PdfInvoice["
   );
 }
 
+/** Rythme au choix du client (28/10/2026) : prix par échéance et total sur l'engagement de chaque rythme proposé. */
+function IntervalChoices({ choices, styles }: { choices: NonNullable<NonNullable<PdfInvoice["recurringSummary"]>["intervalChoices"]>; styles: ReturnType<typeof createStyles> }) {
+  return (
+    <Readable as="section" heading>
+    <View style={styles.section} wrap={false}>
+      <Text style={styles.h2}>Rythme de paiement au choix</Text>
+      <Text style={styles.muted}>Vous choisissez le rythme de paiement à la signature du devis.</Text>
+      <View style={[styles.th, { marginTop: 6 }]}>
+        <Text style={{ flex: 1.4 }}>RYTHME</Text>
+        <Text style={{ flex: 1.6, textAlign: "right", paddingRight: 12 }}>PRIX PAR ÉCHÉANCE</Text>
+        <Text style={{ flex: 2, textAlign: "right" }}>TOTAL SUR L'ENGAGEMENT</Text>
+      </View>
+      {choices.map((c) => (
+        <Readable key={c.period} as="item">
+        <View style={styles.tr}>
+          <Text style={{ flex: 1.4, color: INK }}>{c.label}</Text>
+          <Text style={{ flex: 1.6, textAlign: "right", paddingRight: 12 }}>{`${fmtMoney(c.amountCents)} / ${periodWord(c.period)}`}</Text>
+          <Text style={{ flex: 2, textAlign: "right", fontFamily: "Helvetica-Bold" }}>
+            {c.totalCommitmentCents !== null ? `${fmtMoney(c.totalCommitmentCents)} (${c.periods} échéance${c.periods! > 1 ? "s" : ""})` : ""}
+          </Text>
+        </View>
+        </Readable>
+      ))}
+    </View>
+    </Readable>
+  );
+}
+
 /**
  * Corps d'un document : lignes, totaux, encadré d'abonnement et échéancier. Une fois pour un document, une fois par
  * proposition pour un devis à propositions (chacune a son mode, ses prestations, sa remise et son échéancier).
@@ -566,10 +597,11 @@ function DocumentBody({ company, invoice, styles }: { company: PdfCompanySetting
           .filter((iv) => subLines.some((l) => !l.commitmentMonths && intervalOf(l.billingInterval) === iv) && invoice.subscriptionTerms?.[iv])
           .map((iv) => fillClauseVariables(invoice.subscriptionTerms![iv]!, company, iv)),
         ...(invoice.subscriptionTerms?.COMMITMENT && subLines.some((l) => l.commitmentMonths)
-          ? [fillClauseVariables(invoice.subscriptionTerms.COMMITMENT, company, commitmentInterval(invoice.lines))]
+          ? [fillClauseVariables(invoice.subscriptionTerms.COMMITMENT, company, invoice.recurringSummary.intervalChoices?.map((c) => c.period) ?? commitmentInterval(invoice.lines))]
           : []),
       ]
     : [];
+  const choices = invoice.recurringSummary?.intervalChoices?.length ? invoice.recurringSummary.intervalChoices : null;
   const { creditedCents, paidCents, dueCents, showSettlement, settled, lastPaidAt } = settlementOf(invoice);
   const hasDiscount = invoice.discountType && invoice.discountType !== "NONE" && invoice.subtotalCents !== invoice.totalCents;
   return (
@@ -632,7 +664,7 @@ function DocumentBody({ company, invoice, styles }: { company: PdfCompanySetting
             </Readable>
             </Fragment>
           ))}
-          {invoice.recurringSummary?.discount ? (
+          {invoice.recurringSummary?.discount && !choices ? (
             <Readable as="row">
             <View style={styles.tr} wrap={false}>
               <View style={styles.colDesc}>
@@ -669,7 +701,16 @@ function DocumentBody({ company, invoice, styles }: { company: PdfCompanySetting
                 const engaged = r.commitmentMonths && r.periods && r.totalCommitmentCents !== null;
                 const d = r.discount;
                 const per = `par ${periodWord(r.period)}`;
-                const sentences = [
+                const sentences = choices
+                  ? [
+                      ...(r.intervalChoiceDiscountText ? [r.intervalChoiceDiscountText] : []),
+                      ...(d?.opening ? ["Remise d’ouverture : structure créée il y a moins de 12 mois."] : []),
+                      ...(d?.promoCode && d.condition ? [`Code promo ${d.promoCode} : ${d.condition.replace(/\.$/, "")}.`] : []),
+                      `Rythme de paiement au choix à la signature : ${choices.map((c) => c.label.toLowerCase()).join(", ")}.`,
+                      r.startFromText ? `Départ de la facturation : ${r.startFromText}.` : `Facturation : ${r.startText}.`,
+                      engaged ? `Engagement de ${r.commitmentMonths} mois à compter de la signature.` : "[Engagement à choisir : 12, 24 ou 36 mois]",
+                    ]
+                  : [
                   ...(d
                     ? [
                         discountSentence(d, r.amountCents, r.period, fmtMoney),
@@ -684,7 +725,7 @@ function DocumentBody({ company, invoice, styles }: { company: PdfCompanySetting
                   ...(r.period !== "MONTH" && r.amountCents > 0
                     ? [`Soit ${fmtMoney(Math.round(r.amountCents / (r.period === "YEAR" ? 12 : 3)))} par mois, à titre indicatif.`]
                     : []),
-                ];
+                  ];
                 return sentences.map((s) => (
                   <Text key={s} style={styles.vat}>
                     {s}
@@ -835,6 +876,8 @@ function DocumentBody({ company, invoice, styles }: { company: PdfCompanySetting
         </Readable>
 
         {isQuote && invoice.optionalOffers ? <OptionalOffers options={invoice.optionalOffers} styles={styles} /> : null}
+
+        {isQuote && choices ? <IntervalChoices choices={choices} styles={styles} /> : null}
 
         {/* Devis récurrent : l'encadré ne porte que la clause (pack et facturation sont déjà dans le tableau et sous le
             total) ; sans clause, pas d'encadré. */}

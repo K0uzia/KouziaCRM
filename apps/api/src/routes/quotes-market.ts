@@ -117,6 +117,7 @@ export const quotesMarketRoutes: FastifyPluginAsync = async (app) => {
         paymentPlan: z.enum(["TWO", "THREE"]).optional(),
         optionId: z.string().min(1).max(64).optional(),
         optionalLines: optionalLinesSchema,
+        billingInterval: z.enum(["YEAR", "QUARTER", "MONTH"]).optional(),
       })
       .safeParse(request.body);
     if (!parsed.success) {
@@ -129,11 +130,12 @@ export const quotesMarketRoutes: FastifyPluginAsync = async (app) => {
         paymentPlan: parsed.data.paymentPlan,
         optionId: parsed.data.optionId,
         optionalLines: parsed.data.optionalLines,
+        billingInterval: parsed.data.billingInterval,
       });
       return { quoteStatus: quote.quoteStatus };
     } catch (e) {
       // Proposition ou choix d'option absent ou étranger au devis : erreur de saisie (400), pas un conflit d'état.
-      if (e instanceof QuoteDecisionError) return reply.code(e.code.startsWith("OPTION") ? 400 : 409).send({ error: e.message, code: e.code });
+      if (e instanceof QuoteDecisionError) return reply.code(e.code.startsWith("OPTION") || e.code.startsWith("INTERVAL") ? 400 : 409).send({ error: e.message, code: e.code });
       if (e instanceof PaymentPlanError) return reply.code(400).send({ error: e.message, code: e.code });
       throw e;
     }
@@ -427,6 +429,7 @@ export const quotesMarketRoutes: FastifyPluginAsync = async (app) => {
         paymentPlan: z.enum(["TWO", "THREE"]).optional(),
         optionId: z.string().min(1).max(64).optional(),
         optionalLines: optionalLinesSchema,
+        billingInterval: z.enum(["YEAR", "QUARTER", "MONTH"]).optional(),
       });
       const parsed = schema.safeParse(request.body ?? {});
       if (!parsed.success) {
@@ -441,6 +444,7 @@ export const quotesMarketRoutes: FastifyPluginAsync = async (app) => {
           paymentPlan: parsed.data.paymentPlan,
           optionId: parsed.data.optionId,
           optionalLines: parsed.data.optionalLines,
+          billingInterval: parsed.data.billingInterval,
         });
         return {
           ok: true,

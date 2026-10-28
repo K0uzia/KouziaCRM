@@ -12,7 +12,7 @@ import { useLiveRefresh } from "@/lib/notifications";
 import { api, formatEUR } from "@/lib/api";
 import { billedWithDocument, startFromLine, startPhrase } from "@/lib/subscription-start";
 import { normalizeInterval, periodWord } from "@/lib/billing-interval";
-import { annualEurosOf, discountFromDoc, recurringFromLine } from "@/components/documents/billing-mode-blocks";
+import { annualEurosOf, discountFromDoc, IntervalChoiceFieldset, offeredIntervalsOf, recurringFromLine } from "@/components/documents/billing-mode-blocks";
 import {
   formatDate,
   formatDecimal,
@@ -116,6 +116,8 @@ type Doc = {
   paymentPlanOffer?: string | null;
   /** Devis : mode de facturation (ONE_OFF | RECURRING) ; null pour un devis antérieur. */
   billingMode?: string | null;
+  /** Devis récurrent : rythmes au choix du client (« YEAR,QUARTER,MONTH ») ; null : un seul rythme ou devis signé. */
+  offeredIntervals?: string | null;
   /** Devis récurrent : remise sur les premières échéances (R1). */
   openingDiscount?: boolean;
   promoCode?: { code: string } | null;
@@ -178,7 +180,7 @@ type Doc = {
 /** Réglages de facturation d'un devis ou d'une de ses propositions (mêmes champs). */
 type BillingSource = Pick<
   Doc,
-  "paymentPlanOffer" | "billingMode" | "discountType" | "discountValue" | "openingDiscount" | "promoCode" | "recurringDiscountKind" | "recurringDiscountValue" | "recurringDiscountMonths"
+  "paymentPlanOffer" | "offeredIntervals" | "billingMode" | "discountType" | "discountValue" | "openingDiscount" | "promoCode" | "recurringDiscountKind" | "recurringDiscountValue" | "recurringDiscountMonths"
 >;
 
 const PROPOSAL_LETTERS = ["A", "B"];
@@ -215,13 +217,13 @@ function ProposalTotals({ proposals, lines, selectedOptionId }: { proposals: Non
 }
 
 /** Partie « facturation » du formulaire (mode, offre, remises, lignes) tirée d'un devis ou d'une proposition. */
-function billingSliceOf(src: BillingSource, lines: NonNullable<Doc["lines"]>): Partial<DocumentFormValues> {
+function billingSliceOf(src: BillingSource, lines: NonNullable<Doc["lines"]>, annualFreeMonths: number): Partial<DocumentFormValues> {
   const sub = lines.find((l) => l.isSubscription);
   return {
     paymentPlanOffer:
       src.paymentPlanOffer === "ONE" || src.paymentPlanOffer === "TWO" || src.paymentPlanOffer === "THREE" || src.paymentPlanOffer === "CHOICE" ? src.paymentPlanOffer : "",
     billingMode: src.billingMode === "ONE_OFF" || src.billingMode === "RECURRING" ? src.billingMode : "",
-    ...(src.billingMode === "RECURRING" && sub ? { recurring: { ...recurringFromLine({ ...sub, ...startFromLine(sub) }), discount: discountFromDoc(src) } } : {}),
+    ...(src.billingMode === "RECURRING" && sub ? { recurring: { ...recurringFromLine({ ...sub, ...startFromLine(sub) }, src.offeredIntervals), discount: discountFromDoc(src) } } : {}),
     discountType: src.discountType === "PERCENT" || src.discountType === "FIXED" ? src.discountType : "NONE",
     discountPercent: src.discountType === "PERCENT" ? String((src.discountValue ?? 0) / 100) : "",
     discountEuros: src.discountType === "FIXED" ? String((src.discountValue ?? 0) / 100) : "",
@@ -232,7 +234,7 @@ function billingSliceOf(src: BillingSource, lines: NonNullable<Doc["lines"]>): P
       isSubscription: Boolean(l.isSubscription),
       billingDay: String(l.billingDay ?? 1),
       billingInterval: l.billingInterval === "YEAR" ? "YEAR" : "MONTH",
-      ...(src.billingMode === "RECURRING" && l.isSubscription ? { annualEuros: annualEurosOf(l.unitPriceCents, l.billingInterval) } : {}),
+      ...(src.billingMode === "RECURRING" && l.isSubscription ? { annualEuros: annualEurosOf(l.unitPriceCents, l.billingInterval, annualFreeMonths) } : {}),
       serviceId: l.serviceId ?? "",
       groupTitle: l.groupTitle ?? "",
       isPackDiscount: Boolean(l.isPackDiscount),
@@ -733,6 +735,8 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
   const [emailSubject, setEmailSubject] = useState("");
   const [emailBody, setEmailBody] = useState("");
   const [companyName, setCompanyName] = useState("Alexandre Kouziaeff");
+  // Mois offerts de l'annuel (Réglages) : prix annuel des lignes d'un brouillon récurrent rouvert.
+  const [annualFreeMonths, setAnnualFreeMonths] = useState(2);
   const [rejectOpen, setRejectOpen] = useState(false);
   const [signOpen, setSignOpen] = useState(false);
   const [signerName, setSignerName] = useState("");
@@ -747,6 +751,10 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
   const signOffer = signProposals ? signProposals.find((o) => o.id === signOptionId)?.paymentPlanOffer : doc?.paymentPlanOffer;
   const signOptionalLines = (doc?.lines ?? []).filter((l) => l.isOptional && l.id && (signProposals ? l.optionId === signOptionId : !l.optionId));
   const signOptionalMissing = signOptionalLines.some((l) => signOptional[l.id!] === undefined);
+  // Rythme au choix (28/10/2026) : celui de la proposition retenue ou du devis ; obligatoire, sans défaut.
+  const signOffered = signProposals ? signProposals.find((o) => o.id === signOptionId)?.offeredIntervals : doc?.offeredIntervals;
+  const [signInterval, setSignInterval] = useState<"" | "YEAR" | "QUARTER" | "MONTH">("");
+  const signIntervalMissing = offeredIntervalsOf(signOffered).length > 0 && !offeredIntervalsOf(signOffered).includes(signInterval as "YEAR");
   async function signOffline() {
     setSignBusy(true);
     try {
@@ -757,12 +765,14 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
           ...(signProposals ? { optionId: signOptionId } : {}),
           ...(signOffer === "CHOICE" ? { paymentPlan: signPlan } : {}),
           ...(signOptionalLines.length ? { optionalLines: signOptionalLines.map((l) => ({ id: l.id, accepted: signOptional[l.id!] })) } : {}),
+          ...(offeredIntervalsOf(signOffered).length ? { billingInterval: signInterval } : {}),
         }),
       });
       toast.success("Signature enregistrée : vous pouvez facturer l'acompte");
       setSignOpen(false);
       setSignerName("");
       setSignOptional({});
+      setSignInterval("");
       await load();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Enregistrement impossible");
@@ -851,8 +861,11 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
         toast.error(e.message);
       }
     });
-    api<{ legalName?: string; tradeName?: string | null }>("/api/settings")
-      .then((s) => setCompanyName(s.tradeName || s.legalName || "Alexandre Kouziaeff"))
+    api<{ legalName?: string; tradeName?: string | null; annualFreeMonths?: number }>("/api/settings")
+      .then((s) => {
+        setCompanyName(s.tradeName || s.legalName || "Alexandre Kouziaeff");
+        if (typeof s.annualFreeMonths === "number") setAnnualFreeMonths(s.annualFreeMonths);
+      })
       .catch(() => undefined);
   }, [id]);
 
@@ -1950,6 +1963,7 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
               ))}
             </fieldset>
           ))}
+          <IntervalChoiceFieldset offered={signOffered} value={signInterval} onChange={setSignInterval} name="sign-interval" />
           {signOffer === "CHOICE" ? (
             <fieldset className="space-y-1">
               <legend className="text-sm font-medium">Formule retenue par le client</legend>
@@ -1976,7 +1990,7 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
             <Button variant="secondary" disabled={signBusy} onClick={() => setSignOpen(false)}>
               Annuler
             </Button>
-            <Button type="submit" disabled={signBusy || signerName.trim().length < 2 || Boolean(signProposals && !signOptionId) || signOptionalMissing}>
+            <Button type="submit" disabled={signBusy || signerName.trim().length < 2 || Boolean(signProposals && !signOptionId) || signOptionalMissing || signIntervalMissing}>
               {signBusy ? "Enregistrement…" : "Enregistrer la signature"}
             </Button>
           </ModalActions>
@@ -2253,13 +2267,13 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
             sourceQuoteId: doc.sourceQuoteId ?? doc.quoteId ?? "",
             validUntil: doc.validUntil ? doc.validUntil.slice(0, 10) : "",
             // Devis à propositions : la proposition A dans le formulaire, la B à côté (onglets).
-            ...billingSliceOf(doc.options?.[0] ?? doc, doc.options?.length ? (doc.lines ?? []).filter((l) => l.optionId === doc.options![0]!.id) : (doc.lines ?? [])),
+            ...billingSliceOf(doc.options?.[0] ?? doc, doc.options?.length ? (doc.lines ?? []).filter((l) => l.optionId === doc.options![0]!.id) : (doc.lines ?? []), annualFreeMonths),
           }}
           initialProposals={
             doc.options?.length === 2
               ? {
                   labels: [doc.options[0]!.label, doc.options[1]!.label],
-                  other: billingSliceOf(doc.options[1]!, (doc.lines ?? []).filter((l) => l.optionId === doc.options![1]!.id)),
+                  other: billingSliceOf(doc.options[1]!, (doc.lines ?? []).filter((l) => l.optionId === doc.options![1]!.id), annualFreeMonths),
                 }
               : undefined
           }

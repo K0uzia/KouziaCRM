@@ -50,11 +50,14 @@ describe("mode de facturation : règles de calcul", () => {
     expect(milestoneAmounts(100000, planTemplate("TWO", settings), null).map((m) => m.amountCents)).toEqual([30000, 70000]);
   });
 
-  it("récurrent : annuel / 4 ou / 12, arrondi au centime, sans majoration", () => {
-    expect(periodAmountCents(150000, "YEAR")).toBe(150000);
-    expect(periodAmountCents(150000, "QUARTER")).toBe(37500);
-    expect(periodAmountCents(150000, "MONTH")).toBe(12500);
-    expect(periodAmountCents(290000, "MONTH")).toBe(24167);
+  it("récurrent : l'annuel coûte moins cher, mensuel = annuel / (12 - mois offerts), trimestriel = 3 mensualités", () => {
+    // Décision du 28/10/2026, 1 mois offert : 1 500 € par an, 136,36 € par mois, 409,09 € par trimestre.
+    expect(periodAmountCents(150000, "YEAR", 1)).toBe(150000);
+    expect(periodAmountCents(150000, "MONTH", 1)).toBe(13636);
+    expect(periodAmountCents(150000, "QUARTER", 1)).toBe(40909);
+    // Sans mois offert : annuel / 12 et / 4, comme avant.
+    expect(periodAmountCents(150000, "QUARTER", 0)).toBe(37500);
+    expect(periodAmountCents(290000, "MONTH", 0)).toBe(24167);
   });
 
   it("lignes : abonnement seulement en option en paiement unique ; en récurrent, mêmes période, engagement, départ et jour", () => {

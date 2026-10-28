@@ -123,9 +123,11 @@ describe("abonnements : montant par période et remise récurrente", () => {
     const r = rng(5);
     for (let i = 0; i < 2000; i++) {
       const annual = int(r, 100, 2_000_000);
-      expect(periodAmountCents(annual, "YEAR")).toBe(annual);
-      expect(Math.abs(periodAmountCents(annual, "MONTH") * 12 - annual)).toBeLessThanOrEqual(6);
-      expect(Math.abs(periodAmountCents(annual, "QUARTER") * 4 - annual)).toBeLessThanOrEqual(2);
+      const free = int(r, 0, 6);
+      expect(periodAmountCents(annual, "YEAR", free)).toBe(annual);
+      // Mensuel = annuel / (12 - mois offerts), trimestriel = 3 mensualités : écart d'arrondi borné sur l'année payée.
+      expect(Math.abs(periodAmountCents(annual, "MONTH", free) * (12 - free) - annual)).toBeLessThanOrEqual(6);
+      expect(Math.abs(periodAmountCents(annual, "QUARTER", free) * (12 - free) - annual * 3)).toBeLessThanOrEqual(6);
     }
   });
 
