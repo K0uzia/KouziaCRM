@@ -550,6 +550,10 @@ enum LegalClauseKind {
   SUBSCRIPTION_COMMITMENT
   /// Cession du site au client (rachat, R2) : imprimée seulement sur un devis de rachat
   BUYOUT_TRANSFER
+  /// Paiement unique : ce qui n'est pas compris par rapport à l'abonnement annuel (une ligne « - » par point)
+  ONE_OFF_SCOPE
+  /// Variante logiciel de ONE_OFF_SCOPE, quand le devis porte une prestation de la catégorie LOGICIEL
+  ONE_OFF_SCOPE_SOFTWARE
 }
 
 /// Clients auxquels une clause s'imprime (type du client du document)
@@ -1160,6 +1164,9 @@ model Invoice {
   /// Devis : clauses légales retenues à l'émission (kind, title, body, audience, position), variables non remplies.
   /// null : brouillon, ou devis émis avant la migration 20261205090000 (clauses actives au rendu).
   legalClausesSnapshot         Json?
+  /// Devis simple avec mode : ce qui est compris ou non (kind, included, excluded), figé à l'émission. null : brouillon,
+  /// devis sans mode, ou émis avant la migration 20261223090000.
+  scopeSnapshot                Json?
   /// Devis : réglages d'échéancier figés à l'émission (JSON des champs de PlanSettings). null : brouillon, ou devis
   /// émis avant la migration 20261214090000 (réglages actuels).
   paymentScheduleSnapshot      String?
@@ -1396,6 +1403,10 @@ model InvoiceLine {
   /// Devis à propositions : proposition de la ligne (aucune ligne commune) ; null pour un devis simple
   optionId               String?
   option                 QuoteOption?  @relation(fields: [optionId], references: [id], onDelete: Cascade)
+  /// Devis en paiement unique : abonnement annuel proposé en option, au choix du client à la signature (28/10/2026)
+  isOptional             Boolean       @default(false)
+  /// Ligne en option : choix du client, écrit une fois à la signature (true retenue, false non retenue, null en attente)
+  optionalAccepted       Boolean?
 
   @@index([invoiceId])
   @@index([optionId])
@@ -1704,6 +1715,9 @@ model QuoteAcceptanceAudit {
   optionLabel         String?
   optionTotalCents    Int?
   createdAt           DateTime     @default(now())
+  /// Lignes en option : choix du client, figés à la signature ([{ lineId, description, amountCents, interval,
+  /// commitmentMonths, accepted }]), jamais modifiés
+  optionalChoices     Json?
 
   @@index([quoteId])
   @@index([threadId])
@@ -2200,6 +2214,7 @@ model QuoteOption {
   depositBaseCents        Int?
   /// Figés à l'émission, comme sur Invoice
   legalClausesSnapshot    Json?
+  scopeSnapshot           Json?
   paymentScheduleSnapshot String?
   createdAt               DateTime       @default(now())
   updatedAt               DateTime       @updatedAt
