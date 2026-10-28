@@ -1,6 +1,6 @@
 import { SubscriptionCollectionMethod, SubscriptionStatus } from "@prisma/client";
 import { recurringDiscountSummary } from "@/lib/quotes/recurring-discount.js";
-import { lineFirstInvoiceAt } from "@/lib/subscriptions/start.js";
+import { lineFirstInvoiceAt, linePeriodsWithinCommitment } from "@/lib/subscriptions/start.js";
 import { prisma } from "@/lib/prisma.js";
 import { BILLABLE_LINES_WHERE } from "@/lib/quotes/quote-options.js";
 import {
@@ -203,6 +203,7 @@ export async function activateSubscriptionsFromDocument(
     const first = grouped[0]!;
     const startDate = opts.startDate ?? new Date();
     const firstInvoiceAt = doc.documentType === "QUOTE" ? lineFirstInvoiceAt(first, first.billingDay!, startDate) : null;
+    const commitmentStart = doc.documentType === "QUOTE" ? (doc.quoteDecidedAt ?? startDate) : startDate;
     const sub = await createSubscription(
       {
         clientId: doc.clientId,
@@ -213,14 +214,16 @@ export async function activateSubscriptionsFromDocument(
         billingInterval: normalizeInterval(first.billingInterval),
         startDate,
         commitmentMonths: first.commitmentMonths,
-        commitmentStart: doc.documentType === "QUOTE" ? (doc.quoteDecidedAt ?? startDate) : startDate,
+        commitmentStart,
         ...(firstInvoiceAt ? { firstInvoiceAt } : { skipCurrentPeriod: !opts.firstPeriodNow, firstPeriodNow: opts.firstPeriodNow }),
         ...(opts.awaitStripe ? { collectionMethod: SubscriptionCollectionMethod.STRIPE } : {}),
       },
       db,
     );
-    // Remise du devis (R1) : sur les premières échéances de l'abonnement, puis tarif plein.
-    const discount = recurringDiscountSummary(doc, sub.amountCents, first.billingInterval, first.commitmentMonths);
+    // Remise du devis (R1) : sur les premières échéances de l'abonnement, puis tarif plein ; jamais au-delà de la fin de
+    // l'engagement (mois offerts, 1re facture à une date ou à la livraison : moins d'échéances dans l'engagement).
+    const billed = linePeriodsWithinCommitment(first, commitmentStart, firstInvoiceAt ?? startDate);
+    const discount = recurringDiscountSummary(doc, sub.amountCents, first.billingInterval, first.commitmentMonths, billed);
     if (discount) {
       await db.subscription.update({
         where: { id: sub.id },

@@ -33,6 +33,28 @@ export function discountCentsPerPeriod(kind: string | null | undefined, value: n
   return 0;
 }
 
+/**
+ * Échéances facturées pendant l'engagement (décision du 28/10/2026) : l'engagement court depuis la signature, la 1re
+ * échéance peut venir plus tard (mois offerts, 1re facture à une date). Seules les échéances qui tombent avant la fin
+ * de l'engagement comptent (12 mois dont 3 offerts : 9 échéances). Même calcul pour le PDF, /suivi et l'activation.
+ * offsetMonths : mois de la signature à la 1re échéance (monthsFromSignature). null sans engagement.
+ */
+export function periodsWithinCommitment(commitmentMonths: number | null | undefined, interval: string | null | undefined, offsetMonths = 0): number | null {
+  if (!commitmentMonths) return null;
+  return Math.max(0, Math.ceil((commitmentMonths - Math.max(0, offsetMonths)) / periodMonths(interval)));
+}
+
+/**
+ * Mois de la signature à la 1re échéance, au jour près (l'heure ne compte pas) : jour plus tardif dans le mois, une
+ * demi-unité de plus ; plus tôt, une demi-unité de moins. Le décompte des échéances (entiers) n'en dépend pas autrement.
+ */
+export function monthsFromSignature(signedAt: Date, firstInvoiceAt: Date): number {
+  const whole = (firstInvoiceAt.getFullYear() - signedAt.getFullYear()) * 12 + firstInvoiceAt.getMonth() - signedAt.getMonth();
+  const a = signedAt.getDate();
+  const b = firstInvoiceAt.getDate();
+  return b === a ? whole : whole + (b > a ? 0.5 : -0.5);
+}
+
 /** Nombre d'échéances remisées : durée de la remise (ou de l'engagement) / mois de la période. */
 export function discountedPeriods(months: number | null | undefined, commitmentMonths: number | null | undefined, interval: string | null | undefined): number {
   const span = months ?? commitmentMonths ?? 0;
@@ -52,10 +74,15 @@ export function recurringDiscountSummary(
   amountCents: number,
   interval: string | null | undefined,
   commitmentMonths: number | null | undefined,
+  /**
+   * Échéances facturées pendant l'engagement (periodsWithinCommitment) ; absent : toute la durée, sans mois offerts.
+   * Une remise « sur toute la durée de l'engagement » ne dépasse jamais la fin de l'engagement.
+   */
+  billedPeriods?: number | null,
 ) {
   const perPeriod = discountCentsPerPeriod(fields.recurringDiscountKind, fields.recurringDiscountValue, amountCents);
   if (!perPeriod) return null;
-  const totalPeriods = commitmentMonths ? Math.ceil(commitmentMonths / periodMonths(interval)) : null;
+  const totalPeriods = billedPeriods ?? periodsWithinCommitment(commitmentMonths, interval);
   const periods = Math.min(discountedPeriods(fields.recurringDiscountMonths, commitmentMonths, interval), totalPeriods ?? Infinity);
   return {
     kind: fields.recurringDiscountKind as RecurringDiscountKind,

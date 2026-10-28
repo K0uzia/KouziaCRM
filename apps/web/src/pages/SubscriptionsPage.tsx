@@ -40,6 +40,8 @@ import {
   normalizeInterval,
   periodAdjective,
   periodSuffix,
+  periodWord,
+  REVISE_INTERVAL_OPTIONS,
   suggestedAmountCents,
   type BillingInterval,
 } from "@/lib/billing-interval";
@@ -704,8 +706,8 @@ export function SubscriptionsPage() {
                   billing.reduce((acc, r) => acc + monthlyEquivalentCents(r.amountCents, r.billingInterval), 0),
                 ),
                 hint: [
-                  billing.some((r) => normalizeInterval(r.billingInterval) === "YEAR")
-                    ? "Contrats facturés, annuels ramenés au mois"
+                  billing.some((r) => normalizeInterval(r.billingInterval) !== "MONTH")
+                    ? `Contrats facturés, ${billing.some((r) => normalizeInterval(r.billingInterval) === "YEAR") ? (billing.some((r) => normalizeInterval(r.billingInterval) === "QUARTER") ? "annuels et trimestriels" : "annuels") : "trimestriels"} ramenés au mois`
                     : "Contrats facturés",
                   upcoming.length > 0
                     ? `à venir : ${formatEUR(upcoming.reduce((acc, r) => acc + monthlyEquivalentCents(r.amountCents, r.billingInterval), 0))} (${upcoming.length} contrat${upcoming.length > 1 ? "s" : ""})`
@@ -1277,14 +1279,14 @@ export function SubscriptionsPage() {
               <p className="text-sm font-medium text-[var(--text)]">Facturation</p>
               <Segmented
                 label="Périodicité de facturation"
-                options={INTERVAL_OPTIONS}
+                options={REVISE_INTERVAL_OPTIONS}
                 value={reviseInterval}
                 onChange={changeReviseInterval}
                 className="w-full"
               />
             </div>
           )}
-          <Field label={reviseInterval === "YEAR" ? "Nouveau montant par an (€)" : "Nouveau montant par mois (€)"}>
+          <Field label={`Nouveau montant par ${periodWord(reviseInterval)} (€)`}>
             <Input
               required
               type="number"
@@ -1307,7 +1309,7 @@ export function SubscriptionsPage() {
           </Field>
           <p className="text-xs text-[var(--muted)]">
             {revising && reviseInterval !== normalizeInterval(revising.billingInterval)
-              ? `Passage ${reviseInterval === "YEAR" ? "à l'annuel" : "au mensuel"} : il s'applique à la prochaine échéance (${formatDate(revising.nextInvoiceAt)}) si le client accepte le devis avant. La période en cours reste facturée comme prévu.`
+              ? `Passage ${reviseInterval === "YEAR" ? "à l'annuel" : reviseInterval === "QUARTER" ? "au trimestriel" : "au mensuel"} : il s'applique à la prochaine échéance (${formatDate(revising.nextInvoiceAt)}) si le client accepte le devis avant. La période en cours reste facturée comme prévu.`
               : "Ex. ajout d'un site à gérer : le nouveau montant remplace l'ancien à l'acceptation du devis. La période en cours reste facturée à l'ancien montant ; la suivante l'est au nouveau."}
           </p>
           <ModalActions>

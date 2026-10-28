@@ -3,6 +3,7 @@
  * comme l'API les appliquera (lib/quotes/payment-plans.ts, lib/quotes/milestones.ts, lib/stripe/payment-methods.ts).
  * Aperçu seulement : l'API garde le dernier mot à l'émission.
  */
+import { monthsFromSignature, periodsWithinCommitment } from "@kouzia-erp/recurring-discount";
 
 export type PaymentSettings = {
   depositPercent1Bps: number;
@@ -43,6 +44,25 @@ export function periodAmountCents(annualCents: number, period: Period): number {
 /** Périodes comprises dans un engagement (36 mois au trimestre = 12). */
 export function periodsIn(commitmentMonths: number, period: Period): number {
   return Math.ceil(commitmentMonths / (period === "YEAR" ? 12 : period === "QUARTER" ? 3 : 1));
+}
+
+/**
+ * Échéances facturées pendant l'engagement (même règle que l'API, periodsWithinCommitment) : l'engagement court depuis
+ * la signature (ici : aujourd'hui), la 1re échéance vient après les mois offerts ou à la date choisie.
+ */
+export function billedPeriodsIn(
+  commitmentMonths: number,
+  period: Period,
+  start: { subscriptionStart?: string | null; subscriptionStartDate?: string | null; subscriptionFreeMonths?: string | number | null },
+  signedAt: Date = new Date(),
+): number {
+  let offset = 0;
+  if (start.subscriptionStart === "FREE_MONTHS") offset = Number(start.subscriptionFreeMonths) || 0;
+  if (start.subscriptionStart === "DATE" && start.subscriptionStartDate) {
+    const first = new Date(`${start.subscriptionStartDate}T00:00:00`);
+    if (!Number.isNaN(first.getTime()) && first > signedAt) offset = monthsFromSignature(signedAt, first);
+  }
+  return periodsWithinCommitment(commitmentMonths, period, offset) ?? 0;
 }
 
 export const PERIOD_WORD: Record<Period, string> = { MONTH: "mois", QUARTER: "trimestre", YEAR: "an" };
@@ -104,8 +124,7 @@ export function orList(items: string[]): string {
   return items.length <= 1 ? (items[0] ?? "") : `${items.slice(0, -1).join(", ")} ou ${items[items.length - 1]}`;
 }
 
-/** Montant dû sur la durée d'engagement : nombre de périodes entières dans l'engagement × prix de la période. */
-export function commitmentTotalCents(periodCents: number, interval: "MONTH" | "YEAR", commitmentMonths: number): number {
-  const periods = interval === "YEAR" ? Math.ceil(commitmentMonths / 12) : commitmentMonths;
-  return periodCents * periods;
+/** Montant dû sur la durée d'engagement : nombre de périodes dans l'engagement × prix de la période (trimestre : 3 mois). */
+export function commitmentTotalCents(periodCents: number, interval: Period | null | undefined, commitmentMonths: number): number {
+  return periodCents * periodsIn(commitmentMonths, interval === "YEAR" || interval === "QUARTER" ? interval : "MONTH");
 }

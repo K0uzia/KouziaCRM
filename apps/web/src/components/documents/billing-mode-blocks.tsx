@@ -3,7 +3,7 @@ import { Checkbox, DateInput, Field, Input, Select } from "@/components/ui/Field
 import { discountSentence, OPENING_DISCOUNT, recurringDiscountSummary, type RecurringDiscountSummary } from "@kouzia-erp/recurring-discount";
 import { Segmented } from "@/components/ui/Segmented";
 import { FREE_MONTHS_MAX, startPhrase, type StartFields, type SubscriptionStart } from "@/lib/subscription-start";
-import { equalInstallments, modePlansShown, PERIOD_WORD, periodsIn, type Period, type PlanOffer } from "@/lib/payment-summary";
+import { billedPeriodsIn, equalInstallments, modePlansShown, PERIOD_WORD, type Period, type PlanOffer } from "@/lib/payment-summary";
 
 /**
  * Mode de facturation d'un devis (24/10/2026) : paiement unique (comptant, 2 ou 3 fois en parts égales datées depuis
@@ -89,9 +89,11 @@ export function discountPayload(d: RecurringDiscountForm) {
 export function discountSummaryOf(value: RecurringForm, periodCents: number, promos: ReadonlyArray<PromoOption> = []): RecurringDiscountSummary | null {
   const d = value.discount;
   const promo = d.promoCode ? promos.find((p) => p.code === d.promoCode) : undefined;
+  // Échéances facturées pendant l'engagement (mois offerts, 1re facture à une date) : même règle que l'API.
+  const billed = billedPeriodsIn(Number(value.commitmentMonths) || 0, value.interval, value);
   if (promo) {
     const fields = { recurringDiscountKind: promo.kind, recurringDiscountValue: promo.value, recurringDiscountMonths: promo.months, openingDiscount: false, promoCode: { code: promo.code, conditionText: promo.conditionText } };
-    return recurringDiscountSummary(fields, periodCents, value.interval, Number(value.commitmentMonths) || null);
+    return recurringDiscountSummary(fields, periodCents, value.interval, Number(value.commitmentMonths) || null, billed);
   }
   const fields = d.opening
     ? { recurringDiscountKind: "PERCENT", recurringDiscountValue: OPENING_DISCOUNT.value, recurringDiscountMonths: OPENING_DISCOUNT.months, openingDiscount: true }
@@ -101,7 +103,7 @@ export function discountSummaryOf(value: RecurringForm, periodCents: number, pro
         recurringDiscountMonths: d.months ? Number(d.months) : null,
         openingDiscount: false,
       };
-  return recurringDiscountSummary(fields, periodCents, value.interval, Number(value.commitmentMonths) || null);
+  return recurringDiscountSummary(fields, periodCents, value.interval, Number(value.commitmentMonths) || null, billed);
 }
 
 /** Phrase de la remise : la même que le PDF (module partagé). */
@@ -283,7 +285,7 @@ export function RecurringSettings({
       <DiscountSettings value={value} onChange={onChange} periodCents={periodCents} promos={promos} />
       <p className="text-sm text-[var(--muted)]" aria-live="polite">
         {phrase ? `Sur le devis : « ${phrase} »` : "Complétez la date ou le nombre de mois offerts."}
-        {`, engagement de ${months} mois (${periodsIn(months, value.interval)} échéances), puis reconduit chaque année.`}
+        {`, engagement de ${months} mois (${billedPeriodsIn(months, value.interval, value)} échéances), puis reconduit chaque année.`}
       </p>
     </div>
   );
@@ -378,7 +380,7 @@ export function RecurringRecap({ value, periodCents, promos = [] }: { value: Rec
       </p>
       {discount ? <p className="text-xs text-[var(--muted)]">{discountPhrase(discount, periodCents, value.interval)}</p> : null}
       <p className="text-xs text-[var(--muted)]">
-        {`Engagement ${months} mois, soit ${formatEUR(discount?.totalCommitmentCents ?? periodCents * periodsIn(months, value.interval))} sur la durée, puis reconduit chaque année.`}
+        {`Engagement ${months} mois, soit ${formatEUR(discount?.totalCommitmentCents ?? periodCents * billedPeriodsIn(months, value.interval, value))} sur la durée, puis reconduit chaque année.`}
       </p>
     </div>
   );

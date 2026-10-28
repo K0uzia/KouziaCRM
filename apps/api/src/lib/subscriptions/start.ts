@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { monthsFromSignature, periodsWithinCommitment } from "@/lib/quotes/recurring-discount-calc.js";
 import { formatEUR, formatLongDate } from "@/lib/money.js";
 import { computeNextInvoiceAt, periodWord } from "@/lib/subscriptions/subscription-service.js";
 
@@ -67,11 +68,29 @@ export function lineFirstInvoiceAt(line: StartLine, billingDay: number, base: Da
   if (line.subscriptionStart === "FREE_MONTHS" && line.subscriptionFreeMonths) {
     from = new Date(base);
     from.setMonth(from.getMonth() + line.subscriptionFreeMonths);
+    // Au jour près : signé le 1er à 10 h, 3 mois offerts, 1re échéance le 1er du 4e mois (pas un mois de plus).
+    from.setHours(0, 0, 0, 0);
   }
   if (!from) return null;
   const at = computeNextInvoiceAt(billingDay, from > base ? from : base);
   return at.getTime() > base.getTime() ? at : null;
 }
+
+/**
+ * Échéances facturées pendant l'engagement d'une ligne de devis (décision du 28/10/2026), une seule règle pour le PDF,
+ * /suivi et l'activation : l'engagement court depuis la signature (signedAt ; avant la signature, l'émission du devis),
+ * la 1re échéance vient après les mois offerts ou à la date choisie. null sans engagement.
+ */
+export function linePeriodsWithinCommitment(
+  line: StartLine & { billingInterval: string | null; commitmentMonths: number | null; billingDay: number | null },
+  signedAt: Date,
+  firstInvoiceAt: Date | null = lineFirstInvoiceAt(line, line.billingDay ?? 1, signedAt),
+): number | null {
+  return periodsWithinCommitment(line.commitmentMonths, line.billingInterval, firstInvoiceAt ? monthsFromSignature(signedAt, firstInvoiceAt) : 0);
+}
+
+/** Signature d'un devis, ou à défaut son émission (estimation avant la signature) : départ de l'engagement. */
+export const quoteSignedAtOf = (doc: { quoteDecidedAt?: Date | null; issueDate?: Date | null }): Date => doc.quoteDecidedAt ?? doc.issueDate ?? new Date();
 
 /** Données publiques du départ (contrat de /suivi, subscriptionLines) : startsAt toujours renseigné. */
 export function publicStart(line: StartLine, hasProject: boolean): { startsAt: "SIGNATURE" | "DELIVERY" | "DATE"; startsOn?: string; freeMonths?: number } {

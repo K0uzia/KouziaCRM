@@ -10,6 +10,7 @@ import { toast } from "sonner";
 import { useLiveRefresh } from "@/lib/notifications";
 import { api, formatEUR } from "@/lib/api";
 import { billedWithDocument, startFromLine, startPhrase } from "@/lib/subscription-start";
+import { normalizeInterval, periodWord } from "@/lib/billing-interval";
 import { annualEurosOf, discountFromDoc, recurringFromLine } from "@/components/documents/billing-mode-blocks";
 import {
   formatDate,
@@ -2397,7 +2398,7 @@ function quoteStartPhrase(
   },
   hasProject: boolean,
 ): string {
-  const interval = l.billingInterval === "YEAR" ? "YEAR" : "MONTH";
-  const phrase = startPhrase(startFromLine(l), hasProject, l.unitPriceCents, interval) ?? `${formatEUR(l.unitPriceCents)} par ${interval === "YEAR" ? "an" : "mois"}`;
+  const interval = normalizeInterval(l.billingInterval);
+  const phrase = startPhrase(startFromLine(l), hasProject, l.unitPriceCents, interval) ?? `${formatEUR(l.unitPriceCents)} par ${periodWord(interval)}`;
   return l.commitmentMonths ? `${phrase}, engagement de ${l.commitmentMonths} mois` : phrase;
 }

@@ -329,6 +329,8 @@ export type InvoicePdfData = {
       projectCents: number;
       subscriptions: Array<{ label: string; text: string }>;
       yearCents: number;
+      /** Abonnements trimestriels (absent : PDF archivé avant le 28/10/2026). */
+      quarterCents?: number;
       monthCents: number;
     } | null;
     balanceSummary?: {
@@ -719,6 +721,7 @@ function DocumentBody({ company, invoice, styles }: { company: PdfCompanySetting
                   <Text>
                     {[
                       invoice.mixedTotals.yearCents ? `${fmtMoney(invoice.mixedTotals.yearCents)} par an` : "",
+                      invoice.mixedTotals.quarterCents ? `${fmtMoney(invoice.mixedTotals.quarterCents)} par trimestre` : "",
                       invoice.mixedTotals.monthCents ? `${fmtMoney(invoice.mixedTotals.monthCents)} par mois` : "",
                     ]
                       .filter(Boolean)

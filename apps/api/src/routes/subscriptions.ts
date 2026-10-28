@@ -218,7 +218,7 @@ export const subscriptionsRoutes: FastifyPluginAsync = async (app) => {
       amountEuros: z.coerce.number().min(0.01),
       label: z.string().min(1).max(200).optional(),
       billingDay: z.number().int().min(1).max(28).optional(),
-      billingInterval: z.enum(["MONTH", "YEAR"]).optional(),
+      billingInterval: z.enum(["MONTH", "QUARTER", "YEAR"]).optional(),
     });
     const parsed = schema.safeParse(request.body);
     if (!parsed.success) {

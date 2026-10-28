@@ -97,8 +97,8 @@ import {
 import { isValidSiren, isValidSiret } from "@kouzia/forms";
 import { listPortalProjects } from "@/lib/projects/service.js";
 import { reviewInviteEligible } from "@/lib/projects/review-invite.js";
-import { publicStart, type StartLine } from "@/lib/subscriptions/start.js";
-import { normalizeInterval, periodMonths } from "@/lib/subscriptions/subscription-service.js";
+import { linePeriodsWithinCommitment, publicStart, quoteSignedAtOf, type StartLine } from "@/lib/subscriptions/start.js";
+import { normalizeInterval } from "@/lib/subscriptions/subscription-service.js";
 import {
   PORTAL_SECTIONS,
   changedAfter,
@@ -224,6 +224,8 @@ function recurringOf(d: {
   recurringDiscountMonths: number | null;
   openingDiscount: boolean;
   promoCode?: { code: string; conditionText: string | null } | null;
+  quoteDecidedAt?: Date | null;
+  issueDate?: Date | null;
   lines: Array<
     StartLine & {
       billingInterval: string | null;
@@ -241,13 +243,15 @@ function recurringOf(d: {
   const sub = first.subscription;
   const firstInvoice = sub ? (sub.invoices[0]?.issueDate ?? sub.nextInvoiceAt) : null;
   const amountCents = d.lines.reduce((sum, l) => sum + l.unitPriceCents, 0);
+  // Échéances facturées pendant l'engagement (mois offerts, 1re facture à une date) : même calcul que le PDF.
+  const periods = linePeriodsWithinCommitment(first, quoteSignedAtOf(d));
   return {
     period,
     amountCents,
     commitmentMonths: first.commitmentMonths ?? null,
     // Remise du devis (R1, contrat R4) : même calcul que le PDF.
-    discount: recurringDiscountSummary(d, amountCents, period, first.commitmentMonths ?? null),
-    periods: first.commitmentMonths ? Math.ceil(first.commitmentMonths / periodMonths(period)) : null,
+    discount: recurringDiscountSummary(d, amountCents, period, first.commitmentMonths ?? null, periods),
+    periods,
     ...start,
     billingDay: first.billingDay ?? 1,
     firstInvoiceOn: firstInvoice ? ymdOf(firstInvoice) : null,

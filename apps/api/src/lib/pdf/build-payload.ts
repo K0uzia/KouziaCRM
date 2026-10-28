@@ -23,9 +23,9 @@ import {
   planTemplate,
   type PlanSettings,
 } from "@/lib/quotes/payment-plans.js";
-import { startFromPhrase, startPhrase } from "@/lib/subscriptions/start.js";
+import { linePeriodsWithinCommitment, quoteSignedAtOf, startFromPhrase, startPhrase } from "@/lib/subscriptions/start.js";
 import { recurringDiscountSummary } from "@/lib/quotes/recurring-discount.js";
-import { normalizeInterval, periodMonths } from "@/lib/subscriptions/subscription-service.js";
+import { normalizeInterval } from "@/lib/subscriptions/subscription-service.js";
 import { billedWithDocument, computeDepositBaseCents, isCommittedLine } from "@/lib/invoices/totals.js";
 import { proposalTitle } from "@/lib/quotes/quote-options.js";
 import { readScope } from "@/lib/quotes/scope.js";
@@ -177,8 +177,9 @@ export function buildInvoicePdfPayload({
       ? (() => {
           const oneOffCents = committedLines.filter((l) => !l.isSubscription).reduce((s, l) => s + l.lineTotalCents, 0);
           const subs = committedLines.filter((l) => l.isSubscription);
-          const sum = (iv: "YEAR" | "MONTH") =>
-            subs.filter((l) => (l.billingInterval === "YEAR" ? "YEAR" : "MONTH") === iv).reduce((s, l) => s + l.unitPriceCents, 0);
+          // Une somme par périodicité (trimestriel à part : jamais compté « par mois »).
+          const sum = (iv: "YEAR" | "QUARTER" | "MONTH") =>
+            subs.filter((l) => normalizeInterval(l.billingInterval) === iv).reduce((s, l) => s + l.unitPriceCents, 0);
           return {
             oneOffCents,
             discountCents: Math.max(0, invoice.subtotalCents - invoice.totalCents),
@@ -188,6 +189,7 @@ export function buildInvoicePdfPayload({
               text: startPhrase(l, true, l.unitPriceCents, normalizeInterval(l.billingInterval)),
             })),
             yearCents: sum("YEAR"),
+            quarterCents: sum("QUARTER"),
             monthCents: sum("MONTH"),
           };
         })()
@@ -392,8 +394,9 @@ function recurringSummaryOf(invoice: InvoiceWithRelations) {
   const period = normalizeInterval(first.billingInterval);
   const amountCents = subs.reduce((sum, l) => sum + l.unitPriceCents, 0);
   const months = first.commitmentMonths ?? null;
-  const periods = months ? Math.ceil(months / periodMonths(period)) : null;
-  const discount = recurringDiscountSummary(invoice, amountCents, period, months);
+  // Échéances facturées pendant l'engagement (mois offerts, 1re facture à une date), comme /suivi et l'activation.
+  const periods = linePeriodsWithinCommitment(first, quoteSignedAtOf(invoice));
+  const discount = recurringDiscountSummary(invoice, amountCents, period, months, periods);
   return {
     period,
     amountCents,
