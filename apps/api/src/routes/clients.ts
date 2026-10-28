@@ -99,6 +99,14 @@ export const clientsRoutes: FastifyPluginAsync = async (app) => {
     };
     const sent = await replay();
     if (sent) return sent;
+    // Kouzia ne travaille qu'avec des professionnels et des associations (décision du 27/10/2026) : plus de nouveau
+    // particulier. Les fiches particulier déjà en base restent telles quelles.
+    if (parsed.data.type === "B2C") {
+      return reply.code(422).send({
+        error: "Kouzia travaille uniquement avec les professionnels et les associations : un nouveau client ne peut pas être un particulier.",
+        code: "particulier_refuse",
+      });
+    }
     // Adresse e-mail déjà connue : pas de doublon, la fiche existante est désignée.
     const emailHash = computeEmailHash(parsed.data.email || null);
     const known = emailHash ? await prisma.client.findUnique({ where: { emailHash } }) : null;
@@ -313,8 +321,15 @@ export const clientsRoutes: FastifyPluginAsync = async (app) => {
       // Adresse identique à celle enregistrée : reprise telle quelle, sans revérification qui pourrait la réécrire.
       const stored = await prisma.client.findUnique({
         where: { id: request.params.id },
-        select: { addressLine1: true, addressLine2: true, postalCode: true, city: true, country: true, emailHash: true },
+        select: { type: true, addressLine1: true, addressLine2: true, postalCode: true, city: true, country: true, emailHash: true },
       });
+      // Une fiche particulier déjà en base garde son type ; aucune autre ne peut le devenir.
+      if (parsed.data.type === "B2C" && stored && stored.type !== "B2C") {
+        return reply.code(422).send({
+          error: "Kouzia travaille uniquement avec les professionnels et les associations : une fiche ne peut pas passer en particulier.",
+          code: "particulier_refuse",
+        });
+      }
       const same = (a: string | null | undefined, b: string | null | undefined) => (a ?? "").trim() === (b ?? "").trim();
       const addressUnchanged = Boolean(
         stored &&

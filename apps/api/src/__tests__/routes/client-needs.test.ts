@@ -36,7 +36,7 @@ const createClient = (payload: Record<string, unknown> = {}) =>
     method: "POST",
     url: "/api/clients",
     headers: { cookie },
-    payload: { type: "B2C", lastName: "Martin", ...payload },
+    payload: { type: "B2B", companyName: "Martin", ...payload },
   });
 
 const putNeeds = (id: string, payload: unknown) =>
@@ -109,7 +109,7 @@ describe("besoins du client (catalogue et Précisions)", () => {
     const kept = (await putNeeds(client.id, { services: [{ serviceId: s.id, done: true }] })).json() as { services: NeedView[] };
     expect(kept.services[0]).toMatchObject({ name: "Site vitrine", active: false });
 
-    const other = (await createClient({ lastName: "Durand" })).json();
+    const other = (await createClient({ companyName: "Durand" })).json();
     const refused = await putNeeds(other.id, { services: [{ serviceId: s.id }] });
     expect(refused.statusCode).toBe(400);
     expect(refused.json().error).toBe("Prestation archivée : « Site vitrine » ne peut plus être ajoutée");

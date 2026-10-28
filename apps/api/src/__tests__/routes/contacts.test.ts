@@ -6,6 +6,7 @@ import { prisma } from "@/lib/prisma.js";
 import { createSession, hashPassword, SESSION_COOKIE } from "@/lib/auth.js";
 import { decryptOptional, encrypt } from "@/lib/crypto.js";
 import { computeEmailHash } from "@/lib/clients/email-hash.js";
+import { syncPrimaryContact } from "@/lib/clients/contacts.js";
 import { findClientIdByEmail } from "@/lib/email/match-client.js";
 import { runTakeovers, takeoverSummary } from "@/lib/reprises/index.js";
 import { resetDb } from "../helpers/db.js";
@@ -38,9 +39,18 @@ const call = (method: "GET" | "POST" | "PUT" | "DELETE", url: string, payload?: 
   app.inject({ method, url, headers: { cookie }, ...(payload ? { payload } : {}) });
 
 async function newClient(extra: Record<string, unknown> = {}) {
-  const res = await call("POST", "/api/clients", { type: "B2C", firstName: "Lou", lastName: "Martin", email: "lou@example.test", phone: "06 12 34 56 78", sendPortalAccess: false, ...extra });
+  const res = await call("POST", "/api/clients", { type: "B2B", companyName: "Atelier Martin", firstName: "Lou", lastName: "Martin", email: "lou@example.test", phone: "06 12 34 56 78", sendPortalAccess: false, ...extra });
   expect(res.statusCode).toBe(201);
   return res.json() as { id: string; displayName: string };
+}
+
+/** Particulier d'avant le 27/10/2026 (l'API n'en crée plus) : fiche et contact principal écrits en base. */
+async function legacyParticulier() {
+  const client = await prisma.client.create({
+    data: { type: "B2C", displayName: "Lou Martin", firstName: "Lou", lastName: "Martin", emailEncrypted: encrypt("lou@example.test"), emailHash: computeEmailHash("lou@example.test") },
+  });
+  await syncPrimaryContact(client.id);
+  return client;
 }
 
 const contactsOf = async (id: string) =>
@@ -65,7 +75,7 @@ describe("contact principal synchronisé avec la fiche", () => {
   it("modification de la fiche : le contact principal suit ; les autres contacts ne bougent pas", async () => {
     const client = await newClient();
     await call("POST", `/api/clients/${client.id}/contacts`, { firstName: "Sam", role: "Comptable", email: "sam@example.test" });
-    const put = await call("PUT", `/api/clients/${client.id}`, { type: "B2C", firstName: "Lou", lastName: "Martin-Durand", email: "lou.md@example.test", phone: null });
+    const put = await call("PUT", `/api/clients/${client.id}`, { type: "B2B", companyName: "Atelier Martin", firstName: "Lou", lastName: "Martin-Durand", email: "lou.md@example.test", phone: null });
     expect(put.statusCode).toBe(200);
     const [primary, other] = await contactsOf(client.id);
     expect(primary).toMatchObject({ lastName: "Martin-Durand", email: "lou.md@example.test", phone: null, isPrimary: true });
@@ -83,7 +93,12 @@ describe("contact principal synchronisé avec la fiche", () => {
     expect(decryptOptional(row.emailEncrypted)).toBe("camille@example.test");
     expect(row.emailHash).toBe(computeEmailHash("camille@example.test"));
     expect(row.phoneEncrypted).toBeNull();
-    expect(row.displayName).toBe("Camille Martin");
+    expect(row.displayName).toBe("Atelier Martin");
+
+    const particulier = await legacyParticulier();
+    const other = (await call("POST", `/api/clients/${particulier.id}/contacts`, { firstName: "Camille", lastName: "Durand" })).json();
+    expect((await call("POST", `/api/clients/${particulier.id}/contacts/${other.id}/primary`)).statusCode).toBe(200);
+    expect((await prisma.client.findUniqueOrThrow({ where: { id: particulier.id } })).displayName).toBe("Camille Durand");
   });
 
   it("adresse déjà portée par une autre fiche : 409, rien ne change", async () => {

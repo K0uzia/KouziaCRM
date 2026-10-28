@@ -35,7 +35,7 @@ beforeEach(async () => {
 const post = (url: string, payload: Record<string, unknown>, headers: Record<string, string> = { cookie }) =>
   app.inject({ method: "POST", url, headers, payload });
 
-const clientBody = (extra: Record<string, unknown> = {}) => ({ type: "B2C", firstName: "Lou", lastName: "Martin", ...extra });
+const clientBody = (extra: Record<string, unknown> = {}) => ({ type: "B2B", companyName: "Lou Martin", firstName: "Lou", lastName: "Martin", ...extra });
 
 const quoteBody = (clientId: string, extra: Record<string, unknown> = {}) => ({
   clientId,

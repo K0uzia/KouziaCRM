@@ -144,14 +144,14 @@ describe("bloc-notes : compatibilité avec les appareils pas encore mis à jour"
       method: "POST",
       url: "/api/clients",
       headers: { cookie },
-      payload: { type: "B2C", firstName: "Sam", lastName: "Durand", notes: "Vu au salon.", clientRequestId: randomUUID() },
+      payload: { type: "B2B", companyName: "Sam Durand", firstName: "Sam", lastName: "Durand", notes: "Vu au salon.", clientRequestId: randomUUID() },
     });
     expect(created.statusCode).toBe(201);
     const id = created.json().id as string;
     expect((await getPad(id)).json()).toMatchObject({ text: "Vu au salon.", version: 1 });
     const row = await prisma.client.findUniqueOrThrow({ where: { id } });
     expect(row.notes).toBeNull();
-    const put = await app.inject({ method: "PUT", url: `/api/clients/${id}`, headers: { cookie }, payload: { type: "B2C", firstName: "Sam", lastName: "Durand", notes: "Écrasé ?" } });
+    const put = await app.inject({ method: "PUT", url: `/api/clients/${id}`, headers: { cookie }, payload: { type: "B2B", companyName: "Sam Durand", firstName: "Sam", lastName: "Durand", notes: "Écrasé ?" } });
     expect(put.statusCode).toBe(200);
     expect((await getPad(id)).json()).toMatchObject({ text: "Vu au salon.", version: 1 });
   });

@@ -47,35 +47,35 @@ const create = (payload: Record<string, unknown>) =>
 
 describe("création d'un client et accès à l'espace client", () => {
   it("case cochée et adresse renseignée : e-mail d'accès envoyé", async () => {
-    const res = await create({ type: "B2C", lastName: "Durand", email: "durand@example.com", sendPortalAccess: true });
+    const res = await create({ type: "B2B", companyName: "Durand", email: "durand@example.com", sendPortalAccess: true });
     expect(res.statusCode).toBe(201);
     expect(res.json().portalAccess).toEqual({ sent: true });
     expect(await accessEmails()).toHaveLength(1);
   });
 
   it("case décochée : aucun e-mail", async () => {
-    const res = await create({ type: "B2C", lastName: "Durand", email: "durand@example.com", sendPortalAccess: false });
+    const res = await create({ type: "B2B", companyName: "Durand", email: "durand@example.com", sendPortalAccess: false });
     expect(res.json().portalAccess).toBeNull();
     expect(await accessEmails()).toHaveLength(0);
   });
 
   it("sans adresse : aucun e-mail, même case cochée", async () => {
-    const res = await create({ type: "B2C", lastName: "Sans Mail", sendPortalAccess: true });
+    const res = await create({ type: "B2B", companyName: "Sans Mail", sendPortalAccess: true });
     expect(res.statusCode).toBe(201);
     expect(res.json().portalAccess).toBeNull();
     expect(await accessEmails()).toHaveLength(0);
   });
 
   it("option absente (autre appelant de l'API) : aucun e-mail", async () => {
-    await create({ type: "B2C", lastName: "Durand", email: "durand@example.com" });
+    await create({ type: "B2B", companyName: "Durand", email: "durand@example.com" });
     expect(await accessEmails()).toHaveLength(0);
   });
 });
 
 describe("bouton « Envoyer l'accès à l'espace client »", () => {
   it("renvoi possible, client sans adresse signalé, client inconnu en 404", async () => {
-    const withEmail = (await create({ type: "B2C", lastName: "Durand", email: "durand@example.com" })).json();
-    const noEmail = (await create({ type: "B2C", lastName: "Sans Mail" })).json();
+    const withEmail = (await create({ type: "B2B", companyName: "Durand", email: "durand@example.com" })).json();
+    const noEmail = (await create({ type: "B2B", companyName: "Sans Mail" })).json();
     const send = (id: string) =>
       app.inject({ method: "POST", url: `/api/clients/${id}/portal/welcome`, headers: { cookie } });
 
