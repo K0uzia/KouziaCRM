@@ -70,7 +70,8 @@ describe("PDF : option au choix et non compris", () => {
     const doc = await readable(id);
     expect(doc.table?.rows.map((r) => r.cells[0])).toEqual(["Création du site vitrine"]);
     const option = doc.sections.find((s) => s.heading === "Option au choix à la signature");
-    expect(norm(option)).toContain("Maintenance annuelle, 300,00 € par an, engagement 24 mois à partir de la livraison.");
+    // 1re ligne : nom, prix et engagement ; la description à part (retour d'Alexandre du 29/10/2026).
+    expect(option?.paragraphs[0]).toBe("Maintenance annuelle : 300,00 € par an, engagement 24 mois à partir de la livraison");
     expect(norm(option)).toContain("Total sans l'option : 1 200,00 €");
     // Total du projet et option sur toute la durée d'engagement (retour d'Alexandre du 28/10/2026).
     expect(norm(option)).toContain("Avec l'option : 1 200,00 € + 300,00 € par an, soit 1 800,00 € sur les 24 mois d'engagement");
@@ -79,16 +80,20 @@ describe("PDF : option au choix et non compris", () => {
     expect(norm(doc.totals)).toContain("1 200,00 €");
   });
 
-  it("libellé de l'option : point final de la description retiré avant d'assembler la phrase", async () => {
+  it("bloc option : nom, prix et engagement, puis la description sur sa ligne, puis les deux totaux", async () => {
     const body = await draftBody();
     body.lines[1] = { ...body.lines[1]!, description: "Maintenance site : sauvegardes, mises à jour de sécurité et corrections." } as (typeof body.lines)[number];
     const res = await call("POST", "/api/invoices", body);
     const id = res.json().id as string;
     expect((await call("POST", `/api/invoices/${id}/issue`, { email: { send: false } })).statusCode).toBe(200);
     const doc = await readable(id);
-    const text = norm(doc.sections);
-    expect(text).toContain("Maintenance site : sauvegardes, mises à jour de sécurité et corrections, 300,00 € par an");
-    expect(text).not.toContain("corrections.,");
+    const option = doc.sections.find((s) => s.heading === "Option au choix à la signature")!;
+    expect(option.paragraphs.map((p) => p.replace(/[\u00a0\u202f]/g, " "))).toEqual([
+      "Maintenance site : 300,00 € par an, engagement 24 mois à partir de la livraison",
+      "Sauvegardes, mises à jour de sécurité et corrections.",
+      "Total sans l'option : 1 200,00 €",
+      "Avec l'option : 1 200,00 € + 300,00 € par an, soit 1 800,00 € sur les 24 mois d'engagement",
+    ]);
   });
 
   it("le texte du PDF est exactement celui de la version lisible", async () => {
@@ -140,6 +145,58 @@ describe("PDF : option au choix et non compris", () => {
     expect(doc.proposals?.map((p) => p.heading)).toEqual(["Proposition A : Paiement unique", "Proposition B"]);
     expect(doc.proposals![0]!.sections.find((s) => s.heading === "Non compris")?.items.length).toBe(4);
     expect(doc.proposals![1]!.sections.find((s) => s.heading === "Compris dans l'abonnement")?.items).toEqual(["Création du site", "Hébergement et nom de domaine"]);
+  });
+
+  it("phrase de la date de prélèvement : seulement avec un abonnement engagé qui ne démarre pas à la livraison", async () => {
+    const client = await createClient({ displayName: "Client Date Prélèvement" });
+    const svc = await createService({ name: "Site tout compris", unitPriceCents: 150000 });
+    const maint = await createService({ name: "Maintenance annuelle", unitPriceCents: 30000 });
+    const q = (
+      await call("POST", "/api/invoices", {
+        clientId: client.id,
+        documentType: "QUOTE",
+        options: [
+          {
+            label: "Abonnement annuel",
+            billingMode: "RECURRING",
+            lines: [{ description: "Site tout compris", quantity: 1, unitPriceEuros: 1500, isSubscription: true, billingInterval: "YEAR", billingDay: 1, serviceId: svc.id, commitmentMonths: 36 }],
+          },
+          {
+            label: "Paiement unique",
+            billingMode: "ONE_OFF",
+            paymentPlanOffer: "TWO",
+            lines: [site, { description: "Maintenance annuelle", quantity: 1, unitPriceEuros: 300, isSubscription: true, isOptional: true, billingInterval: "YEAR", billingDay: 1, serviceId: maint.id, commitmentMonths: 12 }],
+          },
+        ],
+      })
+    ).json();
+    expect((await call("POST", `/api/invoices/${q.id}/issue`, { email: { send: false } })).statusCode).toBe(200);
+    const doc = await readable(q.id);
+    expect(norm(doc.proposals![0])).toContain("Si la date de prélèvement");
+    expect(norm(doc.proposals![1])).not.toContain("Si la date de prélèvement");
+  });
+
+  it("pagination : la proposition A suit l'en-tête quand elle tient, B sur sa page, les sections communes à la suite", async () => {
+    const client = await createClient({ displayName: "Client Pages" });
+    const svc = await createService({ name: "Site tout compris", unitPriceCents: 150000 });
+    const q = (
+      await call("POST", "/api/invoices", {
+        clientId: client.id,
+        documentType: "QUOTE",
+        options: [
+          { label: "Paiement unique", billingMode: "ONE_OFF", paymentPlanOffer: "TWO", lines: [site] },
+          {
+            label: "Abonnement annuel",
+            billingMode: "RECURRING",
+            lines: [{ description: "Site tout compris", quantity: 1, unitPriceEuros: 1500, isSubscription: true, billingInterval: "YEAR", billingDay: 1, serviceId: svc.id, commitmentMonths: 36 }],
+          },
+        ],
+      })
+    ).json();
+    expect((await call("POST", `/api/invoices/${q.id}/issue`, { email: { send: false } })).statusCode).toBe(200);
+    const pdf = await renderInvoicePdf(await pdfDataOfLoaded((await loadDocumentForPdf(q.id))!));
+    // Deux propositions courtes : page 1 (en-tête et A), page 2 (B et sections communes).
+    expect(pdf.toString("latin1").match(/\/Type \/Page\b/g)?.length).toBe(2);
   });
 
   it("aperçu du brouillon : rendu avec l'option", async () => {

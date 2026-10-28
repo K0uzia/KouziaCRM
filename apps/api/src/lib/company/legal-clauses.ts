@@ -357,11 +357,22 @@ const OPTION_FROM_DELIVERY = " (pour une option retenue sur un devis payé une f
  * variables remplies. null sans abonnement, pour une facture ou si la clause est désactivée.
  */
 export async function subscriptionDateNoticeOf(
-  doc: { documentType: string; lines: ReadonlyArray<{ isSubscription: boolean }>; legalClausesSnapshot?: unknown },
+  doc: {
+    documentType: string;
+    lines: ReadonlyArray<{ isSubscription: boolean; isOptional?: boolean; optionalAccepted?: boolean | null; subscriptionStart?: string | null }>;
+    legalClausesSnapshot?: unknown;
+    billingMode?: string | null;
+  },
   clientType: string | null | undefined,
   company: Parameters<typeof fillClauseVariables>[1],
 ): Promise<string | null> {
-  if (doc.documentType !== "QUOTE" || !doc.lines.some((l) => l.isSubscription)) return null;
+  // Comme le PDF (29/10/2026) : un abonnement engagé qui ne démarre pas à la livraison ; jamais pour une seule option.
+  // Départ par défaut : la livraison pour un devis mixte (partie ponctuelle hors mode récurrent), sinon la signature.
+  const mixed = doc.billingMode !== "RECURRING" && doc.lines.some((l) => !l.isSubscription);
+  const dated = doc.lines.some(
+    (l) => l.isSubscription && (!l.isOptional || l.optionalAccepted === true) && (l.subscriptionStart ?? (mixed ? "DELIVERY" : "SIGNATURE")) !== "DELIVERY",
+  );
+  if (doc.documentType !== "QUOTE" || !dated) return null;
   const active = await prisma.legalClause.findMany({
     where: { active: true, kind: LegalClauseKind.SUBSCRIPTION_BILLING_DATE },
     orderBy: [{ position: "asc" }, { createdAt: "asc" }],

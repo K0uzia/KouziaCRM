@@ -1,7 +1,7 @@
 import { useFeatures } from "@/lib/features";
 import { toIsoDate } from "@/components/ui/DatePicker";
 import { Fragment, useCallback, useEffect, useState } from "react";
-import { mixedQuoteTotals, proposalsAmountText, proposalTitle, quoteInvoicedCents, sameModeProposals, subscriptionsTotalText, withOptionText, withoutFinalPeriod } from "@/lib/quote-totals";
+import { mixedQuoteTotals, proposalsAmountText, proposalTitle, quoteInvoicedCents, sameModeProposals, splitLineLabel, subscriptionsTotalText, withOptionText, withoutFinalPeriod } from "@/lib/quote-totals";
 import { formatPercentBps } from "@/lib/format";
 import type { ServiceNeed } from "@/components/clients/ServiceNeedsEditor";
 import { Link, useNavigate, useParams } from "react-router-dom";
@@ -1482,8 +1482,9 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
                   <ul className="mt-2 list-disc space-y-1.5 pl-5 text-[var(--muted)]">
                     {docOptionalLines.map((l, i) => (
                       <li key={i}>
-                        <span className="text-[var(--text)]">{withoutFinalPeriod(l.description)}</span>
-                        {` : ${optionState(l).toLowerCase()}, ${formatEUR(l.unitPriceCents)} par an, engagement ${l.commitmentMonths ?? 12} mois à partir de la livraison.`}
+                        <span className="text-[var(--text)]">{splitLineLabel(l.description).title}</span>
+                        {` : ${formatEUR(l.unitPriceCents)} par an, engagement ${l.commitmentMonths ?? 12} mois à partir de la livraison (${optionState(l).toLowerCase()}).`}
+                        {splitLineLabel(l.description).details ? <span className="block text-xs">{splitLineLabel(l.description).details}</span> : null}
                       </li>
                     ))}
                   </ul>
@@ -1491,7 +1492,7 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
                     <p className="mt-2 text-[var(--muted)]">
                       {docOptionalLines
                         .filter((l) => l.optionalAccepted == null)
-                        .map((l) => `Avec l'option${docOptionalLines.length > 1 ? ` ${withoutFinalPeriod(l.description)}` : ""} : ${withOptionText(doc.totalCents, l.unitPriceCents, l.commitmentMonths ?? 12)}.`)
+                        .map((l) => `Avec l'option${docOptionalLines.length > 1 ? ` ${splitLineLabel(l.description).title}` : ""} : ${withOptionText(doc.totalCents, l.unitPriceCents, l.commitmentMonths ?? 12)}.`)
                         .join(" ")}
                     </p>
                   ) : null}
@@ -1928,7 +1929,7 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
           {signOptionalLines.map((l) => (
             <fieldset key={l.id} className="space-y-1">
               <legend className="text-sm font-medium">
-                Option : {withoutFinalPeriod(l.description)} ({formatEUR(l.unitPriceCents)} par an, engagement {l.commitmentMonths ?? 12} mois)
+                Option : {splitLineLabel(l.description).title} ({formatEUR(l.unitPriceCents)} par an, engagement {l.commitmentMonths ?? 12} mois)
               </legend>
               {(
                 [

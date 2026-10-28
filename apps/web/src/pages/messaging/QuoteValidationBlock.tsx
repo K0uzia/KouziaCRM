@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { api, formatEUR } from "@/lib/api";
 import { formatDate } from "@/lib/format";
-import { proposalTitle, withoutFinalPeriod } from "@/lib/quote-totals";
+import { proposalTitle, splitLineLabel } from "@/lib/quote-totals";
 import { Button } from "@/components/ui/Button";
 import { Field, Input } from "@/components/ui/Field";
 import { Modal, ModalActions } from "@/components/ui/Modal";
@@ -183,7 +183,7 @@ export function QuoteValidationBlock({
         {shownOptional.map((l) => (
           <fieldset key={l.id} className="mt-4 space-y-1">
             <legend className="text-sm font-medium">
-              Option : {withoutFinalPeriod(l.description)} ({formatEUR(l.unitPriceCents)} par an, engagement {l.commitmentMonths ?? 12} mois)
+              Option : {splitLineLabel(l.description).title} ({formatEUR(l.unitPriceCents)} par an, engagement {l.commitmentMonths ?? 12} mois)
             </legend>
             {(
               [

@@ -29,7 +29,7 @@ import { normalizeInterval } from "@/lib/subscriptions/subscription-service.js";
 import { billedWithDocument, computeDepositBaseCents, isCommittedLine } from "@/lib/invoices/totals.js";
 import { proposalTitle } from "@/lib/quotes/quote-options.js";
 import { readScope } from "@/lib/quotes/scope.js";
-import { withoutFinalPeriod } from "@/lib/format-fr.js";
+import { splitLineLabel, withoutFinalPeriod } from "@/lib/format-fr.js";
 
 type InvoiceWithRelations = Invoice & {
   lines: InvoiceLine[];
@@ -266,7 +266,12 @@ export function buildInvoicePdfPayload({
     },
     // Information précontractuelle des particuliers (audience B2C) : devis seulement.
     withdrawalTerms: isQuote ? clauseBody("WITHDRAWAL") : null,
-    subscriptionDateNotice: isQuote && invoice.lines.some((l) => l.isSubscription) ? clauseBody("SUBSCRIPTION_BILLING_DATE") : null,
+    // Date de prélèvement à changer par un refus motivé : seulement avec un abonnement engagé qui ne démarre pas à la
+    // livraison (29/10/2026) ; une option, ou un abonnement qui démarre à la livraison, n'a pas encore de date à discuter.
+    subscriptionDateNotice:
+      isQuote && committedLines.some((l) => l.isSubscription && (l.subscriptionStart ?? (fromDelivery ? "DELIVERY" : "SIGNATURE")) !== "DELIVERY")
+        ? clauseBody("SUBSCRIPTION_BILLING_DATE")
+        : null,
     cgv: isQuote ? cgvShown : null,
     scope: scope && (scope.included.length || scope.excluded.length) ? { included: scope.included, excluded: scope.excluded } : null,
     optionalOffers: optionalLines.length
@@ -276,8 +281,10 @@ export function buildInvoicePdfPayload({
           offers: optionalLines.map((l) => {
             const months = l.commitmentMonths ?? 12;
             const commitmentCents = Math.round((l.unitPriceCents * months) / 12);
+            const { title, details } = splitLineLabel(l.description);
             return {
-              label: withoutFinalPeriod(l.description),
+              label: title,
+              details,
               amountCents: l.unitPriceCents,
               commitmentMonths: months,
               totalCommitmentCents: commitmentCents,

@@ -288,6 +288,15 @@ function fmtQty(q: number) {
 export type InvoicePdfData = {
   company: PdfCompanySettings;
   client: ClientSnapshot;
+  /**
+   * Devis à propositions : mise en page mesurée par renderInvoicePdf (1re passe). FITS : la proposition tient sur une
+   * page, elle reste d'un bloc ; LONG : plus longue qu'une page, elle continue seule sur la suivante. Absent : FITS.
+   */
+  proposalLayout?: Array<"FITS" | "LONG">;
+  /** 1re passe de mesure : page où commence et finit chaque proposition (jamais imprimé). */
+  onProposalPage?: (index: number, edge: "start" | "end", pageNumber: number) => void;
+  /** 1re passe de mesure : chaque proposition depuis le haut d'une page. */
+  measureProposals?: boolean;
   /** Aperçu de la charte (Réglages) : filigrane « EXEMPLE » sur chaque page, aucun document réel. */
   specimen?: boolean;
   /** Aperçu d'un brouillon avant création : filigrane « APERÇU » et numéro provisoire (attribué à l'émission). */
@@ -444,7 +453,9 @@ export type InvoicePdfData = {
     optionalOffers?: {
       withoutOptionCents: number;
       offers: Array<{
+        /** Nom de l'option (avant « : ») ; sa description sur sa propre ligne, ou null. */
         label: string;
+        details?: string | null;
         amountCents: number;
         commitmentMonths: number;
         totalCommitmentCents: number;
@@ -510,8 +521,8 @@ function ScopeLists({ scope, styles }: { scope: NonNullable<PdfInvoice["scope"]>
  */
 function OptionalOffers({ options, styles }: { options: NonNullable<PdfInvoice["optionalOffers"]>; styles: ReturnType<typeof createStyles> }) {
   const pending = options.offers.every((o) => o.status === "PENDING");
-  const terms = (o: (typeof options.offers)[number]) =>
-    `${o.label}, ${fmtMoney(o.amountCents)} par an, engagement ${o.commitmentMonths} mois à partir de la livraison`;
+  const price = (o: (typeof options.offers)[number]) => `${fmtMoney(o.amountCents)} par an, engagement ${o.commitmentMonths} mois à partir de la livraison`;
+  const details = (o: (typeof options.offers)[number]) => (o.details ? <Text style={[styles.muted, { marginTop: 2 }]}>{o.details}</Text> : null);
   return (
     <Readable as="section" heading>
     <View style={[styles.box, styles.section]} wrap={false}>
@@ -519,16 +530,20 @@ function OptionalOffers({ options, styles }: { options: NonNullable<PdfInvoice["
       {options.offers.map((o, i) =>
         pending ? (
           <View key={i} style={{ marginTop: i ? 6 : 0 }}>
-            <Text>{`${terms(o)}.`}</Text>
+            <Text>{`${o.label} : ${price(o)}`}</Text>
+            {details(o)}
             <Text style={[styles.muted, { marginTop: 2 }]}>{`Total sans l'option : ${fmtMoney(options.withoutOptionCents)}`}</Text>
             <Text style={styles.muted}>
               {`Avec l'option : ${fmtMoney(options.withoutOptionCents)} + ${fmtMoney(o.amountCents)} par an, soit ${fmtMoney(o.totalWithOptionCents)} sur les ${o.commitmentMonths} mois d'engagement`}
             </Text>
           </View>
         ) : (
-          <Text key={i} style={{ marginTop: i ? 4 : 0 }}>
-            {o.status === "ACCEPTED" ? `Option retenue : ${terms(o)}.` : o.status === "DECLINED" ? `Option non retenue : ${o.label}.` : `Option au choix : ${terms(o)}.`}
-          </Text>
+          <View key={i} style={{ marginTop: i ? 4 : 0 }}>
+            <Text>
+              {o.status === "ACCEPTED" ? `Option retenue : ${o.label}, ${price(o)}.` : o.status === "DECLINED" ? `Option non retenue : ${o.label}.` : `Option au choix : ${o.label}, ${price(o)}.`}
+            </Text>
+            {o.status === "DECLINED" ? null : details(o)}
+          </View>
         ),
       )}
     </View>
@@ -938,7 +953,7 @@ function DocumentBody({ company, invoice, styles }: { company: PdfCompanySetting
   );
 }
 
-export function InvoiceDocument({ company, client, invoice, specimen, draft }: InvoicePdfData) {
+export function InvoiceDocument({ company, client, invoice, specimen, draft, proposalLayout, onProposalPage, measureProposals }: InvoicePdfData) {
   const { primary, secondary } = resolveBrandColors(company);
   const styles = createStyles(primary, secondary);
 
@@ -1125,23 +1140,24 @@ export function InvoiceDocument({ company, client, invoice, specimen, draft }: I
             <Text style={styles.proposalIntro}>
               {`Ce devis propose ${invoice.proposals.length} formules : choisissez-en une à la signature.`}
             </Text>
-            {/* Une page par proposition (retour d'Alexandre du 28/10/2026) : chacune commence sur une nouvelle page, ses
-                blocs (lignes, totaux, option, compris et non compris) sont insécables ; plus longue qu'une page, elle
-                continue sur la suivante sans partager ses pages avec l'autre. */}
+            {/* Pagination (retours d'Alexandre des 28 et 29/10/2026) : la 1re proposition suit l'en-tête si elle y tient en
+                entier, sinon elle passe entière à la page suivante ; chaque proposition suivante commence sur une nouvelle
+                page ; une proposition qui tient sur une page n'est jamais coupée (wrap={false}), une plus longue continue
+                seule sur la suivante. Les sections communes suivent la dernière, en blocs insécables. */}
             {invoice.proposals.map((p, i) => (
               <Readable key={i} as="proposal">
-              <View style={styles.proposal} break>
+              <View style={styles.proposal} break={i > 0 || measureProposals} wrap={measureProposals || proposalLayout?.[i] === "LONG"}>
+                {onProposalPage ? <Text render={({ pageNumber }) => (onProposalPage(i, "start", pageNumber), "")} /> : null}
                 <Readable as="proposalHeading">
                 <Text style={styles.proposalTitle} minPresenceAhead={120}>
                   {p.heading}
                 </Text>
                 </Readable>
                 <DocumentBody company={company} invoice={p.invoice} styles={styles} />
+                {onProposalPage ? <Text render={({ pageNumber }) => (onProposalPage(i, "end", pageNumber), "")} /> : null}
               </View>
               </Readable>
             ))}
-            {/* Sections communes (signature, notes, clauses) : sur leur propre page, après la dernière proposition. */}
-            <View break />
           </>
         ) : (
           <DocumentBody company={company} invoice={invoice} styles={styles} />

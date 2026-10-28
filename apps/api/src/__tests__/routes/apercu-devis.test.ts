@@ -102,11 +102,14 @@ describe("aperçu avant création", () => {
 });
 
 describe("mention de la date de prélèvement", () => {
-  it("figure sur le devis avec abonnement (PDF et fiche), jamais sans abonnement ni sur une facture", async () => {
+  it("figure avec un abonnement qui ne démarre pas à la livraison (PDF et fiche), jamais sans abonnement ni sur une facture", async () => {
     const client = await createClient();
     const service = await createService({ name: "Hébergement" });
+    // Règle du 29/10/2026 : un abonnement qui démarre à la livraison (devis mixte) n'a pas encore de date à discuter.
     const withSub = await preview({ clientId: client.id, documentType: "QUOTE", lines: [oneOff, subscription(service.id)] });
-    expect(pdfText(withSub.rawPayload)).toContain(NOTICE);
+    expect(pdfText(withSub.rawPayload)).not.toContain(NOTICE);
+    const atSignature = await preview({ clientId: client.id, documentType: "QUOTE", lines: [oneOff, { ...subscription(service.id), subscriptionStart: "SIGNATURE" }] });
+    expect(pdfText(atSignature.rawPayload)).toContain(NOTICE);
     const subOnly = await preview({ clientId: client.id, documentType: "QUOTE", lines: [subscription(service.id)] });
     expect(pdfText(subOnly.rawPayload)).toContain(NOTICE);
     const noSub = await preview({ clientId: client.id, documentType: "QUOTE", lines: [oneOff] });
@@ -117,8 +120,10 @@ describe("mention de la date de prélèvement", () => {
     const create = (documentType: string, lines: unknown[]) =>
       app.inject({ method: "POST", url: "/api/invoices", headers: { cookie }, payload: { clientId: client.id, documentType, lines } });
     const detail = async (id: string) => (await app.inject({ method: "GET", url: `/api/invoices/${id}`, headers: { cookie } })).json();
-    const quoteSub = (await create("QUOTE", [oneOff, subscription(service.id)])).json();
+    const quoteSub = (await create("QUOTE", [subscription(service.id)])).json();
     expect((await detail(quoteSub.id)).subscriptionDateNotice).toContain(NOTICE);
+    const quoteMixed = (await create("QUOTE", [oneOff, subscription(service.id)])).json();
+    expect((await detail(quoteMixed.id)).subscriptionDateNotice).toBeNull();
     const quotePlain = (await create("QUOTE", [oneOff])).json();
     expect((await detail(quotePlain.id)).subscriptionDateNotice).toBeNull();
     const invoiceSub = (await create("INVOICE", [oneOff, subscription(service.id)])).json();

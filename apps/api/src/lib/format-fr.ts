@@ -21,6 +21,19 @@ export function withoutFinalPeriod(text: string): string {
   return text.trim().replace(/\.+$/, "").trimEnd();
 }
 
+/**
+ * Libellé d'une ligne du catalogue (« Nom : description ») séparé en nom et description : le nom va dans la phrase,
+ * la description sur sa propre ligne, avec une majuscule et un point final. Sans « : », tout est le nom.
+ */
+export function splitLineLabel(description: string): { title: string; details: string | null } {
+  const at = description.indexOf(" : ");
+  if (at < 0) return { title: withoutFinalPeriod(description), details: null };
+  const title = description.slice(0, at).trim();
+  const rest = withoutFinalPeriod(description.slice(at + 3));
+  if (!title || !rest) return { title: withoutFinalPeriod(description), details: null };
+  return { title, details: `${rest.charAt(0).toUpperCase()}${rest.slice(1)}.` };
+}
+
 export function formatEUR(cents: number): string {
   const rounded = Math.round(cents);
   const abs = Math.abs(rounded);

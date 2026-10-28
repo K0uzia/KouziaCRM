@@ -37,6 +37,19 @@ export function withoutFinalPeriod(text: string): string {
 }
 
 /**
+ * Libellé « Nom : description » séparé en nom (repris dans la phrase) et description (sur sa propre ligne, majuscule
+ * et point final) ; sans « : », tout est le nom. Même règle que le PDF.
+ */
+export function splitLineLabel(description: string): { title: string; details: string | null } {
+  const at = description.indexOf(" : ");
+  if (at < 0) return { title: withoutFinalPeriod(description), details: null };
+  const title = description.slice(0, at).trim();
+  const rest = withoutFinalPeriod(description.slice(at + 3));
+  if (!title || !rest) return { title: withoutFinalPeriod(description), details: null };
+  return { title, details: `${rest.charAt(0).toUpperCase()}${rest.slice(1)}.` };
+}
+
+/**
  * Devis avec une option au choix : « 1 650,00 € + 650,00 € par an, soit 2 300,00 € sur les 12 mois d'engagement ». Le
  * « soit » est le total du projet sans l'option plus l'option sur toute la durée d'engagement (même phrase que le PDF).
  */

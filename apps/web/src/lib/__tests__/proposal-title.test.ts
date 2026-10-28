@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { proposalTitle, withOptionText, withoutFinalPeriod } from "@/lib/quote-totals";
+import { proposalTitle, splitLineLabel, withOptionText, withoutFinalPeriod } from "@/lib/quote-totals";
 
 describe("proposalTitle", () => {
   it("lettre seule quand le libellé est vide ou répète la lettre", () => {
@@ -20,5 +20,12 @@ describe("phrases de l'option au choix", () => {
   it("libellé sans point final", () => {
     expect(withoutFinalPeriod("Maintenance : sauvegardes et corrections. ")).toBe("Maintenance : sauvegardes et corrections");
     expect(withoutFinalPeriod("Sans point")).toBe("Sans point");
+  });
+});
+
+describe("libellé de l'option séparé en nom et description", () => {
+  it("nom avant « : », description avec majuscule et point final", () => {
+    expect(splitLineLabel("Maintenance site : hébergement du site, sauvegardes")).toEqual({ title: "Maintenance site", details: "Hébergement du site, sauvegardes." });
+    expect(splitLineLabel("Maintenance annuelle.")).toEqual({ title: "Maintenance annuelle", details: null });
   });
 });
