@@ -1,7 +1,14 @@
 import { LIST_CAP } from "@/lib/list-cap.js";
 import type { FastifyPluginAsync } from "fastify";
 import { z } from "zod";
-import { EmailDirection, InvoiceDocumentType, InvoiceStatus, QuoteStatus } from "@prisma/client";
+import {
+  EmailDirection,
+  InvoiceDocumentType,
+  InvoiceStatus,
+  MailSenderRuleAction,
+  MailSenderRuleKind,
+  QuoteStatus,
+} from "@prisma/client";
 import { BALANCE_INCLUDE, invoiceBalance } from "@/lib/invoices/balance.js";
 import { applySettledStatus, lockInvoice } from "@/lib/invoices/balance-status.js";
 import { formatEUR } from "@/lib/money.js";
@@ -34,7 +41,14 @@ import { messageBodyData, messageBodyText, plainMessage } from "@/lib/email/mess
 import { formLeadForMessage, formSubmissionForThread } from "@/lib/email/web3forms.js";
 import { linkSenderToClient, SenderLinkError, senderSuggestionForThread } from "@/lib/email/sender-client.js";
 import { setBulkMessageFlags, setMessageFlags } from "@/lib/email/sync/flag-sync.js";
-import { messageSecurity, reportNotSpam, reportSpam, SpamFolderError } from "@/lib/email/spam.js";
+import { blockSendersOf, messageSecurity, reportNotSpam, reportSpam, SpamFolderError } from "@/lib/email/spam.js";
+import {
+  deleteSenderRule,
+  listSenderRules,
+  saveSenderRule,
+  senderAddressOf,
+  SenderRuleError,
+} from "@/lib/email/sender-rules.js";
 import { withImapClient } from "@/lib/email/sync/imap-connection.js";
 import { toImapInt } from "@/lib/email/sync/imap-int.js";
 import { decryptOptional } from "@/lib/crypto.js";
@@ -593,20 +607,70 @@ export const miscRoutes: FastifyPluginAsync = async (app) => {
     app.post(url, async (request, reply) => {
       await requireAuth(request, reply);
       if (reply.sent) return;
-      const parsed = z.object({ messageIds: z.array(z.string().min(1)).min(1).max(200) }).safeParse(request.body ?? {});
+      const parsed = z
+        .object({ messageIds: z.array(z.string().min(1)).min(1).max(200), blockSender: z.boolean().optional() })
+        .safeParse(request.body ?? {});
       if (!parsed.success) return reply.code(400).send({ error: parsed.error.flatten() });
       try {
         const result = await run(parsed.data.messageIds);
         if (result.moved === 0 && result.kept > 0) {
           return reply.code(409).send({ error: "Boîte mail injoignable : message laissé en place, réessayez plus tard." });
         }
-        return { ok: true, ...result };
+        // Case « Bloquer aussi cet expéditeur » (décochée par défaut) : signalement seulement.
+        const blocked =
+          run === reportSpam && parsed.data.blockSender ? await blockSendersOf(parsed.data.messageIds) : 0;
+        return { ok: true, ...result, blocked };
       } catch (e) {
         if (e instanceof SpamFolderError) return reply.code(409).send({ error: e.message });
         throw e;
       }
     });
   }
+
+  // Expéditeurs bloqués et de confiance (Réglages, Messagerie ; boutons du message).
+  app.get("/api/emails/sender-rules", async (request, reply) => {
+    await requireAuth(request, reply);
+    if (reply.sent) return;
+    return listSenderRules();
+  });
+
+  app.post("/api/emails/sender-rules", async (request, reply) => {
+    await requireAuth(request, reply);
+    if (reply.sent) return;
+    const parsed = z
+      .object({
+        kind: z.nativeEnum(MailSenderRuleKind),
+        action: z.nativeEnum(MailSenderRuleAction),
+        value: z.string().trim().min(1).max(254).optional(),
+        /** Depuis un message : l'expéditeur réel (Reply-To pour le formulaire du site) est retrouvé ici. */
+        messageId: z.string().min(1).optional(),
+      })
+      .refine((b) => Boolean(b.value) !== Boolean(b.messageId), { message: "value ou messageId" })
+      .safeParse(request.body ?? {});
+    if (!parsed.success) return reply.code(400).send({ error: "Données invalides" });
+    let value = parsed.data.value ?? "";
+    if (parsed.data.messageId) {
+      const m = await prisma.emailMessage.findUnique({
+        where: { id: parsed.data.messageId },
+        select: { fromAddress: true, replyToAddress: true, direction: true },
+      });
+      if (!m || m.direction !== EmailDirection.INBOUND) return reply.code(404).send({ error: "Message introuvable" });
+      value = senderAddressOf(m);
+    }
+    try {
+      return await saveSenderRule({ kind: parsed.data.kind, action: parsed.data.action, value });
+    } catch (e) {
+      if (e instanceof SenderRuleError) return reply.code(e.statusCode).send({ error: e.message });
+      throw e;
+    }
+  });
+
+  app.delete<{ Params: { id: string } }>("/api/emails/sender-rules/:id", async (request, reply) => {
+    await requireAuth(request, reply);
+    if (reply.sent) return;
+    if (!(await deleteSenderRule(request.params.id))) return reply.code(404).send({ error: "Règle introuvable" });
+    return { ok: true };
+  });
 
   app.post("/api/emails/trash/empty", async (request, reply) => {
     await requireAuth(request, reply);

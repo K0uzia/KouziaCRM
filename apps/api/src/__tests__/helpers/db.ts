@@ -12,6 +12,7 @@ const TABLES = [
   "MailFolder",
   "MailAccount",
   "MailSyncStatus",
+  "MailSenderRule",
   "EmailSyncState",
   "EmailOutbox",
   "Payment",

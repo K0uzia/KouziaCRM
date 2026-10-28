@@ -18,6 +18,7 @@ import { getMailSyncStatus, updateMailSyncStatus } from "@/lib/email/sync/sync-s
 import { fetchMessageBody } from "@/lib/email/sync/body-fetch.js";
 import { linkPendingFormMessages } from "@/lib/email/web3forms.js";
 import { prisma } from "@/lib/prisma.js";
+import { applySenderBlocks } from "@/lib/email/spam.js";
 
 export {
   buildMessageListWhere,
@@ -104,7 +105,11 @@ async function syncOnce(): Promise<MailSyncResult> {
   }
 
   try {
-    const result = await syncAllFolders();
+    const { blocked, ...result } = await syncAllFolders();
+    // Expéditeurs bloqués : rangés dans Indésirables sur le serveur. Jamais bloquant pour la synchro.
+    await applySenderBlocks(blocked).catch((err: unknown) =>
+      console.error("[mail] expéditeurs bloqués :", err instanceof Error ? err.message : String(err)),
+    );
     // Formulaire du site : rattachement au client existant (corps chargé si besoin). Jamais bloquant.
     await linkPendingFormMessages((id) => fetchMessageBody(id)).catch((err: unknown) =>
       console.error("[mail] rattachement formulaire :", err instanceof Error ? err.message : String(err)),

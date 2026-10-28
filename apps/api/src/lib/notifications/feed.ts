@@ -1,4 +1,5 @@
-import { EmailDirection, MailFolderRole, QuoteStatus } from "@prisma/client";
+import { EmailDirection, MailFolderRole, MailSenderRuleAction, QuoteStatus } from "@prisma/client";
+import { matchRule, senderAddressOf } from "@/lib/email/sender-rules.js";
 import { prisma } from "@/lib/prisma.js";
 import { REVIEW_FAMILIES, type ReviewFamily } from "@/lib/email/review.js";
 import { formatEUR } from "@/lib/money.js";
@@ -175,8 +176,14 @@ export async function listNotifications(since: Date): Promise<NotificationItem[]
     }),
   ]);
 
+  // Expéditeur bloqué (hors client) : aucune notification, même avant son passage dans Indésirables.
+  const senderRules = mails.length > 0 ? await prisma.mailSenderRule.findMany() : [];
+  const shownMails = mails.filter(
+    (m) => m.thread?.client || matchRule(senderRules, senderAddressOf(m))?.action !== MailSenderRuleAction.BLOCK,
+  );
+
   const items: NotificationItem[] = [
-    ...mails.map((m) => ({
+    ...shownMails.map((m) => ({
       id: `mail:${m.id}`,
       kind: "mail" as const,
       title: `Nouveau message${m.thread?.client ? ` de ${m.thread.client.displayName}` : ""}`,

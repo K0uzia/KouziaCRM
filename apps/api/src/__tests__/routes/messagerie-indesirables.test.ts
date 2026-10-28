@@ -143,6 +143,6 @@ describe("indésirables", () => {
       },
     });
     const security = (await body(message.id)).json().security;
-    expect(security).toEqual({ signals: [], remoteImagesAllowed: true, inJunk: false });
+    expect(security).toMatchObject({ signals: [], remoteImagesAllowed: true, inJunk: false });
   });
 });

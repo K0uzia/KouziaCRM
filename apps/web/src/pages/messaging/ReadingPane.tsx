@@ -18,6 +18,7 @@ import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import type { ClientPrefill } from "@/components/clients/ClientForm";
 import { MessageBody } from "@/pages/messaging/MessageBody";
 import { remoteImagesAllowed } from "@/pages/messaging/remote-content";
+import { SenderRuleActions, type MessageSender } from "@/pages/messaging/SenderRuleActions";
 import { AttachmentList } from "@/pages/messaging/AttachmentList";
 import { QuoteValidationBlock } from "@/pages/messaging/QuoteValidationBlock";
 import { FormSubmissionPanel, type FormSubmission } from "@/pages/messaging/FormSubmissionPanel";
@@ -43,7 +44,7 @@ type Props = {
   onRefresh: () => void;
   onRead?: (messageIds: string[]) => void;
   /** Indésirable (spam vrai) ou pas indésirable (spam faux) : messages reçus du fil, déplacés sur le serveur. */
-  onSpam?: (messageIds: string[], spam: boolean) => Promise<boolean>;
+  onSpam?: (messageIds: string[], spam: boolean, opts?: { ask?: boolean }) => Promise<boolean>;
   /** Corbeille affichée : la suppression est définitive, elle passe par une confirmation (audit du 27/10/2026). */
   permanentDelete?: boolean;
 };
@@ -59,6 +60,7 @@ type MessageBodyPayload = {
     signals: Array<{ code: string; text: string; strong: boolean }>;
     remoteImagesAllowed: boolean;
     inJunk: boolean;
+    sender?: MessageSender;
   } | null;
 };
 
@@ -298,15 +300,28 @@ export function ReadingPane({
   const threadInJunk = inbound.length > 0 && inbound.every((m) => m.folder?.role === "JUNK");
   // Indésirable ou douteux : pas d'invitation à créer une fiche client pour cet expéditeur.
   const suspicious = Object.values(bodies).some((b) => (b.security?.signals.length ?? 0) > 0);
-  const markSpam = async (spam: boolean) => {
+  const markSpam = async (spam: boolean, opts?: { ask?: boolean }) => {
     if (!onSpam) return;
     const ids = inbound.filter((m) => (m.folder?.role === "JUNK") !== spam).map((m) => m.id);
     if (ids.length === 0) return;
     setSpamBusy(true);
     try {
-      if (await onSpam(ids, spam)) onBack();
+      if (await onSpam(ids, spam, opts)) onBack();
     } finally {
       setSpamBusy(false);
+    }
+  };
+  /** Règle d'expéditeur changée : corps relu (images, règle affichée) ; bloqué : le fil part dans Indésirables. */
+  const afterRuleChange = async (messageId: string, blocked: boolean) => {
+    if (blocked && !threadInJunk) {
+      await markSpam(true, { ask: false });
+      return;
+    }
+    try {
+      const fresh = await api<MessageBodyPayload>(`/api/emails/messages/${messageId}/body`);
+      setBodies((b) => ({ ...b, [messageId]: fresh }));
+    } catch {
+      /* relu à la prochaine ouverture */
     }
   };
   // Message du formulaire : réponse à l'adresse du client (ou saisie dans le formulaire), jamais à Web3Forms.
@@ -530,6 +545,13 @@ export function ReadingPane({
                 </button>
                 {open && body ? (
                   <div className="border-t border-[var(--border)] px-4 pb-4 pt-3">
+                    {msg.direction !== "OUTBOUND" && body.security?.sender ? (
+                      <SenderRuleActions
+                        messageId={msg.id}
+                        sender={body.security.sender}
+                        onChanged={(blocked) => void afterRuleChange(msg.id, blocked)}
+                      />
+                    ) : null}
                     {msg.direction !== "OUTBOUND" && body.security && body.security.signals.length > 0 ? (
                       <Banner level="warning" className="mb-3">
                         <p className="font-semibold">Prudence avec ce message</p>

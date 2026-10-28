@@ -23,12 +23,20 @@ export type SuspicionInput = {
   formSender?: boolean;
 };
 
+/**
+ * Messageries gratuites et grand public (liste maintenue ici, seule source) : jamais bloquées ni approuvées
+ * en entier, et sans valeur pour repérer une imitation de domaine.
+ */
 const FREE_MAIL = new Set([
-  "gmail.com", "googlemail.com", "yahoo.com", "yahoo.fr", "ymail.com", "hotmail.com", "hotmail.fr",
-  "outlook.com", "outlook.fr", "live.com", "live.fr", "msn.com", "icloud.com", "me.com", "aol.com",
-  "orange.fr", "wanadoo.fr", "free.fr", "sfr.fr", "neuf.fr", "laposte.net", "bbox.fr", "gmx.fr",
-  "gmx.com", "gmx.net", "proton.me", "protonmail.com", "yandex.com", "mail.com", "zoho.com",
+  "gmail.com", "googlemail.com", "ymail.com", "rocketmail.com", "msn.com", "icloud.com", "me.com", "mac.com",
+  "aol.com", "aol.fr", "orange.fr", "wanadoo.fr", "free.fr", "sfr.fr", "neuf.fr", "cegetel.net", "laposte.net",
+  "bbox.fr", "numericable.fr", "aliceadsl.fr", "club-internet.fr", "noos.fr", "voila.fr", "pm.me", "mail.com",
+  "zoho.com", "tutanota.com", "tuta.io", "web.de", "t-online.de", "libero.it", "skynet.be", "bluewin.ch",
+  "videotron.ca", "mailo.com", "netcourrier.com",
 ]);
+
+/** Fournisseurs présents sous plusieurs extensions (yahoo.fr, hotmail.co.uk, gmx.de, proton.me...). */
+const FREE_MAIL_NAMES = new Set(["yahoo", "hotmail", "outlook", "live", "gmx", "proton", "protonmail", "yandex"]);
 
 /** Suffixes à deux niveaux courants : « exemple.co.uk » a pour domaine « exemple.co.uk », pas « co.uk ». */
 const TWO_LEVEL_SUFFIXES = new Set([
@@ -49,7 +57,8 @@ export function baseDomain(host: string): string {
 }
 
 export function isFreeMailDomain(domain: string): boolean {
-  return FREE_MAIL.has(domain.toLowerCase());
+  const base = baseDomain(domain);
+  return FREE_MAIL.has(base) || FREE_MAIL_NAMES.has(base.split(".")[0] ?? "");
 }
 
 type AuthResult = { spf: string | null; dkim: string[]; dmarc: string | null };

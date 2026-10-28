@@ -20,6 +20,7 @@ import { NotificationsTab } from "@/pages/settings/NotificationsTab";
 import { CharteTab, withPrintedBrandColors } from "@/pages/settings/CharteTab";
 import { EmailSignatureCard } from "@/pages/settings/EmailSignatureCard";
 import { EmailReviewCard } from "@/pages/settings/EmailReviewCard";
+import { MailSenderRulesCard } from "@/pages/settings/MailSenderRulesCard";
 import {
   SETTINGS_TABS,
   type PublicSettings,
@@ -1109,6 +1110,7 @@ export function SettingsPage() {
 
           {tab === "email" ? <EmailSignatureCard /> : null}
           {tab === "email" ? <EmailReviewCard /> : null}
+          {tab === "email" ? <MailSenderRulesCard /> : null}
           {tab === "email" ? (
             <Card className="flex flex-col gap-3 border border-[var(--border)] p-5 sm:flex-row sm:items-center sm:justify-between">
               <div className="min-w-0 space-y-1">

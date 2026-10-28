@@ -15,6 +15,7 @@ import { useInboxSync } from "@/pages/messaging/useInboxSync";
 import { useMailNotifications } from "@/pages/messaging/useMailNotifications";
 import { isFormSender } from "@/pages/messaging/sender";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
+import { Checkbox } from "@/components/ui/Field";
 import { formatAgoMinutes, formatDate, formatTime, MAIL_SYNC_STALE_MIN, minutesSince } from "@/lib/format";
 
 export type MailFolderItem = {
@@ -319,19 +320,25 @@ export function MailLayout() {
   }
 
   /** Indésirable (spam vrai) ou pas indésirable : déplacé sur le serveur, « Annuler » le remet dans son dossier. */
-  async function markSpam(ids: string[], spam: boolean): Promise<boolean> {
+  async function markSpam(ids: string[], spam: boolean, blockSender = false): Promise<boolean> {
     if (ids.length === 0) return false;
     try {
-      const res = await api<{ moved: number; kept: number; restore: Array<{ id: string; folderId: string }> }>(
-        spam ? "/api/emails/messages/report-spam" : "/api/emails/messages/not-spam",
-        { method: "POST", body: JSON.stringify({ messageIds: ids }) },
-      );
+      const res = await api<{
+        moved: number;
+        kept: number;
+        blocked?: number;
+        restore: Array<{ id: string; folderId: string }>;
+      }>(spam ? "/api/emails/messages/report-spam" : "/api/emails/messages/not-spam", {
+        method: "POST",
+        body: JSON.stringify({ messageIds: ids, ...(spam && blockSender ? { blockSender: true } : {}) }),
+      });
       setSelectedIds(new Set());
       await refresh();
       const n = res.moved;
-      const done = spam
+      const moved = spam
         ? n === 1 ? "Message déplacé dans les indésirables" : `${n} messages déplacés dans les indésirables`
         : n === 1 ? "Message remis dans la boîte de réception" : `${n} messages remis dans la boîte de réception`;
+      const done = res.blocked ? `${moved}, expéditeur bloqué` : moved;
       const undo =
         res.restore.length > 0
           ? {
@@ -362,6 +369,17 @@ export function MailLayout() {
       toast.error(e instanceof Error ? e.message : "Déplacement impossible");
       return false;
     }
+  }
+
+  // Signalement : case « Bloquer aussi cet expéditeur », décochée par défaut (décision d'Alexandre du 28/10/2026).
+  const [spamAsk, setSpamAsk] = useState<{ ids: string[]; resolve: (ok: boolean) => void } | null>(null);
+  const [blockToo, setBlockToo] = useState(false);
+  const [spamBusy, setSpamBusy] = useState(false);
+  function requestSpam(ids: string[], spam: boolean, opts: { ask?: boolean } = {}): Promise<boolean> {
+    if (ids.length === 0) return Promise.resolve(false);
+    if (!spam || opts.ask === false) return markSpam(ids, spam);
+    setBlockToo(false);
+    return new Promise((resolve) => setSpamAsk({ ids, resolve }));
   }
 
   function replyToMessage(msg: MailMessageItem) {
@@ -580,8 +598,8 @@ export function MailLayout() {
               isTrashFolder={isTrashFolder}
               onEmptyTrash={() => setEmptyTrashOpen(true)}
               isJunkFolder={isJunkFolder}
-              onBulkSpam={(spam) => void markSpam([...selectedIds], spam)}
-              onSpam={(msg, spam) => void markSpam([msg.id], spam)}
+              onBulkSpam={(spam) => void requestSpam([...selectedIds], spam)}
+              onSpam={(msg, spam) => void requestSpam([msg.id], spam)}
             />
           </div>
         ) : (
@@ -601,7 +619,7 @@ export function MailLayout() {
               }}
               onRefresh={() => void refresh()}
               permanentDelete={isTrashFolder}
-              onSpam={markSpam}
+              onSpam={requestSpam}
               onRead={(ids) => {
                 notifyMailChanged();
                 const idSet = new Set(ids);
@@ -635,6 +653,38 @@ export function MailLayout() {
           void refresh();
         }}
       />
+
+      <ConfirmDialog
+        open={spamAsk !== null}
+        title="Signaler comme indésirable ?"
+        message="Le message va dans Indésirables sur la boîte mail : votre fournisseur apprend ainsi à reconnaître ces envois."
+        confirmLabel="Signaler"
+        busy={spamBusy}
+        onClose={() => {
+          if (spamBusy) return;
+          spamAsk?.resolve(false);
+          setSpamAsk(null);
+        }}
+        onConfirm={() => {
+          if (!spamAsk) return;
+          setSpamBusy(true);
+          void markSpam(spamAsk.ids, true, blockToo)
+            .then(spamAsk.resolve)
+            .finally(() => {
+              setSpamBusy(false);
+              setSpamAsk(null);
+            });
+        }}
+      >
+        <Checkbox
+          className="mt-2"
+          label={spamAsk && spamAsk.ids.length > 1 ? "Bloquer aussi ces expéditeurs" : "Bloquer aussi cet expéditeur"}
+          hint="Ses prochains messages iront directement dans Indésirables, sans notification. Un client n'est jamais bloqué."
+          checked={blockToo}
+          disabled={spamBusy}
+          onChange={(e) => setBlockToo(e.target.checked)}
+        />
+      </ConfirmDialog>
 
       <ConfirmDialog
         open={emptyTrashOpen}

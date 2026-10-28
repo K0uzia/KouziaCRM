@@ -1,6 +1,7 @@
 import {
   EmailDirection,
   MailFolderRole,
+  MailSenderRuleAction,
   type MailFolder,
   type Prisma,
 } from "@prisma/client";
@@ -19,6 +20,7 @@ import { ensureMailAccount } from "@/lib/email/sync/sync-status.js";
 import { normalizeSubject, parseAddressList } from "@/lib/email/sync/threading.js";
 import { isWeb3FormsSender } from "@/lib/email/web3forms.js";
 import { extractAuthHeaders } from "@/lib/email/suspicion.js";
+import { matchRule, senderAddressOf } from "@/lib/email/sender-rules.js";
 import type { ImapFlow } from "imapflow";
 
 type EnvelopeLike = {
@@ -241,12 +243,21 @@ export async function discoverAndEnsureFolders(): Promise<MailFolder[]> {
   });
 }
 
-export async function syncFolder(folderId: string): Promise<{ imported: number; updated: number }> {
+/** Message reçu d'un expéditeur bloqué : importé lu, puis rangé dans Indésirables après le relevé. */
+export type BlockedImport = { messageId: string; ruleId: string };
+
+export async function syncFolder(
+  folderId: string,
+): Promise<{ imported: number; updated: number; blocked: BlockedImport[] }> {
   const folder = await prisma.mailFolder.findUniqueOrThrow({ where: { id: folderId } });
-  if (folder.isVirtual) return { imported: 0, updated: 0 };
+  if (folder.isVirtual) return { imported: 0, updated: 0, blocked: [] };
 
   let imported = 0;
   let updated = 0;
+  const blocked: BlockedImport[] = [];
+  // Règles d'expéditeur lues une fois par dossier ; seule la Réception est filtrée.
+  const rules = folder.role === MailFolderRole.INBOX ? await prisma.mailSenderRule.findMany() : [];
+  const hasBlockRules = rules.some((r) => r.action === MailSenderRuleAction.BLOCK);
 
   await withImapClient(async ({ client }) => {
     const mailbox = await client.mailboxOpen(folder.imapPath);
@@ -358,8 +369,6 @@ export async function syncFolder(folderId: string): Promise<{ imported: number; 
         const ownOutbound = isOwnOutboundMessage({ messageId: mid, outboundHeader: readOutboundHeader(msg.headers) });
         const direction =
           folder.role === MailFolderRole.SENT || ownOutbound ? EmailDirection.OUTBOUND : EmailDirection.INBOUND;
-        // Un envoi de l'ERP n'est jamais « non lu », même retrouvé dans la boîte de réception.
-        const readNow = isRead || ownOutbound;
         const inboundReplyTo = direction === EmailDirection.INBOUND ? replyToAddress : null;
         const participants = Array.from(
           new Set([fromAddress, ...(inboundReplyTo ? [inboundReplyTo] : []), ...toAddresses, ...ccAddresses]),
@@ -370,6 +379,14 @@ export async function syncFolder(folderId: string): Promise<{ imported: number; 
             ? await findClientIdByEmail(toAddresses[0] ?? fromAddress)
             : ((inboundReplyTo ? await findClientIdByEmail(inboundReplyTo) : null) ??
               (await findClientIdByEmail(fromAddress)));
+        // Expéditeur bloqué (jamais un client ni une règle de confiance) : lu d'office, sans notification.
+        const matched =
+          hasBlockRules && direction === EmailDirection.INBOUND && !clientId
+            ? matchRule(rules, senderAddressOf({ fromAddress, replyToAddress: inboundReplyTo }))
+            : null;
+        const blockRule = matched?.action === MailSenderRuleAction.BLOCK ? matched : null;
+        // Un envoi de l'ERP n'est jamais « non lu », même retrouvé dans la boîte de réception.
+        const readNow = isRead || ownOutbound || Boolean(blockRule);
 
         const threadId = await resolveThreadId({
           messageId: mid,
@@ -382,7 +399,7 @@ export async function syncFolder(folderId: string): Promise<{ imported: number; 
           mergeBySubject: !(direction === EmailDirection.INBOUND && isWeb3FormsSender(fromAddress)),
         });
 
-        await prisma.emailMessage.create({
+        const created = await prisma.emailMessage.create({
           data: {
             threadId,
             folderId: folder.id,
@@ -404,6 +421,8 @@ export async function syncFolder(folderId: string): Promise<{ imported: number; 
             bodyFetched: false,
             // Seuls les en-têtes Authentication-Results sont gardés (bannière « message douteux »).
             rawHeaders: extractAuthHeaders(msg.headers),
+            // Bloqué : « lu » à écrire sur le serveur (sinon le relevé suivant le remettrait non lu).
+            ...(blockRule && !isRead ? { flagsPending: true } : {}),
           },
         });
 
@@ -414,6 +433,7 @@ export async function syncFolder(folderId: string): Promise<{ imported: number; 
           });
         }
 
+        if (blockRule) blocked.push({ messageId: created.id, ruleId: blockRule.id });
         imported++;
         maxUid = Math.max(maxUid, uid);
         if (!readNow) folderUnread++;
@@ -445,7 +465,7 @@ export async function syncFolder(folderId: string): Promise<{ imported: number; 
     });
   });
 
-  return { imported, updated };
+  return { imported, updated, blocked };
 }
 
 /**
@@ -563,18 +583,21 @@ export async function syncAllFolders(): Promise<{
   imported: number;
   updated: number;
   folders: number;
+  blocked: BlockedImport[];
 }> {
   const folders = await discoverAndEnsureFolders();
   let imported = 0;
   let updated = 0;
+  const blocked: BlockedImport[] = [];
 
   for (const folder of folders.filter((f) => !f.isVirtual)) {
     const result = await syncFolder(folder.id);
     imported += result.imported;
     updated += result.updated;
+    blocked.push(...result.blocked);
   }
 
-  return { imported, updated, folders: folders.length };
+  return { imported, updated, folders: folders.length, blocked };
 }
 
 export async function pollFlagChanges(folderId: string): Promise<number> {

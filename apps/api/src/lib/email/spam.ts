@@ -1,4 +1,4 @@
-import { EmailDirection, MailFolderRole } from "@prisma/client";
+import { EmailDirection, MailFolderRole, MailSenderRuleAction, MailSenderRuleKind } from "@prisma/client";
 import { prisma } from "@/lib/prisma.js";
 import { decryptOptional } from "@/lib/crypto.js";
 import { findClientIdByEmail } from "@/lib/email/match-client.js";
@@ -13,6 +13,14 @@ import {
   type SuspicionSignal,
 } from "@/lib/email/suspicion.js";
 import { isWeb3FormsSender } from "@/lib/email/web3forms.js";
+import {
+  matchRule,
+  recordRuleHit,
+  ruleDomainFor,
+  saveSenderRule,
+  senderAddressOf,
+  SenderRuleError,
+} from "@/lib/email/sender-rules.js";
 
 /** Dossier Indésirables (ou Réception) absent : rien n'est déplacé. */
 export class SpamFolderError extends Error {}
@@ -50,7 +58,8 @@ async function moveAll(messageIds: string[], targetId: string, junk: boolean): P
     // Un envoi de l'ERP n'est jamais signalé : seul un message reçu peut être indésirable.
     if (junk && message.direction === EmailDirection.OUTBOUND) continue;
     try {
-      if (junk && !message.isRead) await setMessageFlags(message.id, { read: true });
+      // Lu aussi sur le serveur (un message bloqué est importé lu en base, pas encore sur le serveur).
+      if (junk) await setMessageFlags(message.id, { read: true });
       await setJunkKeywords(message, junk);
       await moveMessageToFolder(message.id, targetId);
       result.moved++;
@@ -71,6 +80,34 @@ export async function reportSpam(messageIds: string[]): Promise<SpamMoveResult> 
     );
   }
   return moveAll(messageIds, junk.id, true);
+}
+
+/** Messages d'expéditeurs bloqués, importés à l'instant : rangés dans Indésirables, compteur de la règle tenu. */
+export async function applySenderBlocks(blocked: Array<{ messageId: string; ruleId: string }>): Promise<number> {
+  if (blocked.length === 0) return 0;
+  for (const b of blocked) await recordRuleHit(b.ruleId);
+  const junk = await prisma.mailFolder.findFirst({ where: { role: MailFolderRole.JUNK, isVirtual: false } });
+  // Sans dossier Indésirables : le message reste en Réception, déjà lu et sans notification.
+  if (!junk) return 0;
+  return (await moveAll(blocked.map((b) => b.messageId), junk.id, true)).moved;
+}
+
+/** Signaler et bloquer : une règle par expéditeur (adresse exacte), jamais pour un client. */
+export async function blockSendersOf(messageIds: string[]): Promise<number> {
+  const messages = await prisma.emailMessage.findMany({
+    where: { id: { in: messageIds }, direction: EmailDirection.INBOUND },
+    select: { fromAddress: true, replyToAddress: true },
+  });
+  let created = 0;
+  for (const address of new Set(messages.map(senderAddressOf))) {
+    try {
+      await saveSenderRule({ kind: MailSenderRuleKind.ADDRESS, value: address, action: MailSenderRuleAction.BLOCK, source: "REPORT" });
+      created++;
+    } catch (err) {
+      if (!(err instanceof SenderRuleError)) throw err;
+    }
+  }
+  return created;
 }
 
 /** Pas un indésirable : le message revient dans la boîte de réception. */
@@ -132,6 +169,16 @@ export type MessageSecurity = {
   /** Images distantes chargées d'office : client, correspondant ou boîte elle-même, hors Indésirables. */
   remoteImagesAllowed: boolean;
   inJunk: boolean;
+  /** Expéditeur visé par les boutons Bloquer / Faire confiance (absent pour un envoi de l'ERP). */
+  sender?: {
+    address: string;
+    /** Domaine qu'une règle peut viser (null : messagerie grand public, domaine de l'entreprise). */
+    domain: string | null;
+    isClient: boolean;
+    /** Adresse technique du formulaire sans Reply-To : ni blocage ni confiance possibles. */
+    locked: boolean;
+    rule: { id: string; kind: string; value: string; action: string } | null;
+  };
 };
 
 /** Contrôles de sécurité d'un message, à l'ouverture : rien n'est enregistré. */
@@ -154,8 +201,8 @@ export async function messageSecurity(messageId: string, html: string | null): P
 
   // Formulaire du site : l'expéditeur réel est le prospect (Reply-To), Web3Forms n'est que le transport.
   const formSender = isWeb3FormsSender(m.fromAddress);
-  const address = (formSender ? m.replyToAddress : null) ?? m.fromAddress;
-  const [clientId, own, wroteTo, othersFrom] = await Promise.all([
+  const address = senderAddressOf(m);
+  const [clientId, own, wroteTo, othersFrom, rules, domain] = await Promise.all([
     findClientIdByEmail(address),
     prisma.mailAccount.count({ where: { email: address } }),
     prisma.emailMessage.count({
@@ -168,8 +215,12 @@ export async function messageSecurity(messageId: string, html: string | null): P
         OR: [{ fromAddress: address }, { replyToAddress: address }],
       },
     }),
+    prisma.mailSenderRule.findMany(),
+    ruleDomainFor(address),
   ]);
-  const knownSender = Boolean(clientId) || own > 0 || wroteTo > 0;
+  const rule = matchRule(rules, address);
+  const trusted = rule?.action === MailSenderRuleAction.TRUST;
+  const knownSender = Boolean(clientId) || own > 0 || wroteTo > 0 || trusted;
   const signals = suspicionBanner(
     analyzeSuspicion({
       fromAddress: m.fromAddress,
@@ -187,5 +238,12 @@ export async function messageSecurity(messageId: string, html: string | null): P
     signals,
     remoteImagesAllowed: (knownSender || formSender) && !inJunk && signals.length === 0,
     inJunk,
+    sender: {
+      address,
+      domain,
+      isClient: Boolean(clientId),
+      locked: isWeb3FormsSender(address),
+      rule: rule ? { id: rule.id, kind: rule.kind, value: rule.value, action: rule.action } : null,
+    },
   };
 }

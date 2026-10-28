@@ -108,6 +108,37 @@ model MailFolder {
   @@index([accountId, role])
 }
 
+enum MailSenderRuleKind {
+  /// Adresse exacte, en minuscules
+  ADDRESS
+  /// Domaine, en minuscules, sans @ (couvre ses sous-domaines)
+  DOMAIN
+}
+
+enum MailSenderRuleAction {
+  /// Futurs messages rangés dans Indésirables sur le serveur, marqués lus, sans notification
+  BLOCK
+  /// Jamais bloqué, images chargées, pas de signal « premier contact »
+  TRUST
+}
+
+/// Règle d'expéditeur de la messagerie (Réglages, Messagerie : expéditeurs bloqués et de confiance).
+/// Un client ou une règle TRUST l'emporte toujours sur un blocage.
+model MailSenderRule {
+  id        String               @id @default(cuid())
+  kind      MailSenderRuleKind
+  value     String
+  action    MailSenderRuleAction
+  /// MANUAL (réglages ou bouton du message) | REPORT (créée en signalant un indésirable)
+  source    String               @default("MANUAL")
+  hitCount  Int                  @default(0)
+  lastHitAt DateTime?
+  createdAt DateTime             @default(now())
+
+  @@unique([kind, value])
+  @@index([action])
+}
+
 /// État de connexion sync (bannière UI)
 model MailSyncStatus {
   id          String    @id @default("default")
