@@ -1,0 +1,114 @@
+[
+  {
+    "kind": "VAT",
+    "id": "cmtrimga40000p3v98b2361ut",
+    "active": true,
+    "deleted": false,
+    "body": "{{mention_tva}}"
+  },
+  {
+    "kind": "PAYMENT",
+    "id": "cmtrimga40001p3v9o04j35u0",
+    "active": true,
+    "deleted": false,
+    "body": "Paiement à réception de facture"
+  },
+  {
+    "kind": "PENALTY",
+    "id": "cmtrimga40002p3v9vgr1nt3l",
+    "active": true,
+    "deleted": false,
+    "body": "En cas de retard de paiement, une pénalité égale à 3 fois le taux d'intérêt légal sera due, ainsi qu'une indemnité forfaitaire de 40 € pour frais de recouvrement (art. L441-10 et D441-5 du code de commerce)."
+  },
+  {
+    "kind": "PENALTY",
+    "id": "legal_penalty_b2c_default",
+    "active": true,
+    "deleted": false,
+    "body": "En cas de retard de paiement, des intérêts au taux légal pourront être appliqués après mise en demeure (article 1231-6 du Code civil)."
+  },
+  {
+    "kind": "SUSPENSION",
+    "id": "cmtrimga40003p3v93mgblqhk",
+    "active": true,
+    "deleted": false,
+    "body": "En cas de non-paiement d'une échéance, les prestations peuvent être suspendues jusqu'à régularisation."
+  },
+  {
+    "kind": "CUSTOM",
+    "id": "cmtvwvtb90000p3do7mokp140",
+    "active": true,
+    "deleted": false,
+    "body": "En tant qu'entreprise individuelle / micro-entreprise, le Prestataire est tenu de pouvoir recevoir des factures électroniques via une plateforme agréée depuis le 1er septembre 2026. L'obligation d'émettre ses propres factures de vente au format électronique via une plateforme agréée s'applique à compter du 1er septembre 2027 (réforme de la facturation électronique, art. 289 bis et suivants du CGI). Jusqu'à cette date, les factures peuvent être émises et transmises dans les formats habituellement utilisés (notamment PDF), sans préjudice des mentions légales obligatoires."
+  },
+  {
+    "kind": "SUBSCRIPTION_MONTHLY",
+    "id": "cmv9unbag0000p304894rc3ss",
+    "active": true,
+    "deleted": false,
+    "body": "Sans durée minimale. Résiliable à tout moment, sans frais ni justification : la résiliation prend effet à la fin de la période mensuelle en cours, déjà facturée, sans remboursement au prorata. Résiliation en ligne depuis l'espace client (« Gérer mon abonnement » pour un prélèvement, « Résilier mon abonnement » pour un règlement par virement) ou par e-mail à {{email}}."
+  },
+  {
+    "kind": "SUBSCRIPTION_ANNUAL",
+    "id": "cmv9unc0p0001p304m8mdgper",
+    "active": true,
+    "deleted": false,
+    "body": "Durée d'un an à compter de sa date de départ, payable d'avance, reconduite tacitement pour un an au prix en vigueur. Le client peut refuser la reconduction, sans frais ni justification, jusqu'à la veille de la date de renouvellement ; {{nom_commercial}} l'en informe par e-mail au plus tôt trois mois et au plus tard un mois avant cette date limite (art. L215-1 du Code de la consommation). Non résiliable en cours d'année, sauf manquement de {{nom_commercial}} ou force majeure. Refus de reconduction ou résiliation en ligne depuis l'espace client, ou par e-mail à {{email}}."
+  },
+  {
+    "kind": "SUBSCRIPTION_BILLING_DATE",
+    "id": "cmvctsklg0000p321ao5jqmks",
+    "active": true,
+    "deleted": false,
+    "body": "Si la date de prélèvement de l'abonnement ne vous convient pas, refusez ce devis en indiquant la date souhaitée : je vous en envoie un nouveau."
+  },
+  {
+    "kind": "SUBSCRIPTION_COMMITMENT",
+    "id": "cmvfxb4on0000p3dmle075zt7",
+    "active": true,
+    "deleted": false,
+    "body": "Abonnement conclu pour la durée d'engagement indiquée ci-dessus, à compter de la signature du devis, payable d'avance à chaque échéance indiquée ci-dessus. Pendant l'engagement, le client peut demander la résiliation depuis son espace client ou par e-mail à contact@exemple.test ; les échéances restant à courir jusqu'à la fin de l'engagement restent dues. À l'issue de l'engagement, l'abonnement se poursuit d'année en année au prix en vigueur. Le client peut refuser chaque reconduction, sans frais ni justification, au plus tard un mois avant la date de reconduction ; Kouzia l'en informe par e-mail entre trois mois et un mois avant cette date limite. Une éventuelle remise ne vaut que pour les échéances indiquées sur le devis ; le rachat, les échéances restant dues en cas de départ anticipé et la reconduction se calculent au tarif plein. Dans tous les cas, le client conserve ses contenus et son nom de domaine."
+  },
+  {
+    "kind": "SUBSCRIPTION_QUARTERLY",
+    "id": "cmvkznsoz0000p3htovr7zzzc",
+    "active": true,
+    "deleted": false,
+    "body": "Sans durée minimale, payable d'avance chaque trimestre. Résiliable à tout moment, sans frais ni justification : la résiliation prend effet à la fin du trimestre en cours, déjà facturé, sans remboursement au prorata. Résiliation en ligne depuis l'espace client (« Gérer mon abonnement » pour un prélèvement, « Résilier mon abonnement » pour un règlement par virement) ou par e-mail à {{email}}."
+  },
+  {
+    "kind": "SUBSCRIPTION_COMMITMENT",
+    "id": "cmvpoarjl0000p36a2bn02tjb",
+    "active": false,
+    "deleted": true,
+    "body": "[BROUILLON À RELIRE PAR ALEXANDRE ET UN JURISTE OU LA CCI] Abonnement conclu pour la durée d'engagement indiquée ci-dessus, de 12 mois au minimum, à compter de la signature du devis. Le prix est celui de l'engagement ; il est payable d'avance {{periodicite}}, par échéances d'un {{periode}}. Ce fractionnement est une facilité de paiement : il ne permet pas de résilier en cours d'engagement, et les échéances restent dues jusqu'à la fin de l'engagement. [À FAIRE VALIDER : une indemnité jugée excessive peut être réduite par le juge (art. 1231-5 du Code civil) ; le droit de rétractation de 14 jours prévaut pour les particuliers et pour les petits professionnels signés hors établissement (art. L221-18 et L221-3 du Code de la consommation).] À la fin de l'engagement, l'abonnement est reconduit tacitement par périodes d'un an, au prix en vigueur et au même rythme de paiement. Le client peut en demander la non-reconduction, sans frais ni justification, au plus tard un mois avant la fin de l'engagement ou de l'année reconduite en cours, depuis l'espace client ou par e-mail à {{email}} : l'abonnement prend alors fin à cette date. {{nom_commercial}} lui rappelle cette date limite par e-mail avant qu'elle n'expire (art. L215-1 du Code de la consommation). Dans tous les cas, le client conserve ses contenus et son nom de domaine."
+  },
+  {
+    "kind": "WITHDRAWAL",
+    "id": "cmv9unc2e0002p304mi35wuju",
+    "active": true,
+    "deleted": false,
+    "body": "Vous disposez d'un délai de 14 jours à compter de la signature du devis pour vous rétracter, sans motif et sans frais (art. L221-18 du Code de la consommation). S'il expire un samedi, un dimanche ou un jour férié, il est prolongé jusqu'au premier jour ouvrable suivant. Pour l'exercer, informez {{nom_commercial}} de votre décision avant la fin du délai par une déclaration sans ambiguïté envoyée à {{email}}, par exemple au moyen du formulaire ci-dessous. Toutes les sommes versées vous sont remboursées au plus tard 14 jours après réception de votre rétractation, par le même moyen de paiement.\nSans demande de votre part, les travaux et la première période d'un abonnement commencent au plus tôt à l'expiration du délai. Si vous demandez, à la signature, que la prestation commence avant, vous paierez en cas de rétractation un montant proportionnel à ce qui aura été fourni (art. L221-25) ; si la prestation est entièrement exécutée avant la fin du délai, vous perdez votre droit de rétractation (art. L221-28).\nFormulaire de rétractation (à compléter et renvoyer uniquement si vous souhaitez vous rétracter du contrat) : à l'attention de {{raison_sociale}}, {{adresse}}, {{email}}. Je/Nous (*) vous notifie/notifions (*) par la présente ma/notre (*) rétractation du contrat portant sur la prestation de services ci-dessous. Devis n° : ........ Signé le : ........ Nom du (des) consommateur(s) : ........ Adresse du (des) consommateur(s) : ........ Signature du (des) consommateur(s) (uniquement en cas de notification du présent formulaire sur papier) : ........ Date : ........ (*) Rayez la mention inutile."
+  },
+  {
+    "kind": "BUYOUT_TRANSFER",
+    "id": "cmvnsj7mj0000p3wxarczjcho",
+    "active": true,
+    "deleted": false,
+    "body": "Cession du site en cas de rachat : à réception du paiement intégral du prix de rachat, Kouzia cède au client, à titre exclusif, pour le monde entier et pour toute la durée légale des droits, les droits de reproduction, de représentation, d'adaptation et de modification sur le site livré (code, mise en page et éléments graphiques créés pour le client), pour tout usage lié à son activité. Kouzia remet au client les fichiers du site, ses accès d'administration et, s'il ne la détient pas déjà, la gestion de son nom de domaine. Les logiciels, bibliothèques, polices et images de tiers restent soumis à leurs licences d'origine. À compter du transfert, l'hébergement, la maintenance et les mises à jour du site ne sont plus assurés par Kouzia, sauf nouveau contrat."
+  },
+  {
+    "kind": "ONE_OFF_SCOPE",
+    "id": "cmvsah2vl0000p3o5zgckjjl5",
+    "active": true,
+    "deleted": false,
+    "body": "- La maintenance, les mises à jour et les sauvegardes : disponibles en option, par abonnement annuel.\n- Sans l'option maintenance, l'hébergement et le renouvellement du nom de domaine : vous hébergez le site vous-même.\n- Les retouches et évolutions après la livraison : sur devis séparé.\n- À savoir : après paiement complet, le site et les éléments créés pour vous vous appartiennent (CGV, article « Propriété intellectuelle et livrables »)."
+  },
+  {
+    "kind": "ONE_OFF_SCOPE_SOFTWARE",
+    "id": "cmvsah2yk0001p3o5ayam6d47",
+    "active": true,
+    "deleted": false,
+    "body": "- La maintenance, les mises à jour et les sauvegardes : disponibles en option, par abonnement annuel.\n- Sans l'option maintenance, l'hébergement : vous installez et hébergez le logiciel vous-même.\n- Les retouches et évolutions après la livraison : sur devis séparé.\n- À savoir : après paiement complet, le logiciel et les éléments créés pour vous vous appartiennent, sauf licence prévue au devis (CGV, article « Propriété intellectuelle et livrables »)."
+  }
+]
