@@ -24,6 +24,10 @@ export type LineInput = {
   groupTitle?: string | null;
   /** Ligne « Remise pack » (montant négatif, partie ponctuelle). */
   isPackDiscount?: boolean | null;
+  /** Abonnement annuel en option, au choix du client à la signature (devis en paiement unique). */
+  isOptional?: boolean | null;
+  /** Choix du client sur la ligne en option : true retenue, false non retenue, null en attente. */
+  optionalAccepted?: boolean | null;
 };
 
 const STARTS = new Set(["SIGNATURE", "DELIVERY", "DATE", "FREE_MONTHS"]);
@@ -36,8 +40,17 @@ const DEFERRED_STARTS = new Set(["DATE", "FREE_MONTHS"]);
 export function billedWithDocument(line: { isSubscription?: boolean | null; subscriptionStart?: string | null }): boolean {
   return !line.isSubscription || !DEFERRED_STARTS.has(line.subscriptionStart ?? "");
 }
-/** Départ d'une ligne d'abonnement : seuls les champs utiles au départ choisi sont gardés. */
+/**
+ * Ligne engagée : tout sauf une option en attente ou non retenue. Seules les lignes engagées comptent dans les totaux
+ * enregistrés, la facturation et les abonnements (28/10/2026).
+ */
+export function isCommittedLine(line: { isOptional?: boolean | null; optionalAccepted?: boolean | null }): boolean {
+  return !line.isOptional || line.optionalAccepted === true;
+}
+
+/** Départ d'une ligne d'abonnement : seuls les champs utiles au départ choisi sont gardés. Option : à la livraison. */
 function lineStart(line: LineInput, isSubscription: boolean) {
+  if (isSubscription && line.isOptional) return { subscriptionStart: "DELIVERY", subscriptionStartDate: null, subscriptionFreeMonths: null };
   const start = isSubscription && STARTS.has(line.subscriptionStart ?? "") ? line.subscriptionStart! : null;
   const date = start === "DATE" && line.subscriptionStartDate ? new Date(line.subscriptionStartDate) : null;
   const months = start === "FREE_MONTHS" && line.subscriptionFreeMonths ? line.subscriptionFreeMonths : null;
@@ -95,11 +108,14 @@ export function computeLineTotals(lines: LineInput[], discount: DiscountInput = 
       groupTitle: line.groupTitle?.trim() || null,
       isPackDiscount: !isSubscription && Boolean(line.isPackDiscount),
       commitmentMonths: isSubscription && isCommitmentMonths(line.commitmentMonths) ? line.commitmentMonths : null,
+      isOptional: isSubscription && Boolean(line.isOptional),
+      optionalAccepted: isSubscription && line.isOptional ? (line.optionalAccepted ?? null) : null,
       ...lineStart(line, isSubscription),
     };
   });
 
-  const subtotalCents = computed.filter(billedWithDocument).reduce((sum, l) => sum + l.lineTotalCents, 0);
+  // Option en attente ou non retenue : affichée à part (« avec l'option »), jamais dans le total enregistré.
+  const subtotalCents = computed.filter((l) => billedWithDocument(l) && isCommittedLine(l)).reduce((sum, l) => sum + l.lineTotalCents, 0);
   // Remise sur la partie ponctuelle seulement : la 1re période d'un abonnement reste au prix prélevé ensuite.
   const discountCents = computeDiscountCents(oneOffSubtotalCents(computed), discount);
   const discountType =

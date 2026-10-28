@@ -88,6 +88,8 @@ const lineSchema = z.object({
   /** Pack : titre sous lequel la ligne est groupée, et ligne de remise du pack (montant négatif ou nul). */
   groupTitle: z.string().trim().max(200).optional().nullable(),
   isPackDiscount: z.boolean().optional().default(false),
+  /** Devis en paiement unique : abonnement annuel en option, au choix du client à la signature (28/10/2026). */
+  isOptional: z.boolean().optional().default(false),
 }).superRefine((l, ctx) => {
   if (l.isPackDiscount && (l.isSubscription || l.unitPriceEuros > 0)) {
     ctx.addIssue({ code: "custom", path: ["unitPriceEuros"], message: "La remise d'un pack est un montant négatif, hors abonnement" });
@@ -102,7 +104,8 @@ const lineSchema = z.object({
 
 /** Champs de départ d'une ligne saisie : date du champ à minuit, heure locale. */
 const lineStartFields = (l: z.output<typeof lineSchema>) => ({
-  subscriptionStart: l.subscriptionStart ?? null,
+  // Option au choix du client : l'abonnement démarre toujours à la livraison (28/10/2026).
+  subscriptionStart: l.isOptional && l.isSubscription ? "DELIVERY" : (l.subscriptionStart ?? null),
   subscriptionStartDate: l.subscriptionStartDate ? new Date(`${l.subscriptionStartDate}T00:00:00`) : null,
   subscriptionFreeMonths: l.subscriptionFreeMonths ?? null,
   commitmentMonths: l.isSubscription ? (l.commitmentMonths ?? null) : null,
@@ -120,8 +123,12 @@ const lineInputsOf = (lines: z.output<typeof lineSchema>[]) =>
     serviceId: l.serviceId,
     groupTitle: l.groupTitle ?? null,
     isPackDiscount: l.isPackDiscount,
+    isOptional: l.isOptional,
     ...lineStartFields(l),
   }));
+
+/** Une facture ne porte jamais d'option au choix : le choix se fait à la signature d'un devis. */
+const INVOICE_OPTION_ERROR = "Une facture ne porte pas d'option au choix du client : retirez l'option ou faites un devis.";
 
 /** Devis récurrent (R1) : remise sur les premières échéances ; months absent ou null = toute la durée de l'engagement. */
 const recurringDiscountSchema = z
@@ -179,6 +186,7 @@ const createSchema = z.object({
   if (d.options && d.documentType !== "QUOTE") ctx.addIssue({ code: "custom", path: ["options"], message: "Propositions : réservées au devis" });
   if (d.options && d.lines) ctx.addIssue({ code: "custom", path: ["lines"], message: "Devis à propositions : les lignes vont dans chaque proposition" });
   if (!d.options && !d.lines) ctx.addIssue({ code: "custom", path: ["lines"], message: "Lignes requises" });
+  if (d.documentType !== "QUOTE" && d.lines?.some((l) => l.isOptional)) ctx.addIssue({ code: "custom", path: ["lines"], message: INVOICE_OPTION_ERROR });
 });
 
 /** Aperçu d'un avoir : les champs de POST /api/invoices/:id/credit-note, avec la facture d'origine. */
@@ -898,6 +906,9 @@ export const invoicesRoutes: FastifyPluginAsync = async (app) => {
     if (withOptions && existing.documentType !== InvoiceDocumentType.QUOTE) {
       return reply.code(400).send({ error: "Propositions : réservées au devis" });
     }
+    if (existing.documentType !== InvoiceDocumentType.QUOTE && parsed.data.lines?.some((l) => l.isOptional)) {
+      return reply.code(400).send({ error: INVOICE_OPTION_ERROR });
+    }
     // Devis à propositions : la facturation se règle dans chaque proposition, pas sur le devis.
     const billingFieldsSent =
       parsed.data.billingMode !== undefined ||
@@ -1043,6 +1054,9 @@ export const invoicesRoutes: FastifyPluginAsync = async (app) => {
                 existingLines.find((e) => e.position === idx + 1)?.revisesSubscriptionId ?? null,
               groupTitle: l.groupTitle ?? null,
               isPackDiscount: l.isPackDiscount,
+              // Brouillon : le choix du client n'existe qu'après la signature, jamais recopié.
+              isOptional: l.isOptional,
+              optionalAccepted: null,
               ...lineStartFields(l),
             }));
           })()
@@ -1068,6 +1082,8 @@ export const invoicesRoutes: FastifyPluginAsync = async (app) => {
             subscriptionStartDate: l.subscriptionStartDate,
             subscriptionFreeMonths: l.subscriptionFreeMonths,
             commitmentMonths: l.commitmentMonths,
+            isOptional: l.isOptional,
+            optionalAccepted: null,
           }));
 
       if (parsed.data.lines) {

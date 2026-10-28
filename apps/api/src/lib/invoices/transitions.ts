@@ -16,7 +16,8 @@ import { getCompanySettings } from "@/lib/company.js";
 import { allocateInvoiceNumber, allocateQuoteNumber } from "@/lib/invoices/numberingService.js";
 import { ensureQuoteMilestones } from "@/lib/quotes/milestones.js";
 import { startAfterWithdrawal, withdrawalEndsAt } from "@/lib/quotes/withdrawal.js";
-import { billedWithDocument, computeDepositBaseCents, depositBaseOf } from "@/lib/invoices/totals.js";
+import { billedWithDocument, computeDepositBaseCents, depositBaseOf, isCommittedLine } from "@/lib/invoices/totals.js";
+import { buildQuoteScope } from "@/lib/quotes/scope.js";
 import {
   applyPlanMilestones,
   effectiveOffer,
@@ -164,6 +165,14 @@ export async function issueQuote(
     if (quote.lines.length === 0) {
       throw new Error("Impossible d'émettre un devis sans lignes");
     }
+    // Émis = signable en ligne : un particulier exige un médiateur de la consommation déclaré (L612-1).
+    const client = await tx.client.findUniqueOrThrow({ where: { id: quote.clientId }, select: { type: true } });
+    assertMediatorFor(client.type, settings);
+    const legalClausesSnapshot = snapshotOfClauses(activeClauses, client.type, settings.vatMention);
+    // Compris et non compris de chaque formule (28/10/2026), figés comme les clauses.
+    const scopeOf = (mode: ReturnType<typeof parseBillingMode>, lines: ReadonlyArray<{ serviceId: string | null }>) =>
+      buildQuoteScope(mode, lines, { clauses: legalClausesSnapshot, clientType: client.type, company: settings }, tx);
+
     // Devis à propositions : chacune vérifiée comme un devis (mode, remise, code promo) et figée ; le devis reste neutre.
     const frozenOptions = [];
     for (const o of quote.options) {
@@ -171,31 +180,32 @@ export async function issueQuote(
       if (lines.length === 0) throw new Error(`Proposition ${proposalLetter(o)} : aucune ligne.`);
       const optionMode = parseBillingMode(o.billingMode);
       assertBillingModeLines(optionMode, lines);
-      resolveRecurringDiscount(optionMode, lines, { recurringDiscount: storedRecurringDiscount(o), openingDiscount: o.openingDiscount });
+      // Option au choix du client (28/10/2026) : hors de l'offre de paiement et de la base de l'acompte.
+      const committed = lines.filter(isCommittedLine);
+      resolveRecurringDiscount(optionMode, committed, { recurringDiscount: storedRecurringDiscount(o), openingDiscount: o.openingDiscount });
       if (o.promoCodeId) {
         const code = await tx.promoCode.findUniqueOrThrow({ where: { id: o.promoCodeId } });
-        await assertPromoCodeApplicable(code, { id: quote.id, clientId: quote.clientId, serviceIds: lines.filter((l) => l.isSubscription).map((l) => l.serviceId) }, issueDate, tx);
+        await assertPromoCodeApplicable(code, { id: quote.id, clientId: quote.clientId, serviceIds: committed.filter((l) => l.isSubscription).map((l) => l.serviceId) }, issueDate, tx);
       }
-      const base = computeDepositBaseCents(lines, o.subtotalCents, o.totalCents);
-      const noOneOff = lines.some((l) => l.isSubscription) && base <= 0;
+      const base = computeDepositBaseCents(committed, o.subtotalCents, o.totalCents);
+      const noOneOff = committed.some((l) => l.isSubscription) && base <= 0;
       const optionOffer =
-        optionMode === "RECURRING" || isSubscriptionOnly(lines) || noOneOff ? "NONE" : effectiveOffer(parsePaymentPlanOffer(o.paymentPlanOffer), base, settings);
-      frozenOptions.push({ id: o.id, depositBaseCents: base, paymentPlanOffer: optionOffer });
+        optionMode === "RECURRING" || isSubscriptionOnly(committed) || noOneOff ? "NONE" : effectiveOffer(parsePaymentPlanOffer(o.paymentPlanOffer), base, settings);
+      frozenOptions.push({ id: o.id, depositBaseCents: base, paymentPlanOffer: optionOffer, scope: await scopeOf(optionMode, lines) });
     }
     const withOptions = frozenOptions.length > 0;
+    // Lignes engagées : sans l'option au choix du client, qui ne compte ni dans l'offre de paiement ni dans l'acompte.
+    const committedLines = quote.lines.filter(isCommittedLine);
     // Brouillon antérieur à une règle du mode (engagement obligatoire en récurrent) : bloqué avant numérotation.
     if (!withOptions) assertBillingModeLines(parseBillingMode(quote.billingMode), quote.lines);
     // Remise du devis récurrent (R1) revérifiée sur les lignes émises (ex. remise d'ouverture sans engagement de 36 mois).
-    if (!withOptions) resolveRecurringDiscount(parseBillingMode(quote.billingMode), quote.lines, { recurringDiscount: storedRecurringDiscount(quote), openingDiscount: quote.openingDiscount });
+    if (!withOptions) resolveRecurringDiscount(parseBillingMode(quote.billingMode), committedLines, { recurringDiscount: storedRecurringDiscount(quote), openingDiscount: quote.openingDiscount });
     // Code promo (R3) revérifié à l'émission : actif, valable ce jour, offres, usages restants, un usage par client.
     if (quote.promoCodeId) {
       const code = await tx.promoCode.findUniqueOrThrow({ where: { id: quote.promoCodeId } });
-      await assertPromoCodeApplicable(code, { id: quote.id, clientId: quote.clientId, serviceIds: quote.lines.filter((l) => l.isSubscription).map((l) => l.serviceId) }, issueDate, tx);
+      await assertPromoCodeApplicable(code, { id: quote.id, clientId: quote.clientId, serviceIds: committedLines.filter((l) => l.isSubscription).map((l) => l.serviceId) }, issueDate, tx);
     }
-    // Émis = signable en ligne : un particulier exige un médiateur de la consommation déclaré (L612-1).
-    const client = await tx.client.findUniqueOrThrow({ where: { id: quote.clientId }, select: { type: true } });
-    assertMediatorFor(client.type, settings);
-    const legalClausesSnapshot = snapshotOfClauses(activeClauses, client.type, settings.vatMention);
+    const scopeSnapshot = withOptions ? null : await scopeOf(parseBillingMode(quote.billingMode), quote.lines);
 
     const allocated = await allocateQuoteNumber(issueDate, tx);
     const snapshot = await buildClientSnapshot(quote.clientId, tx);
@@ -206,15 +216,15 @@ export async function issueQuote(
     // pas d'échéancier, chaque période est facturée par l'abonnement.
     // Base de l'acompte, du 2 ou 3 fois et du seuil : la partie ponctuelle (l'abonnement est
     // facturé à chaque période, il n'entre pas dans l'échéancier).
-    const depositBaseCents = computeDepositBaseCents(quote.lines, quote.subtotalCents, quote.totalCents);
+    const depositBaseCents = computeDepositBaseCents(committedLines, quote.subtotalCents, quote.totalCents);
     // Partie ponctuelle nulle (pack tout en abonnement, remise totale) : comme un abonnement seul, pas d'échéancier à 0 €.
-    const noOneOffPart = quote.lines.some((l) => l.isSubscription) && depositBaseCents <= 0;
+    const noOneOffPart = committedLines.some((l) => l.isSubscription) && depositBaseCents <= 0;
     // Mode récurrent : abonnement seul (aucune ligne ponctuelle), pas d'échéancier.
     const mode = parseBillingMode(quote.billingMode);
     const offer =
       mode === "RECURRING"
         ? "NONE"
-        : isSubscriptionOnly(quote.lines) || noOneOffPart
+        : isSubscriptionOnly(committedLines) || noOneOffPart
           ? "NONE"
           : effectiveOffer(parsePaymentPlanOffer(quote.paymentPlanOffer), depositBaseCents, settings);
 
@@ -232,6 +242,7 @@ export async function issueQuote(
         issuedAt: new Date(),
         ...clientSnapshotData(snapshot),
         legalClausesSnapshot: legalClausesSnapshot as unknown as Prisma.InputJsonValue,
+        ...(scopeSnapshot ? { scopeSnapshot: scopeSnapshot as unknown as Prisma.InputJsonValue } : {}),
         // Échéancier figé à l'émission : la signature, le PDF et les dates d'échéance le relisent.
         paymentScheduleSnapshot: scheduleSnapshotOf(settings),
         nextReminderAt: addDays(issueDate, settings.reminderQuoteDays),
@@ -251,7 +262,12 @@ export async function issueQuote(
       for (const f of frozenOptions) {
         await tx.quoteOption.update({
           where: { id: f.id },
-          data: { depositBaseCents: f.depositBaseCents, paymentPlanOffer: f.paymentPlanOffer, paymentScheduleSnapshot: scheduleSnapshotOf(settings) },
+          data: {
+            depositBaseCents: f.depositBaseCents,
+            paymentPlanOffer: f.paymentPlanOffer,
+            paymentScheduleSnapshot: scheduleSnapshotOf(settings),
+            ...(f.scope ? { scopeSnapshot: f.scope as unknown as Prisma.InputJsonValue } : {}),
+          },
         });
       }
       await tx.paymentMilestone.deleteMany({ where: { quoteId, invoiceId: null } });

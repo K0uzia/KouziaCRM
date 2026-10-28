@@ -56,9 +56,19 @@ describe("mode de facturation : règles de calcul", () => {
     expect(periodAmountCents(290000, "MONTH")).toBe(24167);
   });
 
-  it("lignes : pas d'abonnement en paiement unique ; en récurrent, mêmes période, engagement, départ et jour", () => {
+  it("lignes : abonnement seulement en option en paiement unique ; en récurrent, mêmes période, engagement, départ et jour", () => {
     const sub = { isSubscription: true, billingInterval: "QUARTER", commitmentMonths: 36, subscriptionStart: "SIGNATURE", billingDay: 1 };
+    // Décision du 28/10/2026 : en paiement unique, un abonnement n'entre que comme option au choix du client.
     expect(() => assertBillingModeLines("ONE_OFF", [{ isSubscription: false }, sub])).toThrow(/Paiement unique/);
+    const option = { isSubscription: true, isOptional: true, billingInterval: "YEAR", commitmentMonths: 12, subscriptionStart: "DELIVERY", billingDay: 1 };
+    expect(() => assertBillingModeLines("ONE_OFF", [{ isSubscription: false }, option])).not.toThrow();
+    expect(() => assertBillingModeLines("ONE_OFF", [option])).toThrow(/au moins une ligne ponctuelle/);
+    expect(() => assertBillingModeLines("ONE_OFF", [{ isSubscription: false }, { ...option, billingInterval: "MONTH" }])).toThrow(/annuel/);
+    expect(() => assertBillingModeLines("ONE_OFF", [{ isSubscription: false }, { ...option, commitmentMonths: null }])).toThrow(/12, 24 ou 36 mois/);
+    expect(() => assertBillingModeLines("ONE_OFF", [{ isSubscription: false }, { ...option, subscriptionStart: "SIGNATURE" }])).toThrow(/livraison/);
+    expect(() => assertBillingModeLines("ONE_OFF", [{ isSubscription: false, isOptional: true }])).toThrow(/abonnement annuel/);
+    expect(() => assertBillingModeLines("RECURRING", [{ ...sub, isOptional: true }])).toThrow(/option/);
+    expect(() => assertBillingModeLines(null, [{ isSubscription: false }, option])).toThrow(/option/);
     expect(() => assertBillingModeLines("RECURRING", [{ isSubscription: false }])).toThrow(/au moins une ligne d'abonnement/);
     expect(() => assertBillingModeLines("RECURRING", [sub, { ...sub, billingInterval: "YEAR" }])).toThrow(/les mêmes/);
     expect(() => assertBillingModeLines("RECURRING", [sub, { ...sub }])).not.toThrow();

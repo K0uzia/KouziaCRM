@@ -204,3 +204,35 @@ describe("remise globale : partie ponctuelle seulement", () => {
     expect(computeLineTotals([lignes[1]!], { discountType: "PERCENT", discountValue: 1000 })).toMatchObject({ discountCents: 0, discountType: "NONE", totalCents: 2900 });
   });
 });
+
+describe("ligne en option (paiement unique, 28/10/2026)", () => {
+  const site: LineInput = { description: "Site vitrine", quantity: 1, unitPriceCents: 120000 };
+  const maintenance: LineInput = {
+    description: "Maintenance",
+    quantity: 1,
+    unitPriceCents: 30000,
+    isSubscription: true,
+    isOptional: true,
+    billingDay: 1,
+    billingInterval: "YEAR",
+    serviceId: "svc",
+    commitmentMonths: 24,
+    subscriptionStart: "SIGNATURE",
+  };
+
+  it("en attente ou non retenue : hors du total ; départ forcé à la livraison", () => {
+    const r = computeLineTotals([site, maintenance], { discountType: "PERCENT", discountValue: 1000 });
+    expect(r).toMatchObject({ subtotalCents: 120000, discountCents: 12000, totalCents: 108000 });
+    expect(r.lines[1]).toMatchObject({ isOptional: true, optionalAccepted: null, subscriptionStart: "DELIVERY", commitmentMonths: 24 });
+    expect(computeLineTotals([site, { ...maintenance, optionalAccepted: false }]).totalCents).toBe(120000);
+  });
+
+  it("retenue : 1re année dans le total, remise toujours sur la seule partie ponctuelle", () => {
+    const r = computeLineTotals([site, { ...maintenance, optionalAccepted: true }], { discountType: "PERCENT", discountValue: 1000 });
+    expect(r).toMatchObject({ subtotalCents: 150000, discountCents: 12000, totalCents: 138000 });
+  });
+
+  it("hors abonnement : jamais en option", () => {
+    expect(computeLineTotals([{ ...site, isOptional: true }]).lines[0]).toMatchObject({ isOptional: false, optionalAccepted: null });
+  });
+});

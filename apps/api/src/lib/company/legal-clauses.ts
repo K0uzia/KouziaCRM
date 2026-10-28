@@ -178,6 +178,32 @@ export const DEFAULT_LEGAL_CLAUSES: Array<{
     position: 8,
     active: false,
   },
+  // Devis en paiement unique (décisions du 28/10/2026) : liste « Non compris » imprimée sous la formule, ce qui la
+  // distingue de l'abonnement annuel. Une ligne « - » par point ; figée à l'émission du devis (scopeSnapshot).
+  {
+    kind: LegalClauseKind.ONE_OFF_SCOPE,
+    title: "Paiement unique : ce qui n'est pas compris",
+    body: [
+      "- La maintenance, les mises à jour et les sauvegardes : disponibles en option, par abonnement annuel.",
+      "- Sans l'option maintenance, l'hébergement et le renouvellement du nom de domaine : vous hébergez le site vous-même.",
+      "- Les retouches et évolutions après la livraison : sur devis séparé.",
+      "- À savoir : après paiement complet, le site et les éléments créés pour vous vous appartiennent (CGV, article « Propriété intellectuelle et livrables »).",
+    ].join("\n"),
+    required: false,
+    position: 9,
+  },
+  {
+    kind: LegalClauseKind.ONE_OFF_SCOPE_SOFTWARE,
+    title: "Paiement unique : ce qui n'est pas compris (logiciel)",
+    body: [
+      "- La maintenance, les mises à jour et les sauvegardes : disponibles en option, par abonnement annuel.",
+      "- Sans l'option maintenance, l'hébergement : vous installez et hébergez le logiciel vous-même.",
+      "- Les retouches et évolutions après la livraison : sur devis séparé.",
+      "- À savoir : après paiement complet, le logiciel et les éléments créés pour vous vous appartiennent, sauf licence prévue au devis (CGV, article « Propriété intellectuelle et livrables »).",
+    ].join("\n"),
+    required: false,
+    position: 9,
+  },
 ];
 
 /** Clauses imprimées dans leur propre bloc du devis, jamais dans la liste des mentions. */
@@ -188,6 +214,8 @@ export const DEDICATED_CLAUSE_KINDS: ReadonlySet<LegalClauseKind> = new Set([
   LegalClauseKind.WITHDRAWAL,
   LegalClauseKind.SUBSCRIPTION_BILLING_DATE,
   LegalClauseKind.SUBSCRIPTION_COMMITMENT,
+  LegalClauseKind.ONE_OFF_SCOPE,
+  LegalClauseKind.ONE_OFF_SCOPE_SOFTWARE,
 ]);
 
 /** E-mail de contact absent des réglages : manque visible sur le document, jamais un blanc. */
