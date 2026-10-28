@@ -166,7 +166,8 @@ describe("aperçu d'un avoir", () => {
     reason: "COMMERCIAL_GESTURE",
     reasonDetail: "Retard de livraison",
     refundMethod: "BANK_TRANSFER",
-    issueDate: new Date().toISOString().slice(0, 10),
+    // Jour de Paris, comme l'API : en UTC, entre minuit et 1 h le test prenait la veille.
+    issueDate: new Intl.DateTimeFormat("fr-CA", { timeZone: "Europe/Paris" }).format(new Date()),
   });
 
   it("montre l'avoir tel qu'émis (facture d'origine, montants négatifs) sans écriture ni numéro consommé", async () => {
