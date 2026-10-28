@@ -157,6 +157,10 @@ type Doc = {
     commitmentMonths?: number | null;
     /** Devis à propositions : proposition de la ligne. */
     optionId?: string | null;
+    id?: string;
+    /** Paiement unique : abonnement annuel en option, au choix du client ; son choix à la signature. */
+    isOptional?: boolean;
+    optionalAccepted?: boolean | null;
   }>;
   milestones?: Milestone[];
   /** Devis à 2 propositions (P1) : chacune complète ; vide pour un devis simple. */
@@ -228,10 +232,18 @@ function billingSliceOf(src: BillingSource, lines: NonNullable<Doc["lines"]>): P
       groupTitle: l.groupTitle ?? "",
       isPackDiscount: Boolean(l.isPackDiscount),
       commitmentMonths: l.commitmentMonths ? String(l.commitmentMonths) : "",
+      isOptional: Boolean(l.isOptional),
       ...startFromLine(l),
     })),
   };
 }
+
+/** Ligne engagée : tout sauf une option en attente ou non retenue (même règle que l'API). */
+const isCommittedLine = (l: { isOptional?: boolean; optionalAccepted?: boolean | null }) => !l.isOptional || l.optionalAccepted === true;
+
+/** État d'une ligne en option, tel que l'affichent la fiche et le PDF. */
+const optionState = (l: { optionalAccepted?: boolean | null }) =>
+  l.optionalAccepted === true ? "Option retenue" : l.optionalAccepted === false ? "Option non retenue" : "Option (au choix du client)";
 
 // serviceNeeds et needsDetails : rappel des besoins du client dans le formulaire de devis.
 type ClientOpt = { id: string; displayName: string; clientNumber?: string | null; serviceNeeds?: ServiceNeed[]; needsDetails?: string };
@@ -722,11 +734,15 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
   const [signerName, setSignerName] = useState("");
   const [signPlan, setSignPlan] = useState<"TWO" | "THREE">("TWO");
   const [signOptionId, setSignOptionId] = useState("");
+  // Option au choix (28/10/2026) : retenue ou non, pour chaque ligne en option de la formule signée ; pas de défaut.
+  const [signOptional, setSignOptional] = useState<Record<string, boolean>>({});
   const [signBusy, setSignBusy] = useState(false);
 
   // Devis à propositions : la formule proposée est celle de la proposition retenue.
   const signProposals = doc?.documentType === "QUOTE" && doc.options?.length ? doc.options : null;
   const signOffer = signProposals ? signProposals.find((o) => o.id === signOptionId)?.paymentPlanOffer : doc?.paymentPlanOffer;
+  const signOptionalLines = (doc?.lines ?? []).filter((l) => l.isOptional && l.id && (signProposals ? l.optionId === signOptionId : !l.optionId));
+  const signOptionalMissing = signOptionalLines.some((l) => signOptional[l.id!] === undefined);
   async function signOffline() {
     setSignBusy(true);
     try {
@@ -736,11 +752,13 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
           signerName: signerName.trim(),
           ...(signProposals ? { optionId: signOptionId } : {}),
           ...(signOffer === "CHOICE" ? { paymentPlan: signPlan } : {}),
+          ...(signOptionalLines.length ? { optionalLines: signOptionalLines.map((l) => ({ id: l.id, accepted: signOptional[l.id!] })) } : {}),
         }),
       });
       toast.success("Signature enregistrée : vous pouvez facturer l'acompte");
       setSignOpen(false);
       setSignerName("");
+      setSignOptional({});
       await load();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Enregistrement impossible");
@@ -882,7 +900,9 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
   // ni acompte ni facture depuis le devis, l'abonnement facture chaque période.
   // Devis à 2 propositions : lignes, totaux et paiement propres à chacune ; rien n'est déduit de toutes les lignes.
   const proposals = isQuote && doc.options?.length ? [...doc.options].sort((a, b) => a.position - b.position) : null;
-  const docLines = proposals ? [] : (doc.lines ?? []);
+  // Lignes engagées : une option en attente ou non retenue n'est ni facturée ni démarrée.
+  const docLines = proposals ? [] : (doc.lines ?? []).filter(isCommittedLine);
+  const docOptionalLines = proposals ? [] : (doc.lines ?? []).filter((l) => l.isOptional);
   const subscriptionQuote =
     isQuote &&
     (doc.paymentPlanOffer === "NONE" ||
@@ -1385,8 +1405,18 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
                             {l.isSubscription ? (
                               <Badge tone="amber">{l.billingInterval === "YEAR" ? "Annuel" : "Mensuel"}</Badge>
                             ) : null}
+                            {l.isOptional ? <Badge>{optionState(l)}</Badge> : null}
                           </div>
-                          {l.isSubscription ? (
+                          {l.isOptional ? (
+                            <p className="mt-1 max-w-xl text-xs text-[var(--muted)]">
+                              {`Engagement ${l.commitmentMonths ?? 12} mois à partir de la livraison. `}
+                              {l.optionalAccepted === true
+                                ? "L'abonnement démarre à la livraison."
+                                : l.optionalAccepted === false
+                                  ? "Jamais facturée ni démarrée."
+                                  : "Le client la retient ou non à la signature ; hors du total."}
+                            </p>
+                          ) : l.isSubscription ? (
                             <p className="mt-1 max-w-xl text-xs text-[var(--muted)]">
                               {subscriptionQuote || mixedQuote
                                 ? `${quoteStartPhrase(l, mixedQuote)}, prélevé le ${l.billingDay ?? 1} ${l.billingInterval === "YEAR" ? "du mois anniversaire" : "de chaque mois"}, sans acompte.`
@@ -1402,7 +1432,7 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
                         {formatEUR(l.unitPriceCents)}
                       </td>
                       <td className="w-32 px-5 py-3 text-right font-medium tabular-nums sm:px-6" data-label="Total">
-                        {billedWithDocument(l) ? formatEUR(l.lineTotalCents) : <span className="font-normal text-[var(--muted)]">Hors total</span>}
+                        {billedWithDocument(l) && isCommittedLine(l) ? formatEUR(l.lineTotalCents) : <span className="font-normal text-[var(--muted)]">Hors total</span>}
                       </td>
                     </tr>
                     </Fragment>
@@ -1415,17 +1445,35 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
 
             <div className="flex flex-col gap-4 border-t border-[var(--border)] p-5 sm:flex-row sm:justify-between sm:p-6">
               <div className="min-w-0 space-y-3 text-sm sm:max-w-md">
-              {!proposals && (doc.lines ?? []).some((l) => l.isSubscription) ? (
+              {docOptionalLines.length && !docOptionalLines.every((l) => l.optionalAccepted === true) ? (
+                <div className="rounded-[var(--radius)] border border-[var(--border)] bg-[var(--bg)] p-3 text-sm">
+                  <p className="font-medium">{docOptionalLines.length > 1 ? "Options" : "Option"}</p>
+                  <ul className="mt-2 list-disc space-y-1.5 pl-5 text-[var(--muted)]">
+                    {docOptionalLines.map((l, i) => (
+                      <li key={i}>
+                        <span className="text-[var(--text)]">{l.description}</span>
+                        {` : ${optionState(l).toLowerCase()}, ${formatEUR(l.unitPriceCents)} par an, engagement ${l.commitmentMonths ?? 12} mois à partir de la livraison.`}
+                      </li>
+                    ))}
+                  </ul>
+                  {docOptionalLines.some((l) => l.optionalAccepted == null) ? (
+                    <p className="mt-2 text-[var(--muted)]">
+                      Avec l&apos;option : {formatEUR(doc.totalCents)} + {formatEUR(docOptionalLines.reduce((s, l) => s + l.unitPriceCents, 0))} par an.
+                    </p>
+                  ) : null}
+                </div>
+              ) : null}
+              {docLines.some((l) => l.isSubscription) ? (
                 <div className="rounded-[var(--radius)] border border-[var(--border)] bg-[var(--bg)] p-3 text-sm">
                   <p className="font-medium">
-                    {(doc.lines ?? []).every((l) => !l.isSubscription || l.billingInterval === "YEAR")
+                    {docLines.every((l) => !l.isSubscription || l.billingInterval === "YEAR")
                       ? "Récurrence annuelle"
-                      : (doc.lines ?? []).some((l) => l.isSubscription && l.billingInterval === "YEAR")
+                      : docLines.some((l) => l.isSubscription && l.billingInterval === "YEAR")
                         ? "Récurrence"
                         : "Récurrence mensuelle"}
                   </p>
                   <ul className="mt-2 list-disc space-y-1.5 pl-5 text-[var(--muted)]">
-                    {(doc.lines ?? [])
+                    {docLines
                       .filter((l) => l.isSubscription)
                       .map((l, i) => (
                         <li key={i}>
@@ -1833,6 +1881,30 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
               ))}
             </fieldset>
           ) : null}
+          {signOptionalLines.map((l) => (
+            <fieldset key={l.id} className="space-y-1">
+              <legend className="text-sm font-medium">
+                Option : {l.description} ({formatEUR(l.unitPriceCents)} par an, engagement {l.commitmentMonths ?? 12} mois)
+              </legend>
+              {(
+                [
+                  [true, "Retenue par le client"],
+                  [false, "Non retenue"],
+                ] as const
+              ).map(([value, label]) => (
+                <label key={String(value)} className="flex min-h-11 items-center gap-2 text-sm">
+                  <input
+                    type="radio"
+                    name={`sign-optional-${l.id}`}
+                    required
+                    checked={signOptional[l.id!] === value}
+                    onChange={() => setSignOptional((c) => ({ ...c, [l.id!]: value }))}
+                  />
+                  {label}
+                </label>
+              ))}
+            </fieldset>
+          ))}
           {signOffer === "CHOICE" ? (
             <fieldset className="space-y-1">
               <legend className="text-sm font-medium">Formule retenue par le client</legend>
@@ -1859,7 +1931,7 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
             <Button variant="secondary" disabled={signBusy} onClick={() => setSignOpen(false)}>
               Annuler
             </Button>
-            <Button type="submit" disabled={signBusy || signerName.trim().length < 2 || Boolean(signProposals && !signOptionId)}>
+            <Button type="submit" disabled={signBusy || signerName.trim().length < 2 || Boolean(signProposals && !signOptionId) || signOptionalMissing}>
               {signBusy ? "Enregistrement…" : "Enregistrer la signature"}
             </Button>
           </ModalActions>

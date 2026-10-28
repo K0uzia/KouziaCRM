@@ -66,7 +66,7 @@ import { brandFromSettings } from "@/lib/email/templates.js";
 import { formatPlainTextSignature } from "@/lib/email/signature.js";
 import { renderEmailTextFooter } from "@/lib/email/layout.js";
 import { signDocumentToken } from "@/lib/documents/public-token.js";
-import { subscriptionDateNoticeOf } from "@/lib/company/legal-clauses.js";
+import { listActiveLegalClauses, subscriptionDateNoticeOf } from "@/lib/company/legal-clauses.js";
 import { FREE_MONTHS_MAX, SUBSCRIPTION_STARTS } from "@/lib/subscriptions/start.js";
 import { offlineConflicts, offlineQuoteFields, offlineReviewReason } from "@/lib/invoices/offline-review.js";
 import { renderCreditNotePreviewPdf, renderDraftPreviewPdf } from "@/lib/pdf/draft-preview.js";
@@ -741,6 +741,29 @@ export const invoicesRoutes: FastifyPluginAsync = async (app) => {
   });
 
   // Nombres de la liste des devis ou des factures (statuts, types, à relire, échéance dépassée), sur toute la base.
+  // Formulaire du devis : compris et non compris tels qu'ils seraient figés à l'émission (lecture seule, 28/10/2026).
+  app.get("/api/invoices/scope-preview", async (request, reply) => {
+    await requireAuth(request, reply);
+    if (reply.sent) return;
+    const parsed = z
+      .object({
+        mode: z.enum(BILLING_MODES),
+        clientId: z.string().max(64).optional(),
+        serviceIds: z.string().max(2000).optional(),
+      })
+      .safeParse(request.query);
+    if (!parsed.success) return reply.code(400).send({ error: "Mode de facturation attendu : ONE_OFF ou RECURRING" });
+    const serviceIds = (parsed.data.serviceIds ?? "").split(",").map((s) => s.trim()).filter(Boolean).slice(0, 50);
+    const [settings, clauses, client] = await Promise.all([
+      getCompanySettings(),
+      // Clauses actives, celles par défaut créées si elles manquent (comme Réglages et l'émission).
+      listActiveLegalClauses(),
+      parsed.data.clientId ? prisma.client.findUnique({ where: { id: parsed.data.clientId }, select: { type: true } }) : null,
+    ]);
+    const { buildQuoteScope } = await import("@/lib/quotes/scope.js");
+    return buildQuoteScope(parsed.data.mode, serviceIds.map((serviceId) => ({ serviceId })), { clauses, clientType: client?.type ?? null, company: settings });
+  });
+
   app.get("/api/invoices/summary", async (request, reply) => {
     await requireAuth(request, reply);
     if (reply.sent) return;

@@ -1,7 +1,8 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { api, formatEUR } from "@/lib/api";
 import { formatDate } from "@/lib/format";
+import { proposalTitle } from "@/lib/quote-totals";
 import { Button } from "@/components/ui/Button";
 import { Field, Input } from "@/components/ui/Field";
 import { Modal, ModalActions } from "@/components/ui/Modal";
@@ -16,6 +17,9 @@ type PendingQuote = {
 };
 
 const LETTERS = ["A", "B"];
+
+/** Ligne en option d'un devis en paiement unique (28/10/2026) : le client la retient ou non à la signature. */
+type OptionalLine = { id: string; description: string; unitPriceCents: number; commitmentMonths: number | null; optionId: string | null };
 
 type AcceptanceAudit = {
   id: string;
@@ -45,6 +49,25 @@ export function QuoteValidationBlock({
   const [signerName, setSignerName] = useState("");
   const [optionId, setOptionId] = useState("");
   const [busy, setBusy] = useState(false);
+  // Options du devis à valider : lues à l'ouverture de la fenêtre, un choix explicite pour chacune (pas de défaut).
+  const [optionalLines, setOptionalLines] = useState<OptionalLine[] | null>(null);
+  const [optionalChoices, setOptionalChoices] = useState<Record<string, boolean>>({});
+  useEffect(() => {
+    setOptionalChoices({});
+    if (!confirmQuote) {
+      setOptionalLines(null);
+      return;
+    }
+    let alive = true;
+    api<{ lines?: Array<OptionalLine & { isOptional?: boolean }> }>(`/api/invoices/${confirmQuote.id}`)
+      .then((q) => alive && setOptionalLines((q.lines ?? []).filter((l) => l.isOptional)))
+      .catch(() => alive && setOptionalLines([]));
+    return () => {
+      alive = false;
+    };
+  }, [confirmQuote]);
+  const shownOptional = (optionalLines ?? []).filter((l) => (confirmQuote?.options?.length ? l.optionId === optionId : !l.optionId));
+  const optionalMissing = optionalLines === null || shownOptional.some((l) => optionalChoices[l.id] === undefined);
 
   if (pendingQuotes.length === 0 && acceptanceAudits.length === 0) return null;
 
@@ -58,6 +81,7 @@ export function QuoteValidationBlock({
           threadId,
           signerName: signerName.trim(),
           ...(confirmQuote.options?.length ? { optionId } : {}),
+          ...(shownOptional.length ? { optionalLines: shownOptional.map((l) => ({ id: l.id, accepted: optionalChoices[l.id] })) } : {}),
         }),
       });
       toast.success(`Devis ${confirmQuote.number ?? ""} validé. Demande d'acompte envoyée au client.`);
@@ -151,18 +175,41 @@ export function QuoteValidationBlock({
             {confirmQuote.options.map((o) => (
               <label key={o.id} className="flex min-h-11 items-center gap-2 text-sm">
                 <input type="radio" name="thread-option" value={o.id} checked={optionId === o.id} onChange={() => setOptionId(o.id)} />
-                Proposition {LETTERS[o.position] ?? o.position + 1} : {o.label} ({formatEUR(o.totalCents)})
+                {proposalTitle(LETTERS[o.position] ?? String(o.position + 1), o.label)} ({formatEUR(o.totalCents)})
               </label>
             ))}
           </fieldset>
         ) : null}
+        {shownOptional.map((l) => (
+          <fieldset key={l.id} className="mt-4 space-y-1">
+            <legend className="text-sm font-medium">
+              Option : {l.description} ({formatEUR(l.unitPriceCents)} par an, engagement {l.commitmentMonths ?? 12} mois)
+            </legend>
+            {(
+              [
+                [true, "Retenue par le client"],
+                [false, "Non retenue"],
+              ] as const
+            ).map(([value, label]) => (
+              <label key={String(value)} className="flex min-h-11 items-center gap-2 text-sm">
+                <input
+                  type="radio"
+                  name={`thread-optional-${l.id}`}
+                  checked={optionalChoices[l.id] === value}
+                  onChange={() => setOptionalChoices((c) => ({ ...c, [l.id]: value }))}
+                />
+                {label}
+              </label>
+            ))}
+          </fieldset>
+        ))}
         <ModalActions>
           <Button type="button" variant="secondary" disabled={busy} onClick={() => setConfirmQuote(null)}>
             Annuler
           </Button>
           <Button
             type="button"
-            disabled={busy || !signerName.trim() || Boolean(confirmQuote?.options?.length && !optionId)}
+            disabled={busy || !signerName.trim() || Boolean(confirmQuote?.options?.length && !optionId) || optionalMissing}
             onClick={() => void validateQuote()}
           >
             {busy ? "Validation…" : "Confirmer la validation"}

@@ -192,3 +192,16 @@ describe("compris et non compris, figés à l'émission", () => {
     expect(scope.excluded.join(" ")).toMatch(/hébergez le logiciel/);
   });
 });
+
+describe("aperçu du compris et non compris (formulaire)", () => {
+  it("GET /api/invoices/scope-preview : liste selon le mode", async () => {
+    await writeSiteText("offres", OFFRES);
+    const oneOff = await call("GET", "/api/invoices/scope-preview?mode=ONE_OFF");
+    expect(oneOff.statusCode).toBe(200);
+    expect(oneOff.json()).toMatchObject({ kind: "SITE", included: [] });
+    expect(oneOff.json().excluded.length).toBe(4);
+    const recurring = await call("GET", "/api/invoices/scope-preview?mode=RECURRING&serviceIds=");
+    expect(recurring.json()).toEqual({ kind: "SITE", included: OFFRES.formules.site.items, excluded: [] });
+    expect((await call("GET", "/api/invoices/scope-preview?mode=AUTRE")).statusCode).toBe(400);
+  });
+});
