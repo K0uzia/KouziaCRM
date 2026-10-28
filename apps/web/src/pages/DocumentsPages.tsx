@@ -1,7 +1,7 @@
 import { useFeatures } from "@/lib/features";
 import { toIsoDate } from "@/components/ui/DatePicker";
 import { Fragment, useCallback, useEffect, useState } from "react";
-import { mixedQuoteTotals, subscriptionsTotalText } from "@/lib/quote-totals";
+import { mixedQuoteTotals, proposalTitle, subscriptionsTotalText } from "@/lib/quote-totals";
 import type { ServiceNeed } from "@/components/clients/ServiceNeedsEditor";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
@@ -1353,7 +1353,7 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
                   {(proposals
                     ? proposals.map((o) => ({
                         key: o.id,
-                        title: `Proposition ${PROPOSAL_LETTERS[o.position] ?? o.position + 1} : ${o.label}`,
+                        title: proposalTitle(PROPOSAL_LETTERS[o.position] ?? String(o.position + 1), o.label),
                         lines: (doc.lines ?? []).filter((l) => l.optionId === o.id),
                       }))
                     : [{ key: "document", title: null, lines: doc.lines ?? [] }]
@@ -1828,7 +1828,7 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
               {signProposals.map((o) => (
                 <label key={o.id} className="flex min-h-11 items-center gap-2 text-sm">
                   <input type="radio" name="sign-option" required value={o.id} checked={signOptionId === o.id} onChange={() => setSignOptionId(o.id)} />
-                  Proposition {PROPOSAL_LETTERS[o.position] ?? o.position + 1} : {o.label}
+                  {proposalTitle(PROPOSAL_LETTERS[o.position] ?? String(o.position + 1), o.label)}
                 </label>
               ))}
             </fieldset>

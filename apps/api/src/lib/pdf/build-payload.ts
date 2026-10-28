@@ -27,6 +27,7 @@ import { startFromPhrase, startPhrase } from "@/lib/subscriptions/start.js";
 import { recurringDiscountSummary } from "@/lib/quotes/recurring-discount.js";
 import { normalizeInterval, periodMonths } from "@/lib/subscriptions/subscription-service.js";
 import { billedWithDocument, computeDepositBaseCents } from "@/lib/invoices/totals.js";
+import { proposalTitle } from "@/lib/quotes/quote-options.js";
 
 type InvoiceWithRelations = Invoice & {
   lines: InvoiceLine[];
@@ -311,11 +312,11 @@ function proposalsOf(input: BuildPdfPayloadInput): Pick<InvoicePdfData["invoice"
       milestones,
     } as InvoiceWithRelations;
     return {
-      heading: `Proposition ${letter(o)} : ${o.label}${selected && !isSelected ? " (non retenue)" : ""}`,
+      heading: `${proposalTitle(letter(o), o.label)}${selected && !isSelected ? " (non retenue)" : ""}`,
       invoice: buildInvoicePdfPayload({ ...input, invoice: record }),
     };
   });
-  return { proposals, selectedProposal: selected ? `${letter(selected)} : ${selected.label}` : null };
+  return { proposals, selectedProposal: selected ? proposalTitle(letter(selected), selected.label).replace(/^Proposition /, "") : null };
 }
 
 /** Bloc de signature : preuve complète si le devis a été signé depuis l'espace client. */

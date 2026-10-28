@@ -12,6 +12,13 @@ export const BILLABLE_LINES_WHERE = {
 export const PROPOSAL_LETTERS = ["A", "B"] as const;
 export const proposalLetter = (o: Pick<QuoteOption, "position">) => PROPOSAL_LETTERS[o.position] ?? String(o.position + 1);
 
+/** « Proposition A », ou « Proposition A : libellé » quand le libellé dit autre chose que la lettre (28/10/2026). */
+export function proposalTitle(letter: string, label: string | null | undefined): string {
+  const base = `Proposition ${letter}`;
+  const text = (label ?? "").trim();
+  return !text || text.toLowerCase() === base.toLowerCase() ? base : `${base} : ${text}`;
+}
+
 /** Ligne facturable, quand les lignes ont déjà été lues sans filtre. */
 export const isBillableLine = (line: { optionId?: string | null }, selectedOptionId: string | null | undefined) =>
   !line.optionId || line.optionId === selectedOptionId;

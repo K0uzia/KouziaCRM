@@ -21,3 +21,10 @@ export function mixedQuoteTotals(lines: TotalsLine[], subtotalCents: number, tot
 export function subscriptionsTotalText(t: { yearCents: number; monthCents: number }): string {
   return [t.yearCents ? `${formatEUR(t.yearCents)} par an` : "", t.monthCents ? `${formatEUR(t.monthCents)} par mois` : ""].filter(Boolean).join(" + ");
 }
+
+/** « Proposition A », ou « Proposition A : libellé » quand le libellé dit autre chose que la lettre (même règle que le PDF). */
+export function proposalTitle(letter: string, label: string | null | undefined): string {
+  const base = `Proposition ${letter}`;
+  const text = (label ?? "").trim();
+  return !text || text.toLowerCase() === base.toLowerCase() ? base : `${base} : ${text}`;
+}
