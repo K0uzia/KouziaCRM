@@ -293,7 +293,9 @@ export type InvoicePdfData = {
    * page, elle reste d'un bloc ; LONG : plus longue qu'une page, elle continue seule sur la suivante. Absent : FITS.
    */
   proposalLayout?: Array<"FITS" | "LONG">;
-  /** 1re passe de mesure : page où commence et finit chaque proposition (jamais imprimé). */
+  /** Bloc de fin d'un devis à propositions, mesuré de même : FITS, insécable ; LONG, il continue sur la suivante. */
+  endLayout?: "FITS" | "LONG";
+  /** 1re passe de mesure : page où commence et finit chaque proposition, et le bloc de fin (index -1), jamais imprimé. */
   onProposalPage?: (index: number, edge: "start" | "end", pageNumber: number) => void;
   /** 1re passe de mesure : chaque proposition depuis le haut d'une page. */
   measureProposals?: boolean;
@@ -953,7 +955,7 @@ function DocumentBody({ company, invoice, styles }: { company: PdfCompanySetting
   );
 }
 
-export function InvoiceDocument({ company, client, invoice, specimen, draft, proposalLayout, onProposalPage, measureProposals }: InvoicePdfData) {
+export function InvoiceDocument({ company, client, invoice, specimen, draft, proposalLayout, endLayout, onProposalPage, measureProposals }: InvoicePdfData) {
   const { primary, secondary } = resolveBrandColors(company);
   const styles = createStyles(primary, secondary);
 
@@ -1140,13 +1142,13 @@ export function InvoiceDocument({ company, client, invoice, specimen, draft, pro
             <Text style={styles.proposalIntro}>
               {`Ce devis propose ${invoice.proposals.length} formules : choisissez-en une à la signature.`}
             </Text>
-            {/* Pagination (retours d'Alexandre des 28 et 29/10/2026) : la 1re proposition suit l'en-tête si elle y tient en
-                entier, sinon elle passe entière à la page suivante ; chaque proposition suivante commence sur une nouvelle
-                page ; une proposition qui tient sur une page n'est jamais coupée (wrap={false}), une plus longue continue
-                seule sur la suivante. Les sections communes suivent la dernière, en blocs insécables. */}
+            {/* Pagination (retours d'Alexandre des 28 et 29/10/2026) : la 1re proposition commence toujours sous l'en-tête et
+                continue au besoin sur la suivante ; chaque proposition suivante commence sur une nouvelle page et, si elle
+                tient sur une page, n'est jamais coupée (wrap={false}) ; une plus longue continue seule. Dans une
+                proposition, chaque bloc (ligne, totaux, option, échéancier, clause, listes) est insécable. */}
             {invoice.proposals.map((p, i) => (
               <Readable key={i} as="proposal">
-              <View style={styles.proposal} break={i > 0 || measureProposals} wrap={measureProposals || proposalLayout?.[i] === "LONG"}>
+              <View style={styles.proposal} break={i > 0 || measureProposals} wrap={i === 0 || measureProposals || proposalLayout?.[i] === "LONG"}>
                 {onProposalPage ? <Text render={({ pageNumber }) => (onProposalPage(i, "start", pageNumber), "")} /> : null}
                 <Readable as="proposalHeading">
                 <Text style={styles.proposalTitle} minPresenceAhead={120}>
@@ -1163,6 +1165,10 @@ export function InvoiceDocument({ company, client, invoice, specimen, draft, pro
           <DocumentBody company={company} invoice={invoice} styles={styles} />
         )}
 
+        {/* Bloc de fin (signature, notes, mentions, clauses) : un seul bloc insécable s'il tient sur une page, qui suit
+            la dernière proposition s'il reste la place, sinon passe entier à la page suivante (29/10/2026). */}
+        <View wrap={!invoice.proposals?.length || measureProposals || endLayout === "LONG"} break={Boolean(measureProposals && invoice.proposals?.length)}>
+        {onProposalPage ? <Text render={({ pageNumber }) => (onProposalPage(-1, "start", pageNumber), "")} /> : null}
         {isQuote && invoice.acceptance?.mode ? (
           <Readable as="section" heading>
           <View style={styles.payBox} wrap={false}>
@@ -1360,6 +1366,8 @@ export function InvoiceDocument({ company, client, invoice, specimen, draft, pro
           ) : null}
         </View>
         </Readable>
+        {onProposalPage ? <Text render={({ pageNumber }) => (onProposalPage(-1, "end", pageNumber), "")} /> : null}
+        </View>
 
         {/* Pas de lineHeight sur la page : hérité, il masque le numéro de page (bug react-pdf). */}
         <View style={styles.footerRule} fixed />
