@@ -85,9 +85,10 @@ describe("kouziactl catalog --stripe", () => {
     expect((await prisma.service.findUniqueOrThrow({ where: { id: mensuelle.id } })).active).toBe(false);
     expect(productsUpdate).toHaveBeenCalledWith("prod_m", { active: false });
     expect(await prisma.subscription.findUniqueOrThrow({ where: { id: contrat.id } })).toMatchObject({ amountCents: 2_900, serviceId: mensuelle.id, stripeSubscriptionId: "sub_en_cours" });
-    // Packs composés avec les offres Stripe (« (annuel) » comprise).
+    // Packs composés avec les offres Stripe (« (annuel) » comprise) : la maintenance pack depuis le 28/10/2026.
+    const maintenancePack = await prisma.service.findFirstOrThrow({ where: { name: "Maintenance site (pack) (annuel)" } });
     const vitrinePack = await prisma.service.findFirstOrThrow({ where: { name: "Pack Vitrine" }, include: { packItems: true } });
-    expect(vitrinePack.packItems.map((i) => i.serviceId)).toContain(annuelle.id);
+    expect(vitrinePack.packItems.map((i) => i.serviceId)).toContain(maintenancePack.id);
 
     // Idempotence : relancée, la commande n'appelle plus Stripe et ne crée rien.
     const before = await prisma.service.count();
