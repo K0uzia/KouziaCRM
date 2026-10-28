@@ -453,6 +453,7 @@ Puis :
 | `kouziactl rollback` | Code et données d'avant la dernière mise à jour (backup pré-update) |
 | `./scripts/alpine/deploy-rsync.sh user@ct` | Depuis le PC : rsync code + update distant |
 | `kouziactl backup` / `restore` | Backup GPG + rsync / restore (`restore --check` : contrôle sans rien modifier) |
+| `kouziactl audit report` / `on` / `off` / `status` | Rapport d'audit en lecture seule, accès SSH limité à ce rapport (voir plus bas) |
 
 Détails : `scripts/alpine/` (install, update, backup, restore, OpenRC, conf rsync).
 
@@ -475,6 +476,47 @@ Recette : `kouziactl selftest-respawn worker` (ou `app`) tue le processus node d
 le superviseur, et vérifie la relance. Ne pas viser le processus avec `pgrep -f "tsx.*worker.ts"` :
 la ligne de commande de `supervise-daemon` contient les mêmes arguments. Service affiché
 `unsupervised` (superviseur tué, processus orphelin) : `kouziactl repair-service worker` (ou `app`).
+
+### Accès d'audit en lecture seule (`kouziactl audit`)
+
+Pour qu'un relecteur (le superviseur Claude, depuis le PC d'Alexandre) voie l'état réel de l'ERP sans jamais voir une
+donnée client ni un secret. Une clé SSH dédiée ne peut lancer qu'une commande : le rapport.
+
+**Ce qu'il montre** : version et commit de l'ERP, migrations appliquées et attendues, réglages (valeurs non
+sensibles ; secrets et coordonnées en « défini » ou « absent »), noms des variables du `.env` (jamais leur valeur),
+CGV, clauses légales (texte complet), catalogue (prestations, packs et contenu, prix, prix annuels, intervalles,
+rubriques, rachats), comptes (clients par type, abonnements par statut, intervalle, encaissement et engagement,
+devis, factures, avoirs, jalons, file d'e-mails, obligations), contrôles (abonnements actifs sans engagement,
+factures émises sans adresse client, jalons ouverts sur un devis déjà facturé en entier, abonnements terminés qui
+reçoivent encore des factures Stripe, échéances dépassées), retards, échecs (e-mails, webhooks Stripe bloqués,
+synchros) et dernières lignes d'erreur des journaux.
+
+**Ce qu'il ne montre jamais** : nom, e-mail, téléphone, adresse, SIRET ou IP d'un client, IBAN, clé, jeton, mot de
+passe, champ chiffré. Un document s'identifie par son numéro (D-, F-, A-) ou son identifiant interne. Garanties :
+base ouverte en lecture seule (`readOnly` et `PRAGMA query_only`, toute écriture échoue) ; requêtes de comptes et
+d'identifiants seulement ; réglages en liste blanche (une colonne nouvelle reste cachée) ; journaux et messages
+d'erreur masqués (e-mails, IP, IBAN, téléphones, jetons, numéros longs, adresses, et noms des clients lus en base) ;
+dernier masquage sur toute la sortie. Tests : `apps/api/src/__tests__/ops/audit-report.test.ts`.
+
+**Ouvrir l'accès** (root sur le CT ; la clé publique est copiée sur le CT, la clé privée ne quitte jamais le PC) :
+
+```bash
+kouziactl audit on /root/kouzia-audit.pub
+```
+
+Crée au besoin le compte système `kouzia-audit` (aucun mot de passe, aucun droit sur l'ERP), installe `sudo` s'il
+manque, pose la clé avec `restrict,command="/usr/local/bin/kouziactl audit report --via-ssh"` (ni shell, ni
+redirection, ni terminal) et une règle sudo unique : `scripts/alpine/audit.sh run text|json`, sans autre argument.
+Le rapport tourne ensuite sous le compte du service, jamais sous root. Choix de sudo plutôt qu'une lecture de groupe
+sur la base : `kouzia-audit` ne lit aucune donnée par lui-même, même sorti de la commande forcée. Les réglages sshd
+qui bloqueraient la connexion (AllowUsers, clé publique désactivée, sshd arrêté) sont signalés, jamais modifiés.
+
+Depuis le PC : `ssh -i ~/.ssh/kouzia-audit kouzia-audit@<adresse du CT> report` (ou `report --json`).
+
+**Couper** : `kouziactl audit off` retire la clé et la règle sudo, et coupe les sessions en cours.
+**État** : `kouziactl audit status` (ouvert ou fermé, depuis quand, clé, derniers événements). Chaque rapport,
+refus, ouverture et fermeture est noté avec la date et l'IP source dans `/var/log/kouzia-ops/audit-access.log`
+(root). En développement : `npm run audit:report -- --text` (ou `--json`) sur la base du `.env`.
 
 ### Double authentification (admin par Internet)
 

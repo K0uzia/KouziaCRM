@@ -35,6 +35,7 @@
     "admin:2fa-reset": "tsx --env-file=.env --tsconfig apps/api/tsconfig.json scripts/admin-2fa-reset.ts",
     "reprise": "tsx --env-file=.env --tsconfig apps/api/tsconfig.json scripts/reprise.ts",
     "catalogue:dev": "tsx --env-file=.env --tsconfig apps/api/tsconfig.json scripts/catalogue-dev.ts",
+    "audit:report": "node --disable-warning=ExperimentalWarning scripts/alpine/audit-report.mjs",
     "db:studio": "prisma studio",
     "worker": "tsx watch --env-file=.env --tsconfig apps/api/tsconfig.json scripts/worker.ts",
     "pretest": "npm run check:lockfile",
