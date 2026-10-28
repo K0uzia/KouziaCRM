@@ -3,6 +3,7 @@ import {
   buildEmailSrcDoc,
   sanitizeEmailHtml,
 } from "@kouzia-erp/email-sanitize";
+import { hasRemoteResource } from "@/pages/messaging/remote-content";
 
 type Props = {
   bodyText: string | null;
@@ -237,6 +238,35 @@ function IframeBody({
 }
 
 /**
+ * Expéditeur inconnu : rien ne se charge hors du message tant qu'Alexandre ne l'a pas demandé
+ * (pour ce message, le temps de l'affichage).
+ */
+function RemoteImagesGate({ html, allowed }: { html: string; allowed: boolean }) {
+  const [shown, setShown] = useState(false);
+  const blocked = !allowed && !shown && hasRemoteResource(html);
+  return (
+    <>
+      {blocked ? (
+        <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-[var(--muted)]">
+          <span>Images masquées : elles peuvent prévenir l'expéditeur que vous avez lu le message.</span>
+          <button
+            type="button"
+            className="link min-h-11"
+            onClick={(e) => {
+              e.stopPropagation();
+              setShown(true);
+            }}
+          >
+            Afficher les images
+          </button>
+        </div>
+      ) : null}
+      <IframeBody html={html} allowRemoteImages={allowed || shown} />
+    </>
+  );
+}
+
+/**
  * Affichage corps email façon boîte mail :
  * 1. text/plain prioritaire (réponses, conversations)
  * 2. HTML simple → converti en texte
@@ -279,9 +309,7 @@ export function MessageBody({
   }
 
   if (decision.mode === "iframe") {
-    return (
-      <IframeBody html={decision.html} allowRemoteImages={allowRemoteImages} />
-    );
+    return <RemoteImagesGate html={decision.html} allowed={allowRemoteImages} />;
   }
 
   return (

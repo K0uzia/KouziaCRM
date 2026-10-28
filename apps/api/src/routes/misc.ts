@@ -34,6 +34,7 @@ import { messageBodyData, messageBodyText, plainMessage } from "@/lib/email/mess
 import { formLeadForMessage, formSubmissionForThread } from "@/lib/email/web3forms.js";
 import { linkSenderToClient, SenderLinkError, senderSuggestionForThread } from "@/lib/email/sender-client.js";
 import { setBulkMessageFlags, setMessageFlags } from "@/lib/email/sync/flag-sync.js";
+import { messageSecurity, reportNotSpam, reportSpam, SpamFolderError } from "@/lib/email/spam.js";
 import { withImapClient } from "@/lib/email/sync/imap-connection.js";
 import { toImapInt } from "@/lib/email/sync/imap-int.js";
 import { decryptOptional } from "@/lib/crypto.js";
@@ -583,6 +584,30 @@ export const miscRoutes: FastifyPluginAsync = async (app) => {
     return { ok: true, deleted: result.deleted, kept: result.kept };
   });
 
+  // Indésirable / pas indésirable : déplacement sur le serveur IMAP (dossier Indésirables ou Réception),
+  // pour que le filtre du fournisseur apprenne. restore : dossier d'origine pour « Annuler ».
+  for (const [url, run] of [
+    ["/api/emails/messages/report-spam", reportSpam],
+    ["/api/emails/messages/not-spam", reportNotSpam],
+  ] as const) {
+    app.post(url, async (request, reply) => {
+      await requireAuth(request, reply);
+      if (reply.sent) return;
+      const parsed = z.object({ messageIds: z.array(z.string().min(1)).min(1).max(200) }).safeParse(request.body ?? {});
+      if (!parsed.success) return reply.code(400).send({ error: parsed.error.flatten() });
+      try {
+        const result = await run(parsed.data.messageIds);
+        if (result.moved === 0 && result.kept > 0) {
+          return reply.code(409).send({ error: "Boîte mail injoignable : message laissé en place, réessayez plus tard." });
+        }
+        return { ok: true, ...result };
+      } catch (e) {
+        if (e instanceof SpamFolderError) return reply.code(409).send({ error: e.message });
+        throw e;
+      }
+    });
+  }
+
   app.post("/api/emails/trash/empty", async (request, reply) => {
     await requireAuth(request, reply);
     if (reply.sent) return;
@@ -632,7 +657,9 @@ export const miscRoutes: FastifyPluginAsync = async (app) => {
         });
         // Formulaire du site : rattaché au client existant, ou fiche proposée pour « Créer le client ».
         const formLead = await formLeadForMessage(request.params.messageId).catch(() => null);
-        return { ...body, formLead };
+        // Bannière « message douteux » et images distantes (chargées d'office pour un expéditeur connu seulement).
+        const security = await messageSecurity(request.params.messageId, body.bodyHtml).catch(() => null);
+        return { ...body, formLead, security };
       } catch (e) {
         return reply.code(400).send({
           error: e instanceof Error ? e.message : "Corps introuvable",
@@ -751,6 +778,7 @@ export const miscRoutes: FastifyPluginAsync = async (app) => {
             where: { orphaned: false },
             orderBy: { receivedAt: "asc" },
             include: {
+              folder: { select: { id: true, role: true } },
               attachments: {
                 select: {
                   id: true,

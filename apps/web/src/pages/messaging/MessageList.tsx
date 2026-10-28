@@ -48,6 +48,10 @@ type Props = {
   onToggleStar: (msg: MailMessageItem) => void;
   isTrashFolder?: boolean;
   onEmptyTrash?: () => void;
+  /** Dossier Indésirables affiché : l'action devient « Pas indésirable ». */
+  isJunkFolder?: boolean;
+  onBulkSpam?: (spam: boolean) => void;
+  onSpam?: (msg: MailMessageItem, spam: boolean) => void;
 };
 
 type CtxMenu = {
@@ -144,6 +148,9 @@ export function MessageList({
   onToggleStar,
   isTrashFolder,
   onEmptyTrash,
+  isJunkFolder = false,
+  onBulkSpam,
+  onSpam,
 }: Props) {
   const filters: Array<{ id: "all" | "clients" | "external"; label: string }> = [
     { id: "all", label: "Tous" },
@@ -280,6 +287,11 @@ export function MessageList({
             {onBulkStar ? (
               <Button variant="secondary" className="text-xs" onClick={() => onBulkStar(true)}>
                 Favoris
+              </Button>
+            ) : null}
+            {onBulkSpam ? (
+              <Button variant="secondary" className="text-xs" onClick={() => onBulkSpam(!isJunkFolder)}>
+                {isJunkFolder ? "Pas indésirable" : "Indésirable"}
               </Button>
             ) : null}
             <Button variant="danger" className="text-xs" onClick={onBulkDelete}>
@@ -474,6 +486,14 @@ export function MessageList({
                 label: ctx.msg.isRead ? "Marquer non lu" : "Marquer lu",
                 run: () => onToggleRead(ctx.msg),
               },
+              ...(onSpam && ctx.msg.direction !== "OUTBOUND"
+                ? [
+                    {
+                      label: isJunkFolder ? "Pas indésirable" : "Signaler comme indésirable",
+                      run: () => onSpam(ctx.msg, !isJunkFolder),
+                    },
+                  ]
+                : []),
               {
                 label: isTrashFolder ? "Supprimer définitivement" : "Supprimer",
                 run: () => onDelete(ctx.msg),

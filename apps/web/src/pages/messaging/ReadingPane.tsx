@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import {
   faArrowLeft,
+  faBan,
   faPaperclip,
   faReply,
   faStar,
@@ -12,9 +13,11 @@ import {
 import { api } from "@/lib/api";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/Button";
+import { Banner } from "@/components/ui/Banner";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import type { ClientPrefill } from "@/components/clients/ClientForm";
 import { MessageBody } from "@/pages/messaging/MessageBody";
+import { remoteImagesAllowed } from "@/pages/messaging/remote-content";
 import { AttachmentList } from "@/pages/messaging/AttachmentList";
 import { QuoteValidationBlock } from "@/pages/messaging/QuoteValidationBlock";
 import { FormSubmissionPanel, type FormSubmission } from "@/pages/messaging/FormSubmissionPanel";
@@ -39,6 +42,8 @@ type Props = {
   }) => void;
   onRefresh: () => void;
   onRead?: (messageIds: string[]) => void;
+  /** Indésirable (spam vrai) ou pas indésirable (spam faux) : messages reçus du fil, déplacés sur le serveur. */
+  onSpam?: (messageIds: string[], spam: boolean) => Promise<boolean>;
   /** Corbeille affichée : la suppression est définitive, elle passe par une confirmation (audit du 27/10/2026). */
   permanentDelete?: boolean;
 };
@@ -49,6 +54,12 @@ type MessageBodyPayload = {
   attachments?: Array<{ id: string; filename: string; mimeType: string; sizeBytes: number }>;
   /** Formulaire du site sans client correspondant : fiche proposée, jamais créée d'office. */
   formLead?: ClientPrefill | null;
+  /** Bannière « message douteux » et images distantes (calculées par l'API à l'ouverture). */
+  security?: {
+    signals: Array<{ code: string; text: string; strong: boolean }>;
+    remoteImagesAllowed: boolean;
+    inJunk: boolean;
+  } | null;
 };
 
 type ThreadMessage = {
@@ -66,6 +77,7 @@ type ThreadMessage = {
   isStarred: boolean;
   hasAttachments?: boolean;
   direction: string;
+  folder?: { id: string; role: string } | null;
   attachments: Array<{ id: string; filename: string; mimeType: string; sizeBytes: number }>;
 };
 
@@ -112,6 +124,7 @@ export function ReadingPane({
   onReply,
   onRefresh,
   onRead,
+  onSpam,
   permanentDelete = false,
 }: Props) {
   const [thread, setThread] = useState<ThreadDetail | null>(null);
@@ -122,6 +135,7 @@ export function ReadingPane({
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [loadingBody, setLoadingBody] = useState(false);
+  const [spamBusy, setSpamBusy] = useState(false);
 
   useEffect(() => {
     if (!threadId) {
@@ -175,7 +189,7 @@ export function ReadingPane({
           setLoadingBody(!seeded[focus]);
           try {
             const body = await api<MessageBodyPayload>(
-              `/api/emails/messages/${focus}/body?allowRemoteImages=true`,
+              `/api/emails/messages/${focus}/body`,
             );
             setBodies((b) => ({ ...b, [focus]: body }));
             if (body.attachments) {
@@ -220,7 +234,7 @@ export function ReadingPane({
     setBodyError(null);
     try {
       const body = await api<MessageBodyPayload>(
-        `/api/emails/messages/${id}/body?allowRemoteImages=true`,
+        `/api/emails/messages/${id}/body`,
       );
       setBodies((b) => ({ ...b, [id]: body }));
       if (body.attachments) {
@@ -280,6 +294,21 @@ export function ReadingPane({
 
   const latest = thread.messages[thread.messages.length - 1];
   const form = thread.formSubmission ?? null;
+  const inbound = thread.messages.filter((m) => m.direction !== "OUTBOUND");
+  const threadInJunk = inbound.length > 0 && inbound.every((m) => m.folder?.role === "JUNK");
+  // Indésirable ou douteux : pas d'invitation à créer une fiche client pour cet expéditeur.
+  const suspicious = Object.values(bodies).some((b) => (b.security?.signals.length ?? 0) > 0);
+  const markSpam = async (spam: boolean) => {
+    if (!onSpam) return;
+    const ids = inbound.filter((m) => (m.folder?.role === "JUNK") !== spam).map((m) => m.id);
+    if (ids.length === 0) return;
+    setSpamBusy(true);
+    try {
+      if (await onSpam(ids, spam)) onBack();
+    } finally {
+      setSpamBusy(false);
+    }
+  };
   // Message du formulaire : réponse à l'adresse du client (ou saisie dans le formulaire), jamais à Web3Forms.
   const replyAddress = (msg: ThreadMessage) =>
     form?.replyTo && FORM_SENDER.test(msg.fromAddress) ? form.replyTo : msg.replyToAddress;
@@ -380,6 +409,18 @@ export function ReadingPane({
                 aria-hidden
               />
             </Button>
+            {/* Déjà dans les indésirables : « Pas indésirable » est dans le bandeau sous l'objet. */}
+            {onSpam && inbound.length > 0 && !threadInJunk ? (
+              <Button
+                variant="ghost"
+                aria-label="Signaler comme indésirable"
+                title="Indésirable"
+                disabled={spamBusy}
+                onClick={() => void markSpam(true)}
+              >
+                <FontAwesomeIcon icon={faBan} className="h-4 w-4" aria-hidden />
+              </Button>
+            ) : null}
             <Button
               variant="ghost"
               aria-label="Supprimer le message"
@@ -393,13 +434,25 @@ export function ReadingPane({
 
       <div className="custom-scrollbar flex-1 overflow-y-auto p-4 md:px-8">
         <h2 className="text-lg font-semibold leading-snug break-words">{thread.subject}</h2>
+        {threadInJunk && onSpam ? (
+          <Banner
+            className="mt-2"
+            action={
+              <Button variant="secondary" disabled={spamBusy} onClick={() => void markSpam(false)}>
+                Pas indésirable
+              </Button>
+            }
+          >
+            Ce message est dans les indésirables.
+          </Banner>
+        ) : null}
         {form ? (
           <FormSubmissionPanel form={form} onReply={replyToForm} />
         ) : thread.client ? (
           <Link to={`/clients/${thread.client.id}`} className="link mt-1 inline-flex min-h-11 items-center text-sm">
             Client : {thread.client.displayName}
           </Link>
-        ) : thread.senderSuggestion ? (
+        ) : thread.senderSuggestion && !threadInJunk && !suspicious ? (
           <SenderClientPanel
             threadId={thread.id}
             suggestion={thread.senderSuggestion}
@@ -477,6 +530,17 @@ export function ReadingPane({
                 </button>
                 {open && body ? (
                   <div className="border-t border-[var(--border)] px-4 pb-4 pt-3">
+                    {msg.direction !== "OUTBOUND" && body.security && body.security.signals.length > 0 ? (
+                      <Banner level="warning" className="mb-3">
+                        <p className="font-semibold">Prudence avec ce message</p>
+                        <ul className="mt-1 list-disc space-y-0.5 pl-5">
+                          {body.security.signals.map((s) => (
+                            <li key={s.code + s.text}>{s.text}</li>
+                          ))}
+                        </ul>
+                        <p className="mt-1">Ne cliquez sur aucun lien et ne donnez aucune information sans avoir vérifié l'expéditeur.</p>
+                      </Banner>
+                    ) : null}
                     {msg.attachments.length > 0 ? (
                       <AttachmentList attachments={msg.attachments} />
                     ) : null}
@@ -486,10 +550,10 @@ export function ReadingPane({
                         <summary className="inline-flex min-h-11 cursor-pointer items-center text-sm text-[var(--muted)] hover:text-[var(--text)]">
                           Voir le message reçu tel quel
                         </summary>
-                        <MessageBody bodyText={body.bodyText} bodyHtml={body.bodyHtml} />
+                        <MessageBody bodyText={body.bodyText} bodyHtml={body.bodyHtml} allowRemoteImages={remoteImagesAllowed(msg.direction, body.security)} />
                       </details>
                     ) : (
-                      <MessageBody bodyText={body.bodyText} bodyHtml={body.bodyHtml} />
+                      <MessageBody bodyText={body.bodyText} bodyHtml={body.bodyHtml} allowRemoteImages={remoteImagesAllowed(msg.direction, body.security)} />
                     )}
                   </div>
                 ) : null}

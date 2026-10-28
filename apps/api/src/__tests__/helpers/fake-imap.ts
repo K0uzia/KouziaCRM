@@ -12,6 +12,8 @@ export type FakeImapMessage = {
   replyTo?: string;
   date: Date;
   text?: string;
+  /** En-têtes bruts en plus (ex. Authentication-Results), lignes séparées par CRLF. */
+  extraHeaders?: string;
 };
 
 type Box = { uidValidity: number; uidNext: number; messages: FakeImapMessage[] };
@@ -41,6 +43,7 @@ export function createFakeImap(
   }
   function source(m: FakeImapMessage): Buffer {
     const lines = [
+      ...(m.extraHeaders ? [m.extraHeaders] : []),
       `From: ${m.fromName ? `"${m.fromName}" ` : ""}<${m.from}>`,
       ...(m.replyTo ? [`Reply-To: ${m.replyTo}`] : []),
       "To: contact@kouzia.test",
@@ -83,7 +86,7 @@ export function createFakeImap(
           },
           bodyStructure: { type: "text/plain" },
           size: 100,
-          headers: Buffer.from(""),
+          headers: Buffer.from(m.extraHeaders ? `${m.extraHeaders}\r\n\r\n` : ""),
           source: source(m),
         };
       }

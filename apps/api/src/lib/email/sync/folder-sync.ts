@@ -18,6 +18,7 @@ import { withImapClient } from "@/lib/email/sync/imap-connection.js";
 import { ensureMailAccount } from "@/lib/email/sync/sync-status.js";
 import { normalizeSubject, parseAddressList } from "@/lib/email/sync/threading.js";
 import { isWeb3FormsSender } from "@/lib/email/web3forms.js";
+import { extractAuthHeaders } from "@/lib/email/suspicion.js";
 import type { ImapFlow } from "imapflow";
 
 type EnvelopeLike = {
@@ -277,7 +278,7 @@ export async function syncFolder(folderId: string): Promise<{ imported: number; 
           flags: true,
           bodyStructure: true,
           size: true,
-          headers: ["x-kouzia-outbound"],
+          headers: ["x-kouzia-outbound", "authentication-results"],
         },
         { uid: true },
       )) {
@@ -401,6 +402,8 @@ export async function syncFolder(folderId: string): Promise<{ imported: number; 
             hasAttachments,
             imapUid: uid,
             bodyFetched: false,
+            // Seuls les en-têtes Authentication-Results sont gardés (bannière « message douteux »).
+            rawHeaders: extractAuthHeaders(msg.headers),
           },
         });
 

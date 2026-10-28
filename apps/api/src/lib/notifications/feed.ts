@@ -1,4 +1,4 @@
-import { EmailDirection, QuoteStatus } from "@prisma/client";
+import { EmailDirection, MailFolderRole, QuoteStatus } from "@prisma/client";
 import { prisma } from "@/lib/prisma.js";
 import { REVIEW_FAMILIES, type ReviewFamily } from "@/lib/email/review.js";
 import { formatEUR } from "@/lib/money.js";
@@ -56,6 +56,8 @@ export async function listNotifications(since: Date): Promise<NotificationItem[]
         receivedAt: { gt: recentMail },
         // Envois de l'ERP synchronisés comme reçus avant la détection (copies, alertes à soi-même).
         NOT: { messageId: { endsWith: "@kouzia.local>" } },
+        // Rangé par le serveur dans Indésirables ou Corbeille : ni notification ni push.
+        OR: [{ folderId: null }, { folder: { role: { notIn: [MailFolderRole.JUNK, MailFolderRole.TRASH] } } }],
       },
       orderBy: { createdAt: "desc" },
       take: MAX_ITEMS,

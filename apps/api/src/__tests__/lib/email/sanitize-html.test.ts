@@ -106,6 +106,24 @@ describe("buildEmailSrcDoc", () => {
     const html = sanitizeEmailHtml('<img src="https://cdn.example/logo.png" alt="logo">');
     const doc = buildEmailSrcDoc(html);
     expect(doc).toContain("https://cdn.example/logo.png");
+    expect(doc).not.toContain("Content-Security-Policy");
+  });
+
+  it("images bloquées : politique CSP en tête, avant toute feuille ou image distante", () => {
+    const html =
+      '<html><head><link rel="stylesheet" href="https://track.example/s.css"></head>' +
+      '<body style="background:url(https://track.example/bg.png)"><img src="https://track.example/p.gif"></body></html>';
+    const doc = buildEmailSrcDoc(sanitizeEmailHtml(html, { allowRemoteImages: false }), { allowRemoteImages: false });
+    const csp = doc.indexOf("Content-Security-Policy");
+    expect(csp).toBeGreaterThan(-1);
+    expect(csp).toBeLessThan(doc.indexOf("track.example/s.css"));
+    expect(doc).toMatch(/default-src 'none'; img-src data:; style-src 'unsafe-inline'; font-src data:/);
+    expect(doc).not.toContain('src="https://track.example/p.gif"');
+  });
+
+  it("images bloquées sans <head> : politique CSP ajoutée quand même", () => {
+    const doc = buildEmailSrcDoc("<p>x</p>", { allowRemoteImages: false });
+    expect(doc).toContain("Content-Security-Policy");
   });
 });
 

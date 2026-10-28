@@ -119,12 +119,24 @@ export function buildEmailSrcDoc(
   const inject = `${EMAIL_LIGHT_HEAD}${base}`;
 
   if (/<\/head>/i.test(doc)) {
-    return doc.replace(/<\/head>/i, `${inject}</head>`);
+    doc = doc.replace(/<\/head>/i, `${inject}</head>`);
+  } else if (/<html[^>]*>/i.test(doc)) {
+    doc = doc.replace(/<html[^>]*>/i, (tag) => `${tag}<head>${inject}</head>`);
+  } else {
+    doc = `<!DOCTYPE html><html><head>${inject}</head><body>${doc}</body></html>`;
   }
-  if (/<html[^>]*>/i.test(doc)) {
-    return doc.replace(/<html[^>]*>/i, (tag) => `${tag}<head>${inject}</head>`);
-  }
-  return `<!DOCTYPE html><html><head>${inject}</head><body>${doc}</body></html>`;
+  return opts.allowRemoteImages === false ? withBlockingPolicy(doc) : doc;
+}
+
+/**
+ * Images distantes refusées : rien ne se charge hors du message (pixel espion, fond CSS, feuille de style,
+ * police), quelle que soit la balise. La règle est posée en tête du <head>, avant toute ressource.
+ */
+const BLOCK_REMOTE_CSP =
+  '<meta http-equiv="Content-Security-Policy" content="default-src \'none\'; img-src data:; style-src \'unsafe-inline\'; font-src data:">';
+
+function withBlockingPolicy(doc: string): string {
+  return doc.replace(/<head(\s[^>]*)?>/i, (tag) => `${tag}${BLOCK_REMOTE_CSP}`);
 }
 
 export function sanitizePlainText(text: string): string {

@@ -318,6 +318,52 @@ export function MailLayout() {
     }
   }
 
+  /** Indésirable (spam vrai) ou pas indésirable : déplacé sur le serveur, « Annuler » le remet dans son dossier. */
+  async function markSpam(ids: string[], spam: boolean): Promise<boolean> {
+    if (ids.length === 0) return false;
+    try {
+      const res = await api<{ moved: number; kept: number; restore: Array<{ id: string; folderId: string }> }>(
+        spam ? "/api/emails/messages/report-spam" : "/api/emails/messages/not-spam",
+        { method: "POST", body: JSON.stringify({ messageIds: ids }) },
+      );
+      setSelectedIds(new Set());
+      await refresh();
+      const n = res.moved;
+      const done = spam
+        ? n === 1 ? "Message déplacé dans les indésirables" : `${n} messages déplacés dans les indésirables`
+        : n === 1 ? "Message remis dans la boîte de réception" : `${n} messages remis dans la boîte de réception`;
+      const undo =
+        res.restore.length > 0
+          ? {
+              label: "Annuler",
+              onClick: () =>
+                void Promise.all(
+                  res.restore.map((r) =>
+                    api(`/api/emails/messages/${r.id}/move`, {
+                      method: "POST",
+                      body: JSON.stringify({ folderId: r.folderId }),
+                    }),
+                  ),
+                )
+                  .then(() => {
+                    toast.success(res.restore.length === 1 ? "Message remis dans son dossier" : "Messages remis dans leur dossier");
+                    return refresh();
+                  })
+                  .catch((err: Error) => toast.error(err.message)),
+            }
+          : undefined;
+      if (res.kept > 0) {
+        toast.warning(`${done}. ${res.kept} laissé(s) en place : boîte mail injoignable, réessayez plus tard.`, { duration: 8000, action: undo });
+      } else {
+        toast.success(done, { duration: 8000, action: undo });
+      }
+      return n > 0;
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Déplacement impossible");
+      return false;
+    }
+  }
+
   function replyToMessage(msg: MailMessageItem) {
     // Formulaire du site sans Reply-To : l'adresse du client est dans l'encart du fil (« Répondre au client »).
     if (msg.direction !== "OUTBOUND" && isFormSender(msg.fromAddress) && !msg.replyToAddress) {
@@ -408,6 +454,7 @@ export function MailLayout() {
   }
 
   const selectedFolder = folders.find((f) => f.id === selectedFolderId);
+  const isJunkFolder = selectedFolder?.role === "JUNK";
   const isTrashFolder =
     selectedFolder?.role === "TRASH" ||
     selectedFolder?.displayName?.toLowerCase().includes("corbeille") === true;
@@ -532,6 +579,9 @@ export function MailLayout() {
               onToggleStar={(msg) => void toggleStar(msg)}
               isTrashFolder={isTrashFolder}
               onEmptyTrash={() => setEmptyTrashOpen(true)}
+              isJunkFolder={isJunkFolder}
+              onBulkSpam={(spam) => void markSpam([...selectedIds], spam)}
+              onSpam={(msg, spam) => void markSpam([msg.id], spam)}
             />
           </div>
         ) : (
@@ -551,6 +601,7 @@ export function MailLayout() {
               }}
               onRefresh={() => void refresh()}
               permanentDelete={isTrashFolder}
+              onSpam={markSpam}
               onRead={(ids) => {
                 notifyMailChanged();
                 const idSet = new Set(ids);

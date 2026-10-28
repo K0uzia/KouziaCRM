@@ -6,6 +6,7 @@ import { resetRemindersForMatchedDocuments } from "@/lib/reminders.js";
 import { sanitizeEmailHtml, sanitizePlainText } from "@/lib/email/sanitize-html.js";
 import { withImapClient } from "@/lib/email/sync/imap-connection.js";
 import { messageBodyData, messageBodyHtml, messageBodyText } from "@/lib/email/message-body.js";
+import { extractAuthHeaders } from "@/lib/email/suspicion.js";
 
 export async function fetchMessageBody(
   messageId: string,
@@ -139,7 +140,8 @@ export async function fetchMessageBody(
       fromName: message.fromName || parsedFromName,
       bodyFetched: true,
       hasAttachments,
-      rawHeaders: JSON.stringify(parsed.headers || {}),
+      // Authentication-Results seulement (l'ancien JSON de la Map mailparser valait toujours « {} »).
+      rawHeaders: extractAuthHeaders(source) ?? message.rawHeaders,
     },
   });
 
