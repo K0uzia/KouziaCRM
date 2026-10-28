@@ -7,6 +7,7 @@ import {
   MilestoneStatus,
   QuoteStatus,
   type Prisma,
+  type QuoteOption,
 } from "@prisma/client";
 import { prisma } from "@/lib/prisma.js";
 import { archiveIssuedDocument } from "@/lib/pdf/issued-archive.js";
@@ -16,7 +17,7 @@ import { getCompanySettings } from "@/lib/company.js";
 import { allocateInvoiceNumber, allocateQuoteNumber } from "@/lib/invoices/numberingService.js";
 import { ensureQuoteMilestones } from "@/lib/quotes/milestones.js";
 import { startAfterWithdrawal, withdrawalEndsAt } from "@/lib/quotes/withdrawal.js";
-import { billedWithDocument, computeDepositBaseCents, depositBaseOf, isCommittedLine } from "@/lib/invoices/totals.js";
+import { billedWithDocument, computeDepositBaseCents, computeLineTotals, depositBaseOf, isCommittedLine } from "@/lib/invoices/totals.js";
 import { buildQuoteScope } from "@/lib/quotes/scope.js";
 import {
   applyPlanMilestones,
@@ -34,7 +35,7 @@ import {
 import { assertBillingModeLines } from "@/lib/quotes/billing-mode.js";
 import { resolveRecurringDiscount, storedRecurringDiscount } from "@/lib/quotes/recurring-discount.js";
 import { assertPromoCodeApplicable } from "@/lib/quotes/promo-codes.js";
-import { BILLABLE_LINES_WHERE, proposalLetter, quoteFieldsOfOption } from "@/lib/quotes/quote-options.js";
+import { BILLABLE_LINES_WHERE, optionalChoicesError, proposalLetter, quoteFieldsOfOption, type OptionalChoice } from "@/lib/quotes/quote-options.js";
 import {
   buildClientSnapshot,
   type ClientSnapshot,
@@ -349,7 +350,9 @@ export class QuoteDecisionError extends Error {
       | "DEPOSIT_REQUIRED"
       | "EXPIRED"
       | "OPTION_REQUIRED"
-      | "OPTION_INVALID",
+      | "OPTION_INVALID"
+      | "OPTIONAL_CHOICE_REQUIRED"
+      | "OPTIONAL_CHOICE_INVALID",
   ) {
     super(message);
     this.name = "QuoteDecisionError";
@@ -407,6 +410,7 @@ async function logQuoteAcceptance(
     paymentPlan?: PaymentPlan | null;
     terms?: QuoteSignatureTerms;
     option?: { id: string; label: string; totalCents: number } | null;
+    optionalChoices?: Array<{ lineId: string; description: string; amountCents: number; interval: string; commitmentMonths: number | null; accepted: boolean }> | null;
   } = {},
 ) {
   return db.quoteAcceptanceAudit.create({
@@ -436,6 +440,7 @@ async function logQuoteAcceptance(
       optionId: opts.option?.id ?? null,
       optionLabel: opts.option?.label ?? null,
       optionTotalCents: opts.option?.totalCents ?? null,
+      ...(opts.optionalChoices?.length ? { optionalChoices: opts.optionalChoices } : {}),
     },
   });
 }
@@ -528,6 +533,35 @@ export async function rejectQuote(quoteId: string, reason?: string) {
 }
 
 /**
+ * Choix des options écrit une fois, à la signature. Option retenue : totaux de la formule recalculés avec sa 1re année
+ * (la base de l'acompte, figée à l'émission, reste la partie ponctuelle). Option non retenue : totaux inchangés.
+ */
+async function recordOptionalChoices(
+  tx: Prisma.TransactionClient,
+  quoteId: string,
+  option: QuoteOption | null,
+  accepted: ReadonlyMap<string, boolean>,
+): Promise<void> {
+  for (const value of [true, false]) {
+    const ids = [...accepted].filter(([, a]) => a === value).map(([id]) => id);
+    if (ids.length) await tx.invoiceLine.updateMany({ where: { id: { in: ids }, invoiceId: quoteId, isOptional: true }, data: { optionalAccepted: value } });
+  }
+  if (![...accepted.values()].some(Boolean)) return;
+  const [quote, lines] = await Promise.all([
+    tx.invoice.findUniqueOrThrow({ where: { id: quoteId }, select: { discountType: true, discountValue: true } }),
+    tx.invoiceLine.findMany({ where: { invoiceId: quoteId, optionId: option?.id ?? null }, orderBy: { position: "asc" } }),
+  ]);
+  const discount = option ?? quote;
+  const totals = computeLineTotals(
+    lines.map((l) => ({ ...l, quantity: Number(l.quantity) })),
+    { discountType: discount.discountType, discountValue: discount.discountValue },
+  );
+  const data = { subtotalCents: totals.subtotalCents, totalCents: totals.totalCents };
+  if (option) await tx.quoteOption.update({ where: { id: option.id }, data });
+  await tx.invoice.update({ where: { id: quoteId }, data });
+}
+
+/**
  * Acceptation d'un devis par le client depuis le portail de suivi.
  * Le nom saisi vaut bon pour accord. La facture reste à émettre par le dirigeant.
  */
@@ -548,6 +582,8 @@ export async function acceptQuoteByClient(
     expressExecution?: boolean;
     /** Devis à propositions : la proposition retenue (obligatoire). */
     optionId?: string | null;
+    /** Lignes en option de la formule signée : un choix explicite pour chacune (obligatoire s'il y en a). */
+    optionalLines?: OptionalChoice[] | null;
   } = {},
 ) {
   const options = await prisma.quoteOption.findMany({ where: { quoteId }, orderBy: { position: "asc" } });
@@ -565,12 +601,35 @@ export async function acceptQuoteByClient(
       billingMode: true,
       totalCents: true,
       depositBaseCents: true,
-      lines: { select: { id: true, optionId: true, isSubscription: true, subscriptionStart: true, subscriptionStartDate: true, subscriptionFreeMonths: true } },
+      lines: {
+        orderBy: { position: "asc" },
+        select: {
+          id: true,
+          optionId: true,
+          isSubscription: true,
+          subscriptionStart: true,
+          subscriptionStartDate: true,
+          subscriptionFreeMonths: true,
+          isOptional: true,
+          description: true,
+          unitPriceCents: true,
+          billingInterval: true,
+          commitmentMonths: true,
+        },
+      },
       client: { select: { type: true } },
     },
   });
   // Devis à propositions : la proposition retenue tient lieu de devis (offre, mode, base, lignes).
   if (option) Object.assign(pending, quoteFieldsOfOption(option), { lines: pending.lines.filter((l) => l.optionId === option.id) });
+  // Options de la formule signée (28/10/2026) : un choix explicite pour chacune, vérifié avant toute écriture.
+  const optionalLines = pending.lines.filter((l) => l.isOptional);
+  const choiceError = optionalChoicesError(optionalLines.map((l) => l.id), audit.optionalLines);
+  if (choiceError === "INVALID") throw new QuoteDecisionError("Ce choix d'option ne correspond pas à la formule signée.", "OPTIONAL_CHOICE_INVALID");
+  if (choiceError === "REQUIRED") throw new QuoteDecisionError("Indiquez si l'option proposée est retenue ou non.", "OPTIONAL_CHOICE_REQUIRED");
+  const optionChoices = new Map((audit.optionalLines ?? []).map((c) => [c.id, c.accepted]));
+  // Option non retenue : ni facturée ni activée ; option retenue : un abonnement de plus, au départ « à la livraison ».
+  pending.lines = pending.lines.filter((l) => !l.isOptional || optionChoices.get(l.id) === true);
   const offer = parsePaymentPlanOffer(pending.paymentPlanOffer);
   // Devis mixte : l'abonnement démarre à la livraison (projet terminé), pas à la signature.
   const deferSubscription = isDeferredSubscriptionQuote(pending);
@@ -612,6 +671,7 @@ export async function acceptQuoteByClient(
     if (option && parsePaymentPlanOffer(option.paymentPlanOffer) === "NONE") {
       await tx.paymentMilestone.deleteMany({ where: { quoteId, status: MilestoneStatus.PENDING } });
     }
+    if (optionalLines.length) await recordOptionalChoices(tx, quoteId, option, optionChoices);
     const result = await tx.invoice.update({
       where: { id: quoteId },
       data: {
@@ -660,6 +720,14 @@ export async function acceptQuoteByClient(
       paymentPlan: plan,
       terms,
       option: option ? { id: option.id, label: `${proposalLetter(option)} : ${option.label}`, totalCents: option.totalCents } : null,
+      optionalChoices: optionalLines.map((l) => ({
+        lineId: l.id,
+        description: l.description,
+        amountCents: l.unitPriceCents,
+        interval: l.billingInterval ?? "YEAR",
+        commitmentMonths: l.commitmentMonths,
+        accepted: optionChoices.get(l.id) === true,
+      })),
     });
     return { result, subscriptionIds: subs.subscriptionIds, createdIds: subs.createdIds, buyout, acceptance };
   });
@@ -768,6 +836,7 @@ export async function acceptQuoteFromThread(
     actor: QuoteAcceptanceActor;
     paymentPlan?: PaymentPlan;
     optionId?: string | null;
+    optionalLines?: OptionalChoice[] | null;
   },
 ) {
   const thread = await prisma.emailThread.findUnique({
@@ -795,6 +864,7 @@ export async function acceptQuoteFromThread(
     actor: opts.actor,
     paymentPlan: opts.paymentPlan,
     optionId: opts.optionId,
+    optionalLines: opts.optionalLines,
   });
 }
 

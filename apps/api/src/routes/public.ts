@@ -8,7 +8,7 @@ import { z } from "zod";
 import { InvoiceDocumentType, InvoiceStatus } from "@prisma/client";
 import { prisma } from "@/lib/prisma.js";
 import { loadDocumentForPdf, pdfDataOfLoaded } from "@/lib/pdf/document-pdf.js";
-import { isBillableLine, proposalLetter, quoteFieldsOfOption } from "@/lib/quotes/quote-options.js";
+import { isBillableLine, optionalChoicesError, optionalLinesSchema, proposalLetter, quoteFieldsOfOption } from "@/lib/quotes/quote-options.js";
 import { getCompanySettings } from "@/lib/company.js";
 import { buildPayUrl } from "@/lib/stripe/pay-urls.js";
 import { billedWithDocument, depositBaseOf } from "@/lib/invoices/totals.js";
@@ -172,6 +172,12 @@ const signatureImageSchema = z
   .max(300_000)
   .regex(/^data:image\/png;base64,[A-Za-z0-9+/]+=*$/);
 
+/** Choix d'option manquant ou étranger à la formule signée (28/10/2026) : codes du contrat /suivi. */
+const OPTIONAL_CHOICE_ERRORS = {
+  REQUIRED: { error: "Indiquez si l'option proposée est retenue ou non.", code: "optional_choice_required" },
+  INVALID: { error: "Ce choix d'option ne correspond pas à la formule signée.", code: "optional_choice_invalid" },
+} as const;
+
 const quoteDecisionSchema = z.discriminatedUnion("decision", [
   z.object({
     decision: z.literal("ACCEPT"),
@@ -185,6 +191,8 @@ const quoteDecisionSchema = z.discriminatedUnion("decision", [
     paymentPlan: z.enum(["TWO", "THREE"]).optional(),
     /** Devis à propositions : la proposition retenue (obligatoire). */
     optionId: z.string().min(1).max(64).optional(),
+    /** Lignes en option de la formule signée : un choix explicite pour chacune (obligatoire s'il y en a). */
+    optionalLines: optionalLinesSchema,
     /** CGV publiées : case cochée (true) et version lue, égale à la version en vigueur. */
     acceptCgv: z.literal(true).optional(),
     cgvVersion: z.string().trim().min(1).max(40).optional(),
@@ -1084,7 +1092,13 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
 
       const quote = await prisma.invoice.findUnique({
         where: { id: request.params.id },
-        select: { id: true, clientId: true, paymentPlanOffer: true, options: { select: { id: true, paymentPlanOffer: true } } },
+        select: {
+          id: true,
+          clientId: true,
+          paymentPlanOffer: true,
+          options: { select: { id: true, paymentPlanOffer: true } },
+          lines: { where: { isOptional: true }, select: { id: true, optionId: true } },
+        },
       });
       // Même réponse qu'un devis inexistant : le portail ne révèle pas les documents d'autrui.
       if (!quote || quote.clientId !== client.id) {
@@ -1109,6 +1123,10 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
         if ((quote.options.length && !option) || (!quote.options.length && data.optionId)) {
           return reply.code(400).send({ error: "Cette proposition n'existe pas sur ce devis.", code: "option_invalid" });
         }
+        // Option au choix (28/10/2026) : une réponse pour chaque ligne en option de la formule signée, avant le code.
+        const optionalIds = quote.lines.filter((l) => (option ? l.optionId === option.id : !l.optionId)).map((l) => l.id);
+        const choiceError = optionalChoicesError(optionalIds, data.optionalLines);
+        if (choiceError) return reply.code(400).send(OPTIONAL_CHOICE_ERRORS[choiceError]);
         // Formule, CGV et case vérifiées avant le code : un oubli ne consomme pas le code de signature.
         resolveAcceptedPlan(parsePaymentPlanOffer(option ? option.paymentPlanOffer : quote.paymentPlanOffer), data.paymentPlan, { requireChoice: true });
         const settings = await getCompanySettings();
@@ -1157,6 +1175,7 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
             },
             paymentPlan: data.paymentPlan,
             optionId: option?.id ?? null,
+            optionalLines: data.optionalLines,
             cgvAccepted: settings.cgvPublished && data.acceptCgv === true,
             expressExecution: data.expressExecution === true,
           },
@@ -1164,6 +1183,8 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
         return { quoteStatus: updated.quoteStatus, ...(await subscriptionSetupUrlOf(quote.id)) };
       } catch (e) {
         if (e instanceof QuoteDecisionError) {
+          if (e.code === "OPTIONAL_CHOICE_REQUIRED") return reply.code(400).send(OPTIONAL_CHOICE_ERRORS.REQUIRED);
+          if (e.code === "OPTIONAL_CHOICE_INVALID") return reply.code(400).send(OPTIONAL_CHOICE_ERRORS.INVALID);
           return reply.code(409).send({ error: e.message, code: e.code });
         }
         if (e instanceof PaymentPlanError) return reply.code(400).send({ error: e.message, code: e.code });

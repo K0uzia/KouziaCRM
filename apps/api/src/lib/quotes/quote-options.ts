@@ -1,4 +1,5 @@
 import type { Prisma, QuoteOption } from "@prisma/client";
+import { z } from "zod";
 
 /**
  * Devis à 2 propositions (P1 à P3, décisions du 25/10/2026). Les lignes de chaque proposition restent dans le devis émis
@@ -49,4 +50,20 @@ export function quoteFieldsOfOption(o: QuoteOption) {
     ...(o.depositBaseCents !== null ? { depositBaseCents: o.depositBaseCents } : {}),
     ...(o.paymentScheduleSnapshot ? { paymentScheduleSnapshot: o.paymentScheduleSnapshot } : {}),
   };
+}
+
+/** Choix du client sur une ligne en option (signature). */
+export type OptionalChoice = { id: string; accepted: boolean };
+export const optionalLinesSchema = z.array(z.object({ id: z.string().min(1).max(64), accepted: z.boolean() })).max(20).optional();
+
+/**
+ * Choix des options à la signature (28/10/2026) : une réponse explicite, et une seule, pour chaque ligne en option de la
+ * formule signée ; rien d'autre. Toutes sources (espace client, hors ligne, messagerie) : jamais de choix par défaut.
+ */
+export function optionalChoicesError(optionalLineIds: ReadonlyArray<string>, choices: ReadonlyArray<OptionalChoice> | null | undefined): "REQUIRED" | "INVALID" | null {
+  const given = choices ?? [];
+  const expected = new Set(optionalLineIds);
+  if (new Set(given.map((c) => c.id)).size !== given.length || given.some((c) => !expected.has(c.id))) return "INVALID";
+  if (optionalLineIds.some((id) => !given.some((c) => c.id === id))) return "REQUIRED";
+  return null;
 }

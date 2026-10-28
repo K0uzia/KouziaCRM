@@ -25,6 +25,7 @@ import {
   QuoteDecisionError,
 } from "@/lib/invoices/transitions.js";
 import { PaymentPlanError } from "@/lib/quotes/payment-plans.js";
+import { optionalLinesSchema } from "@/lib/quotes/quote-options.js";
 import { signedQuoteAbsolutePath } from "@/lib/invoices/acceptance-proof.js";
 import { WorkflowError } from "@/lib/invoices/workflow.js";
 import { applyPaymentLinkChoice, manualPaymentUrlSchema } from "@/lib/invoices/payment-link.js";
@@ -115,6 +116,7 @@ export const quotesMarketRoutes: FastifyPluginAsync = async (app) => {
         signerName: z.string().trim().min(2, "Nom du signataire requis").max(120),
         paymentPlan: z.enum(["TWO", "THREE"]).optional(),
         optionId: z.string().min(1).max(64).optional(),
+        optionalLines: optionalLinesSchema,
       })
       .safeParse(request.body);
     if (!parsed.success) {
@@ -126,11 +128,12 @@ export const quotesMarketRoutes: FastifyPluginAsync = async (app) => {
         actor: actorOf(request as { user?: { id: string; email: string } }),
         paymentPlan: parsed.data.paymentPlan,
         optionId: parsed.data.optionId,
+        optionalLines: parsed.data.optionalLines,
       });
       return { quoteStatus: quote.quoteStatus };
     } catch (e) {
-      // Proposition absente ou étrangère au devis : erreur de saisie (400), pas un conflit d'état.
-      if (e instanceof QuoteDecisionError) return reply.code(e.code.startsWith("OPTION_") ? 400 : 409).send({ error: e.message, code: e.code });
+      // Proposition ou choix d'option absent ou étranger au devis : erreur de saisie (400), pas un conflit d'état.
+      if (e instanceof QuoteDecisionError) return reply.code(e.code.startsWith("OPTION") ? 400 : 409).send({ error: e.message, code: e.code });
       if (e instanceof PaymentPlanError) return reply.code(400).send({ error: e.message, code: e.code });
       throw e;
     }
@@ -425,6 +428,7 @@ export const quotesMarketRoutes: FastifyPluginAsync = async (app) => {
         signerName: z.string().min(2).max(120),
         paymentPlan: z.enum(["TWO", "THREE"]).optional(),
         optionId: z.string().min(1).max(64).optional(),
+        optionalLines: optionalLinesSchema,
       });
       const parsed = schema.safeParse(request.body ?? {});
       if (!parsed.success) {
@@ -438,6 +442,7 @@ export const quotesMarketRoutes: FastifyPluginAsync = async (app) => {
           actor: actorOf(request),
           paymentPlan: parsed.data.paymentPlan,
           optionId: parsed.data.optionId,
+          optionalLines: parsed.data.optionalLines,
         });
         return {
           ok: true,
