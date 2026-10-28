@@ -66,6 +66,20 @@ describe("POST /api/public/clients : particuliers refusés", () => {
     expect(await prisma.client.findFirstOrThrow()).toMatchObject({ type: "B2B", displayName: "Atelier Exemple" });
   });
 
+  it("aperçu : type existant null pour un particulier (le site fait choisir pro ou association), pro et association inchangés", async () => {
+    const types = ["B2C", "B2B", "ASSOCIATION"] as const;
+    const seen: Record<string, unknown> = {};
+    for (const type of types) {
+      const existing = await prisma.client.create({ data: { type, displayName: `Fiche ${type}`, lastName: "Dupont", companyName: type === "B2C" ? null : `Fiche ${type}` } });
+      const { token } = await invite(`${type.toLowerCase()}@example.com`, existing.id);
+      const res = await app.inject({ method: "GET", url: `/api/public/clients/preview?token=${encodeURIComponent(token)}` });
+      expect(res.statusCode).toBe(200);
+      seen[type] = res.json().existingType;
+      expect(await prisma.client.findUniqueOrThrow({ where: { id: existing.id } })).toEqual(existing);
+    }
+    expect(seen).toEqual({ B2C: null, B2B: "B2B", ASSOCIATION: "ASSOCIATION" });
+  });
+
   it("association : toujours acceptée", async () => {
     const { token } = await invite("tresorier@asso.example");
     const res = await send(token, { type: "ASSOCIATION", companyName: "Les Amis du Moulin" });

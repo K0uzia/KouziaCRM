@@ -158,6 +158,14 @@ async function brandName(): Promise<string | null> {
   }
 }
 
+/**
+ * Type montré au formulaire public : null pour un particulier (décision du 27/10/2026, le site ne propose plus que pro
+ * ou association et un envoi en particulier est refusé). La fiche en base garde son type.
+ */
+function publicExistingType(type: ClientTypeValue | null | undefined): ClientTypeValue | null {
+  return type && type !== "B2C" ? type : null;
+}
+
 /** Preview pour le formulaire public Kouzia (token HMAC). */
 export async function getPublicClientPreview(
   token: string,
@@ -181,7 +189,7 @@ export async function getPublicClientPreview(
   return {
     emailMasked: maskEmail(invitationEmail(invitation)),
     existingClientId: invitation.existingClientId,
-    existingType: invitation.existingClient?.type ?? null,
+    existingType: publicExistingType(invitation.existingClient?.type),
     displayName: invitation.existingClient?.displayName ?? null,
     completedAt: invitation.usedAt,
     brandName: await brandName(),
@@ -199,7 +207,7 @@ export async function getOnboardingView(token: string): Promise<OnboardingView |
     return {
       emailMasked: maskEmail(invitationEmail(invitation)),
       existingClientId: invitation.existingClientId,
-      existingType: invitation.existingClient?.type ?? null,
+      existingType: publicExistingType(invitation.existingClient?.type),
       displayName: invitation.existingClient?.displayName ?? null,
       completedAt: invitation.usedAt,
       brandName: await brandName(),
@@ -209,7 +217,7 @@ export async function getOnboardingView(token: string): Promise<OnboardingView |
   return {
     emailMasked: maskEmail(invitationEmail(invitation)),
     existingClientId: invitation.existingClientId,
-    existingType: invitation.existingClient?.type ?? null,
+    existingType: publicExistingType(invitation.existingClient?.type),
     displayName: invitation.existingClient?.displayName ?? null,
     completedAt: null,
     brandName: await brandName(),
