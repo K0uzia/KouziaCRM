@@ -114,6 +114,9 @@ elif [[ -r "$KOUZIA_PASSPHRASE_FILE" && "$(ops_state_get keys-exported-fp)" != "
 else
   echo "  Clés de secours : exportées le ${EXPORTED_AT}"
 fi
+if [[ "$(ops_state_get audit-enabled)" == "1" ]]; then
+  echo "  Accès d'audit : ouvert depuis $(ops_state_get audit-since) (kouziactl audit status, audit off pour le couper)"
+fi
 echo ""
 
 echo "${C_BOLD}Dernière update${C_RESET}"

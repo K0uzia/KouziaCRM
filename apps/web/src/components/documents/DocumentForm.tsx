@@ -31,6 +31,7 @@ import {
   type BillingInterval,
 } from "@/lib/billing-interval";
 import { commitmentTotalCents, equalInstallments, installments, modePlansShown, oneOffMeans, orList, PERIOD_WORD, periodAmountCents, plansShown, subscriptionMeans, type PaymentSettings } from "@/lib/payment-summary";
+import { oneOffOffer } from "@/lib/maintenance-offers";
 import { BillingModeChoice, DEFAULT_RECURRING, discountPayload, type PromoOption, OneOffSchedule, RecurringRecap, RecurringSettings, type BillingMode, type RecurringForm } from "@/components/documents/billing-mode-blocks";
 
 export type DocLine = {
@@ -508,6 +509,12 @@ export function DocumentFormEditor({
             dropped.push(l.description.split(" : ")[0]!);
             continue;
           }
+          const offer = svc ? oneOffOffer(svc, services) : undefined;
+          if (offer && offer !== svc) {
+            out.push(optionalLine({ ...l, serviceId: offer.id, description: offer.description ? `${offer.name} : ${offer.description}` : offer.name }, annualOfService(offer, "YEAR")));
+            optional.push(offer.name);
+            continue;
+          }
           out.push(optionalLine(l, annualCents));
           optional.push(svc?.name ?? l.description.split(" : ")[0]!);
           continue;
@@ -573,14 +580,16 @@ export function DocumentFormEditor({
         return;
       }
       if (svc.isSubscription && quoteMode === "ONE_OFF") {
-        // Paiement unique : un abonnement entre en option, au choix du client à la signature (28/10/2026).
+        // Paiement unique : un abonnement entre en option, au choix du client à la signature (28/10/2026) ; la
+        // maintenance pack y devient la maintenance vendue seule.
+        const offer = oneOffOffer(svc, services);
         placeLine(
           optionalLine(
-            { serviceId, description: svc.description ? `${svc.name} : ${svc.description}` : svc.name, quantity: "1", billingDay: String(clients.find((c) => c.id === form.clientId)?.billingDay ?? svc.defaultBillingDay ?? 1) },
-            annualOfService(svc, "YEAR"),
+            { serviceId: offer.id, description: offer.description ? `${offer.name} : ${offer.description}` : offer.name, quantity: "1", billingDay: String(clients.find((c) => c.id === form.clientId)?.billingDay ?? offer.defaultBillingDay ?? 1) },
+            annualOfService(offer, "YEAR"),
           ),
         );
-        toast.info(`« ${svc.name} » ajouté en option : le client la retient ou non à la signature.`);
+        toast.info(`« ${offer.name} » ajouté en option : le client la retient ou non à la signature.`);
         return;
       }
       if (!svc.isSubscription && quoteMode === "RECURRING") {
