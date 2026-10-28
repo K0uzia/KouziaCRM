@@ -97,6 +97,7 @@ import {
 import { isValidSiren, isValidSiret } from "@kouzia/forms";
 import { listPortalProjects } from "@/lib/projects/service.js";
 import { reviewInviteEligible } from "@/lib/projects/review-invite.js";
+import { isAllowedPaymentUrl } from "@/lib/invoices/payment-link.js";
 import { linePeriodsWithinCommitment, publicStart, quoteBillingDayOf, quoteSignedAtOf, type StartLine } from "@/lib/subscriptions/start.js";
 import { normalizeInterval } from "@/lib/subscriptions/subscription-service.js";
 import {
@@ -279,19 +280,11 @@ function flaggedStepLabel(steps: string | null | undefined): string | null {
 const SESSION_EXPIRED = { error: "Session expirée : reconnectez-vous." };
 
 /**
- * Lien de paiement d'une facture montré dans /suivi : https seulement (lien collé à la main compris) ; en dev, l'API
- * locale sert ses liens en http sur localhost, acceptés hors production pour pouvoir tester.
+ * Lien de paiement montré dans /suivi (facture ou échéance) : Stripe ou l'ERP seulement (décision du 27/10/2026, même
+ * liste que l'enregistrement, isAllowedPaymentUrl). Un lien collé à la main avant cette règle n'est plus renvoyé.
  */
 function safePayUrl(url: string | null): string | null {
-  if (!url) return null;
-  try {
-    const u = new URL(url);
-    if (u.protocol === "https:") return url;
-    const local = u.hostname === "localhost" || u.hostname === "127.0.0.1";
-    return u.protocol === "http:" && local && process.env.NODE_ENV !== "production" ? url : null;
-  } catch {
-    return null;
-  }
+  return url && isAllowedPaymentUrl(url) ? url : null;
 }
 
 /** IBAN groupé par 4, comme sur le PDF de la facture. */
@@ -899,7 +892,7 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
                       ? { paymentProcessing: { since: m.paymentProcessingAt.toISOString(), method: m.paymentProcessingMethod ?? "sepa_debit" } }
                       : {}),
                     checkoutUrl:
-                      m.checkoutUrl &&
+                      safePayUrl(m.checkoutUrl) &&
                       !m.paymentProcessingAt &&
                       m.status !== "PAID" &&
                       m.status !== "CANCELLED" &&

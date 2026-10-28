@@ -83,9 +83,10 @@ async function documents() {
 }
 
 describe("/suivi : payer une facture (ajout du 19/10/2026)", () => {
-  it("facture émise avec lien : checkoutUrl, milestoneId, virement en secours ; lien de l'ERP : moyen principal « sepa_debit »", async () => {
+  it("facture émise avec lien : checkoutUrl Stripe ou ERP seulement, milestoneId, virement en secours ; lien de l'ERP : moyen principal « sepa_debit »", async () => {
     const c = await createClient({ displayName: "Lou Martin" });
     await prisma.client.update({ where: { id: c.id }, data: { emailEncrypted: encrypt(EMAIL), emailHash: computeEmailHash(EMAIL) } });
+    // Lien collé hors Stripe et hors ERP (avant la règle du 27/10/2026) : plus jamais renvoyé à /suivi (audit du 28/10/2026).
     const pasted = await invoice(c.id, { checkoutUrl: "https://pay.example.test/lien-colle" });
     const erp = await invoice(c.id);
     // Lien signé avec une échéance à la seconde : comparé à la valeur enregistrée, pas recalculé.
@@ -94,8 +95,8 @@ describe("/suivi : payer une facture (ajout du 19/10/2026)", () => {
 
     const docs = await documents();
     const a = docs.find((d) => d.id === pasted.id)!;
+    expect(a.checkoutUrl ?? null).toBeNull();
     expect(a).toMatchObject({
-      checkoutUrl: "https://pay.example.test/lien-colle",
       milestoneId: null,
       bankTransfer: { reference: pasted.number, iban: "FR76 3000 6000 0112 3456 7890 189", bic: "AGRIFRPP", accountHolder: "Kouzia EI" },
     });
@@ -142,14 +143,14 @@ describe("/suivi : payer une facture (ajout du 19/10/2026)", () => {
         milestones: {
           create: [
             { position: 1, label: "Acompte", percentBps: 3000, amountCents: 30_000, triggerText: "À la signature", status: "DUE", checkoutUrl: "https://pay.example.test/acompte", paymentProcessingAt: since, paymentProcessingMethod: "sepa_debit" },
-            { position: 2, label: "Solde", percentBps: 7000, amountCents: 70_000, triggerText: "À la livraison", status: "DUE", checkoutUrl: "https://pay.example.test/solde" },
+            { position: 2, label: "Solde", percentBps: 7000, amountCents: 70_000, triggerText: "À la livraison", status: "DUE", checkoutUrl: "https://checkout.stripe.com/c/pay/solde" },
           ],
         },
       },
     });
     const milestones = (await documents()).find((d) => d.id === quote.id)!.milestones as Array<Record<string, unknown>>;
     expect(milestones[0]).toMatchObject({ checkoutUrl: null, paymentProcessing: { since: since.toISOString(), method: "sepa_debit" } });
-    expect(milestones[1]).toMatchObject({ checkoutUrl: "https://pay.example.test/solde" });
+    expect(milestones[1]).toMatchObject({ checkoutUrl: "https://checkout.stripe.com/c/pay/solde" });
     expect("paymentProcessing" in milestones[1]!).toBe(false);
   });
 
