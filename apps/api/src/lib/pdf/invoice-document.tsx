@@ -423,7 +423,22 @@ export type InvoicePdfData = {
       /** Pack : titre sous lequel la ligne est groupée ; ligne de remise du pack. */
       groupTitle?: string | null;
       isPackDiscount?: boolean;
+      /** Option retenue à la signature : son engagement court depuis la livraison. */
+      isOption?: boolean;
     }>;
+    /** Devis avec mode : « Compris dans l'abonnement » ou « Non compris », figés à l'émission. */
+    scope?: { included: string[]; excluded: string[] } | null;
+    /** Devis en paiement unique : abonnement annuel proposé en option, au choix du client à la signature. */
+    optionalOffers?: {
+      withoutOptionCents: number;
+      offers: Array<{
+        label: string;
+        amountCents: number;
+        commitmentMonths: number;
+        totalCommitmentCents: number;
+        status: "PENDING" | "ACCEPTED" | "DECLINED";
+      }>;
+    } | null;
     legalClauses?: Array<{ title: string; body: string }>;
     /** Devis à propositions (P2) : corps de chaque proposition (lignes, totaux, abonnement, échéancier), dans l'ordre. */
     proposals?: Array<{ heading: string; invoice: InvoicePdfData["invoice"] }> | null;
@@ -451,6 +466,62 @@ function settlementOf(invoice: PdfInvoice) {
   return { creditedCents, paidCents, dueCents, showSettlement, settled, lastPaidAt };
 }
 
+/** Compris dans l'abonnement, ou non compris en paiement unique (décisions du 28/10/2026). */
+function ScopeLists({ scope, styles }: { scope: NonNullable<PdfInvoice["scope"]>; styles: ReturnType<typeof createStyles> }) {
+  const lists = [
+    { title: "Compris dans l'abonnement", items: scope.included },
+    { title: "Non compris", items: scope.excluded },
+  ].filter((l) => l.items.length);
+  return (
+    <>
+      {lists.map((l) => (
+        <Readable key={l.title} as="section" heading>
+        <View style={{ marginBottom: 8 }} wrap={false}>
+          <Text style={styles.h2}>{l.title}</Text>
+          {l.items.map((item, i) => (
+            <Readable key={i} as="item">
+            <Text style={[styles.muted, { marginTop: i ? 2 : 0 }]}>{item}</Text>
+            </Readable>
+          ))}
+        </View>
+        </Readable>
+      ))}
+    </>
+  );
+}
+
+/**
+ * Option au choix (28/10/2026). Avant la signature : prix, engagement compté depuis la livraison, total sans et avec
+ * l'option. Après : option retenue ou non retenue.
+ */
+function OptionalOffers({ options, styles }: { options: NonNullable<PdfInvoice["optionalOffers"]>; styles: ReturnType<typeof createStyles> }) {
+  const pending = options.offers.every((o) => o.status === "PENDING");
+  const terms = (o: (typeof options.offers)[number]) =>
+    `${o.label}, ${fmtMoney(o.amountCents)} par an, engagement ${o.commitmentMonths} mois à partir de la livraison`;
+  return (
+    <Readable as="section" heading>
+    <View style={[styles.box, styles.section]} wrap={false}>
+      <Text style={styles.h2}>{pending ? "Option au choix à la signature" : options.offers.length > 1 ? "Options" : "Option"}</Text>
+      {options.offers.map((o, i) =>
+        pending ? (
+          <View key={i} style={{ marginTop: i ? 6 : 0 }}>
+            <Text>{`${terms(o)}.`}</Text>
+            <Text style={[styles.muted, { marginTop: 2 }]}>{`Total sans l'option : ${fmtMoney(options.withoutOptionCents)}`}</Text>
+            <Text style={styles.muted}>
+              {`Avec l'option : ${fmtMoney(options.withoutOptionCents)} + ${fmtMoney(o.amountCents)} par an (soit ${fmtMoney(o.totalCommitmentCents)} sur ${o.commitmentMonths} mois)`}
+            </Text>
+          </View>
+        ) : (
+          <Text key={i} style={{ marginTop: i ? 4 : 0 }}>
+            {o.status === "ACCEPTED" ? `Option retenue : ${terms(o)}.` : o.status === "DECLINED" ? `Option non retenue : ${o.label}.` : `Option au choix : ${terms(o)}.`}
+          </Text>
+        ),
+      )}
+    </View>
+    </Readable>
+  );
+}
+
 /**
  * Corps d'un document : lignes, totaux, encadré d'abonnement et échéancier. Une fois pour un document, une fois par
  * proposition pour un devis à propositions (chacune a son mode, ses prestations, sa remise et son échéancier).
@@ -474,6 +545,7 @@ function DocumentBody({ company, invoice, styles }: { company: PdfCompanySetting
   const hasDiscount = invoice.discountType && invoice.discountType !== "NONE" && invoice.subtotalCents !== invoice.totalCents;
   return (
     <>
+        {isQuote && invoice.scope ? <ScopeLists scope={invoice.scope} styles={styles} /> : null}
         <Readable as="table">
         <View style={styles.table}>
           <Readable as="headRow">
@@ -732,6 +804,8 @@ function DocumentBody({ company, invoice, styles }: { company: PdfCompanySetting
         </View>
         </Readable>
 
+        {isQuote && invoice.optionalOffers ? <OptionalOffers options={invoice.optionalOffers} styles={styles} /> : null}
+
         {/* Devis récurrent : l'encadré ne porte que la clause (pack et facturation sont déjà dans le tableau et sous le
             total) ; sans clause, pas d'encadré. */}
         {invoice.lines.some((l) => l.isSubscription) && (!invoice.recurringSummary || recurringClauses.length > 0) ? (
@@ -765,7 +839,7 @@ function DocumentBody({ company, invoice, styles }: { company: PdfCompanySetting
                       : invoice.subscriptionFromDelivery
                         ? "1re échéance facturée à partir de la livraison, hors acompte et échéancier."
                         : "Le total de ce document inclut la 1re échéance ; les échéances suivantes feront l'objet de factures séparées."
-                  }${l.commitmentMonths ? ` Engagement de ${l.commitmentMonths} mois à compter de la signature du devis.` : ""}`}
+                  }${l.commitmentMonths ? ` Engagement de ${l.commitmentMonths} mois à compter de ${l.isOption ? "la livraison" : "la signature du devis"}.` : ""}`}
                 </Text>
               ))}
             {(["MONTH", "QUARTER", "YEAR"] as const)

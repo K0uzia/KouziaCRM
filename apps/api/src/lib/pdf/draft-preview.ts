@@ -3,7 +3,8 @@ import { NO_RECURRING_DISCOUNT, type RecurringDiscountFields } from "@/lib/quote
 import { prisma } from "@/lib/prisma.js";
 import { decryptOptional } from "@/lib/crypto.js";
 import { getCompanySettings } from "@/lib/company.js";
-import { computeDepositBaseCents, type computeLineTotals } from "@/lib/invoices/totals.js";
+import { computeDepositBaseCents, isCommittedLine, type computeLineTotals } from "@/lib/invoices/totals.js";
+import { buildQuoteScope } from "@/lib/quotes/scope.js";
 import { computeMilestoneAmounts } from "@/lib/quotes/milestones.js";
 import {
   effectiveOffer,
@@ -94,12 +95,16 @@ export async function renderDraftPreviewPdf(input: DraftPreviewInput, now = new 
   const isQuote = input.documentType === "QUOTE";
   const { lines, subtotalCents, totalCents, discountType, discountValue } = input.totals;
   // Comme issueQuote : base de l'acompte, offre figée (seuil du 3 fois) et jalons de la formule initiale.
-  const depositBaseCents = isQuote ? computeDepositBaseCents(lines, subtotalCents, totalCents) : null;
+  const committed = lines.filter(isCommittedLine);
+  const depositBaseCents = isQuote ? computeDepositBaseCents(committed, subtotalCents, totalCents) : null;
   const mode = isQuote ? input.billingMode : null;
+  // Compris et non compris tels qu'ils seraient figés à l'émission.
+  const scopeOf = (m: BillingMode | null, ls: ReadonlyArray<{ serviceId?: string | null }>) =>
+    buildQuoteScope(m, ls, { clauses, clientType: client.type, company: settings });
   const offer: PaymentPlanOffer | null = isQuote
     ? mode === "RECURRING"
       ? "NONE"
-      : isSubscriptionOnly(lines)
+      : isSubscriptionOnly(committed)
       ? "NONE"
       : effectiveOffer(input.paymentPlanOffer ?? (settings.paymentChoiceDefault ? "CHOICE" : "TWO"), depositBaseCents ?? 0, settings)
     : null;
@@ -150,6 +155,7 @@ export async function renderDraftPreviewPdf(input: DraftPreviewInput, now = new 
     milestones,
     payments: [],
     quoteAcceptanceAudits: [],
+    scopeSnapshot: isQuote ? await scopeOf(mode, lines) : null,
     lines,
   } as unknown as Invoice & BuildPdfPayloadInput["invoice"];
 
@@ -162,7 +168,8 @@ export async function renderDraftPreviewPdf(input: DraftPreviewInput, now = new 
       depositBaseCents: null,
       milestones: [],
       lines: optionLines,
-      options: input.options.map((o, i) => ({
+      scopeSnapshot: null,
+      options: await Promise.all(input.options.map(async (o, i) => ({
         id: `apercu-${i}`,
         position: i,
         label: o.label,
@@ -177,7 +184,8 @@ export async function renderDraftPreviewPdf(input: DraftPreviewInput, now = new 
         totalCents: o.totals.totalCents,
         depositBaseCents: null,
         paymentScheduleSnapshot: null,
-      })),
+        scopeSnapshot: await scopeOf(o.billingMode, o.totals.lines),
+      }))),
     });
   }
 

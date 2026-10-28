@@ -26,8 +26,9 @@ import {
 import { startFromPhrase, startPhrase } from "@/lib/subscriptions/start.js";
 import { recurringDiscountSummary } from "@/lib/quotes/recurring-discount.js";
 import { normalizeInterval, periodMonths } from "@/lib/subscriptions/subscription-service.js";
-import { billedWithDocument, computeDepositBaseCents } from "@/lib/invoices/totals.js";
+import { billedWithDocument, computeDepositBaseCents, isCommittedLine } from "@/lib/invoices/totals.js";
 import { proposalTitle } from "@/lib/quotes/quote-options.js";
+import { readScope } from "@/lib/quotes/scope.js";
 
 type InvoiceWithRelations = Invoice & {
   lines: InvoiceLine[];
@@ -118,9 +119,13 @@ export function buildInvoicePdfPayload({
         : null;
   const retained = parsePaymentPlan(invoice.paymentPlan);
   const isQuote = invoice.documentType === "QUOTE";
+  // Option au choix (28/10/2026) : en attente ou non retenue, hors du tableau et des totaux, dans son propre bloc.
+  const committedLines = invoice.lines.filter(isCommittedLine);
+  const optionalLines = isQuote ? invoice.lines.filter((l) => l.isOptional) : [];
   const fromDelivery = Boolean(
-    isQuote && offer !== "NONE" && invoice.depositBaseCents !== null && invoice.lines.some((l) => l.isSubscription),
+    isQuote && offer !== "NONE" && invoice.depositBaseCents !== null && committedLines.some((l) => l.isSubscription),
   );
+  const scope = isQuote ? readScope(invoice.scopeSnapshot) : null;
   return {
     number: invoice.number ?? "",
     documentType: invoice.documentType as "INVOICE" | "CREDIT_NOTE" | "QUOTE",
@@ -161,7 +166,7 @@ export function buildInvoicePdfPayload({
           }))
         : null,
     paymentPlanRetained: isQuote && offer && retained ? PLAN_TITLE[retained] : null,
-    subscriptionOnly: isQuote && (offer === "NONE" || isSubscriptionOnly(invoice.lines)),
+    subscriptionOnly: isQuote && (offer === "NONE" || isSubscriptionOnly(committedLines)),
     // Devis mixte : l'abonnement démarre à la livraison, hors échéancier.
     subscriptionFromDelivery: fromDelivery,
     // Devis mixte : total du projet (partie ponctuelle remisée, base de l'acompte) et abonnements à part.
@@ -169,8 +174,8 @@ export function buildInvoicePdfPayload({
     recurringSummary: isQuote && parseBillingMode(invoice.billingMode) === "RECURRING" ? recurringSummaryOf(invoice) : null,
     mixedTotals: fromDelivery && parseBillingMode(invoice.billingMode) !== "RECURRING"
       ? (() => {
-          const oneOffCents = invoice.lines.filter((l) => !l.isSubscription).reduce((s, l) => s + l.lineTotalCents, 0);
-          const subs = invoice.lines.filter((l) => l.isSubscription);
+          const oneOffCents = committedLines.filter((l) => !l.isSubscription).reduce((s, l) => s + l.lineTotalCents, 0);
+          const subs = committedLines.filter((l) => l.isSubscription);
           const sum = (iv: "YEAR" | "MONTH") =>
             subs.filter((l) => (l.billingInterval === "YEAR" ? "YEAR" : "MONTH") === iv).reduce((s, l) => s + l.unitPriceCents, 0);
           return {
@@ -209,8 +214,10 @@ export function buildInvoicePdfPayload({
       status: invoice.status === "PAID" ? "Payé" : "Enregistré",
     })),
     // Abonnement à 1re facture repoussée : hors du tableau et du total, seulement dans l'engagement d'abonnement.
-    lines: invoice.lines.map((l) => ({
+    lines: committedLines.map((l) => ({
       inTotal: billedWithDocument(l),
+      // Option retenue à la signature : engagement compté depuis la livraison.
+      isOption: l.isOptional,
       description: l.description,
       quantity: Number(l.quantity),
       unitPriceCents: l.unitPriceCents,
@@ -248,6 +255,23 @@ export function buildInvoicePdfPayload({
     withdrawalTerms: isQuote ? clauseBody("WITHDRAWAL") : null,
     subscriptionDateNotice: isQuote && invoice.lines.some((l) => l.isSubscription) ? clauseBody("SUBSCRIPTION_BILLING_DATE") : null,
     cgv: isQuote ? cgvShown : null,
+    scope: scope && (scope.included.length || scope.excluded.length) ? { included: scope.included, excluded: scope.excluded } : null,
+    optionalOffers: optionalLines.length
+      ? {
+          // Totaux affichés avant la signature seulement : le total enregistré est sans l'option.
+          withoutOptionCents: invoice.totalCents,
+          offers: optionalLines.map((l) => {
+            const months = l.commitmentMonths ?? 12;
+            return {
+              label: l.description,
+              amountCents: l.unitPriceCents,
+              commitmentMonths: months,
+              totalCommitmentCents: Math.round((l.unitPriceCents * months) / 12),
+              status: l.optionalAccepted === true ? ("ACCEPTED" as const) : l.optionalAccepted === false ? ("DECLINED" as const) : ("PENDING" as const),
+            };
+          }),
+        }
+      : null,
     acceptance:
       invoice.quoteStatus === "ACCEPTED" && invoice.quoteSignerName && invoice.quoteDecidedAt
         ? acceptanceOf(
@@ -276,11 +300,12 @@ function proposalsOf(input: BuildPdfPayloadInput): Pick<InvoicePdfData["invoice"
     const lines = invoice.lines.filter((l) => l.optionId === o.id);
     const isSelected = selected?.id === o.id;
     const mode = parseBillingMode(o.billingMode);
-    const depositBaseCents = o.depositBaseCents ?? computeDepositBaseCents(lines, o.subtotalCents, o.totalCents);
+    const committed = lines.filter(isCommittedLine);
+    const depositBaseCents = o.depositBaseCents ?? computeDepositBaseCents(committed, o.subtotalCents, o.totalCents);
     const settings = planSettings ? planSettingsOf({ paymentScheduleSnapshot: o.paymentScheduleSnapshot ?? invoice.paymentScheduleSnapshot }, planSettings) : null;
     const raw = parsePaymentPlanOffer(o.paymentPlanOffer);
     const offer =
-      mode === "RECURRING" || isSubscriptionOnly(lines) ? "NONE" : settings ? effectiveOffer(raw ?? "TWO", depositBaseCents, settings) : raw;
+      mode === "RECURRING" || isSubscriptionOnly(committed) ? "NONE" : settings ? effectiveOffer(raw ?? "TWO", depositBaseCents, settings) : raw;
     const milestones = isSelected
       ? invoice.milestones
       : settings && offer && offer !== "NONE"
@@ -308,6 +333,7 @@ function proposalsOf(input: BuildPdfPayloadInput): Pick<InvoicePdfData["invoice"
       totalCents: o.totalCents,
       depositBaseCents,
       paymentScheduleSnapshot: o.paymentScheduleSnapshot ?? invoice.paymentScheduleSnapshot,
+      scopeSnapshot: o.scopeSnapshot ?? null,
       lines,
       milestones,
     } as InvoiceWithRelations;
