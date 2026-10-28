@@ -1547,6 +1547,8 @@ export const invoicesRoutes: FastifyPluginAsync = async (app) => {
     if (transition.after === InvoiceStatus.PAID && transition.before !== InvoiceStatus.PAID) {
       const { onInvoicePaidForProject } = await import("@/lib/projects/lifecycle.js");
       await onInvoicePaidForProject(id);
+      // Rachat d'un abonnement payé : l'abonnement prend fin (décision du 28/10/2026).
+      await (await import("@/lib/subscriptions/buyout.js")).applyPaidBuyoutsSafely();
     }
     let receipt: { sent: boolean; reason: string | null } | null = null;
     if (parsed.data.notifyClient !== false) {

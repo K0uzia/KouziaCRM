@@ -1,4 +1,4 @@
-import { InvoiceDocumentType, QuoteStatus, SubscriptionStatus, type Prisma } from "@prisma/client";
+import { InvoiceDocumentType, InvoiceStatus, QuoteStatus, SubscriptionStatus, type Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma.js";
 import { formatDateFr } from "@/lib/format-fr.js";
 import { lineTotalCents } from "@/lib/money.js";
@@ -215,32 +215,31 @@ export async function assertBuyoutService(
   if (target.isSubscription || target.isPack) throw new BuyoutError("La prestation de rachat est une prestation ponctuelle du catalogue, pas un abonnement ni un pack.");
 }
 
-/** Rappel de fin du premier engagement (R3) : prix de rachat à proposer, ou null (pas de prestation active, rachat signé). */
-export async function buyoutOfferPriceCents(subscriptionId: string): Promise<number | null> {
-  const sub = await prisma.subscription.findUnique({ where: { id: subscriptionId }, select: { service: { select: { buyoutServiceId: true } } } });
-  if (!sub?.service.buyoutServiceId) return null;
-  const service = await prisma.service.findUnique({ where: { id: sub.service.buyoutServiceId }, select: { active: true, unitPriceCents: true } });
-  if (!service?.active) return null;
-  const signed = await prisma.invoice.count({
-    where: { buysOutSubscriptionId: subscriptionId, documentType: InvoiceDocumentType.QUOTE, quoteStatus: QuoteStatus.ACCEPTED },
-  });
-  return signed ? null : service.unitPriceCents;
+/**
+ * Rappel de fin du premier engagement (R3) : prix de rachat annoncé, le même calcul que le devis de rachat créé ce jour
+ * (tarif plein du catalogue, plus les échéances restant à courir jusqu'à la fin de l'engagement, audit du 28/10/2026) ;
+ * null sans prestation active ou après un rachat signé.
+ */
+export async function buyoutOfferPriceCents(subscriptionId: string, now = new Date()): Promise<number | null> {
+  const state = await buyoutStateOf(subscriptionId, now);
+  if (!state?.service.active || state.signed) return null;
+  return state.service.unitPriceCents + (state.remaining ? lineTotalCents(state.remaining.count, state.remaining.unitPriceCents) : 0);
 }
 
 type Tx = Prisma.TransactionClient;
 export type BuyoutSignature = { subscriptionId: string; endDate: Date; stripe: { id: string; livemode: boolean | null } | null };
 
 /**
- * Signature d'un devis de rachat (R2, décision Q2) : l'abonnement prend fin à la fin de la période en cours, sans
- * nouvelle échéance (endDate au dernier instant de la période : ni facture, ni rappel ensuite). Une fin déjà plus
- * proche est gardée. Dans la transaction de la signature ; Stripe est prévenu après (finishBuyoutSignature).
+ * Signature d'un devis de rachat : vérifie seulement que la période n'a pas changé depuis le devis. L'abonnement ne
+ * s'arrête plus à la signature, mais au paiement du prix du rachat (décision d'Alexandre du 28/10/2026, CGV « Une fois
+ * le prix du rachat payé […] l'abonnement prend fin ») : applyPaidBuyouts. Renvoie toujours null (rien à finir).
  */
 export async function applyBuyoutSignature(tx: Tx, quoteId: string, now = new Date()): Promise<BuyoutSignature | null> {
   const quote = await tx.invoice.findUnique({ where: { id: quoteId }, select: { documentType: true, buysOutSubscriptionId: true, buyoutPeriodEndsAt: true } });
   if (quote?.documentType !== InvoiceDocumentType.QUOTE || !quote.buysOutSubscriptionId) return null;
   const sub = await tx.subscription.findUnique({
     where: { id: quote.buysOutSubscriptionId },
-    select: { id: true, status: true, endDate: true, nextInvoiceAt: true, billingInterval: true, commitmentEndsAt: true, stripeSubscriptionId: true, stripeLivemode: true },
+    select: { id: true, status: true, nextInvoiceAt: true, billingInterval: true },
   });
   if (!sub || sub.status === SubscriptionStatus.ENDED) return null;
   const periodEnd = currentPeriodEndOf(sub, now);
@@ -253,18 +252,71 @@ export async function applyBuyoutSignature(tx: Tx, quoteId: string, now = new Da
       "EXPIRED",
     );
   }
-  const lastInstant = new Date(periodEnd.getTime() - 1);
-  const endDate = sub.endDate && sub.endDate < lastInstant ? sub.endDate : lastInstant;
-  await tx.subscription.update({ where: { id: sub.id }, data: { endDate } });
-  return { subscriptionId: sub.id, endDate, stripe: sub.stripeSubscriptionId ? { id: sub.stripeSubscriptionId, livemode: sub.stripeLivemode } : null };
+  return null;
 }
 
-/** Après la signature : prélèvement Stripe arrêté à la fin de sa période. Un échec ne défait pas la signature : alerte. */
+/** Prix du rachat payé : le devis a des factures, toutes réglées, qui couvrent son total. */
+async function buyoutPricePaid(quote: { id: string; totalCents: number }): Promise<boolean> {
+  const invoices = await prisma.invoice.findMany({
+    where: { OR: [{ quoteId: quote.id }, { sourceQuoteId: quote.id }], documentType: InvoiceDocumentType.INVOICE, status: { not: InvoiceStatus.CANCELLED } },
+    select: { status: true, totalCents: true },
+  });
+  return invoices.length > 0 && invoices.every((i) => i.status === InvoiceStatus.PAID) && invoices.reduce((s, i) => s + i.totalCents, 0) >= quote.totalCents;
+}
+
+/**
+ * Rachat payé (décision du 28/10/2026) : l'abonnement prend fin à la fin de la période en cours au paiement, sans
+ * nouvelle échéance (endDate au dernier instant de la période), puis le prélèvement Stripe est arrêté à la fin de sa
+ * période (finishBuyoutSignature). Une fin déjà programmée est gardée. Appelé après chaque paiement et par le worker ;
+ * idempotent. Paiement venu après la fin de période figée sur le devis : une période de plus a pu être facturée, alerte.
+ * @returns nombre d'abonnements dont la fin vient d'être posée.
+ */
+export async function applyPaidBuyouts(now = new Date()): Promise<number> {
+  const quotes = await prisma.invoice.findMany({
+    where: { documentType: InvoiceDocumentType.QUOTE, quoteStatus: QuoteStatus.ACCEPTED, buysOutSubscriptionId: { not: null } },
+    select: { id: true, number: true, totalCents: true, buysOutSubscriptionId: true, buyoutPeriodEndsAt: true },
+  });
+  let applied = 0;
+  for (const q of quotes) {
+    const sub = await prisma.subscription.findUnique({
+      where: { id: q.buysOutSubscriptionId! },
+      select: { id: true, label: true, status: true, endDate: true, nextInvoiceAt: true, billingInterval: true, stripeSubscriptionId: true, stripeLivemode: true },
+    });
+    if (!sub || sub.status === SubscriptionStatus.ENDED || sub.endDate) continue;
+    if (!(await buyoutPricePaid(q))) continue;
+    const periodEnd = currentPeriodEndOf(sub, now);
+    const endDate = new Date(periodEnd.getTime() - 1);
+    const done = await prisma.subscription.updateMany({ where: { id: sub.id, endDate: null }, data: { endDate } });
+    if (done.count !== 1) continue;
+    applied += 1;
+    await finishBuyoutSignature({ subscriptionId: sub.id, endDate, stripe: sub.stripeSubscriptionId ? { id: sub.stripeSubscriptionId, livemode: sub.stripeLivemode } : null });
+    if (q.buyoutPeriodEndsAt && periodEnd.getTime() > q.buyoutPeriodEndsAt.getTime()) {
+      const { alertAdmin } = await import("@/lib/stripe/alert.js");
+      await alertAdmin(
+        `Rachat payé après la période prévue : « ${sub.label} »`,
+        `Le rachat (devis ${q.number ?? q.id}) est payé après le ${formatDateFr(q.buyoutPeriodEndsAt)}, fin de période prévue par le devis : l'abonnement prend fin le ${formatDateFr(periodEnd)}. ` +
+          "Une échéance a pu être facturée en plus des échéances restantes du devis : vérifiez et faites un avoir si besoin.",
+      ).catch(() => undefined);
+    }
+  }
+  return applied;
+}
+
+/** Après un paiement : applique un rachat devenu payé, sans jamais faire échouer l'enregistrement du paiement. */
+export async function applyPaidBuyoutsSafely(): Promise<void> {
+  try {
+    await applyPaidBuyouts();
+  } catch (err) {
+    console.error("[rachat] fin de l'abonnement après paiement du rachat non appliquée (reprise par le worker)", err);
+  }
+}
+
+/** Après le paiement du rachat : prélèvement Stripe arrêté à la fin de sa période. Un échec ne défait rien : alerte. */
 export async function finishBuyoutSignature(signature: BuyoutSignature | null): Promise<void> {
   if (!signature) return;
   // Avis de reconduction ou de fin de période encore en attente de validation : sans objet après un rachat.
   const { rejectObsoleteReviewEmails, SUBSCRIPTION_NOTICE_KINDS } = await import("@/lib/email/review.js");
-  await rejectObsoleteReviewEmails(signature.subscriptionId, SUBSCRIPTION_NOTICE_KINDS, "Rachat signé : avis d'abonnement sans objet.");
+  await rejectObsoleteReviewEmails(signature.subscriptionId, SUBSCRIPTION_NOTICE_KINDS, "Rachat payé : avis d'abonnement sans objet.");
   if (!signature.stripe) return;
   try {
     const { applyStripeSubscriptionAction } = await import("@/lib/stripe/subscription-control.js");
@@ -272,8 +324,8 @@ export async function finishBuyoutSignature(signature: BuyoutSignature | null): 
   } catch (err) {
     const { alertAdmin } = await import("@/lib/stripe/alert.js");
     await alertAdmin(
-      "Rachat signé : prélèvement Stripe à arrêter",
-      `Le devis de rachat est signé, mais Stripe n'a pas programmé la fin du prélèvement (${err instanceof Error ? err.message : "erreur inconnue"}). Programmez la fin à la fin de la période en cours dans Stripe, sinon le client sera prélevé de nouveau.`,
+      "Rachat payé : prélèvement Stripe à arrêter",
+      `Le rachat est payé, mais Stripe n'a pas programmé la fin du prélèvement (${err instanceof Error ? err.message : "erreur inconnue"}). Programmez la fin à la fin de la période en cours dans Stripe, sinon le client sera prélevé de nouveau.`,
     ).catch(() => undefined);
   }
 }

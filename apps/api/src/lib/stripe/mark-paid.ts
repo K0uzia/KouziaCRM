@@ -153,6 +153,8 @@ export async function markPaidFromOnlinePayment(
   if ("unattached" in result) {
     return recordUnattachedPayment(input, milestoneId, "la facture du paiement est introuvable dans l'ERP");
   }
+  // Rachat d'un abonnement payé : l'abonnement prend fin (décision du 28/10/2026).
+  if (!result.duplicate) await (await import("@/lib/subscriptions/buyout.js")).applyPaidBuyoutsSafely();
 
   if (!result.duplicate && overpaidCents > 0 && result.invoiceId) {
     // Trop-perçu (avoir émis pendant que le virement Stripe était en route) : à rembourser par un avoir.
@@ -304,6 +306,7 @@ export async function markInvoicePaidFromStripeBilling(opts: {
 
   const { sendPaymentReceipt } = await import("@/lib/email/payment-receipt.js");
   await sendPaymentReceipt(opts.erpInvoiceId, opts.amountCents, undefined, { review: { family: "payment_receipt", origin: "WEBHOOK" } });
+  await (await import("@/lib/subscriptions/buyout.js")).applyPaidBuyoutsSafely();
   return { duplicate: false };
 }
 

@@ -15,7 +15,7 @@ vi.mock("@/lib/stripe/subscription-control.js", async (orig) => ({
 }));
 
 const { buildApp } = await import("@/app.js");
-const { createBuyoutQuote, currentPeriodEndOf, closeBoughtOutSubscriptions, finishBuyoutSignature } = await import("@/lib/subscriptions/buyout.js");
+const { applyPaidBuyouts, createBuyoutQuote, currentPeriodEndOf, closeBoughtOutSubscriptions, finishBuyoutSignature } = await import("@/lib/subscriptions/buyout.js");
 const { issueQuote, acceptQuoteByClient, convertQuoteToInvoice } = await import("@/lib/invoices/transitions.js");
 const { generateDueSubscriptionInvoices } = await import("@/lib/subscriptions/subscription-service.js");
 const { generateMilestoneInvoice, generateBalanceInvoice } = await import("@/lib/invoices/documentFlowService.js");
@@ -76,10 +76,28 @@ async function issuedBuyoutQuote(extra: { stripeSubscriptionId?: string; endDate
   return { sub, quoteId: id, periodEnd: currentPeriodEndOf(sub) };
 }
 
-describe("rachat R2 : effet de la signature", () => {
-  it("signé : fin au dernier instant de la période en cours, jamais de nouvelle échéance, clôturé ensuite par le worker", async () => {
+/** Règle le prix du rachat (facture de l'échéancier, sinon facture issue de la conversion) puis applique le rachat payé. */
+async function payBuyout(quoteId: string) {
+  let inv = await prisma.invoice.findFirst({ where: { sourceQuoteId: quoteId, documentType: "INVOICE" } });
+  if (!inv) {
+    const milestone = await prisma.paymentMilestone.findFirstOrThrow({ where: { quoteId } });
+    await generateMilestoneInvoice(milestone.id).catch(() => generateBalanceInvoice(quoteId));
+    inv = await prisma.invoice.findFirstOrThrow({ where: { sourceQuoteId: quoteId, documentType: "INVOICE" } });
+  }
+  await prisma.payment.create({ data: { invoiceId: inv.id, amountCents: inv.totalCents, paidAt: new Date(), method: "BANK_TRANSFER" } });
+  await prisma.invoice.update({ where: { id: inv.id }, data: { status: "PAID" } });
+  return applyPaidBuyouts();
+}
+
+describe("rachat R2 : la signature ne coupe rien, le paiement du rachat met fin à l'abonnement (décision du 28/10/2026)", () => {
+  it("payé : fin au dernier instant de la période en cours, jamais de nouvelle échéance, clôturé ensuite par le worker", async () => {
     const { sub, quoteId, periodEnd } = await issuedBuyoutQuote();
     await acceptQuoteByClient(quoteId, "Lou Martin", { source: "ADMIN" });
+    // Signé, pas encore payé : l'abonnement continue.
+    expect((await prisma.subscription.findUniqueOrThrow({ where: { id: sub.id } })).endDate).toBeNull();
+    expect(await applyPaidBuyouts()).toBe(0);
+    expect(await payBuyout(quoteId)).toBe(1);
+    expect(await applyPaidBuyouts()).toBe(0);
     const after = await prisma.subscription.findUniqueOrThrow({ where: { id: sub.id } });
     expect(after.endDate?.getTime()).toBe(periodEnd.getTime() - 1);
     expect(after.status).toBe("ACTIVE");
@@ -103,6 +121,7 @@ describe("rachat R2 : effet de la signature", () => {
     const soon = new Date(Date.now() + 30 * 86_400_000);
     const { sub, quoteId } = await issuedBuyoutQuote({ endDate: soon });
     await acceptQuoteByClient(quoteId, "Lou Martin", { source: "ADMIN" });
+    await payBuyout(quoteId);
     expect((await prisma.subscription.findUniqueOrThrow({ where: { id: sub.id } })).endDate?.getTime()).toBe(soon.getTime());
   });
 
@@ -115,17 +134,21 @@ describe("rachat R2 : effet de la signature", () => {
     expect(invoice).toBeTruthy();
     expect(generated.buysOutSubscriptionId).toBe(first.sub.id);
 
-    // Conversion (signé hors ligne, puis facture totale) : même lien, fin inchangée (signature appliquée une fois).
+    // Conversion (signé hors ligne, puis facture totale) : même lien ; fin posée au paiement de la facture, une fois.
     const second = await issuedBuyoutQuote();
     await acceptQuoteByClient(second.quoteId, "Lou Martin", { source: "ADMIN" });
     const converted = await convertQuoteToInvoice(second.quoteId);
     expect((await prisma.invoice.findUniqueOrThrow({ where: { id: converted.id } })).buysOutSubscriptionId).toBe(second.sub.id);
+    expect((await prisma.subscription.findUniqueOrThrow({ where: { id: second.sub.id } })).endDate).toBeNull();
+    await payBuyout(second.quoteId);
     expect((await prisma.subscription.findUniqueOrThrow({ where: { id: second.sub.id } })).endDate?.getTime()).toBe(second.periodEnd.getTime() - 1);
   });
 
-  it("prélèvement Stripe : fin programmée à la fin de sa période ; un refus de Stripe ne défait pas la signature et alerte", async () => {
+  it("prélèvement Stripe : fin programmée à la fin de sa période au paiement du rachat ; un refus de Stripe alerte", async () => {
     const ok = await issuedBuyoutQuote({ stripeSubscriptionId: "sub_rachat_ok" });
     await acceptQuoteByClient(ok.quoteId, "Lou Martin", { source: "ADMIN" });
+    expect(stripeAction).not.toHaveBeenCalledWith("sub_rachat_ok", "endAtPeriodEnd", false);
+    await payBuyout(ok.quoteId);
     expect(stripeAction).toHaveBeenCalledWith("sub_rachat_ok", "endAtPeriodEnd", false);
     expect(alertAdmin).not.toHaveBeenCalled();
 

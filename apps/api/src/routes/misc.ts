@@ -229,6 +229,7 @@ export const miscRoutes: FastifyPluginAsync = async (app) => {
       return { status: 200 as const, invoiceId: invoice.id, invoiceStatus: status.after };
     });
     if (outcome.status !== 200) return reply.code(outcome.status).send({ error: outcome.error });
+    if (outcome.invoiceStatus === InvoiceStatus.PAID) await (await import("@/lib/subscriptions/buyout.js")).applyPaidBuyoutsSafely();
     return { invoiceId: outcome.invoiceId, invoiceStatus: outcome.invoiceStatus };
   });
 

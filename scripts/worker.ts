@@ -65,7 +65,13 @@ async function runMaintenance() {
     async () => (await import("../apps/api/src/lib/pdf/readable-documents.js")).backfillReadableSnapshots(),
     { frozen: 0, unavailable: 0 },
   );
-  // Fin programmée passée (rachat signé, non-reconduction, date de fin) : l'abonnement passe à « Clôturé ».
+  // Rachat payé (décision du 28/10/2026) : fin de l'abonnement posée, au cas où le paiement n'a pas pu la poser.
+  await step(
+    "applyPaidBuyouts",
+    async () => (await import("../apps/api/src/lib/subscriptions/buyout.js")).applyPaidBuyouts(),
+    0,
+  );
+  // Fin programmée passée (rachat payé, non-reconduction, date de fin) : l'abonnement passe à « Clôturé ».
   const endedClosed = await step(
     "closeEndedSubscriptions",
     async () => (await import("../apps/api/src/lib/subscriptions/subscription-service.js")).closeEndedSubscriptions(),

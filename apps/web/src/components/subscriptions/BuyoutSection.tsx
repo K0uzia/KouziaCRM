@@ -122,8 +122,14 @@ export function BuyoutSection({ subscriptionId }: { subscriptionId: string }) {
         ) : null}
         {b.signed && b.endsAt ? (
           <div className="flex flex-wrap items-baseline justify-between gap-x-3">
-            <dt className="text-[var(--muted)]">Fin de l'abonnement (rachat signé)</dt>
+            <dt className="text-[var(--muted)]">Fin de l'abonnement (rachat payé)</dt>
             <dd>{formatDate(b.endsAt)}</dd>
+          </div>
+        ) : b.signed ? (
+          // Décision du 28/10/2026 : l'abonnement prend fin au paiement du rachat, pas à sa signature.
+          <div className="flex flex-wrap items-baseline justify-between gap-x-3">
+            <dt className="text-[var(--muted)]">Fin de l'abonnement</dt>
+            <dd>au paiement du rachat</dd>
           </div>
         ) : (
           <div className="flex flex-wrap items-baseline justify-between gap-x-3">

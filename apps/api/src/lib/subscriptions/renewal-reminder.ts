@@ -366,7 +366,7 @@ export async function sendDueTermEndReminders(now: Date = new Date()): Promise<n
     }
     const commitmentEnd = term.termEndsAt.getTime() === sub.commitmentEndsAt!.getTime();
     // Fin du premier engagement seulement (Q5) : prix de rachat si l'offre en a un et qu'aucun rachat n'est signé.
-    const buyoutPriceCents = commitmentEnd ? await buyoutOfferPriceCents(sub.id) : null;
+    const buyoutPriceCents = commitmentEnd ? await buyoutOfferPriceCents(sub.id, now) : null;
     const content = await renderTermEndReminderEmail({
       brand,
       settings,

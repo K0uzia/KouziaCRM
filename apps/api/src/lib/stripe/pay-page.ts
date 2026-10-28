@@ -1,4 +1,5 @@
 import { subscriptionMethodTypes } from "@/lib/stripe/payment-methods.js";
+import { nextPeriodAmountCents } from "@/lib/quotes/recurring-discount-calc.js";
 import { BALANCE_INCLUDE, invoiceBalance } from "@/lib/invoices/balance.js";
 import { prisma } from "@/lib/prisma.js";
 import { periodWord } from "@/lib/subscriptions/subscription-service.js";
@@ -73,7 +74,10 @@ export async function payPageInfo(kind: PayTokenKind, id: string): Promise<PayPa
       detail:
         kind === "card"
           ? "Mettre à jour la carte utilisée pour votre abonnement, dans l'espace sécurisé de Stripe."
-          : "Régler une échéance, changer de moyen de paiement ou résilier votre abonnement, dans l'espace sécurisé de Stripe.",
+          : sub.commitmentEndsAt && sub.commitmentEndsAt > new Date()
+            ? // Engagé : le portail ne propose pas la résiliation (décision du 23/10/2026).
+              "Régler une échéance, changer de moyen de paiement ou retrouver vos factures, dans l'espace sécurisé de Stripe."
+            : "Régler une échéance, changer de moyen de paiement ou résilier votre abonnement, dans l'espace sécurisé de Stripe.",
       button: "Continuer vers Stripe",
       pageTitle: "Gérer mon abonnement, Kouzia",
     };
@@ -81,13 +85,21 @@ export async function payPageInfo(kind: PayTokenKind, id: string): Promise<PayPa
   if (!sub || sub.status === "ENDED" || sub.stripeSubscriptionId) return null;
   const period = `par ${periodWord(sub.billingInterval)}`;
   const methods = subscriptionMethodTypes(sub.amountCents, await getCompanySettings());
+  // Remise en cours (R1) : la prochaine échéance remisée, puis le tarif plein (audit du 28/10/2026, comme l'avis de 1re
+  // échéance ; Stripe prélève le montant remisé par son coupon).
+  const next = nextPeriodAmountCents(sub);
+  const remaining = sub.discountPeriods ? sub.discountPeriods - sub.discountPeriodsBilled : 0;
+  const amounts =
+    next < sub.amountCents && remaining > 0
+      ? `${formatEUR(next)} ${period} pendant ${remaining > 1 ? `${remaining} échéances` : "1 échéance"}, puis ${formatEUR(sub.amountCents)} ${period}`
+      : `${formatEUR(sub.amountCents)} ${period}`;
   return withMinimum(
     {
       title: sub.label,
-      detail: `Prélèvement de ${formatEUR(sub.amountCents)} ${period}, ${methods.length > 1 ? "par prélèvement SEPA ou carte bancaire" : methods[0] === "card" ? "par carte bancaire" : "par prélèvement SEPA"}.`,
+      detail: `Prélèvement de ${amounts}, ${methods.length > 1 ? "par prélèvement SEPA ou carte bancaire" : methods[0] === "card" ? "par carte bancaire" : "par prélèvement SEPA"}.`,
       button: "Mettre en place le prélèvement",
     },
-    sub.amountCents,
+    next,
   );
 }
 
