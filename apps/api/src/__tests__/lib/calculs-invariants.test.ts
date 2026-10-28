@@ -240,6 +240,8 @@ describe("pourcentages, prix annuel et offre à l'émission", () => {
   it("prix annuel d'un abonnement mensuel : celui du catalogue, sinon 12 mois moins les mois offerts", async () => {
     const { annualPriceOfService } = await import("@/lib/services/annual-price.js");
     expect(annualPriceOfService({ unitPriceCents: 2900, billingInterval: "MONTH" }, 2)).toBe(29000);
+    // Réglage annualFreeMonths lu, pas une valeur en dur (1 mois offert en production le 28/10/2026).
+    expect(annualPriceOfService({ unitPriceCents: 2900, billingInterval: "MONTH" }, 1)).toBe(31900);
     expect(annualPriceOfService({ unitPriceCents: 2900, billingInterval: "MONTH", annualPriceCents: 31000 }, 2)).toBe(31000);
     expect(annualPriceOfService({ unitPriceCents: 39000, billingInterval: "YEAR" }, 2)).toBe(39000);
     expect(annualPriceOfService({ unitPriceCents: 9000, billingInterval: "QUARTER" }, 2)).toBe(30000);

@@ -40,6 +40,15 @@ export const PROCESSING_NOTICE =
 
 const processing = (info: NonNullable<PayPageInfo>): NonNullable<PayPageInfo> => ({ ...info, button: null, notice: PROCESSING_NOTICE });
 
+/** Solde attendu d'un devis : reste du marché (acomptes émis nets des avoirs) moins les acomptes encore à facturer. */
+async function expectedBalanceCents(quoteId: string): Promise<number> {
+  const summary = await computeBalanceSummary(quoteId);
+  const milestones = await prisma.paymentMilestone.findMany({ where: { quoteId }, select: { position: true, invoiceId: true, status: true, amountCents: true } });
+  const last = Math.max(...milestones.map((m) => m.position));
+  const pending = milestones.filter((m) => m.position < last && !m.invoiceId && m.status !== "CANCELLED").reduce((s, m) => s + m.amountCents, 0);
+  return Math.max(0, summary.balanceDueCents - pending);
+}
+
 /** Libellé et montant affichés avant le paiement ; null si le document n'est plus payable. */
 export async function payPageInfo(kind: PayTokenKind, id: string): Promise<PayPageInfo> {
   if (kind === "invoice") {
@@ -64,7 +73,7 @@ export async function payPageInfo(kind: PayTokenKind, id: string): Promise<PayPa
     const amount = billed
       ? invoiceBalance(billed).dueCents
       : (await milestoneInvoiceKind(m)) === "BALANCE"
-        ? (await computeBalanceSummary(m.quoteId)).balanceDueCents
+        ? await expectedBalanceCents(m.quoteId)
         : m.amountCents;
     if (amount <= 0) return null;
     const info = {

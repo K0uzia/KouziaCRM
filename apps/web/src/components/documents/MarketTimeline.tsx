@@ -117,6 +117,10 @@ export function MarketTimeline({
   // Acompte annulé par avoir : il ne bloque pas le solde (même règle que l'API).
   const depositsPaid = deposits.every((m) => m.status === "PAID" || m.status === "CANCELLED");
   const soldeMilestone = milestones.find((m) => isSoldeOf(m));
+  // Solde pas encore facturé : le reste du marché (acomptes émis nets des avoirs) moins les acomptes encore à facturer.
+  // Égal au montant prévu tant que tout suit l'échéancier ; plus grand si un acompte a été annulé par avoir.
+  const pendingDepositsCents = deposits.filter((m) => !m.invoiceId && m.status !== "CANCELLED").reduce((s, m) => s + m.amountCents, 0);
+  const expectedSoldeCents = Math.max(0, balance.balanceDueCents - pendingDepositsCents);
   const canSolde = signed && depositsPaid && Boolean(soldeMilestone) && !soldeMilestone?.invoiceId;
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const { moduleStripeEnabled } = useFeatures();
@@ -223,8 +227,7 @@ export function MarketTimeline({
                     ) : null}
                   </div>
                   <p className="mt-0.5 text-xs text-[var(--muted)]">
-                    {/* Solde pas encore facturé : le reste réel du marché (acomptes nets des avoirs), pas le montant prévu. */}
-                    {formatEUR(isSolde && !m.invoiceId ? balance.balanceDueCents : m.amountCents)}
+                    {formatEUR(isSolde && !m.invoiceId ? expectedSoldeCents : m.amountCents)}
                     {m.triggerText ? ` · ${m.triggerText}` : ""}
                     {m.dueDate
                       ? ` · échéance ${new Date(m.dueDate).toLocaleDateString("fr-FR")}`

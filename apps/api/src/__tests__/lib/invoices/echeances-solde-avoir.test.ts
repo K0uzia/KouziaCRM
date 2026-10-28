@@ -51,6 +51,8 @@ describe("paiement unique : facture de chaque échéance", () => {
   it("libellé de la facture d'acompte en 3 fois : pourcentage à deux décimales (33,33 %)", async () => {
     const { milestones } = await signedOneOff(3000, "THREE");
     expect(milestones.map((m) => m.amountCents)).toEqual([100000, 100000, 100000]);
+    // Solde attendu tant que les acomptes suivent l'échéancier : le montant prévu, pas tout le marché.
+    expect((await payPageInfo("milestone", milestones[2]!.id))?.detail).toBe(`Montant à régler : ${formatEUR(100000)}`);
     const deposit = await generateMilestoneInvoice(milestones[0]!.id);
     const line = await prisma.invoiceLine.findFirstOrThrow({ where: { invoiceId: deposit.id } });
     expect(line.description).toMatch(/^Acompte de 33,33 % sur devis/);
