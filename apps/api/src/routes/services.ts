@@ -1,5 +1,5 @@
 import { removeService, updateLinkedService } from "@/lib/services/linked-write.js";
-import { packItemsSchema, packLines, packModeLine, PackError, validatePack } from "@/lib/services/packs.js";
+import { packItemsSchema, packLines, packModeLines, PackError, validatePack } from "@/lib/services/packs.js";
 import { BILLING_MODES } from "@/lib/quotes/payment-plans.js";
 import { randomUUID } from "node:crypto";
 import type { FastifyPluginAsync } from "fastify";
@@ -138,11 +138,12 @@ export const servicesRoutes: FastifyPluginAsync = async (app) => {
   app.get<{ Params: { id: string } }>("/api/services/:id/pack-lines", async (request, reply) => {
     await requireAuth(request, reply);
     if (reply.sent) return;
-    // Devis avec mode (24/10/2026) : ?mode=ONE_OFF|RECURRING&interval=MONTH|QUARTER|YEAR, le pack en une ligne.
+    // Devis avec mode (24/10/2026) : ?mode=ONE_OFF|RECURRING&interval=MONTH|QUARTER|YEAR, le pack en une ligne ; en
+    // paiement unique, suivie de ses abonnements proposés en option (28/10/2026).
     const q = packLinesQuery.safeParse(request.query);
     if (!q.success) return reply.code(400).send({ error: "Mode ou période invalide" });
     try {
-      if (q.data.mode) return [await packModeLine(request.params.id, q.data.mode, q.data.interval)];
+      if (q.data.mode) return await packModeLines(request.params.id, q.data.mode, q.data.interval);
       return await packLines(request.params.id);
     } catch (err) {
       if (err instanceof PackError) return reply.code(404).send({ error: err.message });

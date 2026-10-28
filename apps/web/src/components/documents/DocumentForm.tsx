@@ -50,6 +50,8 @@ export type DocLine = {
   annualEuros?: string;
   /** Paiement unique : abonnement annuel proposé en option, au choix du client à la signature (28/10/2026). */
   isOptional?: boolean;
+  /** Option proposée par un pack du formulaire (jamais envoyé) : en abonnement, le prix annuel du pack la comprend. */
+  fromPackId?: string;
 } & Partial<StartFields>;
 
 const NO_START: StartFields = { subscriptionStart: "", subscriptionStartDate: "", subscriptionFreeMonths: "" };
@@ -429,7 +431,7 @@ export function DocumentFormEditor({
     return lines.map((p) => {
       const base = { serviceId: p.serviceId, description: p.description, quantity: "1", billingDay: String(p.billingDay ?? form.recurring.billingDay) };
       if (next === "RECURRING") return recurringLine(base, p.unitPriceCents);
-      if (p.isSubscription) return optionalLine({ ...base, commitmentMonths: p.commitmentMonths ? String(p.commitmentMonths) : "12" }, p.unitPriceCents);
+      if (p.isSubscription) return { ...optionalLine({ ...base, commitmentMonths: p.commitmentMonths ? String(p.commitmentMonths) : "12" }, p.unitPriceCents), fromPackId: packId };
       return { ...emptyLine(), ...base, unitPriceEuros: (p.unitPriceCents / 100).toFixed(2) };
     });
   }
@@ -464,6 +466,8 @@ export function DocumentFormEditor({
     }
     for (const l of form.lines) {
       const svc = services.find((x) => x.id === l.serviceId);
+      // Option venue d'un pack encore au devis : en abonnement, le prix annuel du pack la comprend déjà.
+      if (next === "RECURRING" && l.fromPackId && form.lines.some((x) => x.serviceId === l.fromPackId)) continue;
       if (svc?.isPack) {
         try {
           out.push(...(await packModeLines(svc.id, next)));

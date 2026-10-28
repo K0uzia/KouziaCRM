@@ -588,8 +588,8 @@ export function ServicesPage() {
             <fieldset className="space-y-2">
               <legend className="text-sm font-medium text-[var(--text)]">Contenu du pack</legend>
               <p className="text-xs text-[var(--muted)]">
-                Sur le devis, le pack tient en une ligne « Comprend : … ». Vendu en paiement unique au prix d'achat, ou en abonnement au
-                prix annuel ramené à la période.
+                Sur le devis, le pack tient en une ligne « Nom : contenu ». Vendu en paiement unique au prix d'achat, ses abonnements
+                proposés en option au choix du client, ou en abonnement au prix annuel ramené à la période.
               </p>
               {form.items.map((item, i) => (
                 <div key={i} className="flex min-w-0 items-end gap-2">

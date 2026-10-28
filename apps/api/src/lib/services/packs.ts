@@ -49,10 +49,11 @@ export function packContents(items: Array<{ quantity: number; service: Pick<Serv
 
 /**
  * Pack sur un devis avec mode (24/10/2026) : UNE ligne « Nom : contenu ». Paiement unique : prix d'achat, contenu sans
- * les abonnements du pack, qui ne sont pas compris (28/10/2026). Récurrent : prix annuel ramené à la période, tout le
- * contenu ; refusé sans prix annuel. La description du pack n'est pas reprise : le devis imprime ce qui est compris.
+ * les abonnements du pack, qui ne sont pas compris (28/10/2026) ; chacun est proposé à la suite en option au choix du
+ * client (abonnement annuel au prix du catalogue, engagement 12 mois). Récurrent : prix annuel ramené à la période,
+ * tout le contenu ; refusé sans prix annuel. La description du pack n'est pas reprise : le devis imprime ce qui est compris.
  */
-export async function packModeLine(packId: string, mode: BillingMode, interval: "MONTH" | "QUARTER" | "YEAR"): Promise<PackLine> {
+export async function packModeLines(packId: string, mode: BillingMode, interval: "MONTH" | "QUARTER" | "YEAR"): Promise<PackLine[]> {
   const pack = await prisma.service.findUnique({
     where: { id: packId },
     include: { packItems: { orderBy: { position: "asc" }, include: { service: true } } },
@@ -60,18 +61,37 @@ export async function packModeLine(packId: string, mode: BillingMode, interval: 
   if (!pack || !pack.isPack) throw new PackError("Pack introuvable.");
   const items = mode === "ONE_OFF" ? pack.packItems.filter((i) => !i.service.isSubscription) : pack.packItems;
   const description = items.length ? `${pack.name} : ${packContents(items)}` : pack.name;
-  const base = { serviceId: pack.id, description, quantity: 1, groupTitle: "", isPackDiscount: false };
-  if (mode === "ONE_OFF") return { ...base, unitPriceCents: pack.unitPriceCents, isSubscription: false, billingInterval: null, billingDay: null };
+  const base = { serviceId: pack.id, description, quantity: 1, groupTitle: "", isPackDiscount: false, isOptional: false, commitmentMonths: null };
+  if (mode === "ONE_OFF") {
+    const options: PackLine[] = pack.packItems
+      .filter((i) => i.service.isSubscription)
+      .map(({ service }) => ({
+        serviceId: service.id,
+        description: service.description ? `${service.name} : ${service.description}` : service.name,
+        quantity: 1,
+        unitPriceCents: service.billingInterval === "YEAR" ? service.unitPriceCents : service.unitPriceCents * 12,
+        isSubscription: true,
+        billingInterval: "YEAR",
+        billingDay: service.defaultBillingDay,
+        groupTitle: "",
+        isPackDiscount: false,
+        isOptional: true,
+        commitmentMonths: 12,
+      }));
+    return [{ ...base, unitPriceCents: pack.unitPriceCents, isSubscription: false, billingInterval: null, billingDay: null }, ...options];
+  }
   if (pack.annualPriceCents === null) {
     throw new PackError(`« ${pack.name} » n'a pas de prix annuel : renseignez-le dans le catalogue pour le vendre en abonnement.`);
   }
-  return {
-    ...base,
-    unitPriceCents: periodAmountCents(pack.annualPriceCents, interval),
-    isSubscription: true,
-    billingInterval: interval,
-    billingDay: pack.defaultBillingDay,
-  };
+  return [
+    {
+      ...base,
+      unitPriceCents: periodAmountCents(pack.annualPriceCents, interval),
+      isSubscription: true,
+      billingInterval: interval,
+      billingDay: pack.defaultBillingDay,
+    },
+  ];
 }
 
 export type PackLine = {
@@ -84,6 +104,9 @@ export type PackLine = {
   billingDay: number | null;
   groupTitle: string;
   isPackDiscount: boolean;
+  /** Paiement unique : abonnement du pack proposé en option au choix du client, avec son engagement suggéré. */
+  isOptional?: boolean;
+  commitmentMonths?: number | null;
 };
 
 /** Lignes de devis d'un pack : détail au prix catalogue, abonnements au prix plein, puis la remise du pack. */

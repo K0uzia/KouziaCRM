@@ -94,6 +94,16 @@ describe("devis avec mode de facturation (API)", () => {
         unitPriceCents: 140000,
         isSubscription: false,
       }),
+      // Abonnement du pack proposé en option au choix du client : prix annuel du catalogue, engagement 12 mois.
+      expect.objectContaining({
+        serviceId: maint.id,
+        description: "Maintenance",
+        unitPriceCents: 360000,
+        isSubscription: true,
+        isOptional: true,
+        billingInterval: "YEAR",
+        commitmentMonths: 12,
+      }),
     ]);
     const quarterly = (await call("GET", `/api/services/${id}/pack-lines?mode=RECURRING&interval=QUARTER`)).json();
     expect(quarterly).toEqual([
