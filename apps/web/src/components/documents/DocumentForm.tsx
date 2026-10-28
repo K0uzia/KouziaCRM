@@ -1241,22 +1241,16 @@ export function DocumentFormEditor({
                 </div>
                 {line.isOptional ? (
                   <div className="mt-1.5 space-y-1 text-xs text-[var(--muted)]">
-                    <label className="flex flex-wrap items-center gap-2">
-                      Engagement
-                      <Select
-                        className="w-auto"
-                        aria-label={`Ligne ${i + 1} : durée d'engagement de l'option`}
-                        value={line.commitmentMonths || "12"}
-                        onChange={(e) => updateLine(i, { commitmentMonths: e.target.value })}
-                      >
-                        {COMMITMENTS.map((m) => (
-                          <option key={m} value={m}>
-                            {m} mois
-                          </option>
-                        ))}
-                      </Select>
-                      à partir de la livraison
-                    </label>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span aria-hidden>Engagement</span>
+                      <Segmented
+                        label={`Ligne ${i + 1} : durée d'engagement de l'option`}
+                        options={COMMITMENTS.map((m) => ({ id: m, label: `${m} mois` }))}
+                        value={(COMMITMENTS as readonly string[]).includes(line.commitmentMonths ?? "") ? (line.commitmentMonths as (typeof COMMITMENTS)[number]) : "12"}
+                        onChange={(m) => updateLine(i, { commitmentMonths: m })}
+                      />
+                      <span>à partir de la livraison</span>
+                    </div>
                     <p>Abonnement annuel proposé en option : le client le retient ou non à la signature. Il démarre à la livraison.</p>
                   </div>
                 ) : line.isSubscription && quoteMode === "RECURRING" ? (
