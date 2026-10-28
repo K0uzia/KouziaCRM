@@ -16,6 +16,7 @@ import { computeLineTotals, assertSubscriptionLinesValid, depositBaseOf } from "
 import { BILLING_MODES, parseBillingMode, type PaymentPlanOffer } from "@/lib/quotes/payment-plans.js";
 import { assertBillingModeLines, resolveOfferedIntervals } from "@/lib/quotes/billing-mode.js";
 import { parseOfferedIntervals } from "@/lib/quotes/interval-choice.js";
+import { quoteIntervalOffer } from "@/lib/quotes/interval-offer.js";
 import { NO_RECURRING_DISCOUNT, resolveRecurringDiscount, storedRecurringDiscount, type RecurringDiscountFields } from "@/lib/quotes/recurring-discount.js";
 import { promoAsDiscountInput, resolvePromoForQuote } from "@/lib/quotes/promo-codes.js";
 import { eurosToCents, formatEUR } from "@/lib/money.js";
@@ -886,11 +887,20 @@ export const invoicesRoutes: FastifyPluginAsync = async (app) => {
     });
     if (!invoice) return reply.code(404).send({ error: "Introuvable" });
     const clientType = (readClientSnapshot(invoice) as ClientSnapshot | null)?.type ?? invoice.client.type;
+    const settings = await getCompanySettings();
+    // Rythme au choix (28/10/2026) : montant d'une échéance par rythme proposé, mois offerts figés à l'émission ; affiché
+    // dans les fenêtres de signature hors ligne et de messagerie. Absent sans choix.
+    const choicesOf = (doc: Parameters<typeof quoteIntervalOffer>[0], lines: typeof invoice.lines) =>
+      quoteIntervalOffer(doc, lines.filter((l) => !l.isOptional), settings)?.rows.map((r) => ({ interval: r.interval, amountCents: r.amountCents })) ?? null;
     return {
       ...serializeInvoice(invoice),
+      intervalChoices: choicesOf({ ...invoice, promoCode: null }, invoice.lines.filter((l) => !l.optionId)),
+      optionIntervalChoices: Object.fromEntries(
+        invoice.options.map((o) => [o.id, choicesOf({ ...invoice, ...o, promoCode: null }, invoice.lines.filter((l) => l.optionId === o.id))]),
+      ),
       balance: adminBalanceFields(invoice),
       client: serializeClient(invoice.client),
-      subscriptionDateNotice: await subscriptionDateNoticeOf(invoice, clientType, await getCompanySettings()),
+      subscriptionDateNotice: await subscriptionDateNoticeOf(invoice, clientType, settings),
       // Rachat (R1) : abonnement racheté par ce devis ou cette facture, lien affiché sur la fiche.
       buysOutSubscription: invoice.buysOutSubscriptionId
         ? await prisma.subscription.findUnique({ where: { id: invoice.buysOutSubscriptionId }, select: { id: true, label: true } })

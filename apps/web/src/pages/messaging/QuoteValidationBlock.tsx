@@ -54,22 +54,33 @@ export function QuoteValidationBlock({
   const [optionalLines, setOptionalLines] = useState<OptionalLine[] | null>(null);
   const [optionalChoices, setOptionalChoices] = useState<Record<string, boolean>>({});
   // Rythme au choix (28/10/2026) : rythmes du devis et de chaque proposition, lus avec les lignes ; choix sans défaut.
-  const [offered, setOffered] = useState<{ quote: string | null; options: Record<string, string | null> }>({ quote: null, options: {} });
+  type Amounts = Array<{ interval: string; amountCents: number }> | null;
+  const [offered, setOffered] = useState<{ quote: string | null; options: Record<string, string | null>; amounts: Amounts; optionAmounts: Record<string, Amounts> }>({
+    quote: null,
+    options: {},
+    amounts: null,
+    optionAmounts: {},
+  });
   const [chosenInterval, setChosenInterval] = useState<"" | "YEAR" | "QUARTER" | "MONTH">("");
   useEffect(() => {
     setOptionalChoices({});
     setChosenInterval("");
     if (!confirmQuote) {
       setOptionalLines(null);
-      setOffered({ quote: null, options: {} });
+      setOffered({ quote: null, options: {}, amounts: null, optionAmounts: {} });
       return;
     }
     let alive = true;
-    api<{ lines?: Array<OptionalLine & { isOptional?: boolean }>; offeredIntervals?: string | null; options?: Array<{ id: string; offeredIntervals?: string | null }> }>(`/api/invoices/${confirmQuote.id}`)
+    api<{ lines?: Array<OptionalLine & { isOptional?: boolean }>; offeredIntervals?: string | null; options?: Array<{ id: string; offeredIntervals?: string | null }>; intervalChoices?: Amounts; optionIntervalChoices?: Record<string, Amounts> }>(`/api/invoices/${confirmQuote.id}`)
       .then((q) => {
         if (!alive) return;
         setOptionalLines((q.lines ?? []).filter((l) => l.isOptional));
-        setOffered({ quote: q.offeredIntervals ?? null, options: Object.fromEntries((q.options ?? []).map((o) => [o.id, o.offeredIntervals ?? null])) });
+        setOffered({
+          quote: q.offeredIntervals ?? null,
+          options: Object.fromEntries((q.options ?? []).map((o) => [o.id, o.offeredIntervals ?? null])),
+          amounts: q.intervalChoices ?? null,
+          optionAmounts: q.optionIntervalChoices ?? {},
+        });
       })
       .catch(() => alive && setOptionalLines([]));
     return () => {
@@ -217,7 +228,13 @@ export function QuoteValidationBlock({
           </fieldset>
         ))}
         <div className="mt-4">
-          <IntervalChoiceFieldset offered={shownOffered} value={chosenInterval} onChange={setChosenInterval} name="thread-interval" />
+          <IntervalChoiceFieldset
+            offered={shownOffered}
+            value={chosenInterval}
+            onChange={setChosenInterval}
+            name="thread-interval"
+            amounts={confirmQuote?.options?.length ? (offered.optionAmounts[optionId] ?? null) : offered.amounts}
+          />
         </div>
         <ModalActions>
           <Button type="button" variant="secondary" disabled={busy} onClick={() => setConfirmQuote(null)}>

@@ -506,7 +506,20 @@ export function offeredIntervalsOf(value: string | null | undefined): Period[] {
  * Signature hors ligne ou validée depuis la messagerie (28/10/2026) : le rythme retenu par le client, obligatoire quand
  * plusieurs sont proposés, sans choix par défaut. Rien à afficher pour un seul rythme.
  */
-export function IntervalChoiceFieldset({ offered, value, onChange, name }: { offered: string | null | undefined; value: Period | ""; onChange: (next: Period) => void; name: string }) {
+export function IntervalChoiceFieldset({
+  offered,
+  value,
+  onChange,
+  name,
+  amounts,
+}: {
+  offered: string | null | undefined;
+  value: Period | "";
+  onChange: (next: Period) => void;
+  name: string;
+  /** Montant d'une échéance par rythme, calculé par l'API (mois offerts figés à l'émission). */
+  amounts?: ReadonlyArray<{ interval: string; amountCents: number }> | null;
+}) {
   const list = offeredIntervalsOf(offered);
   if (!list.length) return null;
   return (
@@ -516,6 +529,10 @@ export function IntervalChoiceFieldset({ offered, value, onChange, name }: { off
         <label key={iv} className="flex min-h-11 items-center gap-2 text-sm">
           <input type="radio" name={name} required value={iv} checked={value === iv} onChange={() => onChange(iv)} />
           {INTERVAL_LABEL[iv]}
+          {(() => {
+            const a = amounts?.find((x) => x.interval === iv);
+            return a ? <span className="tabular-nums text-[var(--muted)]">{` : ${formatEUR(a.amountCents)} par ${PERIOD_WORD[iv]}`}</span> : null;
+          })()}
         </label>
       ))}
     </fieldset>

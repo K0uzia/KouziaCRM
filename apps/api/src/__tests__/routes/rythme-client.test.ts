@@ -221,6 +221,12 @@ describe("signature : rythme obligatoire, refusé s'il n'est pas proposé", () =
 
   it("hors ligne et messagerie : rythme exigé aussi ; trimestriel retenu avec la remise d'ouverture", async () => {
     const { id, clientId } = await issuedQuote({ openingDiscount: true }, { commitmentMonths: 36 });
+    // Fenêtres de signature : montant d'une échéance par rythme, lu sur la fiche du devis.
+    expect((await call("GET", `/api/invoices/${id}`)).json().intervalChoices).toEqual([
+      { interval: "YEAR", amountCents: 150000 },
+      { interval: "QUARTER", amountCents: 40909 },
+      { interval: "MONTH", amountCents: 13636 },
+    ]);
     const missing = await call("POST", `/api/quotes/${id}/sign-offline`, { signerName: "Camille Client" });
     expect(missing.statusCode).toBe(400);
     expect(missing.json().code).toBe("INTERVAL_CHOICE_REQUIRED");

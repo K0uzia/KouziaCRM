@@ -118,6 +118,9 @@ type Doc = {
   billingMode?: string | null;
   /** Devis récurrent : rythmes au choix du client (« YEAR,QUARTER,MONTH ») ; null : un seul rythme ou devis signé. */
   offeredIntervals?: string | null;
+  /** Rythme au choix : montant d'une échéance par rythme, du devis et de chaque proposition (fiche du devis). */
+  intervalChoices?: Array<{ interval: string; amountCents: number }> | null;
+  optionIntervalChoices?: Record<string, Array<{ interval: string; amountCents: number }> | null>;
   /** Devis récurrent : remise sur les premières échéances (R1). */
   openingDiscount?: boolean;
   promoCode?: { code: string } | null;
@@ -1963,7 +1966,13 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
               ))}
             </fieldset>
           ))}
-          <IntervalChoiceFieldset offered={signOffered} value={signInterval} onChange={setSignInterval} name="sign-interval" />
+          <IntervalChoiceFieldset
+            offered={signOffered}
+            value={signInterval}
+            onChange={setSignInterval}
+            name="sign-interval"
+            amounts={signProposals ? doc?.optionIntervalChoices?.[signOptionId] : doc?.intervalChoices}
+          />
           {signOffer === "CHOICE" ? (
             <fieldset className="space-y-1">
               <legend className="text-sm font-medium">Formule retenue par le client</legend>
