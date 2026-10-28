@@ -107,8 +107,9 @@ describe("devis avec mode de facturation (API)", () => {
       }),
     ]);
     const quarterly = (await call("GET", `/api/services/${id}/pack-lines?mode=RECURRING&interval=QUARTER`)).json();
+    // L'annuel coûte moins cher (28/10/2026) : trimestre = 3 mensualités, mensualité = 1 500 € / (12 - 2 mois offerts).
     expect(quarterly).toEqual([
-      expect.objectContaining({ description: "Pack Vitrine : Site vitrine, Maintenance", unitPriceCents: 37500, isSubscription: true, billingInterval: "QUARTER" }),
+      expect.objectContaining({ description: "Pack Vitrine : Site vitrine, Maintenance", unitPriceCents: 45000, isSubscription: true, billingInterval: "QUARTER" }),
     ]);
     // Sans prix annuel : pas vendable en récurrent, message pour le catalogue.
     await prisma.service.update({ where: { id }, data: { annualPriceCents: null } });
