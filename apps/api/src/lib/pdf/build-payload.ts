@@ -453,7 +453,10 @@ function intervalChoiceOf(invoice: InvoiceWithRelations, annualFreeMonths: numbe
       amountCents: r.amountCents,
       periods: r.periods,
       totalCommitmentCents: r.totalCommitmentCents,
+      // Échéance remisée au rythme, exactement celle qui sera facturée (recurringDiscountSummary) ; null sans remise.
+      discountedAmountCents: r.discount?.discountedAmountCents ?? null,
     })),
     intervalChoiceDiscountText: discount ? choiceDiscountSentence(discount) : null,
+    intervalChoiceDiscount: discount ? { kind: discount.kind, value: discount.value, months: discount.months } : null,
   };
 }

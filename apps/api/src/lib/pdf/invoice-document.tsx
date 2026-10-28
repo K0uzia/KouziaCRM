@@ -188,6 +188,7 @@ function createStyles(primary: string, secondary: string) {
       color: MUTED,
       lineHeight: 1.45,
     },
+    legalQuote: { marginTop: 16, fontSize: 6.5, lineHeight: 1.4 },
     footerRule: { position: "absolute", bottom: 34, left: 40, right: 40, height: 1, backgroundColor: LINE },
     footerLeft: { position: "absolute", bottom: 22, left: 40, fontSize: 7.5, color: MUTED },
     footerRight: { position: "absolute", bottom: 22, left: 40, right: 40, fontSize: 7.5, color: MUTED, textAlign: "right" },
@@ -419,8 +420,17 @@ export type InvoicePdfData = {
       /** Remise sur les premières échéances (R1) ; absente sans remise. */
       discount?: RecurringDiscountSummary | null;
       /** Rythme au choix du client, devis non signé : un rang par rythme proposé ; montants au rythme, remise comprise. */
-      intervalChoices?: Array<{ period: "MONTH" | "QUARTER" | "YEAR"; label: string; amountCents: number; periods: number | null; totalCommitmentCents: number | null }>;
+      intervalChoices?: Array<{
+        period: "MONTH" | "QUARTER" | "YEAR";
+        label: string;
+        amountCents: number;
+        periods: number | null;
+        totalCommitmentCents: number | null;
+        discountedAmountCents?: number | null;
+      }>;
       intervalChoiceDiscountText?: string | null;
+      /** Remise du devis à rythmes : taux ou montant par échéance, durée en mois (null : toute la durée). */
+      intervalChoiceDiscount?: { kind: string; value: number; months: number | null } | null;
     } | null;
     /** Droit de rétractation et formulaire type : devis d'un client particulier. */
     withdrawalTerms?: string | null;
@@ -554,29 +564,104 @@ function OptionalOffers({ options, styles }: { options: NonNullable<PdfInvoice["
   );
 }
 
-/** Rythme au choix du client (28/10/2026) : prix par échéance et total sur l'engagement de chaque rythme proposé. */
-function IntervalChoices({ choices, styles }: { choices: NonNullable<NonNullable<PdfInvoice["recurringSummary"]>["intervalChoices"]>; styles: ReturnType<typeof createStyles> }) {
+/** Texte d'un élément du gabarit, pour équilibrer deux colonnes (longueur approchée de chaque mention). */
+function textLength(node: React.ReactNode): number {
+  if (typeof node === "string" || typeof node === "number") return String(node).length;
+  if (Array.isArray(node)) return node.reduce((n: number, c) => n + textLength(c), 0);
+  if (React.isValidElement(node)) return textLength((node.props as { children?: React.ReactNode }).children);
+  return 0;
+}
+
+/**
+ * Mentions en une ou deux colonnes : l'ordre de lecture est gardé (colonne de gauche puis de droite, comme la version
+ * lisible), la coupure est placée là où les deux colonnes ont la même longueur de texte.
+ */
+function LegalColumns({ columns, children }: { columns: 1 | 2; children: React.ReactNode }) {
+  const items = React.Children.toArray(children).filter(Boolean);
+  if (columns === 1) return <>{items}</>;
+  const weights = items.map((c) => Math.max(40, textLength(c)));
+  const total = weights.reduce((a, b) => a + b, 0);
+  let cut = 0;
+  let acc = 0;
+  for (let i = 0; i < weights.length; i++) {
+    if (Math.abs(acc + weights[i]! - total / 2) > Math.abs(acc - total / 2)) break;
+    acc += weights[i]!;
+    cut = i + 1;
+  }
+  return (
+    <View style={{ flexDirection: "row" }}>
+      <View style={{ flex: 1, paddingRight: 8 }}>{items.slice(0, cut)}</View>
+      <View style={{ flex: 1, paddingLeft: 8 }}>{items.slice(cut)}</View>
+    </View>
+  );
+}
+
+/** Remise d'un devis à rythmes : « 30 % » ou « 50,00 € par échéance ». */
+const choiceDiscountWhat = (d: { kind: string; value: number }) =>
+  d.kind === "PERCENT" ? `${String(d.value / 100).replace(".", ",")} %` : `${fmtMoney(d.value)} par échéance`;
+
+/** Ligne de remise du tableau des lignes, rythme au choix : sans montant (il dépend du rythme). */
+function choiceDiscountLabel(d: { kind: string; value: number; months: number | null }, opening: boolean, promoCode: string | null | undefined) {
+  const span = d.months == null ? "sur toute la durée de l’engagement" : `sur les ${d.months} premiers mois`;
+  const head = promoCode ? `Code promo ${promoCode}` : opening ? "Remise d’ouverture" : "Remise";
+  return `${head} : ${choiceDiscountWhat(d)} ${span}`;
+}
+
+/**
+ * Rythme au choix (retour d'Alexandre du 29/10/2026) : le tableau des rythmes remplace l'encadré « Abonnement X / an »,
+ * à la même place et à la largeur du tableau des lignes, d'un bloc. Montants : ceux qui seront facturés (intervalChoiceRows,
+ * recurringDiscountSummary). Dessous, le détail en deux lignes au plus.
+ */
+function RhythmTable({ invoice, company, styles }: { invoice: PdfInvoice; company: PdfCompanySettings; styles: ReturnType<typeof createStyles> }) {
+  const r = invoice.recurringSummary!;
+  const choices = r.intervalChoices!;
+  const d = r.intervalChoiceDiscount ?? null;
+  const discountColumn = d && choices.some((c) => c.discountedAmountCents != null)
+    ? d.months == null
+      ? `AVEC LA REMISE (${choiceDiscountWhat(d).toUpperCase()})`
+      : `${d.months} PREMIERS MOIS (REMISE ${choiceDiscountWhat(d).toUpperCase()})`
+    : null;
+  const per = (period: string) => `${periodWord(period)}`;
+  const engaged = r.commitmentMonths ? `, engagement de ${r.commitmentMonths} mois` : "";
+  const start = r.startFromText ? `Départ de la facturation ${r.startFromText}${engaged}.` : `Facturation : ${r.startText}${engaged}.`;
+  const details = [
+    ...(r.discount?.opening ? ["Remise d’ouverture : structure créée il y a moins de 12 mois."] : []),
+    ...(r.discount?.promoCode && r.discount.condition ? [`Code promo ${r.discount.promoCode} : ${r.discount.condition.replace(/\.$/, "")}.`] : []),
+    start,
+    ...(company.vatMention ? [company.vatMention] : []),
+  ].join(" ");
+  const cell = { textAlign: "right" as const, paddingRight: 8 };
   return (
     <Readable as="section" heading>
-    <View style={[styles.box, styles.section]} wrap={false}>
+    <View style={styles.section} wrap={false}>
       <Text style={styles.h2}>Rythme de paiement au choix</Text>
       <Text style={styles.muted}>Vous choisissez le rythme de paiement à la signature du devis.</Text>
       <View style={[styles.th, { marginTop: 6 }]}>
-        <Text style={{ flex: 1.4 }}>RYTHME</Text>
-        <Text style={{ flex: 1.6, textAlign: "right", paddingRight: 12 }}>PRIX PAR ÉCHÉANCE</Text>
-        <Text style={{ flex: 2, textAlign: "right" }}>TOTAL SUR L'ENGAGEMENT</Text>
+        <Text style={{ flex: 1.1 }}>RYTHME</Text>
+        <Text style={{ flex: 1.5, ...cell }}>PRIX PAR ÉCHÉANCE</Text>
+        {discountColumn ? <Text style={{ flex: 1.9, ...cell }}>{discountColumn}</Text> : null}
+        <Text style={{ flex: 1.7, textAlign: "right" }}>TOTAL SUR L'ENGAGEMENT</Text>
       </View>
-      {choices.map((c) => (
+      {choices.map((c, i) => (
         <Readable key={c.period} as="item">
-        <View style={styles.tr}>
-          <Text style={{ flex: 1.4, color: INK }}>{c.label}</Text>
-          <Text style={{ flex: 1.6, textAlign: "right", paddingRight: 12 }}>{`${fmtMoney(c.amountCents)} / ${periodWord(c.period)}`}</Text>
-          <Text style={{ flex: 2, textAlign: "right", fontFamily: "Helvetica-Bold" }}>
+        <View style={[styles.tr, i % 2 === 1 ? { backgroundColor: SOFT } : {}]}>
+          <Text style={{ flex: 1.1, color: INK }}>{c.label}</Text>
+          <Text style={{ flex: 1.5, ...cell }}>{`${fmtMoney(c.amountCents)} / ${per(c.period)}`}</Text>
+          {discountColumn ? (
+            <Text style={{ flex: 1.9, ...cell }}>
+              {c.discountedAmountCents != null ? (c.period === "YEAR" ? fmtMoney(c.discountedAmountCents) : `${fmtMoney(c.discountedAmountCents)} / ${per(c.period)}`) : ""}
+            </Text>
+          ) : null}
+          <Text style={{ flex: 1.7, textAlign: "right", fontFamily: "Helvetica-Bold" }}>
             {c.totalCommitmentCents !== null ? `${fmtMoney(c.totalCommitmentCents)} (${c.periods} échéance${c.periods! > 1 ? "s" : ""})` : ""}
           </Text>
         </View>
         </Readable>
       ))}
+      <Text style={[styles.muted, { marginTop: 6, fontSize: 7.5 }]}>{details}</Text>
+      {invoice.subscriptionDateNotice ? (
+        <Text style={[styles.muted, { fontSize: 7.5 }]}>{fillClauseVariables(invoice.subscriptionDateNotice, company)}</Text>
+      ) : null}
     </View>
     </Readable>
   );
@@ -673,21 +758,27 @@ function DocumentBody({ company, invoice, styles }: { company: PdfCompanySetting
             </Readable>
             </Fragment>
           ))}
-          {invoice.recurringSummary?.discount && !choices ? (
+          {invoice.recurringSummary?.discount ? (
             <Readable as="row">
             <View style={styles.tr} wrap={false}>
               <View style={styles.colDesc}>
-                <Text style={{ color: INK }}>{discountWords(invoice.recurringSummary.discount).label}</Text>
+                <Text style={{ color: INK }}>
+                  {choices && invoice.recurringSummary.intervalChoiceDiscount
+                    ? choiceDiscountLabel(invoice.recurringSummary.intervalChoiceDiscount, invoice.recurringSummary.discount.opening, invoice.recurringSummary.discount.promoCode)
+                    : discountWords(invoice.recurringSummary.discount).label}
+                </Text>
               </View>
               <Text style={styles.colQty}>{""}</Text>
               <Text style={styles.colPrice}>{""}</Text>
-              <Text style={styles.colTotal}>{`- ${fmtMoney(invoice.recurringSummary.discount.discountCentsPerPeriod)}`}</Text>
+              {/* Rythme au choix : le montant remisé dépend du rythme, il est dans le tableau des rythmes. */}
+              <Text style={styles.colTotal}>{choices ? "selon le rythme" : `- ${fmtMoney(invoice.recurringSummary.discount.discountCentsPerPeriod)}`}</Text>
             </View>
             </Readable>
           ) : null}
         </View>
         </Readable>
 
+        {isQuote && choices ? <RhythmTable invoice={invoice} company={company} styles={styles} /> : (
         <Readable as="totals">
         <View style={styles.totals} wrap={false}>
           {invoice.recurringSummary ? (
@@ -883,9 +974,7 @@ function DocumentBody({ company, invoice, styles }: { company: PdfCompanySetting
           )}
         </View>
         </Readable>
-
-        {/* Rythme au choix : encadré insécable sous le total, comme l'option au choix. */}
-        {isQuote && choices ? <IntervalChoices choices={choices} styles={styles} /> : null}
+        )}
 
         {isQuote && invoice.optionalOffers ? <OptionalOffers options={invoice.optionalOffers} styles={styles} /> : null}
 
@@ -1343,9 +1432,12 @@ export function InvoiceDocument({ company, client, invoice, specimen, draft, pro
               : [{ title: "Conditions de l'abonnement", clauses: subscriptionClausesOf(invoice, company) }]
             )
               .filter((g) => g.clauses.length)
-              .map((g) => (
+              .map((g, i, all) => (
                 <Readable key={g.title} as="section" heading>
-                <View style={styles.section}>
+                {/* Dernières conditions : si les mentions qui suivent ne tiennent pas dessous, elles passeraient seules sur
+                    une dernière page ; les deux passent alors ensemble à la page suivante (minPresenceAhead plus grand qu'une
+                    page : @react-pdf le borne à la fin réelle des mentions). */}
+                <View style={styles.section} minPresenceAhead={i === all.length - 1 ? 2000 : undefined}>
                   {/* Intertitre et 1re clause d'un bloc : l'intertitre ne reste jamais seul en bas de page. */}
                   <View wrap={false}>
                     <Text style={styles.h2}>{g.title}</Text>
@@ -1362,7 +1454,10 @@ export function InvoiceDocument({ company, client, invoice, specimen, draft, pro
           : null}
 
         <Readable as="section">
-        <View style={styles.legal}>
+        {/* Mentions communes (29/10/2026) : sur un devis, en petit texte sur deux colonnes, d'un seul bloc ; chaque mention
+            reste entière. Facture et avoir : une colonne, comme avant. */}
+        <View style={isQuote ? [styles.legal, styles.legalQuote] : styles.legal} wrap={isQuote ? false : undefined}>
+          <LegalColumns columns={isQuote ? 2 : 1}>
           {isQuote && invoice.cgv ? (
             <Text wrap={false}>
               Conditions générales de vente applicables : version du {invoice.cgv.version}, {invoice.cgv.url}
@@ -1420,6 +1515,7 @@ export function InvoiceDocument({ company, client, invoice, specimen, draft, pro
           {company.pdfFooterText ? (
             <Text wrap={false} style={{ marginTop: 6 }}>{company.pdfFooterText}</Text>
           ) : null}
+          </LegalColumns>
         </View>
         </Readable>
         </View>
