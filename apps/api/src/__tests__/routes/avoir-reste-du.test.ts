@@ -234,7 +234,7 @@ describe("revue : trop-perçu, remboursement, concurrence, jalon, liens", () => 
 });
 
 describe("espace client /suivi : champs ajoutés, aucun changé", () => {
-  it("facture 1 000, avoir 300, paiement 700 : dueCents 0 et encaissé net ; remainingCents et totalPaidCents inchangés", async () => {
+  it("facture 1 000, avoir 300, paiement 700 : dueCents 0 et encaissé net ; remainingCents inchangé, totalPaidCents sans l'avoir", async () => {
     await prisma.companySettings.updateMany({ data: { publicTrackingShowAmounts: true } });
     (await import("@/lib/company.js")).invalidateCompanySettingsCache();
     const inv = await issuedInvoice();
@@ -253,7 +253,8 @@ describe("espace client /suivi : champs ajoutés, aucun changé", () => {
     const avoir = t.documents.find((d) => d.documentType === "CREDIT_NOTE")!;
     expect(avoir.dueCents).toBeUndefined();
     expect(t.paymentHistory).toMatchObject({ totalCreditedCents: 30_000, totalRefundedCents: 0, totalCashInCents: 70_000 });
-    expect(t.paymentHistory.totalPaidCents).toBe(100_000);
+    // Règlements reçus seulement (décision du 28/10/2026) : l'avoir de 300 € n'en est plus un.
+    expect(t.paymentHistory.totalPaidCents).toBe(70_000);
     // Reste à régler avoirs compris : facture soldée par l'avoir et le paiement, donc 0.
     expect(t.paymentHistory.totalNetDueCents).toBe(0);
 

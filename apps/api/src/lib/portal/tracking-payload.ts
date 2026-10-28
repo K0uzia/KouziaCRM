@@ -133,6 +133,8 @@ export function buildPaymentHistory(opts: {
     /** Contrat B (version accessible) : présent seulement si la version lisible du reçu existe. */
     receiptReadableAvailable?: true;
     projectId: string | null;
+    /** Ajout du 28/10/2026 : PAYMENT (règlement reçu) ou CREDIT_NOTE (avoir émis, montant négatif), à afficher à part. */
+    entryType: "PAYMENT" | "CREDIT_NOTE";
   }> = [];
 
   for (const m of opts.milestones) {
@@ -149,21 +151,24 @@ export function buildPaymentHistory(opts: {
         ? signDocumentToken(m.generatedInvoice.id)
         : null,
       projectId: byQuote.get(m.quoteId) ?? null,
+      entryType: "PAYMENT",
     });
   }
 
   for (const d of opts.docs) {
     if (d.documentType === InvoiceDocumentType.CREDIT_NOTE) {
+      // Avoir émis : jamais un règlement reçu, montant négatif (audit du 28/10/2026 : il s'affichait « Règlement reçu »).
       items.push({
         id: `credit-${d.id}`,
         date: d.issueDate ?? d.createdAt,
-        amountCents: -d.totalCents,
+        amountCents: -Math.abs(d.totalCents),
         method: "CREDIT_NOTE",
         status: d.status,
-        label: `Avoir ${d.number ?? ""}`.trim(),
+        label: `Avoir émis ${d.number ?? ""}`.trim(),
         documentNumber: d.number,
         receiptToken: d.number ? signDocumentToken(d.id) : null,
         projectId: projectOfDocument(byQuote, d),
+        entryType: "CREDIT_NOTE",
       });
       continue;
     }
@@ -198,6 +203,7 @@ export function buildPaymentHistory(opts: {
         receiptPdfToken: d.number ? signReceiptToken(p.id) : null,
         ...(d.number && readableAvailable(p.receiptReadableSnapshot) ? { receiptReadableAvailable: true as const } : {}),
         projectId: projectOfDocument(byQuote, d),
+        entryType: "PAYMENT",
       });
     }
   }
@@ -208,20 +214,21 @@ export function buildPaymentHistory(opts: {
     ? items
     : items.map(({ amountCents: _a, ...rest }) => rest);
 
+  // Règlements reçus seulement (28/10/2026) : un avoir n'en est pas un.
   const totalPaidCents = items
-    .filter((i) => i.amountCents > 0)
+    .filter((i) => i.entryType === "PAYMENT" && i.amountCents > 0)
     .reduce((s, i) => s + i.amountCents, 0);
   const totalCreditCents = items
-    .filter((i) => i.amountCents < 0)
+    .filter((i) => i.entryType === "CREDIT_NOTE")
     .reduce((s, i) => s + Math.abs(i.amountCents), 0);
   // Devis d'abonnement seul (NONE) : rien n'est dû au titre du devis, l'abonnement facture chaque période.
   // Partie ponctuelle du devis (base de l'échéancier) : l'abonnement est facturé à chaque période.
   const marketTotal = opts.docs
     .filter((d) => d.documentType === InvoiceDocumentType.QUOTE && d.paymentPlanOffer !== "NONE")
     .reduce((max, d) => Math.max(max, d.depositBaseCents ?? d.totalCents), 0);
-  const totalDueCents = Math.max(0, marketTotal - totalPaidCents + totalCreditCents);
-  // Ajout du 19/10/2026 (contrat /suivi) : avoirs et encaissé net, sans changer les totaux ci-dessus (totalPaidCents
-  // compte un avoir comme un règlement). Remboursements : paiements négatifs portés par les avoirs.
+  // Reste dû inchangé : un avoir réduit ce qui reste à payer, comme avant le 28/10/2026.
+  const totalDueCents = Math.max(0, marketTotal - totalPaidCents - totalCreditCents);
+  // Ajout du 19/10/2026 (contrat /suivi) : avoirs et encaissé net. Remboursements : paiements négatifs portés par les avoirs.
   const creditNoteDocs = opts.docs.filter((d) => d.documentType === InvoiceDocumentType.CREDIT_NOTE);
   const totalCreditedCents = creditNoteDocs.reduce((s, d) => s + Math.abs(d.totalCents), 0);
   // Encaissé net d'après les règlements réels (jamais le montant théorique d'un jalon) : paiements reçus sur les
