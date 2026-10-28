@@ -114,20 +114,21 @@ describe("P0 : un paiement reçu sur une échéance n'est jamais rejeté", () =>
     expect((await prisma.invoice.findUniqueOrThrow({ where: { id: solde.id } })).status).toBe(InvoiceStatus.PAID);
   });
 
-  it("facture impossible à émettre (devis déjà facturé en totalité) : paiement enregistré sans facture et alerte à l'administrateur", async () => {
+  it("devis déjà facturé en totalité : le paiement de l'échéance se rattache à la facture totale, une seule fois", async () => {
     const { client, quote, balance } = await signedQuoteWithPaidDeposit();
-    await prisma.invoice.create({
+    const total = await prisma.invoice.create({
       data: {
         documentType: InvoiceDocumentType.INVOICE, invoiceType: InvoiceType.SIMPLE, status: InvoiceStatus.ISSUED, number: "F-2026-0999",
         clientId: client.id, quoteId: quote.id, subtotalCents: 50000, totalCents: 50000, issueDate: new Date(),
       },
     });
     await prisma.paymentMilestone.update({ where: { id: balance.id }, data: { label: "Deuxième acompte", status: MilestoneStatus.DUE } });
+    // Audit du 28/10/2026 : l'argent reçu va sur la facture qui porte le devis, pas sur un paiement sans facture.
     await expect(
       markPaidFromOnlinePayment({ amountCents: 35000, method: PaymentMethod.CARD, paymentIntentId: "pi_orphelin", milestoneId: balance.id }),
-    ).resolves.toMatchObject({ duplicate: false, invoiceId: null });
-    expect(await prisma.payment.findUnique({ where: { stripePaymentIntentId: "pi_orphelin" } })).toMatchObject({ invoiceId: null, amountCents: 35000 });
-    expect(await alerts()).toBe(1);
+    ).resolves.toMatchObject({ duplicate: false, invoiceId: total.id });
+    expect(await prisma.payment.findUnique({ where: { stripePaymentIntentId: "pi_orphelin" } })).toMatchObject({ invoiceId: total.id, amountCents: 35000 });
+    expect(await alerts()).toBe(0);
     // Renvoi du même événement par Stripe : rien en double.
     await expect(markPaidFromOnlinePayment({ amountCents: 35000, method: PaymentMethod.CARD, paymentIntentId: "pi_orphelin", milestoneId: balance.id })).resolves.toMatchObject({ duplicate: true });
     expect(await prisma.payment.count({ where: { stripePaymentIntentId: "pi_orphelin" } })).toBe(1);

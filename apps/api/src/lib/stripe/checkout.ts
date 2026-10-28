@@ -17,6 +17,7 @@ import { getCompanySettings } from "@/lib/company.js";
 import { paymentMethodTypes, subscriptionMethodTypes } from "@/lib/stripe/payment-methods.js";
 import { dailyIdempotencyKey } from "@/lib/stripe/idempotency.js";
 import { PROCESSING_NOTICE } from "@/lib/stripe/pay-page.js";
+import { activeTotalInvoiceOf, milestoneInvoiceKind } from "@/lib/invoices/workflow.js";
 import type Stripe from "stripe";
 
 export class StripeCheckoutError extends Error {
@@ -109,18 +110,24 @@ export async function createInvoiceCheckoutSession(invoiceId: string): Promise<s
 
 /**
  * Jalon payable : devis signé, et jalon exigible. Le 2e acompte d'un paiement en 3 fois reste
- * en attente de son étape de projet (PENDING) : il ne se paie pas avant.
+ * en attente de son étape de projet (PENDING) : il ne se paie pas avant. Devis déjà facturé en totalité : plus aucune
+ * échéance à payer (audit du 28/10/2026).
  */
-export function assertMilestonePayable(milestone: {
+export async function assertMilestonePayable(milestone: {
   status: MilestoneStatus;
   position: number;
+  quoteId: string;
   quote: { quoteStatus: QuoteStatus | null; paymentPlan: string | null; billingMode?: string | null };
-}): void {
+}): Promise<void> {
   if (milestone.quote.quoteStatus !== QuoteStatus.ACCEPTED) {
     throw new StripeCheckoutError("Le devis n'est pas encore signé", 409);
   }
   if (!milestone.quote.billingMode && milestone.quote.paymentPlan === "THREE" && milestone.position === 2 && milestone.status === MilestoneStatus.PENDING) {
     throw new StripeCheckoutError("Ce 2e acompte attend l'étape de projet prévue", 409);
+  }
+  const total = await activeTotalInvoiceOf(milestone.quoteId);
+  if (total) {
+    throw new StripeCheckoutError(`Ce devis est déjà facturé en totalité${total.number ? ` (${total.number})` : ""} : cette échéance n'est plus à payer.`, 409);
   }
 }
 
@@ -142,7 +149,15 @@ export async function createMilestoneCheckoutSession(milestoneId: string): Promi
     throw new StripeCheckoutError("Montant invalide", 400);
   }
   if (milestone.paymentProcessingAt) throw new StripeCheckoutError(PROCESSING_NOTICE, 409);
-  assertMilestonePayable(milestone);
+  await assertMilestonePayable(milestone);
+
+  // Dernière échéance encore sans facture : sa facture de solde (marché moins acomptes nets) est émise d'abord, comme à
+  // l'activation du lien ; le client paie le solde réel, pas le montant prévu au jalon.
+  if (!milestone.invoiceId && (await milestoneInvoiceKind(milestone)) === "BALANCE") {
+    const { generateBalanceInvoice } = await import("@/lib/invoices/documentFlowService.js");
+    const { invoice } = await generateBalanceInvoice(milestone.quoteId, { milestoneId: milestone.id });
+    return createInvoiceCheckoutSession(invoice.id);
+  }
 
   // Si une facture est déjà liée, on paie la facture (reste dû).
   if (milestone.invoiceId) {

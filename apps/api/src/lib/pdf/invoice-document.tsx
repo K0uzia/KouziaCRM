@@ -15,7 +15,7 @@ import type { ClientSnapshot } from "@/lib/invoices/transitions.js";
 import { formatEUR } from "@/lib/money.js";
 import { discountSentence, type RecurringDiscountSummary } from "@/lib/quotes/recurring-discount.js";
 import { readableOn, resolveBrandColors } from "@/lib/brand.js";
-import { formatDateFr, formatDateTimeShortFr, withoutFinalPeriod } from "@/lib/format-fr.js";
+import { formatDateFr, formatDateTimeShortFr, formatPercentBps, withoutFinalPeriod } from "@/lib/format-fr.js";
 
 /**
  * Charte Kouzia adaptée à l'impression : fond blanc, encre nuit, ambre en aplats
@@ -892,7 +892,7 @@ function DocumentBody({ company, invoice, styles }: { company: PdfCompanySetting
                   <View style={styles.milestone}>
                     <View style={{ flex: 1 }}>
                       <Text>
-                        {m.label} ({(m.percentBps / 100).toFixed(0)} %)
+                        {m.label} ({formatPercentBps(m.percentBps)})
                       </Text>
                       <Text style={styles.muted}>{m.triggerText}</Text>
                     </View>
@@ -919,7 +919,7 @@ function DocumentBody({ company, invoice, styles }: { company: PdfCompanySetting
               <View style={styles.milestone}>
                 <View style={{ flex: 1 }}>
                   <Text style={styles.strong}>
-                    {m.label} ({(m.percentBps / 100).toFixed(0)} %)
+                    {m.label} ({formatPercentBps(m.percentBps)})
                   </Text>
                   <Text style={styles.muted}>
                     {m.triggerText}

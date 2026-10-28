@@ -33,8 +33,8 @@ describe("/suivi : un avoir n'est pas un règlement", () => {
   it("totalPaidCents ne compte pas un avoir comme un règlement", () => {
     const h = buildPaymentHistory({ docs: [quote, deposit, avoir], milestones: [], showAmounts: true });
     expect(h.totalPaidCents).toBe(30_000);
-    // Reste dû inchangé : 1 000 € - 300 € réglés - 100 € d'avoir.
-    expect(h.totalDueCents).toBe(60_000);
+    // Avoirs comptés à part : 100 € d'avoir émis.
+    expect(h.totalCreditedCents).toBe(10_000);
     expect((h.items.find((i) => i.id === "payment-p1") as unknown as { entryType: string }).entryType).toBe("PAYMENT");
   });
 });

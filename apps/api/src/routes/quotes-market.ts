@@ -376,7 +376,6 @@ export const quotesMarketRoutes: FastifyPluginAsync = async (app) => {
         return reply.code(404).send({ error: "Devis introuvable" });
       }
       const schema = billingOptionsSchema.extend({
-        force: z.boolean().optional(),
         issueDate: z.string().optional(),
         milestoneId: z.string().optional(),
       });
@@ -401,7 +400,6 @@ export const quotesMarketRoutes: FastifyPluginAsync = async (app) => {
       }
       try {
         const result = await generateBalanceInvoice(request.params.id, {
-          force: parsed.data.force,
           issueDate,
           milestoneId: parsed.data.milestoneId,
         });

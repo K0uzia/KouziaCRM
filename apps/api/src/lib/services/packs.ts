@@ -2,6 +2,9 @@ import { z } from "zod";
 import type { Service } from "@prisma/client";
 import { prisma } from "@/lib/prisma.js";
 import { periodAmountCents } from "@/lib/quotes/billing-mode.js";
+import { annualPriceOfService } from "@/lib/services/annual-price.js";
+import { getCompanySettings } from "@/lib/company.js";
+import { oneOffEquivalents } from "@/lib/services/maintenance-offers.js";
 import type { BillingMode } from "@/lib/quotes/payment-plans.js";
 
 /**
@@ -63,13 +66,15 @@ export async function packModeLines(packId: string, mode: BillingMode, interval:
   const description = items.length ? `${pack.name} : ${packContents(items)}` : pack.name;
   const base = { serviceId: pack.id, description, quantity: 1, groupTitle: "", isPackDiscount: false, isOptional: false, commitmentMonths: null };
   if (mode === "ONE_OFF") {
-    const options: PackLine[] = pack.packItems
-      .filter((i) => i.service.isSubscription)
-      .map(({ service }) => ({
+    const { annualFreeMonths } = await getCompanySettings();
+    // Abonnement compris dans le pack (maintenance pack) : proposé sous son offre vendue seule (maintenance-offers.ts).
+    const options: PackLine[] = (await oneOffEquivalents(pack.packItems.filter((i) => i.service.isSubscription).map((i) => i.service)))
+      .map((service) => ({
         serviceId: service.id,
         description: service.description ? `${service.name} : ${service.description}` : service.name,
         quantity: 1,
-        unitPriceCents: service.billingInterval === "YEAR" ? service.unitPriceCents : service.unitPriceCents * 12,
+        // Prix annuel : même règle que l'éditeur (prix annuel du catalogue, sinon 12 mois moins les mois offerts).
+        unitPriceCents: annualPriceOfService(service, annualFreeMonths),
         isSubscription: true,
         billingInterval: "YEAR",
         billingDay: service.defaultBillingDay,

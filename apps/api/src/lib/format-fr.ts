@@ -30,6 +30,12 @@ export function formatEUR(cents: number): string {
   return `${rounded < 0 ? "-" : ""}${grouped},${centimes}${NBSP}€`;
 }
 
+/** Pourcentage en points de base : « 33,33 % », « 50 % » (deux décimales au plus, espace insécable). */
+export function formatPercentBps(bps: number): string {
+  const value = Math.round(bps) / 100;
+  return `${String(value).replace(".", ",")}${NBSP}%`;
+}
+
 type ParisParts = { year: number; month: number; day: number; hour: number; minute: number };
 
 let partsFormatter: Intl.DateTimeFormat | null = null;

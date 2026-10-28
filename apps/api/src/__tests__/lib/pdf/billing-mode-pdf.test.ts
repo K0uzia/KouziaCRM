@@ -54,10 +54,11 @@ async function quote(billingMode: "ONE_OFF" | "RECURRING", offer: string, lines:
 describe("PDF du devis selon le mode de facturation", () => {
   it("paiement unique en 3 fois : échéances à parts égales, datées depuis la signature", async () => {
     const text = await quote("ONE_OFF", "THREE", [{ description: "Site vitrine", unitPriceCents: 100000 }]);
-    expect(text).toContain("1re échéance (33 %)");
+    // Pourcentages à deux décimales (audit du 28/10/2026).
+    expect(text).toMatch(/1re échéance \(33,33\s%\)/);
     expect(text).toContain("333,33 €");
     expect(text).toContain("30 jours après la signature");
-    expect(text).toContain("3e échéance (33 %)");
+    expect(text).toMatch(/3e échéance \(33,34\s%\)/);
     expect(text).not.toContain("Acompte");
   });
 

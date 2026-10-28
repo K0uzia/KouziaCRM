@@ -28,6 +28,16 @@ function greeting(name?: string | null): string {
   return n ? `Bonjour ${n},` : "Bonjour,";
 }
 
+/**
+ * Mot d'une échéance dans les e-mails de lien et de reçu (audit du 28/10/2026), un seul pour les deux : « paiement »
+ * pour un paiement comptant, « solde » pour la vraie dernière échéance d'un échéancier, « échéance » pour les autres.
+ */
+export function instalmentWording(depositIndex: number, depositTotal: number): { nature: string; withArticle: string } {
+  if (depositTotal <= 1) return { nature: "paiement", withArticle: "le paiement" };
+  if (depositIndex >= depositTotal) return { nature: "solde", withArticle: "le solde" };
+  return { nature: "échéance", withArticle: "l'échéance" };
+}
+
 export async function renderDepositCheckoutEmail(opts: {
   brand: EmailBrand;
   settings: Pick<CompanySettings, "emailSignatureHtml">;
@@ -41,15 +51,13 @@ export async function renderDepositCheckoutEmail(opts: {
   depositTotal: number;
   label?: string;
 }) {
-  const isSolde =
-    opts.depositIndex === opts.depositTotal ||
-    /solde/i.test(opts.label ?? "");
+  const word = instalmentWording(opts.depositIndex, opts.depositTotal).withArticle;
   const original = {
-    subject: isSolde ? `Devis validé : réglez le solde` : `Devis validé : réglez l'acompte`,
+    subject: `Devis validé : réglez ${word}`,
     body: [
       greeting(opts.clientFirstName ?? opts.clientName),
       "",
-      `Votre devis ${opts.quoteNumber} est validé. Merci de régler ${isSolde ? "le solde" : "l'acompte"} (${fmtEur(opts.amountCents)}).`,
+      `Votre devis ${opts.quoteNumber} est validé. Merci de régler ${word} (${fmtEur(opts.amountCents)}).`,
       "",
       `Payer en ligne : ${opts.checkoutUrl}`,
     ].join("\n"),
@@ -62,7 +70,7 @@ export async function renderDepositCheckoutEmail(opts: {
       prenom: opts.clientFirstName?.trim() ?? "",
       client: opts.clientName,
       devis: opts.quoteNumber,
-      echeance: isSolde ? "le solde" : "l'acompte",
+      echeance: word,
       montant: fmtEur(opts.amountCents),
       libelle_jalon: opts.label ?? "",
       lien_paiement: opts.checkoutUrl,
@@ -91,10 +99,10 @@ export async function renderDepositPaidEmail(opts: {
   quoteNumber: string;
   amountCents: number;
   depositIndex: number;
+  depositTotal: number;
   label?: string;
 }) {
-  const isSolde = /solde/i.test(opts.label ?? "");
-  const kind = isSolde ? "solde" : "acompte";
+  const kind = instalmentWording(opts.depositIndex, opts.depositTotal).nature;
   const content = await templateText(
     "payment.deposit_paid",
     {

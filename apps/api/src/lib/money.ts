@@ -26,9 +26,5 @@ export function formatLongDate(d: Date): string {
   return formatLongDateFr(d).replace(/^1 /, "1er ");
 }
 
-export function lineTotalCents(quantity: number | string, unitPriceCents: number): number {
-  return new Decimal(quantity)
-    .mul(unitPriceCents)
-    .toDecimalPlaces(0, Decimal.ROUND_HALF_UP)
-    .toNumber();
-}
+// Total de ligne : source unique partagée avec l'ERP web.
+export { lineTotalCents } from "@/lib/invoices/line-amounts.js";

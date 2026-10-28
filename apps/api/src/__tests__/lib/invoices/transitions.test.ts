@@ -286,8 +286,9 @@ describe("convertQuoteToInvoice", () => {
     await issueQuote(quoteId, new Date());
     await acceptQuoteByClient(quoteId, "Camille Dupont");
     await convertQuoteToInvoice(quoteId);
+    // Facture totale active : la conversion est refusée (son existence fait foi, pas le statut du devis).
     await expect(convertQuoteToInvoice(quoteId)).rejects.toThrow(
-      /Devis non convertible/,
+      /déjà été converti en facture/,
     );
   });
 

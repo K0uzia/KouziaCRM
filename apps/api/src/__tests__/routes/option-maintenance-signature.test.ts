@@ -234,7 +234,8 @@ describe("GET /api/public/tracking : optionalLines et scope (contrat /suivi)", (
     const after = await tracked(kz_portal, id);
     expect((after.optionalLines as Array<{ accepted: boolean }>)[0]!.accepted).toBe(true);
     expect((after.subscriptionLines as Array<{ label: string; startsAt: string }>).map((l) => [l.label, l.startsAt])).toEqual([["Maintenance annuelle", "DELIVERY"]]);
-    expect(after.totalCents).toBe(150000);
+    // Montant du devis dans /suivi : le projet (partie ponctuelle figée), l'option se lit dans subscriptionLines (28/10/2026).
+    expect(after.totalCents).toBe(120000);
     expect(after).not.toHaveProperty("oneOffDiscountCents");
   });
 });

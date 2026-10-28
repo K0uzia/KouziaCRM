@@ -147,6 +147,13 @@ async function main() {
   } catch (err) {
     app.log.warn({ err }, "[boot] hydrateSettingsFromEnv / backfill");
   }
+  // Offres de maintenance du site (28/10/2026) : créées et posées dans les packs une seule fois.
+  try {
+    const { ensureMaintenanceOffers } = await import("@/lib/services/maintenance-offers.js");
+    for (const line of await ensureMaintenanceOffers()) app.log.info(`[boot] maintenance : ${line}`);
+  } catch (err) {
+    app.log.warn({ err }, "[boot] offres de maintenance non posées (nouvel essai au prochain démarrage)");
+  }
 }
 
 main().catch((err) => {

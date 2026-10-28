@@ -425,10 +425,14 @@ export async function createCreditNote(
   return creditNote;
 }
 
-/** Compat : annulation totale (ancien flux) si encaissement présent. */
+/**
+ * Annulation totale par avoir. Facture d'acompte : même règle que l'assistant d'avoir (audit du 28/10/2026), la
+ * confirmation explicite que les CGV rendent l'acompte remboursable est exigée ; false ou absente : refus « CGV ».
+ */
 export async function cancelInvoiceWithCreditNote(
   invoiceId: string,
   issueDate = new Date(),
+  opts: { cgvDepositRefundable?: boolean | null } = {},
 ) {
   const eligibility = await assessCreditNoteEligibility(invoiceId);
   if (!eligibility.allowed) {
@@ -449,7 +453,7 @@ export async function cancelInvoiceWithCreditNote(
       creditNoteSplit(eligibility.maxCreditCents, eligibility.dueCents).refundCents > 0
         ? RefundMethod.BANK_TRANSFER
         : RefundMethod.DEDUCT_FROM_BALANCE,
-    cgvDepositRefundable: eligibility.isAcompte ? true : null,
+    cgvDepositRefundable: eligibility.isAcompte ? (opts.cgvDepositRefundable ?? null) : null,
     issueDate,
     registerRefundPayment: true,
   });

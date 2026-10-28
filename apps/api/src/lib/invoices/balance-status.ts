@@ -1,4 +1,4 @@
-import { InvoiceStatus, MilestoneStatus, type Prisma } from "@prisma/client";
+import { InvoiceDocumentType, InvoiceStatus, InvoiceType, MilestoneStatus, type Prisma } from "@prisma/client";
 import { BALANCE_INCLUDE, invoiceBalance, promotedStatus } from "@/lib/invoices/balance.js";
 import { syncMilestoneOnInvoicePaid } from "@/lib/invoices/documentFlowService.js";
 
@@ -20,6 +20,15 @@ export async function applySettledStatus(
     await tx.paymentMilestone.updateMany({
       where: { id: invoice.milestoneId, status: { not: MilestoneStatus.PAID } },
       data: { status: MilestoneStatus.CANCELLED, checkoutUrl: null },
+    });
+  }
+  // Facture totale d'un devis annulée par avoir : le devis n'est plus « facturé » (statut PAID posé à la conversion), il
+  // redevient émis et signé, prêt pour une facture corrigée (audit du 28/10/2026).
+  const quoteId = invoice.sourceQuoteId ?? invoice.quoteId;
+  if (after === InvoiceStatus.CANCELLED && invoice.invoiceType === InvoiceType.SIMPLE && quoteId) {
+    await tx.invoice.updateMany({
+      where: { id: quoteId, documentType: InvoiceDocumentType.QUOTE, status: InvoiceStatus.PAID },
+      data: { status: InvoiceStatus.ISSUED },
     });
   }
   return { before: invoice.status, after };

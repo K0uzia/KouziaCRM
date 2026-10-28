@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { prisma } from "@/lib/prisma.js";
 import { applyCatalog, CATALOG, CATALOG_PACKS } from "@/lib/services/catalog.js";
+import { MAINTENANCE_PACK_ID } from "@/lib/services/maintenance-offers.js";
 import { resetDb } from "../../helpers/db.js";
 
 beforeEach(async () => {
@@ -79,9 +80,9 @@ describe("import du catalogue", () => {
     expect(await prisma.service.findUniqueOrThrow({ where: { id: ancienne.id } })).toMatchObject({ name: "Site vitrine (5 pages)", unitPriceCents: 130_000 });
     expect(await prisma.service.count({ where: { name: { startsWith: "Site vitrine (" } } })).toBe(1);
     expect(await prisma.service.findUniqueOrThrow({ where: { id: stripe.id } })).toMatchObject({ unitPriceCents: 30_000, name: "Maintenance site (annuel)" });
-    // Le pack se compose avec l'offre Stripe existante, sans créer une seconde « Maintenance site ».
+    // Le pack se compose avec la maintenance pack (28/10/2026), sans créer une seconde « Maintenance site ».
     const pack = await prisma.service.findFirstOrThrow({ where: { name: "Pack Vitrine" }, include: { packItems: true } });
-    expect(pack.packItems.map((i) => i.serviceId)).toContain(stripe.id);
+    expect(pack.packItems.map((i) => i.serviceId)).toContain(MAINTENANCE_PACK_ID);
     expect(await prisma.service.count({ where: { name: "Maintenance site" } })).toBe(0);
   });
 

@@ -63,7 +63,8 @@ describe("devis à 2 propositions (P1)", () => {
     });
     expect(res.statusCode, res.body).toBe(201);
     const q = res.json();
-    expect(q).toMatchObject({ billingMode: null, paymentPlanOffer: null, openingDiscount: false, promoCodeId: null, totalCents: 150000, quoteStatus: "DRAFT", number: null });
+    // Montant comparable (28/10/2026) : 2 300 € en paiement unique contre 3 ans d'abonnement remisé (plus de 3 000 €), pas 1 500 € de 1re année.
+    expect(q).toMatchObject({ billingMode: null, paymentPlanOffer: null, openingDiscount: false, promoCodeId: null, totalCents: 230000, quoteStatus: "DRAFT", number: null });
     expect(q.options).toHaveLength(2);
     const [a, b] = q.options;
     expect(a).toMatchObject({ position: 0, label: "Paiement unique", billingMode: "ONE_OFF", paymentPlanOffer: "TWO", totalCents: 230000 });

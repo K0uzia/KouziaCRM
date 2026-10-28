@@ -485,14 +485,14 @@ describe("Checkout : revue", () => {
 
   it("jalon : refusé avant la signature, et pour un 2e acompte en attente de son étape", async () => {
     const { assertMilestonePayable } = await import("@/lib/stripe/checkout.js");
-    const base = { status: "DUE" as const, position: 1 };
-    expect(() => assertMilestonePayable({ ...base, quote: { quoteStatus: "SENT", paymentPlan: null } })).toThrow(/signé/);
-    expect(() =>
-      assertMilestonePayable({ status: "PENDING", position: 2, quote: { quoteStatus: "ACCEPTED", paymentPlan: "THREE" } }),
-    ).toThrow(/étape/);
-    expect(() =>
-      assertMilestonePayable({ status: "DUE", position: 2, quote: { quoteStatus: "ACCEPTED", paymentPlan: "THREE" } }),
-    ).not.toThrow();
+    const base = { status: "DUE" as const, position: 1, quoteId: "devis-sans-facture" };
+    await expect(assertMilestonePayable({ ...base, quote: { quoteStatus: "SENT", paymentPlan: null } })).rejects.toThrow(/signé/);
+    await expect(
+      assertMilestonePayable({ status: "PENDING", position: 2, quoteId: "devis-sans-facture", quote: { quoteStatus: "ACCEPTED", paymentPlan: "THREE" } }),
+    ).rejects.toThrow(/étape/);
+    await expect(
+      assertMilestonePayable({ status: "DUE", position: 2, quoteId: "devis-sans-facture", quote: { quoteStatus: "ACCEPTED", paymentPlan: "THREE" } }),
+    ).resolves.toBeUndefined();
   });
 });
 

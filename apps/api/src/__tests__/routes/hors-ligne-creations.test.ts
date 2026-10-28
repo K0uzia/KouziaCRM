@@ -231,6 +231,9 @@ describe("étiquette « Préparé hors ligne, à relire » (Invoice.offlineRevie
 
   it("effacée automatiquement à l'émission du devis", async () => {
     const { id } = await quoteToReview();
+    // Adresse exigée à l'émission (mention obligatoire) : complétée comme l'admin le ferait à la relecture.
+    const { clientId } = await prisma.invoice.findUniqueOrThrow({ where: { id }, select: { clientId: true } });
+    await prisma.client.update({ where: { id: clientId }, data: { addressLine1: "2 rue du Test", postalCode: "29600", city: "Morlaix" } });
     const issued = await app.inject({ method: "POST", url: `/api/invoices/${id}/issue`, headers: { cookie }, payload: {} });
     expect(issued.statusCode).toBe(200);
     const quote = await prisma.invoice.findUniqueOrThrow({ where: { id } });

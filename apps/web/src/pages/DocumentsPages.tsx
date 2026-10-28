@@ -1,7 +1,8 @@
 import { useFeatures } from "@/lib/features";
 import { toIsoDate } from "@/components/ui/DatePicker";
 import { Fragment, useCallback, useEffect, useState } from "react";
-import { mixedQuoteTotals, proposalTitle, subscriptionsTotalText, withOptionText, withoutFinalPeriod } from "@/lib/quote-totals";
+import { mixedQuoteTotals, proposalsAmountText, proposalTitle, quoteInvoicedCents, sameModeProposals, subscriptionsTotalText, withOptionText, withoutFinalPeriod } from "@/lib/quote-totals";
+import { formatPercentBps } from "@/lib/format";
 import type { ServiceNeed } from "@/components/clients/ServiceNeedsEditor";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
@@ -166,6 +167,8 @@ type Doc = {
   milestones?: Milestone[];
   /** Devis à 2 propositions (P1) : chacune complète ; vide pour un devis simple. */
   options?: Array<BillingSource & { id: string; position: number; label: string; totalCents: number }>;
+  /** Liste : mode de chaque proposition (« dès X » seulement entre propositions du même mode). */
+  optionModes?: Array<string | null>;
   /** Liste : nombre de propositions du devis. */
   _count?: { options?: number };
   /** Devis à propositions signé : la proposition retenue. */
@@ -180,10 +183,11 @@ type BillingSource = Pick<
 
 const PROPOSAL_LETTERS = ["A", "B"];
 
-/** Montant affiché d'un document : devis à propositions non signé, celui de la moins chère, annoncé comme tel. */
-function amountLabel(d: Pick<Doc, "totalCents" | "selectedOptionId" | "options" | "_count">): string {
+/** Montant affiché d'un document : devis à propositions non signé, celui de la moins chère si elles sont comparables. */
+function amountLabel(d: Pick<Doc, "totalCents" | "selectedOptionId" | "options" | "_count" | "optionModes">): string {
   const count = d.options?.length ?? d._count?.options ?? 0;
-  return count > 0 && !d.selectedOptionId ? `${count} propositions, dès ${formatEUR(d.totalCents)}` : formatEUR(d.totalCents);
+  const modes = d.options ?? d.optionModes?.map((billingMode) => ({ billingMode }));
+  return count > 0 && !d.selectedOptionId ? proposalsAmountText(count, modes, d.totalCents) : formatEUR(d.totalCents);
 }
 const PERIOD_LABEL: Record<string, string> = { YEAR: "par an", QUARTER: "par trimestre", MONTH: "par mois" };
 
@@ -336,7 +340,7 @@ function DocumentsListPage({
   const labels = isQuote ? quoteStatusLabel : invoiceStatusLabel;
   const statusLabelOf = (st: string) => (st === CREDIT_ISSUED ? (kind === "avoirs" ? "Émis" : "Avoir émis") : (labels[st] ?? st));
   const statusIds = isQuote
-    ? ["DRAFT", "SENT", "ACCEPTED", "REJECTED", "EXPIRED"]
+    ? ["DRAFT", "SENT", "ACCEPTED", "REJECTED", "EXPIRED", "WITHDRAWN", "CANCELLED"]
     : kind === "factures"
       ? ["DRAFT", "ISSUED", "PAID", "CANCELLED"]
       : kind === "avoirs"
@@ -729,7 +733,6 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
   const [emailSubject, setEmailSubject] = useState("");
   const [emailBody, setEmailBody] = useState("");
   const [companyName, setCompanyName] = useState("Alexandre Kouziaeff");
-  const [forceSoldeMessage, setForceSoldeMessage] = useState<string | null>(null);
   const [rejectOpen, setRejectOpen] = useState(false);
   const [signOpen, setSignOpen] = useState(false);
   const [signerName, setSignerName] = useState("");
@@ -768,13 +771,17 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
     }
   }
   const [rejectReason, setRejectReason] = useState("");
+  // Décision de Kouzia (motif interne, jamais montré au client) : retrait d'un devis non signé ou annulation de commande.
+  const [closing, setClosing] = useState<"withdraw" | "cancel-order" | null>(null);
+  const [closeReason, setCloseReason] = useState("");
+  const [closeBusy, setCloseBusy] = useState(false);
   const [rejectBusy, setRejectBusy] = useState(false);
   const [invoiceModalOpen, setInvoiceModalOpen] = useState(false);
   const [invoiceModalBusy, setInvoiceModalBusy] = useState(false);
   // « Facturer » un acompte ou le solde : rien n'est émis avant validation de la fenêtre.
   const [billing, setBilling] = useState<
     | { kind: "ACOMPTE"; milestoneId: string; label: string; amountCents: number }
-    | { kind: "SOLDE"; amountCents: number; force?: boolean }
+    | { kind: "SOLDE"; amountCents: number }
     | null
   >(null);
   const [billingBusy, setBillingBusy] = useState(false);
@@ -918,6 +925,9 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
     (doc.status === "DRAFT" || doc.depositBaseCents != null);
   const subscriptionToStart =
     mixedQuote && quoteSigned && docLines.some((l) => l.isSubscription && !l.subscriptionId);
+  // Devis mixte : le projet (partie ponctuelle remisée, figée à l'émission), seul montant facturé depuis le devis ;
+  // l'abonnement se facture à chaque période (conversion : depositBaseOf).
+  const quoteAmountCents = quoteInvoicedCents(doc, mixedQuote);
   const lockedReason =
     doc.status === "DRAFT"
       ? "Étape 1 : émettez le devis (bouton Émettre) pour l'envoyer au client."
@@ -947,7 +957,7 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
             )
           : await api<{ invoice: { id: string }; emailed?: boolean; emailReason?: string | null; warning?: string | null }>(
               `/api/quotes/${id}/balance-invoice`,
-              { method: "POST", body: JSON.stringify({ ...req, force: Boolean(billing.force) }) },
+              { method: "POST", body: JSON.stringify(req) },
             ).then((r) => ({ ...r, id: r.invoice.id }));
       const label = billing.kind === "ACOMPTE" ? "Facture d'acompte émise" : "Facture de solde émise";
       if (req.email.send) {
@@ -960,12 +970,7 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
       setBilling(null);
       navigate(`/invoices/${res.id}`);
     } catch (e) {
-      const msg = e instanceof Error ? e.message : "Erreur";
-      if (billing.kind === "SOLDE" && !billing.force && msg.includes("force=true")) {
-        setForceSoldeMessage(msg);
-        return;
-      }
-      toast.error(msg);
+      toast.error(e instanceof Error ? e.message : "Erreur");
     } finally {
       setBillingBusy(false);
     }
@@ -996,6 +1001,9 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
     }
   }
 
+  // Validité saisie sur le brouillon et encore à venir : gardée à l'émission (sinon fin du 30e jour, côté API).
+  const keptValidity = isQuote && doc?.validUntil && new Date(doc.validUntil).getTime() > Date.now() ? doc.validUntil.slice(0, 10) : null;
+
   async function confirmIssue() {
     setIssueBusy(true);
     try {
@@ -1013,7 +1021,7 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
             subject: emailSubject,
             body: emailBody,
           },
-          ...(isQuote ? {} : { payment: paymentChoiceOf(issuePayment) }),
+          ...(isQuote ? (keptValidity ? { validUntil: keptValidity } : {}) : { payment: paymentChoiceOf(issuePayment) }),
         }),
       });
       setIssueOpen(false);
@@ -1097,6 +1105,22 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
     }
   }
 
+  async function closeQuote() {
+    if (!closing) return;
+    setCloseBusy(true);
+    try {
+      await api(`/api/quotes/${id}/${closing}`, { method: "POST", body: JSON.stringify({ reason: closeReason.trim() }) });
+      toast.success(closing === "withdraw" ? "Devis retiré" : "Commande annulée");
+      setClosing(null);
+      setCloseReason("");
+      await load();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Erreur");
+    } finally {
+      setCloseBusy(false);
+    }
+  }
+
   async function manualPayMilestone(milestoneId: string, input: ManualPaymentInput) {
     setBusyId(`pay-${milestoneId}`);
     try {
@@ -1161,8 +1185,8 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
     }
   }
 
-  function generateSolde(force = false) {
-    setBilling({ kind: "SOLDE", amountCents: market?.balance.balanceDueCents ?? 0, force });
+  function generateSolde() {
+    setBilling({ kind: "SOLDE", amountCents: market?.balance.balanceDueCents ?? 0 });
   }
 
   return (
@@ -1239,7 +1263,13 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
                     ]
                   : []),
                 ...(isQuote && doc.quoteStatus === "SENT"
-                  ? [{ label: "Marquer refusé par le client", onSelect: () => setRejectOpen(true) }]
+                  ? [
+                      { label: "Marquer refusé par le client", onSelect: () => setRejectOpen(true) },
+                      { label: "Retirer le devis", danger: true, onSelect: () => setClosing("withdraw") },
+                    ]
+                  : []),
+                ...(isQuote && doc.quoteStatus === "ACCEPTED"
+                  ? [{ label: "Annuler la commande", danger: true, onSelect: () => setClosing("cancel-order") }]
                   : []),
                 ...(!isQuote &&
                 doc.documentType === "INVOICE" &&
@@ -1580,12 +1610,12 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
               Paiement au choix du client : il choisira 2 ou 3 fois à la signature.
             </p>
           ) : null}
-          {isQuote && !subscriptionQuote && market && doc.quoteStatus !== "REJECTED" && doc.quoteStatus !== "EXPIRED" ? (
+          {isQuote && !subscriptionQuote && market && doc.quoteStatus !== "REJECTED" && doc.quoteStatus !== "EXPIRED" && doc.quoteStatus !== "WITHDRAWN" ? (
             <MarketTimeline
               market={market}
               busyId={busyId}
               onGenerateAcompte={(mid) => openDepositBilling(mid)}
-              onGenerateSolde={(force) => generateSolde(Boolean(force))}
+              onGenerateSolde={() => generateSolde()}
               onManualPay={(mid) => setPayingMilestoneId(mid)}
               onClearProcessing={(mid) => setUnlockTarget({ kind: "milestone", id: mid })}
               onSavePaymentLink={(mid, url, send) => savePaymentLink(mid, url, send)}
@@ -1643,9 +1673,19 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
             <div className="flex items-start justify-between gap-3">
               <div>
                 <p className="text-xs text-[var(--muted)]">
-                  {proposals && !doc.selectedOptionId ? "Proposition la moins chère" : isQuote ? "Montant du devis" : "Montant de la facture"}
+                  {proposals && !doc.selectedOptionId
+                    ? sameModeProposals(proposals)
+                      ? "Proposition la moins chère"
+                      : "Montant selon la proposition retenue"
+                    : mixedQuote
+                      ? "Total du projet"
+                      : isQuote
+                        ? "Montant du devis"
+                        : "Montant de la facture"}
                 </p>
-                <p className="mt-1 font-display text-3xl font-semibold tabular-nums">{formatEUR(doc.totalCents)}</p>
+                <p className="mt-1 font-display text-3xl font-semibold tabular-nums">
+                  {proposals && !doc.selectedOptionId && !sameModeProposals(proposals) ? `${proposals.length} propositions` : formatEUR(quoteAmountCents)}
+                </p>
               </div>
               <Badge tone={statusTone(st)}>{labels[st] ?? st}</Badge>
             </div>
@@ -1974,7 +2014,7 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
                   >
                     <span className="min-w-0">
                       <span className="block font-medium">
-                        {m.label} ({(m.percentBps / 100).toFixed(0)} %)
+                        {m.label} ({formatPercentBps(m.percentBps)})
                       </span>
                       <span className="block text-xs text-[var(--muted)]">
                         {already
@@ -2012,7 +2052,7 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
                 disabled={invoiceModalBusy || totalInvoiceDisabled}
                 onClick={() => void createTotalInvoice()}
               >
-                {formatEUR(doc.totalCents)}
+                {formatEUR(quoteAmountCents)}
               </Button>
             </div>
           </div>
@@ -2034,6 +2074,11 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
       >
         <div className="space-y-4">
           {!isQuote ? <PaymentLinkFields value={issuePayment} onChange={setIssuePayment} /> : null}
+          {isQuote ? (
+            <p className="text-sm text-[var(--muted)]">
+              {keptValidity ? `Valable jusqu'au ${formatDate(doc.validUntil)}.` : "Valable 30 jours à compter de l'émission."}
+            </p>
+          ) : null}
           <label className="flex items-center gap-2 text-sm">
             <input
               type="checkbox"
@@ -2329,19 +2374,36 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
         </div>
       </Modal>
 
-      <ConfirmDialog
-        open={forceSoldeMessage !== null}
-        title="Générer le solde quand même ?"
-        message={`${forceSoldeMessage ?? ""} Vous pouvez passer outre et émettre la facture de solde.`}
-        confirmLabel="Émettre le solde"
-        danger
-        busy={billingBusy}
-        onConfirm={() => {
-          setForceSoldeMessage(null);
-          generateSolde(true);
-        }}
-        onClose={() => setForceSoldeMessage(null)}
-      />
+      <Modal
+        open={closing !== null}
+        onClose={() => !closeBusy && setClosing(null)}
+        title={closing === "withdraw" ? "Retirer le devis" : "Annuler la commande"}
+        description={
+          closing === "withdraw"
+            ? "Le devis est retiré de l'espace client et ne peut plus être signé ni facturé. Ce n'est pas un refus du client."
+            : "Les échéances pas encore facturées sont annulées et leurs liens de paiement retirés. Un acompte déjà réglé reste acquis ; pour le rembourser, émettez un avoir sur sa facture."
+        }
+      >
+        <div className="space-y-4">
+          <Field label="Motif interne" hint="Visible dans l'ERP seulement, jamais envoyé au client.">
+            <Textarea
+              rows={3}
+              value={closeReason}
+              onChange={(e) => setCloseReason(e.target.value)}
+              placeholder={closing === "withdraw" ? "Erreur de prix, offre remplacée par un nouveau devis…" : "Projet abandonné d'un commun accord…"}
+            />
+          </Field>
+          <ModalActions>
+            <Button type="button" variant="secondary" disabled={closeBusy} onClick={() => setClosing(null)}>
+              Fermer
+            </Button>
+            <Button type="button" variant="danger" disabled={closeBusy || !closeReason.trim()} onClick={() => void closeQuote()}>
+              {closeBusy ? "…" : closing === "withdraw" ? "Retirer le devis" : "Annuler la commande"}
+            </Button>
+          </ModalActions>
+        </div>
+      </Modal>
+
     </div>
   );
 }

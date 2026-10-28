@@ -39,7 +39,7 @@ import {
   planSettingsOf,
   planTemplate,
 } from "@/lib/quotes/payment-plans.js";
-import { assertMilestoneInvoiced, assertQuoteSigned, milestoneInvoiceKind } from "@/lib/invoices/workflow.js";
+import { activeTotalInvoiceOf, assertMilestoneInvoiced, assertNoTotalInvoice, assertQuoteSigned, milestoneInvoiceKind } from "@/lib/invoices/workflow.js";
 import { buildPayUrl } from "@/lib/stripe/pay-urls.js";
 
 export class MilestonePaymentError extends Error {
@@ -163,8 +163,10 @@ export async function activateMilestoneCheckout(
   if (milestone.checkoutUrl) {
     return milestone;
   }
-  // Pas de lien de paiement avant la signature, ni pour un 2e acompte en attente de son étape.
+  // Pas de lien de paiement avant la signature, ni pour un 2e acompte en attente de son étape, ni sur un devis déjà
+  // facturé en totalité (facture libre rattachée ou conversion).
   await assertQuoteSigned(milestone.quoteId);
+  await assertNoTotalInvoice(milestone.quoteId);
   // Devis avec mode (échéances datées) : aucune étape de projet n'est attendue.
   if (!milestone.quote.billingMode && milestone.quote.paymentPlan === "THREE" && milestone.position === 2 && milestone.status === MilestoneStatus.PENDING && !milestone.triggeredAt) {
     throw new MilestonePaymentError("Ce 2e acompte attend l'étape de projet prévue", 409);
@@ -184,6 +186,8 @@ export async function activateMilestoneCheckout(
     const { generateBalanceInvoice } = await import("@/lib/invoices/documentFlowService.js");
     const { invoice } = await generateBalanceInvoice(milestone.quoteId, { milestoneId: milestone.id });
     milestone.invoiceId = invoice.id;
+    // Montant du jalon remis au solde réel par la facture de solde : l'e-mail annonce celui-là.
+    milestone.amountCents = invoice.totalCents;
   }
 
   const quoteRef = milestone.quote.number ?? "brouillon";
@@ -445,6 +449,8 @@ export async function activateDueMilestoneCheckouts(): Promise<number> {
 
   let activated = 0;
   for (const m of due) {
+    // Devis facturé en totalité entre-temps : rien à payer, pas d'erreur à journaliser à chaque passage.
+    if (await activeTotalInvoiceOf(m.quoteId)) continue;
     try {
       await activateMilestoneCheckout(m.id, { sendEmail: true, review: { family: "payment_link", origin: "WORKER" } });
       activated++;
@@ -537,8 +543,8 @@ export async function markMilestonePaidManually(opts: {
   });
 
   await notifyDepositPaid(opts.milestoneId, { online: false, notifyClient: opts.notifyClient !== false, payment: recorded });
-  const { startProjectForQuote } = await import("@/lib/projects/lifecycle.js");
-  await startProjectForQuote(updated.quoteId);
+  const { onMilestonePaidForProject } = await import("@/lib/projects/lifecycle.js");
+  await onMilestonePaidForProject(updated.id);
   return updated;
 }
 
@@ -576,6 +582,7 @@ export async function notifyDepositPaid(
       quoteNumber: quoteRef,
       amountCents: milestone.amountCents,
       depositIndex: milestone.position,
+      depositTotal: (await prisma.paymentMilestone.count({ where: { quoteId: milestone.quoteId } })) || 2,
       label: milestone.label,
     });
     await mailEnqueue({

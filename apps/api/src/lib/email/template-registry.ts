@@ -154,7 +154,7 @@ export const TEMPLATE_REGISTRY: readonly TemplateDefinition[] = [
     variables: [
       ...COMMON,
       { name: "devis", label: "Numéro du devis", example: "D-2026-0012" },
-      { name: "echeance", label: "« l'acompte » ou « le solde »", example: "l'acompte" },
+      { name: "echeance", label: "« l'échéance », « le solde » (dernière échéance) ou « le paiement » (comptant)", example: "l'échéance" },
       { name: "montant", label: "Montant à régler", example: "450,00 €" },
       { name: "libelle_jalon", label: "Libellé de l'échéance", example: "Acompte" },
       { name: "lien_paiement", label: "Lien de paiement en ligne", example: "https://erp.kouzia.com/api/public/pay/abc" },
@@ -171,7 +171,7 @@ export const TEMPLATE_REGISTRY: readonly TemplateDefinition[] = [
     variables: [
       ...COMMON,
       { name: "devis", label: "Numéro du devis", example: "D-2026-0012" },
-      { name: "nature", label: "« acompte » ou « solde »", example: "acompte" },
+      { name: "nature", label: "« échéance », « solde » (dernière échéance) ou « paiement » (comptant)", example: "échéance" },
       { name: "montant", label: "Montant reçu", example: "450,00 €" },
     ],
     required: ["montant"],

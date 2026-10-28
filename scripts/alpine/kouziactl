@@ -117,6 +117,9 @@ Services / data :
   archive-pdfs   archive le PDF des factures et avoirs émis qui n'en ont pas (rendu du moment)
   reprise [--dry-run]   reprend les anciennes données (bloc-notes, contacts, besoins) ; --dry-run : comptes à blanc, rien n'est écrit
                         (lancée par update après sa sauvegarde ; comptes réels : kouziactl logs reprise)
+  audit report [--json]   rapport en lecture seule : version, migrations, réglages sans secret, clauses, catalogue,
+                          comptes et contrôles, sans aucune donnée client (noms, e-mails, adresses, IP masqués)
+  audit on <clé.pub> | audit off | audit status   accès SSH limité à ce rapport (clé dédiée), ouvert ou coupé par root
   2fa-reset <email>   désactive la double authentification admin et ferme ses sessions (secours)
   push-keys [mailto:…]   clés des notifications push, écrites dans .env si absentes (jamais remplacées)
 
@@ -162,6 +165,9 @@ run_cmd() {
       ;;
     cle-export)
       bash "${SCRIPT_DIR}/cle-export.sh"
+      ;;
+    audit)
+      bash "${SCRIPT_DIR}/audit.sh" "$@"
       ;;
     restore)
       bash "${SCRIPT_DIR}/restore.sh" "$@"

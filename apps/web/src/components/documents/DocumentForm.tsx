@@ -5,7 +5,8 @@ import { faChevronRight, faPen, faPlus, faTrashCan } from "@fortawesome/free-sol
 import { api, formatEUR } from "@/lib/api";
 import { offlineEnabled } from "@/lib/offline/config";
 import { isLocalClientId, submitCreation, useRequestId } from "@/lib/offline/queue";
-import { euros } from "@/lib/format";
+import { euros, formatPercentBps } from "@/lib/format";
+import { annualPriceOfService } from "@kouzia-erp/annual-price";
 import { Button } from "@/components/ui/Button";
 import { Modal, ModalActions } from "@/components/ui/Modal";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
@@ -17,7 +18,7 @@ import { pendingNeeds, type ServiceNeed } from "@/components/clients/ServiceNeed
 import { Segmented } from "@/components/ui/Segmented";
 import { Combobox } from "@/components/ui/Combobox";
 import { Badge } from "@/components/ui/Card";
-import { withOptionText, withoutFinalPeriod } from "@/lib/quote-totals";
+import { editorLineCents, editorTotalsCents, withOptionText, withoutFinalPeriod } from "@/lib/quote-totals";
 import { catalogGroups } from "@/lib/catalog-options";
 import { billedWithDocument, FREE_MONTHS_MAX, startFromLine, startOptions, startPayload, startPhrase, type StartFields, type SubscriptionStart } from "@/lib/subscription-start";
 import {
@@ -30,6 +31,7 @@ import {
   type BillingInterval,
 } from "@/lib/billing-interval";
 import { commitmentTotalCents, equalInstallments, installments, modePlansShown, oneOffMeans, orList, PERIOD_WORD, periodAmountCents, plansShown, subscriptionMeans, type PaymentSettings } from "@/lib/payment-summary";
+import { oneOffOffer } from "@/lib/maintenance-offers";
 import { BillingModeChoice, DEFAULT_RECURRING, discountPayload, type PromoOption, OneOffSchedule, RecurringRecap, RecurringSettings, type BillingMode, type RecurringForm } from "@/components/documents/billing-mode-blocks";
 
 export type DocLine = {
@@ -126,6 +128,8 @@ type ServiceOpt = {
   billingInterval?: string | null;
   isPack?: boolean;
   category?: string | null;
+  /** Prix annuel du catalogue (abonnement vendu à l'année), sinon règle des mois offerts. */
+  annualPriceCents?: number | null;
 };
 
 type PackLine = {
@@ -402,8 +406,17 @@ export function DocumentFormEditor({
     };
   }, [quoteMode, form.clientId, promoServices, documentId]);
 
-  /** Prix annuel d'un abonnement du catalogue (prix mensuel × 12). */
-  const annualOfService = (svc: ServiceOpt) => (svc.billingInterval === "YEAR" ? svc.unitPriceCents : svc.unitPriceCents * 12);
+  /**
+   * Prix annuel d'un abonnement du catalogue facturé à la période donnée. À l'année : règle unique de l'API (prix annuel
+   * du catalogue, sinon 12 mensualités moins les mois offerts). Au mois ou au trimestre : 12 fois le prix mensuel, pour
+   * que la période garde le prix du catalogue.
+   */
+  const annualOfService = (svc: ServiceOpt, period: string) =>
+    period === "YEAR"
+      ? annualPriceOfService(svc, planSettings?.annualFreeMonths ?? 2)
+      : svc.billingInterval === "YEAR"
+        ? svc.unitPriceCents
+        : svc.unitPriceCents * (svc.billingInterval === "QUARTER" ? 4 : 12);
 
   /** Ligne d'abonnement d'un devis récurrent : prix annuel saisi, prix de la période en découle. */
   const recurringLine = (base: Omit<DocLine, "unitPriceEuros" | "isSubscription" | "billingInterval">, annualCents: number, period = form.recurring.interval): DocLine => {
@@ -488,12 +501,18 @@ export function DocumentFormEditor({
           : l.isOptional
             ? Math.round((Number(l.unitPriceEuros) || 0) * 100)
             : svc
-              ? annualOfService(svc)
+              ? annualOfService(svc, next === "ONE_OFF" ? "YEAR" : form.recurring.interval)
               : Math.round((Number(l.unitPriceEuros) || 0) * 100 * (12 / (PERIOD_MONTHS[l.billingInterval] ?? 1)));
         if (next === "ONE_OFF") {
           // Option seulement pour un abonnement du catalogue (l'abonnement créé à la livraison y est lié).
           if (!l.serviceId) {
             dropped.push(l.description.split(" : ")[0]!);
+            continue;
+          }
+          const offer = svc ? oneOffOffer(svc, services) : undefined;
+          if (offer && offer !== svc) {
+            out.push(optionalLine({ ...l, serviceId: offer.id, description: offer.description ? `${offer.name} : ${offer.description}` : offer.name }, annualOfService(offer, "YEAR")));
+            optional.push(offer.name);
             continue;
           }
           out.push(optionalLine(l, annualCents));
@@ -561,14 +580,16 @@ export function DocumentFormEditor({
         return;
       }
       if (svc.isSubscription && quoteMode === "ONE_OFF") {
-        // Paiement unique : un abonnement entre en option, au choix du client à la signature (28/10/2026).
+        // Paiement unique : un abonnement entre en option, au choix du client à la signature (28/10/2026) ; la
+        // maintenance pack y devient la maintenance vendue seule.
+        const offer = oneOffOffer(svc, services);
         placeLine(
           optionalLine(
-            { serviceId, description: svc.description ? `${svc.name} : ${svc.description}` : svc.name, quantity: "1", billingDay: String(clients.find((c) => c.id === form.clientId)?.billingDay ?? svc.defaultBillingDay ?? 1) },
-            annualOfService(svc),
+            { serviceId: offer.id, description: offer.description ? `${offer.name} : ${offer.description}` : offer.name, quantity: "1", billingDay: String(clients.find((c) => c.id === form.clientId)?.billingDay ?? offer.defaultBillingDay ?? 1) },
+            annualOfService(offer, "YEAR"),
           ),
         );
-        toast.info(`« ${svc.name} » ajouté en option : le client la retient ou non à la signature.`);
+        toast.info(`« ${offer.name} » ajouté en option : le client la retient ou non à la signature.`);
         return;
       }
       if (!svc.isSubscription && quoteMode === "RECURRING") {
@@ -579,7 +600,7 @@ export function DocumentFormEditor({
         placeLine(
           recurringLine(
             { serviceId, description: svc.description ? `${svc.name} : ${svc.description}` : svc.name, quantity: "1", billingDay: form.recurring.billingDay },
-            annualOfService(svc),
+            annualOfService(svc, form.recurring.interval),
           ),
         );
         return;
@@ -612,7 +633,7 @@ export function DocumentFormEditor({
     const svc = services.find((x) => x.id === line.serviceId);
     const freeMonths = planSettings?.annualFreeMonths ?? 2;
     const cents = svc
-      ? suggestedAmountCents(svc.unitPriceCents, svc.billingInterval, next, freeMonths)
+      ? suggestedAmountCents(svc.unitPriceCents, svc.billingInterval, next, freeMonths, svc.annualPriceCents)
       : suggestedAmountCents(Math.round((Number(line.unitPriceEuros) || 0) * 100), line.billingInterval, next, freeMonths);
     updateLine(index, { billingInterval: next, unitPriceEuros: (cents / 100).toFixed(2) });
   }
@@ -630,26 +651,17 @@ export function DocumentFormEditor({
 
   // Option au choix du client : hors du total, montrée à part (« avec l'option »).
   const optionalLines = documentType === "QUOTE" ? form.lines.filter((l) => l.isOptional) : [];
-  const subtotalPreview = form.lines.reduce((sum, l) => {
-    if (documentType === "QUOTE" && (!billedWithDocument(l) || l.isOptional)) return sum;
-    const q = l.isSubscription ? 1 : Number(l.quantity) || 0;
-    const p = Number(l.unitPriceEuros) || 0;
-    return sum + q * p;
-  }, 0);
-
-  // Remise sur la partie ponctuelle seulement : la 1re période d'un abonnement reste au prix prélevé ensuite.
-  const oneOffSubtotal = form.lines.reduce(
-    (sum, l) => (l.isSubscription ? sum : sum + (Number(l.quantity) || 0) * (Number(l.unitPriceEuros) || 0)),
-    0,
-  );
-  const discountPreview =
-    form.discountType === "PERCENT"
-      ? Math.min(oneOffSubtotal, (oneOffSubtotal * (Number(form.discountPercent) || 0)) / 100)
-      : form.discountType === "FIXED"
-        ? Math.min(oneOffSubtotal, Number(form.discountEuros) || 0)
-        : 0;
-
-  const totalPreview = Math.max(0, subtotalPreview - discountPreview);
+  // Récapitulatif en centimes, mêmes calculs que l'API : l'éditeur affiche le total du PDF.
+  const { subtotalCents, oneOffCents, discountCents } = editorTotalsCents(form.lines, {
+    quote: documentType === "QUOTE",
+    discountType: form.discountType,
+    discountPercent: form.discountPercent,
+    discountEuros: form.discountEuros,
+  });
+  const subtotalPreview = subtotalCents / 100;
+  const oneOffSubtotal = oneOffCents / 100;
+  const discountPreview = discountCents / 100;
+  const totalPreview = (subtotalCents - discountCents) / 100;
   // Devis d'abonnement seul : ni acompte ni échéancier, l'abonnement facture chaque période.
   const filledLines = form.lines.filter((l) => (l.description.trim() || l.serviceId) && !l.isOptional);
   const subscriptionOnly = documentType === "QUOTE" && filledLines.length > 0 && filledLines.every((l) => l.isSubscription);
@@ -1116,7 +1128,7 @@ export function DocumentFormEditor({
         </div>
         <ul ref={linesRef} className="space-y-2 lg:space-y-0">
           {form.lines.map((line, i) => {
-            const lineTotal = (line.isSubscription ? 1 : Number(line.quantity) || 0) * (Number(line.unitPriceEuros) || 0);
+            const lineTotal = editorLineCents(line) / 100;
             const outOfTotal = documentType === "QUOTE" && (!billedWithDocument(line) || Boolean(line.isOptional));
             const monthly = line.isSubscription && quoteMode !== "RECURRING" ? monthlyEquivalentText(eurosInputToCents(line.unitPriceEuros), line.billingInterval) : null;
             const fixed = catalogText(line);
@@ -1354,7 +1366,7 @@ export function DocumentFormEditor({
                     {installments(plan, scheduleBaseCents, planSettings).map((m) => (
                       <dd key={m.label} className="flex items-baseline justify-between gap-3">
                         <span className="text-[var(--muted)]">
-                          {m.label} ({m.percentBps / 100} %)
+                          {m.label} ({formatPercentBps(m.percentBps)})
                         </span>
                         <span className="tabular-nums">{formatEUR(m.amountCents)}</span>
                       </dd>

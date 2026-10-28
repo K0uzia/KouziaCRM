@@ -49,10 +49,10 @@ export function QuoteJourney({
       detail: project ? `${project.name}${project.startedAt ? ` · ${formatDate(project.startedAt)}` : ""}` : null,
     },
   ];
-  const rejected = quote.quoteStatus === "REJECTED" || quote.quoteStatus === "EXPIRED";
+  const rejected = quote.quoteStatus === "REJECTED" || quote.quoteStatus === "EXPIRED" || quote.quoteStatus === "WITHDRAWN";
   if (rejected) {
     steps.splice(1, steps.length - 1, {
-      label: quote.quoteStatus === "EXPIRED" ? "Devis expiré" : "Devis refusé par le client",
+      label: quote.quoteStatus === "EXPIRED" ? "Devis expiré" : quote.quoteStatus === "WITHDRAWN" ? "Devis retiré par Kouzia" : "Devis refusé par le client",
       done: false,
       detail: quote.quoteDecidedAt ? formatDate(quote.quoteDecidedAt) : null,
     });

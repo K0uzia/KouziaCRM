@@ -13,6 +13,7 @@ import {
   syncMilestoneOnInvoicePaid,
 } from "@/lib/invoices/documentFlowService.js";
 import { formatEUR } from "@/lib/money.js";
+import { activeTotalInvoiceOf } from "@/lib/invoices/workflow.js";
 import {
   notifyDepositFailed,
   notifyDepositPaid,
@@ -72,7 +73,12 @@ export async function markPaidFromOnlinePayment(
     if (!milestoneBefore) {
       return recordUnattachedPayment(input, null, "l'échéance payée est introuvable dans l'ERP");
     }
-    if (!milestoneBefore.invoiceId && milestoneBefore.status !== MilestoneStatus.PAID) {
+    // Devis facturé en totalité entre-temps (échéance annulée) : l'argent reçu va sur la facture totale.
+    const total = milestoneBefore.invoiceId ? null : await activeTotalInvoiceOf(milestoneBefore.quoteId);
+    if (total) {
+      invoiceId = total.id;
+      milestoneId = null;
+    } else if (!milestoneBefore.invoiceId && milestoneBefore.status !== MilestoneStatus.PAID) {
       try {
         // Facture d'acompte, de solde (dernière échéance) ou simple (comptant) : generateMilestoneInvoice choisit.
         await generateMilestoneInvoice(milestoneBefore.id);
@@ -169,13 +175,8 @@ export async function markPaidFromOnlinePayment(
   if (!result.duplicate) {
     if (result.milestoneId) {
       await notifyDepositPaid(result.milestoneId, { online: true, notifyClient: true, payment: recorded });
-      const milestone = await prisma.paymentMilestone.findUnique({
-        where: { id: result.milestoneId },
-      });
-      if (milestone) {
-        const { startProjectForQuote } = await import("@/lib/projects/lifecycle.js");
-        await startProjectForQuote(milestone.quoteId);
-      }
+      const { onMilestonePaidForProject } = await import("@/lib/projects/lifecycle.js");
+      await onMilestonePaidForProject(result.milestoneId);
     } else if (result.invoiceId) {
       const { sendPaymentReceipt } = await import("@/lib/email/payment-receipt.js");
       await sendPaymentReceipt(result.invoiceId, input.amountCents, undefined, { review: { family: "payment_receipt", origin: "WEBHOOK" } });
