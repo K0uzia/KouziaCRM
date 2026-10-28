@@ -732,9 +732,9 @@ export function DocumentFormEditor({
               serviceId: l.serviceId || null,
               groupTitle: l.groupTitle?.trim() || null,
               isPackDiscount: Boolean(l.isPackDiscount),
-              ...(documentType === "QUOTE" && l.isSubscription
-                ? { ...startPayload(startOf(l)), commitmentMonths: l.commitmentMonths ? Number(l.commitmentMonths) : null }
-                : {}),
+              ...(documentType === "QUOTE" && l.isSubscription ? startPayload(startOf(l)) : {}),
+              // Tout abonnement a un engagement de 12, 24 ou 36 mois (CGV, décision du 28/10/2026) : 12 par défaut.
+              ...(l.isSubscription ? { commitmentMonths: Number(l.commitmentMonths) || 12 } : {}),
             },
       ),
     };
@@ -1596,7 +1596,7 @@ export function DocumentFormEditor({
       {subLines.length > 0 && quoteMode !== "RECURRING" ? (
         <div className="space-y-2 border-t border-[var(--border)] pt-3">
           {subLines.map(({ line, index }) => {
-            const months = Number(line.commitmentMonths) || 0;
+            const months = Number(line.commitmentMonths) || 12;
             return (
               <div key={index} className="space-y-0.5">
                 <p className={totalsLine}>
@@ -1607,9 +1607,7 @@ export function DocumentFormEditor({
                 </p>
                 {isQuote ? (
                   <p className="text-xs text-[var(--muted)]">
-                    {months
-                      ? `Engagement ${months} mois, soit ${formatEUR(commitmentTotalCents(periodCents(line), line.billingInterval, months))} sur la durée`
-                      : "Sans engagement"}
+                    {`Engagement ${months} mois, soit ${formatEUR(commitmentTotalCents(periodCents(line), line.billingInterval, months))} sur la durée`}
                   </p>
                 ) : null}
               </div>
@@ -1764,10 +1762,9 @@ function SubscriptionStartFields({
           <Select
             className="w-auto"
             aria-label={`Ligne ${n} : durée d'engagement`}
-            value={line.commitmentMonths ?? ""}
+            value={line.commitmentMonths || "12"}
             onChange={(e) => onChange({ commitmentMonths: e.target.value })}
           >
-            <option value="">sans engagement</option>
             <option value="12">12 mois</option>
             <option value="24">24 mois</option>
             <option value="36">36 mois</option>

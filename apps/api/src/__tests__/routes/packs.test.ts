@@ -137,6 +137,7 @@ describe("packs", () => {
         serviceId: l.isSubscription ? l.serviceId : null,
         groupTitle: l.groupTitle,
         isPackDiscount: l.isPackDiscount,
+        ...(l.isSubscription ? { commitmentMonths: 12 } : {}),
       })),
     });
     expect(res.statusCode).toBe(201);

@@ -92,13 +92,14 @@ describe("rachat", () => {
     expect((await prisma.invoice.findUniqueOrThrow({ where: { id } })).quoteStatus).toBe(QuoteStatus.SENT);
   });
 
-  it("même période : signature acceptée, fin figée sur le devis", async () => {
+  it("même période : signature acceptée, période figée sur le devis ; la fin attend le paiement du rachat (28/10/2026)", async () => {
     const { sub } = await boughtOutCandidate();
     const { id } = await createBuyoutQuote(sub.id);
     expect((await prisma.invoice.findUniqueOrThrow({ where: { id } })).buyoutPeriodEndsAt?.getTime()).toBe(currentPeriodEndOf(sub).getTime());
     await issueQuote(id);
     await acceptQuoteByClient(id, "Lou Martin", { source: "ADMIN" });
-    expect((await prisma.subscription.findUniqueOrThrow({ where: { id: sub.id } })).endDate?.getTime()).toBe(currentPeriodEndOf(sub).getTime() - 1);
+    expect((await prisma.invoice.findUniqueOrThrow({ where: { id } })).quoteStatus).toBe(QuoteStatus.ACCEPTED);
+    expect((await prisma.subscription.findUniqueOrThrow({ where: { id: sub.id } })).endDate).toBeNull();
   });
 
   async function originalQuote(subId: string, serviceId: string, lines: Array<{ cents: number; interval: string }>) {

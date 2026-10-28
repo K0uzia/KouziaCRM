@@ -162,9 +162,15 @@ describe("assertSubscriptionLinesValid", () => {
   it("passe pour un abonnement valide", () => {
     expect(() =>
       assertSubscriptionLinesValid([
-        { isSubscription: true, billingDay: 15, serviceId: "svc_1" },
+        { isSubscription: true, billingDay: 15, serviceId: "svc_1", commitmentMonths: 12 },
       ]),
     ).not.toThrow();
+  });
+
+  it("tout abonnement a un engagement de 12, 24 ou 36 mois (décision du 28/10/2026), sauf l'avenant d'un abonnement existant", () => {
+    expect(() => assertSubscriptionLinesValid([{ isSubscription: true, billingDay: 1, serviceId: "svc_1", commitmentMonths: null }])).toThrow(/engagement de 12, 24 ou 36 mois/);
+    expect(() => assertSubscriptionLinesValid([{ isSubscription: true, billingDay: 1, serviceId: "svc_1", commitmentMonths: 18 }])).toThrow(/engagement/);
+    expect(() => assertSubscriptionLinesValid([{ isSubscription: true, billingDay: 1, serviceId: "svc_1", revisesSubscriptionId: "sub_1" }])).not.toThrow();
   });
 
   it("lève une erreur si billingDay invalide", () => {

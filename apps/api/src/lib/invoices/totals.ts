@@ -166,6 +166,8 @@ export function assertSubscriptionLinesValid(
     billingDay?: number | null;
     serviceId?: string | null;
     billingInterval?: string | null;
+    commitmentMonths?: number | null;
+    revisesSubscriptionId?: string | null;
   }>,
 ): void {
   // Chaque ligne d'abonnement devient son propre abonnement : mensuel et annuel peuvent se côtoyer.
@@ -177,6 +179,11 @@ export function assertSubscriptionLinesValid(
     }
     if (!line.serviceId) {
       throw new Error("Une ligne abonnement doit être liée à une prestation du catalogue");
+    }
+    // Tout abonnement a un engagement de 12, 24 ou 36 mois (CGV, décision du 28/10/2026). Avenant d'un abonnement
+    // existant : il garde le sien. Documents déjà enregistrés : rien n'est modifié tant qu'on ne les réenregistre pas.
+    if (!line.revisesSubscriptionId && !isCommitmentMonths(line.commitmentMonths)) {
+      throw new Error("Abonnement : choisissez un engagement de 12, 24 ou 36 mois (tout abonnement a un engagement).");
     }
   }
 }

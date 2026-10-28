@@ -59,6 +59,7 @@ const subscription = (serviceId: string) => ({
   billingDay: 5,
   billingInterval: "YEAR",
   serviceId,
+  commitmentMonths: 12,
 });
 
 const preview = (payload: Record<string, unknown>, withCookie = true) =>

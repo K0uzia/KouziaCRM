@@ -171,8 +171,8 @@ describe("devis d'abonnement seul", () => {
   it("mensuel et annuel dans le même document : acceptés à la saisie", () => {
     expect(() =>
       assertSubscriptionLinesValid([
-        { isSubscription: true, billingDay: 1, serviceId: "s1", billingInterval: "MONTH" },
-        { isSubscription: true, billingDay: 1, serviceId: "s2", billingInterval: "YEAR" },
+        { isSubscription: true, billingDay: 1, serviceId: "s1", billingInterval: "MONTH", commitmentMonths: 12 },
+        { isSubscription: true, billingDay: 1, serviceId: "s2", billingInterval: "YEAR", commitmentMonths: 12 },
       ]),
     ).not.toThrow();
   });
