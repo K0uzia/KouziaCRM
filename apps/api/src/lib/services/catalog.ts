@@ -2,6 +2,7 @@ import { ServiceUnit, type PrismaClient, type Service } from "@prisma/client";
 import { getCompanySettings } from "@/lib/company.js";
 import { createLinkedService } from "@/lib/stripe/catalog-write.js";
 import { removeService, updateLinkedService } from "@/lib/services/linked-write.js";
+import { MAINTENANCE_DESCRIPTION, MAINTENANCE_PACK_ID, MAINTENANCE_SITE_ID } from "@/lib/services/maintenance-offers.js";
 
 /**
  * Catalogue Kouzia (grille validée par Alexandre) : prix ronds, nets, pensés pour les petites structures
@@ -22,6 +23,8 @@ export type CatalogEntry = {
   yearly?: boolean;
   /** Anciens noms : la prestation existante est reprise et renommée au lieu d'être recréée. */
   formerNames?: string[];
+  /** Identifiant fixe (clé stable, ex. maintenances du site) : rapprochement par lui d'abord, création avec lui. */
+  id?: string;
 };
 
 export type CatalogPack = {
@@ -167,10 +170,17 @@ export const CATALOG: CatalogEntry[] = [
   {
     name: "Maintenance site",
     formerNames: ["Maintenance site Essentiel"],
+    id: MAINTENANCE_SITE_ID,
     yearly: true,
-    description:
-      "Hébergement compris : nom de domaine et HTTPS gérés, surveillance 24 h/24, sauvegardes, mises à jour de sécurité et corrections.",
+    description: MAINTENANCE_DESCRIPTION,
     priceCents: 35000,
+  },
+  {
+    name: "Maintenance site (pack)",
+    id: MAINTENANCE_PACK_ID,
+    yearly: true,
+    description: MAINTENANCE_DESCRIPTION,
+    priceCents: 19700,
   },
   {
     name: "Maintenance site Plus",
@@ -222,19 +232,19 @@ export const CATALOG_PACKS: CatalogPack[] = [
     name: "Pack Vitrine",
     description: "Site vitrine 5 pages et fiche Google Maps, avec la maintenance du site à l'année.",
     priceCents: 140000,
-    items: ["Site vitrine (5 pages)", "Fiche Google Maps", "Maintenance site"],
+    items: ["Site vitrine (5 pages)", "Fiche Google Maps", "Maintenance site (pack)"],
   },
   {
     name: "Pack Restaurant",
     description: "Site restaurant, fiche Google Maps et référencement local, avec la maintenance du site à l'année.",
     priceCents: 150000,
-    items: ["Site restaurant", "Fiche Google Maps", "Pack référencement local", "Maintenance site"],
+    items: ["Site restaurant", "Fiche Google Maps", "Pack référencement local", "Maintenance site (pack)"],
   },
   {
     name: "Pack Association",
     description: "Site association 6 pages et formation, avec la maintenance du site à l'année.",
     priceCents: 135000,
-    items: ["Site association (6 pages)", "Formation (1 h 30)", "Maintenance site"],
+    items: ["Site association (6 pages)", "Formation (1 h 30)", "Maintenance site (pack)"],
   },
   {
     name: "Pack Boutique",
@@ -423,7 +433,7 @@ export async function applyCatalog(prisma: PrismaClient, opts: CatalogOptions = 
       billingInterval: entry.yearly ? "YEAR" : null,
       category: entry.category ?? null,
     };
-    const existing = await findByNames(prisma, knownNames(entry));
+    const existing = (entry.id ? await prisma.service.findUnique({ where: { id: entry.id } }) : null) ?? (await findByNames(prisma, knownNames(entry)));
     // Prestation liée à Stripe : un prix écrit ici n'irait pas dans Stripe, et la synchro horaire (Stripe vers
     // l'ERP) le déferait. Elle se change dans Prestations, qui crée le nouveau prix Stripe.
     // --stripe : prestations liées et prestations à créer passent par Stripe (module Stripe actif).
@@ -441,7 +451,7 @@ export async function applyCatalog(prisma: PrismaClient, opts: CatalogOptions = 
       continue;
     }
     if (!existing) {
-      if (!opts.dryRun) await prisma.service.create({ data: { defaultBillingDay: 1, ...data } });
+      if (!opts.dryRun) await prisma.service.create({ data: { ...(entry.id ? { id: entry.id } : {}), defaultBillingDay: 1, ...data } });
       actions.push({ name: entry.name, action: "create", changes: [] });
       continue;
     }
