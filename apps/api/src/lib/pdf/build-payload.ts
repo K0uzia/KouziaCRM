@@ -23,7 +23,7 @@ import {
   planTemplate,
   type PlanSettings,
 } from "@/lib/quotes/payment-plans.js";
-import { linePeriodsWithinCommitment, quoteSignedAtOf, startFromPhrase, startPhrase } from "@/lib/subscriptions/start.js";
+import { linePeriodsWithinCommitment, quoteBillingDayOf, quoteSignedAtOf, startFromPhrase, startPhrase } from "@/lib/subscriptions/start.js";
 import { recurringDiscountSummary } from "@/lib/quotes/recurring-discount.js";
 import { normalizeInterval } from "@/lib/subscriptions/subscription-service.js";
 import { billedWithDocument, computeDepositBaseCents, isCommittedLine } from "@/lib/invoices/totals.js";
@@ -127,6 +127,15 @@ export function buildInvoicePdfPayload({
     isQuote && offer !== "NONE" && invoice.depositBaseCents !== null && committedLines.some((l) => l.isSubscription),
   );
   const scope = isQuote ? readScope(invoice.scopeSnapshot) : null;
+  const recurringMode = parseBillingMode(invoice.billingMode) === "RECURRING";
+  // Jour de facturation annoncé : date anniversaire du départ (signature ou livraison) pour un abonnement que le devis ne
+  // facture pas lui-même (abonnement seul, devis mixte, mode récurrent), jamais « le 1 » par défaut (28/10/2026).
+  const billingDayOf = (l: (typeof invoice.lines)[number]) =>
+    quoteBillingDayOf(l, {
+      anniversary: isQuote && (offer === "NONE" || isSubscriptionOnly(committedLines) || fromDelivery || recurringMode),
+      hasProject: recurringMode ? l.subscriptionStart === "DELIVERY" : fromDelivery,
+      signedAt: invoice.quoteStatus === "ACCEPTED" ? (invoice.quoteDecidedAt ?? null) : null,
+    });
   return {
     number: invoice.number ?? "",
     documentType: invoice.documentType as "INVOICE" | "CREDIT_NOTE" | "QUOTE",
@@ -172,7 +181,7 @@ export function buildInvoicePdfPayload({
     subscriptionFromDelivery: fromDelivery,
     // Devis mixte : total du projet (partie ponctuelle remisée, base de l'acompte) et abonnements à part.
     // Devis récurrent (mode de facturation) : frais à la signature puis l'abonnement, au lieu du « total du projet ».
-    recurringSummary: isQuote && parseBillingMode(invoice.billingMode) === "RECURRING" ? recurringSummaryOf(invoice) : null,
+    recurringSummary: isQuote && recurringMode ? recurringSummaryOf(invoice, billingDayOf) : null,
     mixedTotals: fromDelivery && parseBillingMode(invoice.billingMode) !== "RECURRING"
       ? (() => {
           const oneOffCents = committedLines.filter((l) => !l.isSubscription).reduce((s, l) => s + l.lineTotalCents, 0);
@@ -226,7 +235,8 @@ export function buildInvoicePdfPayload({
       unitPriceCents: l.unitPriceCents,
       lineTotalCents: l.lineTotalCents,
       isSubscription: l.isSubscription,
-      billingDay: l.billingDay,
+      billingDay: billingDayOf(l).billingDay,
+      billingAnchor: billingDayOf(l).anchor,
       billingInterval: l.billingInterval,
       groupTitle: l.groupTitle,
       isPackDiscount: l.isPackDiscount,
@@ -387,7 +397,10 @@ export type { ClientSnapshot };
  * Devis récurrent : l'abonnement, un seul pour le devis (lignes additionnées), sans frais de mise en service ; total
  * sur la durée de l'engagement (contrat /suivi F5).
  */
-function recurringSummaryOf(invoice: InvoiceWithRelations) {
+function recurringSummaryOf(
+  invoice: InvoiceWithRelations,
+  billingDayOf: (l: InvoiceWithRelations["lines"][number]) => { billingDay: number | null; anchor: "SIGNATURE" | "DELIVERY" | null },
+) {
   const subs = invoice.lines.filter((l) => l.isSubscription);
   const first = subs[0];
   if (!first) return null;
@@ -406,6 +419,7 @@ function recurringSummaryOf(invoice: InvoiceWithRelations) {
     discount,
     startText: startPhrase(first, first.subscriptionStart === "DELIVERY", amountCents, period),
     startFromText: startFromPhrase(first, first.subscriptionStart === "DELIVERY"),
-    billingDay: first.billingDay,
+    billingDay: billingDayOf(first).billingDay,
+    billingAnchor: billingDayOf(first).anchor,
   };
 }

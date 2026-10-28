@@ -97,7 +97,7 @@ import {
 import { isValidSiren, isValidSiret } from "@kouzia/forms";
 import { listPortalProjects } from "@/lib/projects/service.js";
 import { reviewInviteEligible } from "@/lib/projects/review-invite.js";
-import { linePeriodsWithinCommitment, publicStart, quoteSignedAtOf, type StartLine } from "@/lib/subscriptions/start.js";
+import { linePeriodsWithinCommitment, publicStart, quoteBillingDayOf, quoteSignedAtOf, type StartLine } from "@/lib/subscriptions/start.js";
 import { normalizeInterval } from "@/lib/subscriptions/subscription-service.js";
 import {
   PORTAL_SECTIONS,
@@ -225,6 +225,7 @@ function recurringOf(d: {
   openingDiscount: boolean;
   promoCode?: { code: string; conditionText: string | null } | null;
   quoteDecidedAt?: Date | null;
+  quoteStatus?: string | null;
   issueDate?: Date | null;
   lines: Array<
     StartLine & {
@@ -253,7 +254,15 @@ function recurringOf(d: {
     discount: recurringDiscountSummary(d, amountCents, period, first.commitmentMonths ?? null, periods),
     periods,
     ...start,
-    billingDay: first.billingDay ?? 1,
+    // Jour de facturation (28/10/2026) : date anniversaire de la signature ou de la livraison, connu une fois la 1re
+    // facture datée ou le devis signé ; null avant (le site retire alors « le … »). Mois offerts ou date : celui de la ligne.
+    billingDay: firstInvoice
+      ? firstInvoice.getDate()
+      : quoteBillingDayOf(first, {
+          anniversary: true,
+          hasProject: first.subscriptionStart === "DELIVERY",
+          signedAt: d.quoteStatus === "ACCEPTED" ? (d.quoteDecidedAt ?? null) : null,
+        }).billingDay,
     firstInvoiceOn: firstInvoice ? ymdOf(firstInvoice) : null,
   };
 }

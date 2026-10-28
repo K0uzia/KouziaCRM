@@ -89,6 +89,22 @@ export function linePeriodsWithinCommitment(
   return periodsWithinCommitment(line.commitmentMonths, line.billingInterval, firstInvoiceAt ? monthsFromSignature(signedAt, firstInvoiceAt) : 0);
 }
 
+/**
+ * Jour de facturation annoncé par un devis (décision du 28/10/2026) : un abonnement qui démarre à la signature ou à la
+ * livraison est facturé à la date anniversaire de ce départ, pas au jour de la ligne. Mois offerts ou date choisie : le
+ * jour de la ligne. anchor : départ dont le jour fait foi ; billingDay null tant que ce jour n'est pas connu.
+ * anniversary false (facture, devis qui facture lui-même la 1re période) : le jour de la ligne.
+ */
+export function quoteBillingDayOf(
+  line: StartLine & { billingDay: number | null },
+  opts: { anniversary: boolean; hasProject: boolean; signedAt: Date | null },
+): { billingDay: number | null; anchor: "SIGNATURE" | "DELIVERY" | null } {
+  if (!opts.anniversary || line.subscriptionStart === "DATE" || line.subscriptionStart === "FREE_MONTHS") return { billingDay: line.billingDay, anchor: null };
+  return activationPoint(line, opts.hasProject) === "SIGNATURE"
+    ? { billingDay: opts.signedAt ? opts.signedAt.getDate() : null, anchor: "SIGNATURE" }
+    : { billingDay: null, anchor: "DELIVERY" };
+}
+
 /** Signature d'un devis, ou à défaut son émission (estimation avant la signature) : départ de l'engagement. */
 export const quoteSignedAtOf = (doc: { quoteDecidedAt?: Date | null; issueDate?: Date | null }): Date => doc.quoteDecidedAt ?? doc.issueDate ?? new Date();
 

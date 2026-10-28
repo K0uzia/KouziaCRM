@@ -92,7 +92,8 @@ describe("espace client : mode de facturation (contrat F5)", () => {
       paymentPlanOffer: "NONE",
       recurring: {
         period: "QUARTER", amountCents: 9000, commitmentMonths: 12, periods: 4, totalCommitmentCents: 36000,
-        startsAt: "DELIVERY", billingDay: 5,
+        // Facturé à la date anniversaire de la livraison (28/10/2026) : jour inconnu avant, jamais celui de la ligne.
+        startsAt: "DELIVERY", billingDay: null,
       },
       subscriptionBilling: { interval: "QUARTER", startsAt: "DELIVERY", amountCents: 9000 },
     });
@@ -128,7 +129,7 @@ describe("espace client : mode de facturation (contrat F5)", () => {
     expect(before).toMatchObject({
       billingMode: "RECURRING",
       paymentPlanOffer: "NONE",
-      recurring: { period: "MONTH", amountCents: 2500, commitmentMonths: 12, periods: 12, totalCommitmentCents: 30000, startsAt: "SIGNATURE", billingDay: 1 },
+      recurring: { period: "MONTH", amountCents: 2500, commitmentMonths: 12, periods: 12, totalCommitmentCents: 30000, startsAt: "SIGNATURE", billingDay: null },
     });
 
     await prisma.emailOutbox.deleteMany();
@@ -144,6 +145,8 @@ describe("espace client : mode de facturation (contrat F5)", () => {
     const after = await tracking(kz_portal);
     const doc = after.documents.find((d: { id: string }) => d.id === quote.id);
     expect(doc.recurring.firstInvoiceOn).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    // Signé : jour de la 1re facture, date anniversaire de la signature.
+    expect(doc.recurring.billingDay).toBe(Number(doc.recurring.firstInvoiceOn.slice(8, 10)));
     expect(after.subscriptions).toHaveLength(1);
     expect(after.subscriptions[0]).toMatchObject({ billingInterval: "MONTH", commitmentMonths: 12, amountCents: 2500, manage: "REQUEST", nonRenewalRequestedAt: null });
     expect(after.subscriptions[0].currentTermEndsAt).toBe(after.subscriptions[0].commitmentEndsAt);

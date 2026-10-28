@@ -71,7 +71,8 @@ describe("PDF du devis selon le mode de facturation", () => {
     expect(text).toContain("375,00 € / trimestre");
     // Sous le total, une phrase par information ; ni la ligne ni l'encadré ne les répètent (demande du 25/10/2026).
     const once = (s: string) => expect(text.split(s).length - 1, s).toBe(1);
-    once("Facturé chaque trimestre le 1.");
+    // Date anniversaire de la livraison (28/10/2026), jamais « le 1 » de la ligne.
+    once("Facturé chaque trimestre, le même jour du mois que la livraison.");
     once("Départ de la facturation : à partir de la livraison du projet.");
     once("Engagement de 36 mois à compter de la signature.");
     once("Total sur la durée de l'engagement : 4 500,00 € (12 échéances).");

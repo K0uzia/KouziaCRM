@@ -230,6 +230,12 @@ function fmtMoney(cents: number) {
 /** « par an », « par trimestre », « par mois » : période d'un abonnement (null en base = mensuel). */
 const PERIOD_WORD: Record<string, string> = { YEAR: "an", QUARTER: "trimestre", MONTH: "mois" };
 const periodWord = (interval: string | null | undefined) => PERIOD_WORD[interval ?? "MONTH"] ?? "mois";
+/**
+ * « le 15 », « le même jour du mois que la signature » : jour de facturation d'un abonnement mensuel ou trimestriel
+ * (décision du 28/10/2026 : date anniversaire du départ, jamais « le 1 » par défaut). Vide si rien n'est connu.
+ */
+const dayWords = (r: { billingDay?: number | null; billingAnchor?: "SIGNATURE" | "DELIVERY" | null }) =>
+  r.billingDay ? ` le ${r.billingDay}` : r.billingAnchor ? `, le même jour du mois que ${r.billingAnchor === "SIGNATURE" ? "la signature" : "la livraison"}` : "";
 const intervalOf = (interval: string | null | undefined) => (interval === "YEAR" || interval === "QUARTER" ? interval : "MONTH");
 /** Périodicité de la clause d'engagement : celle de la 1re ligne engagée (un abonnement par devis récurrent). */
 const commitmentInterval = (lines: ReadonlyArray<{ isSubscription?: boolean; commitmentMonths?: number | null; billingInterval?: string | null }>) =>
@@ -399,6 +405,8 @@ export type InvoicePdfData = {
       /** Départ seul, sans le prix (absent d'un payload plus ancien : phrase complète startText). */
       startFromText?: string;
       billingDay?: number | null;
+      /** Départ dont le jour fait foi (date anniversaire) quand billingDay n'est pas encore connu. */
+      billingAnchor?: "SIGNATURE" | "DELIVERY" | null;
       /** Remise sur les premières échéances (R1) ; absente sans remise. */
       discount?: RecurringDiscountSummary | null;
     } | null;
@@ -417,6 +425,8 @@ export type InvoicePdfData = {
       /** false : abonnement à 1re facture repoussée, hors tableau et hors total (seulement dans l'engagement d'abonnement). */
       inTotal?: boolean;
       billingDay?: number | null;
+      /** Départ dont le jour fait foi (date anniversaire) quand billingDay n'est pas encore connu. */
+      billingAnchor?: "SIGNATURE" | "DELIVERY" | null;
       billingInterval?: string | null;
       /** Départ choisi sur la ligne du devis, en clair : « 12 mois offerts à partir de la livraison du projet, puis 72,00 € par an ». */
       startText?: string | null;
@@ -582,8 +592,8 @@ function DocumentBody({ company, invoice, styles }: { company: PdfCompanySetting
                     {line.billingInterval === "YEAR"
                       ? "Abonnement annuel, facturé chaque année à la date anniversaire"
                       : line.billingInterval === "QUARTER"
-                        ? `Abonnement trimestriel, facturé chaque trimestre${line.billingDay ? ` le ${line.billingDay}` : ""}`
-                        : `Abonnement mensuel, facturé chaque mois${line.billingDay ? ` le ${line.billingDay}` : ""}`}{" "}
+                        ? `Abonnement trimestriel, facturé chaque trimestre${dayWords(line)}`
+                        : `Abonnement mensuel, facturé chaque mois${dayWords(line)}`}{" "}
                     : {fmtMoney(line.unitPriceCents)}.{" "}
                     {line.startText
                       ? `Facturation : ${line.startText}.`
@@ -638,7 +648,7 @@ function DocumentBody({ company, invoice, styles }: { company: PdfCompanySetting
                 // Une information par phrase, une seule fois sur le document : rythme, départ, engagement, total sur la
                 // durée, puis l'équivalent mensuel indicatif d'un prix annuel ou trimestriel.
                 const r = invoice.recurringSummary;
-                const day = r.billingDay ? ` le ${r.billingDay}` : "";
+                const day = dayWords(r);
                 const rhythm =
                   r.period === "YEAR" ? "chaque année à la date anniversaire" : r.period === "QUARTER" ? `chaque trimestre${day}` : `chaque mois${day}`;
                 const engaged = r.commitmentMonths && r.periods && r.totalCommitmentCents !== null;
@@ -833,7 +843,7 @@ function DocumentBody({ company, invoice, styles }: { company: PdfCompanySetting
                   {`${withoutFinalPeriod(l.description)} : ${fmtMoney(l.unitPriceCents)} facturés automatiquement ${
                     l.billingInterval === "YEAR"
                       ? "chaque année à la date anniversaire"
-                      : `chaque ${periodWord(l.billingInterval)}${l.billingDay ? ` le ${l.billingDay}` : ""}`
+                      : `chaque ${periodWord(l.billingInterval)}${dayWords(l)}`
                   }. ${
                     l.startText
                       ? `Départ de la facturation : ${l.startText}.`
