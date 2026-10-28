@@ -87,7 +87,7 @@ function createStyles(primary: string, secondary: string) {
     },
     section: { marginTop: 18 },
     proposalIntro: { marginTop: 4, fontFamily: "Helvetica-Bold", color: INK },
-    proposal: { marginTop: 16, paddingTop: 10, borderTopWidth: 1, borderColor: LINE },
+    proposal: { paddingTop: 4 },
     proposalTitle: { marginBottom: 6, fontSize: 12, fontFamily: "Helvetica-Bold", color: INK },
     box: { padding: 12, borderWidth: 1, borderColor: LINE, backgroundColor: SOFT },
     table: { marginTop: 4 },
@@ -1112,9 +1112,12 @@ export function InvoiceDocument({ company, client, invoice, specimen, draft }: I
             <Text style={styles.proposalIntro}>
               {`Ce devis propose ${invoice.proposals.length} formules : choisissez-en une à la signature.`}
             </Text>
+            {/* Une page par proposition (retour d'Alexandre du 28/10/2026) : chacune commence sur une nouvelle page, ses
+                blocs (lignes, totaux, option, compris et non compris) sont insécables ; plus longue qu'une page, elle
+                continue sur la suivante sans partager ses pages avec l'autre. */}
             {invoice.proposals.map((p, i) => (
               <Readable key={i} as="proposal">
-              <View style={styles.proposal}>
+              <View style={styles.proposal} break>
                 <Readable as="proposalHeading">
                 <Text style={styles.proposalTitle} minPresenceAhead={120}>
                   {p.heading}
@@ -1124,6 +1127,8 @@ export function InvoiceDocument({ company, client, invoice, specimen, draft }: I
               </View>
               </Readable>
             ))}
+            {/* Sections communes (signature, notes, clauses) : sur leur propre page, après la dernière proposition. */}
+            <View break />
           </>
         ) : (
           <DocumentBody company={company} invoice={invoice} styles={styles} />
