@@ -16,6 +16,11 @@ const MONTHS = ["janvier", "février", "mars", "avril", "mai", "juin", "juillet"
 const MONTHS_SHORT = ["janv.", "févr.", "mars", "avr.", "mai", "juin", "juil.", "août", "sept.", "oct.", "nov.", "déc."];
 
 /** Montant en centimes : « 1 190,00 € » (milliers et symbole séparés par une espace insécable). */
+/** Libellé repris dans une phrase (« libellé, 650,00 € par an ») : sans le point final de la description. */
+export function withoutFinalPeriod(text: string): string {
+  return text.trim().replace(/\.+$/, "").trimEnd();
+}
+
 export function formatEUR(cents: number): string {
   const rounded = Math.round(cents);
   const abs = Math.abs(rounded);

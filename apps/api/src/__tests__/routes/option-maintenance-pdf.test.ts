@@ -72,10 +72,23 @@ describe("PDF : option au choix et non compris", () => {
     const option = doc.sections.find((s) => s.heading === "Option au choix à la signature");
     expect(norm(option)).toContain("Maintenance annuelle, 300,00 € par an, engagement 24 mois à partir de la livraison.");
     expect(norm(option)).toContain("Total sans l'option : 1 200,00 €");
-    expect(norm(option)).toContain("Avec l'option : 1 200,00 € + 300,00 € par an (soit 600,00 € sur 24 mois)");
+    // Total du projet et option sur toute la durée d'engagement (retour d'Alexandre du 28/10/2026).
+    expect(norm(option)).toContain("Avec l'option : 1 200,00 € + 300,00 € par an, soit 1 800,00 € sur les 24 mois d'engagement");
     const excluded = doc.sections.find((s) => s.heading === "Non compris");
     expect(excluded?.items.length).toBe(4);
     expect(norm(doc.totals)).toContain("1 200,00 €");
+  });
+
+  it("libellé de l'option : point final de la description retiré avant d'assembler la phrase", async () => {
+    const body = await draftBody();
+    body.lines[1] = { ...body.lines[1]!, description: "Maintenance site : sauvegardes, mises à jour de sécurité et corrections." } as (typeof body.lines)[number];
+    const res = await call("POST", "/api/invoices", body);
+    const id = res.json().id as string;
+    expect((await call("POST", `/api/invoices/${id}/issue`, { email: { send: false } })).statusCode).toBe(200);
+    const doc = await readable(id);
+    const text = norm(doc.sections);
+    expect(text).toContain("Maintenance site : sauvegardes, mises à jour de sécurité et corrections, 300,00 € par an");
+    expect(text).not.toContain("corrections.,");
   });
 
   it("le texte du PDF est exactement celui de la version lisible", async () => {

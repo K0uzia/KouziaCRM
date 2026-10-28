@@ -22,6 +22,19 @@ export function subscriptionsTotalText(t: { yearCents: number; monthCents: numbe
   return [t.yearCents ? `${formatEUR(t.yearCents)} par an` : "", t.monthCents ? `${formatEUR(t.monthCents)} par mois` : ""].filter(Boolean).join(" + ");
 }
 
+/** Libellé repris dans une phrase (« libellé, 650,00 € par an ») : sans le point final de la description (même règle que le PDF). */
+export function withoutFinalPeriod(text: string): string {
+  return text.trim().replace(/\.+$/, "").trimEnd();
+}
+
+/**
+ * Devis avec une option au choix : « 1 650,00 € + 650,00 € par an, soit 2 300,00 € sur les 12 mois d'engagement ». Le
+ * « soit » est le total du projet sans l'option plus l'option sur toute la durée d'engagement (même phrase que le PDF).
+ */
+export function withOptionText(totalCents: number, yearCents: number, months: number): string {
+  return `${formatEUR(totalCents)} + ${formatEUR(yearCents)} par an, soit ${formatEUR(totalCents + Math.round((yearCents * months) / 12))} sur les ${months} mois d'engagement`;
+}
+
 /** « Proposition A », ou « Proposition A : libellé » quand le libellé dit autre chose que la lettre (même règle que le PDF). */
 export function proposalTitle(letter: string, label: string | null | undefined): string {
   const base = `Proposition ${letter}`;

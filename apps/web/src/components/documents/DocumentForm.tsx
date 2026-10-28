@@ -17,6 +17,7 @@ import { pendingNeeds, type ServiceNeed } from "@/components/clients/ServiceNeed
 import { Segmented } from "@/components/ui/Segmented";
 import { Combobox } from "@/components/ui/Combobox";
 import { Badge } from "@/components/ui/Card";
+import { withOptionText, withoutFinalPeriod } from "@/lib/quote-totals";
 import { catalogGroups } from "@/lib/catalog-options";
 import { billedWithDocument, FREE_MONTHS_MAX, startFromLine, startOptions, startPayload, startPhrase, type StartFields, type SubscriptionStart } from "@/lib/subscription-start";
 import {
@@ -629,7 +630,6 @@ export function DocumentFormEditor({
 
   // Option au choix du client : hors du total, montrée à part (« avec l'option »).
   const optionalLines = documentType === "QUOTE" ? form.lines.filter((l) => l.isOptional) : [];
-  const optionalYearCents = optionalLines.reduce((s, l) => s + eurosInputToCents(l.unitPriceEuros), 0);
   const subtotalPreview = form.lines.reduce((sum, l) => {
     if (documentType === "QUOTE" && (!billedWithDocument(l) || l.isOptional)) return sum;
     const q = l.isSubscription ? 1 : Number(l.quantity) || 0;
@@ -1544,14 +1544,14 @@ export function DocumentFormEditor({
           <span className="font-semibold">{mixedQuote ? "Total du projet" : optionalLines.length ? "Total sans option" : "Total"}</span>
           <span className="font-display text-2xl font-semibold tabular-nums">{eur(mixedQuote ? oneOffPreview : totalPreview)}</span>
         </p>
-        {optionalLines.length ? (
-          <p className={`${totalsLine} mt-1`}>
-            <span className="text-[var(--muted)]">Avec option</span>
+        {optionalLines.map((l, i) => (
+          <p key={i} className="mt-1 text-sm">
+            <span className="text-[var(--muted)]">{optionalLines.length > 1 ? `Avec l'option ${withoutFinalPeriod(lineName(l))}` : "Avec l'option"} : </span>
             <span className="tabular-nums">
-              {eur(totalPreview)} + {formatEUR(optionalYearCents)} par an
+              {withOptionText(Math.round(totalPreview * 100), eurosInputToCents(l.unitPriceEuros), Number(l.commitmentMonths) || 12)}
             </span>
           </p>
-        ) : null}
+        ))}
         </>
         )}
         {planSettings?.vatMention ? <p className="mt-1 text-xs text-[var(--muted)]">{planSettings.vatMention}</p> : null}

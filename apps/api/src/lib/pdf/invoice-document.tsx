@@ -15,7 +15,7 @@ import type { ClientSnapshot } from "@/lib/invoices/transitions.js";
 import { formatEUR } from "@/lib/money.js";
 import { discountSentence, type RecurringDiscountSummary } from "@/lib/quotes/recurring-discount.js";
 import { readableOn, resolveBrandColors } from "@/lib/brand.js";
-import { formatDateFr, formatDateTimeShortFr } from "@/lib/format-fr.js";
+import { formatDateFr, formatDateTimeShortFr, withoutFinalPeriod } from "@/lib/format-fr.js";
 
 /**
  * Charte Kouzia adaptée à l'impression : fond blanc, encre nuit, ambre en aplats
@@ -436,6 +436,8 @@ export type InvoicePdfData = {
         amountCents: number;
         commitmentMonths: number;
         totalCommitmentCents: number;
+        /** Total du projet sans l'option, plus l'option sur toute la durée d'engagement. */
+        totalWithOptionCents: number;
         status: "PENDING" | "ACCEPTED" | "DECLINED";
       }>;
     } | null;
@@ -508,7 +510,7 @@ function OptionalOffers({ options, styles }: { options: NonNullable<PdfInvoice["
             <Text>{`${terms(o)}.`}</Text>
             <Text style={[styles.muted, { marginTop: 2 }]}>{`Total sans l'option : ${fmtMoney(options.withoutOptionCents)}`}</Text>
             <Text style={styles.muted}>
-              {`Avec l'option : ${fmtMoney(options.withoutOptionCents)} + ${fmtMoney(o.amountCents)} par an (soit ${fmtMoney(o.totalCommitmentCents)} sur ${o.commitmentMonths} mois)`}
+              {`Avec l'option : ${fmtMoney(options.withoutOptionCents)} + ${fmtMoney(o.amountCents)} par an, soit ${fmtMoney(o.totalWithOptionCents)} sur les ${o.commitmentMonths} mois d'engagement`}
             </Text>
           </View>
         ) : (
@@ -825,7 +827,7 @@ function DocumentBody({ company, invoice, styles }: { company: PdfCompanySetting
               .map((l, i) => (
                 // Une seule chaîne : entre deux morceaux de texte, react-pdf perdait l'espace après « € ».
                 <Text key={i} style={{ marginTop: 2 }}>
-                  {`${l.description} : ${fmtMoney(l.unitPriceCents)} facturés automatiquement ${
+                  {`${withoutFinalPeriod(l.description)} : ${fmtMoney(l.unitPriceCents)} facturés automatiquement ${
                     l.billingInterval === "YEAR"
                       ? "chaque année à la date anniversaire"
                       : `chaque ${periodWord(l.billingInterval)}${l.billingDay ? ` le ${l.billingDay}` : ""}`

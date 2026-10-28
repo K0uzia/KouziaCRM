@@ -1,7 +1,7 @@
 import { useFeatures } from "@/lib/features";
 import { toIsoDate } from "@/components/ui/DatePicker";
 import { Fragment, useCallback, useEffect, useState } from "react";
-import { mixedQuoteTotals, proposalTitle, subscriptionsTotalText } from "@/lib/quote-totals";
+import { mixedQuoteTotals, proposalTitle, subscriptionsTotalText, withOptionText, withoutFinalPeriod } from "@/lib/quote-totals";
 import type { ServiceNeed } from "@/components/clients/ServiceNeedsEditor";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
@@ -1451,14 +1451,17 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
                   <ul className="mt-2 list-disc space-y-1.5 pl-5 text-[var(--muted)]">
                     {docOptionalLines.map((l, i) => (
                       <li key={i}>
-                        <span className="text-[var(--text)]">{l.description}</span>
+                        <span className="text-[var(--text)]">{withoutFinalPeriod(l.description)}</span>
                         {` : ${optionState(l).toLowerCase()}, ${formatEUR(l.unitPriceCents)} par an, engagement ${l.commitmentMonths ?? 12} mois à partir de la livraison.`}
                       </li>
                     ))}
                   </ul>
                   {docOptionalLines.some((l) => l.optionalAccepted == null) ? (
                     <p className="mt-2 text-[var(--muted)]">
-                      Avec l&apos;option : {formatEUR(doc.totalCents)} + {formatEUR(docOptionalLines.reduce((s, l) => s + l.unitPriceCents, 0))} par an.
+                      {docOptionalLines
+                        .filter((l) => l.optionalAccepted == null)
+                        .map((l) => `Avec l'option${docOptionalLines.length > 1 ? ` ${withoutFinalPeriod(l.description)}` : ""} : ${withOptionText(doc.totalCents, l.unitPriceCents, l.commitmentMonths ?? 12)}.`)
+                        .join(" ")}
                     </p>
                   ) : null}
                 </div>
@@ -1477,7 +1480,7 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
                       .filter((l) => l.isSubscription)
                       .map((l, i) => (
                         <li key={i}>
-                          <span className="text-[var(--text)]">{l.description}</span>
+                          <span className="text-[var(--text)]">{withoutFinalPeriod(l.description)}</span>
                           {" : "}
                           {subscriptionQuote || mixedQuote ? `${quoteStartPhrase(l, mixedQuote)}, sans acompte.` : <>{formatEUR(l.unitPriceCents)} facturés </>}
                           {subscriptionQuote || mixedQuote
@@ -1884,7 +1887,7 @@ export function DocumentDetailPage({ kind }: { kind: "INVOICE" | "QUOTE" }) {
           {signOptionalLines.map((l) => (
             <fieldset key={l.id} className="space-y-1">
               <legend className="text-sm font-medium">
-                Option : {l.description} ({formatEUR(l.unitPriceCents)} par an, engagement {l.commitmentMonths ?? 12} mois)
+                Option : {withoutFinalPeriod(l.description)} ({formatEUR(l.unitPriceCents)} par an, engagement {l.commitmentMonths ?? 12} mois)
               </legend>
               {(
                 [
@@ -2373,7 +2376,7 @@ function MixedQuoteTotals({
         <p className="font-medium">{subs.length > 1 ? "Abonnements" : "Abonnement"}</p>
         {subs.map((l, i) => (
           <p key={i} className="text-[var(--muted)]">
-            {subs.length > 1 ? `${l.description} : ` : ""}
+            {subs.length > 1 ? `${withoutFinalPeriod(l.description)} : ` : ""}
             {quoteStartPhrase(l, true)}
           </p>
         ))}

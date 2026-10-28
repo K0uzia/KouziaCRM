@@ -711,7 +711,14 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
                         id: l.id,
                         label: l.description,
                         interval: normalizeInterval(l.billingInterval),
-                        ...(showAmounts ? { amountCents: l.unitPriceCents, totalCommitmentCents: Math.round((l.unitPriceCents * months) / 12) } : {}),
+                        // totalCommitmentCents : l'option seule sur l'engagement ; totalWithOptionCents (ajout du 28/10/2026) :
+                        // total du projet sans l'option, plus l'option sur toute la durée d'engagement.
+                        ...(showAmounts
+                          ? (() => {
+                              const commitmentCents = Math.round((l.unitPriceCents * months) / 12);
+                              return { amountCents: l.unitPriceCents, totalCommitmentCents: commitmentCents, totalWithOptionCents: all.totalCents + commitmentCents };
+                            })()
+                          : {}),
                         commitmentMonths: months,
                         startsAt: "DELIVERY" as const,
                         accepted: l.optionalAccepted,

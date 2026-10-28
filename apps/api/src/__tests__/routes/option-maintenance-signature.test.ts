@@ -222,7 +222,8 @@ describe("GET /api/public/tracking : optionalLines et scope (contrat /suivi)", (
     const kz_portal = await portalSession();
     const before = await tracked(kz_portal, id);
     expect(before.optionalLines).toEqual([
-      { id: lineId, label: "Maintenance annuelle", interval: "YEAR", amountCents: 30000, totalCommitmentCents: 60000, commitmentMonths: 24, startsAt: "DELIVERY", accepted: null },
+      // totalWithOptionCents (ajout du 28/10/2026) : total du projet + option sur toute la durée d'engagement.
+      { id: lineId, label: "Maintenance annuelle", interval: "YEAR", amountCents: 30000, totalCommitmentCents: 60000, totalWithOptionCents: 180000, commitmentMonths: 24, startsAt: "DELIVERY", accepted: null },
     ]);
     expect(before).not.toHaveProperty("subscriptionLines");
     expect(before).not.toHaveProperty("oneOffDiscountCents");

@@ -29,6 +29,7 @@ import { normalizeInterval, periodMonths } from "@/lib/subscriptions/subscriptio
 import { billedWithDocument, computeDepositBaseCents, isCommittedLine } from "@/lib/invoices/totals.js";
 import { proposalTitle } from "@/lib/quotes/quote-options.js";
 import { readScope } from "@/lib/quotes/scope.js";
+import { withoutFinalPeriod } from "@/lib/format-fr.js";
 
 type InvoiceWithRelations = Invoice & {
   lines: InvoiceLine[];
@@ -183,7 +184,7 @@ export function buildInvoicePdfPayload({
             discountCents: Math.max(0, invoice.subtotalCents - invoice.totalCents),
             projectCents: invoice.depositBaseCents ?? 0,
             subscriptions: subs.map((l) => ({
-              label: l.description,
+              label: withoutFinalPeriod(l.description),
               text: startPhrase(l, true, l.unitPriceCents, normalizeInterval(l.billingInterval)),
             })),
             yearCents: sum("YEAR"),
@@ -262,11 +263,14 @@ export function buildInvoicePdfPayload({
           withoutOptionCents: invoice.totalCents,
           offers: optionalLines.map((l) => {
             const months = l.commitmentMonths ?? 12;
+            const commitmentCents = Math.round((l.unitPriceCents * months) / 12);
             return {
-              label: l.description,
+              label: withoutFinalPeriod(l.description),
               amountCents: l.unitPriceCents,
               commitmentMonths: months,
-              totalCommitmentCents: Math.round((l.unitPriceCents * months) / 12),
+              totalCommitmentCents: commitmentCents,
+              // Total du projet et option sur toute la durée d'engagement (« soit … sur les N mois d'engagement »).
+              totalWithOptionCents: invoice.totalCents + commitmentCents,
               status: l.optionalAccepted === true ? ("ACCEPTED" as const) : l.optionalAccepted === false ? ("DECLINED" as const) : ("PENDING" as const),
             };
           }),
