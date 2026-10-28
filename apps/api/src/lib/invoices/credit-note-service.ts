@@ -85,6 +85,8 @@ export type CreateCreditNoteInput = {
   /** Enregistre une ligne négative (livre des recettes) si virement */
   registerRefundPayment?: boolean;
   refundPaidAt?: Date;
+  /** Facture Stripe que Stripe ne prélèvera jamais (abonnement expiré avant la 1re échéance) : avoir permis avant paiement. */
+  stripeChargeAbandoned?: boolean;
 };
 
 function reasonLineDescription(
@@ -138,7 +140,8 @@ export function creditNoteContent(
 
 export async function assessCreditNoteEligibility(
   invoiceId: string,
-  opts: { stripeCustomerCredit?: boolean } = {},
+  /** stripeChargeAbandoned : facture Stripe que Stripe ne prélèvera plus (1re échéance d'un abonnement expiré). */
+  opts: { stripeCustomerCredit?: boolean; stripeChargeAbandoned?: boolean } = {},
 ): Promise<CreditNoteEligibility> {
   const invoice = await prisma.invoice.findUnique({
     where: { id: invoiceId },
@@ -216,7 +219,7 @@ export async function assessCreditNoteEligibility(
   // Échéance prélevée par Stripe (abonnement) et pas encore payée : Stripe prélèverait quand même le montant initial.
   // L'avoir se fait après le prélèvement, en remboursement.
   // Sauf l'avoir du crédit client Stripe : Stripe a déjà réglé cette part avec le solde du client, rien ne sera prélevé.
-  if (invoice.stripeInvoiceId && balance.dueCents > 0 && !opts.stripeCustomerCredit) {
+  if (invoice.stripeInvoiceId && balance.dueCents > 0 && !opts.stripeCustomerCredit && !opts.stripeChargeAbandoned) {
     return {
       ...base,
       code: "BAD_STATUS",
@@ -277,7 +280,7 @@ export async function createCreditNote(
   input: CreateCreditNoteInput,
 ) {
   const stripeCustomerCredit = input.reason === CreditNoteReason.STRIPE_CUSTOMER_CREDIT;
-  const eligibility = await assessCreditNoteEligibility(invoiceId, { stripeCustomerCredit });
+  const eligibility = await assessCreditNoteEligibility(invoiceId, { stripeCustomerCredit, stripeChargeAbandoned: input.stripeChargeAbandoned });
   if (!eligibility.allowed) {
     throw new CreditNoteError(
       eligibility.message ?? "Avoir non autorisé",

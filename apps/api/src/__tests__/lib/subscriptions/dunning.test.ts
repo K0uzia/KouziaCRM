@@ -135,13 +135,14 @@ describe("échec de prélèvement (invoice.payment_failed)", () => {
     expect(mail!.text).not.toContain("nouvelle tentative aura lieu");
   });
 
-  it("un e-mail par tentative : la même tentative relivrée n'en renvoie pas", async () => {
+  it("un seul e-mail au client par facture : ni la même tentative relivrée, ni les relances suivantes (essai réel du 28/10/2026)", async () => {
     await stripeSubscription();
     await processStripeEvent(event("invoice.payment_failed", stripeInvoice({ next_payment_attempt: 1_900_000_000 })));
     const replay = await processStripeEvent(event("invoice.payment_failed", stripeInvoice({ next_payment_attempt: 1_900_000_000 })));
     expect(replay.handled).toContain("échec déjà signalé");
-    await processStripeEvent(event("invoice.payment_failed", stripeInvoice({ attempt_count: 2 })));
-    expect(sentTo(CLIENT)).toHaveLength(2);
+    const second = await processStripeEvent(event("invoice.payment_failed", stripeInvoice({ attempt_count: 2 })));
+    expect(second.handled).toContain("client déjà prévenu");
+    expect(sentTo(CLIENT)).toHaveLength(1);
   });
 
   it("payée après l'échec : e-mail de régularisation, une seule fois ; payée sans échec : rien", async () => {

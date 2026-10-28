@@ -1,5 +1,5 @@
 import { nextPeriodAmountCents } from "@/lib/quotes/recurring-discount-calc.js";
-import { SubscriptionCollectionMethod, SubscriptionStatus } from "@prisma/client";
+import { EmailOutboxStatus, SubscriptionCollectionMethod, SubscriptionStatus } from "@prisma/client";
 import { prisma } from "@/lib/prisma.js";
 import { periodWord } from "@/lib/subscriptions/subscription-service.js";
 import { getCompanySettings } from "@/lib/company.js";
@@ -15,7 +15,7 @@ import type { EmailBrand } from "@/lib/email/templates.js";
 import type { CompanySettings } from "@prisma/client";
 import { subscriptionPaymentUrl } from "@/lib/stripe/portal.js";
 import { resolveClientPortalUrl } from "@/lib/email/portal-url.js";
-import { cancellableTermOf } from "@/lib/subscriptions/commitment.js";
+import { CANCEL_NOTICE_MONTHS, cancellableTermOf, commitmentEndOf } from "@/lib/subscriptions/commitment.js";
 
 /**
  * Information annuelle de reconduction (Code de la consommation, L215-1) : e-mail dédié, au plus
@@ -28,6 +28,44 @@ const DAY_MS = 86_400_000;
 const MIN_ELAPSED_FOR_RENEWAL_MS = 300 * DAY_MS;
 
 const fmtDate = formatLongDate;
+
+/** Avis de reconduction (L215-1) : leur envoi effectif pose renewalReminderSentFor et renewalReminderSentAt. */
+export const RENEWAL_NOTICE_KINDS = ["subscription_renewal", "subscription_term_end", "subscription_term_end_buyout"] as const;
+
+/** Copie de l'information légale à l'entreprise (décision du 28/10/2026), en copie cachée ; rien sans e-mail d'entreprise. */
+function copyToCompany(settings: Pick<CompanySettings, "email">): { bcc?: string } {
+  const own = settings.email?.trim();
+  return own ? { bcc: own } : {};
+}
+
+/**
+ * Abonnements dont le dernier avis de reconduction mis en file n'est jamais parti (échec d'envoi, refusé) : il est remis
+ * en file. Tant qu'il attend ou part, aucun second avis (marqueur renewalReminderPendingFor).
+ */
+async function failedRenewalNoticeIds(subs: Array<{ id: string }>): Promise<Set<string>> {
+  if (subs.length === 0) return new Set();
+  const rows = await prisma.emailOutbox.findMany({
+    where: { documentId: { in: subs.map((s) => s.id) }, reviewKind: { in: [...RENEWAL_NOTICE_KINDS] } },
+    orderBy: { createdAt: "desc" },
+    select: { documentId: true, status: true },
+  });
+  const latest = new Map<string, EmailOutboxStatus>();
+  for (const r of rows) if (!latest.has(r.documentId!)) latest.set(r.documentId!, r.status);
+  return new Set([...latest].filter(([, st]) => st === EmailOutboxStatus.FAILED || st === EmailOutboxStatus.REJECTED).map(([id]) => id));
+}
+
+/**
+ * Envoi effectif d'un avis de reconduction (appelé par la file d'envoi) : la fin de période mise en file devient
+ * « avis envoyé », avec sa date d'envoi (L215-1 : un avis jamais parti ou parti trop tard ouvre la résiliation libre).
+ */
+export async function recordRenewalNoticeSent(subscriptionId: string, sentAt: Date): Promise<void> {
+  const sub = await prisma.subscription.findUnique({ where: { id: subscriptionId }, select: { renewalReminderPendingFor: true } });
+  if (!sub?.renewalReminderPendingFor) return;
+  await prisma.subscription.update({
+    where: { id: subscriptionId },
+    data: { renewalReminderSentFor: sub.renewalReminderPendingFor, renewalReminderSentAt: sentAt, renewalReminderPendingFor: null },
+  });
+}
 
 /** Échéance qui est un renouvellement (et non la 1re facture de l'abonnement). */
 export function isRenewal(s: { nextInvoiceAt: Date; startDate: Date }): boolean {
@@ -64,9 +102,14 @@ export async function billedSubscriptionIds(subs: Array<{ id: string; lastInvoic
   return billed;
 }
 
-/** Date limite pour refuser la reconduction : N jours avant le renouvellement (1 = la veille). */
+/**
+ * Date limite pour refuser la reconduction : N jours avant le renouvellement (réglage), jamais moins d'un mois (CGV,
+ * article « Abonnements avec engagement » : au plus tard un mois avant la fin de l'année en cours, audit du 28/10/2026).
+ */
 export function nonRenewalDeadline(renewalDate: Date, noticeDays: number): Date {
-  return new Date(renewalDate.getTime() - Math.max(0, noticeDays) * DAY_MS);
+  const byDays = new Date(renewalDate.getTime() - Math.max(0, noticeDays) * DAY_MS);
+  const oneMonth = commitmentEndOf(renewalDate, -CANCEL_NOTICE_MONTHS);
+  return byDays < oneMonth ? byDays : oneMonth;
 }
 
 export async function renderRenewalReminderEmail(opts: {
@@ -134,7 +177,7 @@ export async function sendDueRenewalReminders(now: Date = new Date()): Promise<n
   const settings = await getCompanySettings();
   // Date limite dans moins de 45 jours : nextInvoiceAt avant maintenant + 45 jours + délai de la date limite.
   const horizon = new Date(
-    now.getTime() + (NOTICE_DAYS_BEFORE_DEADLINE + Math.max(0, settings.nonRenewalNoticeDays)) * DAY_MS,
+    now.getTime() + (NOTICE_DAYS_BEFORE_DEADLINE + Math.max(31, settings.nonRenewalNoticeDays)) * DAY_MS,
   );
   const candidates = await prisma.subscription.findMany({
     where: {
@@ -151,9 +194,11 @@ export async function sendDueRenewalReminders(now: Date = new Date()): Promise<n
 
   // Abonnement jamais facturé (1re échéance différée, ex. une année offerte) : avis de 1re échéance, pas de reconduction.
   const billed = await billedSubscriptionIds(candidates);
+  const failedIds = await failedRenewalNoticeIds(candidates);
   const due = candidates.filter(
     (s) =>
       s.renewalReminderSentFor?.getTime() !== s.nextInvoiceAt.getTime() &&
+      !(s.renewalReminderPendingFor?.getTime() === s.nextInvoiceAt.getTime() && !failedIds.has(s.id)) &&
       isRenewal(s) &&
       billed.has(s.id) &&
       // Échéance encore couverte par l'engagement : pas une reconduction, rien à refuser.
@@ -184,8 +229,10 @@ export async function sendDueRenewalReminders(now: Date = new Date()): Promise<n
           ? await subscriptionPaymentUrl(sub)
           : null,
     });
+    // Information légale (L215-1, décision du 28/10/2026) : envoyée d'office, sans validation, copie à l'entreprise.
     await mailEnqueue({
       to,
+      ...copyToCompany(settings),
       subject: content.subject,
       text: content.text,
       html: content.html,
@@ -193,11 +240,9 @@ export async function sendDueRenewalReminders(now: Date = new Date()): Promise<n
       kind: "subscription_renewal",
       documentId: sub.id,
       bodyTextForMessage: content.text,
-    }, { review: { family: "subscription_notice", origin: "WORKER" } });
-    await prisma.subscription.update({
-      where: { id: sub.id },
-      data: { renewalReminderSentFor: sub.nextInvoiceAt },
     });
+    // Marqueur d'envoi posé à l'envoi effectif (recordRenewalNoticeSent), jamais à la mise en file.
+    await prisma.subscription.update({ where: { id: sub.id }, data: { renewalReminderPendingFor: sub.nextInvoiceAt } });
     queued += 1;
   }
   return queued;
@@ -295,12 +340,14 @@ export async function sendDueTermEndReminders(now: Date = new Date()): Promise<n
     },
     include: { client: true },
   });
+  const failedIds = await failedRenewalNoticeIds(candidates);
   const due = candidates
     .map((s) => ({ s, term: cancellableTermOf(s.commitmentEndsAt!, now) }))
     .filter(
       ({ s, term }) =>
         term.cancelDeadline.getTime() - now.getTime() <= NOTICE_DAYS_BEFORE_DEADLINE * DAY_MS &&
         s.renewalReminderSentFor?.getTime() !== term.termEndsAt.getTime() &&
+        !(s.renewalReminderPendingFor?.getTime() === term.termEndsAt.getTime() && !failedIds.has(s.id)) &&
         (!s.endDate || s.endDate > term.termEndsAt),
     );
   if (due.length === 0) return 0;
@@ -334,8 +381,11 @@ export async function sendDueTermEndReminders(now: Date = new Date()): Promise<n
       portalUrl,
       buyoutPriceCents,
     });
+    // Information légale (L215-1, décision du 28/10/2026) : envoyée d'office dans la fenêtre légale, sans validation,
+    // copie à l'entreprise ; le marqueur d'envoi est posé à l'envoi effectif (recordRenewalNoticeSent).
     await mailEnqueue({
       to,
+      ...copyToCompany(settings),
       subject: content.subject,
       text: content.text,
       html: content.html,
@@ -345,8 +395,8 @@ export async function sendDueTermEndReminders(now: Date = new Date()): Promise<n
       // Abonnement concerné (tous les avis) : retiré de la file s'il n'a plus d'objet (rachat signé, fin programmée).
       documentId: sub.id,
       bodyTextForMessage: content.text,
-    }, { review: { family: "subscription_notice", origin: "WORKER" } });
-    await prisma.subscription.update({ where: { id: sub.id }, data: { renewalReminderSentFor: term.termEndsAt } });
+    });
+    await prisma.subscription.update({ where: { id: sub.id }, data: { renewalReminderPendingFor: term.termEndsAt } });
     queued += 1;
   }
   return queued;
@@ -364,6 +414,8 @@ export async function renderFirstChargeNoticeEmail(opts: {
   /** Prélèvement Stripe : 1er prélèvement à cette date ; lien vers l'espace de gestion. Sinon, facture à cette date. */
   manageUrl?: string | null;
   stripe: boolean;
+  /** Abonnement engagé : rien à résilier pendant l'engagement (CGV), l'espace sert au moyen de paiement et aux factures. */
+  committed?: boolean;
 }) {
   const name = (opts.clientFirstName ?? opts.clientName)?.trim();
   const date = fmtDate(opts.firstChargeDate);
@@ -380,8 +432,14 @@ export async function renderFirstChargeNoticeEmail(opts: {
       ? `Le prélèvement de ${formatEUR(opts.amountCents)} sera fait à cette date sur le moyen de paiement enregistré.`
       : `Une facture de ${formatEUR(opts.amountCents)} vous sera adressée à cette date.`,
     ...(opts.manageUrl
-      ? ["Vous pouvez gérer ou résilier votre abonnement depuis son espace de gestion, ou répondre à cet e-mail :", "", opts.manageUrl]
-      : ["Pour toute question, ou pour ne pas poursuivre, répondez simplement à cet e-mail."]),
+      ? [
+          opts.committed
+            ? "Vous pouvez changer de moyen de paiement et retrouver vos factures depuis l'espace de gestion de votre abonnement, ou répondre à cet e-mail :"
+            : "Vous pouvez gérer ou résilier votre abonnement depuis son espace de gestion, ou répondre à cet e-mail :",
+          "",
+          opts.manageUrl,
+        ]
+      : [opts.committed ? "Pour toute question, répondez simplement à cet e-mail." : "Pour toute question, ou pour ne pas poursuivre, répondez simplement à cet e-mail."]),
   ].join("\n");
   const content = await templateText(
     "subscription.first_charge",
@@ -460,6 +518,8 @@ export async function sendDueFirstChargeNotices(now: Date = new Date()): Promise
       billingInterval: sub.billingInterval,
       firstChargeDate: sub.nextInvoiceAt,
       stripe,
+      // Engagé (décision du 23/10/2026) : pas de résiliation pendant l'engagement, l'e-mail ne la propose pas.
+      committed: Boolean(sub.commitmentEndsAt && sub.commitmentEndsAt > sub.nextInvoiceAt),
       manageUrl: stripe && sub.stripeSubscriptionId ? await subscriptionPaymentUrl(sub) : null,
     });
     await mailEnqueue({

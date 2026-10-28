@@ -42,6 +42,30 @@ export function documentClauses<T extends ClauseText>(doc: { legalClausesSnapsho
   return parsed.success ? parsed.data : active;
 }
 
+/**
+ * Clause d'engagement (CGV du 28/10/2026, article « Abonnements avec engagement ») : engagement depuis la signature, ou
+ * depuis la livraison pour une option retenue sur un devis payé une fois ; paiement au rythme du devis ; départ anticipé ;
+ * reconduction annuelle avec un mois de préavis ; information L215-1.
+ */
+const COMMITMENT_CLAUSE =
+  "Abonnement conclu pour la durée d'engagement indiquée ci-dessus (12, 24 ou 36 mois), à compter de la signature du devis ; pour une option retenue à la signature d'un devis payé une fois, l'engagement court à compter de la livraison, date à laquelle l'abonnement démarre. Le prix est fixe pendant toute la durée de l'engagement. Il est payable d'avance {{periodicite}}, par échéances d'un {{periode}}, comme indiqué sur le devis : ce fractionnement est une facilité de paiement, il ne permet pas de mettre fin à l'abonnement en cours d'engagement. Le client peut demander à tout moment la fin de son abonnement, depuis l'espace client ou par e-mail à {{email}} ; pendant l'engagement, les échéances restant à courir jusqu'à la fin de l'engagement restent dues. À la fin de l'engagement, l'abonnement est reconduit tacitement par périodes d'un an, au même rythme de paiement. Le client peut en demander la non-reconduction, sans frais ni justification, au plus tard un mois avant la fin de l'engagement ou de l'année reconduite en cours, depuis l'espace client ou par e-mail à {{email}} : l'abonnement prend alors fin à cette date. {{nom_commercial}} l'informe de cette possibilité par e-mail, au plus tôt trois mois et au plus tard un mois avant cette date limite (art. L215-1 du Code de la consommation). Dans tous les cas, le client conserve ses contenus et son nom de domaine.";
+
+/** Clause d'une périodicité, pour une ligne ancienne sans durée d'engagement : un an, puis reconduction annuelle. */
+const PERIOD_CLAUSE = (rhythm: string) =>
+  `Abonnement conclu pour un an à compter de la signature du devis (pour une option retenue à la signature d'un devis payé une fois : à compter de la livraison), payable d'avance ${rhythm}, comme indiqué sur le devis. Ce rythme de paiement est une facilité : il ne permet pas de mettre fin à l'abonnement en cours d'année, les échéances de l'année en cours restent dues. L'abonnement est ensuite reconduit tacitement par périodes d'un an, au même rythme de paiement. Le client peut en demander la non-reconduction, sans frais ni justification, au plus tard un mois avant la fin de l'année en cours, depuis l'espace client ou par e-mail à {{email}} : l'abonnement prend alors fin à cette date. {{nom_commercial}} l'informe de cette possibilité par e-mail, au plus tôt trois mois et au plus tard un mois avant cette date limite (art. L215-1 du Code de la consommation). Dans tous les cas, le client conserve ses contenus et son nom de domaine.`;
+
+/**
+ * Anciens textes par défaut (avant le 28/10/2026), remplacés par upgradeDefaultClauseTexts dans une base existante
+ * seulement si la clause a encore ce texte exact : une clause modifiée par Alexandre n'est jamais touchée.
+ */
+export const REPLACED_DEFAULT_BODIES: ReadonlyArray<{ kind: LegalClauseKind; oldBody: string; newBody: string }> = [
+  { kind: LegalClauseKind.SUBSCRIPTION_MONTHLY, oldBody: "Sans durée minimale. Résiliable à tout moment, sans frais ni justification : la résiliation prend effet à la fin de la période mensuelle en cours, déjà facturée, sans remboursement au prorata. Résiliation en ligne depuis l'espace client (« Gérer mon abonnement » pour un prélèvement, « Résilier mon abonnement » pour un règlement par virement) ou par e-mail à {{email}}.", newBody: PERIOD_CLAUSE("chaque mois") },
+  { kind: LegalClauseKind.SUBSCRIPTION_ANNUAL, oldBody: "Durée d'un an à compter de sa date de départ, payable d'avance, reconduite tacitement pour un an au prix en vigueur. Le client peut refuser la reconduction, sans frais ni justification, jusqu'à la veille de la date de renouvellement ; {{nom_commercial}} l'en informe par e-mail au plus tôt trois mois et au plus tard un mois avant cette date limite (art. L215-1 du Code de la consommation). Non résiliable en cours d'année, sauf manquement de {{nom_commercial}} ou force majeure. Refus de reconduction ou résiliation en ligne depuis l'espace client, ou par e-mail à {{email}}.", newBody: PERIOD_CLAUSE("chaque année à la date anniversaire") },
+  { kind: LegalClauseKind.SUBSCRIPTION_QUARTERLY, oldBody: "[BROUILLON À RELIRE PAR ALEXANDRE] Sans durée minimale, payable d'avance chaque trimestre. Résiliable à tout moment, sans frais ni justification : la résiliation prend effet à la fin du trimestre en cours, déjà facturé, sans remboursement au prorata. Résiliation en ligne depuis l'espace client (« Gérer mon abonnement » pour un prélèvement, « Résilier mon abonnement » pour un règlement par virement) ou par e-mail à {{email}}.", newBody: PERIOD_CLAUSE("chaque trimestre") },
+  { kind: LegalClauseKind.SUBSCRIPTION_COMMITMENT, oldBody: "[BROUILLON À RELIRE PAR ALEXANDRE ET UN JURISTE OU LA CCI] Abonnement conclu pour la durée d'engagement indiquée ci-dessus, à compter de la signature du devis, payable d'avance chaque année à la date anniversaire. Pendant l'engagement, le client peut demander la résiliation depuis l'espace client ou par e-mail à {{email}} ; en cas de départ anticipé, les annuités restant à courir jusqu'à la fin de l'engagement restent dues. [À FAIRE VALIDER : une indemnité jugée excessive peut être réduite par le juge (art. 1231-5 du Code civil) ; le droit de rétractation de 14 jours prévaut pour les petits professionnels signés hors établissement (art. L221-3 du Code de la consommation).] À l'issue de l'engagement, l'abonnement se poursuit d'année en année au prix en vigueur : le client peut refuser chaque reconduction, sans frais ni justification, jusqu'à la veille de la date de renouvellement, et {{nom_commercial}} l'en informe par e-mail avant cette date. Après l'engagement, la résiliation est libre et prend effet à l'échéance annuelle. Dans tous les cas, le client conserve ses contenus et son nom de domaine.", newBody: COMMITMENT_CLAUSE },
+  { kind: LegalClauseKind.SUBSCRIPTION_COMMITMENT, oldBody: "[BROUILLON À RELIRE PAR ALEXANDRE ET UN JURISTE OU LA CCI] Abonnement conclu pour la durée d'engagement indiquée ci-dessus, de 12 mois au minimum, à compter de la signature du devis. Le prix est celui de l'engagement ; il est payable d'avance {{periodicite}}, par échéances d'un {{periode}}. Ce fractionnement est une facilité de paiement : il ne permet pas de résilier en cours d'engagement, et les échéances restent dues jusqu'à la fin de l'engagement. [À FAIRE VALIDER : une indemnité jugée excessive peut être réduite par le juge (art. 1231-5 du Code civil) ; le droit de rétractation de 14 jours prévaut pour les particuliers et pour les petits professionnels signés hors établissement (art. L221-18 et L221-3 du Code de la consommation).] À la fin de l'engagement, l'abonnement est reconduit tacitement par périodes d'un an, au prix en vigueur et au même rythme de paiement. Le client peut en demander la non-reconduction, sans frais ni justification, au plus tard un mois avant la fin de l'engagement ou de l'année reconduite en cours, depuis l'espace client ou par e-mail à {{email}} : l'abonnement prend alors fin à cette date. {{nom_commercial}} lui rappelle cette date limite par e-mail avant qu'elle n'expire (art. L215-1 du Code de la consommation). Dans tous les cas, le client conserve ses contenus et son nom de domaine.", newBody: COMMITMENT_CLAUSE },
+];
+
 export const DEFAULT_LEGAL_CLAUSES: Array<{
   kind: LegalClauseKind;
   title: string;
@@ -101,50 +125,39 @@ export const DEFAULT_LEGAL_CLAUSES: Array<{
     required: false,
     position: 4,
   },
-  // Imprimées dans l'encadré d'abonnement du devis (CGV art. 7.1 à 7.3), selon la périodicité.
-  // {{nom_commercial}}, {{email}}, {{adresse}}, {{mention_tva}} : remplacés par les réglages au rendu du PDF.
+  // Imprimées dans l'encadré d'abonnement du devis, alignées sur les CGV du 28/10/2026 (article « Abonnements avec
+  // engagement »). Tout abonnement a un engagement : la clause d'engagement s'imprime à la place de celle de sa
+  // périodicité ; les trois clauses de périodicité ne servent plus qu'aux lignes anciennes, sans durée d'engagement.
+  // {{nom_commercial}}, {{email}}, {{adresse}}, {{mention_tva}}, {{periode}}, {{periodicite}} : remplacés au rendu du PDF.
   {
     kind: LegalClauseKind.SUBSCRIPTION_MONTHLY,
     title: "Abonnement mensuel",
-    body: "Sans durée minimale. Résiliable à tout moment, sans frais ni justification : la résiliation prend effet à la fin de la période mensuelle en cours, déjà facturée, sans remboursement au prorata. Résiliation en ligne depuis l'espace client (« Gérer mon abonnement » pour un prélèvement, « Résilier mon abonnement » pour un règlement par virement) ou par e-mail à {{email}}.",
+    body: PERIOD_CLAUSE("chaque mois"),
     required: true,
     position: 5,
   },
   {
     kind: LegalClauseKind.SUBSCRIPTION_ANNUAL,
     title: "Abonnement annuel",
-    body: "Durée d'un an à compter de sa date de départ, payable d'avance, reconduite tacitement pour un an au prix en vigueur. Le client peut refuser la reconduction, sans frais ni justification, jusqu'à la veille de la date de renouvellement ; {{nom_commercial}} l'en informe par e-mail au plus tôt trois mois et au plus tard un mois avant cette date limite (art. L215-1 du Code de la consommation). Non résiliable en cours d'année, sauf manquement de {{nom_commercial}} ou force majeure. Refus de reconduction ou résiliation en ligne depuis l'espace client, ou par e-mail à {{email}}.",
+    body: PERIOD_CLAUSE("chaque année à la date anniversaire"),
     required: true,
     position: 6,
   },
-  // Abonnement trimestriel sans engagement (mode de facturation, 24/10/2026). Texte BROUILLON sur le modèle de la clause
-  // mensuelle : la mention de tête s'imprime tant qu'Alexandre ne l'a pas relu et réécrit dans Réglages.
   {
     kind: LegalClauseKind.SUBSCRIPTION_QUARTERLY,
     title: "Abonnement trimestriel",
-    body: "[BROUILLON À RELIRE PAR ALEXANDRE] Sans durée minimale, payable d'avance chaque trimestre. Résiliable à tout moment, sans frais ni justification : la résiliation prend effet à la fin du trimestre en cours, déjà facturé, sans remboursement au prorata. Résiliation en ligne depuis l'espace client (« Gérer mon abonnement » pour un prélèvement, « Résilier mon abonnement » pour un règlement par virement) ou par e-mail à {{email}}.",
+    body: PERIOD_CLAUSE("chaque trimestre"),
     required: true,
     position: 6,
   },
-  // Abonnement avec durée d'engagement (offre tout compris) : imprimée à la place de la clause de périodicité.
-  // Texte BROUILLON (décisions du 19/10/2026) : la mention de tête s'imprime tant qu'Alexandre ne l'a pas réécrit.
+  // Clause unique des abonnements engagés, tout rythme de paiement (décision d'Alexandre du 28/10/2026 : elle remplace
+  // l'ancien texte annuel et la proposition inactive, upgradeDefaultClauseTexts).
   {
     kind: LegalClauseKind.SUBSCRIPTION_COMMITMENT,
     title: "Abonnement avec engagement",
-    body: "[BROUILLON À RELIRE PAR ALEXANDRE ET UN JURISTE OU LA CCI] Abonnement conclu pour la durée d'engagement indiquée ci-dessus, à compter de la signature du devis, payable d'avance chaque année à la date anniversaire. Pendant l'engagement, le client peut demander la résiliation depuis l'espace client ou par e-mail à {{email}} ; en cas de départ anticipé, les annuités restant à courir jusqu'à la fin de l'engagement restent dues. [À FAIRE VALIDER : une indemnité jugée excessive peut être réduite par le juge (art. 1231-5 du Code civil) ; le droit de rétractation de 14 jours prévaut pour les petits professionnels signés hors établissement (art. L221-3 du Code de la consommation).] À l'issue de l'engagement, l'abonnement se poursuit d'année en année au prix en vigueur : le client peut refuser chaque reconduction, sans frais ni justification, jusqu'à la veille de la date de renouvellement, et {{nom_commercial}} l'en informe par e-mail avant cette date. Après l'engagement, la résiliation est libre et prend effet à l'échéance annuelle. Dans tous les cas, le client conserve ses contenus et son nom de domaine.",
+    body: COMMITMENT_CLAUSE,
     required: true,
     position: 6,
-  },
-  // Proposition (décisions du 23/10/2026) : clause unique des devis récurrents, tout rythme de paiement ({{periode}},
-  // {{periodicite}}) : engagement minimal, paiement fractionné, reconduction annuelle, préavis d'un mois, rappel.
-  // Créée inactive à côté du texte d'Alexandre, jamais à sa place : il active l'une et désactive l'autre.
-  {
-    kind: LegalClauseKind.SUBSCRIPTION_COMMITMENT,
-    title: "Abonnement avec engagement (proposition, tout rythme de paiement)",
-    body: "[BROUILLON À RELIRE PAR ALEXANDRE ET UN JURISTE OU LA CCI] Abonnement conclu pour la durée d'engagement indiquée ci-dessus, de 12 mois au minimum, à compter de la signature du devis. Le prix est celui de l'engagement ; il est payable d'avance {{periodicite}}, par échéances d'un {{periode}}. Ce fractionnement est une facilité de paiement : il ne permet pas de résilier en cours d'engagement, et les échéances restent dues jusqu'à la fin de l'engagement. [À FAIRE VALIDER : une indemnité jugée excessive peut être réduite par le juge (art. 1231-5 du Code civil) ; le droit de rétractation de 14 jours prévaut pour les particuliers et pour les petits professionnels signés hors établissement (art. L221-18 et L221-3 du Code de la consommation).] À la fin de l'engagement, l'abonnement est reconduit tacitement par périodes d'un an, au prix en vigueur et au même rythme de paiement. Le client peut en demander la non-reconduction, sans frais ni justification, au plus tard un mois avant la fin de l'engagement ou de l'année reconduite en cours, depuis l'espace client ou par e-mail à {{email}} : l'abonnement prend alors fin à cette date. {{nom_commercial}} lui rappelle cette date limite par e-mail avant qu'elle n'expire (art. L215-1 du Code de la consommation). Dans tous les cas, le client conserve ses contenus et son nom de domaine.",
-    required: false,
-    position: 6,
-    active: false,
   },
   // Devis contenant un abonnement : imprimée sous les abonnements et le total du projet (PDF, fiche, e-mail d'envoi).
   {
@@ -287,6 +300,29 @@ export async function ensureDefaultLegalClauses() {
       });
     }
   }
+  await upgradeDefaultClauseTexts();
+}
+
+/**
+ * Mise à jour des textes par défaut d'abonnement (accord d'Alexandre du 28/10/2026), idempotente : seule une clause
+ * dont le texte est encore exactement l'ancien texte par défaut prend le nouveau ; l'ancien est gardé (previousBody,
+ * bodyReplacedAt) et le changement est journalisé. Une clause modifiée à la main n'est jamais touchée ; « actif » et
+ * titre restent ceux choisis par Alexandre.
+ */
+export async function upgradeDefaultClauseTexts(now = new Date()): Promise<number> {
+  let replaced = 0;
+  for (const { kind, oldBody, newBody } of REPLACED_DEFAULT_BODIES) {
+    const rows = await prisma.legalClause.findMany({ where: { kind, body: oldBody }, select: { id: true, title: true, active: true } });
+    for (const row of rows) {
+      // Condition sur le texte dans l'écriture même : une modification faite entre-temps n'est jamais écrasée.
+      const done = await prisma.legalClause.updateMany({ where: { id: row.id, body: oldBody }, data: { body: newBody, previousBody: oldBody, bodyReplacedAt: now } });
+      if (done.count === 1) {
+        replaced += 1;
+        console.info(`[clauses] texte par défaut mis à jour : « ${row.title} » (${kind}, ${row.active ? "active" : "inactive"}, ${row.id}) ; ancien texte gardé dans previousBody`);
+      }
+    }
+  }
+  return replaced;
 }
 
 /**

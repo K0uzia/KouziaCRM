@@ -84,7 +84,8 @@ describe("e-mails en attente devenus sans objet", () => {
     expect(await sendDueTermEndReminders()).toBe(1);
     const notice = await prisma.emailOutbox.findFirstOrThrow({ where: { reviewKind: "subscription_term_end" } });
     expect(notice.documentId).toBe(sub.id);
-    expect(notice.status).toBe(EmailOutboxStatus.REVIEW);
+    // Envoyé d'office (28/10/2026) : en file, pas encore parti, il est retiré comme un avis en attente de validation.
+    expect(notice.status).toBe(EmailOutboxStatus.PENDING);
     await finishBuyoutSignature({ subscriptionId: sub.id, endDate: new Date(), stripe: null });
     expect(await statusOf(notice.id)).toBe(EmailOutboxStatus.REJECTED);
 

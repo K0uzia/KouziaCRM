@@ -10,7 +10,8 @@ import { createClient, seedCompanySettings } from "../helpers/factories.js";
 const { buildApp } = await import("@/app.js");
 
 const ADMIN = "admin-clauses@kouzia.test";
-const PROPOSAL = "Abonnement avec engagement (proposition, tout rythme de paiement)";
+// Clause par défaut facultative (la proposition d'engagement n'est plus une clause par défaut depuis le 28/10/2026).
+const PROPOSAL = "Cession du site (rachat)";
 let app: FastifyInstance;
 let cookie: string;
 beforeAll(async () => {

@@ -61,8 +61,8 @@ describe("rachat R3 : rappel à trois choix", () => {
     expect(text).toContain("- Racheter votre site : il devient le vôtre pour 750,00 €, en une fois, sans abonnement ensuite. Répondez à cet e-mail pour le demander : je vous envoie le devis.");
     expect(text).not.toMatch(/[\u2013\u2014]/);
     expect(call[0]).toMatchObject({ kind: "subscription_term_end_buyout", documentId: sub.id });
-    // Toujours relu dans « E-mails à valider » (famille des avis d'abonnement).
-    expect(call[1]).toEqual({ review: { family: "subscription_notice", origin: "WORKER" } });
+    // Information légale (L215-1) : envoyée d'office, sans validation (décision du 28/10/2026).
+    expect(call[1]).toBeUndefined();
     // Une seule fois.
     expect(await sendDueTermEndReminders(new Date(2026, 9, 25))).toBe(0);
   });

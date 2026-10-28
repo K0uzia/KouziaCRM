@@ -159,10 +159,13 @@ async function obsoleteReason(row: { reviewKind: string | null; documentId: stri
   return invoice?.status === InvoiceStatus.PAID || milestone?.status === "PAID" ? "Paiement régularisé depuis : e-mail d'échec retiré." : null;
 }
 
-/** E-mails en attente d'un document devenus sans objet : refusés avec leur motif (jamais envoyés). */
+/**
+ * E-mails en attente d'un document devenus sans objet : refusés avec leur motif (jamais envoyés). En attente de
+ * validation, ou en file pas encore partis (avis de reconduction envoyés d'office depuis le 28/10/2026).
+ */
 export async function rejectObsoleteReviewEmails(documentId: string, kinds: readonly string[], reason: string, now = new Date()): Promise<number> {
   const res = await prisma.emailOutbox.updateMany({
-    where: { documentId, reviewKind: { in: [...kinds] }, status: EmailOutboxStatus.REVIEW },
+    where: { documentId, reviewKind: { in: [...kinds] }, status: { in: [EmailOutboxStatus.REVIEW, EmailOutboxStatus.PENDING] } },
     data: { status: EmailOutboxStatus.REJECTED, reviewedAt: now, rejectReason: encrypt(reason) },
   });
   return res.count;

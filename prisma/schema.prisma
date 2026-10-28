@@ -581,6 +581,9 @@ model LegalClause {
   position  Int                 @default(0)
   /// Supprimée par l'admin (migration 20261219090000) : gardée pour ne jamais recréer une clause par défaut ; toujours inactive
   deletedAt DateTime?
+  /// Ancien texte par défaut remplacé d'office (upgradeDefaultClauseTexts, 28/10/2026) ; null si jamais remplacé
+  previousBody   String?
+  bodyReplacedAt DateTime?
   createdAt DateTime            @default(now())
   updatedAt DateTime            @updatedAt
 
@@ -1101,8 +1104,12 @@ model Subscription {
   nextInvoiceAt           DateTime
   /// Dernière facture générée par cet abonnement
   lastInvoiceId           String?
-  /// Échéance (nextInvoiceAt) pour laquelle le rappel J-30 de renouvellement annuel est parti
+  /// Fin de période (reconduction) pour laquelle l'information de reconduction est partie (posé à l'envoi effectif)
   renewalReminderSentFor  DateTime?
+  /// Envoi effectif de cette information (L215-1 : au plus tôt 3 mois, au plus tard 1 mois avant la date limite)
+  renewalReminderSentAt   DateTime?
+  /// Information de reconduction mise en file pour cette fin de période, pas encore partie
+  renewalReminderPendingFor DateTime?
   /// Échéance (nextInvoiceAt) pour laquelle l'avis de 1re échéance est parti (marqueur propre, distinct du précédent)
   firstChargeNoticeSentFor DateTime?
   /// Changement d'état venu de Stripe (ENDED | PAUSED | ACTIVE) : résiliation, impayés ou pause faits côté Stripe

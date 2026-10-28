@@ -39,7 +39,13 @@ export const CANCEL_NOTICE_MONTHS = 1;
  * l'engagement ou d'une année reconduite (termEndsAt), demandée au plus tard un mois avant (cancelDeadline, inclus).
  * Date limite passée : c'est la période suivante qui est visée.
  */
-export function cancellableTermOf(commitmentEndsAt: Date, now = new Date()): { termEndsAt: Date; cancelDeadline: Date } {
+export function cancellableTermOf(
+  commitmentEndsAt: Date,
+  now = new Date(),
+  notice?: RenewalNoticeState,
+): { termEndsAt: Date; cancelDeadline: Date; freeTermination?: true } {
+  const free = notice ? freeTerminationOf(commitmentEndsAt, now, notice) : null;
+  if (free) return { termEndsAt: free, cancelDeadline: now, freeTermination: true };
   for (let years = 0; ; years += 1) {
     const termEndsAt = commitmentEndOf(commitmentEndsAt, years * 12);
     const cancelDeadline = commitmentEndOf(termEndsAt, -CANCEL_NOTICE_MONTHS);
@@ -47,6 +53,56 @@ export function cancellableTermOf(commitmentEndsAt: Date, now = new Date()): { t
     lastDay.setDate(lastDay.getDate() + 1);
     if (lastDay.getTime() > now.getTime()) return { termEndsAt, cancelDeadline };
   }
+}
+
+/** Clients protégés par l'article L215-1 du Code de la consommation : non-professionnels (association, particulier). */
+export const isNonProfessionalClient = (type: string | null | undefined) => type === "ASSOCIATION" || type === "B2C";
+
+/** Information de reconduction d'un abonnement, pour l'article L215-1 (renewalReminderSentFor, renewalReminderSentAt). */
+export type RenewalNoticeState = {
+  nonProfessional: boolean;
+  renewalReminderSentFor: Date | null;
+  renewalReminderSentAt: Date | null;
+  /** Fin de la période déjà facturée (prochaine échéance de l'abonnement). */
+  paidPeriodEndsAt: Date;
+};
+
+/** État de l'information de reconduction d'un abonnement chargé (champs absents : rien d'envoyé). */
+export function renewalNoticeOf(
+  sub: { renewalReminderSentFor?: Date | null; renewalReminderSentAt?: Date | null; nextInvoiceAt: Date },
+  clientType: string | null | undefined,
+): RenewalNoticeState {
+  return {
+    nonProfessional: isNonProfessionalClient(clientType),
+    renewalReminderSentFor: sub.renewalReminderSentFor ?? null,
+    renewalReminderSentAt: sub.renewalReminderSentAt ?? null,
+    paidPeriodEndsAt: sub.nextInvoiceAt,
+  };
+}
+
+/**
+ * Article L215-1 al. 2 (CGV, « Information avant la reconduction ») : un client non professionnel qui n'a pas reçu
+ * l'information de reconduction, au plus tôt trois mois et au plus tard un mois avant la date limite (un mois avant la
+ * reconduction), peut mettre fin à l'abonnement à tout moment à compter de la reconduction, sans rien devoir au-delà de
+ * la période déjà payée (décision du 28/10/2026). Renvoie la date d'effet d'une telle fin, ou null (engagement en
+ * cours, client professionnel, information faite à temps). Avis ancien sans date d'envoi : tenu pour fait.
+ */
+export function freeTerminationOf(commitmentEndsAt: Date, now: Date, notice: RenewalNoticeState): Date | null {
+  if (!notice.nonProfessional) return null;
+  let renewal: Date | null = null;
+  for (let years = 0; ; years += 1) {
+    const end = commitmentEndOf(commitmentEndsAt, years * 12);
+    if (end.getTime() > now.getTime()) break;
+    renewal = end;
+  }
+  if (!renewal) return null;
+  const deadline = commitmentEndOf(renewal, -CANCEL_NOTICE_MONTHS);
+  const sentAt = notice.renewalReminderSentAt;
+  const informed =
+    notice.renewalReminderSentFor?.getTime() === renewal.getTime() &&
+    (!sentAt || (sentAt >= commitmentEndOf(deadline, -3) && sentAt <= commitmentEndOf(deadline, -1)));
+  if (informed) return null;
+  return notice.paidPeriodEndsAt.getTime() > now.getTime() ? notice.paidPeriodEndsAt : now;
 }
 
 /** Fin de la période en cours d'un abonnement engagé : fin de l'engagement, puis de chaque année reconduite. */

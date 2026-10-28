@@ -68,7 +68,7 @@ describe("durée d'engagement d'un abonnement", () => {
     expect(await prisma.subscription.findFirstOrThrow()).toMatchObject({ commitmentMonths: null, commitmentEndsAt: null });
   });
 
-  it("PDF du devis : clause d'engagement (brouillon) à la place de la clause annuelle, rendu sans erreur", async () => {
+  it("PDF du devis : clause d'engagement (CGV du 28/10/2026) à la place de la clause annuelle, rendu sans erreur", async () => {
     const quoteId = await issuedQuote(36);
     const doc = (await loadDocumentForPdf(quoteId))!;
     const payload = buildInvoicePdfPayload({
@@ -80,9 +80,8 @@ describe("durée d'engagement d'un abonnement", () => {
       cgv: { published: false, url: null, version: null },
     });
     expect(payload.lines[0]).toMatchObject({ commitmentMonths: 36 });
-    expect(payload.subscriptionTerms?.COMMITMENT).toMatch(/^\[BROUILLON À RELIRE PAR ALEXANDRE ET UN JURISTE OU LA CCI\]/);
-    expect(payload.subscriptionTerms?.COMMITMENT).toContain("les annuités restant à courir jusqu'à la fin de l'engagement restent dues");
-    expect(payload.subscriptionTerms?.COMMITMENT).toContain("[À FAIRE VALIDER");
+    expect(payload.subscriptionTerms?.COMMITMENT).not.toMatch(/\[BROUILLON|\[À FAIRE VALIDER/);
+    expect(payload.subscriptionTerms?.COMMITMENT).toContain("les échéances restant à courir jusqu'à la fin de l'engagement restent dues");
     expect((await renderLoadedDocumentPdf(doc)).length).toBeGreaterThan(1000);
   });
 });

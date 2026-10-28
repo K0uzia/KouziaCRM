@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { LegalClauseAudience, LegalClauseKind, Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma.js";
-import { clausesForClient, ensureDefaultLegalClauses, fillClauseVariables, listActiveLegalClauses } from "@/lib/company/legal-clauses.js";
+import { clausesForClient, ensureDefaultLegalClauses, fillClauseVariables, listActiveLegalClauses, REPLACED_DEFAULT_BODIES, upgradeDefaultClauseTexts } from "@/lib/company/legal-clauses.js";
 import { loadDocumentForPdf, renderLoadedDocumentPdf } from "@/lib/pdf/document-pdf.js";
 import { issueQuote } from "@/lib/invoices/transitions.js";
 import { buildInvoicePdfPayload } from "@/lib/pdf/build-payload.js";
@@ -88,21 +88,30 @@ describe("clauses d'abonnement : {{periode}} et {{periodicite}}", () => {
     expect(fillClauseVariables(body, company)).toBe(body);
   });
 
-  it("proposition d'engagement créée inactive, sans toucher au texte d'Alexandre ; brouillon signalé", async () => {
+  it("base neuve : une seule clause d'engagement, active, tout rythme de paiement, sans mention de brouillon", async () => {
     await ensureDefaultLegalClauses();
-    const actuel = await prisma.legalClause.findFirstOrThrow({ where: { title: "Abonnement avec engagement" } });
-    await prisma.legalClause.update({ where: { id: actuel.id }, data: { body: "Texte d'Alexandre." } });
-    await prisma.legalClause.deleteMany({ where: { title: { startsWith: "Abonnement avec engagement (" } } });
+    const rows = await prisma.legalClause.findMany({ where: { kind: LegalClauseKind.SUBSCRIPTION_COMMITMENT } });
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ title: "Abonnement avec engagement", active: true });
+    expect(rows[0]!.body).toContain("{{periodicite}}");
+    expect(rows[0]!.body).not.toMatch(/\[BROUILLON|\[À FAIRE VALIDER|veille/);
+  });
+
+  it("base existante : ancien texte par défaut remplacé et gardé ; texte modifié par Alexandre jamais touché ; idempotent", async () => {
     await ensureDefaultLegalClauses();
-    const rows = await prisma.legalClause.findMany({ where: { kind: LegalClauseKind.SUBSCRIPTION_COMMITMENT }, orderBy: { createdAt: "asc" } });
-    expect(rows).toHaveLength(2);
-    expect(rows[0]).toMatchObject({ body: "Texte d'Alexandre.", active: true });
-    expect(rows[1]).toMatchObject({ active: false, required: false });
-    expect(rows[1]!.body).toMatch(/^\[BROUILLON/);
-    expect(rows[1]!.body).toContain("{{periodicite}}");
-    // Inactive : le PDF garde le texte actuel.
-    const active = await listActiveLegalClauses();
-    expect(active.filter((c) => c.kind === LegalClauseKind.SUBSCRIPTION_COMMITMENT).map((c) => c.body)).toEqual(["Texte d'Alexandre."]);
+    const OLD = REPLACED_DEFAULT_BODIES.find((r) => r.kind === LegalClauseKind.SUBSCRIPTION_COMMITMENT)!.oldBody;
+    const commitment = await prisma.legalClause.findFirstOrThrow({ where: { title: "Abonnement avec engagement" } });
+    await prisma.legalClause.update({ where: { id: commitment.id }, data: { body: OLD } });
+    const annual = await prisma.legalClause.findFirstOrThrow({ where: { kind: LegalClauseKind.SUBSCRIPTION_ANNUAL } });
+    await prisma.legalClause.update({ where: { id: annual.id }, data: { body: "Texte d'Alexandre." } });
+    const now = new Date(2026, 9, 28, 18);
+    expect(await upgradeDefaultClauseTexts(now)).toBe(1);
+    const after = await prisma.legalClause.findUniqueOrThrow({ where: { id: commitment.id } });
+    expect(after.body).not.toContain("[BROUILLON");
+    expect(after.body).toContain("au plus tard un mois avant la fin de l'engagement");
+    expect(after).toMatchObject({ previousBody: OLD, bodyReplacedAt: now, active: true });
+    expect((await prisma.legalClause.findUniqueOrThrow({ where: { id: annual.id } })).body).toBe("Texte d'Alexandre.");
+    expect(await upgradeDefaultClauseTexts(now)).toBe(0);
   });
 });
 

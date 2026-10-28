@@ -1,4 +1,5 @@
-import type { CompanySettings } from "@prisma/client";
+import { CreditNoteReason, InvoiceDocumentType, InvoiceStatus, RefundMethod, type CompanySettings } from "@prisma/client";
+import { BALANCE_INCLUDE, invoiceBalance } from "@/lib/invoices/balance.js";
 import type Stripe from "stripe";
 import { prisma } from "@/lib/prisma.js";
 import type { EmailOrigin } from "@/lib/email/review.js";
@@ -195,13 +196,16 @@ async function send(
 }
 
 /**
- * invoice.payment_failed : un e-mail par facture et par tentative (attempt_count), alerte admin.
+ * invoice.payment_failed : un seul e-mail au client par facture (essai réel du 28/10/2026 : neuf « Prélèvement non
+ * abouti » pour une facture, un par relance Stripe), alerte admin au premier échec et quand Stripe ne retentera plus.
+ * La suspension (unpaid) a son propre avis (renderSuspendedEmail).
  * La facture ERP miroir est créée si invoice.finalized n'est pas encore arrivé.
  */
 export async function handleStripePaymentFailed(stripeInvoice: Stripe.Invoice): Promise<string> {
   if (!stripeInvoice.id) return "sans identifiant";
   const { invoiceId } = await issueErpInvoiceFromStripeInvoice(stripeInvoice);
   const attempt = Math.max(1, stripeInvoice.attempt_count ?? 1);
+  const firstFailure = (await prisma.invoice.findUnique({ where: { id: invoiceId }, select: { stripeFailureNotifiedAttempt: true } }))?.stripeFailureNotifiedAttempt == null;
   // Réservation atomique : deux livraisons du même échec n'envoient qu'un e-mail.
   const claimed = await prisma.invoice.updateMany({
     where: {
@@ -217,15 +221,16 @@ export async function handleStripePaymentFailed(stripeInvoice: Stripe.Invoice): 
   const nextAttempt = stripeInvoice.next_payment_attempt ? new Date(stripeInvoice.next_payment_attempt * 1000) : null;
   const amountCents = stripeInvoice.amount_due ?? invoice.totalCents;
 
-  await alertAdmin(
+  if (firstFailure || !nextAttempt) await alertAdmin(
     `Échec de prélèvement Stripe : ${invoice.number ?? stripeInvoice.id}`,
     `Le prélèvement de ${formatEUR(amountCents)} (facture ${invoice.number ?? stripeInvoice.id}, tentative ${attempt}) a échoué. ` +
       (nextAttempt
         ? `Stripe retentera le ${fmtDate(nextAttempt)}.`
         : "Aucune nouvelle tentative automatique n'est prévue.") +
-      " Le client a reçu un e-mail avec le lien pour régulariser.",
+      (firstFailure ? " Le client a reçu un e-mail avec le lien pour régulariser." : " Le client a déjà reçu le lien pour régulariser au premier échec."),
   );
   if (!sub) return "échec signalé (sans abonnement ERP)";
+  if (!firstFailure) return `échec noté (tentative ${attempt}, client déjà prévenu)`;
   // Paiement en attente de confirmation (3DS) : le client a déjà l'e-mail « confirmer le paiement ».
   if (invoice.stripeActionRequiredAt) return `échec signalé à l'admin (tentative ${attempt}, confirmation déjà demandée)`;
   const url = await subscriptionPaymentUrl(sub);
@@ -435,6 +440,7 @@ export async function notifySubscriptionSync(result: StripeSyncResult): Promise<
       renderCancelScheduledEmail({ ...ctx, label: sub.label, endsAt }),
     );
   }
+  if (result.firstChargeExpired) await cancelExpiredFirstCharge(sub.id, sub.label, who);
   if (result.cancelRevoked) {
     await alertAdmin(
       `Résiliation annulée : ${who}`,
@@ -442,4 +448,46 @@ export async function notifySubscriptionSync(result: StripeSyncResult): Promise<
     );
     await send(sub.clientId, "subscription_cancel_revoked", (ctx) => renderCancelRevokedEmail({ ...ctx, label: sub.label }));
   }
+}
+
+/**
+ * 1re échéance jamais réglée, abonnement Stripe expiré (incomplete_expired) : la facture ERP émise à invoice.finalized
+ * n'est pas due, elle est annulée par un avoir automatique au motif clair ; échec de l'avoir : alerte (essai réel du
+ * 28/10/2026, la facture restait due sans rien dire).
+ */
+export async function cancelExpiredFirstCharge(subscriptionId: string, label: string, who: string): Promise<number> {
+  const unpaid = await prisma.invoice.findMany({
+    where: { subscriptionId, documentType: InvoiceDocumentType.INVOICE, status: InvoiceStatus.ISSUED, stripeInvoiceId: { not: null } },
+    include: BALANCE_INCLUDE,
+  });
+  const { createCreditNote } = await import("@/lib/invoices/credit-note-service.js");
+  let cancelled = 0;
+  const failed: string[] = [];
+  for (const inv of unpaid) {
+    const b = invoiceBalance(inv);
+    if (b.dueCents <= 0 || inv.payments.length > 0) continue;
+    try {
+      await createCreditNote(inv.id, {
+        amountCents: b.dueCents,
+        reason: CreditNoteReason.AMOUNT_CORRECTION,
+        reasonDetail: "1re échéance jamais réglée : le prélèvement n'a pas été mis en place et l'abonnement Stripe a expiré",
+        refundMethod: RefundMethod.DEDUCT_FROM_BALANCE,
+        registerRefundPayment: false,
+        stripeChargeAbandoned: true,
+      });
+      cancelled += 1;
+    } catch (err) {
+      failed.push(`${inv.number ?? inv.id} (${err instanceof Error ? err.message : String(err)})`);
+    }
+  }
+  if (cancelled || failed.length) {
+    await alertAdmin(
+      `1re échéance non réglée, abonnement Stripe expiré : ${who}`,
+      `Le prélèvement de l'abonnement « ${label} » n'a jamais été mis en place : Stripe a expiré l'abonnement et l'ERP l'a clôturé. ` +
+        (cancelled ? `${cancelled} facture${cancelled > 1 ? "s" : ""} de 1re échéance annulée${cancelled > 1 ? "s" : ""} par avoir automatique. ` : "") +
+        (failed.length ? `Avoir impossible pour : ${failed.join(", ")} ; faites-le à la main. ` : "") +
+        "Recontactez le client pour remettre en place le prélèvement si l'abonnement doit continuer.",
+    );
+  }
+  return cancelled;
 }

@@ -1765,7 +1765,7 @@ export function SettingsPage() {
               <h3 className="pt-2 text-sm font-semibold">Reconduction des abonnements annuels</h3>
               <Field
                 label="Date limite pour refuser la reconduction (jours avant le renouvellement)"
-                hint="1 = la veille. L'e-mail d'information part 45 jours avant cette date, pour tous les abonnements annuels."
+                hint="Abonnements annuels sans engagement (anciens contrats). Les CGV imposent un mois de préavis au moins : une valeur plus courte est portée à un mois. L'e-mail d'information part 45 jours avant cette date."
               >
                 <Input
                   type="number"

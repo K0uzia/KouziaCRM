@@ -1,4 +1,4 @@
-import { cancellableTermOf, commitmentEndOf, isCommitmentMonths } from "@/lib/subscriptions/commitment.js";
+import { cancellableTermOf, commitmentEndOf, isCommitmentMonths, renewalNoticeOf } from "@/lib/subscriptions/commitment.js";
 import { discountCentsPerPeriod } from "@/lib/quotes/recurring-discount.js";
 import {
   InvoiceDocumentType,
@@ -253,7 +253,7 @@ export async function listSubscriptions(status?: SubscriptionStatus) {
   const rows = await prisma.subscription.findMany({
     where: status ? { status } : undefined,
     include: {
-      client: { select: { id: true, displayName: true, clientNumber: true } },
+      client: { select: { id: true, displayName: true, clientNumber: true, type: true } },
       service: { select: { id: true, name: true } },
       _count: { select: DRAFT_COUNTS },
     },
@@ -265,7 +265,7 @@ export async function listSubscriptions(status?: SubscriptionStatus) {
     ...r,
     firstInvoicePending: pending.has(r.id),
     /** « Programmer la fin » : date de fin si elle était programmée maintenant (affichée avant confirmation). */
-    scheduledEndAt: r.status === SubscriptionStatus.ENDED ? null : scheduledEndOf(r, now).toISOString(),
+    scheduledEndAt: r.status === SubscriptionStatus.ENDED ? null : scheduledEndOf(r, now, r.client.type).toISOString(),
     /** Créé à la main, jamais facturé, sans Stripe : supprimable et montant modifiable directement. */
     draftLike: isDraftLike({ ...r, _count }),
   }));
@@ -429,8 +429,13 @@ export function currentPeriodEndOf(sub: { nextInvoiceAt: Date; billingInterval: 
 }
 
 /** Date d'effet d'une fin programmée aujourd'hui (« Programmer la fin ») : fin du terme résiliable, sinon de la période. */
-export function scheduledEndOf(sub: { nextInvoiceAt: Date; billingInterval: string | null; commitmentEndsAt: Date | null }, now = new Date()): Date {
-  return sub.commitmentEndsAt ? cancellableTermOf(sub.commitmentEndsAt, now).termEndsAt : currentPeriodEndOf(sub, now);
+export function scheduledEndOf(
+  sub: { nextInvoiceAt: Date; billingInterval: string | null; commitmentEndsAt: Date | null; renewalReminderSentFor?: Date | null; renewalReminderSentAt?: Date | null },
+  now = new Date(),
+  clientType?: string | null,
+): Date {
+  // L215-1 : non-professionnel sans information de reconduction faite à temps, fin de la période déjà payée.
+  return sub.commitmentEndsAt ? cancellableTermOf(sub.commitmentEndsAt, now, renewalNoticeOf(sub, clientType)).termEndsAt : currentPeriodEndOf(sub, now);
 }
 
 /**
@@ -441,13 +446,15 @@ export function scheduledEndOf(sub: { nextInvoiceAt: Date; billingInterval: stri
 export async function scheduleSubscriptionEnd(id: string, now = new Date()) {
   const sub = await findForStatusChange(id);
   if (sub.status === SubscriptionStatus.ENDED) throw new SubscriptionError("Cet abonnement est déjà clôturé");
-  const termEndsAt = scheduledEndOf(sub, now);
+  const client = await prisma.client.findUnique({ where: { id: sub.clientId }, select: { type: true } });
+  const termEndsAt = scheduledEndOf(sub, now, client?.type);
   const endDate = new Date(termEndsAt.getTime() - 1);
   if (sub.endDate && sub.endDate <= endDate) throw new SubscriptionError("Une fin plus proche est déjà programmée");
-  if (sub.stripeSubscriptionId) await applyStripeSubscriptionAction(sub.stripeSubscriptionId, "cancelAt", sub.stripeLivemode, termEndsAt);
+  // Sous Stripe : la fin réellement posée (calée sur la fin de période Stripe) fait foi pour l'ERP aussi.
+  const stripeEnd = sub.stripeSubscriptionId ? await applyStripeSubscriptionAction(sub.stripeSubscriptionId, "cancelAt", sub.stripeLivemode, termEndsAt) : undefined;
   const scheduled = await prisma.subscription.update({
     where: { id },
-    data: { endDate, ...(sub.stripeSubscriptionId ? { stripeCancelAt: termEndsAt } : {}) },
+    data: stripeEnd ? { endDate: new Date(stripeEnd.getTime() - 1), stripeCancelAt: stripeEnd } : { endDate, ...(sub.stripeSubscriptionId ? { stripeCancelAt: termEndsAt } : {}) },
   });
   // Plus de reconduction : l'information de reconduction et le rappel de fin de période n'ont plus d'objet.
   await rejectObsoleteReviewEmails(id, ["subscription_renewal", "subscription_term_end", "subscription_term_end_buyout"], "Fin programmée : avis de reconduction sans objet.");

@@ -995,6 +995,7 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
             settings.nonRenewalNoticeDays,
             new Date(),
             Boolean(s.lastInvoiceId) || s._count.invoices > 0 || s.sourceLines.some((l) => l.invoice.documentType === "INVOICE"),
+            client.type,
           ),
         })),
         emails: emailEvents.map((e) => ({

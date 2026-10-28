@@ -113,7 +113,8 @@ describe("/suivi : gestion des abonnements", () => {
       cancelAt: null,
       cancellationRequestedAt: null,
       manage: "STRIPE_PORTAL",
-      renewalDeadline: new Date(2026, 11, 31).toISOString(),
+      // Un mois avant le renouvellement (CGV), même si le réglage dit la veille.
+      renewalDeadline: new Date(2026, 11, 1).toISOString(),
     });
     expect(t.subscriptions[0].setupUrl).toBeUndefined();
   });
@@ -274,7 +275,8 @@ describe("/suivi : abonnement avec engagement (décisions du 19/10 et du 23/10/2
     const now = new Date();
     const ended = commitmentEndOf(now, -4);
     const c = await clientWith(EMAIL, "Lou Martin");
-    await subscription(c.id, { ...engaged, commitmentEndsAt: ended });
+    // Information de reconduction faite pour cette reconduction (sinon L215-1 : fin libre, testé à part).
+    await subscription(c.id, { ...engaged, commitmentEndsAt: ended, renewalReminderSentFor: ended });
     const kz_portal = await login();
     const t = (await app.inject({ method: "GET", url: "/api/public/tracking", cookies: { kz_portal } })).json();
     const term = commitmentEndOf(ended, 12);

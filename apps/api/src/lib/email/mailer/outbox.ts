@@ -71,14 +71,21 @@ export async function failStaleSending(now = new Date(), staleMs = 15 * 60_000):
 }
 
 export async function markOutboxSent(id: string) {
-  await prisma.emailOutbox.update({
+  const sentAt = new Date();
+  const row = await prisma.emailOutbox.update({
     where: { id },
     data: {
       status: EmailOutboxStatus.SENT,
-      sentAt: new Date(),
+      sentAt,
       lastError: null,
     },
+    select: { documentId: true, reviewKind: true },
   });
+  // Information de reconduction (L215-1) : son envoi effectif, et lui seul, la compte comme faite (28/10/2026).
+  if (row.documentId && row.reviewKind) {
+    const { RENEWAL_NOTICE_KINDS, recordRenewalNoticeSent } = await import("@/lib/subscriptions/renewal-reminder.js");
+    if ((RENEWAL_NOTICE_KINDS as readonly string[]).includes(row.reviewKind)) await recordRenewalNoticeSent(row.documentId, sentAt);
+  }
 }
 
 export async function markOutboxFailed(id: string, error: string, retryAt?: Date) {

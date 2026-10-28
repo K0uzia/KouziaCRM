@@ -28,6 +28,7 @@ import { formatPlainTextSignature } from "@/lib/email/signature.js";
 import { renderEmailHtml } from "@/lib/email/layout.js";
 import { templateText } from "@/lib/email/template-registry.js";
 import { formatDateFr } from "@/lib/format-fr.js";
+import { formatEUR } from "@/lib/money.js";
 
 /** Relie l'abonnement ERP à Stripe après Checkout mode=subscription. */
 export async function linkSubscriptionFromCheckout(opts: {
@@ -53,6 +54,19 @@ export function stripeInvoiceSubscriptionId(invoice: Stripe.Invoice): string | n
   if (!details) return null;
   const sub = details.subscription;
   return typeof sub === "string" ? sub : sub?.id ?? null;
+}
+
+/**
+ * PaymentIntent d'une Invoice Billing absent de l'événement (API 2026-06-24 : invoice.paid ne porte pas `payments`) :
+ * relecture de la facture avec expand ["payments"] (audit Stripe réel du 28/10/2026). null si Stripe ne répond pas.
+ */
+export async function fetchInvoicePaymentIntentId(invoiceId: string): Promise<string | null> {
+  try {
+    const full = await (await getStripe()).invoices.retrieve(invoiceId, { expand: ["payments"] });
+    return stripeInvoicePaymentIntentId(full);
+  } catch {
+    return null;
+  }
 }
 
 /** PaymentIntent lié à une Invoice Billing (via payments[].payment). */
@@ -124,6 +138,15 @@ export async function issueErpInvoiceFromStripeInvoice(
   if (!sub) {
     throw new Error(`Abonnement ERP introuvable pour ${stripeSubId}`);
   }
+  // Abonnement clôturé dans l'ERP mais encore facturé par Stripe (fin annulée dans Stripe, désaccord) : la facture est
+  // émise (le client est prélevé), et l'administrateur est alerté (audit du 28/10/2026).
+  if (sub.status === SubscriptionStatus.ENDED) {
+    await alertAdmin(
+      `Échéance Stripe sur un abonnement clôturé : ${sub.client.displayName}`,
+      `Stripe a émis la facture ${stripeInvoice.id ?? ""} (${formatEUR(stripeInvoice.total ?? 0)}) pour l'abonnement « ${sub.label} », clôturé dans l'ERP. ` +
+        "La facture ERP correspondante est émise, car le client est prélevé. Vérifiez dans Stripe : résiliez l'abonnement Stripe s'il devait s'arrêter (puis faites un avoir), ou reprenez le contrat avec le client.",
+    ).catch(() => undefined);
+  }
 
   // Total de la facture Stripe (lignes moins remises), jamais amount_due : le solde client Stripe (crédit) réduit le
   // montant prélevé, pas le montant facturé (décision du 27/10/2026).
@@ -134,7 +157,9 @@ export async function issueErpInvoiceFromStripeInvoice(
     sub.amountCents;
   // Période facturée : celle de la ligne d'abonnement. Les champs period_* de la facture
   // désignent la période précédente (1re facture : début = fin), pas l'échéance réglée.
-  const linePeriod = stripeInvoice.lines?.data?.find((l) => l.period?.end)?.period;
+  // Ligne principale (hors prorata) : une ligne de prorata de quelques minutes donnait « (28/10/2027 - 28/10/2027) ».
+  const periodLines = (stripeInvoice.lines?.data ?? []).filter((l) => l.period?.end);
+  const linePeriod = (periodLines.find((l) => !isProrationLine(l) && (l.amount ?? 0) > 0) ?? periodLines[0])?.period;
   const startSec = linePeriod?.start ?? stripeInvoice.period_start;
   const endSec = linePeriod?.end ?? stripeInvoice.period_end;
   const periodStart = startSec ? new Date(startSec * 1000) : new Date();
@@ -249,7 +274,9 @@ export async function handleStripeInvoicePaid(
     erp = await prisma.invoice.findUniqueOrThrow({ where: { id: created.invoiceId } });
   }
 
-  const paymentIntentId = stripeInvoicePaymentIntentId(stripeInvoice);
+  // Sans PaymentIntent, le paiement serait enregistré sans moyen réel ni frais, et remboursements et litiges ne le
+  // retrouveraient pas : la facture est relue chez Stripe avec ses paiements.
+  const paymentIntentId = stripeInvoicePaymentIntentId(stripeInvoice) ?? (await fetchInvoicePaymentIntentId(stripeInvoice.id));
 
   let feeCents: number | null = null;
   let method: PaymentMethod = PaymentMethod.SEPA_DEBIT;
@@ -284,6 +311,34 @@ export async function handleStripeInvoicePaid(
     method,
     paidAt: stripeInvoice.status_transitions?.paid_at ? new Date(stripeInvoice.status_transitions.paid_at * 1000) : eventPaidAt,
   });
+}
+
+/**
+ * Échéance impayée réglée après la suspension (Stripe « unpaid », ERP suspendu) : Stripe relu ; redevenu actif,
+ * l'ERP reprend l'abonnement aussitôt. Encore « unpaid » (les factures suivantes restent en brouillon chez Stripe tant
+ * que la dernière n'est pas réglée) : alerte claire à l'administrateur, le client ayant reçu son reçu (essai réel du
+ * 28/10/2026). @returns la synchronisation si l'abonnement a repris, sinon null.
+ */
+export async function resumeAfterUnpaidSettled(erpInvoiceId: string): Promise<StripeSyncResult | null> {
+  const inv = await prisma.invoice.findUnique({ where: { id: erpInvoiceId }, select: { number: true, subscription: { include: { client: { select: { displayName: true } } } } } });
+  const sub = inv?.subscription;
+  if (!sub?.stripeSubscriptionId || sub.status !== SubscriptionStatus.PAUSED || sub.stripeStatus !== "unpaid") return null;
+  let current: Stripe.Subscription | null = null;
+  try {
+    current = await (await getStripe()).subscriptions.retrieve(sub.stripeSubscriptionId);
+  } catch {
+    current = null;
+  }
+  if (current && (current.status === "active" || current.status === "past_due" || current.status === "trialing")) {
+    return syncSubscriptionFromStripe(current);
+  }
+  await alertAdmin(
+    `Impayé réglé, abonnement encore suspendu : ${sub.client.displayName}`,
+    `${sub.client.displayName} a réglé la facture ${inv?.number ?? erpInvoiceId} de l'abonnement « ${sub.label} », restée impayée. ` +
+      `Stripe garde l'abonnement ${sub.stripeSubscriptionId} « impayé » (${current?.status ?? "état illisible"}) : la facture suivante y reste en brouillon, et l'ERP reste suspendu. ` +
+      "Dans Stripe, finalisez et faites régler la dernière facture de l'abonnement (ou annulez-la si la période suspendue n'est pas due) : l'abonnement redeviendra actif et l'ERP le reprendra à la synchronisation. Prévenez le client que le service reprend.",
+  ).catch(() => undefined);
+  return null;
 }
 
 /**
@@ -349,6 +404,8 @@ export type StripeSyncResult = {
   cancelScheduledAt: Date | null;
   /** Résiliation programmée puis annulée. */
   cancelRevoked: boolean;
+  /** 1re échéance jamais réglée : abonnement Stripe expiré (incomplete_expired) à l'instant. */
+  firstChargeExpired?: boolean;
 };
 
 /** Date de fin d'une résiliation programmée (cancel_at, ou fin de période si cancel_at_period_end). */
@@ -359,6 +416,11 @@ export function scheduledCancelDate(
   if (stripeSub.cancel_at) return new Date(stripeSub.cancel_at * 1000);
   const periodEnd = stripeSub.items?.data?.[0]?.current_period_end;
   return stripeSub.cancel_at_period_end && periodEnd ? new Date(periodEnd * 1000) : null;
+}
+
+/** Date de fin ERP posée pour la résiliation programmée dans Stripe (à un jour près), pas pour un autre motif. */
+function endDateFromStripeCancel(sub: { endDate: Date | null; stripeCancelAt: Date | null }): boolean {
+  return Boolean(sub.endDate && sub.stripeCancelAt && Math.abs(sub.stripeCancelAt.getTime() - sub.endDate.getTime()) <= 24 * 3_600_000);
 }
 
 /**
@@ -409,14 +471,21 @@ export async function syncSubscriptionFromStripe(
       stripeStatus: stripeSub.status,
       stripeCancelAt: cancelAt,
       ...(changed ? { stripeStatusChange: status, stripeStatusChangedAt: new Date() } : {}),
+      // Clôturé avant : sa date de fin ne bouge plus. Fin programmée retirée dans Stripe : la date de fin qui en
+      // découlait est retirée aussi, sinon l'ERP clôturerait un abonnement que Stripe prélève encore (audit 28/10/2026).
       endDate:
-        status === SubscriptionStatus.ENDED
-          ? new Date((stripeSub.ended_at ?? Date.now() / 1000) * 1000)
-          : sub.endDate,
+        sub.status === SubscriptionStatus.ENDED
+          ? sub.endDate
+          : status === SubscriptionStatus.ENDED
+            ? new Date((stripeSub.ended_at ?? Date.now() / 1000) * 1000)
+            : cancelRevoked && endDateFromStripeCancel(sub)
+              ? null
+              : sub.endDate,
     },
   });
 
-  const base = { subscriptionId: sub.id, becameUnpaid, cancelScheduledAt, cancelRevoked };
+  const firstChargeExpired = stripeSub.status === "incomplete_expired" && sub.stripeStatus !== "incomplete_expired";
+  const base = { subscriptionId: sub.id, becameUnpaid, cancelScheduledAt, cancelRevoked, firstChargeExpired };
   if (!changed) return { ...base, change: null };
   const client = await prisma.client.findUnique({ where: { id: sub.clientId }, select: { displayName: true } });
   const reason =

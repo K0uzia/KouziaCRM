@@ -20,6 +20,7 @@ import {
   handleStripeInvoicePaid,
   issueErpInvoiceFromStripeInvoice,
   linkSubscriptionFromCheckout,
+  resumeAfterUnpaidSettled,
   syncSubscriptionFromStripe,
 } from "@/lib/stripe/billing.js";
 import {
@@ -238,6 +239,9 @@ async function handleEvent(event: Stripe.Event): Promise<string> {
       if (!isSubscriptionInvoice(invoice)) break;
       await handleStripeInvoicePaid(invoice, eventDate(event));
       const erp = invoice.id ? await prisma.invoice.findUnique({ where: { stripeInvoiceId: invoice.id } }) : null;
+      // Impayé réglé après la suspension : l'abonnement reprend, ou l'administrateur est alerté.
+      const resumed = erp ? await resumeAfterUnpaidSettled(erp.id) : null;
+      if (resumed) await notifySubscriptionSync(resumed);
       if (erp && (await notifyStripePaymentRecovered(erp.id))) return `${event.type}:régularisation signalée`;
       break;
     }
@@ -348,6 +352,8 @@ async function handleEvent(event: Stripe.Event): Promise<string> {
         const payment = await prisma.payment.findUnique({
           where: { stripePaymentIntentId: piId },
         });
+        // Remboursement reçu avant le paiement (ordre des événements Stripe) : renvoi demandé à Stripe.
+        if (!payment) awaitPaymentOrRetry(event, piId);
         if (payment) {
           await prisma.payment.update({
             where: { id: payment.id },
@@ -369,7 +375,8 @@ async function handleEvent(event: Stripe.Event): Promise<string> {
     }
     case "charge.dispute.created": {
       const dispute = event.data.object as Stripe.Dispute;
-      await setDisputedCents(dispute, dispute.amount);
+      // Litige reçu avant le paiement (0,5 s avant payment_intent.succeeded, essai réel du 28/10/2026) : renvoi demandé.
+      if (!(await setDisputedCents(dispute, dispute.amount))) awaitPaymentOrRetry(event, String(dispute.payment_intent ?? ""));
       await alertAdmin(
         "Litige Stripe",
         `Un litige a été ouvert (${dispute.id}) pour ${formatEUR(dispute.amount)}. Motif : ${dispute.reason}.`,
@@ -380,6 +387,15 @@ async function handleEvent(event: Stripe.Event): Promise<string> {
       // Litige gagné : l'argent revient ; perdu : il reste retenu.
       const dispute = event.data.object as Stripe.Dispute;
       await setDisputedCents(dispute, dispute.status === "won" ? 0 : dispute.amount);
+      if (dispute.status === "lost") {
+        const payment = await disputedPayment(dispute);
+        await alertAdmin(
+          "Litige Stripe perdu",
+          `Le litige ${dispute.id} est perdu : ${formatEUR(dispute.amount)} restent retenus par Stripe` +
+            (payment?.invoice?.number ? ` (facture ${payment.invoice.number})` : "") +
+            ". La somme n'est pas encaissée : créez un avoir dans l'ERP sur la facture concernée, ou relancez le client si elle reste due.",
+        );
+      }
       break;
     }
     default:
@@ -388,11 +404,33 @@ async function handleEvent(event: Stripe.Event): Promise<string> {
   return event.type;
 }
 
-/** Montant en litige sur le paiement du PaymentIntent du litige. */
-async function setDisputedCents(dispute: Stripe.Dispute, cents: number): Promise<void> {
+/** Montant en litige sur le paiement du PaymentIntent du litige ; false si ce paiement n'est pas (encore) dans l'ERP. */
+async function setDisputedCents(dispute: Stripe.Dispute, cents: number): Promise<boolean> {
   const piId = typeof dispute.payment_intent === "string" ? dispute.payment_intent : dispute.payment_intent?.id;
-  if (!piId) return;
-  await prisma.payment.updateMany({ where: { stripePaymentIntentId: piId }, data: { disputedCents: cents } });
+  if (!piId) return true;
+  const { count } = await prisma.payment.updateMany({ where: { stripePaymentIntentId: piId }, data: { disputedCents: cents } });
+  return count > 0;
+}
+
+/** Paiement ERP visé par un litige, avec sa facture. */
+async function disputedPayment(dispute: Stripe.Dispute) {
+  const piId = typeof dispute.payment_intent === "string" ? dispute.payment_intent : dispute.payment_intent?.id;
+  return piId ? prisma.payment.findUnique({ where: { stripePaymentIntentId: piId }, include: { invoice: { select: { number: true } } } }) : null;
+}
+
+/** Stripe renvoie un événement non traité pendant 3 jours : au-delà, il est traité tel quel (paiement hors ERP). */
+const RETRY_WINDOW_MS = 3 * 24 * 3_600_000;
+
+/**
+ * Événement (remboursement, litige) reçu avant le paiement qu'il vise : erreur, la réservation est libérée et la route
+ * répond 500, Stripe le renvoie plus tard, quand le paiement est enregistré. Événement de plus de 3 jours (paiement
+ * jamais passé par l'ERP) : traité sans attendre.
+ */
+function awaitPaymentOrRetry(event: Stripe.Event, piId: string): void {
+  const created = eventDate(event);
+  if (created && Date.now() - created.getTime() < RETRY_WINDOW_MS) {
+    throw new Error(`${event.type} : paiement ${piId} pas encore enregistré dans l'ERP, renvoi attendu de Stripe`);
+  }
 }
 
 const STUCK_AFTER_MS = 7 * 24 * 3_600_000;
