@@ -55,13 +55,16 @@ const PERIOD_CLAUSE = (rhythm: string) =>
   `Abonnement conclu pour un an à compter de la signature du devis (pour une option retenue à la signature d'un devis payé une fois : à compter de la livraison), payable d'avance ${rhythm}, comme indiqué sur le devis. Ce rythme de paiement est une facilité : il ne permet pas de mettre fin à l'abonnement en cours d'année, les échéances de l'année en cours restent dues. L'abonnement est ensuite reconduit tacitement par périodes d'un an, au même rythme de paiement. Le client peut en demander la non-reconduction, sans frais ni justification, au plus tard un mois avant la fin de l'année en cours, depuis l'espace client ou par e-mail à {{email}} : l'abonnement prend alors fin à cette date. {{nom_commercial}} l'informe de cette possibilité par e-mail, au plus tôt trois mois et au plus tard un mois avant cette date limite (art. L215-1 du Code de la consommation). Dans tous les cas, le client conserve ses contenus et son nom de domaine.`;
 
 /**
- * Anciens textes par défaut (avant le 28/10/2026), remplacés par upgradeDefaultClauseTexts dans une base existante
- * seulement si la clause a encore ce texte exact : une clause modifiée par Alexandre n'est jamais touchée.
+ * Anciens textes par défaut (avant le 28/10/2026) et textes relevés en production le 28/10/2026, remplacés par
+ * upgradeDefaultClauseTexts dans une base existante seulement si la clause a encore ce texte (espaces normalisés) :
+ * une clause modifiée autrement n'est jamais touchée.
  */
 export const REPLACED_DEFAULT_BODIES: ReadonlyArray<{ kind: LegalClauseKind; oldBody: string; newBody: string }> = [
   { kind: LegalClauseKind.SUBSCRIPTION_MONTHLY, oldBody: "Sans durée minimale. Résiliable à tout moment, sans frais ni justification : la résiliation prend effet à la fin de la période mensuelle en cours, déjà facturée, sans remboursement au prorata. Résiliation en ligne depuis l'espace client (« Gérer mon abonnement » pour un prélèvement, « Résilier mon abonnement » pour un règlement par virement) ou par e-mail à {{email}}.", newBody: PERIOD_CLAUSE("chaque mois") },
   { kind: LegalClauseKind.SUBSCRIPTION_ANNUAL, oldBody: "Durée d'un an à compter de sa date de départ, payable d'avance, reconduite tacitement pour un an au prix en vigueur. Le client peut refuser la reconduction, sans frais ni justification, jusqu'à la veille de la date de renouvellement ; {{nom_commercial}} l'en informe par e-mail au plus tôt trois mois et au plus tard un mois avant cette date limite (art. L215-1 du Code de la consommation). Non résiliable en cours d'année, sauf manquement de {{nom_commercial}} ou force majeure. Refus de reconduction ou résiliation en ligne depuis l'espace client, ou par e-mail à {{email}}.", newBody: PERIOD_CLAUSE("chaque année à la date anniversaire") },
   { kind: LegalClauseKind.SUBSCRIPTION_QUARTERLY, oldBody: "[BROUILLON À RELIRE PAR ALEXANDRE] Sans durée minimale, payable d'avance chaque trimestre. Résiliable à tout moment, sans frais ni justification : la résiliation prend effet à la fin du trimestre en cours, déjà facturé, sans remboursement au prorata. Résiliation en ligne depuis l'espace client (« Gérer mon abonnement » pour un prélèvement, « Résilier mon abonnement » pour un règlement par virement) ou par e-mail à {{email}}.", newBody: PERIOD_CLAUSE("chaque trimestre") },
+  // Même texte sans la mention de tête (production, 28/10/2026).
+  { kind: LegalClauseKind.SUBSCRIPTION_QUARTERLY, oldBody: "Sans durée minimale, payable d'avance chaque trimestre. Résiliable à tout moment, sans frais ni justification : la résiliation prend effet à la fin du trimestre en cours, déjà facturé, sans remboursement au prorata. Résiliation en ligne depuis l'espace client (« Gérer mon abonnement » pour un prélèvement, « Résilier mon abonnement » pour un règlement par virement) ou par e-mail à {{email}}.", newBody: PERIOD_CLAUSE("chaque trimestre") },
   { kind: LegalClauseKind.SUBSCRIPTION_COMMITMENT, oldBody: "[BROUILLON À RELIRE PAR ALEXANDRE ET UN JURISTE OU LA CCI] Abonnement conclu pour la durée d'engagement indiquée ci-dessus, à compter de la signature du devis, payable d'avance chaque année à la date anniversaire. Pendant l'engagement, le client peut demander la résiliation depuis l'espace client ou par e-mail à {{email}} ; en cas de départ anticipé, les annuités restant à courir jusqu'à la fin de l'engagement restent dues. [À FAIRE VALIDER : une indemnité jugée excessive peut être réduite par le juge (art. 1231-5 du Code civil) ; le droit de rétractation de 14 jours prévaut pour les petits professionnels signés hors établissement (art. L221-3 du Code de la consommation).] À l'issue de l'engagement, l'abonnement se poursuit d'année en année au prix en vigueur : le client peut refuser chaque reconduction, sans frais ni justification, jusqu'à la veille de la date de renouvellement, et {{nom_commercial}} l'en informe par e-mail avant cette date. Après l'engagement, la résiliation est libre et prend effet à l'échéance annuelle. Dans tous les cas, le client conserve ses contenus et son nom de domaine.", newBody: COMMITMENT_CLAUSE },
   { kind: LegalClauseKind.SUBSCRIPTION_COMMITMENT, oldBody: "[BROUILLON À RELIRE PAR ALEXANDRE ET UN JURISTE OU LA CCI] Abonnement conclu pour la durée d'engagement indiquée ci-dessus, de 12 mois au minimum, à compter de la signature du devis. Le prix est celui de l'engagement ; il est payable d'avance {{periodicite}}, par échéances d'un {{periode}}. Ce fractionnement est une facilité de paiement : il ne permet pas de résilier en cours d'engagement, et les échéances restent dues jusqu'à la fin de l'engagement. [À FAIRE VALIDER : une indemnité jugée excessive peut être réduite par le juge (art. 1231-5 du Code civil) ; le droit de rétractation de 14 jours prévaut pour les particuliers et pour les petits professionnels signés hors établissement (art. L221-18 et L221-3 du Code de la consommation).] À la fin de l'engagement, l'abonnement est reconduit tacitement par périodes d'un an, au prix en vigueur et au même rythme de paiement. Le client peut en demander la non-reconduction, sans frais ni justification, au plus tard un mois avant la fin de l'engagement ou de l'année reconduite en cours, depuis l'espace client ou par e-mail à {{email}} : l'abonnement prend alors fin à cette date. {{nom_commercial}} lui rappelle cette date limite par e-mail avant qu'elle n'expire (art. L215-1 du Code de la consommation). Dans tous les cas, le client conserve ses contenus et son nom de domaine.", newBody: COMMITMENT_CLAUSE },
 ];
@@ -311,19 +314,43 @@ export async function ensureDefaultLegalClauses() {
  */
 export async function upgradeDefaultClauseTexts(now = new Date()): Promise<number> {
   let replaced = 0;
-  for (const { kind, oldBody, newBody } of REPLACED_DEFAULT_BODIES) {
-    const rows = await prisma.legalClause.findMany({ where: { kind, body: oldBody }, select: { id: true, title: true, active: true } });
-    for (const row of rows) {
-      // Condition sur le texte dans l'écriture même : une modification faite entre-temps n'est jamais écrasée.
-      const done = await prisma.legalClause.updateMany({ where: { id: row.id, body: oldBody }, data: { body: newBody, previousBody: oldBody, bodyReplacedAt: now } });
-      if (done.count === 1) {
-        replaced += 1;
-        console.info(`[clauses] texte par défaut mis à jour : « ${row.title} » (${kind}, ${row.active ? "active" : "inactive"}, ${row.id}) ; ancien texte gardé dans previousBody`);
-      }
+  const replace = async (row: { id: string; title: string; active: boolean; body: string }, kind: LegalClauseKind, newBody: string, why: string) => {
+    // Condition sur le texte dans l'écriture même : une modification faite entre-temps n'est jamais écrasée.
+    const done = await prisma.legalClause.updateMany({ where: { id: row.id, body: row.body }, data: { body: newBody, previousBody: row.body, bodyReplacedAt: now } });
+    if (done.count === 1) {
+      replaced += 1;
+      console.info(`[clauses] ${why} : « ${row.title} » (${kind}, ${row.active ? "active" : "inactive"}, ${row.id}) ; ancien texte gardé dans previousBody`);
     }
+  };
+  for (const { kind, oldBody, newBody } of REPLACED_DEFAULT_BODIES) {
+    // Clause supprimée par l'admin : jamais touchée (ni texte, ni état).
+    const rows = await prisma.legalClause.findMany({ where: { kind, deletedAt: null }, select: { id: true, title: true, active: true, body: true } });
+    for (const row of rows) if (sameText(row.body, oldBody)) await replace(row, kind, newBody, "texte par défaut mis à jour");
   }
+  // Clause d'engagement réécrite (production) qui ne connaît pas l'option : la phrase des CGV du 28/10/2026 est ajoutée
+  // juste après « à compter de la signature du devis », le reste du texte est gardé tel quel.
+  const commitments = await prisma.legalClause.findMany({
+    where: { kind: LegalClauseKind.SUBSCRIPTION_COMMITMENT, deletedAt: null },
+    select: { id: true, title: true, active: true, body: true },
+  });
+  for (const row of commitments) {
+    const at = row.body.indexOf(COMMITMENT_FROM_SIGNATURE);
+    if (at < 0 || /livraison/i.test(row.body)) continue;
+    const cut = at + COMMITMENT_FROM_SIGNATURE.length;
+    await replace(row, LegalClauseKind.SUBSCRIPTION_COMMITMENT, `${row.body.slice(0, cut)}${OPTION_FROM_DELIVERY}${row.body.slice(cut)}`, "exception de l'option ajoutée");
+  }
+  // Préavis de non-reconduction (CGV : un mois) : le réglage resté à sa valeur d'origine (la veille) passe à 30 jours.
+  const notice = await prisma.companySettings.updateMany({ where: { nonRenewalNoticeDays: 1 }, data: { nonRenewalNoticeDays: 30 } });
+  if (notice.count) console.info("[clauses] préavis de non-reconduction des annuels : 1 jour (la veille) porté à 30 jours (CGV)");
   return replaced;
 }
+
+/** Comparaison de textes de clause, espaces normalisés (espaces insécables et retours compris). */
+const sameText = (a: string, b: string) => a.replace(/\s+/g, " ").trim() === b.replace(/\s+/g, " ").trim();
+
+/** Clause d'engagement : point où insérer l'exception de l'option (CGV du 28/10/2026). */
+const COMMITMENT_FROM_SIGNATURE = "Abonnement conclu pour la durée d'engagement indiquée ci-dessus, à compter de la signature du devis";
+const OPTION_FROM_DELIVERY = " (pour une option retenue sur un devis payé une fois, à compter de la livraison, date à laquelle l'abonnement démarre)";
 
 /**
  * Devis avec abonnement : phrase de la clause « date de prélèvement » (fiche du devis, e-mail d'envoi),

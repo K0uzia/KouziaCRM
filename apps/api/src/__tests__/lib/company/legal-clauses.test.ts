@@ -113,6 +113,36 @@ describe("clauses d'abonnement : {{periode}} et {{periodicite}}", () => {
     expect((await prisma.legalClause.findUniqueOrThrow({ where: { id: annual.id } })).body).toBe("Texte d'Alexandre.");
     expect(await upgradeDefaultClauseTexts(now)).toBe(0);
   });
+
+  it("textes relevés en production (28/10/2026) : espaces normalisés, trimestriel sans mention de tête, engagement complété de l'option, supprimée jamais touchée, préavis porté à 30 jours", async () => {
+    await ensureDefaultLegalClauses();
+    const byKind = (kind: LegalClauseKind) => prisma.legalClause.findFirstOrThrow({ where: { kind, deletedAt: null } });
+    const monthly = await byKind(LegalClauseKind.SUBSCRIPTION_MONTHLY);
+    const oldMonthly = REPLACED_DEFAULT_BODIES.find((r) => r.kind === LegalClauseKind.SUBSCRIPTION_MONTHLY)!.oldBody;
+    await prisma.legalClause.update({ where: { id: monthly.id }, data: { body: `  ${oldMonthly.replace(/ /g, "  ")}
+` } });
+    const quarterly = await byKind(LegalClauseKind.SUBSCRIPTION_QUARTERLY);
+    const oldQuarterly = REPLACED_DEFAULT_BODIES.find((r) => r.kind === LegalClauseKind.SUBSCRIPTION_QUARTERLY)!.oldBody.replace("[BROUILLON À RELIRE PAR ALEXANDRE] ", "");
+    await prisma.legalClause.update({ where: { id: quarterly.id }, data: { body: oldQuarterly } });
+    const commitment = await byKind(LegalClauseKind.SUBSCRIPTION_COMMITMENT);
+    const prodCommitment = "Abonnement conclu pour la durée d'engagement indiquée ci-dessus, à compter de la signature du devis, payable d'avance à chaque échéance indiquée ci-dessus. Pendant l'engagement, le client peut demander la résiliation.";
+    await prisma.legalClause.update({ where: { id: commitment.id }, data: { body: prodCommitment } });
+    const deleted = await prisma.legalClause.create({ data: { kind: LegalClauseKind.SUBSCRIPTION_MONTHLY, title: "Supprimée", body: oldMonthly, active: false, deletedAt: new Date() } });
+    await prisma.companySettings.updateMany({ data: { nonRenewalNoticeDays: 1 } });
+
+    expect(await upgradeDefaultClauseTexts()).toBe(3);
+    expect((await byKind(LegalClauseKind.SUBSCRIPTION_MONTHLY)).body).not.toMatch(/Résiliable à tout moment/);
+    expect((await byKind(LegalClauseKind.SUBSCRIPTION_QUARTERLY)).body).toMatch(/au plus tard un mois avant/);
+    const after = await byKind(LegalClauseKind.SUBSCRIPTION_COMMITMENT);
+    expect(after.body).toBe(prodCommitment.replace("signature du devis,", "signature du devis (pour une option retenue sur un devis payé une fois, à compter de la livraison, date à laquelle l'abonnement démarre),"));
+    expect(after.previousBody).toBe(prodCommitment);
+    expect(await prisma.legalClause.findUniqueOrThrow({ where: { id: deleted.id } })).toMatchObject({ body: oldMonthly, active: false, previousBody: null });
+    expect((await prisma.companySettings.findFirstOrThrow()).nonRenewalNoticeDays).toBe(30);
+    // Idempotent ; un réglage choisi (7 jours) n'est pas touché.
+    await prisma.companySettings.updateMany({ data: { nonRenewalNoticeDays: 7 } });
+    expect(await upgradeDefaultClauseTexts()).toBe(0);
+    expect((await prisma.companySettings.findFirstOrThrow()).nonRenewalNoticeDays).toBe(7);
+  });
 });
 
 describe("clauses figées à l'émission d'un devis (décision du 23/10/2026)", () => {
