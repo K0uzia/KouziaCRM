@@ -110,11 +110,14 @@ function datedTemplate(plan: PaymentPlan, s: Pick<PlanSettings, "installmentInte
   }));
 }
 
-/** Montants d'un échéancier : parts égales (mode) ou pourcentages ; arrondi au centime, le reste sur la dernière. */
+/**
+ * Montants d'un échéancier : parts égales (mode) ou pourcentages ; arrondi au centime, le reste sur la dernière. Parts
+ * égales arrondies au centime inférieur (audit du 28/10/2026) : la dernière, qui porte le reste, n'est jamais la plus petite.
+ */
 export function milestoneAmounts(totalCents: number, template: MilestoneTemplate[], mode: BillingMode | null) {
   if (!mode) return computeMilestoneAmounts(totalCents, template);
   const n = template.length;
-  const part = Math.round(totalCents / n);
+  const part = Math.floor(totalCents / n);
   return template.map((m, i) => ({ ...m, amountCents: i === n - 1 ? totalCents - part * (n - 1) : part }));
 }
 
@@ -145,6 +148,24 @@ export function effectiveOffer(
 ): PaymentPlanOffer | null {
   if (offer === null || offer === "ONE" || offer === "TWO" || offer === "NONE") return offer;
   return totalCents < s.split3MinTotalCents ? "TWO" : offer;
+}
+
+/**
+ * Offre de paiement figée à l'émission d'un devis ou d'une proposition (règle unique de issueQuote et de l'aperçu du
+ * brouillon) : aucun échéancier en mode récurrent, pour un abonnement seul ou sans partie ponctuelle ; sinon l'offre
+ * demandée, le 3 fois ramené au 2 fois sous le seuil.
+ */
+export function offerAtIssue(
+  mode: BillingMode | null,
+  committedLines: ReadonlyArray<{ isSubscription: boolean }>,
+  depositBaseCents: number,
+  requested: PaymentPlanOffer | null,
+  s: Pick<PlanSettings, "split3MinTotalCents">,
+): PaymentPlanOffer | null {
+  if (mode === "RECURRING" || isSubscriptionOnly(committedLines)) return "NONE";
+  // Partie ponctuelle nulle (pack tout en abonnement, remise totale) : pas d'échéancier à 0 €.
+  if (committedLines.some((l) => l.isSubscription) && depositBaseCents <= 0) return "NONE";
+  return effectiveOffer(requested, depositBaseCents, s);
 }
 
 /** Formules que le client peut retenir. */

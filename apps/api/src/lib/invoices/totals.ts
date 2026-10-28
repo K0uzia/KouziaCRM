@@ -1,4 +1,4 @@
-import { lineTotalCents } from "@/lib/money.js";
+import { computeDiscountCents, lineTotalCents, type DiscountInput, type DiscountType } from "@/lib/invoices/line-amounts.js";
 import { isCommitmentMonths } from "@/lib/subscriptions/commitment.js";
 
 export type LineInput = {
@@ -57,31 +57,7 @@ function lineStart(line: LineInput, isSubscription: boolean) {
   return { subscriptionStart: start, subscriptionStartDate: date, subscriptionFreeMonths: months };
 }
 
-export type DiscountType = "NONE" | "PERCENT" | "FIXED";
-
-export type DiscountInput = {
-  discountType?: DiscountType | string | null;
-  /** PERCENT : basis points (1000 = 10 %). FIXED : centimes. */
-  discountValue?: number | null;
-};
-
-export function computeDiscountCents(
-  subtotalCents: number,
-  discount: DiscountInput = {},
-): number {
-  // Base nulle ou négative (lignes à prix négatif) : aucune remise. Math.min(base, …) rendait sinon une remise négative
-  // qui gonflait le total sans remise affichée (audit du 27/10/2026).
-  if (subtotalCents <= 0) return 0;
-  const type = (discount.discountType ?? "NONE").toUpperCase();
-  const value = Math.max(0, Math.floor(Number(discount.discountValue) || 0));
-  if (type === "PERCENT") {
-    return Math.min(subtotalCents, Math.round((subtotalCents * value) / 10000));
-  }
-  if (type === "FIXED") {
-    return Math.min(subtotalCents, value);
-  }
-  return 0;
-}
+export { computeDiscountCents, type DiscountInput, type DiscountType };
 
 export function computeLineTotals(lines: LineInput[], discount: DiscountInput = {}) {
   const computed = lines.map((line, index) => {

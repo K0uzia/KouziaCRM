@@ -94,11 +94,12 @@ describe("devis avec mode de facturation (API)", () => {
         unitPriceCents: 140000,
         isSubscription: false,
       }),
-      // Abonnement du pack proposé en option au choix du client : prix annuel du catalogue, engagement 12 mois.
+      // Abonnement du pack proposé en option au choix du client, engagement 12 mois. Prix annuel : règle unique
+      // (28/10/2026), 12 mois moins les 2 offerts des réglages : 300 € x 10.
       expect.objectContaining({
         serviceId: maint.id,
         description: "Maintenance",
-        unitPriceCents: 360000,
+        unitPriceCents: 300000,
         isSubscription: true,
         isOptional: true,
         billingInterval: "YEAR",

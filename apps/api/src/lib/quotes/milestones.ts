@@ -1,4 +1,4 @@
-import { MilestoneStatus, type Prisma } from "@prisma/client";
+import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma.js";
 
 export type MilestoneTemplate = {
@@ -48,42 +48,4 @@ export function computeMilestoneAmounts(
 export async function awaitsProposalChoice(quoteId: string, db: Prisma.TransactionClient | typeof prisma = prisma): Promise<boolean> {
   const quote = await db.invoice.findUnique({ where: { id: quoteId }, select: { selectedOptionId: true, _count: { select: { options: true } } } });
   return Boolean(quote && quote._count.options > 0 && !quote.selectedOptionId);
-}
-
-export async function ensureQuoteMilestones(
-  quoteId: string,
-  totalCents: number,
-  db: Prisma.TransactionClient | typeof prisma = prisma,
-) {
-  const existing = await db.paymentMilestone.count({ where: { quoteId } });
-  if (existing > 0) return db.paymentMilestone.findMany({
-    where: { quoteId },
-    orderBy: { position: "asc" },
-  });
-  if (await awaitsProposalChoice(quoteId, db)) return [];
-  // Abonnement seul : aucun jalon, ni à l'émission ni plus tard.
-  const quote = await db.invoice.findUnique({
-    where: { id: quoteId },
-    select: { paymentPlanOffer: true, depositBaseCents: true },
-  });
-  if (quote?.paymentPlanOffer === "NONE") return [];
-
-  // Base figée à l'émission (partie ponctuelle) : elle prime sur le montant passé.
-  const amounts = computeMilestoneAmounts(quote?.depositBaseCents ?? totalCents);
-  await db.paymentMilestone.createMany({
-    data: amounts.map((m) => ({
-      quoteId,
-      position: m.position,
-      label: m.label,
-      percentBps: m.percentBps,
-      amountCents: m.amountCents,
-      triggerText: m.triggerText,
-      status: MilestoneStatus.PENDING,
-    })),
-  });
-
-  return db.paymentMilestone.findMany({
-    where: { quoteId },
-    orderBy: { position: "asc" },
-  });
 }

@@ -55,7 +55,8 @@ describe("historique des paiements du portail", () => {
     const h = buildPaymentHistory({ docs: [depositInvoice, quote], milestones, showAmounts: true });
     expect(h.items).toHaveLength(1);
     expect(h.totalPaidCents).toBe(30);
-    expect(h.totalDueCents).toBe(70);
+    // Reste dû du contrat : totalNetDueCents (routes/public.ts), totalDueCents retiré le 28/10/2026.
+    expect("totalDueCents" in h).toBe(false);
   });
 
   it("règlement d'une facture hors jalon : compté normalement", () => {

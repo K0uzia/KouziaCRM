@@ -211,15 +211,8 @@ export function buildPaymentHistory(opts: {
   const totalPaidCents = items
     .filter((i) => i.amountCents > 0)
     .reduce((s, i) => s + i.amountCents, 0);
-  const totalCreditCents = items
-    .filter((i) => i.amountCents < 0)
-    .reduce((s, i) => s + Math.abs(i.amountCents), 0);
-  // Devis d'abonnement seul (NONE) : rien n'est dû au titre du devis, l'abonnement facture chaque période.
-  // Partie ponctuelle du devis (base de l'échéancier) : l'abonnement est facturé à chaque période.
-  const marketTotal = opts.docs
-    .filter((d) => d.documentType === InvoiceDocumentType.QUOTE && d.paymentPlanOffer !== "NONE")
-    .reduce((max, d) => Math.max(max, d.depositBaseCents ?? d.totalCents), 0);
-  const totalDueCents = Math.max(0, marketTotal - totalPaidCents + totalCreditCents);
+  // totalDueCents retiré (audit du 28/10/2026) : calculé sur le plus gros devis seul et réduit par les factures
+  // d'abonnement, il était faux dès deux projets. /suivi lit totalNetDueCents (somme des restes dus, avoirs compris).
   // Ajout du 19/10/2026 (contrat /suivi) : avoirs et encaissé net, sans changer les totaux ci-dessus (totalPaidCents
   // compte un avoir comme un règlement). Remboursements : paiements négatifs portés par les avoirs.
   const creditNoteDocs = opts.docs.filter((d) => d.documentType === InvoiceDocumentType.CREDIT_NOTE);
@@ -236,6 +229,6 @@ export function buildPaymentHistory(opts: {
 
   return {
     items: mapped,
-    ...(opts.showAmounts ? { totalPaidCents, totalDueCents, totalCreditedCents, totalRefundedCents, totalCashInCents } : {}),
+    ...(opts.showAmounts ? { totalPaidCents, totalCreditedCents, totalRefundedCents, totalCashInCents } : {}),
   };
 }

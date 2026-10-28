@@ -29,6 +29,11 @@ export function formatDecimal(value: number, maxFractionDigits = 2): string {
   return frenchSpaces(new Intl.NumberFormat("fr-FR", { maximumFractionDigits: maxFractionDigits }).format(value));
 }
 
+/** Pourcentage en points de base : « 33,33 % », « 50 % » (deux décimales au plus). */
+export function formatPercentBps(bps: number): string {
+  return `${formatDecimal(bps / 100)} %`;
+}
+
 /** Taille de fichier : 820 o, 12 Ko, 1,5 Mo. */
 export function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} o`;
@@ -151,10 +156,12 @@ export const quoteStatusLabel: Record<string, string> = {
   ACCEPTED: "Accepté",
   REJECTED: "Refusé",
   EXPIRED: "Expiré",
+  WITHDRAWN: "Retiré",
+  // Commande annulée (devis signé) ; même clé que l'ancien repli InvoiceStatus ci-dessous, libellé précisé.
+  CANCELLED: "Commande annulée",
   // legacy InvoiceStatus fallback
   ISSUED: "Envoyé",
   PAID: "Accepté",
-  CANCELLED: "Refusé / annulé",
 };
 
 export const invoiceStatusLabel: Record<string, string> = {
@@ -178,6 +185,8 @@ export function statusTone(status: string): "neutral" | "teal" | "green" | "ambe
     case "REJECTED":
     case "EXPIRED":
       return "red";
+    case "WITHDRAWN":
+      return "neutral";
     case "PENDING":
       return "amber";
     case "INVOICED":

@@ -90,6 +90,8 @@ type Service = {
   stripeProductId?: string | null;
   billingInterval?: string | null;
   isPack?: boolean;
+  /** Prix annuel du catalogue (abonnement vendu à l'année). */
+  annualPriceCents?: number | null;
   /** Offre : prestation ponctuelle de rachat du site (null : pas de rachat). */
   buyoutServiceId?: string | null;
 };
@@ -143,7 +145,7 @@ type RevisionToAttach = {
 const lastDayOf = (termEndsAt: string) => formatDate(new Date(new Date(termEndsAt).getTime() - 1).toISOString());
 
 function suggestEuros(svc: Service, interval: BillingInterval, freeMonths: number): string {
-  return (suggestedAmountCents(svc.unitPriceCents, svc.billingInterval, interval, freeMonths) / 100).toFixed(2);
+  return (suggestedAmountCents(svc.unitPriceCents, svc.billingInterval, interval, freeMonths, svc.annualPriceCents) / 100).toFixed(2);
 }
 
 /** Libellé par défaut d'une offre : « Nom : mensuel » ou « Nom : annuel ». */

@@ -24,7 +24,15 @@ export function isOverdue(d: ListedDoc, now = new Date()): boolean {
 }
 
 /** Valeurs des filtres dans l'URL (?statut=) : mots français, stables. */
-export const QUOTE_STATUS_SLUG: Record<string, string> = { DRAFT: "brouillon", SENT: "envoye", ACCEPTED: "accepte", REJECTED: "refuse", EXPIRED: "expire" };
+export const QUOTE_STATUS_SLUG: Record<string, string> = {
+  DRAFT: "brouillon",
+  SENT: "envoye",
+  ACCEPTED: "accepte",
+  REJECTED: "refuse",
+  EXPIRED: "expire",
+  WITHDRAWN: "retire",
+  CANCELLED: "commande-annulee",
+};
 export const INVOICE_STATUS_SLUG: Record<string, string> = {
   DRAFT: "brouillon",
   ISSUED: "a-encaisser",

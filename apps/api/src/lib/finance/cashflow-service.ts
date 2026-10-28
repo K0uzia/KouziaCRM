@@ -290,11 +290,14 @@ export function buildCashflowFromEncaisse(
     treasuryRateBps: number;
     placementRateBps: number;
     cfeCents?: number;
+    /** Début de la période encaissée : le taux URSSAF est celui en vigueur à cette date (défaut : now). */
+    ratePeriodStart?: Date;
   },
 ): ScopedCashflow {
   const now = meta.now ?? new Date();
   const encaisse = Math.max(0, Math.round(encaisseCents));
-  const social = computeSocialChargesForEncaisse(encaisse, now);
+  // Taux de la période de chaque fenêtre (audit du 28/10/2026) : un mois de 2025 garde le taux de 2025.
+  const social = computeSocialChargesForEncaisse(encaisse, meta.ratePeriodStart ?? now);
   const fraisCents = Math.round((encaisse * meta.treasuryRateBps) / 10_000);
   const placementsCents = Math.round((encaisse * meta.placementRateBps) / 10_000);
   const cfeCents = Math.max(0, meta.cfeCents ?? 0);
@@ -346,6 +349,7 @@ export async function getScopedCashflow(
     periodLabel: period.label,
     periodKey: period.key,
     now,
+    ratePeriodStart: period.start,
     treasuryRateBps: company.treasuryRateBps,
     placementRateBps: company.placementRateBps,
     cfeCents,
@@ -514,6 +518,7 @@ export async function getCashflowChartSeries(
         periodLabel: label,
         periodKey: label,
         now,
+        ratePeriodStart: start,
         treasuryRateBps: company.treasuryRateBps,
         placementRateBps: company.placementRateBps,
         cfeCents: 0,
@@ -594,6 +599,7 @@ export async function getCashflowChartSeries(
       periodLabel: label,
       periodKey: label,
       now,
+      ratePeriodStart: start,
       treasuryRateBps: company.treasuryRateBps,
       placementRateBps: company.placementRateBps,
       cfeCents,

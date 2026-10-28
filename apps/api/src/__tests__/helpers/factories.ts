@@ -43,14 +43,17 @@ export async function seedCompanySettings(): Promise<void> {
   invalidateCompanySettingsCache();
 }
 
+/** Client de test, avec l'adresse exigée à l'émission d'un document (withoutAddress : fiche incomplète). */
 export async function createClient(opts: {
   displayName?: string;
   type?: "B2B" | "B2C" | "ASSOCIATION";
+  withoutAddress?: boolean;
 } = {}): Promise<{ id: string; displayName: string }> {
   const created = await prisma.client.create({
     data: {
       displayName: opts.displayName ?? "Client Test",
       type: opts.type ?? "B2B",
+      ...(opts.withoutAddress ? {} : { addressLine1: "2 rue du Test", postalCode: "29600", city: "Morlaix" }),
     },
   });
   return created;

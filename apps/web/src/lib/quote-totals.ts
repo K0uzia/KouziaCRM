@@ -1,4 +1,7 @@
+import { computeDiscountCents, lineTotalCents } from "@kouzia-erp/line-amounts";
 import { formatEUR } from "@/lib/format";
+import { eurosInputToCents } from "@/lib/billing-interval";
+import { billedWithDocument } from "@/lib/subscription-start";
 
 type TotalsLine = { isSubscription?: boolean | null; lineTotalCents?: number; unitPriceCents: number; billingInterval?: string | null };
 
@@ -40,4 +43,57 @@ export function proposalTitle(letter: string, label: string | null | undefined):
   const base = `Proposition ${letter}`;
   const text = (label ?? "").trim();
   return !text || text.toLowerCase() === base.toLowerCase() ? base : `${base} : ${text}`;
+}
+
+type EditorLine = { isSubscription: boolean; quantity: string; unitPriceEuros: string; isOptional?: boolean; subscriptionStart?: string | null };
+
+/** Total d'une ligne saisie dans l'éditeur, en centimes, comme l'API (quantité 1 pour un abonnement). */
+export function editorLineCents(l: Pick<EditorLine, "isSubscription" | "quantity" | "unitPriceEuros">): number {
+  return lineTotalCents(l.isSubscription ? 1 : l.quantity.trim() || "0", eurosInputToCents(l.unitPriceEuros));
+}
+
+/**
+ * Récapitulatif de l'éditeur en centimes, avec les fonctions de l'API (audit du 28/10/2026) : chaque ligne arrondie au
+ * centime, remise sur la partie ponctuelle seulement et nulle sur une base négative. Devis : l'option au choix et
+ * l'abonnement à 1re facture repoussée restent hors du total.
+ */
+export function editorTotalsCents(
+  lines: EditorLine[],
+  opts: { quote: boolean; discountType: string; discountPercent: string; discountEuros: string },
+) {
+  const subtotalCents = lines.reduce((sum, l) => (opts.quote && (!billedWithDocument(l) || l.isOptional) ? sum : sum + editorLineCents(l)), 0);
+  const oneOffCents = lines.reduce((sum, l) => (l.isSubscription ? sum : sum + editorLineCents(l)), 0);
+  const discountCents = computeDiscountCents(oneOffCents, {
+    discountType: opts.discountType,
+    discountValue:
+      opts.discountType === "PERCENT"
+        ? Math.round((Number(opts.discountPercent.replace(",", ".")) || 0) * 100)
+        : opts.discountType === "FIXED"
+          ? eurosInputToCents(opts.discountEuros)
+          : 0,
+  });
+  return { subtotalCents, oneOffCents, discountCents, totalCents: subtotalCents - discountCents };
+}
+
+/** Propositions toutes du même mode (paiement unique ou récurrent) : seul cas où « dès X » compare des montants comparables. */
+export function sameModeProposals(options: ReadonlyArray<{ billingMode?: string | null }>): boolean {
+  return options.length > 0 && options.every((o) => (o.billingMode ?? "") === (options[0]!.billingMode ?? ""));
+}
+
+/**
+ * Montant d'un devis à propositions non signé, tel que l'API le range : celui de la moins chère, partie ponctuelle ou
+ * total sur l'engagement. Annoncé « dès X » seulement entre propositions du même mode, sinon le nombre seul.
+ */
+export function proposalsAmountText(count: number, options: ReadonlyArray<{ billingMode?: string | null }> | undefined, totalCents: number): string {
+  if (!options || !sameModeProposals(options)) return `${count} propositions`;
+  return `${count} propositions, dès ${formatEUR(totalCents)}${options[0]!.billingMode === "RECURRING" ? " sur l'engagement" : ""}`;
+}
+
+/**
+ * Montant d'un devis signé tel qu'il sera facturé depuis le devis (« Montant du devis », « Facture totale ») : devis
+ * mixte, le projet (partie ponctuelle remisée, figée à l'émission), comme la conversion côté API (depositBaseOf) ;
+ * sinon son total.
+ */
+export function quoteInvoicedCents(doc: { totalCents: number; depositBaseCents?: number | null }, mixed: boolean): number {
+  return mixed ? (doc.depositBaseCents ?? doc.totalCents) : doc.totalCents;
 }

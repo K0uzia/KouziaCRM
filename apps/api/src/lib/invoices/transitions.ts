@@ -12,18 +12,18 @@ import {
 import { prisma } from "@/lib/prisma.js";
 import { archiveIssuedDocument } from "@/lib/pdf/issued-archive.js";
 import { clientSnapshotData } from "@/lib/invoices/client-snapshot.js";
-import { assertQuoteSigned } from "@/lib/invoices/workflow.js";
+import { activeTotalInvoiceOf, assertClientIdentified, assertQuoteSigned } from "@/lib/invoices/workflow.js";
 import { getCompanySettings } from "@/lib/company.js";
 import { allocateInvoiceNumber, allocateQuoteNumber } from "@/lib/invoices/numberingService.js";
-import { ensureQuoteMilestones } from "@/lib/quotes/milestones.js";
+import { ensureQuoteMilestonesFromSettings } from "@/lib/payments/milestonePaymentService.js";
 import { startAfterWithdrawal, withdrawalEndsAt } from "@/lib/quotes/withdrawal.js";
+import { defaultQuoteValidUntil } from "@/lib/quotes/validity.js";
 import { billedWithDocument, computeDepositBaseCents, computeLineTotals, depositBaseOf, isCommittedLine } from "@/lib/invoices/totals.js";
 import { buildQuoteScope } from "@/lib/quotes/scope.js";
 import {
   applyPlanMilestones,
-  effectiveOffer,
   initialPlan,
-  isSubscriptionOnly,
+  offerAtIssue,
   parseBillingMode,
   parsePaymentPlanOffer,
   planSettingsOf,
@@ -41,6 +41,7 @@ import {
   type ClientSnapshot,
   generateMilestoneInvoice,
   generateBalanceInvoice,
+  invoiceClausesSnapshot,
   syncMilestoneOnInvoicePaid,
   assertQuoteEditable,
   DocumentFlowError,
@@ -66,6 +67,18 @@ export {
   cancelInvoiceWithCreditNote,
   CreditNoteError,
 } from "@/lib/invoices/credit-note-service.js";
+
+/** Échéances du devis sans facture et encore à payer : annulées, lien de paiement retiré. */
+async function cancelOpenMilestones(tx: Prisma.TransactionClient, quoteId: string) {
+  await tx.paymentMilestone.updateMany({
+    where: {
+      quoteId,
+      invoiceId: null,
+      status: { in: [MilestoneStatus.PENDING, MilestoneStatus.DUE, MilestoneStatus.OVERDUE, MilestoneStatus.FAILED] },
+    },
+    data: { status: MilestoneStatus.CANCELLED, checkoutUrl: null },
+  });
+}
 
 function addDays(d: Date, days: number): Date {
   const out = new Date(d);
@@ -100,9 +113,12 @@ export async function issueInvoiceWithin(
   if (invoice.documentType !== InvoiceDocumentType.INVOICE) {
     throw new Error("Document invalide pour émission de facture");
   }
+  // Facture miroir d'une échéance déjà prélevée par Stripe : l'encaissement réel est enregistré quoi qu'il arrive.
+  if (!invoice.stripeInvoiceId) await assertClientIdentified(invoice.clientId, tx);
 
   const allocated = await allocateInvoiceNumber(issueDate, tx);
   const snapshot = await buildClientSnapshot(invoice.clientId, tx);
+  const legalClausesSnapshot = await invoiceClausesSnapshot(tx, invoice, snapshot.type, settings.vatMention);
 
   const updated = await tx.invoice.update({
     where: { id: invoiceId },
@@ -115,11 +131,17 @@ export async function issueInvoiceWithin(
       dueDate: dueDate ?? issueDate,
       issuedAt: new Date(),
       ...clientSnapshotData(snapshot),
+      ...(legalClausesSnapshot ? { legalClausesSnapshot } : {}),
       // Facture miroir d'une échéance Stripe : Stripe retente et l'ERP écrit sur échec, pas de relance.
       nextReminderAt: invoice.stripeInvoiceId ? null : addDays(dueDate ?? issueDate, settings.reminderInvoiceDays),
     },
     include: { lines: true, client: true, payments: true },
   });
+
+  // Facture totale rattachée à un devis (conversion ou facture libre) : ses échéances sans facture ne sont plus à payer,
+  // comme à la conversion (audit du 28/10/2026). Sans cela, un acompte resté ouvert serait réclamé en plus.
+  const totalOfQuote = invoice.invoiceType === InvoiceType.SIMPLE ? (invoice.sourceQuoteId ?? invoice.quoteId) : null;
+  if (totalOfQuote) await cancelOpenMilestones(tx, totalOfQuote);
 
   const subs = await activateSubscriptionsFromDocument(invoiceId, tx);
   return { ...updated, subscriptionsCreated: subs.created };
@@ -127,6 +149,8 @@ export async function issueInvoiceWithin(
 
 export async function issueInvoice(invoiceId: string, issueDate = new Date(), dueDate?: Date) {
   const settings = await getCompanySettings();
+  // Clauses par défaut créées au besoin avant la transaction : la facture les fige à son émission.
+  await listActiveLegalClauses();
   const issued = await prisma.$transaction((tx) =>
     issueInvoiceWithin(tx, invoiceId, issueDate, dueDate, settings),
   );
@@ -166,6 +190,8 @@ export async function issueQuote(
     if (quote.lines.length === 0) {
       throw new Error("Impossible d'émettre un devis sans lignes");
     }
+    // Mentions obligatoires : nom et adresse du client, vérifiés avant l'attribution du numéro.
+    await assertClientIdentified(quote.clientId, tx);
     // Émis = signable en ligne : un particulier exige un médiateur de la consommation déclaré (L612-1).
     const client = await tx.client.findUniqueOrThrow({ where: { id: quote.clientId }, select: { type: true } });
     assertMediatorFor(client.type, settings);
@@ -189,9 +215,7 @@ export async function issueQuote(
         await assertPromoCodeApplicable(code, { id: quote.id, clientId: quote.clientId, serviceIds: committed.filter((l) => l.isSubscription).map((l) => l.serviceId) }, issueDate, tx);
       }
       const base = computeDepositBaseCents(committed, o.subtotalCents, o.totalCents);
-      const noOneOff = committed.some((l) => l.isSubscription) && base <= 0;
-      const optionOffer =
-        optionMode === "RECURRING" || isSubscriptionOnly(committed) || noOneOff ? "NONE" : effectiveOffer(parsePaymentPlanOffer(o.paymentPlanOffer), base, settings);
+      const optionOffer = offerAtIssue(optionMode, committed, base, parsePaymentPlanOffer(o.paymentPlanOffer), settings);
       frozenOptions.push({ id: o.id, depositBaseCents: base, paymentPlanOffer: optionOffer, scope: await scopeOf(optionMode, lines) });
     }
     const withOptions = frozenOptions.length > 0;
@@ -210,24 +234,17 @@ export async function issueQuote(
 
     const allocated = await allocateQuoteNumber(issueDate, tx);
     const snapshot = await buildClientSnapshot(quote.clientId, tx);
-    const validity =
-      validUntil ??
-      new Date(issueDate.getTime() + 30 * 24 * 60 * 60 * 1000);
+    // Validité saisie à l'émission, sinon celle du brouillon si elle est encore à venir (audit du 28/10/2026), sinon la
+    // fin du 30e jour après l'émission.
+    const draftValidity = quote.validUntil && quote.validUntil.getTime() > Date.now() ? quote.validUntil : null;
+    const validity = validUntil ?? draftValidity ?? defaultQuoteValidUntil(issueDate);
     // Offre de paiement figée à l'émission (seuil du 3 fois appliqué ici). Abonnement seul :
     // pas d'échéancier, chaque période est facturée par l'abonnement.
     // Base de l'acompte, du 2 ou 3 fois et du seuil : la partie ponctuelle (l'abonnement est
     // facturé à chaque période, il n'entre pas dans l'échéancier).
     const depositBaseCents = computeDepositBaseCents(committedLines, quote.subtotalCents, quote.totalCents);
-    // Partie ponctuelle nulle (pack tout en abonnement, remise totale) : comme un abonnement seul, pas d'échéancier à 0 €.
-    const noOneOffPart = committedLines.some((l) => l.isSubscription) && depositBaseCents <= 0;
-    // Mode récurrent : abonnement seul (aucune ligne ponctuelle), pas d'échéancier.
     const mode = parseBillingMode(quote.billingMode);
-    const offer =
-      mode === "RECURRING"
-        ? "NONE"
-        : isSubscriptionOnly(committedLines) || noOneOffPart
-          ? "NONE"
-          : effectiveOffer(parsePaymentPlanOffer(quote.paymentPlanOffer), depositBaseCents, settings);
+    const offer = offerAtIssue(mode, committedLines, depositBaseCents, parsePaymentPlanOffer(quote.paymentPlanOffer), settings);
 
     const updated = await tx.invoice.update({
       where: { id: quoteId },
@@ -275,7 +292,7 @@ export async function issueQuote(
       return updated;
     }
     if (offer === "NONE") await tx.paymentMilestone.deleteMany({ where: { quoteId, invoiceId: null } });
-    if (offer === null) await ensureQuoteMilestones(quoteId, depositBaseCents, tx);
+    if (offer === null) await ensureQuoteMilestonesFromSettings(quoteId, depositBaseCents, tx);
     else if (offer !== "NONE") await applyPlanMilestones(tx, quoteId, depositBaseCents, initialPlan(offer), settings, { mode });
     return updated;
   });
@@ -526,6 +543,71 @@ export async function rejectQuote(quoteId: string, reason?: string) {
         status: InvoiceStatus.CANCELLED,
         quoteDecidedAt: new Date(),
         quoteRejectReason: reason?.trim() || null,
+      },
+      include: { lines: true, client: true },
+    });
+  });
+}
+
+/**
+ * « Retirer le devis » (audit du 28/10/2026) : Kouzia retire un devis émis et pas encore signé (erreur, offre
+ * dépassée). Ce n'est pas un refus du client : statut WITHDRAWN, motif interne, devis masqué dans /suivi, échéances
+ * annulées, plus aucune relance.
+ */
+export async function withdrawQuote(quoteId: string, reason: string) {
+  return prisma.$transaction(async (tx) => {
+    await loadPendingQuote(tx, quoteId);
+    await cancelOpenMilestones(tx, quoteId);
+    return tx.invoice.update({
+      where: { id: quoteId },
+      data: {
+        quoteStatus: QuoteStatus.WITHDRAWN,
+        status: InvoiceStatus.CANCELLED,
+        quoteDecidedAt: new Date(),
+        quoteRejectReason: reason.trim(),
+        nextReminderAt: null,
+      },
+      include: { lines: true, client: true },
+    });
+  });
+}
+
+/**
+ * « Annuler la commande » (audit du 28/10/2026) : devis signé que Kouzia annule. Les échéances sans facture sont
+ * annulées (plus de lien de paiement) ; une facture émise et pas réglée bloque : elle s'annule d'abord par avoir. Une
+ * facture déjà réglée (acompte) reste telle quelle : remboursement éventuel par l'assistant d'avoir, selon les CGV.
+ */
+export async function cancelQuoteOrder(quoteId: string, reason: string) {
+  return prisma.$transaction(async (tx) => {
+    const quote = await tx.invoice.findUniqueOrThrow({ where: { id: quoteId } });
+    if (quote.documentType !== InvoiceDocumentType.QUOTE) throw new QuoteDecisionError("Ce document n'est pas un devis", "NOT_A_QUOTE");
+    if (quote.quoteStatus !== QuoteStatus.ACCEPTED) {
+      throw new QuoteDecisionError("Seul un devis signé peut voir sa commande annulée.", "NOT_PENDING");
+    }
+    const unpaid = await tx.invoice.findFirst({
+      where: {
+        OR: [{ quoteId }, { sourceQuoteId: quoteId }],
+        documentType: InvoiceDocumentType.INVOICE,
+        status: { in: [InvoiceStatus.DRAFT, InvoiceStatus.ISSUED] },
+      },
+      select: { number: true, status: true },
+    });
+    if (unpaid) {
+      throw new QuoteDecisionError(
+        unpaid.status === InvoiceStatus.DRAFT
+          ? "Une facture brouillon existe pour ce devis : supprimez-la avant d'annuler la commande."
+          : `La facture ${unpaid.number ?? ""} n'est pas réglée : annulez-la d'abord par un avoir, puis annulez la commande.`,
+        "ALREADY_INVOICED",
+      );
+    }
+    await cancelOpenMilestones(tx, quoteId);
+    return tx.invoice.update({
+      where: { id: quoteId },
+      data: {
+        quoteStatus: QuoteStatus.CANCELLED,
+        status: InvoiceStatus.CANCELLED,
+        quoteRejectReason: reason.trim(),
+        nextReminderAt: null,
       },
       include: { lines: true, client: true },
     });
@@ -886,14 +968,6 @@ export async function convertQuoteToInvoice(quoteId: string) {
       );
     }
     await assertQuoteSigned(quoteId, tx);
-    if (
-      quote.quoteStatus !== QuoteStatus.SENT &&
-      quote.quoteStatus !== QuoteStatus.DRAFT &&
-      quote.status !== InvoiceStatus.ISSUED &&
-      quote.status !== InvoiceStatus.DRAFT
-    ) {
-      throw new Error("Devis non convertible");
-    }
 
     const marketInvoices = await tx.invoice.count({
       where: {
@@ -909,14 +983,9 @@ export async function convertQuoteToInvoice(quoteId: string) {
       );
     }
 
-    const existing = await tx.invoice.findFirst({
-      where: {
-        OR: [{ quoteId }, { sourceQuoteId: quoteId }],
-        documentType: InvoiceDocumentType.INVOICE,
-        invoiceType: InvoiceType.SIMPLE,
-        status: { not: InvoiceStatus.CANCELLED },
-      },
-    });
+    // Une facture totale active bloque, pas le statut du devis : après un avoir total qui l'annule, le devis se refacture
+    // (facture corrigée, audit du 28/10/2026).
+    const existing = await activeTotalInvoiceOf(quoteId, tx);
     if (existing) {
       throw new Error("Ce devis a déjà été converti en facture");
     }
@@ -990,17 +1059,11 @@ export async function convertQuoteToInvoice(quoteId: string) {
       },
     });
 
-    await ensureQuoteMilestones(quoteId, depositBaseOf(quote), tx);
+    // Jalons créés puis annulés : la fiche du devis (getMarketView) n'en recrée pas d'autres à payer.
+    await ensureQuoteMilestonesFromSettings(quoteId, depositBaseOf(quote), tx);
     // Facture totale : les jalons d'acompte ne sont plus à payer. Sans cela, un lien de paiement
     // resté actif encaisserait un acompte qu'aucune facture ne pourrait plus porter.
-    await tx.paymentMilestone.updateMany({
-      where: {
-        quoteId,
-        invoiceId: null,
-        status: { in: [MilestoneStatus.PENDING, MilestoneStatus.DUE, MilestoneStatus.OVERDUE, MilestoneStatus.FAILED] },
-      },
-      data: { status: MilestoneStatus.CANCELLED, checkoutUrl: null },
-    });
+    await cancelOpenMilestones(tx, quoteId);
 
     const subs = deferred
       ? { created: 0, subscriptionIds: [] as string[] }

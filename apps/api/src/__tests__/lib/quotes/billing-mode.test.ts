@@ -43,7 +43,8 @@ describe("mode de facturation : règles de calcul", () => {
       ["3e échéance", 3334, "60 jours après la signature"],
     ]);
     expect(milestoneAmounts(100000, t, "ONE_OFF").map((m) => m.amountCents)).toEqual([33333, 33333, 33334]);
-    expect(milestoneAmounts(100001, planTemplate("TWO", settings, "ONE_OFF"), "ONE_OFF").map((m) => m.amountCents)).toEqual([50001, 50000]);
+    // Parts au centime inférieur, le reste sur la dernière (audit du 28/10/2026).
+    expect(milestoneAmounts(100001, planTemplate("TWO", settings, "ONE_OFF"), "ONE_OFF").map((m) => m.amountCents)).toEqual([50000, 50001]);
     expect(planTemplate("ONE", settings, "ONE_OFF")).toEqual([{ position: 1, label: "Paiement comptant", percentBps: 10000, triggerText: "À la signature" }]);
     // Devis sans mode : pourcentages des réglages, comme avant.
     expect(milestoneAmounts(100000, planTemplate("TWO", settings), null).map((m) => m.amountCents)).toEqual([30000, 70000]);

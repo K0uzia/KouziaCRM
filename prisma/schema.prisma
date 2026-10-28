@@ -34,12 +34,18 @@ enum InvoiceType {
   SOLDE
 }
 
+/// WITHDRAWN et CANCELLED ajoutés le 28/10/2026 : aucune migration, une énumération est un TEXT sans contrainte sous
+/// SQLite (prisma migrate diff vide).
 enum QuoteStatus {
   DRAFT
   SENT
   ACCEPTED
   REJECTED
   EXPIRED
+  /// Retiré par Kouzia avant la signature (motif interne dans quoteRejectReason, jamais montré au client)
+  WITHDRAWN
+  /// Commande annulée par Kouzia après la signature : échéances non facturées annulées (motif interne)
+  CANCELLED
 }
 
 enum PaymentMethod {
@@ -1150,7 +1156,8 @@ model Invoice {
   status                       InvoiceStatus          @default(DRAFT)
   /// Statut métier devis (null pour factures / avoirs)
   quoteStatus                  QuoteStatus?
-  /// Décision du client sur un devis : horodatage, motif de refus, nom du signataire
+  /// Décision sur un devis : horodatage, motif (refus du client ; motif interne d'un retrait ou d'une annulation de
+  /// commande par Kouzia, jamais envoyé à /suivi), nom du signataire
   quoteDecidedAt               DateTime?
   quoteRejectReason            String?
   /// Nom saisi lors d'une acceptation en ligne (vaut bon pour accord)

@@ -197,6 +197,7 @@ async function render(key: string, id: string, now: Date): Promise<Rendered> {
   if (key === "payment.deposit_link" || key === "payment.deposit_paid") {
     const milestone = await prisma.paymentMilestone.findUniqueOrThrow({ where: { id }, include: { quote: { include: { client: true } } } });
     const settings = await getCompanySettings();
+    const depositTotal = (await prisma.paymentMilestone.count({ where: { quoteId: milestone.quoteId } })) || 2;
     const common = {
       brand: buildEmailBrand(settings),
       settings,
@@ -205,11 +206,11 @@ async function render(key: string, id: string, now: Date): Promise<Rendered> {
       quoteNumber: milestone.quote.number ?? "",
       amountCents: milestone.amountCents,
       depositIndex: milestone.position,
+      depositTotal,
       label: milestone.label,
     };
     if (key === "payment.deposit_paid") return withHtml(await renderDepositPaidEmail(common));
-    const depositTotal = (await prisma.paymentMilestone.count({ where: { quoteId: milestone.quoteId } })) || 2;
-    return renderDepositCheckoutEmail({ ...common, brandPrimaryColor: settings.brandPrimaryColor, checkoutUrl: milestone.checkoutUrl ?? LINK_AT_SEND, depositTotal });
+    return renderDepositCheckoutEmail({ ...common, brandPrimaryColor: settings.brandPrimaryColor, checkoutUrl: milestone.checkoutUrl ?? LINK_AT_SEND });
   }
   if (key === "payment.failed") {
     const invoice = await prisma.invoice.findUniqueOrThrow({ where: { id }, include: { client: true } });

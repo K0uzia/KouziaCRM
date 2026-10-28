@@ -25,7 +25,8 @@ export type Period = "MONTH" | "QUARTER" | "YEAR";
  */
 export function equalInstallments(plan: "ONE" | "TWO" | "THREE", totalCents: number, intervalDays: number): Installment[] {
   const n = plan === "ONE" ? 1 : plan === "TWO" ? 2 : 3;
-  const part = Math.round(totalCents / n);
+  // Comme l'API (payment-plans.ts) : parts au centime inférieur, le reste sur la dernière.
+  const part = Math.floor(totalCents / n);
   const share = Math.floor(10000 / n);
   return Array.from({ length: n }, (_, i) => ({
     label: n === 1 ? "Paiement comptant" : `${i === 0 ? "1re" : `${i + 1}e`} échéance`,

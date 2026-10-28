@@ -5,7 +5,7 @@ import { balanceFields } from "@/lib/invoices/balance.js";
 import type { FastifyPluginAsync, FastifyReply, FastifyRequest } from "fastify";
 import { rateLimitKey } from "@/lib/client-ip.js";
 import { z } from "zod";
-import { InvoiceDocumentType, InvoiceStatus } from "@prisma/client";
+import { InvoiceDocumentType, InvoiceStatus, QuoteStatus } from "@prisma/client";
 import { prisma } from "@/lib/prisma.js";
 import { loadDocumentForPdf, pdfDataOfLoaded } from "@/lib/pdf/document-pdf.js";
 import { optionalChoicesError, optionalLinesSchema, proposalLetter, quoteFieldsOfOption } from "@/lib/quotes/quote-options.js";
@@ -480,6 +480,8 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
         where: {
           clientId: client.id,
           status: { not: InvoiceStatus.DRAFT },
+          // Devis retiré par Kouzia avant signature (28/10/2026) : masqué, ce n'est ni un refus ni une offre en cours.
+          OR: [{ quoteStatus: null }, { quoteStatus: { not: QuoteStatus.WITHDRAWN } }],
         },
         orderBy: [{ issueDate: "desc" }, { createdAt: "desc" }],
         include: {
@@ -574,7 +576,7 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
         items: built.items.map((i) => (newPaymentIds.has(i.id) ? { ...i, isNew: true as const } : i)),
       };
       // Ajout du 19/10/2026 (contrat /suivi) : « Reste à régler » avoirs compris, somme des dueCents des factures
-      // émises. totalDueCents (au niveau du marché, sans les avoirs) reste inchangé.
+      // émises. Seul total dû du contrat (totalDueCents, faux dès deux projets, retiré le 28/10/2026).
       const paymentHistory = showAmounts
         ? {
             ...history,
@@ -684,6 +686,18 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
           const depositPaid =
             !requiresDeposit || firstMilestone?.status === "PAID";
           const quotePending = d.quoteStatus === "SENT";
+          // Signable : envoyé et encore valable (audit du 28/10/2026), même règle que la signature (refuseExpired).
+          const quoteSignable = quotePending && (!d.validUntil || d.validUntil.getTime() >= Date.now());
+          // Montant du devis dans /suivi (fil « Devis envoyé ») : le projet (partie ponctuelle figée) d'un devis mixte,
+          // rien pour un devis à propositions non signé (aucun montant commun, audit du 28/10/2026).
+          const shownTotalCents =
+            d.documentType !== InvoiceDocumentType.QUOTE
+              ? d.totalCents
+              : d.options.length && !d.selectedOptionId
+                ? null
+                : d.depositBaseCents != null && d.depositBaseCents > 0
+                  ? d.depositBaseCents
+                  : d.totalCents;
           const offer = parsePaymentPlanOffer(d.paymentPlanOffer);
           const awaitedStep =
             d.paymentPlan === "THREE" && !d.billingMode ? flaggedStepLabel(d.project?.steps) : null;
@@ -821,7 +835,8 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
             ...(d.documentType === InvoiceDocumentType.QUOTE && quotePending ? { signCodeRequired: false } : {}),
             quoteDecidedAt: d.quoteDecidedAt,
             quoteSignerName: d.quoteSignerName,
-            quoteRejectReason: d.quoteRejectReason,
+            // Motif d'une commande annulée par Kouzia : interne, jamais envoyé ; seul le refus du client l'est.
+            quoteRejectReason: d.quoteStatus === QuoteStatus.REJECTED ? d.quoteRejectReason : null,
             issueDate: d.issueDate,
             validUntil: d.validUntil,
             dueDate: d.dueDate,
@@ -848,10 +863,10 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
               : {}),
             ...(showAmounts
               ? {
-                  totalCents: d.totalCents,
-                  subtotalCents: d.subtotalCents,
+                  ...(shownTotalCents !== null
+                    ? { totalCents: shownTotalCents, subtotalCents: d.subtotalCents, remainingCents: shownTotalCents - paid }
+                    : {}),
                   paidCents: paid,
-                  remainingCents: d.totalCents - paid,
                   ...(oneOffDiscountOf(d) > 0 ? { oneOffDiscountCents: oneOffDiscountOf(d) } : {}),
                   // Ajout du 19/10/2026 (contrat /suivi) : solde avoirs compris, factures seulement. Les champs
                   // ci-dessus ne changent pas ; dueCents est le reste à payer à afficher.
@@ -942,7 +957,7 @@ export const publicRoutes: FastifyPluginAsync = async (app) => {
             })(),
             requiresDeposit,
             depositPaid,
-            canAcceptQuote: quotePending,
+            canAcceptQuote: quoteSignable,
             canRejectQuote: quotePending,
           };
         }),

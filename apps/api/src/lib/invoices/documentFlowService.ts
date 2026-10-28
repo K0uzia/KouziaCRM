@@ -10,7 +10,10 @@ import { archiveIssuedDocument } from "@/lib/pdf/issued-archive.js";
 import { clientSnapshotData } from "@/lib/invoices/client-snapshot.js";
 import { prisma } from "@/lib/prisma.js";
 import { depositBaseOf } from "@/lib/invoices/totals.js";
-import { assertDepositsPaid, assertQuoteSigned, milestoneInvoiceKind } from "@/lib/invoices/workflow.js";
+import { activeTotalInvoiceOf, assertClientIdentified, assertDepositsPaid, assertQuoteSigned, milestoneInvoiceKind } from "@/lib/invoices/workflow.js";
+import { snapshotOfClauses } from "@/lib/company/legal-clauses.js";
+import { getCompanySettings } from "@/lib/company.js";
+import { formatPercentBps } from "@/lib/format-fr.js";
 import { decryptOptional } from "@/lib/crypto.js";
 import { allocateInvoiceNumber } from "@/lib/invoices/numberingService.js";
 import { ensureQuoteMilestonesFromSettings } from "@/lib/payments/milestonePaymentService.js";
@@ -83,6 +86,27 @@ async function buildClientSnapshot(
     city: client.city,
     country: client.country,
   };
+}
+
+/**
+ * Clauses figées à l'émission d'une facture (audit du 28/10/2026), comme un devis : celles du devis d'origine s'il en
+ * a figé, sinon les clauses actives pour le type du client. null : rien à figer (déjà figées, aucune clause en base).
+ */
+export async function invoiceClausesSnapshot(
+  db: Prisma.TransactionClient | typeof prisma,
+  doc: { legalClausesSnapshot?: unknown; quoteId?: string | null; sourceQuoteId?: string | null },
+  clientType: string,
+  vatMention: string,
+): Promise<Prisma.InputJsonValue | null> {
+  if (doc.legalClausesSnapshot != null) return null;
+  const quoteId = doc.quoteId ?? doc.sourceQuoteId;
+  if (quoteId) {
+    const quote = await db.invoice.findUnique({ where: { id: quoteId }, select: { legalClausesSnapshot: true } });
+    if (quote?.legalClausesSnapshot != null) return quote.legalClausesSnapshot as Prisma.InputJsonValue;
+  }
+  const active = await db.legalClause.findMany({ where: { active: true }, orderBy: [{ position: "asc" }, { createdAt: "asc" }] });
+  if (active.length === 0) return null;
+  return snapshotOfClauses(active, clientType, vatMention) as unknown as Prisma.InputJsonValue;
 }
 
 function isPaidInvoice(status: InvoiceStatus): boolean {
@@ -319,6 +343,7 @@ export async function generateMilestoneInvoice(
     if (kind === "BALANCE") return (await generateBalanceInvoice(target.quoteId, { issueDate, milestoneId })).invoice;
     if (kind === "FULL") return invoiceWholeQuoteForMilestone(milestoneId, target.quoteId, issueDate);
   }
+  const settings = await getCompanySettings();
   const invoice = await prisma.$transaction(async (tx) => {
     const milestone = await tx.paymentMilestone.findUniqueOrThrow({
       where: { id: milestoneId },
@@ -329,15 +354,7 @@ export async function generateMilestoneInvoice(
       throw new DocumentFlowError("Jalon invalide", 400);
     }
     await assertQuoteSigned(milestone.quoteId, tx);
-    const totalInvoice = await tx.invoice.findFirst({
-      where: {
-        OR: [{ quoteId: milestone.quoteId }, { sourceQuoteId: milestone.quoteId }],
-        documentType: InvoiceDocumentType.INVOICE,
-        invoiceType: InvoiceType.SIMPLE,
-        status: { not: InvoiceStatus.CANCELLED },
-      },
-      select: { number: true },
-    });
+    const totalInvoice = await activeTotalInvoiceOf(milestone.quoteId, tx);
     if (totalInvoice) {
       throw new DocumentFlowError(
         `Ce devis est déjà facturé en totalité${totalInvoice.number ? ` (${totalInvoice.number})` : ""} : pas d'acompte possible.`,
@@ -378,11 +395,13 @@ export async function generateMilestoneInvoice(
       );
     }
 
+    await assertClientIdentified(milestone.quote.clientId, tx);
     const allocated = await allocateInvoiceNumber(issueDate, tx);
     const snapshot = await buildClientSnapshot(milestone.quote.clientId, tx);
-    const pct = (milestone.percentBps / 100).toFixed(0);
+    const legalClausesSnapshot = await invoiceClausesSnapshot(tx, { quoteId: milestone.quoteId }, snapshot.type, settings.vatMention);
+    const pct = formatPercentBps(milestone.percentBps);
     const quoteRef = milestone.quote.number ?? "brouillon";
-    const description = `Acompte de ${pct}% sur devis ${quoteRef} : ${milestone.label}${
+    const description = `Acompte de ${pct} sur devis ${quoteRef} : ${milestone.label}${
       milestone.triggerText ? ` - ${milestone.triggerText}` : ""
     }`;
 
@@ -409,6 +428,7 @@ export async function generateMilestoneInvoice(
         totalCents: milestone.amountCents,
         paymentTerms: milestone.triggerText,
         notes: description,
+        ...(legalClausesSnapshot ? { legalClausesSnapshot } : {}),
         lines: {
           create: [
             {
@@ -439,15 +459,13 @@ export async function generateMilestoneInvoice(
   return invoice.invoice;
 }
 
-/**
- * Facture de solde : montant = marché - acomptes réglés (dynamique).
- * @param force si true, autorise même si des jalons PENDING restent
- */
+/** Facture de solde : montant = marché - acomptes émis nets des avoirs (dynamique). */
 export async function generateBalanceInvoice(
   quoteId: string,
-  opts: { issueDate?: Date; force?: boolean; milestoneId?: string } = {},
+  opts: { issueDate?: Date; milestoneId?: string } = {},
 ) {
   const issueDate = opts.issueDate ?? new Date();
+  const settings = await getCompanySettings();
 
   const result = await prisma.$transaction(async (tx) => {
     const quote = await tx.invoice.findUniqueOrThrow({
@@ -474,15 +492,7 @@ export async function generateBalanceInvoice(
       );
     }
     // Devis déjà facturé en totalité (facture simple) : un solde le facturerait deux fois.
-    const totalInvoice = await tx.invoice.findFirst({
-      where: {
-        OR: [{ quoteId }, { sourceQuoteId: quoteId }],
-        documentType: InvoiceDocumentType.INVOICE,
-        invoiceType: InvoiceType.SIMPLE,
-        status: { not: InvoiceStatus.CANCELLED },
-      },
-      select: { number: true },
-    });
+    const totalInvoice = await activeTotalInvoiceOf(quoteId, tx);
     if (totalInvoice) {
       throw new DocumentFlowError(
         `Ce devis est déjà facturé en totalité${totalInvoice.number ? ` (${totalInvoice.number})` : ""} : pas de facture de solde.`,
@@ -501,25 +511,25 @@ export async function generateBalanceInvoice(
       );
     }
 
-    // Lier au jalon solde s'il existe et est libre
+    // Jalon du solde : le dernier (annulés compris dans le rang), libre et non annulé.
     let milestoneId = opts.milestoneId ?? null;
     if (!milestoneId) {
+      const lastPosition = Math.max(...quote.milestones.map((x) => x.position));
       const soldeMs = [...quote.milestones]
         .reverse()
         .find(
           (m) =>
             !m.invoiceId &&
-            (m.label.toLowerCase().includes("solde") ||
-              m.position === Math.max(...quote.milestones.map((x) => x.position))),
+            m.status !== MilestoneStatus.CANCELLED &&
+            (m.label.toLowerCase().includes("solde") || m.position === lastPosition),
         );
       milestoneId = soldeMs?.id ?? null;
-      if (soldeMs?.invoiceId) {
-        throw new DocumentFlowError("Le jalon de solde a déjà une facture", 409);
-      }
     }
 
+    await assertClientIdentified(quote.clientId, tx);
     const allocated = await allocateInvoiceNumber(issueDate, tx);
     const snapshot = await buildClientSnapshot(quote.clientId, tx);
+    const legalClausesSnapshot = await invoiceClausesSnapshot(tx, quote, snapshot.type, settings.vatMention);
     const quoteRef = quote.number ?? "brouillon";
     const description = `Solde restant dû sur devis ${quoteRef}`;
 
@@ -546,6 +556,7 @@ export async function generateBalanceInvoice(
         totalCents: summary.balanceDueCents,
         paymentTerms: "Solde à réception",
         notes: `Facture de solde - marché ${quoteRef}`,
+        ...(legalClausesSnapshot ? { legalClausesSnapshot } : {}),
         lines: {
           create: [
             {

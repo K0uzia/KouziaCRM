@@ -5,12 +5,12 @@ import { decryptOptional } from "@/lib/crypto.js";
 import { getCompanySettings } from "@/lib/company.js";
 import { computeDepositBaseCents, isCommittedLine, type computeLineTotals } from "@/lib/invoices/totals.js";
 import { buildQuoteScope } from "@/lib/quotes/scope.js";
+import { defaultQuoteValidUntil } from "@/lib/quotes/validity.js";
 import { computeMilestoneAmounts } from "@/lib/quotes/milestones.js";
 import {
-  effectiveOffer,
   initialPlan,
-  isSubscriptionOnly,
   milestoneAmounts,
+  offerAtIssue,
   planTemplate,
   type BillingMode,
   type PaymentPlanOffer,
@@ -33,8 +33,6 @@ import {
  * payload et le même gabarit que le document émis, avec les calculs de l'émission (offre de paiement,
  * base de l'acompte, échéancier) faits en mémoire. Lecture seule : aucune écriture, aucun numéro.
  */
-
-const DAY = 24 * 60 * 60 * 1000;
 
 export type DraftPreviewInput = {
   documentType: "INVOICE" | "QUOTE";
@@ -101,12 +99,9 @@ export async function renderDraftPreviewPdf(input: DraftPreviewInput, now = new 
   // Compris et non compris tels qu'ils seraient figés à l'émission.
   const scopeOf = (m: BillingMode | null, ls: ReadonlyArray<{ serviceId?: string | null }>) =>
     buildQuoteScope(m, ls, { clauses, clientType: client.type, company: settings });
+  // Même règle que issueQuote (offerAtIssue) ; offre non choisie : celle des réglages proposée par le formulaire.
   const offer: PaymentPlanOffer | null = isQuote
-    ? mode === "RECURRING"
-      ? "NONE"
-      : isSubscriptionOnly(committed)
-      ? "NONE"
-      : effectiveOffer(input.paymentPlanOffer ?? (settings.paymentChoiceDefault ? "CHOICE" : "TWO"), depositBaseCents ?? 0, settings)
+    ? offerAtIssue(mode, committed, depositBaseCents ?? 0, input.paymentPlanOffer ?? (settings.paymentChoiceDefault ? "CHOICE" : "TWO"), settings)
     : null;
   const milestones =
     isQuote && offer && offer !== "NONE"
@@ -119,7 +114,7 @@ export async function renderDraftPreviewPdf(input: DraftPreviewInput, now = new 
           dueDate: null,
         }))
       : [];
-  const validUntil = isQuote ? (input.validUntil ?? new Date(now.getTime() + 30 * DAY)) : input.validUntil;
+  const validUntil = isQuote ? (input.validUntil ?? defaultQuoteValidUntil(now)) : input.validUntil;
 
   const invoice = {
     id: "apercu",
@@ -169,12 +164,16 @@ export async function renderDraftPreviewPdf(input: DraftPreviewInput, now = new 
       milestones: [],
       lines: optionLines,
       scopeSnapshot: null,
-      options: await Promise.all(input.options.map(async (o, i) => ({
+      options: await Promise.all(input.options.map(async (o, i) => {
+        // Offre et base figées comme à l'émission (seuil du 3 fois, abonnement seul ou sans partie ponctuelle).
+        const committedOption = o.totals.lines.filter(isCommittedLine);
+        const base = computeDepositBaseCents(committedOption, o.totals.subtotalCents, o.totals.totalCents);
+        return {
         id: `apercu-${i}`,
         position: i,
         label: o.label,
         billingMode: o.billingMode,
-        paymentPlanOffer: o.billingMode === "RECURRING" ? "NONE" : o.paymentPlanOffer,
+        paymentPlanOffer: offerAtIssue(o.billingMode, committedOption, base, o.paymentPlanOffer, settings),
         discountType: o.totals.discountType,
         discountValue: o.totals.discountValue,
         ...o.recurringDiscount,
@@ -182,10 +181,11 @@ export async function renderDraftPreviewPdf(input: DraftPreviewInput, now = new 
         promoCode: o.promoCode ? { code: o.promoCode.code, conditionText: o.promoCode.conditionText } : null,
         subtotalCents: o.totals.subtotalCents,
         totalCents: o.totals.totalCents,
-        depositBaseCents: null,
+        depositBaseCents: base,
         paymentScheduleSnapshot: null,
         scopeSnapshot: await scopeOf(o.billingMode, o.totals.lines),
-      }))),
+        };
+      })),
     });
   }
 

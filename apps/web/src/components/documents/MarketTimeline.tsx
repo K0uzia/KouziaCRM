@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { formatEUR } from "@/lib/api";
+import { formatPercentBps } from "@/lib/format";
 import { Button } from "@/components/ui/Button";
 import { Badge, Card } from "@/components/ui/Card";
 import { Input } from "@/components/ui/Field";
@@ -92,7 +93,7 @@ export function MarketTimeline({
 }: {
   market: MarketView;
   onGenerateAcompte: (milestoneId: string) => void;
-  onGenerateSolde: (force?: boolean) => void;
+  onGenerateSolde: () => void;
   onManualPay?: (milestoneId: string) => void;
   /** « Débloquer » un prélèvement noté en cours (webhook perdu, vérifié dans Stripe). */
   onClearProcessing?: (milestoneId: string) => void;
@@ -113,7 +114,8 @@ export function MarketTimeline({
   const isSoldeOf = (m: { label: string; position: number }) =>
     m.label.toLowerCase().includes("solde") || m.position === maxPos;
   const deposits = milestones.filter((m) => !isSoldeOf(m));
-  const depositsPaid = deposits.every((m) => m.status === "PAID");
+  // Acompte annulé par avoir : il ne bloque pas le solde (même règle que l'API).
+  const depositsPaid = deposits.every((m) => m.status === "PAID" || m.status === "CANCELLED");
   const soldeMilestone = milestones.find((m) => isSoldeOf(m));
   const canSolde = signed && depositsPaid && Boolean(soldeMilestone) && !soldeMilestone?.invoiceId;
   const [drafts, setDrafts] = useState<Record<string, string>>({});
@@ -136,7 +138,7 @@ export function MarketTimeline({
               type="button"
               className="px-3 text-xs"
               disabled={busyId === "solde"}
-              onClick={() => onGenerateSolde(true)}
+              onClick={() => onGenerateSolde()}
             >
               Facture de solde
             </Button>
@@ -203,7 +205,7 @@ export function MarketTimeline({
                     <p className="text-sm font-medium">
                       {m.label}
                       <span className="ml-1.5 font-normal text-[var(--muted)]">
-                        {(m.percentBps / 100).toFixed(0)} %
+                        {formatPercentBps(m.percentBps)}
                       </span>
                     </p>
                     <Badge tone={statusTone(m.status)}>{statusLabel(m.status)}</Badge>
@@ -221,7 +223,8 @@ export function MarketTimeline({
                     ) : null}
                   </div>
                   <p className="mt-0.5 text-xs text-[var(--muted)]">
-                    {formatEUR(m.amountCents)}
+                    {/* Solde pas encore facturé : le reste réel du marché (acomptes nets des avoirs), pas le montant prévu. */}
+                    {formatEUR(isSolde && !m.invoiceId ? balance.balanceDueCents : m.amountCents)}
                     {m.triggerText ? ` · ${m.triggerText}` : ""}
                     {m.dueDate
                       ? ` · échéance ${new Date(m.dueDate).toLocaleDateString("fr-FR")}`
@@ -274,7 +277,7 @@ export function MarketTimeline({
                   <Button
                     className="shrink-0 px-3 text-xs"
                     disabled={busyId === "solde"}
-                    onClick={() => onGenerateSolde(true)}
+                    onClick={() => onGenerateSolde()}
                   >
                     Facturer le solde
                   </Button>

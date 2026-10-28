@@ -1,3 +1,4 @@
+import { annualPriceOfService } from "@kouzia-erp/annual-price";
 import { formatEUR } from "@/lib/format";
 
 /** Périodicité d'un abonnement (null en base = MONTH). */
@@ -45,17 +46,18 @@ export function eurosInputToCents(raw: string | number | null | undefined): numb
 }
 
 /**
- * Montant proposé pour une échéance à partir du prix d'une offre.
- * Offre mensuelle passée en annuel : 12 mensualités moins les mois offerts (Réglages).
+ * Montant proposé pour une échéance à partir du prix d'une offre. Passage en annuel : règle unique de l'API
+ * (annualPriceOfService) : prix annuel du catalogue s'il existe, sinon 12 mensualités moins les mois offerts (Réglages).
  */
 export function suggestedAmountCents(
   servicePriceCents: number,
   serviceInterval: string | null | undefined,
   target: BillingInterval,
   annualFreeMonths: number,
+  annualPriceCents?: number | null,
 ): number {
   const from = normalizeInterval(serviceInterval);
   if (from === target) return servicePriceCents;
-  if (target === "YEAR") return servicePriceCents * (12 - annualFreeMonths);
+  if (target === "YEAR") return annualPriceOfService({ unitPriceCents: servicePriceCents, billingInterval: serviceInterval, annualPriceCents }, annualFreeMonths);
   return Math.round(servicePriceCents / 12);
 }

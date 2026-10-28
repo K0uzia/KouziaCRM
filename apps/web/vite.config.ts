@@ -99,6 +99,8 @@ export default defineConfig(({ mode }) => ({
       ),
       "@kouzia-erp/api-contract": path.resolve(__dirname, "../api/src/lib/api-contract.ts"),
       "@kouzia-erp/recurring-discount": path.resolve(__dirname, "../api/src/lib/quotes/recurring-discount-calc.ts"),
+      "@kouzia-erp/line-amounts": path.resolve(__dirname, "../api/src/lib/invoices/line-amounts.ts"),
+      "@kouzia-erp/annual-price": path.resolve(__dirname, "../api/src/lib/services/annual-price.ts"),
       "@kouzia-erp/email-sender": path.resolve(
         __dirname,
         "../api/src/lib/email/sender-label.ts",

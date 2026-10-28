@@ -112,3 +112,16 @@ export async function onInvoicePaidForProject(invoiceId: string) {
   if (!quoteId || invoice?.invoiceType === "SOLDE") return null;
   return startProjectForQuote(quoteId);
 }
+
+/**
+ * Échéance payée : le projet démarre, sauf pour le solde (audit du 28/10/2026). Le solde arrive en fin de projet : un
+ * projet supprimé entre-temps n'est pas recréé, comme pour une facture de solde payée (onInvoicePaidForProject).
+ */
+export async function onMilestonePaidForProject(milestoneId: string) {
+  const milestone = await prisma.paymentMilestone.findUnique({
+    where: { id: milestoneId },
+    select: { quoteId: true, generatedInvoice: { select: { invoiceType: true } } },
+  });
+  if (!milestone || milestone.generatedInvoice?.invoiceType === "SOLDE") return null;
+  return startProjectForQuote(milestone.quoteId);
+}

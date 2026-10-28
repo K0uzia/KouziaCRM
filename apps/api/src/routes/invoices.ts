@@ -1,7 +1,7 @@
 import type { FastifyPluginAsync, FastifyReply } from "fastify";
 import { z } from "zod";
 import { assertIssueDateAllowed, IssueDateError } from "@/lib/invoices/numberingService.js";
-import { parisWallTime } from "@/lib/format-fr.js";
+import { defaultQuoteValidUntil, validityEnd } from "@/lib/quotes/validity.js";
 import {
   InvoiceDocumentType,
   InvoiceStatus,
@@ -12,7 +12,7 @@ import {
 } from "@prisma/client";
 import { requireAuth } from "@/lib/auth.js";
 import { prisma } from "@/lib/prisma.js";
-import { computeLineTotals, assertSubscriptionLinesValid } from "@/lib/invoices/totals.js";
+import { computeLineTotals, assertSubscriptionLinesValid, depositBaseOf } from "@/lib/invoices/totals.js";
 import { BILLING_MODES, parseBillingMode, type PaymentPlanOffer } from "@/lib/quotes/payment-plans.js";
 import { assertBillingModeLines } from "@/lib/quotes/billing-mode.js";
 import { NO_RECURRING_DISCOUNT, resolveRecurringDiscount, storedRecurringDiscount, type RecurringDiscountFields } from "@/lib/quotes/recurring-discount.js";
@@ -30,6 +30,8 @@ import {
   assertQuoteEditable,
   syncMilestoneOnInvoicePaid,
   rejectQuote,
+  withdrawQuote,
+  cancelQuoteOrder,
   QuoteDecisionError,
 } from "@/lib/invoices/transitions.js";
 import { CreditNoteReason, RefundMethod } from "@prisma/client";
@@ -51,7 +53,8 @@ import {
   setInvoicePaymentLink,
 } from "@/lib/invoices/payment-link.js";
 import { serializeClient } from "@/lib/clients.js";
-import { ensureQuoteMilestones } from "@/lib/quotes/milestones.js";
+import { ensureQuoteMilestonesFromSettings } from "@/lib/payments/milestonePaymentService.js";
+import { proposalComparableCents } from "@/lib/quotes/quote-options.js";
 import {
   listPendingReminders,
   markReminderSent,
@@ -284,10 +287,12 @@ async function prepareQuoteOptions(options: z.output<typeof optionsSchema>, quot
 
 /**
  * Champs du devis lui-même quand il a des propositions : facturation neutre (recopiée de la proposition retenue à la
- * signature) et totaux de la moins chère, comptés dans les listes et le tableau de bord (décision du 25/10/2026).
+ * signature) et montant de la moins chère, compté dans les listes et le tableau de bord (décision du 25/10/2026).
+ * Montant comparable (audit du 28/10/2026) : partie ponctuelle ou total sur l'engagement, jamais une mensualité.
  */
 function quoteFieldsOfOptions(prepared: Awaited<ReturnType<typeof prepareQuoteOptions>>) {
-  const cheapest = prepared.reduce((min, p) => (p.option.totalCents < min.option.totalCents ? p : min));
+  const comparable = prepared.map((p) => proposalComparableCents(p.option, p.lines));
+  const cheapestCents = Math.min(...comparable);
   return {
     billingMode: null,
     paymentPlanOffer: null,
@@ -295,8 +300,8 @@ function quoteFieldsOfOptions(prepared: Awaited<ReturnType<typeof prepareQuoteOp
     discountValue: 0,
     ...NO_RECURRING_DISCOUNT,
     promoCodeId: null,
-    subtotalCents: cheapest.option.subtotalCents,
-    totalCents: cheapest.option.totalCents,
+    subtotalCents: cheapestCents,
+    totalCents: cheapestCents,
   };
 }
 
@@ -367,12 +372,6 @@ const refundSchema = z.object({
   reference: z.string().max(200).optional().nullable(),
 });
 
-function defaultQuoteValidUntil(): Date {
-  const d = new Date();
-  d.setDate(d.getDate() + 30);
-  return d;
-}
-
 /** Paramètres de la liste ; un paramètre répété (?clientId=a&clientId=b) arrive en tableau et répond 400. */
 const LIST_ID = z.string().regex(/^[A-Za-z0-9_-]{1,64}$/);
 const LIST_INT = z.string().regex(/^\d{1,6}$/).transform(Number);
@@ -395,15 +394,6 @@ class PaymentAmountError extends Error {
 
 /** Objet et texte relus dans « Vérifier l'e-mail » (envois sur clic). Absents : texte de l'ERP. */
 const emailEditsSchema = z.object({ subject: z.string().trim().max(300).optional(), text: z.string().trim().max(20000).optional() });
-
-/**
- * Validité de devis saisie « AAAA-MM-JJ » : jusqu'à la fin de ce jour à Paris (audit du 27/10/2026). new Date() la
- * plaçait à minuit UTC, soit 1 h ou 2 h du matin : le devis expirait au début de son dernier jour affiché.
- */
-function validityEnd(value: string): Date {
-  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
-  return m ? parisWallTime(Number(m[1]), Number(m[2]), Number(m[3]), 23, 59, 59_999) : new Date(value);
-}
 
 class DraftChangedError extends Error {
   constructor() {
@@ -462,11 +452,17 @@ export const invoicesRoutes: FastifyPluginAsync = async (app) => {
         creditNotes: { select: { totalCents: true, payments: { select: { amountCents: true } } } },
         // Devis à propositions : montant de la moins chère tant qu'aucune n'est retenue (annoncé dans la liste).
         _count: { select: { options: true } },
+        // Mode de chaque proposition : « dès X » seulement entre propositions du même mode.
+        options: { select: { billingMode: true } },
       },
     });
     // Solde de chaque facture (avoirs compris) : reste dû, net, encaissé net ; les avoirs eux-mêmes ne sont pas renvoyés.
     const withBalance = (list: typeof rows) =>
-      list.map(({ creditNotes, ...r }) => ({ ...serializeInvoice(r), balance: adminBalanceFields({ ...r, creditNotes }) }));
+      list.map(({ creditNotes, options, ...r }) => ({
+        ...serializeInvoice(r),
+        optionModes: options.map((o) => o.billingMode),
+        balance: adminBalanceFields({ ...r, creditNotes }),
+      }));
     if (!paged && rows.length > INVOICE_LIST_CAP) {
       const total = await prisma.invoice.count({ where });
       request.log.warn({ event: "invoice_list_capped", total, cap: INVOICE_LIST_CAP }, "liste des pièces tronquée");
@@ -1350,6 +1346,27 @@ export const invoicesRoutes: FastifyPluginAsync = async (app) => {
     }
   });
 
+  // Retrait d'un devis émis non signé, ou annulation de la commande d'un devis signé : décision de Kouzia, motif interne.
+  for (const [path, action, label] of [
+    ["withdraw", withdrawQuote, "Retrait impossible"],
+    ["cancel-order", cancelQuoteOrder, "Annulation impossible"],
+  ] as const) {
+    app.post<{ Params: { id: string } }>(`/api/quotes/:id/${path}`, async (request, reply) => {
+      await requireAuth(request, reply);
+      if (reply.sent) return;
+      const parsed = z.object({ reason: z.string().trim().min(1, "Indiquez le motif (interne).").max(500) }).safeParse(request.body ?? {});
+      if (!parsed.success) return reply.code(400).send({ error: parsed.error.issues[0]?.message ?? "Motif invalide" });
+      const exists = await prisma.invoice.count({ where: { id: request.params.id, documentType: InvoiceDocumentType.QUOTE } });
+      if (!exists) return reply.code(404).send({ error: "Devis introuvable" });
+      try {
+        return serializeInvoice(await action(request.params.id, parsed.data.reason));
+      } catch (e) {
+        if (e instanceof QuoteDecisionError) return reply.code(400).send({ error: e.message, code: e.code });
+        return reply.code(400).send({ error: e instanceof Error ? e.message : label });
+      }
+    });
+  }
+
   app.post<{ Params: { id: string } }>("/api/invoices/:id/reject", async (request, reply) => {
     await requireAuth(request, reply);
     if (reply.sent) return;
@@ -1387,7 +1404,7 @@ export const invoicesRoutes: FastifyPluginAsync = async (app) => {
           orderBy: { position: "asc" },
         });
       }
-      const milestones = await ensureQuoteMilestones(quote.id, quote.totalCents);
+      const milestones = await ensureQuoteMilestonesFromSettings(quote.id, depositBaseOf(quote));
       return milestones;
     },
   );
@@ -1737,13 +1754,15 @@ export const invoicesRoutes: FastifyPluginAsync = async (app) => {
   app.post<{ Params: { id: string } }>("/api/invoices/:id/cancel", async (request, reply) => {
     await requireAuth(request, reply);
     if (reply.sent) return;
-    const parsedBody = z.object({ issueDate: dateString.optional() }).safeParse(request.body ?? {});
+    const parsedBody = z
+      .object({ issueDate: dateString.optional(), cgvDepositRefundable: z.boolean().optional().nullable() })
+      .safeParse(request.body ?? {});
     if (!parsedBody.success) return reply.code(400).send({ error: parsedBody.error.issues[0]?.message ?? "Données invalides" });
     const issueDate = parsedBody.data.issueDate ? new Date(parsedBody.data.issueDate) : new Date();
     const dateError = parsedBody.data.issueDate ? await creditNoteDateError(request.params.id, issueDate) : null;
     if (dateError) return reply.code(400).send({ error: dateError });
     try {
-      const creditNote = await cancelInvoiceWithCreditNote(request.params.id, issueDate);
+      const creditNote = await cancelInvoiceWithCreditNote(request.params.id, issueDate, { cgvDepositRefundable: parsedBody.data.cgvDepositRefundable });
       return reply.code(201).send(serializeInvoice(creditNote));
     } catch (e) {
       if (e instanceof CreditNoteError) {

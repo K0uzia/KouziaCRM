@@ -1,5 +1,7 @@
 import type { Prisma, QuoteOption } from "@prisma/client";
 import { z } from "zod";
+import { computeDepositBaseCents } from "@/lib/invoices/totals.js";
+import { recurringDiscountSummary } from "@/lib/quotes/recurring-discount-calc.js";
 
 /**
  * Devis à 2 propositions (P1 à P3, décisions du 25/10/2026). Les lignes de chaque proposition restent dans le devis émis
@@ -68,4 +70,48 @@ export function optionalChoicesError(optionalLineIds: ReadonlyArray<string>, cho
   if (new Set(given.map((c) => c.id)).size !== given.length || given.some((c) => !expected.has(c.id))) return "INVALID";
   if (optionalLineIds.some((id) => !given.some((c) => c.id === id))) return "REQUIRED";
   return null;
+}
+
+type ComparableLine = {
+  isSubscription: boolean;
+  lineTotalCents: number;
+  unitPriceCents: number;
+  billingInterval: string | null;
+  commitmentMonths: number | null;
+  isOptional?: boolean | null;
+  optionalAccepted?: boolean | null;
+};
+
+/**
+ * Montant comparable d'une proposition (audit du 28/10/2026) : paiement unique, sa partie ponctuelle remisée ; mode
+ * récurrent, le total sur la durée d'engagement (remise récurrente comprise). Jamais une mensualité face à un prix
+ * ponctuel : « dès X » ne compare que des propositions du même mode.
+ */
+export function proposalComparableCents(
+  option: {
+    billingMode: string | null;
+    subtotalCents: number;
+    totalCents: number;
+    recurringDiscountKind: string | null;
+    recurringDiscountValue: number | null;
+    recurringDiscountMonths: number | null;
+    openingDiscount: boolean;
+  },
+  lines: ReadonlyArray<ComparableLine>,
+): number {
+  const committed = lines.filter((l) => !l.isOptional || l.optionalAccepted === true);
+  if (option.billingMode !== "RECURRING") return computeDepositBaseCents(committed, option.subtotalCents, option.totalCents);
+  const subs = committed.filter((l) => l.isSubscription);
+  const first = subs[0];
+  if (!first) return option.totalCents;
+  const amountCents = subs.reduce((s, l) => s + l.unitPriceCents, 0);
+  const months = first.commitmentMonths ?? 12;
+  const step = first.billingInterval === "YEAR" ? 12 : first.billingInterval === "QUARTER" ? 3 : 1;
+  const discounted = recurringDiscountSummary(option, amountCents, first.billingInterval, months)?.totalCommitmentCents;
+  return discounted ?? amountCents * Math.ceil(months / step);
+}
+
+/** Propositions toutes du même mode (paiement unique ou récurrent) : seul cas où « dès X » a un sens. */
+export function sameModeProposals(options: ReadonlyArray<{ billingMode: string | null }>): boolean {
+  return options.length > 0 && options.every((o) => (o.billingMode ?? "") === (options[0]!.billingMode ?? ""));
 }
