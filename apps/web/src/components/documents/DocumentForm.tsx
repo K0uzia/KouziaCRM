@@ -310,11 +310,15 @@ export function DocumentFormEditor({
           subscriptionFreeMonths?: number | null;
           commitmentMonths?: number | null;
           optionId?: string | null;
+          isOptional?: boolean;
+          optionalAccepted?: boolean | null;
         }>;
         selectedOptionId?: string | null;
       }>(`/api/invoices/${quoteId}`);
-      // Devis à propositions : seules les prestations de la proposition retenue.
-      const lines = (q.lines ?? []).filter((l) => !l.optionId || l.optionId === q.selectedOptionId).map((l) => ({
+      // Devis à propositions : seules les prestations de la proposition retenue ; option : seulement si elle est retenue.
+      const lines = (q.lines ?? [])
+        .filter((l) => (!l.optionId || l.optionId === q.selectedOptionId) && (!l.isOptional || l.optionalAccepted === true))
+        .map((l) => ({
         description: l.description,
         quantity: String(l.quantity),
         unitPriceEuros: (l.unitPriceCents / 100).toFixed(2),
