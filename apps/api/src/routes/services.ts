@@ -277,12 +277,12 @@ export const servicesRoutes: FastifyPluginAsync = async (app) => {
   });
 
   // Supprime une prestation jamais utilisée ; si elle figure sur un document ou un abonnement,
-  // elle est archivée (désactivée) pour ne pas altérer l'historique.
-  app.delete<{ Params: { id: string } }>("/api/services/:id", async (request, reply) => {
+  // elle est archivée (désactivée) pour ne pas altérer l'historique. ?archive=1 : archivée dans tous les cas.
+  app.delete<{ Params: { id: string }; Querystring: { archive?: string } }>("/api/services/:id", async (request, reply) => {
     await requireAuth(request, reply);
     if (reply.sent) return;
     try {
-      const result = await removeService(request.params.id);
+      const result = await removeService(request.params.id, { archiveOnly: request.query.archive === "1" });
       if (!result) return reply.code(404).send({ error: "Prestation introuvable" });
       return { ok: true, ...result };
     } catch (err) {

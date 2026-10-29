@@ -1,5 +1,8 @@
 import { ServiceUnit, type PrismaClient, type Service } from "@prisma/client";
 import { prisma } from "@/lib/prisma.js";
+import { getCompanySettings } from "@/lib/company.js";
+import { decryptOptional } from "@/lib/crypto.js";
+import { linkExistingService } from "@/lib/stripe/catalog-write.js";
 
 /**
  * Maintenance du site (décision du 28/10/2026) : deux abonnements annuels au même contenu.
@@ -85,4 +88,31 @@ export async function ensureMaintenanceOffers(db: PrismaClient = prisma): Promis
     await tx.namedCounter.create({ data: { name: MAINTENANCE_UPGRADE_MARKER, lastValue: 1 } });
     return log;
   });
+}
+
+/**
+ * À chaque démarrage, après ensureMaintenanceOffers : les prestations créées au démarrage (maintenances) sont liées à
+ * Stripe par le chemin de l'écran Prestations (linkExistingService : même produit, même métadonnée, prix annuel
+ * récurrent), si le module Stripe est actif et la clé posée, et seulement si elles ne le sont pas encore. Archivées :
+ * laissées telles quelles. Stripe absent ou en échec : rien ne change, nouvel essai au prochain démarrage.
+ * Renvoie le journal (vide si rien à faire).
+ */
+export async function linkBootServicesToStripe(): Promise<string[]> {
+  const settings = await getCompanySettings();
+  if (!settings.moduleStripeEnabled || !decryptOptional(settings.stripeSecretKeyEncrypted)) return [];
+  const pending = await prisma.service.findMany({
+    where: { id: { in: MAINTENANCE_OFFERS.map((o) => o.id) }, active: true, stripeProductId: null },
+    orderBy: { id: "asc" },
+  });
+  const log: string[] = [];
+  for (const service of pending) {
+    try {
+      // Clé d'idempotence stable : deux démarrages rapprochés ne créent qu'un produit Stripe.
+      const linked = await linkExistingService(service, `boot-${service.id}`);
+      log.push(`« ${linked.name} » liée à Stripe (${linked.stripeLivemode ? "live" : "test"}) : ${linked.unitPriceCents / 100} € par an`);
+    } catch (err) {
+      log.push(`« ${service.name} » non liée à Stripe (nouvel essai au prochain démarrage) : ${err instanceof Error ? err.message : "erreur"}`);
+    }
+  }
+  return log;
 }

@@ -352,6 +352,63 @@ function knownNames(q) {
 const OPEN_MILESTONE = "('PENDING','DUE','OVERDUE')";
 
 /**
+ * Prestations supprimées : Service n'a pas de suppression douce, une prestation jamais utilisée supprimée depuis
+ * l'ERP n'a plus de ligne (une archivée reste dans « prestations », active non). Ce qui en reste : les identifiants
+ * encore cités (rachat d'une offre, codes promo) et les produits Stripe connus par les webhooks du catalogue
+ * (nom, prix, date) qu'aucune prestation ne porte plus. Données du catalogue seulement, aucune donnée client.
+ */
+function deletedServices(q, services) {
+  const ids = new Set(services.map((s) => s.id));
+  const products = new Set(services.map((s) => s.stripeProductId).filter(Boolean));
+  const out = [];
+  const cited = new Map();
+  const cite = (id, by) => {
+    if (!id || ids.has(id)) return;
+    cited.set(id, [...(cited.get(id) ?? []), by]);
+  };
+  for (const s of services) cite(s.buyoutServiceId, `rachat de « ${s.name} »`);
+  for (const p of q.all("SELECT code, serviceIds FROM PromoCode WHERE serviceIds IS NOT NULL")) {
+    let list = [];
+    try {
+      list = JSON.parse(p.serviceIds);
+    } catch {
+      list = [];
+    }
+    if (Array.isArray(list)) for (const id of list) cite(String(id), `code promo ${p.code}`);
+  }
+  for (const [id, by] of cited) out.push({ etat: "supprimée", id, nom: null, cite_par: by });
+
+  // Webhooks du catalogue : dernier état connu de chaque produit Stripe, dernier prix vu.
+  const ev = q.all(
+    `SELECT eventType AS type, ${D("processedAt")} AS ms,
+       json_extract(payload, '$.data.object.id') AS oid, json_extract(payload, '$.data.object.product') AS pid,
+       json_extract(payload, '$.data.object.name') AS nom, json_extract(payload, '$.data.object.active') AS actif,
+       json_extract(payload, '$.data.object.unit_amount') AS montant, json_extract(payload, '$.data.object.recurring.interval') AS intervalle
+     FROM StripeWebhookEvent WHERE eventType LIKE 'product.%' OR eventType LIKE 'price.%' ORDER BY ms, id`,
+  );
+  const byProduct = new Map();
+  for (const e of ev) {
+    const product = e.type.startsWith("product.") ? e.oid : e.pid;
+    if (!product || typeof product !== "string" || products.has(product)) continue;
+    const cur = byProduct.get(product) ?? { nom: null, produit_stripe: null, prix_cents: null, intervalle: null, dernier_evenement: null };
+    if (e.type.startsWith("product.")) {
+      if (e.nom) cur.nom = e.nom;
+      cur.produit_stripe = e.type === "product.deleted" ? "supprimé" : Number(e.actif) === 1 ? "actif" : "archivé";
+    } else if (e.montant !== null && e.montant !== undefined) {
+      cur.prix_cents = Number(e.montant);
+      cur.intervalle = e.intervalle === "year" ? "YEAR" : e.intervalle === "month" ? "MONTH" : null;
+    }
+    cur.dernier_evenement = toIso(e.ms);
+    byProduct.set(product, cur);
+  }
+  for (const p of byProduct.values()) {
+    if (!p.nom) continue;
+    out.push({ etat: "supprimée", id: null, source: "webhooks Stripe (absente de l'ERP : supprimée, ou jamais importée)", ...p });
+  }
+  return out;
+}
+
+/**
  * Rapport complet. opts : { dbPath, appDir, logDir, lines, now }.
  * Ne renvoie que des comptes, des identifiants internes (cuid) et des numéros de documents (D-, F-, A-).
  */
@@ -439,6 +496,7 @@ export function buildReport(opts) {
           contenu_des_packs: Array.isArray(items)
             ? items.map((i) => ({ pack: byId.get(i.packId) ?? i.packId, pack_id: i.packId, prestation: byId.get(i.serviceId) ?? i.serviceId, prestation_id: i.serviceId, quantite: i.quantity, position: i.position }))
             : items,
+          supprimees: section(() => deletedServices(q, services)),
         };
       }),
       comptes: {
@@ -588,6 +646,11 @@ export function renderText(r) {
       `${s.nom} | ${s.active ? "active" : "archivée"} | ${s.categorie ?? "Autres"}${s.pack ? " | pack" : ""}${s.abonnement ? " | abonnement" : ""} | ${eur(s.prix_cents)} / ${s.unite}${s.intervalle ? ` | ${s.intervalle}` : ""}${s.prix_annuel_cents !== null ? ` | annuel ${eur(s.prix_annuel_cents)}` : ""}${s.rachat ? ` | rachat : ${s.rachat.nom}` : ""} | Stripe ${s.stripe} | id ${s.id}`);
     L.push("  Contenu des packs :");
     list(r.catalogue?.contenu_des_packs, (i) => `${i.pack} : ${i.quantite} x ${i.prestation}`);
+    L.push("  Prestations supprimées (plus de ligne dans l'ERP) :");
+    list(r.catalogue?.supprimees, (s) =>
+        s.id
+          ? `id ${s.id} | supprimée | citée par : ${s.cite_par.join(", ")}`
+          : `${s.nom} | supprimée${s.prix_cents !== null ? ` | ${eur(s.prix_cents)}` : ""}${s.intervalle ? ` | ${s.intervalle}` : ""} | produit Stripe ${s.produit_stripe ?? "?"} | dernier webhook ${s.dernier_evenement ?? "-"} | ${s.source}`);
   }
   h("Comptes");
   for (const [k, v] of Object.entries(r.comptes ?? {})) L.push(`  ${k} : ${typeof v === "object" ? JSON.stringify(v) : v}`);

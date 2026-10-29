@@ -12,6 +12,7 @@ import { Field, Input, Select, Textarea } from "@/components/ui/Field";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { FilterBar, FilterSegment } from "@/components/ui/ListFilters";
 import { useUrlFilters } from "@/lib/use-url-filters";
+import { Link } from "react-router-dom";
 import { Segmented } from "@/components/ui/Segmented";
 import { Combobox } from "@/components/ui/Combobox";
 import { catalogGroups } from "@/lib/catalog-options";
@@ -389,7 +390,19 @@ export function ServicesPage() {
               ]}
             />
           </FilterBar>
-          <p className="text-xs text-[var(--muted)]">Franchise de TVA : aucun montant de TVA n&apos;est facturé.</p>
+          <div className="space-y-1 text-xs text-[var(--muted)] sm:text-right">
+            <p>Franchise de TVA : aucun montant de TVA n&apos;est facturé.</p>
+            {moduleSubscriptionsEnabled ? (
+              // Les offres d'abonnement (maintenance, hébergement) ne sont pas listées ici : modification et archivage dans Abonnements.
+              <p>
+                Offres d&apos;abonnement : à modifier ou archiver dans{" "}
+                <Link to="/abonnements" className="text-[var(--primary)] underline-offset-2 hover:underline">
+                  Abonnements
+                </Link>
+                .
+              </p>
+            ) : null}
+          </div>
         </div>
 
         {loading ? (

@@ -78,9 +78,10 @@ export async function updateLinkedService(existing: Service, input: LinkedServic
 /**
  * Supprime une prestation jamais utilisée ; si elle figure sur un document, un abonnement, un pack ou les besoins d'un
  * client, elle est archivée (désactivée) pour ne pas altérer l'historique. Liée à Stripe : archivée aussi dans Stripe
- * d'abord (les abonnements Stripe en cours continuent).
+ * d'abord (les abonnements Stripe en cours continuent). archiveOnly : toujours archivée, jamais supprimée (bouton
+ * « Archiver » d'une offre d'abonnement : elle reste visible dans les archives, Stripe compris).
  */
-export async function removeService(id: string): Promise<{ archived: boolean } | null> {
+export async function removeService(id: string, opts: { archiveOnly?: boolean } = {}): Promise<{ archived: boolean } | null> {
   const service = await prisma.service.findUnique({
     where: { id },
     include: { _count: { select: { invoiceLines: true, subscriptions: true, inPacks: true, clientNeeds: true } } },
@@ -91,7 +92,7 @@ export async function removeService(id: string): Promise<{ archived: boolean } |
     await archiveLinkedService(service);
   }
   const c = service._count;
-  if (c.invoiceLines > 0 || c.subscriptions > 0 || c.inPacks > 0 || c.clientNeeds > 0) {
+  if (opts.archiveOnly || c.invoiceLines > 0 || c.subscriptions > 0 || c.inPacks > 0 || c.clientNeeds > 0) {
     await prisma.service.update({ where: { id }, data: { active: false } });
     return { archived: true };
   }

@@ -154,6 +154,13 @@ async function main() {
   } catch (err) {
     app.log.warn({ err }, "[boot] offres de maintenance non posées (nouvel essai au prochain démarrage)");
   }
+  // Puis liées à Stripe comme une prestation créée depuis Prestations (module Stripe actif et clé posée).
+  try {
+    const { linkBootServicesToStripe } = await import("@/lib/services/maintenance-offers.js");
+    for (const line of await linkBootServicesToStripe()) app.log.info(`[boot] maintenance : ${line}`);
+  } catch (err) {
+    app.log.warn({ err }, "[boot] maintenances non liées à Stripe (nouvel essai au prochain démarrage)");
+  }
 }
 
 main().catch((err) => {

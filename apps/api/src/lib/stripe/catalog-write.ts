@@ -39,6 +39,45 @@ export type CreateLinkedServiceInput = {
   requestId: string;
 };
 
+type StripeOffer = {
+  /** Nom ERP (« (annuel) » compris pour un prix annuel) ; le produit Stripe le prend sans ce suffixe. */
+  name: string;
+  description: string | null;
+  unitPriceCents: number;
+  interval: Interval | null;
+  requestId: string;
+};
+
+/**
+ * Produit puis prix dans Stripe, comme à la création depuis l'écran Prestations : un seul chemin pour une prestation
+ * créée (createLinkedService) et pour une prestation déjà dans l'ERP qu'on relie (linkExistingService).
+ */
+async function createStripeProductAndPrice(offer: StripeOffer): Promise<{ productId: string; priceId: string }> {
+  try {
+    const stripe = await getStripe();
+    const product = await stripe.products.create(
+      {
+        name: productName(offer.name),
+        ...(offer.description ? { description: offer.description } : {}),
+        metadata: { source: "kouzia-erp" },
+      },
+      { idempotencyKey: `kouzia-service-product-${offer.requestId}` },
+    );
+    const price = await stripe.prices.create(
+      {
+        product: product.id,
+        currency: "eur",
+        unit_amount: offer.unitPriceCents,
+        ...(offer.interval ? { recurring: { interval: offer.interval === "YEAR" ? "year" : "month" } } : {}),
+      },
+      { idempotencyKey: `kouzia-service-price-${offer.requestId}` },
+    );
+    return { productId: product.id, priceId: price.id };
+  } catch (err) {
+    fail("Stripe n'a pas créé la prestation : rien n'a été enregistré.", err);
+  }
+}
+
 /**
  * Prestation créée dans l'ERP avec Stripe actif : produit puis prix dans Stripe, puis la
  * prestation liée. Si Stripe échoue, rien n'est créé. Le webhook product/price.created peut
@@ -48,32 +87,13 @@ export async function createLinkedService(input: CreateLinkedServiceInput): Prom
   const interval = input.isSubscription ? (input.billingInterval ?? "MONTH") : null;
   const name = erpServiceName(input.name, interval);
   const livemode = await keyLivemode();
-  let productId: string;
-  let priceId: string;
-  try {
-    const stripe = await getStripe();
-    const product = await stripe.products.create(
-      {
-        name: productName(name),
-        ...(input.description ? { description: input.description } : {}),
-        metadata: { source: "kouzia-erp" },
-      },
-      { idempotencyKey: `kouzia-service-product-${input.requestId}` },
-    );
-    const price = await stripe.prices.create(
-      {
-        product: product.id,
-        currency: "eur",
-        unit_amount: input.unitPriceCents,
-        ...(interval ? { recurring: { interval: interval === "YEAR" ? "year" : "month" } } : {}),
-      },
-      { idempotencyKey: `kouzia-service-price-${input.requestId}` },
-    );
-    productId = product.id;
-    priceId = price.id;
-  } catch (err) {
-    fail("Stripe n'a pas créé la prestation : rien n'a été enregistré.", err);
-  }
+  const { productId, priceId } = await createStripeProductAndPrice({
+    name,
+    description: input.description,
+    unitPriceCents: input.unitPriceCents,
+    interval,
+    requestId: input.requestId,
+  });
 
   const data = {
     name,
@@ -97,6 +117,42 @@ export async function createLinkedService(input: CreateLinkedServiceInput): Prom
     if (!isUniqueViolation(err)) throw err;
     return prisma.service.update({ where: { stripePriceId: priceId }, data });
   }
+}
+
+/**
+ * Prestation déjà dans l'ERP, pas encore liée (ex. maintenances créées au démarrage avec un identifiant fixe) :
+ * même produit, même prix et même nom que si elle avait été créée depuis Prestations avec Stripe actif. Son
+ * identifiant ne change pas (packs, devis et contrats qui la citent restent liés). Si Stripe échoue, rien ne change.
+ * Le webhook peut avoir créé entre-temps une prestation pour ce prix : ce doublon tout neuf est retiré.
+ */
+export async function linkExistingService(service: Service, requestId: string): Promise<Service> {
+  if (service.stripeProductId) return service;
+  if (service.isPack) throw new StripeCatalogError("Un pack n'est jamais lié à Stripe.");
+  const interval: Interval | null = service.isSubscription ? (service.billingInterval === "YEAR" ? "YEAR" : "MONTH") : null;
+  const name = erpServiceName(productName(service.name), interval);
+  const livemode = await keyLivemode();
+  const { productId, priceId } = await createStripeProductAndPrice({
+    name,
+    description: service.description?.trim() || null,
+    unitPriceCents: service.unitPriceCents,
+    interval,
+    requestId,
+  });
+  return prisma.$transaction(async (tx) => {
+    const dup = await tx.service.findUnique({
+      where: { stripePriceId: priceId },
+      include: { _count: { select: { invoiceLines: true, subscriptions: true, inPacks: true, clientNeeds: true, packItems: true } } },
+    });
+    if (dup && dup.id !== service.id) {
+      const used = Object.values(dup._count).some((n) => n > 0);
+      if (used) throw new StripeCatalogError(`Le prix Stripe ${priceId} porte déjà la prestation « ${dup.name} ».`);
+      await tx.service.delete({ where: { id: dup.id } });
+    }
+    return tx.service.update({
+      where: { id: service.id },
+      data: { name, billingInterval: interval, stripeProductId: productId, stripePriceId: priceId, stripeLivemode: livemode },
+    });
+  });
 }
 
 /**

@@ -95,7 +95,15 @@ beforeAll(async () => {
   ins("LegalClause", { id: "clause_vat", kind: "VAT", title: "Franchise en base de TVA", body: "TVA non applicable, art. 293 B du CGI", required: 1, active: 1 });
   ids.pack = ins("Service", { id: "svc_pack", name: "Pack Vitrine", unitPriceCents: 140000, isPack: 1, annualPriceCents: 150000, category: null });
   ids.site = ins("Service", { id: "svc_site", name: "Site vitrine", unitPriceCents: 130000, category: "SITE" });
-  ids.maint = ins("Service", { id: "svc_maint", name: "Maintenance", unitPriceCents: 2900, isSubscription: 1, billingInterval: "MONTH", buyoutServiceId: "svc_site", stripePriceId: "price_1", stripeLivemode: 0 });
+  ids.maint = ins("Service", { id: "svc_maint", name: "Maintenance", unitPriceCents: 2900, isSubscription: 1, billingInterval: "MONTH", buyoutServiceId: "svc_site", stripeProductId: "prod_maint", stripePriceId: "price_1", stripeLivemode: 0 });
+  // Prestation supprimée de l'ERP : reste son produit Stripe (webhooks du catalogue) et un code promo qui la cite.
+  const evt = (id: string, type: string, object: Record<string, unknown>, at: number) =>
+    ins("StripeWebhookEvent", { id, eventId: `evt_${id}`, eventType: type, payload: JSON.stringify({ type, data: { object } }), processedAt: at, status: "DONE" });
+  evt("w1", "product.created", { id: "prod_old", name: "Maintenance Site", active: true }, now - 30 * DAY);
+  evt("w2", "price.created", { id: "price_old", product: "prod_old", unit_amount: 65000, recurring: { interval: "year" } }, now - 30 * DAY + 1);
+  evt("w3", "product.updated", { id: "prod_old", name: "Maintenance Site", active: false }, now - DAY);
+  evt("w4", "product.updated", { id: "prod_maint", name: "Maintenance", active: true }, now - DAY);
+  ins("PromoCode", { id: "promo_1", code: "BIENVENUE", kind: "PERCENT", value: 1000, serviceIds: JSON.stringify(["svc_maint", "svc_gone"]) });
   ins("ServicePackItem", { id: "item1", packId: "svc_pack", serviceId: "svc_site", quantity: 1, position: 0 });
   const client = ins("Client", { id: "cli_1", type: "B2B", displayName: CLIENT.company, firstName: CLIENT.first, lastName: CLIENT.last, companyName: CLIENT.company, addressLine1: null, postalCode: null, city: null });
   ins("Client", { id: "cli_2", type: "ASSOCIATION", displayName: "Amicale Laïque", addressLine1: CLIENT.street, postalCode: "29600", city: "Morlaix" });
@@ -234,6 +242,11 @@ describe("audit : rapport complet", () => {
     const maint = r.catalogue.prestations.find((s: { id: string }) => s.id === "svc_maint");
     expect(maint).toMatchObject({ intervalle: "MONTH", rachat: { id: "svc_site", nom: "Site vitrine" }, stripe: "test" });
     expect(r.catalogue.prestations.find((s: { id: string }) => s.id === "svc_pack")).toMatchObject({ pack: true, prix_annuel_cents: 150000 });
+    expect(r.catalogue.supprimees).toEqual([
+      { etat: "supprimée", id: "svc_gone", nom: null, cite_par: ["code promo BIENVENUE"] },
+      expect.objectContaining({ etat: "supprimée", id: null, nom: "Maintenance Site", produit_stripe: "archivé", prix_cents: 65000, intervalle: "YEAR" }),
+    ]);
+    expect(runReport(["--text"]).stdout).toContain("Maintenance Site | supprimée | 650,00 €");
     expect(r.catalogue.contenu_des_packs).toEqual([expect.objectContaining({ pack_id: "svc_pack", prestation_id: "svc_site", quantite: 1 })]);
     expect(r.comptes.clients_par_type).toEqual({ ASSOCIATION: 1, B2B: 1 });
     expect(r.comptes.abonnements_par_engagement).toEqual({ "sans engagement": 2 });

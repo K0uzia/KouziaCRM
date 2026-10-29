@@ -32,6 +32,8 @@ import { catalogOption } from "@/lib/catalog-options";
 import { DataTable, type DataColumn } from "@/components/ui/DataTable";
 import { BuyoutSection } from "@/components/subscriptions/BuyoutSection";
 import { LoadState } from "@/pages/site/shared";
+import { FilterBar, FilterSegment } from "@/components/ui/ListFilters";
+import { useUrlFilters } from "@/lib/use-url-filters";
 import {
   eurosInputToCents,
   INTERVAL_OPTIONS,
@@ -401,14 +403,38 @@ export function SubscriptionsPage() {
     }
   }
 
+  // « Archiver » archive toujours (jamais de suppression) : l'offre reste dans « Archivées », Stripe compris.
   async function archiveOffer(o: Service) {
     try {
-      const res = await api<{ archived: boolean }>(`/api/services/${o.id}`, { method: "DELETE" });
-      toast.success(res.archived ? "Offre archivée (utilisée par des contrats ou documents)" : "Offre supprimée");
+      await api<{ archived: boolean }>(`/api/services/${o.id}?archive=1`, { method: "DELETE" });
+      toast.success("Offre archivée : elle reste visible dans les archives");
       setOfferToArchive(null);
       await load();
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Suppression impossible");
+      toast.error(e instanceof Error ? e.message : "Archivage impossible");
+    }
+  }
+
+  /** Offre archivée non liée à Stripe : remise au catalogue (liée : un produit Stripe archivé ne revient pas d'ici). */
+  async function restoreOffer(o: Service) {
+    try {
+      await api(`/api/services/${o.id}`, {
+        method: "PUT",
+        body: JSON.stringify({
+          name: o.name,
+          description: o.description ?? null,
+          unitPriceEuros: o.unitPriceCents / 100,
+          unit: "FORFAIT",
+          active: true,
+          isSubscription: true,
+          // Périodicité absente : celle de l'offre est gardée.
+          defaultBillingDay: o.defaultBillingDay ?? 1,
+        }),
+      });
+      toast.success("Offre réactivée");
+      await load();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Erreur");
     }
   }
 
@@ -586,6 +612,11 @@ export function SubscriptionsPage() {
   const [tab, setTab] = useTabParam(["offres", "contrats"] as const, "offres");
   const navigate = useNavigate();
   const activeOffers = offers.filter((o) => o.active);
+  const archivedOffers = offers.filter((o) => !o.active);
+  // Offres archivées dans l'URL (?archivees=1), comme dans Prestations.
+  const filters = useUrlFilters();
+  const offerView = filters.params.get("archivees") === "1" ? "archived" : "active";
+  const shownOffers = offerView === "active" ? activeOffers : archivedOffers;
   // ?contrat=<id> (lien depuis un devis de rachat) : ouvre la fiche du contrat.
   const [selectedId, setSelectedId] = useState<string | null>(() => params.get("contrat"));
   useEffect(() => {
@@ -791,11 +822,28 @@ export function SubscriptionsPage() {
             />
         ) : (
             <Card className="overflow-hidden">
+              {archivedOffers.length > 0 || offerView === "archived" ? (
+                <div className="border-b border-[var(--border)] p-3 sm:p-4">
+                  <FilterBar>
+                    <FilterSegment
+                      label="État"
+                      value={offerView}
+                      onChange={(v) => filters.set({ archivees: v === "archived" ? "1" : null })}
+                      options={[
+                        { id: "active", label: "Actives", count: activeOffers.length },
+                        { id: "archived", label: "Archivées", count: archivedOffers.length },
+                      ]}
+                    />
+                  </FilterBar>
+                </div>
+              ) : null}
               {loadError || !loaded ? (
                 <LoadState loading={!loadError} error={loadError} onRetry={reload}>
                   {null}
                 </LoadState>
-              ) : activeOffers.length === 0 ? (
+              ) : offerView === "archived" && archivedOffers.length === 0 ? (
+                <EmptyState title="Aucun abonnement archivé." />
+              ) : offerView === "active" && activeOffers.length === 0 ? (
                 <EmptyState
                   title="Aucun abonnement."
                   hint="Hébergement, maintenance… : l'offre que vos contrats reprennent ensuite."
@@ -808,15 +856,17 @@ export function SubscriptionsPage() {
                 />
               ) : (
                 <ul className="divide-y divide-[var(--border)]">
-                  {offers
-                    .filter((o) => o.active)
+                  {shownOffers
                     .map((o) => (
                       <li
                         key={o.id}
                         className="flex flex-col gap-3 px-5 py-4 transition-colors hover:bg-[var(--surface-raised)] sm:flex-row sm:items-center"
                       >
                         <div className="min-w-0 flex-1">
-                          <p className="font-medium">{o.name}</p>
+                          <div className="flex flex-wrap items-center gap-2">
+                            <p className="font-medium">{o.name}</p>
+                            {!o.active ? <Badge tone="neutral">Archivée</Badge> : null}
+                          </div>
                           {o.description ? <p className="mt-1 text-sm text-[var(--muted)]">{o.description}</p> : null}
                           <p className="mt-1 text-xs text-[var(--muted)]">
                             {normalizeInterval(o.billingInterval) === "YEAR"
@@ -848,6 +898,12 @@ export function SubscriptionsPage() {
                                 />
                               </a>
                             ) : null}
+                            {!o.active && !o.stripeProductId ? (
+                              <Button variant="secondary" className="px-3 text-sm" onClick={() => void restoreOffer(o)}>
+                                Réactiver
+                              </Button>
+                            ) : null}
+                            {o.active ? (
                             <>
                                 <Button
                                   variant="ghost"
@@ -868,6 +924,7 @@ export function SubscriptionsPage() {
                                   <FontAwesomeIcon icon={faTrash} className="h-3.5 w-3.5" aria-hidden />
                                 </Button>
                             </>
+                            ) : null}
                           </div>
                         </div>
                       </li>
@@ -881,9 +938,9 @@ export function SubscriptionsPage() {
 
       <ConfirmDialog
         open={Boolean(offerToArchive)}
-        title="Retirer cette offre"
-        message={`« ${offerToArchive?.name ?? ""} » ne sera plus proposée. Les contrats en cours ne changent pas ; si l'offre est déjà utilisée, elle est archivée.${offerToArchive?.stripeProductId ? " Elle est aussi archivée dans Stripe : les prélèvements en cours continuent." : ""}`}
-        confirmLabel="Retirer"
+        title="Archiver cette offre"
+        message={`« ${offerToArchive?.name ?? ""} » ne sera plus proposée ; elle reste dans « Archivées ». Les contrats en cours ne changent pas.${offerToArchive?.stripeProductId ? " Elle est aussi archivée dans Stripe : les prélèvements en cours continuent." : ""}`}
+        confirmLabel="Archiver"
         danger
         onConfirm={() => offerToArchive && void archiveOffer(offerToArchive)}
         onClose={() => setOfferToArchive(null)}
