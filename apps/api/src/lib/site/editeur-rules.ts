@@ -14,6 +14,8 @@ export type Editeur = {
   variables?: string[];
   liens?: boolean;
   obsolete?: boolean;
+  /** Pages où le texte paraît vraiment, pour un texte commun à quelques pages (« page » vaut alors « global »). */
+  affichage?: string[];
 };
 
 export type JsonSchemaNode = {

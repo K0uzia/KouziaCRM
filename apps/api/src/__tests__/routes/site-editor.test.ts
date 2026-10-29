@@ -78,6 +78,8 @@ describe("/api/site/editor (« Tous les textes », lot L1)", () => {
     expect(body.editeur.types).toContain("booleen");
     expect(body.editeur.pages).toContain("tracebay");
     expect(body.cibles.tracebay).toMatchObject({ chemin: expect.stringMatching(/^\//) });
+    // Variables fixées par le site ({ville}) : aperçu des phrases assemblées et recherche sur le texte lu.
+    expect(body.valeursVariables).toEqual({ ville: "Huelgoat" });
     const pages = body.docs.find((doc: { id: string }) => doc.id === "pages");
     expect(pages.value).toBeNull();
     expect(pages.defaults.pages.tracebay).toBeDefined();
