@@ -1068,7 +1068,8 @@ function DocumentBody({ company, invoice, styles }: { company: PdfCompanySetting
                   <Text style={styles.muted}>
                     {m.triggerText}
                     {m.dueDate ? `, échéance ${fmtDate(m.dueDate)}` : ""}
-                    {m.status ? ` (${m.status})` : ""}
+                    {/* Devis pas encore signé : l'état d'une échéance n'apprend rien au client. */}
+                    {m.status && !isQuote ? ` (${m.status})` : ""}
                   </Text>
                 </View>
                 <Text style={styles.strong}>{fmtMoney(m.amountCents)}</Text>

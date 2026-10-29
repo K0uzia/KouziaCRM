@@ -88,4 +88,24 @@ describe("PDF : tableau des rythmes à la place de l'encadré Abonnement (29/10/
     expect(text).toContain("Conditions générales de vente applicables (version du 28/10/2026) : https://kouzia.com/cgv");
     expect(text).not.toContain("2026-10-28");
   });
+
+  it("échéancier d'un devis sans l'état « En attente »", async () => {
+    const client = await createClient({ displayName: "Atelier Échéances", type: "B2B" });
+    const res = await call("POST", "/api/invoices", {
+      clientId: client.id,
+      documentType: "QUOTE",
+      billingMode: "ONE_OFF",
+      paymentPlanOffer: "TWO",
+      lines: [{ description: "Site vitrine", quantity: 1, unitPriceEuros: 1650 }],
+    });
+    expect(res.statusCode, res.body).toBe(201);
+    const id = res.json().id as string;
+    expect((await call("POST", `/api/invoices/${id}/issue`, { email: { send: false } })).statusCode).toBe(200);
+    const data = await pdfDataOfLoaded((await loadDocumentForPdf(id))!);
+    expect(data.invoice.milestones.length).toBeGreaterThan(0);
+    const text = pdfText(await renderInvoicePdf(data));
+    expect(text).toContain("30 jours après la signature");
+    expect(text).not.toContain("En attente");
+  });
 });
+
