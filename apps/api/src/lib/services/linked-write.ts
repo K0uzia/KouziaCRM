@@ -2,6 +2,7 @@ import type { Service } from "@prisma/client";
 import { prisma } from "@/lib/prisma.js";
 import { getStripe } from "@/lib/stripe/client.js";
 import { assertSameMode } from "@/lib/stripe/mode.js";
+import { clientServiceName } from "@/lib/services/annual-price.js";
 import { archiveLinkedService, changeLinkedServicePrice, StripeCatalogError } from "@/lib/stripe/catalog-write.js";
 
 /**
@@ -20,7 +21,7 @@ export type LinkedServiceUpdate = {
 };
 
 /** Nom du produit Stripe : celui de l'ERP sans le suffixe « (annuel) » ajouté pour les offres annuelles. */
-const productName = (name: string) => name.replace(/\s*\(annuel\)\s*$/i, "").trim();
+const productName = clientServiceName;
 
 /**
  * Prestation liée : type et périodicité appartiennent au prix Stripe (lecture seule). Nom et description sont

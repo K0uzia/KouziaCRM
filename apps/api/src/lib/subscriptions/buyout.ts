@@ -2,6 +2,7 @@ import { InvoiceDocumentType, InvoiceStatus, QuoteStatus, SubscriptionStatus, ty
 import { prisma } from "@/lib/prisma.js";
 import { formatDateFr } from "@/lib/format-fr.js";
 import { lineTotalCents } from "@/lib/money.js";
+import { clientServiceName } from "@/lib/services/annual-price.js";
 import { currentPeriodEndOf, normalizeInterval, remainingCommitmentPeriods } from "@/lib/subscriptions/subscription-service.js";
 
 /**
@@ -140,7 +141,7 @@ async function createBuyoutQuoteNow(subscriptionId: string, now: Date) {
   const lines = [
     {
       position: 1,
-      description: `${state.service.name} (abonnement « ${sub.label} », fin le ${end})`,
+      description: `${clientServiceName(state.service.name)} (abonnement « ${sub.label} », fin le ${end})`,
       quantity: 1,
       unitPriceCents: state.service.unitPriceCents,
       lineTotalCents: state.service.unitPriceCents,

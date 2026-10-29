@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma.js";
 import { getStripe } from "@/lib/stripe/client.js";
 import { alertAdmin } from "@/lib/stripe/alert.js";
 import { keyLivemode, modeLabel } from "@/lib/stripe/mode.js";
+import { clientServiceName } from "@/lib/services/annual-price.js";
 
 /**
  * Filet : une synchro qui archiverait d'un coup plus de 3 prestations, ou plus de 20 % des
@@ -202,14 +203,14 @@ export async function pushCatalogToStripe(): Promise<PushCatalogResult[]> {
     let productId = service.stripeProductId;
     if (!productId) {
       const product = await stripe.products.create({
-        name: service.name.replace(/\s*\(annuel\)\s*$/i, "").trim(),
+        name: clientServiceName(service.name),
         description: service.description ?? undefined,
         metadata: { erpServiceId: service.id },
       });
       productId = product.id;
     } else {
       await stripe.products.update(productId, {
-        name: service.name.replace(/\s*\(annuel\)\s*$/i, "").trim(),
+        name: clientServiceName(service.name),
         description: service.description ?? undefined,
         active: true,
       });

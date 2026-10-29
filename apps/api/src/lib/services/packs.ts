@@ -2,7 +2,7 @@ import { z } from "zod";
 import type { Service } from "@prisma/client";
 import { prisma } from "@/lib/prisma.js";
 import { periodAmountCents } from "@/lib/quotes/billing-mode.js";
-import { annualPriceOfService } from "@/lib/services/annual-price.js";
+import { annualPriceOfService, clientServiceName, serviceLineText } from "@/lib/services/annual-price.js";
 import { getCompanySettings } from "@/lib/company.js";
 import { oneOffEquivalents } from "@/lib/services/maintenance-offers.js";
 import type { BillingMode } from "@/lib/quotes/payment-plans.js";
@@ -47,7 +47,7 @@ export async function validatePack(items: PackItemInput[], priceCents: number, p
 
 /** « Site vitrine, Rédaction (2), Maintenance » : contenu d'un pack, dans l'ordre de la fiche. */
 export function packContents(items: Array<{ quantity: number; service: Pick<Service, "name"> }>): string {
-  return items.map((i) => (i.quantity > 1 ? `${i.service.name} (${i.quantity})` : i.service.name)).join(", ");
+  return items.map((i) => (i.quantity > 1 ? `${clientServiceName(i.service.name)} (${i.quantity})` : clientServiceName(i.service.name))).join(", ");
 }
 
 /**
@@ -71,7 +71,7 @@ export async function packModeLines(packId: string, mode: BillingMode, interval:
     const options: PackLine[] = (await oneOffEquivalents(pack.packItems.filter((i) => i.service.isSubscription).map((i) => i.service)))
       .map((service) => ({
         serviceId: service.id,
-        description: service.description ? `${service.name} : ${service.description}` : service.name,
+        description: serviceLineText(service),
         quantity: 1,
         // Prix annuel : même règle que l'éditeur (prix annuel du catalogue, sinon 12 mois moins les mois offerts).
         unitPriceCents: annualPriceOfService(service, annualFreeMonths),
@@ -123,7 +123,7 @@ export async function packLines(packId: string): Promise<PackLine[]> {
   if (!pack || !pack.isPack) throw new PackError("Pack introuvable.");
   const lines: PackLine[] = pack.packItems.map(({ quantity, service }) => ({
     serviceId: service.id,
-    description: service.description ? `${service.name} : ${service.description}` : service.name,
+    description: serviceLineText(service),
     quantity: service.isSubscription ? 1 : quantity,
     unitPriceCents: service.unitPriceCents,
     isSubscription: service.isSubscription,

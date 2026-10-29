@@ -6,7 +6,7 @@ import { api, formatEUR } from "@/lib/api";
 import { offlineEnabled } from "@/lib/offline/config";
 import { isLocalClientId, submitCreation, useRequestId } from "@/lib/offline/queue";
 import { euros, formatPercentBps } from "@/lib/format";
-import { annualPriceOfService } from "@kouzia-erp/annual-price";
+import { annualPriceOfService, clientServiceName, serviceLineText } from "@kouzia-erp/annual-price";
 import { Button } from "@/components/ui/Button";
 import { Modal, ModalActions } from "@/components/ui/Modal";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
@@ -510,7 +510,7 @@ export function DocumentFormEditor({
           }
           const offer = svc ? oneOffOffer(svc, services) : undefined;
           if (offer && offer !== svc) {
-            out.push(optionalLine({ ...l, serviceId: offer.id, description: offer.description ? `${offer.name} : ${offer.description}` : offer.name }, annualOfService(offer, "YEAR")));
+            out.push(optionalLine({ ...l, serviceId: offer.id, description: serviceLineText(offer) }, annualOfService(offer, "YEAR")));
             optional.push(offer.name);
             continue;
           }
@@ -584,7 +584,7 @@ export function DocumentFormEditor({
         const offer = oneOffOffer(svc, services);
         placeLine(
           optionalLine(
-            { serviceId: offer.id, description: offer.description ? `${offer.name} : ${offer.description}` : offer.name, quantity: "1", billingDay: String(clients.find((c) => c.id === form.clientId)?.billingDay ?? offer.defaultBillingDay ?? 1) },
+            { serviceId: offer.id, description: serviceLineText(offer), quantity: "1", billingDay: String(clients.find((c) => c.id === form.clientId)?.billingDay ?? offer.defaultBillingDay ?? 1) },
             annualOfService(offer, "YEAR"),
           ),
         );
@@ -598,7 +598,7 @@ export function DocumentFormEditor({
       if (svc.isSubscription) {
         placeLine(
           recurringLine(
-            { serviceId, description: svc.description ? `${svc.name} : ${svc.description}` : svc.name, quantity: "1", billingDay: form.recurring.billingDay },
+            { serviceId, description: serviceLineText(svc), quantity: "1", billingDay: form.recurring.billingDay },
             annualOfService(svc, form.recurring.interval),
           ),
         );
@@ -611,7 +611,7 @@ export function DocumentFormEditor({
     const clientDay = clients.find((c) => c.id === form.clientId)?.billingDay;
     const line: DocLine = {
       serviceId,
-      description: svc.description ? `${svc.name} : ${svc.description}` : svc.name,
+      description: serviceLineText(svc),
       unitPriceEuros: (svc.unitPriceCents / 100).toFixed(2),
       isSubscription: isSub,
       billingDay: String(clientDay ?? svc.defaultBillingDay ?? 1),
@@ -911,8 +911,9 @@ export function DocumentFormEditor({
     if (!line.serviceId || line.editText) return null;
     const svc = services.find((x) => x.id === line.serviceId);
     if (!svc) return null;
-    const text = svc.description ? `${svc.name} : ${svc.description}` : svc.name;
-    if (line.description === text) return { title: svc.name, description: svc.description };
+    // Brouillon d'avant le 29/10/2026 : texte au nom ERP, suffixe « (annuel) » compris, reconnu aussi.
+    const legacy = svc.description ? `${svc.name} : ${svc.description}` : svc.name;
+    if (line.description === serviceLineText(svc) || line.description === legacy) return { title: clientServiceName(svc.name), description: svc.description };
     // Pack d'un devis avec mode : « Nom : contenu », texte produit par l'API (pack-lines).
     if (svc.isPack && line.description.startsWith(`${svc.name} : `)) return { title: svc.name, description: line.description.slice(svc.name.length + 3) };
     return null;

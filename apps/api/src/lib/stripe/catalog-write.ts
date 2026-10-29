@@ -2,6 +2,7 @@ import { Prisma, ServiceUnit, type Service } from "@prisma/client";
 import { prisma } from "@/lib/prisma.js";
 import { getStripe } from "@/lib/stripe/client.js";
 import { keyLivemode } from "@/lib/stripe/mode.js";
+import { clientServiceName } from "@/lib/services/annual-price.js";
 
 /** Stripe a refusé l'écriture : rien n'a changé dans l'ERP. */
 export class StripeCatalogError extends Error {
@@ -15,9 +16,7 @@ export function erpServiceName(base: string, interval: Interval | null): string 
   return interval === "YEAR" ? `${base.trim()} (annuel)` : base.trim();
 }
 
-function productName(serviceName: string): string {
-  return serviceName.replace(/\s*\(annuel\)\s*$/i, "").trim();
-}
+const productName = clientServiceName;
 
 function fail(what: string, err: unknown): never {
   const detail = err instanceof Error && err.message ? ` Détail Stripe : ${err.message.replace(/\.$/, "")}.` : "";

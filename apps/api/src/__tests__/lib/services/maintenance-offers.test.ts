@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { prisma } from "@/lib/prisma.js";
 import {
   ensureMaintenanceOffers,
+  HOSTING_UPGRADE_MARKER,
   MAINTENANCE_PACK_ID,
   MAINTENANCE_SITE_ID,
   MAINTENANCE_UPGRADE_MARKER,
@@ -88,6 +89,45 @@ describe("offres de maintenance du site (mise à niveau au démarrage)", () => {
     expect((await prisma.service.findUniqueOrThrow({ where: { id: old.id } })).active).toBe(true);
     expect(log.join("\n")).toContain("Stripe");
     expect(await prisma.servicePackItem.count({ where: { packId: pack.id, serviceId: MAINTENANCE_PACK_ID } })).toBe(1);
+  });
+
+  it("hébergement remplacé dans les packs par la maintenance pack, une seule fois", async () => {
+    await ensureMaintenanceOffers();
+    // Production : première mise à niveau déjà passée, pack resté avec l'hébergement.
+    await prisma.namedCounter.delete({ where: { name: HOSTING_UPGRADE_MARKER } });
+    const hosting = await prisma.service.create({ data: { name: "Hébergement (annuel)", unitPriceCents: 12000, isSubscription: true, billingInterval: "YEAR" } });
+    const site = await prisma.service.create({ data: { name: "Site une page", unitPriceCents: 70000, isSubscription: false } });
+    const packOf = (name: string, unitPriceCents: number) =>
+      prisma.service.create({
+        data: {
+          name,
+          unitPriceCents,
+          description: "Site une page et fiche Google Maps, avec l'hébergement à l'année.",
+          isPack: true,
+          packItems: { create: [{ serviceId: site.id, quantity: 1, position: 0 }, { serviceId: hosting.id, quantity: 1, position: 1 }] },
+        },
+      });
+    const lancement = await packOf("Pack Lancement", 80000);
+    const other = await packOf("Pack Lancement maison", 95000);
+
+    const log = await ensureMaintenanceOffers();
+    for (const pack of [lancement, other]) {
+      const items = await prisma.servicePackItem.findMany({ where: { packId: pack.id }, orderBy: { position: "asc" } });
+      expect(items.map((i) => [i.serviceId, i.position])).toEqual([[site.id, 0], [MAINTENANCE_PACK_ID, 1]]);
+    }
+    expect(await prisma.service.findUniqueOrThrow({ where: { id: lancement.id } })).toMatchObject({
+      unitPriceCents: 80000,
+      description: "Site une page et fiche Google Maps, avec la maintenance du site à l'année.",
+    });
+    // Autre pack : prix inchangé ; hébergement gardé au catalogue, actif.
+    expect((await prisma.service.findUniqueOrThrow({ where: { id: other.id } })).unitPriceCents).toBe(95000);
+    expect((await prisma.service.findUniqueOrThrow({ where: { id: hosting.id } })).active).toBe(true);
+    expect(log).toContain("Pack Lancement : « Hébergement (annuel) » remplacée par « Maintenance site (pack) »");
+
+    // Relancé : rien ne change (hébergement remis à la main dans un pack : laissé).
+    await prisma.servicePackItem.create({ data: { packId: other.id, serviceId: hosting.id, quantity: 1, position: 2 } });
+    expect(await ensureMaintenanceOffers()).toEqual([]);
+    expect(await prisma.servicePackItem.count({ where: { serviceId: hosting.id } })).toBe(1);
   });
 
   it("paiement unique : le pack propose Maintenance site à 350 € en option ; récurrent : il comprend la maintenance pack", async () => {

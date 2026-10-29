@@ -2,7 +2,7 @@ import { ServiceUnit, type PrismaClient, type Service } from "@prisma/client";
 import { getCompanySettings } from "@/lib/company.js";
 import { createLinkedService } from "@/lib/stripe/catalog-write.js";
 import { removeService, updateLinkedService } from "@/lib/services/linked-write.js";
-import { MAINTENANCE_DESCRIPTION, MAINTENANCE_PACK_ID, MAINTENANCE_SITE_ID } from "@/lib/services/maintenance-offers.js";
+import { LANCEMENT_PACK, MAINTENANCE_DESCRIPTION, MAINTENANCE_PACK_ID, MAINTENANCE_SITE_ID } from "@/lib/services/maintenance-offers.js";
 
 /**
  * Catalogue Kouzia (grille validée par Alexandre) : prix ronds, nets, pensés pour les petites structures
@@ -223,10 +223,10 @@ export const CATALOG: CatalogEntry[] = [
 
 export const CATALOG_PACKS: CatalogPack[] = [
   {
-    name: "Pack Lancement",
-    description: "Site une page et fiche Google Maps, avec l'hébergement à l'année.",
-    priceCents: 80000,
-    items: ["Site une page", "Fiche Google Maps", "Hébergement"],
+    name: LANCEMENT_PACK.name,
+    description: LANCEMENT_PACK.description,
+    priceCents: LANCEMENT_PACK.priceCents,
+    items: ["Site une page", "Fiche Google Maps", "Maintenance site (pack)"],
   },
   {
     name: "Pack Vitrine",

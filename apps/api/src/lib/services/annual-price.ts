@@ -25,3 +25,17 @@ export function periodPriceOfAnnual(annualCents: number, interval: string | null
   const paidMonths = 12 - Math.min(11, Math.max(0, Math.round(annualFreeMonths) || 0));
   return Math.round((annualCents * (interval === "QUARTER" ? 3 : 1)) / paidMonths);
 }
+
+/**
+ * Nom d'une prestation lu par le client (devis, produit Stripe) : sans le suffixe « (annuel) » du nom ERP d'une offre
+ * annuelle. Depuis le rythme au choix (annuel, trimestriel, mensuel), il induirait en erreur (décision du 29/10/2026).
+ */
+export function clientServiceName(name: string): string {
+  return name.replace(/\s*\(annuel\)\s*$/i, "").trim();
+}
+
+/** Texte d'une ligne de devis venue du catalogue : « Nom : description », nom lu par le client. */
+export function serviceLineText(svc: { name: string; description?: string | null }): string {
+  const name = clientServiceName(svc.name);
+  return svc.description ? `${name} : ${svc.description}` : name;
+}

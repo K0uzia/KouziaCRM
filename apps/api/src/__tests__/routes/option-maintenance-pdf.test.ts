@@ -3,6 +3,7 @@ import type { FastifyInstance } from "fastify";
 import { prisma } from "@/lib/prisma.js";
 import { hashPassword, SESSION_COOKIE } from "@/lib/auth.js";
 import { writeSiteText } from "@/lib/site/texts.js";
+import { MAINTENANCE_PACK_ID, MAINTENANCE_SITE_ID } from "@/lib/services/maintenance-offers.js";
 import { resetDb } from "../helpers/db.js";
 import { createClient, createService, seedCompanySettings } from "../helpers/factories.js";
 
@@ -202,6 +203,53 @@ describe("PDF : option au choix et non compris", () => {
     const pdf = await renderInvoicePdf(await pdfDataOfLoaded((await loadDocumentForPdf(q.id))!));
     // Deux propositions courtes : page 1 (en-tête et A), page 2 (B et sections communes).
     expect(pdf.toString("latin1").match(/\/Type \/Page\b/g)?.length).toBe(2);
+  });
+
+  it("nouveau devis d'un pack : ni la ligne du pack ni l'option ne portent « (annuel) » ; un texte libre le garde", async () => {
+    const yearly = (id: string, name: string, unitPriceCents: number) =>
+      prisma.service.create({ data: { id, name, description: "Hébergement, sauvegardes et corrections.", unitPriceCents, isSubscription: true, billingInterval: "YEAR" } });
+    await yearly(MAINTENANCE_PACK_ID, "Maintenance site (pack) (annuel)", 19700);
+    await yearly(MAINTENANCE_SITE_ID, "Maintenance site (annuel)", 35000);
+    const commerce = await prisma.service.create({ data: { name: "Site commerce", unitPriceCents: 120000, isSubscription: false } });
+    const pack = await prisma.service.create({
+      data: {
+        name: "Pack commerce",
+        unitPriceCents: 150000,
+        annualPriceCents: 90000,
+        isPack: true,
+        packItems: { create: [{ serviceId: commerce.id, quantity: 1, position: 0 }, { serviceId: MAINTENANCE_PACK_ID, quantity: 1, position: 1 }] },
+      },
+    });
+    const recurring = (await call("GET", `/api/services/${pack.id}/pack-lines?mode=RECURRING&interval=MONTH`)).json() as Array<{ description: string }>;
+    expect(recurring[0]!.description).toBe("Pack commerce : Site commerce, Maintenance site (pack)");
+
+    const lines = (await call("GET", `/api/services/${pack.id}/pack-lines?mode=ONE_OFF`)).json() as Array<Record<string, unknown>>;
+    const client = await createClient({ displayName: "Client Pack Annuel" });
+    const res = await call("POST", "/api/invoices", {
+      clientId: client.id,
+      documentType: "QUOTE",
+      billingMode: "ONE_OFF",
+      paymentPlanOffer: "TWO",
+      lines: [
+        ...lines.map((l) => ({
+          serviceId: l.serviceId,
+          description: l.description,
+          quantity: 1,
+          unitPriceEuros: (l.unitPriceCents as number) / 100,
+          isSubscription: l.isSubscription,
+          ...(l.isOptional ? { isOptional: true, billingInterval: "YEAR", billingDay: 1, commitmentMonths: 12 } : {}),
+        })),
+        { description: "Nom de domaine supplémentaire (annuel)", quantity: 1, unitPriceEuros: 20 },
+      ],
+    });
+    expect(res.statusCode, res.body).toBe(201);
+    const id = res.json().id as string;
+    expect((await call("POST", `/api/invoices/${id}/issue`, { email: { send: false } })).statusCode).toBe(200);
+    const doc = await readable(id);
+    expect(doc.table?.rows.map((r) => r.cells[0])).toEqual(["Pack commerce : Site commerce", "Nom de domaine supplémentaire (annuel)"]);
+    const option = doc.sections.find((s) => s.heading === "Option au choix à la signature");
+    expect(option?.paragraphs[0]?.replace(/[  ]/g, " ")).toBe("Maintenance site : 350,00 € par an, engagement 12 mois à partir de la livraison");
+    expect(norm(doc).match(/\(annuel\)/g)).toEqual(["(annuel)"]);
   });
 
   it("aperçu du brouillon : rendu avec l'option", async () => {
