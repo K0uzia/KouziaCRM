@@ -102,7 +102,7 @@ describe("PDF : tableau des rythmes à la place de l'encadré Abonnement (29/10/
     const id = res.json().id as string;
     expect((await call("POST", `/api/invoices/${id}/issue`, { email: { send: false } })).statusCode).toBe(200);
     const data = await pdfDataOfLoaded((await loadDocumentForPdf(id))!);
-    expect(data.invoice.milestones.length).toBeGreaterThan(0);
+    expect(data.invoice.milestones?.length ?? 0).toBeGreaterThan(0);
     const text = pdfText(await renderInvoicePdf(data));
     expect(text).toContain("30 jours après la signature");
     expect(text).not.toContain("En attente");
