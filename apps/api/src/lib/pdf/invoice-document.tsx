@@ -215,6 +215,12 @@ function fmtDate(d: Date) {
   return formatDateFr(d);
 }
 
+/** Version des CGV « 2026-10-28 » affichée « 28/10/2026 » : la forme ISO se coupait d'un trait d'union en fin de ligne. */
+function cgvVersionLabel(version: string) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(version);
+  return m ? `${m[3]}/${m[2]}/${m[1]}` : version;
+}
+
 function fmtDateTime(d: Date) {
   return formatDateTimeShortFr(d);
 }
@@ -1331,7 +1337,7 @@ export function InvoiceDocument({ company, client, invoice, specimen, draft, pro
                   </Text>
                 ) : null}
                 {invoice.acceptance.cgvAccepted && invoice.cgv ? (
-                  <Text style={styles.muted}>CGV acceptées en ligne : version du {invoice.cgv.version}.</Text>
+                  <Text style={styles.muted}>CGV acceptées en ligne : version du {cgvVersionLabel(invoice.cgv.version)}.</Text>
                 ) : null}
                 <SignatureTermsLines acceptance={invoice.acceptance} muted={styles.muted} />
               </View>
@@ -1460,7 +1466,7 @@ export function InvoiceDocument({ company, client, invoice, specimen, draft, pro
           <LegalColumns columns={isQuote ? 2 : 1}>
           {isQuote && invoice.cgv ? (
             <Text wrap={false}>
-              Conditions générales de vente applicables : version du {invoice.cgv.version}, {invoice.cgv.url}
+              Conditions générales de vente applicables (version du {cgvVersionLabel(invoice.cgv.version)}) : {invoice.cgv.url}
             </Text>
           ) : null}
           <Text wrap={false}>

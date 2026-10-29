@@ -5,6 +5,7 @@ import { hashPassword, SESSION_COOKIE } from "@/lib/auth.js";
 import { invalidateCompanySettingsCache } from "@/lib/company.js";
 import { resetDb } from "../helpers/db.js";
 import { createClient, createService, seedCompanySettings } from "../helpers/factories.js";
+import { pdfText } from "../helpers/pdf-text.js";
 
 // PDF d'un devis à rythme au choix (retour d'Alexandre du 29/10/2026) : le tableau des rythmes remplace l'encadré
 // « Abonnement X / an », avec la remise par rythme ; la ligne de remise revient dans le tableau des lignes.
@@ -76,5 +77,15 @@ describe("PDF : tableau des rythmes à la place de l'encadré Abonnement (29/10/
     expect(n(table)).toContain("Départ de la facturation");
     const { ok } = await snapshotFor(await renderInvoicePdf(data), readableInvoice(data, "ARCHIVE"));
     expect(ok).toBe(true);
+  });
+
+  it("version des CGV en date française, sans trait d'union de coupure", async () => {
+    await prisma.companySettings.updateMany({ data: { cgvPublished: true, cgvUrl: "https://kouzia.com/cgv", cgvVersion: "2026-10-28" } });
+    invalidateCompanySettingsCache();
+    const { id } = await issuedQuote();
+    const data = await pdfDataOfLoaded((await loadDocumentForPdf(id))!);
+    const text = pdfText(await renderInvoicePdf(data)).replace(/\s+/g, " ");
+    expect(text).toContain("Conditions générales de vente applicables (version du 28/10/2026) : https://kouzia.com/cgv");
+    expect(text).not.toContain("2026-10-28");
   });
 });
