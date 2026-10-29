@@ -12,16 +12,26 @@ import {
   childFields,
   choices,
   collectFields,
+  fieldPages,
   getAt,
   issueBelongsTo,
+  itemTitle,
+  joinLabels,
+  normalizeSearch,
   pageLabel,
+  phrasesOf,
+  renderPhrase,
+  searchText,
   setAt,
   skeleton,
   textConstraints,
   type Doc,
   type Editeur,
   type Field as SchemaField,
+  type Path,
+  type PhraseContext,
   type SchemaNode,
+  type Segment,
 } from "@/lib/site-editor";
 import { ImageField, LoadState } from "./shared";
 import { ResyncDialog } from "./ResyncDialog";
@@ -40,6 +50,8 @@ type EditorResponse =
       siteUrls: { online: string; local: string | null };
       editeur: { pages: string[]; types: string[] } | null;
       cibles: Record<string, { libelle: string; chemin: string }>;
+      /** Valeur des variables fixées par le site ({ville}) ; les autres viennent des coordonnées. */
+      valeursVariables?: Record<string, string>;
       docs: EditorDoc[];
     }
   | { available: false; error: string };
@@ -87,9 +99,10 @@ export function SiteAllTextsPage() {
   const fields = useMemo(() => (data ? data.docs.flatMap((d) => collectFields(d.id, d.schema)) : []), [data]);
   const pages = useMemo(() => {
     const order = data?.editeur?.pages ?? [];
-    const used = new Set(fields.map((f) => f.editeur.page));
+    const used = new Set(fields.flatMap((f) => fieldPages(f.editeur)));
     return [...order.filter((p) => used.has(p)), ...[...used].filter((p) => !order.includes(p))];
   }, [data, fields]);
+  const countOn = (p: string) => fields.filter((f) => fieldPages(f.editeur).includes(p)).length;
   const page = pages.includes(params.get("page") ?? "") ? params.get("page")! : pages[0];
 
   const docOf = (id: string) => data!.docs.find((d) => d.id === id)!;
@@ -130,10 +143,25 @@ export function SiteAllTextsPage() {
     list.filter((i) => !fields.some((f) => f.doc === doc && issueBelongsTo(i.path, f))).map((i) => `${docOf(doc).label} : ${i.path || "document"} : ${i.message}`),
   );
 
-  const q = query.trim().toLowerCase();
-  const visible = q
-    ? fields.filter((f) => `${f.editeur.libelle} ${f.editeur.section} ${JSON.stringify(getAt(drafts[f.doc], f.path) ?? "")}`.toLowerCase().includes(q))
-    : fields.filter((f) => f.editeur.page === page);
+  // Aperçu des phrases assemblées : valeur saisie, sinon texte actuel du site ; variables des coordonnées en cours.
+  const ctxOf = (docId: string): PhraseContext => {
+    const str = (v: unknown) => (typeof v === "string" && v ? v : undefined);
+    const infos = (drafts.infos as { infos?: Record<string, unknown> } | null | undefined)?.infos ?? {};
+    const libelles = (v: unknown) => (v as { libelles?: Record<string, string> } | null | undefined)?.libelles ?? {};
+    const menus = libelles(drafts.menus);
+    const menusDefaults = libelles(data?.docs.find((d) => d.id === "menus")?.defaults);
+    const defaults = data?.docs.find((d) => d.id === docId)?.defaults;
+    return {
+      value: (path: Path) => getAt(drafts[docId], path) ?? getAt(defaults, path),
+      page: (id) => menus[id] ?? menusDefaults[id] ?? pageLabel(id, data?.cibles ?? {}),
+      variables: { ...data?.valeursVariables, email: str(infos.email), telephone: str(infos.telephone), delaiReponse: str(infos.delaiReponse) },
+    };
+  };
+  const previewsOf = (f: SchemaField): Segment[][] => phrasesOf(docOf(f.doc).schema, f.path).map((ph) => renderPhrase(ph, ctxOf(f.doc), f.path));
+
+  // Recherche sur ce qui se lit sur le site : texte saisi ou actuel (variables remplacées) et phrases assemblées.
+  const q = normalizeSearch(query);
+  const visible = q ? fields.filter((f) => searchText(f, docOf(f.doc).schema, ctxOf(f.doc)).includes(q)) : fields.filter((f) => fieldPages(f.editeur).includes(page));
   const sections = groupBy(visible, (f) => `${f.editeur.page}\u0000${f.editeur.section}`);
 
   return (
@@ -170,7 +198,7 @@ export function SiteAllTextsPage() {
                 <Select value={page} onChange={(e) => setParams({ page: e.target.value })}>
                   {pages.map((p) => (
                     <option key={p} value={p}>
-                      {pageLabel(p, data.cibles)} ({fields.filter((f) => f.editeur.page === p).length})
+                      {pageLabel(p, data.cibles)} ({countOn(p)})
                     </option>
                   ))}
                 </Select>
@@ -186,7 +214,7 @@ export function SiteAllTextsPage() {
                       }`}
                     >
                       <span className="min-w-0 truncate">{pageLabel(p, data.cibles)}</span>
-                      <span className="text-xs">{fields.filter((f) => f.editeur.page === p).length}</span>
+                      <span className="text-xs">{countOn(p)}</span>
                     </Link>
                   </li>
                 ))}
@@ -209,10 +237,11 @@ export function SiteAllTextsPage() {
               ) : null}
               {[...sections.entries()].map(([key, list]) => {
                 const { page: p, section } = list[0]!.editeur;
+                const shownOn = fieldPages(list[0]!.editeur);
                 return (
                   <Card key={key} className="p-5" id={`section-${slug(p)}-${slug(section)}`}>
                     <h2 className="font-display text-base font-semibold">{section}</h2>
-                    <WhereItAppears page={p} section={section} cibles={data.cibles} siteUrls={data.siteUrls} />
+                    <WhereItAppears pages={shownOn} linkPage={!q && shownOn.includes(page) ? page : shownOn[0]!} section={section} cibles={data.cibles} siteUrls={data.siteUrls} />
                     <div className="mt-4 space-y-5">
                       {list.map((f) => {
                         const value = getAt(drafts[f.doc], f.path);
@@ -222,6 +251,9 @@ export function SiteAllTextsPage() {
                         return (
                           <div key={`${f.doc}:${f.path.join(".")}`} className="space-y-1">
                             <FieldControl editeur={f.editeur} node={f.node} value={value} defaultValue={defaultValue} errors={issuesOf(f)} onChange={(v) => change(f, v)} />
+                            {previewsOf(f).map((segments, i) => (
+                              <PhrasePreview key={i} segments={segments} />
+                            ))}
                             {revert ? (
                               <Button variant="ghost" aria-label={`Revenir au texte par défaut du site : ${f.editeur.libelle}`} onClick={() => change(f, undefined)}>
                                 Revenir au texte par défaut du site
@@ -282,28 +314,53 @@ const slug = (s: string) =>
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-");
 
-/** « Où ce texte paraît » : page et section du site, avec un lien vers la page en ligne et en local. */
+/** Phrase entière telle que le site l'affiche, en lecture seule ; le morceau du champ édité est surligné. */
+function PhrasePreview({ segments }: { segments: Segment[] }) {
+  return (
+    <div className="mt-2 rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--bg-subtle)] px-3 py-2 text-sm">
+      <p className="text-xs text-[var(--muted)]">Phrase affichée sur le site (ce champ surligné)</p>
+      <p className="mt-1 break-words">
+        {segments.map((s, i) => {
+          const text = s.lien ? <span className="underline underline-offset-2">{s.text}</span> : s.text;
+          const styled = s.gras ? <strong>{text}</strong> : text;
+          return s.current ? (
+            <mark key={i} className="rounded-sm bg-[var(--primary-soft)] px-0.5 text-[var(--text)] outline outline-1 outline-[var(--primary)]">
+              {styled}
+            </mark>
+          ) : (
+            <span key={i}>{styled}</span>
+          );
+        })}
+      </p>
+    </div>
+  );
+}
+
+/** « Où ce texte paraît » : pages et section du site, avec un lien vers la page en ligne et en local. */
 function WhereItAppears({
-  page,
+  pages,
+  linkPage,
   section,
   cibles,
   siteUrls,
 }: {
-  page: string;
+  pages: string[];
+  linkPage: string;
   section: string;
   cibles: Record<string, { libelle: string; chemin: string }>;
   siteUrls: { online: string; local: string | null };
 }) {
-  const chemin = cibles[page]?.chemin;
+  const chemin = cibles[linkPage]?.chemin;
+  const linkText = pages.length > 1 ? `Voir la page ${pageLabel(linkPage, cibles)} en ligne` : "Voir la page en ligne";
   return (
     <p className="mt-1 flex flex-wrap items-center gap-x-3 text-sm text-[var(--muted)]">
       <span>
-        Sur le site : {pageLabel(page, cibles)}, section « {section} »
+        Sur le site : {joinLabels(pages.map((p) => pageLabel(p, cibles)))}, section « {section} »
       </span>
       {chemin ? (
         <>
           <a className="link inline-flex min-h-11 items-center gap-1.5" href={`${siteUrls.online}${chemin}`} target="_blank" rel="noopener noreferrer">
-            Voir la page en ligne
+            {linkText}
             <FontAwesomeIcon icon={faArrowUpRightFromSquare} className="h-3 w-3" aria-hidden />
             <span className="sr-only">(nouvel onglet)</span>
           </a>
@@ -512,10 +569,7 @@ function ObjectListControl({
   const def = Array.isArray(defaultValue) ? (defaultValue as unknown[]) : null;
   const itemNode = node.items ?? {};
   const max = node.maxItems;
-  const labelOf = (item: unknown, i: number) => {
-    const first = childFields(itemNode).map((c) => getAt(item, [c.key])).find((v) => typeof v === "string" && v.trim());
-    return `${i + 1}. ${typeof first === "string" ? first : "élément"}`;
-  };
+  const labelOf = (item: unknown, i: number) => `${i + 1}. ${itemTitle(itemNode, item) ?? "élément"}`;
   const move = (from: number, to: number) => {
     const next = [...items!];
     const [it] = next.splice(from, 1);

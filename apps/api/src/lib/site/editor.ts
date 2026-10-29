@@ -110,6 +110,8 @@ export async function editorPayload(contract: SiteContract) {
     variables: contract.variables ?? [],
     // Libellé et chemin de chaque page du site : « où ce texte paraît ».
     cibles: (d.cibles as Record<string, { libelle: string; chemin: string }> | undefined) ?? {},
+    // Variables fixées par le site ({ville}) : aperçu des phrases et recherche sur le texte lu.
+    valeursVariables: (d.variables as Record<string, string> | undefined) ?? {},
     docs,
   };
 }
